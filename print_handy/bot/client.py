@@ -144,38 +144,173 @@ def run_bot(cfg):
             return 0
 
 
+# ------------------------------------------------------- autocomplete (#1475)
+# Providers answer from the lists the bot already holds. Every one is
+# fail-soft: a printer or Spoolman that cannot be read offers no choices
+# instead of failing the keystroke, and the typed form still works.
+
+async def _ac_jobs(interaction, current):
+    from ..runtime import print_control
+    rows = await asyncio.to_thread(print_control.printed_jobs)
+    return [app_commands.Choice(name=f"#{row['index']} {row['title']}"[:100], value=str(row["index"]))
+            for row in rows if not current or current.casefold() in str(row["title"]).casefold()
+            or current == str(row["index"])][:25]
+
+
+async def _ac_plans(interaction, current):
+    from ..runtime.print_records import PLANS_DIR
+    try:
+        names = sorted(p.stem for p in PLANS_DIR.glob("*.json"))
+    except OSError:
+        names = []
+    return [app_commands.Choice(name=n[:100], value=n) for n in names
+            if not current or current.casefold() in n.casefold()][:25]
+
+
+async def _ac_plates(interaction, current):
+    plan_id = getattr(getattr(interaction, "namespace", None), "plan_id", None)
+    if not plan_id:
+        return []
+    try:
+        from ..runtime import print_next
+        plan = await asyncio.to_thread(print_next.load_plan, str(plan_id))
+        parts = print_next.remaining_parts(plan)
+    except Exception:
+        return []
+    out = []
+    for part, _index in parts:
+        pid = str(part.get("id") or "")
+        if pid and (not current or current.casefold() in pid.casefold()):
+            out.append(app_commands.Choice(name=pid[:100], value=pid))
+    return out[:25]
+
+
+async def _ac_spools(interaction, current):
+    from ..runtime import spool_sync
+    rows = await asyncio.to_thread(spool_sync.shelf_spools)
+    return [app_commands.Choice(name=f"#{row['spool_id']} {row['name']}"[:100], value=str(row["spool_id"]))
+            for row in rows if not current or current in str(row["spool_id"])
+            or current.casefold() in str(row["name"]).casefold()][:25]
+
+
+async def _ac_slots(interaction, current):
+    from ..runtime import spool_sync
+    return [app_commands.Choice(name=f"Slot {slot}", value=str(slot)) for slot in spool_sync.SLOTS
+            if not current or current in str(slot)][:25]
+
+
+async def _ac_macros(interaction, current):
+    from .. import macros as macro_lib
+    from ..runtime import spool_sync
+    try:
+        listing = await asyncio.to_thread(macro_lib.discover, spool_sync.moonraker_for(None))
+        names = [m.name for m in listing.macros]
+    except Exception:
+        names = []
+    return [app_commands.Choice(name=n[:100], value=n) for n in names
+            if not current or current.casefold() in n.casefold()][:25]
+
+
+async def _ac_printers(interaction, current):
+    from .. import settings
+    try:
+        entries = settings.current().get("printers") or []
+    except Exception:
+        entries = []
+    out = []
+    for entry in entries:
+        pid = str(entry.get("id") or "")
+        if pid and (not current or current.casefold() in pid.casefold()
+                    or current.casefold() in str(entry.get("name") or "").casefold()):
+            out.append(app_commands.Choice(name=str(entry.get("name") or pid)[:100], value=pid))
+    return out[:25]
+
+
+AUTOCOMPLETE_PROVIDERS = {
+    "job": _ac_jobs, "plan": _ac_plans, "plate": _ac_plates, "spool": _ac_spools,
+    "slot": _ac_slots, "macro": _ac_macros, "printer": _ac_printers,
+}
+
+
+def _make_callback(core_ref, registered, options, extra=None, view_factory=None):
+    """An app-command callback with one real parameter per table option.
+
+    discord.py reads the option set from the callback's signature, so the
+    function is built with the exact parameter names and types the table
+    declares (``Optional[int]`` for integer options, else ``Optional[str]``).
+    The callback hands the picked values to ``BotCore.run_slash``, which
+    maps them back to the typed text form — handlers never see Discord
+    shapes. ``extra`` carries fixed values (a picked subcommand's name).
+    """
+    namespace = {"Optional": Optional, "Interaction": discord.Interaction}
+    # A required option is a plain typed parameter (discord.py reads
+    # Optional[...] as never required); an optional one defaults to None.
+    params = ", ".join(
+        f"{o.name}: {'int' if o.kind == 'integer' else 'str'}" if o.required else
+        f"{o.name}: Optional[{'int' if o.kind == 'integer' else 'str'}] = None" for o in options)
+    source = (f"async def callback(interaction: Interaction"
+              + (f", {params}" if params else "") + "):\n"
+              "    values = dict(extra or {})\n"
+              + "".join(f"    values[{o.name!r}] = {o.name}\n" for o in options)
+              + "    view = view_factory() if view_factory is not None else None\n"
+              "    await core_ref().run_slash(interaction, registered, values, view=view)\n")
+    namespace.update({"core_ref": core_ref, "registered": registered,
+                      "extra": dict(extra or {}), "view_factory": view_factory})
+    exec(source, namespace)
+    callback = namespace["callback"]
+    if options:
+        callback = app_commands.describe(**{o.name: o.description[:100] for o in options})(callback)
+        for option in options:
+            if option.choices:
+                callback = app_commands.choices(**{option.name: [app_commands.Choice(name=c, value=c)
+                                                                 for c in option.choices]})(callback)
+            if option.autocomplete:
+                provider = AUTOCOMPLETE_PROVIDERS[option.autocomplete]
+                callback = app_commands.autocomplete(**{option.name: provider})(callback)
+    return callback
+
+
+class _HelpSelect(discord.ui.Select):
+    """The /print-help menu (#1475): picking a command runs it as a slash command."""
+
+    def __init__(self, core_ref):
+        options = [discord.SelectOption(label="/" + c.name, value=c.name,
+                                        description=c.description[:100])
+                   for c in commands.help_menu_commands()]
+        super().__init__(placeholder="More commands…", min_values=1, max_values=1, options=options)
+        self._core_ref = core_ref
+
+    async def callback(self, interaction: discord.Interaction):
+        await self._core_ref().run_slash(interaction, self.values[0], {})
+
+
+def _help_view(core_ref):
+    view = discord.ui.View(timeout=300)
+    view.add_item(_HelpSelect(core_ref))
+    return view
+
+
 def _slash(core_ref, command, name=None):
-    """One app command whose callback hands its options to BotCore.run_slash.
+    """One app command (or subcommand group) handing its options to BotCore.run_slash.
 
     ``name`` is the registered name (the canonical name, or an alias from
     the commands table): run_slash is called with it, so an alias produces
     its own typed form (``/design …`` for ``/print-design``'s alias).
+    Commands with subcommands in the table register as a Discord group of
+    real subcommands with typed options (#1475); the picked subcommand and
+    values map back to the one typed form in ``BotCore.run_slash``.
     """
-    names = [o.name for o in command.options]
     registered = name or command.name
-
-    async def run(interaction, values):
-        await core_ref().run_slash(interaction, registered, values)
-
-    if not names:
-        async def callback(interaction: discord.Interaction):
-            await run(interaction, {})
-    elif len(names) == 1:
-        async def callback(interaction: discord.Interaction, first: Optional[str] = None):
-            await run(interaction, {names[0]: first})
-    else:
-        async def callback(interaction: discord.Interaction, first: Optional[str] = None,
-                           second: Optional[str] = None):
-            await run(interaction, {names[0]: first, names[1]: second})
-    params = ["first", "second"][:len(names)]
-    if params:
-        callback = app_commands.rename(**dict(zip(params, names)))(callback)
-        callback = app_commands.describe(**{p: o.description[:100]
-                                            for p, o in zip(params, command.options)})(callback)
-        for param, option in zip(params, command.options):
-            if option.choices:
-                callback = app_commands.choices(**{param: [app_commands.Choice(name=c, value=c)
-                                                           for c in option.choices]})(callback)
+    if command.subcommands:
+        group = app_commands.Group(name=registered, description=command.description[:100])
+        for sub in command.subcommands:
+            callback = _make_callback(core_ref, registered, sub.options,
+                                      extra={"subcommand": sub.name})
+            group.add_command(app_commands.Command(
+                name=sub.name, description=sub.description[:100], callback=callback))
+        return group
+    view_factory = (lambda: _help_view(core_ref)) if command.name == "print-help" else None
+    callback = _make_callback(core_ref, registered, command.options, view_factory=view_factory)
     return app_commands.Command(name=registered, description=command.description[:100], callback=callback)
 
 

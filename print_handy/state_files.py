@@ -60,6 +60,7 @@ KNOWN = (
     "setup_completion.json",
     "spoolman_known_spools.json",
     "start-recordings",
+    "status-frames",
     "status_voice_state.json",
     "starter_pings.json",
     "stops",

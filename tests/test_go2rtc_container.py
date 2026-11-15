@@ -576,10 +576,34 @@ class LiveTranscodeConfigTests(unittest.TestCase):
         from print_handy.live_stream import EncoderProbe
         self.cpu_probe = EncoderProbe(encoders=frozenset({"libx264"}))
 
-    def test_no_plan_at_the_default_feed_values(self):
-        self.assertIsNone(go2rtc.transcode_plan(live_data(), probe=self.cpu_probe))
+    def test_no_plan_for_a_relayable_source_at_the_default_feed_values(self):
+        # An RTSP source is already a stream the Activity can play, so
+        # the defaults stay a raw relay. An MJPEG source is not, and is
+        # covered by test_mjpeg_source_plans_h264_at_the_default_feed_values.
+        rtsp = live_data()
+        rtsp["timelapse"]["capture_source_url"] = "rtsp://cam.example/live"
+        self.assertEqual(go2rtc.resolve_source(rtsp).kind, "rtsp")
+        self.assertIsNone(go2rtc.transcode_plan(rtsp, probe=self.cpu_probe))
         self.assertIsNone(go2rtc.transcode_plan(live_data(enabled=False, fps=30),
                                                 probe=self.cpu_probe))
+
+    def test_mjpeg_source_plans_h264_at_the_default_feed_values(self):
+        # The Activity MSE player cannot play the raw MJPEG the default
+        # Moonraker derivation produces. Defaults must still plan an
+        # H.264 transcode of that source; live viewing off stays idle.
+        data = live_data()
+        self.assertEqual(go2rtc.resolve_source(data).kind, "mjpeg")
+        plan = go2rtc.transcode_plan(data, probe=self.cpu_probe)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["candidate"].codec, "h264")
+        self.assertEqual((plan["max_height"], plan["fps"], plan["bitrate_kbps"]),
+                         (720, 15, 2500))
+        config = go2rtc.render_config(go2rtc.resolve_source(data), transcode=plan)
+        self.assertIn("camera-live:", config)
+        self.assertIn("libx264", config)
+        self.assertIn("-i rtsp://127.0.0.1:8554/camera", config)
+        off = live_data(enabled=False)
+        self.assertIsNone(go2rtc.transcode_plan(off, probe=self.cpu_probe))
 
     def test_plan_carries_the_section_values_and_the_probed_candidate(self):
         plan = go2rtc.transcode_plan(
@@ -631,6 +655,7 @@ class LiveTranscodeConfigTests(unittest.TestCase):
         self.assertIn("camera-live:", text)
         self.assertIn("-r 24", text)
         data = live_data()
+        data["timelapse"]["capture_source_url"] = "rtsp://cam.example/live"
         with tempfile.TemporaryDirectory() as tmp:
             path = go2rtc.write_config(Path(tmp) / "go2rtc.yaml", data)
             self.assertNotIn("camera-live", path.read_text())

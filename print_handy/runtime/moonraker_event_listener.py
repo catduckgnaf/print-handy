@@ -16,6 +16,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import functools
+import hashlib
 import io
 import json
 import logging
@@ -477,8 +478,10 @@ def screen_cancel_reboot(filename, *, status_reader=None, rebooter=None, clearer
         ok, msg = (rebooter or control.force_reboot)()
     log(f"screen cancel reboot ok={ok}: {msg}")
     if ok and clearer is None and rebooter is None and not _buttonless_standalone():  # real run only; tests inject fakes
-        with contextlib.suppress(Exception):
+        try:
             pab.retire_alerts(_bot_token(), filename, "Cleared after the screen cancel; nothing to do.")
+        except Exception as exc:
+            warn(f"could not retire the alerts after the screen cancel: {exc!r}")
     say(msg)
     return ok, msg
 
@@ -1431,7 +1434,115 @@ def _acknowledge_completion(completion_message):
         announcer.save_state(state)
 
 
+# One completion post per print, enforced at the point of posting (#1474).
+# Two earlier fixes each closed one route to a doubled "Print complete"
+# (the _POSTPROCESS_ACTIVE guard for a second render, and the caption
+# acknowledgement that left a notice pending) — and a third route still
+# produced two identical posts minutes apart. So the guard no longer
+# lives at each cause: _post_completion claims an idempotency key keyed
+# by the print before it posts, and a key that was delivered once is
+# never posted again, whichever route asks. A failed post does not spend
+# the key, so the callers' text-only fallbacks and later retry passes
+# still deliver a completion whose first attempt never landed.
+#
+# The durable record is scoped to the announcer's own delivery episode:
+# a key is recorded only when the completion being delivered is the
+# pending completion the announcer armed for this print (the pending
+# route, a retry after a lost acknowledgement, and the timelapse legs
+# all deliver that armed message). A post with no armed pending behind
+# it is a separate episode the announcer never armed — a fresh announcer
+# decision, whose own one-shot gates already applied, or a hand-driven
+# leg — and is not recorded, so a later print of the same file with the
+# same completion text still posts. The announcer's fresh state for a
+# new job drops the record with the rest of the episode's fields.
+_COMPLETION_POSTED_STATE_KEY = "posted_completion_keys"
+_COMPLETION_POST_LOCK = threading.Lock()
+_COMPLETION_POSTS_IN_FLIGHT = set()
+
+
+def _completion_post_key(job_key, completion_message):
+    """The idempotency key of one print's completion post.
+
+    Keyed by the print (its job key) and the completion text it
+    produced: the routes for one completion all carry the same text,
+    while a multi-plate plan's plates share a job key with a different
+    completion text per plate, and each plate's post is its own.
+    """
+    digest = hashlib.sha256(str(completion_message or "").encode("utf-8")).hexdigest()[:16]
+    if job_key:
+        return f"job:{job_key}:{digest}"
+    return f"msg:{digest}"
+
+
+def _completion_already_posted(key):
+    try:
+        keys = announcer.load_state().get(_COMPLETION_POSTED_STATE_KEY) or []
+    except Exception as exc:
+        warn(f"completion post guard could not read its state: {exc!r}")
+        return False
+    return key in keys
+
+
+def _record_completion_posted(key):
+    try:
+        state = announcer.load_state()
+        keys = [k for k in state.get(_COMPLETION_POSTED_STATE_KEY) or []
+                if isinstance(k, str)]
+        if key not in keys:
+            keys.append(key)
+        state[_COMPLETION_POSTED_STATE_KEY] = keys[-50:]
+        announcer.save_state(state)
+    except Exception as exc:
+        warn(f"completion post guard could not record its key: {exc!r}")
+
+
 def _post_completion(message, completion_message, job_key=None):
+    """Post one print's completion exactly once, whichever route asks (#1474).
+
+    The key is claimed before posting (an in-flight claim makes a
+    concurrent route stand down) and recorded in the announcer state on
+    delivery, so a later announcer pass — or a restarted listener whose
+    acknowledgement of the first delivery was lost — sees the delivery
+    and posts nothing. Returns True when the completion is delivered
+    (including by the earlier post this call stood down for), False when
+    the post itself failed and a fallback or retry may still try.
+    """
+    state = {}
+    try:
+        state = announcer.load_state()
+    except Exception:
+        state = {}
+    if not job_key:
+        job_key = state.get("job_key")
+    # Only a delivery of the pending completion the announcer armed is
+    # recorded (see the note above): every duplicate route re-delivers
+    # that armed message, while unarmed posts are separate episodes.
+    pending_backed = announcer.pending_completion_message(state) == completion_message
+    key = _completion_post_key(job_key, completion_message)
+    with _COMPLETION_POST_LOCK:
+        if key in _COMPLETION_POSTS_IN_FLIGHT:
+            log(f"completion post for {key!r} already in flight; not posting it twice")
+            return True
+        if _completion_already_posted(key):
+            log(f"completion post for {key!r} already delivered; not posting it twice")
+            _acknowledge_completion(completion_message)
+            return True
+        _COMPLETION_POSTS_IN_FLIGHT.add(key)
+    delivered = False
+    try:
+        delivered = _deliver_completion(message, completion_message, job_key=job_key)
+    finally:
+        # Record the delivery before the in-flight claim is dropped, under the
+        # same lock: with the claim released first, a concurrent route could
+        # find neither the claim nor the record and post a duplicate.
+        with _COMPLETION_POST_LOCK:
+            if delivered and pending_backed:
+                _record_completion_posted(key)
+            _COMPLETION_POSTS_IN_FLIGHT.discard(key)
+    return delivered
+
+
+def _deliver_completion(message, completion_message, job_key=None):
     """Acknowledge only a matching pending notice after transport success.
 
     A post carrying a timelapse (a MEDIA: attachment) delivers its roast
@@ -1856,8 +1967,10 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
             clip = None
     if stage == "more":
         _post_completion(completion_message, completion_message, job_key=job_key)
-        with contextlib.suppress(Exception):
+        try:
             plan_timelapse.prune()  # abandoned plans never reach a final post
+        except Exception as exc:
+            log(f"plan timelapse prune failed: {exc!r}")
         return
     stored = plan_timelapse.clips(plan)
     expected = plan_timelapse.expected_clips(plan)
@@ -1892,8 +2005,10 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
             _post_completion(f"{note}\n{_timelapse_fallback_text(message, combined=True)}", completion_message, job_key=job_key)
     finally:
         plan_timelapse.clear(plan)
-        with contextlib.suppress(Exception):
+        try:
             plan_timelapse.prune()
+        except Exception as exc:
+            log(f"plan timelapse prune failed: {exc!r}")
 
 
 def _timelapse_post(job_key, completion_message):
@@ -3530,6 +3645,9 @@ class Listener:
         # #455: this printer's local-detector temporal escalation state;
         # reset wherever visual_watch is (new file, fresh start, print end).
         self.local_streak = _local_vision.FailureStreak()
+        # #1474: this print's streak of inconclusive (endpoint "uncertain")
+        # camera checks; reset at the same places as the local streak.
+        self.inconclusive_streak = _camera_watch.InconclusiveStreak()
         self.last_stats = {}
         self.last_visual_task = None
         self.visual_frames = {}
@@ -4303,6 +4421,24 @@ class Listener:
             if verdict in _visual_watch.AUTO_PAUSE_VERDICTS and early and not frame_counted:
                 log(f"visual check file={filename!r} reason={reason}: suspicious frame not counted "
                     f"toward auto-pause: {self.visual_watch.last_evidence}")
+            # A verdict call that could not judge the frame is a watch
+            # failure, not an inconclusive judgement (#1474): computed here
+            # because the suspicious decision below needs the distinction.
+            watch_failed = _camera_watch.watch_failed(verdict, detail)
+            # This print's inconclusive streak (#1474): an endpoint
+            # "uncertain" (no local detection behind it) is only noted
+            # until it persists. An unchanged frame is not independent
+            # evidence and does not build the streak.
+            # A watch failure is not a judgement and neither builds nor
+            # breaks the streak; a check the local detector spoke on is a
+            # different kind of evidence and ends an endpoint streak.
+            if watch_failed:
+                uncertain_seen = None
+            elif detection is None:
+                uncertain_seen = self.inconclusive_streak.note(verdict, counted=changed is not False)
+            else:
+                self.inconclusive_streak.reset()
+                uncertain_seen = None
             # Moonraker's recorded rules (camera_watch.FAMILY_RULES): a
             # healthy vision verdict outranks the pixel diff at every
             # sensitivity, and an empty bed while printing alerts on its
@@ -4310,7 +4446,7 @@ class Listener:
             suspicious = _camera_watch.is_suspicious(
                 verdict, reason=reason, changed=changed, profile=self.visual_watch.profile,
                 rules=_camera_watch.FAMILY_RULES["moonraker"], printing=self.state == "printing",
-                detection=detection)
+                detection=detection, failed=watch_failed, uncertain_seen=uncertain_seen)
             log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict={verdict} detail={detail!r}")
             if _verdict_says_dark(verdict, detail):
                 # A dark feed frame_dark's thresholds let through: a camera
@@ -4324,10 +4460,9 @@ class Listener:
                     self.visual_frames[filename] = prior
                 await self._dark_frame_check(reason, layer)
                 return
-            # A verdict call that could not judge the frame is a watch
-            # failure (one episode with failed snapshots and timeouts, one
-            # throttle); any real judgement ends the episode.
-            watch_failed = _camera_watch.watch_failed(verdict, detail)
+            # A watch failure (computed above, before the suspicious
+            # decision) runs as one episode with failed snapshots and
+            # timeouts, one throttle; any real judgement ends the episode.
             if not watch_failed:
                 await self._note_watch_working(filename, identity)
             # #981: what the watch did with this verdict, for the
@@ -4340,6 +4475,14 @@ class Listener:
                 # A weak local detection that has not persisted: logged
                 # above and recorded, never posted (camera_watch.weak_noted).
                 log(f"visual check file={filename!r} reason={reason}: weak local detection "
+                    "noted, not posted")
+                event_action = "noted"
+            if not suspicious and _camera_watch.inconclusive_noted(
+                    verdict, detection, reason=reason, changed=changed,
+                    failed=watch_failed, uncertain_seen=uncertain_seen):
+                # An inconclusive check that is not yet a streak (#1474):
+                # logged above and recorded, never posted.
+                log(f"visual check file={filename!r} reason={reason}: inconclusive check "
                     "noted, not posted")
                 event_action = "noted"
             if suspicious and image is not None:
@@ -4369,7 +4512,8 @@ class Listener:
                         log(f"auto-pause not sent file={filename!r}: {pause_why}")
                     text = _camera_watch.alert_text(reason, layer, verdict, detail,
                                                     pause_why=pause_why if pause_now else "",
-                                                    detection=detection)
+                                                    detection=detection,
+                                                    uncertain_seen=uncertain_seen)
                     if verdict == "spaghetti":
                         # The confirmed-pasta post (#1017 batch 2): a
                         # spaghetti verdict itself — never a mere risk
@@ -4381,7 +4525,9 @@ class Listener:
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity,
                                             **({} if _camera_watch.alert_pings(
-                                                reason, verdict, detection) else {"ping": False}))
+                                                reason, verdict, detection,
+                                                uncertain_seen=uncertain_seen,
+                                                failed=watch_failed) else {"ping": False}))
                     if pause_now and (stale() or self.state != "printing"):
                         # The alert took time; the printer must still be
                         # printing this print when the PAUSE goes out.
@@ -4445,6 +4591,7 @@ class Listener:
                 self.filename = filename
                 self.visual_watch.reset()
                 self.local_streak.reset()
+                self.inconclusive_streak.reset()
                 # Only the current print's baseline frame is kept: the old
                 # pop of the new name left one frame per past print behind.
                 self.visual_frames.clear()
@@ -4522,6 +4669,7 @@ class Listener:
             # #913: pick this print's watch schedule before the first check.
             self.visual_watch.reset()
             self.local_streak.reset()
+            self.inconclusive_streak.reset()
             self._apply_watch_mode()
             self._note_watch_not_running()
             # #516: auto light-on at a fresh print start (a resume is not
@@ -4569,6 +4717,7 @@ class Listener:
                 self.failover_watch.reset()
                 self.visual_watch.reset()
                 self.local_streak.reset()
+                self.inconclusive_streak.reset()
                 self._apply_watch_mode()
                 if duplicate_start:
                     log(f"start already announced; no second start post: {self.filename!r}")
@@ -4829,6 +4978,7 @@ class Listener:
         """End-of-print cleanup, for a terminal transition or a Klipper shutdown."""
         self.visual_watch.reset()
         self.local_streak.reset()
+        self.inconclusive_streak.reset()
         logs.unbind_process("job_correlation_id")
         self.visual_frames.pop(self.filename, None)
         self._capture_end(new_state)
@@ -5052,7 +5202,7 @@ class Listener:
                     f"{policy.minutes} minutes; light off ({target})")
         except Exception as exc:
             warn(f"auto light idle check failed: {exc!r}")
-            with contextlib.suppress(Exception):
+            try:
                 # A check that could not observe the plate (the camera is
                 # down, say) is an uncertain observation, like a failed
                 # vision verdict: it resets the empty streak instead of
@@ -5060,6 +5210,8 @@ class Listener:
                 # the camera recovers cannot satisfy the sustained-empty
                 # requirement on a pre-outage streak (P2-201).
                 self._auto_light_policy().note_verdict("uncertain", time.time())
+            except Exception as note_exc:
+                warn(f"auto light: could not record the uncertain verdict: {note_exc!r}")
 
     def _schedule_light_idle_tick(self):
         """Run the idle light check as a task, off the receive loop (P2-200).

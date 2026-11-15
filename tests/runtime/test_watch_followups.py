@@ -439,7 +439,7 @@ def _failing_listener(monkeypatch, verdicts):
     monkeypatch.setattr(mel, "_watch_now", lambda: clock[0])
     monkeypatch.setattr(mel, "_visual_verdict", lambda *a, **k: verdicts.pop(0))
     monkeypatch.setattr(mel, "_visual_alert",
-                        lambda filename, image, text, identity=None: alerts.append(text))
+                        lambda filename, image, text, identity=None, **kw: alerts.append(text))
     monkeypatch.setattr(mel, "post", lambda text, **kw: posts.append(text) or True)
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     listener = mel.Listener()
@@ -462,13 +462,20 @@ def test_ten_failed_verdicts_alert_once_then_recovery_is_announced(monkeypatch):
     assert len(alerts) == 2  # a new episode alerts at once
 
 
-def test_real_uncertain_verdicts_still_alert_every_time(monkeypatch):
+def test_real_uncertain_verdicts_note_once_then_alert_as_a_streak(monkeypatch):
+    """#1474 (superseding the pre-#1474 pin that inconclusive verdicts
+    alert every time): the first inconclusive check is only noted; once
+    it is a streak the checks post, worded as a streak."""
     verdicts = [("uncertain", "the nozzle is hidden by the part")] * 3
     listener, alerts, posts, clock = _failing_listener(monkeypatch, verdicts)
-    for _ in range(3):
+    asyncio.run(listener.visual_check("periodic", 7))
+    clock[0] += 30
+    assert alerts == []  # one "could not tell" frame: logged, not posted
+    for _ in range(2):
         asyncio.run(listener.visual_check("periodic", 7))
         clock[0] += 30
-    assert len(alerts) == 3
+    assert len(alerts) == 2
+    assert "inconclusive in 2 checks in a row" in alerts[0]
 
 
 def test_ten_dead_camera_checks_alert_once(monkeypatch):

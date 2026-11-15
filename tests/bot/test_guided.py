@@ -373,8 +373,12 @@ def test_bot_slash_print_handy_runs_as_typed_text(cfg, monkeypatch):
     discord, core = make_core(cfg)
     interaction = fake_discord.FakeInteraction(discord, discord.operator, channel=discord.channel)
     asyncio.run(core.run_slash(interaction, "print-handy", {"action": "debugging"}))
-    assert interaction.replies[0] == {"content": "`/print-handy debugging`", "ephemeral": False}
-    assert discord.sent and "Print Handy debugging" in discord.sent[-1]
+    # #1475: the answer is the interaction's own followup, not an echo plus
+    # a separate channel post.
+    assert interaction.acks == [("defer", {"ephemeral": False})]
+    assert any("Print Handy debugging" in (reply.get("content") or "")
+               for reply in interaction.replies)
+    assert not any("Print Handy debugging" in text for text in discord.sent)
 
 
 def test_default_version_runner_runs_the_slicer_from_a_writable_scratch_dir(monkeypatch):
