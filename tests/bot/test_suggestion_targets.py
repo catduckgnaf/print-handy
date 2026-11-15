@@ -71,3 +71,16 @@ def test_pause_is_registered_and_gated():
     assert commands.by_name("print-pause") is not None
     assert "/print-pause" in _command_gates()
     assert runtime.command_suggestion("pause the print") == "/print-pause"
+
+
+def test_suggestion_prompt_does_not_promise_a_confirm_pause_never_asks():
+    # /print-pause pauses at once (no confirm, like the Pause button), so the
+    # "Did you mean" prompt and its yes note must not promise a later question.
+    from print_handy.bot import runtime
+    single = runtime._suggestion_question("/print-pause")
+    assert "still asks" not in single and "at once" in single
+    assert "confirmation" not in runtime._running_note("/print-pause")
+    mixed = runtime._suggestion_question(None, ["/print-stop", "/print-pause"])
+    assert "`/print-pause` pauses the print at once" in mixed
+    assert "still asks before anything prints" in runtime._suggestion_question("/print-stop")
+    assert "watch for its own confirmation" in runtime._running_note("/print-stop")

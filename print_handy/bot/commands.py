@@ -75,11 +75,11 @@ COMMANDS = (
     Command("print-stop", "Stop the current print (asks first)", usage="/print-stop"),
     Command("print-pause", "Pause the print", usage="/print-pause"),
     Command("print-resume", "Resume a paused print (asks first)", usage="/print-resume"),
-    Command("print-status", "How the current print is going (read-only)",
+    Command("print-status", "Current print progress (read-only)",
             (Option("printer", "Printer (optional; defaults to this channel's printer)",
                     autocomplete="printer"),),
             "/print-status", ephemeral=True),
-    Command("print-again", "Reprint a past job, or list them",
+    Command("print-again", "Reprint or list past jobs",
             (Option("query", "list, a number from the list, a name, or 'next'; add x3 for copies",
                     autocomplete="job"),),
             "/print-again [list | N | name]"),
@@ -94,7 +94,7 @@ COMMANDS = (
             )),
     Command("print-maintenance", "Maintenance checklist",
             (Option("mode", "full or quick", ("full", "quick")),), "/print-maintenance [full | quick]"),
-    Command("print-colors", "Choose part colors for an archived job",
+    Command("print-colors", "Part colors for an archived job",
             (Option("job", "A past job (start typing to pick one)", autocomplete="job", required=True),),
             "/print-colors <job>"),
     Command("spool", "Guided spool add/change, list or sync",
@@ -155,7 +155,7 @@ COMMANDS = (
                 Subcommand("zoffset", "Z offset calibration"),
                 Subcommand("records", "Past calibration records"),
             )),
-    Command("print-live", "Live camera in the voice channel (Discord only)",
+    Command("print-live", "Live camera in voice chat (Discord only)",
             (Option("action", "start, stop or status", ("start", "stop", "status")),),
             "/print-live [start | stop | status]", live_stream=True),
     Command("print-plate-calibrate", "Calibrate plate reference",
@@ -164,7 +164,7 @@ COMMANDS = (
     Command("print-design", "Design or edit a model with AI (asks first)",
             (Option("prompt", "What to make or change, e.g. a 40x20x3 plate with two 4 mm holes, or 'make it taller' with a file dropped"),),
             "/print-design <what to make or change>", aliases=("design",)),
-    Command("print-handy", "Setup and read-only debugging (never prints)",
+    Command("print-handy", "Setup and read-only debugging",
             (Option("action", "setup, add-printer, debugging, bundle, debug, status, cancel or help",
                     ("setup", "add-printer", "debugging", "bundle", "debug", "status",
                      "cancel", "help")),
@@ -173,7 +173,7 @@ COMMANDS = (
              # '/print-handy debug' (the status form).
              Option("args", "Extra words after the action — for debug: on, off, or on 5 (minutes)")),
             "/print-handy [setup | debug | status | help]"),
-    Command("print-source", "Which model sites are connected", usage="/print-source", ephemeral=True),
+    Command("print-source", "Connected model sites", usage="/print-source", ephemeral=True),
     Command("print-help", "What Print Handy can do", usage="/print-help", ephemeral=True),
 )
 
@@ -259,7 +259,7 @@ def help_text(bot_name="Print Handy", supports_live_stream=True):
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
              "- Post a model link or .3mf/.stl to print it.",
              '- "print it" prints the last link; "print again"/"print 57" reprints.',
-             '- "add a new spool" or "swap the filament" starts guided /spool.',
+             '- "add new filament", "add a new spool" or "swap the filament" starts the guided /spool flow.',
              '- @mention me: "spool list".']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
