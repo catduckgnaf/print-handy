@@ -47,7 +47,7 @@ def harness(tmp_path, monkeypatch):
     from print_handy.runtime import _config
 
     data = load_settings(tmp_path)
-    data["paths"]["archive"] = str(tmp_path / "model-link-intakes")
+    data["paths"]["archive"] = str(tmp_path / "archive")
     monkeypatch.setattr(_config, "_override", data)
     seen = {"answers": [], "starts": [], "events": []}
 
@@ -62,8 +62,10 @@ def harness(tmp_path, monkeypatch):
         color = await link_intake.ask(adapter_arg, source, key,
                                       "Which color?", ["Black", "White"])
         seen["answers"].append(color)
-        folder = root / iid
+        # Plates are written under the job archive, as the real intake does.
+        folder = tmp_path / "archive" / "job" / iid
         folder.mkdir(parents=True, exist_ok=True)
+        root.mkdir(parents=True, exist_ok=True)
         gcode = folder / "plate_1.gcode"
         gcode.write_text(GCODE, encoding="utf-8")
         receipt = {"intake_id": iid, "url": "test", "status": "SLICED",
@@ -302,7 +304,8 @@ def _write_receipt(tmp_path, scope, iid="abc", gcode=None):
 
 def test_receipt_lookup_is_scope_bound(tmp_path):
     data = load_settings(tmp_path)
-    gcode = workflow.intake_root(data) / "job" / "plate_1.gcode"
+    data["paths"]["archive"] = str(tmp_path / "archive")
+    gcode = tmp_path / "archive" / "job" / "intake-abc" / "plate_1.gcode"
     gcode.parent.mkdir(parents=True)
     gcode.write_text(GCODE, encoding="utf-8")
     _write_receipt(tmp_path, "scope-a", gcode=gcode)
@@ -355,7 +358,7 @@ def test_download_target_serves_only_plate_files(tmp_path):
     plate.write_text("G28")
     receipt = {"intake_id": "abc", "gcodes": [str(secret), str(plate)]}
     data = {"paths": {"state_home": tmp_path}}
-    with mock.patch.object(workflow, "intake_root", return_value=tmp_path):
+    with mock.patch.object(workflow, "archive_root", return_value=tmp_path):
         with mock.patch.object(workflow, "receipt_for", return_value=receipt):
             assert workflow.download_target(data, "scope", "abc", "0") is None
             assert workflow.download_target(data, "scope", "abc", "1") == plate.resolve()
@@ -372,6 +375,23 @@ def test_download_target_rejects_plate_outside_archive(tmp_path):
     external.write_text("G28")
     receipt = {"intake_id": "abc", "gcodes": [str(external)]}
     data = {"paths": {"state_home": tmp_path}}
-    with mock.patch.object(workflow, "intake_root", return_value=archive):
+    with mock.patch.object(workflow, "archive_root", return_value=archive):
         with mock.patch.object(workflow, "receipt_for", return_value=receipt):
             assert workflow.download_target(data, "scope", "abc", "0") is None
+
+
+def test_download_serves_a_plate_from_the_job_archive_not_the_receipts_folder(tmp_path):
+    """Plates are written under the job archive; the receipts folder holds only receipts."""
+    data = load_settings(tmp_path)
+    data["paths"]["archive"] = str(tmp_path / "archive")
+    plate = tmp_path / "archive" / "benchy" / "intake-abc" / "plate_1.gcode"
+    plate.parent.mkdir(parents=True)
+    plate.write_text(GCODE, encoding="utf-8")
+    _write_receipt(tmp_path, "s", gcode=plate)
+    assert workflow.download_target(data, "s", "abc", "0") == plate.resolve()
+    # A plate beside the receipts, outside the archive, is not served.
+    stray = workflow.intake_root(data) / "job" / "plate_1.gcode"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_text(GCODE, encoding="utf-8")
+    _write_receipt(tmp_path, "s", gcode=stray)
+    assert workflow.download_target(data, "s", "abc", "0") is None

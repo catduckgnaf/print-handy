@@ -67,6 +67,12 @@ def intake_root(data) -> Path:
     return settings.state_dir(data) / "model-link-intakes"
 
 
+def archive_root(data) -> Path:
+    """The job archive sliced plates are written under, for these settings."""
+    from . import data as data_module
+    return data_module.archive_root(data)
+
+
 def _receipts(data):
     """Every readable intake receipt, newest first by file mtime."""
     root = intake_root(data)
@@ -137,7 +143,9 @@ def download_target(data, scope, intake_id, index):
     # Receipts record output paths, but may be stale or modified. Only serve
     # a plate that remains inside the configured archive, matching /sliced.
     try:
-        archive = intake_root(data).resolve()
+        # Plates are written under the job archive, not beside the receipts
+        # (#1514 checked the receipts folder, so every real download was 404).
+        archive = archive_root(data).resolve()
         if not path.is_relative_to(archive):
             return None
     except (OSError, ValueError):
