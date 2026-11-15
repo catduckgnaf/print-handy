@@ -1883,7 +1883,9 @@ class BotCore(_RoutedAdapter):
                 from .firmware_alert import FirmwareAlerter
 
                 alerter = self.firmware_alerts = FirmwareAlerter(self)
-            return alerter.tick()
+            # ZMod update alerts, then release notices from the firmware
+            # feed for every printer the feed covers (#1280 section I).
+            return alerter.tick() + alerter.tick_feed()
         except Exception:
             logger.exception("firmware update alert check failed")
             return []

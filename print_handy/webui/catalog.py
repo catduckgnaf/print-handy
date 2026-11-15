@@ -404,9 +404,10 @@ CATALOG = (
            validator="settings notify check"),
     # Firmware update alerts: one chat alert per new ZMod release, with an
     # Update button that runs the confirmed /print-firmware update path.
-    _field("firmware", "update_alerts", "ZMod update alerts", "toggle",
-           "Post one chat alert when a new ZMod release is available for a ZMod "
-           "printer. The alert's Update button asks once more and checks the "
+    _field("firmware", "update_alerts", "Firmware update alerts", "toggle",
+           "Post one chat notice when the firmware a printer runs has a new "
+           "release, and for a ZMod printer one alert per new ZMod release. The "
+           "ZMod alert's Update button asks once more and checks the "
            "printer is idle before anything is sent; nothing updates on its own.",
            validator="settings firmware check"),
     _field("firmware", "update_check_hours", "Update check interval (hours)", "number",

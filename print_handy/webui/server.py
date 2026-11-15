@@ -183,6 +183,7 @@ from . import controls as controls_module
 from . import dashboard as dashboard_module
 from . import data as data_module
 from . import designs as designs_module
+from . import firmware_page as firmware_page_module
 from . import pages
 from . import printer_settings as printer_settings_module
 from . import printers_page
@@ -1530,6 +1531,15 @@ class _Handler(BaseHTTPRequestHandler):
         # The real user-facing waits from TIMING.jsonl (#1476), read-only.
         self._send(200, timing_module.render_timing_page(
             self.server.settings_data, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
+
+    def _firmware_route(self):
+        # Firmware and updates per printer (#1280 section I), read-only.
+        # ?printer=<id> reads that one printer's installed versions.
+        checked = (parse_qs(urlparse(self.path).query).get("printer") or [None])[0]
+        self._send(200, firmware_page_module.render_firmware_page(
+            self.server.settings_data, theme=self._theme(), checked=checked,
             nav=data_module.nav_for(self.server.settings_data)),
             "text/html; charset=utf-8")
 

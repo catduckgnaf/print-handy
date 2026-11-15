@@ -1,0 +1,193 @@
+# Firmware feed sources (issue #1280 section I).
+#
+# scripts/build_firmware_feed.py reads this file, asks GitHub for each
+# firmware's releases (or tags) and writes firmware-feed.json, which
+# .github/workflows/firmware-feed.yml publishes on the `firmware-feed`
+# branch. Every Print Handy install reads that one file to tell an owner
+# about a new firmware release and to fill the Web UI Firmware page. How
+# to add a firmware: docs/FIRMWARE-FEED.md.
+#
+# This file is about availability: the newest release upstream has
+# published. It is not the audit record. docs/firmware-baselines.toml
+# and docs/ZMOD.md say which version Print Handy's code was checked
+# against, and the builder copies that value into each feed entry as
+# `audited` when a baseline with the same name exists.
+#
+# Fields:
+#   id       short stable key, lowercase letters, digits and hyphens; unique
+#   name     display name. When it equals a name in
+#            docs/firmware-baselines.toml (or "ZMod"), that baseline is
+#            published as the entry's audited version
+#   repo     GitHub owner/repo
+#   feed     "releases" (GitHub Releases) or "tags" (Git tags, for
+#            repositories that publish no usable releases)
+#   channel  "stable": prereleases are never the latest.
+#            "prerelease": the newest release of any kind is the latest,
+#            for a firmware whose supported line is a prerelease
+#   models   printer model keys this firmware runs on, as registry keys
+#            or globs ("flashforge.*"). Empty for a component that is
+#            not tied to a model (HelixScreen)
+#   line     optional, releases only: printer names that select one
+#            printer line's releases from a shared repository, matched
+#            against the release title (Prusa Buddy)
+#   update   one sentence: how an owner installs this update. Shown with
+#            every notice, so say what Print Handy does and does not do
+
+[[firmware]]
+id = "zmod"
+name = "ZMod"
+repo = "ghzserg/zmod"
+feed = "releases"
+channel = "stable"
+models = ["flashforge.*"]
+update = "Run /print-firmware: an update within your ZMod base installs from chat behind a confirmation, and a new base installs from USB with the ZFLASH macro."
+
+[[firmware]]
+id = "forge-x"
+name = "Forge-X"
+repo = "DrA1ex/ff5m"
+feed = "releases"
+# The Forge-X models target the 1.4.2 beta line (docs/FORGEX.md). When
+# 1.4.2 ships as a stable release, change this to "stable".
+channel = "prerelease"
+models = ["flashforge_forgex.*"]
+update = "Update from Fluidd or Mainsail (Settings, Software Update) within your Forge-X line; a new line installs from a USB image. Print Handy reports Forge-X updates and does not apply them."
+
+[[firmware]]
+id = "opencreator"
+name = "OpenCreator"
+repo = "FlashForge-C5-Modding-Group/OpenCreator"
+feed = "releases"
+channel = "stable"
+models = ["flashforge_opencreator.*"]
+update = "OpenCreator updates itself from its own updater, or from Fluidd or Mainsail; an update can flash the printer's boards, so never start one during a print. Print Handy reports OpenCreator updates and does not apply them."
+
+[[firmware]]
+id = "helixscreen"
+name = "HelixScreen"
+repo = "prestonbrown/helixscreen"
+feed = "releases"
+channel = "stable"
+models = []
+update = "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer."
+
+[[firmware]]
+id = "klipper"
+name = "Klipper"
+repo = "Klipper3d/klipper"
+feed = "tags"
+channel = "stable"
+models = ["klipper.generic", "sovol.sv06"]
+update = "Run /print-firmware: a Klipper component your Moonraker reports with a real version updates from chat behind a confirmation."
+
+[[firmware]]
+id = "moonraker"
+name = "Moonraker"
+repo = "Arksine/moonraker"
+feed = "tags"
+channel = "stable"
+models = ["klipper.generic", "sovol.sv06"]
+update = "Run /print-firmware: a Moonraker component your Moonraker reports with a real version updates from chat behind a confirmation."
+
+[[firmware]]
+id = "octoprint"
+name = "OctoPrint"
+repo = "OctoPrint/OctoPrint"
+feed = "releases"
+channel = "stable"
+models = ["octoprint.*"]
+update = "Update OctoPrint from its own Software Update page. Print Handy does not update OctoPrint or the printer's board firmware."
+
+[[firmware]]
+id = "marlin"
+name = "Marlin"
+repo = "MarlinFirmware/Marlin"
+feed = "releases"
+channel = "stable"
+models = ["octoprint.*", "sovol_marlin.*"]
+update = "Board firmware is flashed with board-specific tooling at the printer. Print Handy does not flash boards."
+
+[[firmware]]
+id = "prusa-buddy-mk4s"
+name = "Prusa Buddy (MK4S)"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+channel = "stable"
+models = ["prusa.mk4s"]
+line = ["MK4S"]
+update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot."
+
+[[firmware]]
+id = "prusa-buddy-coreone"
+name = "Prusa Buddy (CORE One)"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+channel = "stable"
+models = ["prusa.coreone"]
+line = ["CORE One"]
+update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot."
+
+[[firmware]]
+id = "prusa-buddy-xl"
+name = "Prusa Buddy (XL)"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+channel = "stable"
+models = ["prusa.xl"]
+line = ["XL"]
+update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot."
+
+[[firmware]]
+id = "prusa-buddy-mini"
+name = "Prusa Buddy (MINI+)"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+channel = "stable"
+models = ["prusa.miniplus"]
+line = ["MINI+", "MINI"]
+update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot."
+
+[[firmware]]
+id = "qidi-q1pro"
+name = "QIDI Q1 Pro"
+repo = "QIDITECH/QIDI_Q1_Pro"
+feed = "releases"
+channel = "stable"
+models = ["qidi.q1pro"]
+update = "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware."
+
+[[firmware]]
+id = "qidi-xplus3"
+name = "QIDI X-Plus 3"
+repo = "QIDITECH/QIDI_PLUS3"
+feed = "releases"
+channel = "stable"
+models = ["qidi.xplus3"]
+update = "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware."
+
+[[firmware]]
+id = "qidi-xplus4"
+name = "QIDI X-Plus 4"
+repo = "QIDITECH/QIDI_PLUS4"
+feed = "releases"
+channel = "stable"
+models = ["qidi.xplus4"]
+update = "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware."
+
+[[firmware]]
+id = "qidi-xmax3"
+name = "QIDI X-Max 3"
+repo = "QIDITECH/QIDI_MAX3"
+feed = "releases"
+channel = "stable"
+models = ["qidi.xmax3"]
+update = "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware."
+
+[[firmware]]
+id = "qidi-xsmart3"
+name = "QIDI X-Smart 3"
+repo = "QIDITECH/QIDI_SMART3"
+feed = "releases"
+channel = "stable"
+models = ["qidi.xsmart3"]
+update = "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware."

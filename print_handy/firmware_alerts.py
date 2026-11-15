@@ -53,6 +53,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import firmware_feed
 from . import firmware_update as fw
 
 STATE_NAME = "firmware_update_alerts.json"
@@ -211,11 +212,28 @@ def latest_release(opener=None, timeout=GITHUB_TIMEOUT_S):
     return max(finals, key=version_key, default=None)
 
 
-class ReleaseCache:
-    """One GitHub read per RELEASE_CACHE_S for every printer; a failure is cached too."""
+def newest_zmod_release(feed=None, fallback=latest_release):
+    """The newest final ZMod release: the firmware feed first, GitHub second.
 
-    def __init__(self, fetch=latest_release, clock=time.monotonic):
-        self._fetch, self._clock = fetch, clock
+    The feed (firmware_feed) is one plain file read shared by every
+    install, so it costs none of the install's 60 unauthenticated GitHub
+    API requests an hour. When the feed is unreachable or carries no
+    ZMod entry, the direct GitHub read is the fallback, as before the
+    feed existed. Either way a failure is None, never an exception.
+    """
+    feed = firmware_feed.current() if feed is None else feed
+    row = feed.get(COMPONENT) if feed is not None else None
+    if row is not None and row.latest_stable is not None \
+            and fw.version_parts(row.latest_stable.version):
+        return row.latest_stable.version.lstrip("v")
+    return fallback()
+
+
+class ReleaseCache:
+    """One release read per RELEASE_CACHE_S for every printer; a failure is cached too."""
+
+    def __init__(self, fetch=None, clock=time.monotonic):
+        self._fetch, self._clock = fetch or newest_zmod_release, clock
         self._at, self._value = None, None
 
     def get(self):
@@ -291,6 +309,79 @@ SOURCES = (zmod_offers,)
 
 def offers(obs: Observation) -> list:
     return [offer for source in SOURCES for offer in source(obs)]
+
+
+# ------------------------------------------------------------------ feed notices
+
+FEED_SEEN = "feed_seen"
+
+
+@dataclass(frozen=True)
+class ReleaseNotice:
+    """A new upstream release of the firmware a printer runs, from the feed.
+
+    Information only: it names the release and how that firmware is
+    updated. It carries no button and never claims the printer is out
+    of date, because for these firmware lines Print Handy has no
+    trustworthy installed version to compare (the feed says what was
+    published, not what a printer runs).
+    """
+
+    firmware_id: str
+    name: str
+    version: str
+    url: str = ""
+    update: str = ""
+
+    @property
+    def key(self):
+        return f"feed:{self.firmware_id}:{self.version}"
+
+    def text(self, label):
+        lines = [f"**New {self.name} release for {label}:** {self.version}."]
+        if self.update:
+            lines.append(self.update)
+        if self.url:
+            lines.append(f"Release notes: <{self.url}>")
+        return "\n".join(lines)
+
+
+def _is_newer(release, seen) -> bool:
+    """Whether a feed release is newer than the one last recorded for a printer."""
+    if not isinstance(seen, dict) or release.version == seen.get("version"):
+        return False
+    before = seen.get("published_at")
+    if release.published_at and isinstance(before, str) and before:
+        # Same ISO shape on both sides: an older date is a withdrawn
+        # release falling back to its predecessor, never news.
+        return release.published_at > before
+    return True
+
+
+def feed_notices(rows, state, *, skip_ids=()):
+    """``(notices, feed_seen)`` for one printer's firmware lines.
+
+    ``rows`` are the feed entries covering the printer's model. The
+    first time a firmware line is seen its newest release is recorded
+    silently: an install that has just been set up, or just gained the
+    feed, is not told about a release that may be months old. After
+    that, each newer release is one notice. ``skip_ids`` are lines
+    another alert already owns (ZMod's own alert on a ZMod printer).
+    """
+    seen = dict(state.get(FEED_SEEN) or {}) if isinstance(state.get(FEED_SEEN), dict) else {}
+    notices = []
+    for row in rows:
+        release = row.latest
+        if release is None or row.id in skip_ids:
+            continue
+        before = seen.get(row.id)
+        if before is not None and not _is_newer(release, before):
+            continue
+        if before is not None:
+            notices.append(ReleaseNotice(row.id, row.name, release.version,
+                                         release.url, row.update))
+        seen[row.id] = {"version": release.version, "published_at": release.published_at}
+    return notices, seen
 
 
 # ------------------------------------------------------------------ state
