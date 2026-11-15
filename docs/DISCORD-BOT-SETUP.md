@@ -221,7 +221,10 @@ This is the settled design, not a fallback waiting on a native bot video path:
 2. If the source is one the Activity player cannot open (MJPEG or snapshot), or the
    operator changed a live feed value, go2rtc publishes a second stream, `camera-live`,
    transcoded to H.264 at the configured height, frame rate and bitrate cap. An RTSP or
-   WebRTC source at the default feed values is relayed as it arrives.
+   WebRTC source at the default feed values is relayed as it arrives, so it must
+   already be H.264: the live view plays nothing else. A camera that sends H.265
+   (HEVC) over RTSP shows a blank view at the defaults. Set the camera to H.264, or
+   change any live feed value, which turns the H.264 transcode on for it too.
 3. The Activity server (loopback only) serves the page and proxies that stream. It admits
    only the allowlist, checked server-side from a Discord sign-in, and it serves the feed
    only while a viewing session is live.

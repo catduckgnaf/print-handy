@@ -1027,6 +1027,12 @@ def _live_source_kind(data) -> str | None:
     try:
         source = go2rtc.resolve_source(data)
     except Exception:
+        # Not silent: with no kind the page asks for the raw stream, which for
+        # an MJPEG or snapshot camera is the unplayable one this rule exists
+        # to avoid, so the cause has to be in the log.
+        logging.getLogger(__name__).warning(
+            "live view: the camera source could not be resolved, so the stream "
+            "name falls back to the values-only rule", exc_info=True)
         return None
     return None if source is None else source.kind
 
