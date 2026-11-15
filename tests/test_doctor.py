@@ -130,7 +130,8 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(code, 0, text)
         # The first call is the service probe; the doctor's zmod version row
         # (#562) reads the update status afterwards on this ZMod install.
-        self.assertEqual(urlopen.call_args_list[0][0][0], "http://ad5x.lan:7125/printer/info")
+        first = urlopen.call_args_list[0][0][0]
+        self.assertEqual(getattr(first, "full_url", first), "http://ad5x.lan:7125/printer/info")
 
     def test_doctor_run_reports_the_zmod_version_row(self):
         """#562 Part 2, Gap 2: the row shows in a full run, so the

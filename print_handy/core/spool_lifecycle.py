@@ -779,11 +779,10 @@ def fetch_moonraker_zmod_color(
         if client:
             data = client(f"{mr_url.rstrip('/')}/printer/objects/query?zmod_color")
         else:
-            import urllib.request
-            url = f"{mr_url.rstrip('/')}/printer/objects/query?zmod_color"
-            req = urllib.request.Request(url, headers={"User-Agent": "Hermes-SpoolLifecycle/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            from .. import moonraker
+            data = moonraker.url_json(f"{mr_url.rstrip('/')}/printer/objects/query?zmod_color",
+                                      timeout=timeout, moonraker=True,
+                                      headers={"User-Agent": "Hermes-SpoolLifecycle/1.0"})
         return (data.get("result") or {}).get("status", {}).get("zmod_color")
     except Exception:
         return None
@@ -803,11 +802,10 @@ def fetch_moonraker_active_spool(
         if client:
             data = client(f"{mr_url.rstrip('/')}/server/spoolman/spool_id")
         else:
-            import urllib.request
-            url = f"{mr_url.rstrip('/')}/server/spoolman/spool_id"
-            req = urllib.request.Request(url, headers={"User-Agent": "Hermes-SpoolLifecycle/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            from .. import moonraker
+            data = moonraker.url_json(f"{mr_url.rstrip('/')}/server/spoolman/spool_id",
+                                      timeout=timeout, moonraker=True,
+                                      headers={"User-Agent": "Hermes-SpoolLifecycle/1.0"})
         return (data.get("result") or {}).get("spool_id")
     except Exception:
         return None

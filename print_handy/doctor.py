@@ -12,10 +12,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
+import urllib.request  # noqa: F401  (tests patch urllib.request.urlopen through this module)
 from pathlib import Path
 
-from . import diagnostics, settings, state_files, state_volume
+from . import diagnostics, moonraker, settings, state_files, state_volume
 from .core import resources, spoolman_client
 
 # Moonraker and Spoolman endpoints that answer without auth when the service is up.
@@ -135,20 +135,20 @@ def check_service(data, key):
         if not ok:
             raise RuntimeError(f"{url} Spoolman health check failed: {detail}")
         return url
-    with urllib.request.urlopen(url.rstrip("/") + SERVICE_PATHS[key], timeout=5) as resp:
+    # Moonraker through the one transport (#1466): the API key goes out,
+    # and a 401/403 surfaces as an auth failure naming MOONRAKER_API_KEY.
+    with moonraker.open_url(url.rstrip("/") + SERVICE_PATHS[key], timeout=5, moonraker=True) as resp:
         if resp.status != 200:
             raise RuntimeError(f"{url} answered {resp.status}")
     return url
 
 
 def _moonraker_transport(base_url):
-    """The firmware reader's transport shape over plain urllib, as check_service does it."""
+    """The firmware reader's transport shape over the one Moonraker transport, as check_service does it."""
     def call(method, path, body=None):
-        payload = None if body is None else json.dumps(body).encode()
-        req = urllib.request.Request(base_url.rstrip("/") + path, data=payload, method=method,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return json.loads(resp.read().decode() or "{}")
+        return moonraker.moonraker_json(base_url.rstrip("/"), path, method=method,
+                                        data=body, timeout=5,
+                                        headers={"Content-Type": "application/json"})
     return call
 
 

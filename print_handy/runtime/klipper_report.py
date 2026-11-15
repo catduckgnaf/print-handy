@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 import time
-import urllib.request
+import urllib.request  # noqa: F401  (tests patch urllib.request.urlopen through this module)
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +59,8 @@ def _url(path: str) -> str:
 
 
 def _get(path: str, timeout: float = 10) -> Any:
-    with urllib.request.urlopen(_url(path), timeout=timeout) as resp:
+    from .. import moonraker
+    with moonraker.open_url(_url(path), timeout=timeout, moonraker=True) as resp:
         raw = resp.read()
     return (json.loads(raw) if path.startswith(("/printer", "/server/gcode", "/server/history"))
             else raw.decode("utf-8", "replace"))
@@ -274,8 +275,9 @@ def report(filename: str, stop_reason: str = "") -> str:
     except Exception:
         __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     try:
-        req = urllib.request.Request(_url("/server/files/klippy.log"), headers={"Range": "bytes=-20000"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        from .. import moonraker
+        with moonraker.open_url(_url("/server/files/klippy.log"), timeout=15, moonraker=True,
+                                headers={"Range": "bytes=-20000"}) as resp:
             tail = resp.read().decode("utf-8", "replace")
     except Exception:
         __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
