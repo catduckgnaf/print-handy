@@ -1960,6 +1960,22 @@ def _variant_estimate_str(job_data, result):
     return 'slicing...'
 
 
+def _card_wrap(adapter, source):
+    """The job-card session for this intake (#1472), or the adapter itself.
+
+    Only adapters that support job cards (Discord) are wrapped; every
+    other platform's intake presents exactly as before. Presentation
+    only: the session delegates everything it does not render, so the
+    intake's decisions, prompts and access rules are untouched.
+    """
+    try:
+        from ..bot.job_card import JobCardSession
+        return JobCardSession.maybe(adapter, source)
+    except Exception:
+        logger.debug("job card wrap unavailable", exc_info=True)
+        return adapter
+
+
 def multi_file_fix_note(job):
     """Why no AI fix is offered on a job built from several files, or ''.
 
@@ -1996,6 +2012,18 @@ def recorded_fix_failure(job, source_sha256):
 
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None, confirm_target=False):
+    wrapped = _card_wrap(adapter, getattr(event, 'source', None))
+    try:
+        return await _prepare_link_intake(event, wrapped, state, root, timeout=timeout, reuse=reuse,
+                                          printer_id=printer_id, before_start=before_start,
+                                          confirm_target=confirm_target)
+    finally:
+        if wrapped is not adapter:
+            await wrapped.close()
+
+
+async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
+                               before_start=None, confirm_target=False):
     """The chat intake for one model link, upload or reprint (see the module docstring).
 
     "yolo" in the message runs the same intake with every question answered
@@ -2039,6 +2067,16 @@ YOLO_GCODE_LABEL = 'Print it as-is (yolo)'
 
 
 async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=None):
+    wrapped = _card_wrap(adapter, getattr(event, 'source', None))
+    try:
+        return await _print_gcode_file_intake(event, wrapped, root, path, timeout=timeout,
+                                              printer_id=printer_id)
+    finally:
+        if wrapped is not adapter:
+            await wrapped.close()
+
+
+async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, printer_id=None):
     """A dropped, already-sliced G-code file (.gcode or .gcode.3mf).
 
     Print Handy slices models itself, so a sliced file only prints as the

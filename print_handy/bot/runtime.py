@@ -1021,6 +1021,10 @@ class BotCore(_RoutedAdapter):
                 approver=settings.approver_ids(section) or None,
                 approve_all=bool(section.get("approval_all_users")),
                 upload_max_bytes=section.get("upload_max_bytes") or discord.get("upload_max_bytes"))
+            if self.platform_name == "discord":
+                # [discord] job_card_thread (#1472): long job detail goes
+                # to a thread on the job card instead of the main channel.
+                self.adapter.job_card_thread = bool(discord.get("job_card_thread", False))
         self.chat_id = str(chat_id if chat_id is not None
                            else section.get("chat_id") or (discord.get("chat_id") if not section else "")
                            or "")
