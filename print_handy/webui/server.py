@@ -710,11 +710,17 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
             + (dashboard_module.render_dashboard(dashboard, snap) if dashboard else "")
-            + f'<table class="rows">{main_rows}</table>'
             + roster_table
+            + failures_table
+            # The connection readout and doctor table are system detail,
+            # folded at the bottom so the dashboard reads as status (#1515).
+            # A failing or warning check opens the fold.
+            + f'<details class="card sys-details"{" open" if (fails or warns or not dashboard) else ""}>'
+            + "<summary>System details</summary>"
+            + f'<table class="rows">{main_rows}</table>'
             + (f"<h2>Services</h2><table>{services}</table>" if services else "")
             + f"<h2>Doctor checks</h2><table>{doctor}</table>"
-            + failures_table
+            + "</details>"
             + debug_section)
     return shell.page("status", body, path="/", theme=theme, banner=banner, nav=nav)
 
