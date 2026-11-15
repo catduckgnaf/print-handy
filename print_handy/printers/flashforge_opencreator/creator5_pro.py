@@ -4,10 +4,11 @@ Same toolhead model and print geometry as the Creator 5 on OpenCreator
 (see creator5.py); the Pro adds the enclosed frame, active chamber
 heating and air filtration, which the Orca template records
 (support_chamber_temp_control / support_air_filtration) without changing
-the tool model. The chamber heater's working maximum is not recorded
-anywhere in Print Handy: the OpenCreator docs table and the shipped Pro
-config disagree (65 C against 80 C), so the ceiling stays unknown per
-the repo's unknown-ceiling rule (#1490). Templates:
+the tool model. The chamber ceiling is the manufacturer rating, 65 C
+(FlashForge's specifications table, read 2026-11-14 for #1490); the
+shipped OpenCreator config sets the chamber heater max_temp to 80 C,
+15 C above that rating, and Print Handy never uses the config value as
+its ceiling (see facts.py). Templates:
 templates/orca/flashforge_creator5_pro_opencreator.
 """
 from ..base import PrinterModel

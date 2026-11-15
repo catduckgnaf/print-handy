@@ -8,23 +8,51 @@ objects or start form exist on it.
 
 Start contract (documented form, OpenCreator slicer documentation,
 checked 2026-11-14 for issue #1490): the file's machine start G-code is
-the minimal documented form (print stats, bed, chamber, fan lines, G90,
-M83). It carries no print-start macro line at all, deliberately: the
-firmware dispatcher synthesizes its C5_PRINT_START from the file when
-the file has no explicit line, and an explicit line loses the firmware's
-per-tool filling. Print end is firmware-owned (C5_PRINT_STOP), so the
-end G-code is the template's, which is empty.
+the minimal documented form (print stats, bed, chamber on the Pro, fan
+lines, G90, M83). It carries no print-start macro line at all,
+deliberately: the firmware dispatcher synthesizes its C5_PRINT_START
+from the file when the file has no explicit line, and an explicit line
+loses the firmware's per-tool filling. Print end is firmware-owned
+(C5_PRINT_STOP), so the end G-code is the template's, which is empty.
+Verification models the synthesis itself (start_contract.py), whose
+contract is source-verified against the fork, not hardware verified.
 
-Active tool: reported as unknown. The toolchanger and AFC status object
-shapes that would carry it are documented and config verified only, not
-hardware verified (#1490), so no field name is invented here; the
-read-only posture matches the U1's. Readiness fails closed: every
-toolhead's extruder object must be reporting, on top of the Klipper
-print_stats and webhooks checks.
+Readiness and active tool ride on the creator5_toolchanger object,
+whose status shape is source-verified against the fork's default
+branch (#1490 Kalico research): exactly active_tool (int 0 to 3 or
+None, from the physical dock and grab pins as sole authority),
+sensor_error (string or None), busy, build_plate_detected,
+dock_positions and tool_measurements. None with a sensor_error means
+the sensors disagree; None without one means every tool is docked,
+which is the normal idle state and not a problem (print start picks up
+the tool it needs). busy refuses: the toolchanger is mid-operation.
+build_plate_detected is not a readiness input: it is the result of the
+last plate check (None until one runs, and a stale False stays until
+the next check), and print start runs its own check after homing.
+Readiness fails closed: the object must be reporting, every toolhead's
+extruder object must be reporting, AFC must be reporting without an
+error state or a mount sensor error, and the printer's AFC lane map
+must be the identity map, because the firmware remaps a file's tools
+through that map inside C5_PRINT_START, invisibly to the file. The map
+is read from the AFC_lane extruderN objects: the fork registers one
+standalone lane per AFC_extruder section under that name, and the lane
+status carries map (the list of T commands the lane answers) while the
+AFC_extruder status carries no map at all. Print Handy never sends
+SET_MAP (the command swaps lanes rather than assigning).
+
+Filament records in Moonraker's lane_data namespace are read through
+lane_data.py (tranche 3): both publisher shapes the firmware can put
+there are accepted and labeled by source, disagreements surface as
+conflicts, and nothing converges from them yet. Spool writes to the
+namespace are refused outright (lane_data_write_refusal below): which
+publisher owns a live install's namespace is unverified until a real
+install's namespace has been captured, so a Print Handy write could
+fight the printer's own publisher.
 """
+from ...core import heater_ceiling
 from ..base import MultiColorUnsupported, basic_status
 from ..klipper.adapter import KlipperAdapter
-from . import facts, firmware_check
+from . import facts, firmware_check, lane_data, start_contract
 
 # The documented machine start form, exactly as the templates carry it.
 # The chamber line keeps the slicer's own placeholder: no chamber value
@@ -43,15 +71,43 @@ DOCUMENTED_START_LINES = (
     "M83",
 )
 
+# The base Creator 5 has no chamber heater, so its start form omits the
+# M191 line entirely: Print Handy does not write a chamber command for
+# a heater that does not exist (the firmware would only answer it with
+# a no-chamber-heater message).
+BASE_START_LINES = tuple(line for line in DOCUMENTED_START_LINES if not line.startswith("M191 "))
+
 
 class OpenCreatorAdapter(KlipperAdapter):
     # Not a Bondtech INDX host (#1198): the INDX code inherited from
     # KlipperAdapter never runs here, as on the Snapmaker adapter.
     supported_accessories = frozenset()
+    # Print end is firmware-owned (the dispatcher runs C5_PRINT_STOP at
+    # end of file): verification must not demand an end macro line.
+    firmware_owned_end = True
+    # Spool-write posture (#1490 tranche 3): spool_sync.write_lane_side
+    # returns this named refusal for these models instead of writing a
+    # lane_data record. The namespace is published by the printer
+    # itself, and which of its two publishers owns it on a live install
+    # is unverified, so no key shape (T<n> or c5_tool<n>) is written.
+    lane_data_write_refusal = (
+        "not written: OpenCreator publishes the lane_data namespace itself "
+        "and Print Handy has not verified which publisher owns it, so spool "
+        "assignments are not written there (#1490)")
     facts = facts.CREATOR5
 
+    @property
+    def _model_facts(self):
+        if self.model is not None and self.model.key.endswith("creator5_pro"):
+            return facts.CREATOR5_PRO
+        return facts.CREATOR5
+
     def fact(self, name):
-        return self.facts[name].value
+        return self._model_facts[name].value
+
+    @property
+    def has_chamber(self):
+        return self.model is not None and self.model.key.endswith("creator5_pro")
 
     @property
     def tool_count(self):
@@ -65,6 +121,20 @@ class OpenCreatorAdapter(KlipperAdapter):
     @staticmethod
     def _extruder_name(tool):
         return "extruder" if tool == 0 else f"extruder{tool}"
+
+    @staticmethod
+    def _afc_extruder_name(tool):
+        return f"AFC_extruder extruder{tool}"
+
+    @staticmethod
+    def _afc_lane_name(tool):
+        # The fork registers each standalone toolhead's lane as
+        # "AFC_lane <AFC_extruder section name>"; the lane map is
+        # reported there, not on the AFC_extruder object.
+        return f"AFC_lane extruder{tool}"
+
+    def start_lines(self):
+        return DOCUMENTED_START_LINES if self.has_chamber else BASE_START_LINES
 
     def normalize_tool_mapping(self, mapping, state):
         out = {}
@@ -92,7 +162,7 @@ class OpenCreatorAdapter(KlipperAdapter):
         # the pair together). No macro line, no mesh argument and no
         # nozzle heating line is ever added, so the firmware dispatcher
         # synthesizes its print start from the file as documented.
-        return "\n".join(DOCUMENTED_START_LINES)
+        return "\n".join(self.start_lines())
 
     def machine_end_gcode(self, template_end):
         # Print end is firmware-owned; the end G-code is empty, whatever
@@ -105,7 +175,93 @@ class OpenCreatorAdapter(KlipperAdapter):
         # firmware derives each used tool's temperature from the file's
         # own heating lines and config block.
         return [f"M140 S{bed_temp:g}" if line.startswith("M140 ") else line
-                for line in DOCUMENTED_START_LINES]
+                for line in self.start_lines()]
+
+    def start_synthesis_problems(self, text, bed, hotend):
+        """Verification problems under the dispatcher's synthesis (start_contract)."""
+        # The chamber ceiling binds on the Pro only: the base model has
+        # no chamber heater, and the firmware answers a chamber target
+        # there with a notice.
+        max_chamber = heater_ceiling.ceiling(self, "chamber") if self.has_chamber else None
+        return start_contract.start_problems(text, bed, hotend, max_chamber=max_chamber)
+
+    def _toolchanger_problems(self, status):
+        changer = status.get("creator5_toolchanger")
+        if not isinstance(changer, dict):
+            return ["creator5_toolchanger is not reporting (the active tool is unknown)"]
+        problems = []
+        sensor_error = changer.get("sensor_error")
+        if sensor_error:
+            problems.append(
+                f"creator5_toolchanger reports a tool sensor error: {sensor_error} "
+                "(the dock and grab sensors disagree about which tool is mounted)")
+            return problems
+        if changer.get("busy"):
+            problems.append(
+                "the toolchanger is busy (creator5_toolchanger reports an operation "
+                "in progress); wait for it to finish")
+        # None is every tool docked: the normal idle state, and print
+        # start picks up the tool it needs.
+        active = changer.get("active_tool")
+        if active is not None and (type(active) is not int or not 0 <= active < self.tool_count):
+            problems.append(f"creator5_toolchanger reports an unknown active tool ({active!r})")
+        return problems
+
+    def _afc_state_problems(self, status):
+        afc = status.get("AFC")
+        if not isinstance(afc, dict):
+            return ["AFC is not reporting (its error state and lane map cannot be checked)"]
+        problems = []
+        if afc.get("error_state"):
+            problems.append("AFC reports an error state; clear it at the printer before printing")
+        for tool in range(self.tool_count):
+            name = self._afc_extruder_name(tool)
+            block = status.get(name)
+            if not isinstance(block, dict):
+                problems.append(f"{name} is not reporting (its mount sensors cannot be checked)")
+            elif block.get("mount_sensor_error"):
+                problems.append(f"toolhead {tool + 1} reports a mount sensor error: "
+                                f"{block.get('mount_sensor_error')}")
+        return problems
+
+    def _afc_map_problems(self, status):
+        """The identity lane-map check: the printer-side remap is refused, never used.
+
+        The map is read from each AFC_lane extruderN object's map (the
+        list of T commands that lane answers; source-verified against
+        the fork's AFC_lane status, #1490). current_map is not used: it
+        is empty until the first tool change. A missing object or a
+        missing map fails closed, on the same unconditional pattern as
+        the extruder objects: a sample that omits them must never pass
+        as a ready printer whose map was never checked.
+        """
+        problems = []
+        offenders = []
+        for tool in range(self.tool_count):
+            name = self._afc_lane_name(tool)
+            block = status.get(name)
+            if not isinstance(block, dict):
+                problems.append(f"{name} is not reporting (its lane map cannot be checked)")
+                continue
+            raw = block.get("map")
+            if isinstance(raw, str):
+                mapped = [part.strip() for part in raw.split(",") if part.strip()]
+            elif isinstance(raw, (list, tuple, set)):
+                mapped = [str(v).strip() for v in raw if str(v).strip()]
+            else:
+                mapped = []
+            if not mapped:
+                problems.append(f"{name} does not report its lane map")
+            elif set(mapped) != {f"T{tool}"}:
+                offenders.append(f"extruder{tool} is mapped to {', '.join(mapped)}")
+        if offenders:
+            problems.append(
+                "the printer's AFC lane map is not the identity map this printer's "
+                "contract requires (" + "; ".join(offenders) + "); the printer would "
+                "remap the file's tools inside C5_PRINT_START, invisibly to Print Handy. "
+                "Restore the identity map at the printer (extruder0 to T0, extruder1 "
+                "to T1, extruder2 to T2, extruder3 to T3) before printing")
+        return problems
 
     def readiness_problems(self, state, status, selection=None, **kw):
         problems = super().readiness_problems(state, status, selection, **kw)
@@ -117,6 +273,9 @@ class OpenCreatorAdapter(KlipperAdapter):
             name = self._extruder_name(tool)
             if not isinstance(status.get(name), dict):
                 problems.append(f"toolhead {tool + 1} ({name}) is not reporting")
+        problems += self._toolchanger_problems(status)
+        problems += self._afc_state_problems(status)
+        problems += self._afc_map_problems(status)
         mismatch = firmware_check.zmod_mismatch_problem(status)
         if mismatch:
             problems.append(mismatch)
@@ -125,7 +284,9 @@ class OpenCreatorAdapter(KlipperAdapter):
     def moonraker_objects(self):
         return ["webhooks", "print_stats", "virtual_sdcard",
                 *[self._extruder_name(tool) for tool in range(self.tool_count)],
-                "heater_bed", "exclude_object"]
+                "heater_bed", "exclude_object", "creator5_toolchanger", "AFC",
+                *[self._afc_extruder_name(tool) for tool in range(self.tool_count)],
+                *[self._afc_lane_name(tool) for tool in range(self.tool_count)]]
 
     def normalize_status(self, raw):
         out = basic_status(raw)
@@ -134,11 +295,28 @@ class OpenCreatorAdapter(KlipperAdapter):
             {"tool": tool, "name": self._extruder_name(tool),
              "temperature": (raw.get(self._extruder_name(tool)) or {}).get("temperature")}
             for tool in range(self.tool_count)]
-        # No verified object provides the active tool on this firmware
-        # yet (#1490); unknown is reported as None, never guessed from
-        # another firmware's object.
-        out["active_tool"] = None
+        # The active tool is the toolchanger object's, from the dock
+        # and grab pins (source-verified contract, #1490): an integer
+        # 0 to 3, or None when no tool is mounted or the sensors
+        # disagree. Anything else in the field is not trusted.
+        changer = raw.get("creator5_toolchanger")
+        active = changer.get("active_tool") if isinstance(changer, dict) else None
+        if isinstance(changer, dict) and changer.get("sensor_error"):
+            # The sensors disagree: whatever the field holds is not a reading.
+            active = None
+        out["active_tool"] = active if type(active) is int and 0 <= active < self.tool_count else None
         return out
+
+    def tool_lane_data(self, value):
+        """Per-tool filament records from a raw ``lane_data`` namespace value.
+
+        The reading half of tranche 3 (lane_data.py): both publisher
+        shapes are accepted, every record is labeled with the shape it
+        came from, and a tool whose publishers disagree carries a
+        conflict instead of a claim. Nothing converges from these
+        records yet; the live namespace capture is still the arbiter.
+        """
+        return lane_data.parse_tool_lane_data(value, self.tool_count)
 
     def spool_remain_g(self, status, tool):
         """Grams left on one toolhead, or None when the sample does not say.

@@ -598,7 +598,8 @@ baselines"), and CONTRIBUTING.md requires it before tagging. Nothing updates a b
 
    Every run file and the gate summary name the runner CPU (`cpu_model`, #1332), and `--record` appends it to
    `recorded_from`. Hosted runners differ by up to about 1.6x on the same commit (the post-#1165 "rise" was
-   that, not code), so before accepting a raise, compare it with a run on the same CPU.
+   that, not code), so before accepting a raise, compare it with a run on the same CPU. A run on a CPU with no
+   profile yet is recorded as that CPU's profile (see Per-CPU baselines below), not re-run.
 
 4. Copy them over `tests/corpus/timing_baseline.json` and `tests/corpus/timing_baseline_real_slicer.json`. Review
    the diff. The `--record` step printed every raised entry's cumulative drift from its first recorded values
@@ -608,6 +609,23 @@ baselines"), and CONTRIBUTING.md requires it before tagging. Nothing updates a b
    reason copied over. Do not change `tolerance` or `slack_s` in this PR; that is a separate, measured change.
 5. Open a PR named "Timing baselines for X.Y.Z", let CI gate it against the new numbers, merge it, then tag.
 6. Record the decision on the release checklist issue: re-recorded or verified-no-change.
+
+#### Per-CPU baselines (`by_cpu`)
+
+Hosted runners draw different CPUs, about 1.6x apart on the same commit (#1332). Rather than re-running a release
+job until it lands on the CPU the default baseline came from, record that run as its CPU's own profile
+(catduck, 2026-11-15):
+
+    python -m tests.corpus.timing_gate timing/run-*.json --record --per-cpu \
+        --recorded-from "CI run <id> (<sha>), artifact discord-timing, median of 3" > proposed.json
+
+The CI artifacts already carry this as `proposed-baseline-per-cpu.json`. It is the whole baseline file with the
+run stored under `by_cpu["<cpu model>"]`; the default `cases` and every other CPU's profile are unchanged.
+When a run's results name exactly one CPU that has a profile, the gate compares against that profile, and
+otherwise against the default `cases`, as before. Limits (`tolerance`, slack, `fit_check_budget_s`,
+`fit_check_required`) always come from the top level. A CPU's first profile is a fresh recording. A later
+recording on the same CPU is compared with that CPU's previous profile, so its raises still need a `reason`.
+Over time the file collects one profile per runner CPU, and each run is judged against its own hardware.
 
 A baseline is only as good as the run it came from. If the release run's summary shows a case far off its usual
 value, re-run the job and record from the re-run rather than freezing an outlier.

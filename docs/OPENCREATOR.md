@@ -18,20 +18,25 @@ each firmware has its own Print Handy model.
 The research behind these profiles is
 [#1490](https://github.com/catduckgnaf/print-handy/issues/1490).
 
-## Verification status: documented and config verified, not hardware verified
+## Verification status: source-verified contracts, not hardware verified
 
 Every OpenCreator contract in this page and in the profiles was checked
 against the OpenCreator documentation site and the shipped config tree
-in the upstream `opencreator-fs` repository on 2026-11-14. No
-OpenCreator printer has printed through Print Handy, and nobody on this
-side has an OpenCreator install to query. Contracts that only a live
-printer can settle are named as open in the research issue: the exact
-toolchanger and AFC status object shapes (Print Handy therefore reports
-the active tool as unknown rather than guessing), the AFC lane map
-behavior at print start, and the `lane_data` record shape the firmware
-publishes for OrcaSlicer filament sync. Treat these profiles the way
-the ZMod profiles were treated before their first live checks: the
-slicing path is tested offline, the printer path is not yet proven.
+in the upstream `opencreator-fs` repository on 2026-11-14. A second
+research pass the same day read the firmware's own source (the
+OpenCreator fork of Kalico, default branch at the commit the 0.0.7.4
+release ships, and upstream Kalico) and source-verified the contracts
+tranche 1 had to leave open: the dispatcher's synthesized print start,
+the `creator5_toolchanger` status shape, and the AFC lane objects and
+their map. Those contracts are graded source-verified below. No
+OpenCreator printer has printed through Print Handy, and nobody on
+this side has an OpenCreator install to query, so nothing here is
+hardware verified yet. The one contract source could not settle is
+the `lane_data` record shape the firmware publishes for OrcaSlicer
+filament sync (the sources disagree three ways; see the research
+issue). Treat these profiles the way the ZMod profiles were treated
+before their first live checks: the slicing path is tested offline,
+the printer path is not yet proven.
 
 ## Public alpha: upstream's own warning
 
@@ -138,10 +143,36 @@ command, first bed and nozzle heating lines, and Orca's config block)
 when the file has no explicit line. Writing an explicit `C5_PRINT_START`
 into the start G-code would replace the synthesized one and lose the
 firmware's per-tool material, used-tools and idle-temperature filling,
-so Print Handy never writes one. The `M191` chamber line is a graceful
-message on a base Creator 5, which has no chamber heater. The file
-header G-code is empty, because the FlashForge profile's header time
-estimate otherwise hides the real estimate in Fluidd and Mainsail.
+so Print Handy never writes one. The form above is the Pro's: the base
+Creator 5 has no chamber heater, so its start form omits the `M191`
+line entirely and Print Handy never writes a chamber command for it.
+The file header G-code is empty, because the FlashForge profile's
+header time estimate otherwise hides the real estimate in Fluidd and
+Mainsail.
+
+Print Handy's verification models the same synthesis (source-verified
+against the fork): the bed from the first `M140` or `M190`, the chamber
+from the first `M141` or `M191`, the tool from the first `T0` to `T3`
+line or the first used slot in Orca's `filament used [mm]` list, and
+the hotend from the first `M109`, else the first `M104`, else the
+selected tool's `nozzle_temperature_initial_layer` in the config block.
+The synthesized command names the used tools as `USED_TOOLS=`. A file
+with no discoverable hotend temperature fails verification with the
+firmware's own failure mode named, because that is what the printer
+would do with it: fail before any motion. An explicit `C5_PRINT_START`
+line in the file opts out of synthesis, and verification then checks
+that line's own values instead.
+
+Upstream's own reference for print-start configuration is the
+OpenCreator Send plugin (see the scoped-out list below for why Print
+Handy does not adopt it): it mirrors this same synthesis, and when an
+operator changes a per-print option it writes the explicit
+`C5_PRINT_START` line at the top of the file with the option switches
+(`FLOW_CALIBRATION`, `PURGE`, `PURGE_LINE`, `PURGE_LINE_ALL_TOOLS`,
+`BED_LEVELING`, `HOST_PRESSURE_ADVANCE`, and the build plate check)
+set on it, which is exactly the opt-out above. Where the plugin's
+mirror and the fork's dispatcher differ, the fork's current default
+branch is the authority this page and Print Handy's model follow.
 
 Machine end G-code is empty. Print end is firmware-owned
 (`C5_PRINT_STOP`), there is no `END_PRINT` on this firmware, and the
@@ -212,35 +243,134 @@ Print Handy operator will otherwise meet unexplained.
 
 Same toolheads, same 256 mm cube. The base printer has no chamber
 heater, no chamber fans and no aux fan; all of that is Pro-only, and
-the slicer start form's chamber and P2/P3 fan lines are no-ops or
-graceful messages on a base printer. The Pro chamber heater's working
-maximum is not settled upstream (the docs hardware table lists a 65 C
-default with its own figures questioned; the shipped Pro config sets
-80 C), so Print Handy records no chamber ceiling for either model and
-the shared heater-ceiling machinery keeps its unknown fallback rather
-than guessing.
+the slicer start form's P2/P3 fan lines are no-ops or graceful
+messages on a base printer (its start form carries no chamber line at
+all; see the start form section).
+
+### Temperature ceilings (manufacturer ratings)
+
+FlashForge's own specifications table for the Creator 5 Pro
+(flashforge.com, read 2026-11-14) rates the heaters at:
+
+| Heater | Ceiling | Models |
+| --- | --- | --- |
+| Extruder | 320 C | Both |
+| Bed | 120 C | Both |
+| Chamber | 65 C | Pro only |
+
+Those ratings are the ceilings Print Handy records and enforces for
+these models. One upstream warning travels with them: OpenCreator's
+shipped Pro config sets the chamber heater `max_temp` to 80 C, 15 C
+above the manufacturer rating, and the firmware clamps a job's chamber
+target to that config value at print start. Print Handy's 65 C ceiling
+is therefore the only thing holding a chamber target to the rated
+maximum on this firmware; do not read the config's 80 C as headroom.
+It is held in two places: the controls, macros and preheat refuse a
+chamber target above it, and verification refuses a Pro file whose
+start would run the chamber above it (the file's first `M141` or
+`M191`, or the chamber value the firmware would take from the file's
+settings block). The base Creator 5 has no chamber heater, so no
+chamber ceiling applies to its files.
+
+### Readiness, the active tool and the AFC lane map
+
+Readiness and status ride on the `creator5_toolchanger` object
+(source-verified against the fork): its status is exactly
+`active_tool` (an integer 0 to 3 from the physical dock and grab pins,
+or None), `sensor_error` (a string or None), `busy`,
+`build_plate_detected`, `dock_positions` and `tool_measurements`. A
+non-null `sensor_error` is a readiness problem naming the sensor
+disagreement. `active_tool` None with no sensor error means every tool
+is docked, the normal idle state, and is not a problem: print start
+picks up the tool it needs. A `busy` toolchanger refuses the start
+until it finishes. `build_plate_detected` is not read for readiness:
+it is the result of the last plate check, so a stale value proves
+nothing, and print start runs its own check after homing. Print
+Handy's status reports the active tool from this object.
+
+AFC is part of readiness as well: the `AFC` object must be reporting
+with no error state, and no toolhead's `AFC_extruder` object may
+report a mount sensor error.
+
+The printer's AFC lane map is part of readiness too. Inside
+`C5_PRINT_START`, the firmware remaps the file's tool numbering
+through that map. Each toolhead is configured as an `AFC_extruder
+extruder0` to `extruder3` section mapped to a `T` command, and the
+firmware reports the live map on the matching lane objects, `AFC_lane
+extruder0` to `extruder3` (the `AFC_extruder` status itself carries no
+map, so Print Handy reads the lane objects). The shipped map is the
+identity, extruderN to `T<N>`. Print Handy's Creator contract is
+identity-only, so a non-identity map refuses the start with a message
+naming the actual mapping, rather than letting the printer remap a
+job invisibly. Print Handy never sends `SET_MAP` itself: on this
+firmware that command swaps two lanes' maps instead of assigning one,
+and changing the map is the operator's decision at the printer.
+
+### Hotend control: MPC, not PID
+
+All four hotends on OpenCreator run Kalico's MPC (model predictive
+control) with per-material parameters the firmware applies at print
+start from the file's material parameters. There are no PID gains to
+tune on the hotends, so Print Handy offers no PID calibration for
+them, even though the config sections also carry PID terms; the
+firmware's own tuning path is its `C5_MPC_CALIBRATE` command, with
+`C5_PID_CALIBRATE` also present upstream. PID-shaped assumptions
+(heat-up prediction from PID terms, PID tuning offers) do not apply
+to this firmware's hotends. The bed stays on conventional control.
 
 ## What is not supported yet
 
 Scoped out of the first tranche (#1490 names the follow-up tranches):
 
 - Per-print `C5_PRINT_START` choices (purge, purge line, bed leveling,
-  flow calibration) as Print Handy job questions, and the proof harness
-  for the synthesized start per job shape: tranche 2.
-- Reading the printer-side AFC lane map, or refusing a non-identity
-  map, and reconciling Print Handy's spool records with the firmware's
-  own `lane_data` publishing: tranche 3. Until then, know that the
-  printer's AFC map can remap a file's tool numbering at print start,
-  invisibly to the file; keep the map identity if you rely on Print
-  Handy's tool records.
-- ACE Pro feeders (the ACE module's presence in release packages is
-  unverified from public sources) and the VDS filament dryer (an
-  SoC-only accessory upstream marks untested for lack of hardware).
+  flow calibration) as Print Handy job questions: a later tranche.
+  (Tranche 2 delivered the synthesized-start modeling in verification,
+  readiness and the active tool on the `creator5_toolchanger`
+  contract, the AFC identity lane-map refusal, and the manufacturer
+  ceilings recorded above.)
+- Converging Print Handy's spool records with the firmware's own
+  `lane_data` publishing. Tranche 3 delivered the reading half: the
+  namespace can carry either of two publisher shapes (the generic AFC
+  publisher's `T<n>` keys, or the `creator5_filament_sync` module's
+  `c5_tool<n>` keys), and Print Handy now parses both, labels every
+  record with the shape it came from, and reports a conflict instead
+  of guessing when the two shapes disagree about a tool. Which
+  publisher owns a given install's namespace is still unsettled (the
+  upstream sources disagree three ways), so nothing converges from
+  these records yet and Print Handy does not write that namespace for
+  these models: a spool bind or unbind names that refusal as its
+  lane_data outcome. A live capture of the namespace on a real
+  install remains the gate for convergence.
+- ACE Pro feeders and driving the VDS filament dryer, as Print Handy
+  features. What the surfaces actually are (source-verified against
+  the fork and the shipped config tree, 2026-11-15, following the
+  upstream maintainer's pointers on the research issue): the VDS
+  dryer's two chambers are standard Moonraker temperature sensors,
+  `temperature_sensor dryer_a` and `temperature_sensor dryer_b`,
+  registered by the `creator5_dryer` module itself (status:
+  temperature, humidity, measured minimum and maximum) whenever the
+  dryer config is included, which the installer does when a dryer
+  answers during install. They read through the ordinary sensor path,
+  no custom object needed; the dryer's own object and its
+  `C5_DRYER_START` / `STOP` / `PAUSE` / `DEHUMIDIFY` / `STATUS`
+  commands and material macros are the control surface Print Handy
+  does not drive yet. The ACE Pro is not in any OpenCreator release:
+  it lives only on the fork's `ace-pro` and `ace-upstream` branches.
+  There its unit is an ordinary AFC unit whose lanes are ordinary AFC
+  lanes (the standard spool macros register for them), and its dryer
+  presents per unit as a heater object `ace_dryer_<unit>`, a humidity
+  object `ace_humidity_<unit>` and a `temperature_fan <unit>`, with
+  `AFC_ACE_*` commands; the `ace-upstream` branch additionally carries
+  an optional `temperature_ace` sensor type. So when ACE ships, it
+  rides the existing AFC and sensor paths rather than a new surface;
+  Print Handy adds no ACE code until it is in a release.
 - Driving OpenCreator updates or alerting on its versions: upstream
   has no version tracking yet, so there is no reliable version to read.
 - The OpenCreator Send OrcaSlicer plugin: Print Handy's slice guard
   protects `slicing_pipeline_plugin` by design, so a downloaded project
-  cannot inject it, and Print Handy does not adopt it.
+  cannot inject it, and Print Handy does not adopt it. It remains
+  upstream's reference implementation for print-start configuration
+  (see the start form section).
 - The Legacy edition (see Editions above).
 
 ## Choosing between the Creator firmwares

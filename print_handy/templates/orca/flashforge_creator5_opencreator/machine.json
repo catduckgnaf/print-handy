@@ -237,7 +237,7 @@
     "0"
   ],
   "machine_pause_gcode": "PAUSE",
-  "machine_start_gcode": "SET_PRINT_STATS_INFO TOTAL_LAYER=[total_layer_count]\nM140 S[bed_temperature_initial_layer_single]\nM191 S[overall_chamber_temperature]\nM106\nM106 P2 S0 ; center fresh air input fan off\nM106 S0 ; model fan off\nM106 P3 S0 ; filter unit fan off\nG90\nM83",
+  "machine_start_gcode": "SET_PRINT_STATS_INFO TOTAL_LAYER=[total_layer_count]\nM140 S[bed_temperature_initial_layer_single]\nM106\nM106 P2 S0 ; center fresh air input fan off\nM106 S0 ; model fan off\nM106 P3 S0 ; filter unit fan off\nG90\nM83",
   "machine_tool_change_time": "7",
   "machine_unload_filament_time": "0",
   "manual_filament_change": "0",
