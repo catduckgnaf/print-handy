@@ -75,6 +75,36 @@ LEDGER_KEEP = 200
 
 SUSPENDED_REASON = "filament usage is paused for an open spool question"
 
+# One accounting authority per printer (#1536): when the printer itself is
+# the authority (its Moonraker is linked to the Spoolman and charges usage
+# live), Print Handy must not charge the same print again at the end.
+PRINTER_AUTHORITY_REASON = ("the printer is the spool accounting authority for this print, "
+                            "so Print Handy did not charge it again")
+
+
+def effective_authority(context: dict[str, Any] | None) -> str | None:
+    """The accounting authority that governs a print context, or None.
+
+    The launch records the resolved authority on the context
+    ("spool_accounting_authority") after a live Moonraker link detection;
+    that record wins. Without one, only an explicit settings value
+    ([spool] accounting = print_handy / printer) applies: "auto" with no
+    recorded detection keeps the legacy behavior (Print Handy charges),
+    because resolving auto needs the printer, which is not asked here.
+    """
+    context = context or {}
+    recorded = str(context.get("spool_accounting_authority") or "").strip().lower()
+    if recorded in ("print_handy", "printer"):
+        return recorded
+    try:
+        from print_handy import settings
+
+        configured = str((settings.current().get("spool") or {}).get("accounting") or "").strip().lower()
+    except Exception as exc:
+        logger.warning("could not read the configured spool accounting authority: %s", exc)
+        return None
+    return configured if configured in ("print_handy", "printer") else None
+
 WEIGHT_SET_ENV = "PRINT_HANDY_SPOOL_WEIGHT_SET_STATE"
 WEIGHT_SET_NAME = "spool_weight_set.json"
 WEIGHT_SET_KEEP = 100
@@ -289,8 +319,17 @@ def charge_finished_print(context: dict[str, Any] | None, outcome: str, *, actua
         ledger = _load(path)
         if key not in ledger:
             planned = planned_mm if _number(planned_mm) else context.get("planned_filament_mm")
-            ratio = _ratio(outcome, actual_mm, planned)
-            ledger[key] = _new_entry(key, context, plan, outcome, ratio, suspended, actual_mm, planned)
+            if not suspended and effective_authority(context) == "printer":
+                # The printer is the accounting authority (#1536): its
+                # Moonraker already charged this print live, so the entry
+                # records the skip and no slot is charged here.
+                entry = _new_entry(key, context, plan, outcome, None, False, actual_mm, planned)
+                entry.update(status="skipped", reason=PRINTER_AUTHORITY_REASON,
+                             accounting_authority="printer")
+                ledger[key] = entry
+            else:
+                ratio = _ratio(outcome, actual_mm, planned)
+                ledger[key] = _new_entry(key, context, plan, outcome, ratio, suspended, actual_mm, planned)
             _save(path, ledger)
         _charge_slots(path, ledger, key, request, base_url)
         return json.loads(json.dumps(ledger[key]))

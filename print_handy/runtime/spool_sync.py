@@ -776,12 +776,87 @@ def spool_nickname(spool: Any) -> str | None:
     """The per-spool nickname Print Handy stored on this Spoolman spool, if any.
 
     The filament record's name is shared by every spool of that filament
-    type, so a rename of one spool lives here instead (#1515).
+    type, so a rename of one spool lives here instead (#1515). When the
+    record carries no nickname, the local extras store is the fallback:
+    an outside Spoolman that will not let Print Handy create the field
+    keeps its nicknames there instead (#1536).
     """
     extra = spool.get("extra") if isinstance(spool, dict) else None
-    if not isinstance(extra, dict):
-        return None
-    return _decode_extra_value(extra.get(PH_NICKNAME_FIELD))
+    value = _decode_extra_value(extra.get(PH_NICKNAME_FIELD)) if isinstance(extra, dict) else None
+    if value:
+        return value
+    if isinstance(spool, dict) and spool.get("id") is not None:
+        try:
+            return local_nickname(int(spool["id"]))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+# ------------------------------------------------- local extras store (#1536)
+#
+# An outside Spoolman is not Print Handy's to reconfigure: it may refuse
+# to create the ph_nickname extra field (or refuse extra fields entirely).
+# Print Handy's own features must keep working there, so a nickname that
+# cannot be stored on the spool is kept in this local JSON store, keyed by
+# spool id. It is a fallback only: whenever Spoolman accepts the field,
+# the nickname lives on the spool record as before. Shelf and archive
+# need no fallback: they use Spoolman's native location / archived
+# fields, which an outside Spoolman accepts like the bundled one.
+
+LOCAL_EXTRAS_ENV = "PRINT_HANDY_SPOOL_LOCAL_EXTRAS"
+LOCAL_EXTRAS_NAME = "spool_local_extras.json"
+_local_extras_cache: tuple[Any, dict[str, Any]] | None = None
+
+
+def _local_extras_path() -> Path:
+    return _config.state_file(LOCAL_EXTRAS_ENV, LOCAL_EXTRAS_NAME)
+
+
+def _load_local_extras() -> dict[str, Any]:
+    global _local_extras_cache
+    path = _local_extras_path()
+    try:
+        stat = path.stat()
+        identity: Any = (str(path), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        identity = None
+    if identity is not None and _local_extras_cache is not None and _local_extras_cache[0] == identity:
+        return dict(_local_extras_cache[1])
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    _local_extras_cache = (identity, data) if identity is not None else None
+    return dict(data)
+
+
+def _save_local_extras(data: dict[str, Any]) -> None:
+    global _local_extras_cache
+    path = _local_extras_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    _local_extras_cache = None
+
+
+def local_nickname(spool_id: int) -> str | None:
+    """The nickname the local extras store keeps for one spool, if any."""
+    entry = _load_local_extras().get(str(int(spool_id)))
+    value = entry.get(PH_NICKNAME_FIELD) if isinstance(entry, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def _set_local_nickname(spool_id: int, text: str) -> None:
+    data = _load_local_extras()
+    if text:
+        data[str(int(spool_id))] = {PH_NICKNAME_FIELD: text}
+    else:
+        data.pop(str(int(spool_id)), None)
+    _save_local_extras(data)
 
 
 def _set_ph_slot(client: Client, spool_id: int, value: str | None) -> bool:
@@ -1414,17 +1489,25 @@ def rename_spool(spool_id: int, nickname: str, *, client: Client = spoolman) -> 
     The chat twin of the Web UI rename. Spoolman keeps the name on the
     filament record, which every spool of that filament shares, so the
     nickname lives on the spool's extra field instead. An empty
-    nickname clears it and the filament name shows again.
+    nickname clears it and the filament name shows again. When Spoolman
+    will not accept the extra field (an outside Spoolman, #1536), the
+    nickname is kept in the local extras store instead of refusing;
+    the result's "stored" says which happened.
     """
     text = " ".join(str(nickname or "").split())
     if len(text) > 60:
         raise SpoolError("a spool name must be 60 characters or fewer. Nothing changed")
     _spool_or_refuse(spool_id, client)
-    if not ensure_extra_field(client, PH_NICKNAME_FIELD, PH_NICKNAME_FIELD_NAME):
-        raise SpoolError("Spoolman did not accept the nickname field. Nothing changed")
-    client("PATCH", f"/api/v1/spool/{int(spool_id)}",
-           {"extra": {PH_NICKNAME_FIELD: json.dumps(text) if text else None}})
-    return {"spool_id": int(spool_id), "nickname": text}
+    if ensure_extra_field(client, PH_NICKNAME_FIELD, PH_NICKNAME_FIELD_NAME):
+        client("PATCH", f"/api/v1/spool/{int(spool_id)}",
+               {"extra": {PH_NICKNAME_FIELD: json.dumps(text) if text else None}})
+        return {"spool_id": int(spool_id), "nickname": text, "stored": "spoolman"}
+    # An outside Spoolman may not let Print Handy create extra fields
+    # (#1536): the rename must not refuse there, so the nickname is kept
+    # in the local extras store instead. It is local to this install —
+    # another Print Handy pointed at the same Spoolman will not see it.
+    _set_local_nickname(int(spool_id), text)
+    return {"spool_id": int(spool_id), "nickname": text, "stored": "local"}
 
 
 def rename_spool_text(spool_id: int, nickname: str, *, client: Client = spoolman) -> str:
@@ -1433,10 +1516,15 @@ def rename_spool_text(spool_id: int, nickname: str, *, client: Client = spoolman
         result = rename_spool(spool_id, nickname, client=client)
     except SpoolError as exc:
         return f"{exc}."
+    local_note = (" It is stored on this install only, because that Spoolman does not "
+                  "accept Print Handy's nickname field."
+                  if result.get("stored") == "local" else "")
     if result["nickname"]:
         return (f"Spool #{result['spool_id']} is now called {result['nickname']!r}. "
-                "Only this spool changed; other spools of the same filament keep their name.")
-    return f"Spool #{result['spool_id']}'s own name is cleared; it shows its filament name again."
+                "Only this spool changed; other spools of the same filament keep their name."
+                + local_note)
+    return (f"Spool #{result['spool_id']}'s own name is cleared; it shows its filament name again."
+            + local_note)
 
 
 def set_archived(spool_id: int, archived: bool, *, client: Client = spoolman,
@@ -1876,6 +1964,137 @@ def reconcile_text(result: dict[str, Any]) -> str:
     if result.get("usage"):
         lines.append(str(result["usage"]))
     return "\n".join(lines)
+
+
+def external_spool_sync_plan(local_assignments: dict[Any, Any], external_spools: list[Any], *,
+                             printer_id: str) -> dict[str, Any]:
+    """Plan a two-way sync with an outside Spoolman (#1536). Pure: no writes.
+
+    ``local_assignments`` maps slot -> spool id (or a record dict with
+    ``spoolman_id`` / ``remaining_grams``) from the local hardware record;
+    ``external_spools`` are the spool records the outside Spoolman holds,
+    whose ``ph_slot`` claims say which spool it thinks is loaded where.
+
+    The plan has three parts. ``slot_changes``: a slot exactly one side
+    claims, with the side that has the claim as "source" (the other side
+    converges to it). ``weight_updates``: a slot both sides agree on,
+    where the outside record's remaining weight differs from the local
+    record's, so the local side can converge on the outside figure (the
+    side that charges is the authority for weight). ``conflicts``: a slot
+    both sides claim for different spools, or two outside spools claim —
+    named, never resolved by picking one (#1304's rule).
+    """
+    local: dict[int, tuple[int, float | None]] = {}
+    for key, value in (local_assignments or {}).items():
+        try:
+            slot = int(key)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, dict):
+            sid, remaining = value.get("spoolman_id"), value.get("remaining_grams")
+        else:
+            sid, remaining = value, None
+        if isinstance(sid, bool) or not isinstance(sid, int):
+            continue
+        grams = float(remaining) if isinstance(remaining, (int, float)) and not isinstance(remaining, bool) else None
+        local[slot] = (int(sid), grams)
+    claims: dict[int, list[int]] = {}
+    remaining_by_id: dict[int, float | None] = {}
+    for row in external_spools or []:
+        if not isinstance(row, dict) or row.get("id") is None:
+            continue
+        sid = int(row["id"])
+        grams = row.get("remaining_weight")
+        remaining_by_id[sid] = (float(grams) if isinstance(grams, (int, float))
+                                and not isinstance(grams, bool) else None)
+        parsed = spool_ph_slot(row)
+        if parsed is not None and parsed[0] == printer_id and not row.get("archived"):
+            claims.setdefault(parsed[1], []).append(sid)
+    plan: dict[str, Any] = {"slot_changes": [], "weight_updates": [], "conflicts": []}
+    for slot in sorted(set(local) | set(claims)):
+        claimants = claims.get(slot) or []
+        local_sid = local.get(slot, (None, None))[0]
+        if len(claimants) > 1:
+            plan["conflicts"].append({
+                "slot": slot, "local_spool_id": local_sid, "spoolman_spool_ids": sorted(claimants),
+                "reason": f"slot {slot} is claimed by spools "
+                          f"{' and '.join(f'#{sid}' for sid in sorted(claimants))} in Spoolman"})
+            continue
+        external_sid = claimants[0] if claimants else None
+        if local_sid is not None and external_sid is not None and local_sid != external_sid:
+            plan["conflicts"].append({
+                "slot": slot, "local_spool_id": local_sid, "spoolman_spool_ids": [external_sid],
+                "reason": f"slot {slot} holds spool #{local_sid} in the local record but "
+                          f"spool #{external_sid} in Spoolman"})
+            continue
+        if external_sid is not None and local_sid is None:
+            plan["slot_changes"].append({"slot": slot, "spool_id": external_sid, "source": "spoolman"})
+        elif local_sid is not None and external_sid is None:
+            plan["slot_changes"].append({"slot": slot, "spool_id": local_sid, "source": "local"})
+        elif local_sid is not None and external_sid is not None:
+            local_grams = local[slot][1]
+            external_grams = remaining_by_id.get(external_sid)
+            if local_grams is not None and external_grams is not None \
+                    and abs(local_grams - external_grams) > 0.05:
+                plan["weight_updates"].append({
+                    "slot": slot, "spool_id": external_sid,
+                    "local_remaining_g": local_grams, "spoolman_remaining_g": external_grams})
+    return plan
+
+
+def sync_external_spoolman(printer_id: str | None = None, *, client: Client = spoolman,
+                           mr: Client = moonraker, state_path: Path | None = None,
+                           pending_path: Path | None = None) -> dict[str, Any]:
+    """Sync loaded spools and weights with the configured Spoolman (#1536).
+
+    The configured Spoolman may be an outside one (another host, or the
+    instance the printer's Moonraker points at): the default client
+    already targets the configured services.spoolman_url for this
+    process. The plan comes from external_spool_sync_plan; its
+    non-conflicting half is applied — local-only claims are written to
+    Spoolman as ph_slot, and the rest converges through reconcile
+    (Spoolman wins the record rebuild, weights included, since the
+    rebuild re-reads remaining weight from the Spoolman records).
+    Conflicts are returned named in the plan, never overwritten.
+    Fail-soft like reconcile: an unreachable Spoolman is a named error
+    in the result and nothing is changed.
+    """
+    pid = printer_id or _default_printer_id()
+    result: dict[str, Any] = {"ok": False, "printer_id": pid,
+                              "plan": {"slot_changes": [], "weight_updates": [], "conflicts": []},
+                              "reconcile": None, "error": None}
+    if not pid:
+        result["error"] = ("Outside Spoolman sync: no printer could be derived from the "
+                           "configuration, so nothing was changed")
+        return result
+    try:
+        rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
+    except Exception as exc:
+        __import__("logging").getLogger(__name__).warning(
+            "Outside Spoolman sync: the spool list could not be read: %s", exc)
+        rows = None
+    if not isinstance(rows, list):
+        result["error"] = ("Outside Spoolman sync: Spoolman did not answer, so nothing was changed")
+        return result
+    try:
+        state = load_state(state_path, printer_id=pid)
+    except Exception as exc:
+        __import__("logging").getLogger(__name__).warning(
+            "Outside Spoolman sync: the local slot record could not be read: %s", exc)
+        state = {"filament_slots": {}}
+    local = {int(key): rec for key, rec in (state.get("filament_slots") or {}).items()
+             if isinstance(rec, dict) and str(key).isdigit()}
+    plan = external_spool_sync_plan(local, rows, printer_id=pid)
+    result["plan"] = plan
+    for change in plan["slot_changes"]:
+        if change["source"] == "local":
+            _set_ph_slot(client, change["spool_id"], format_ph_slot(pid, change["slot"]))
+    result["reconcile"] = reconcile(pid, client=client, mr=mr,
+                                     state_path=state_path, pending_path=pending_path)
+    result["ok"] = bool((result["reconcile"] or {}).get("ok"))
+    if not result["ok"] and result["reconcile"] and result["reconcile"].get("error"):
+        result["error"] = str(result["reconcile"]["error"])
+    return result
 
 
 def repair_usage_spool(*, mr: Client = moonraker, state_path: Path | None = None,

@@ -145,6 +145,10 @@ def _listener_section(data):
 def _spoolman_section(data, environ, probe):
     configured = (data.get("services", {}).get("spoolman_url") or "").strip()
     bundled = spoolman_bundled(data, environ)
+    # The configured accounting authority (#1536), shown as configured:
+    # resolving "auto" needs the printer's live Moonraker link, which the
+    # status page does not probe, so auto is reported as auto.
+    accounting = str((data.get("spool") or {}).get("accounting") or "").strip().lower() or "auto"
     if bundled:
         port = environ.get("SPOOLMAN_PORT") or (urlparse(configured).port if configured else None) or 8000
         url = f"http://127.0.0.1:{port}"
@@ -155,10 +159,12 @@ def _spoolman_section(data, environ, probe):
         # not applicable (ok None, like doctor.check_service skipping an
         # unconfigured service), not a failure. A configured Spoolman that
         # is down still reports ok False below.
-        return {"bundled": bundled, "url": "", "ok": None, "detail": "not configured"}
+        return {"bundled": bundled, "url": "", "ok": None, "detail": "not configured",
+                "accounting": accounting}
     ok, detail = probe(url)
     # Probed with the real URL; shown without its credentials (an open LAN Web UI, #708).
-    return {"bundled": bundled, "url": _shown_url(url), "ok": ok, "detail": logs.redact(str(detail or ""))}
+    return {"bundled": bundled, "url": _shown_url(url), "ok": ok,
+            "detail": logs.redact(str(detail or "")), "accounting": accounting}
 
 
 def _shown_url(value):

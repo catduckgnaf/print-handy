@@ -185,6 +185,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("vision", "auto_light_off_minutes"): int,
                  ("vision", "light_object"): str,
                  ("spool", "prompt_brand"): bool,
+                 ("spool", "accounting"): str,
                  ("services", "octoprint_url"): str,
                  ("bambu", "lan_host"): str, ("bambu", "lan_serial"): str,
                  ("bambu", "lan_access_code_env"): str,
@@ -251,7 +252,13 @@ PURGE_TOWER_CHOICES = ("auto", "on", "off")
 # make a config with an explicit websocket URL inexpressible in the roster shape.
 PRINTER_ENTRY_STR_KEYS = ("name", "moonraker_url", "moonraker_ws_url", "octoprint_url",
                           "camera_snapshot_url", "lan_host", "lan_serial", "lan_access_code_env",
-                          "link_host", "api_key_env", "host", "nozzle_type")
+                          "link_host", "api_key_env", "host", "nozzle_type",
+                          "spoolman_url", "spoolman_accounting")
+# [spool] accounting and an entry's spoolman_accounting (#1536): who counts
+# filament usage for a printer. "" and "auto" decide from the printer's
+# detected Moonraker Spoolman link; "print_handy" and "printer" name the one
+# accounting authority outright, so a print is never counted twice.
+SPOOL_ACCOUNTING_VALUES = ("", "auto", "print_handy", "printer")
 PRINTER_ENTRY_INT_KEYS = ("start_confirm_s", "tool_count")
 # Geometry overrides (P1-83): an Other/generic printer's measured build
 # volume, spelled exactly as [printer]'s keys. File-only: a list is not
@@ -1044,6 +1051,13 @@ def _project_entry(data, stub):
     host = stub.get("host", "")
     data.setdefault("elegoo_sdcp", {})["host"] = host if model.vendor.key == "elegoo_sdcp" else ""
     data.setdefault("flashforge_stock", {})["host"] = host if model.vendor.key == "flashforge_stock" else ""
+    # Per-printer Spoolman (#1536): Spoolman stays the one shared inventory
+    # unless this entry names its own (outside) instance; the entry's
+    # accounting choice projects into [spool] accounting the same way.
+    if stub.get("spoolman_url"):
+        services["spoolman_url"] = stub["spoolman_url"]
+    if stub.get("spoolman_accounting"):
+        data.setdefault("spool", {})["accounting"] = stub["spoolman_accounting"]
 
 
 def _capture_entry(data, stub):
@@ -1079,6 +1093,8 @@ def _capture_entry(data, stub):
         "link_host": prusa.get("link_host", ""),
         "api_key_env": prusa.get("api_key_env", "PRUSA_LINK_API_KEY"),
         "host": host,
+        "spoolman_url": services.get("spoolman_url", ""),
+        "spoolman_accounting": str((data.get("spool") or {}).get("accounting") or "").strip().lower(),
     }
     for key in ("nozzle_type", "tool_count"):
         if key in printer:
@@ -1131,7 +1147,9 @@ def _validate_entry(stub):
         "printer": {"model": stub["model"], "vendor": model.vendor.key,
                     "name": stub.get("name") or _entry_default_name(model)},
         "services": {key: stub.get(key, "") for key in
-                     ("moonraker_url", "moonraker_ws_url", "octoprint_url", "camera_snapshot_url")},
+                     ("moonraker_url", "moonraker_ws_url", "octoprint_url", "camera_snapshot_url",
+                      "spoolman_url")},
+        "spool": {"accounting": stub.get("spoolman_accounting") or ""},
         "bambu": {"lan_host": stub.get("lan_host", ""), "lan_serial": stub.get("lan_serial", "")},
         "prusa": {"link_host": stub.get("link_host", "")},
         "elegoo_sdcp": {"host": stub.get("host", "") if model.vendor.key == "elegoo_sdcp" else ""},
@@ -1159,6 +1177,10 @@ def _validate_entry(stub):
             scratch["printer"][key] = stub[key]
     try:
         _check_service_urls(scratch["services"])
+        accounting = str(stub.get("spoolman_accounting") or "").strip().lower()
+        if accounting not in SPOOL_ACCOUNTING_VALUES:
+            raise SettingsError(f"spoolman_accounting must be one of auto, print_handy or printer, "
+                                f"got {stub.get('spoolman_accounting')!r}")
         _check_connection_urls(scratch["services"], model)
         _validate_bambu_lan(scratch, model)
         _validate_stock_lan(scratch, model)
@@ -1901,6 +1923,18 @@ def _validate_spool(data):
     prompt_brand = spool.setdefault("prompt_brand", False)
     if not isinstance(prompt_brand, bool):
         raise SettingsError(f"[spool] prompt_brand must be true or false, got {prompt_brand!r}")
+    # Who counts filament usage (#1536): "auto" (or empty) follows the
+    # printer's detected Moonraker Spoolman link; "print_handy" and
+    # "printer" name the one accounting authority. A roster entry's
+    # spoolman_accounting overrides this for its printer.
+    accounting = spool.setdefault("accounting", "")
+    if not isinstance(accounting, str):
+        raise SettingsError(f"[spool] accounting must be a string, got {accounting!r}")
+    normalized = accounting.strip().lower()
+    if normalized not in SPOOL_ACCOUNTING_VALUES:
+        raise SettingsError(f"[spool] accounting must be one of auto, print_handy or printer, "
+                            f"got {accounting!r}")
+    spool["accounting"] = normalized
 
 
 def _validate_design(data):
@@ -2606,9 +2640,12 @@ def view_for(printer_id, data=None):
     legacy singleton sections (the same projection validate() applies to the
     first entry), so an adapter built on the view reads that printer's model,
     geometry and connection keys. Global sections ([paths], [discord],
-    [services] spoolman, [delivery]) stay shared, exactly as the design
-    keeps them global; the roster itself is carried over unchanged. The
-    default printer's view is the resolved settings themselves.
+    [delivery]) stay shared, exactly as the design keeps them global;
+    [services] spoolman_url and [spool] accounting stay shared too unless
+    the entry overrides them with its own spoolman_url /
+    spoolman_accounting (#1536). The roster itself is carried over
+    unchanged. The default printer's view is the resolved settings
+    themselves.
     """
     data = data or current()
     entry = by_id(printer_id, data)

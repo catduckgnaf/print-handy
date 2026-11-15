@@ -212,6 +212,27 @@ def _validate_spoolman_url(value, _answers):
     return text
 
 
+def _validate_spoolman_accounting(value, _answers):
+    """Who counts filament usage (#1536): printer, print_handy, or auto.
+
+    `skip` keeps the default (auto). The stored value is one of the
+    [spool] accounting spellings settings validates.
+    """
+    text = value.strip().casefold()
+    if text in ("", "skip", "auto"):
+        return "auto"
+    if text in ("printer", "moonraker"):
+        return "printer"
+    if text in ("print_handy", "print handy", "handy"):
+        return "print_handy"
+    raise ValueError("reply `printer`, `print_handy`, or `auto` (or `skip` for auto)")
+
+
+def _spoolman_given(answers):
+    """The accounting step belongs to a session only when a Spoolman URL was given."""
+    return bool((answers or {}).get("spoolman_url"))
+
+
 PLATFORMS = ("discord", "telegram", "matrix")
 
 PLATFORM_TOKEN_INFO = {
@@ -472,6 +493,14 @@ def steps(token_env="DISCORD_BOT_TOKEN"):
              "If you run Spoolman for filament inventory, reply with its URL (for example "
              "http://spoolman.local:7912; the Spoolman included in the Docker stack is "
              "http://spoolman:8000). Otherwise reply `skip`.", _validate_spoolman_url),
+        Step("spoolman_accounting", "Spoolman accounting",
+             "Who should count filament usage for this printer, so no print is counted "
+             "twice? Reply `printer` if Moonraker or the printer firmware already charges "
+             "usage to that Spoolman (pick this for OpenCreator/AFC, and for any Moonraker "
+             "that points at the same Spoolman), `print_handy` if Print Handy should do "
+             "the counting itself, or `auto` to decide from the printer's Moonraker link "
+             "each time a print starts.", _validate_spoolman_accounting,
+             applies=_spoolman_given),
         Step("camera_snapshot_url", "Camera snapshot URL (optional)",
              "If the printer has a camera, reply with its snapshot URL and finished prints "
              "can be watched and recorded. Otherwise reply `skip`.", _validate_camera_url),
@@ -1618,6 +1647,9 @@ def _review_text(session):
              f"- Timelapse: {answers.get('timelapse') or 'kept as it is'}",
              f"- Bot token: {'stored in its environment variable' if answers.get('token_stored') else 'not stored yet — the bot cannot log in until it is'}",
              _login_review_line(answers)]
+    if answers.get("spoolman_url"):
+        lines.append(f"- Spoolman accounting: {answers.get('spoolman_accounting') or 'auto'} "
+                     "(who counts filament usage; the other side never charges it)")
     roster = answers.get("printers") or []
     if roster:
         lines.append(f"- First printer id: `{answers.get('printer_id')}`")
@@ -1668,6 +1700,10 @@ def _manual_text(session):
             lines.append(f"   - `[{placed[0]}] {placed[1]}` = the Printer URL you entered above")
     if answers.get("spoolman_url"):
         lines.append("   - `[services] spoolman_url` = the URL you entered above")
+    if answers.get("spoolman_url") and answers.get("spoolman_accounting"):
+        lines.append("   - `[spool] accounting` = who counts filament usage "
+                     f"(`{answers['spoolman_accounting']}`; with a printers list, the first "
+                     "entry's `spoolman_accounting` instead)")
     if answers.get("camera_snapshot_url"):
         lines.append("   - `[services] camera_snapshot_url` = the URL you entered above, "
                      "with `[services] camera_source` = `auto`")
@@ -1736,6 +1772,10 @@ def _roster_config(answers):
     every added one, with Spoolman kept as the one shared inventory service."""
     first = {"id": answers["printer_id"], "model": answers["model"]}
     _stamp_address(first, answers["model"], answers.get("moonraker_url"))
+    if answers.get("spoolman_accounting"):
+        # Per-printer accounting (#1536): the first printer's choice rides
+        # its roster entry; Spoolman itself stays the shared service above.
+        first["spoolman_accounting"] = answers["spoolman_accounting"]
     entries = [first]
     for extra in answers["printers"]:
         entry = {"id": extra["id"], "model": extra["model"]}
@@ -1821,6 +1861,8 @@ def _apply_answers(answers, config_path):
             config.setdefault(placed[0], {})[placed[1]] = answers["moonraker_url"]
         if answers.get("spoolman_url"):
             config.setdefault("services", {})["spoolman_url"] = answers["spoolman_url"]
+        if answers.get("spoolman_accounting"):
+            config.setdefault("spool", {})["accounting"] = answers["spoolman_accounting"]
         _stamp_camera_and_timelapse(config, answers)
     writer = _Consent()
     if not setup_wizard.merge_config(Path(config_path), config, writer):

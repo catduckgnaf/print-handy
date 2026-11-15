@@ -33,7 +33,7 @@ def finish_steps(store_obj, key="k", **kwargs):
     """Drive a setup session to the review step with valid answers."""
     say(store_obj, "/print-handy setup", key=key, **kwargs)
     for answer in ("discord", "flashforge.ad5x", CHAT, USER, "skip", "http://spoolman.test:7912",
-                   "skip", "skip", "stored", "skip"):
+                   "printer", "skip", "skip", "stored", "skip"):
         say(store_obj, answer, key=key, **kwargs)
 
 
@@ -108,7 +108,7 @@ def test_setup_rejects_invalid_ids_and_urls_without_advancing(tmp_path):
     out = say(st, "spoolman.local:7912")  # no scheme
     assert "does not work" in out and st.get("k")["step"] == 6
     out = say(st, "http://spoolman.local:7912")
-    assert "Setup step 7 of 10" in out
+    assert "Setup step 7 of 11: Spoolman accounting" in out
 
 
 def test_printer_url_follows_the_model(tmp_path):
@@ -155,7 +155,7 @@ def test_spoolman_step_is_offered_for_models_without_moonraker(tmp_path):
     out = say(st, "skip")  # hostname printers can skip the Printer URL
     assert "Setup step 6 of 10: Spoolman URL" in out
     out = say(st, "http://spoolman.test:7912")
-    assert "Setup step 7 of 10" in out
+    assert "Setup step 7 of 11: Spoolman accounting" in out
     assert st.get("k")["answers"]["spoolman_url"] == "http://spoolman.test:7912"
 
 
@@ -168,7 +168,7 @@ def test_token_step_never_collects_a_token(tmp_path):
     assert "Bot token" in prompt
     out = say(st, FAKE_TOKEN)
     assert "Never paste the token" in out or "not collected in chat" in out
-    assert st.get("k")["step"] == 9, "a pasted token must not advance the step"
+    assert st.get("k")["step"] == 10, "a pasted token must not advance the step"
     saved = (tmp_path / "guided-setup.json").read_text()
     assert FAKE_TOKEN not in saved and TOKEN not in saved
     out = say(st, "stored")
@@ -238,6 +238,7 @@ def test_apply_writes_only_after_explicit_consent(tmp_path):
     written = target.read_text()
     assert "flashforge.ad5x" in written and CHAT in written and USER in written
     assert "spoolman_url" in written and "http://spoolman.test:7912" in written
+    assert "accounting: printer" in written  # the accounting answer from finish_steps (#1536)
     assert TOKEN not in written and "DISCORD_BOT_TOKEN" not in written
 
 
