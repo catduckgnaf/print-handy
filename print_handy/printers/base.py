@@ -535,6 +535,14 @@ class PrinterAdapter(ABC):
     def moonraker_start_commands(self, remote_filename: str) -> list[dict[str, Any]]:
         """Moonraker requests, in order, that start a print: [{'method', 'path', 'body'}]."""
 
+    def finalize_output(self, text: str) -> str:
+        """The sliced G-code after this printer's own last rewrite; unchanged by default.
+
+        Runs once after slicing and any native finalize, before the post-slice
+        checks, so every check reads exactly the bytes the printer will get.
+        """
+        return text
+
     def gcode_problems(self, text: str, state: dict | None = None) -> list[str]:
         """Printer-specific reasons a sliced G-code must not be used, beyond start_code_problems; empty when none."""
         return []

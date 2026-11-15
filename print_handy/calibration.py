@@ -87,7 +87,7 @@ GCODE_STORE_PATH = "/server/gcode_store"
 PRINT_STATE_PATH = "/printer/objects/query?print_stats=state"
 SETTINGS_PATH = "/printer/objects/query?configfile=settings"
 FACTS_PATH = ("/printer/objects/query?configfile=settings&bed_mesh"
-              "&input_shaper&save_variables")
+              "&input_shaper&save_variables&mod_params")
 NATIVE_CONFIG_PATH = "/server/files/config/Adventurer5M.json"
 MACRO_PREFIX = "gcode_macro "
 
@@ -112,7 +112,7 @@ MEASURE_PROFILE = "print_handy"
 # The profile prints load: ZMod's START_PRINT loads MESH=auto (the same
 # name as core/model_job.MESH_PROFILE and its saved-mesh readiness check);
 # vanilla Klipper loads "default" at startup.
-MESH_PROFILES = {"zmod": "auto", "klipper": "default"}
+MESH_PROFILES = {"zmod": "auto", "klipper": "default", "forgex": "auto"}
 # The screenless mesh contract (config/mesh-interface.json): EXTRUDER_TEMP=220
 # BED_TEMP=60, not the macro's own defaults.
 ZMOD_MESH_EXTRUDER_TEMP = 220
@@ -128,6 +128,14 @@ IDLE_STATES = frozenset({"standby", "complete", "cancelled", "error"})
 BUSY_STATES = frozenset({"printing", "paused"})
 
 ELIGIBLE_FAMILIES = frozenset({"zmod", "klipper"})
+# Forge-X (#1506) keeps firmware_family "none" in the registry on purpose
+# (the firmware-update apply gate keys on it), so calibration recognizes it
+# by vendor instead. Its calibration macros are the ff5m 1.4.2 beta's own
+# (docs/CALIBRATION.md, macros/base.cfg, .py/klipper/plugins/forge_shaper.py,
+# read for behavior only): AUTO_FULL_BED_LEVEL for the mesh, never a bare
+# BED_MESH_CALIBRATE (it skips the nozzle cleaning and load-cell tare),
+# raw PID_CALIBRATE, and FORGE_SHAPER_CALIBRATE for the input shaper.
+FORGEX_VENDOR = "flashforge_forgex"
 FORK_VENDORS = frozenset({"elegoo", "creality", "qidi", "anycubic", "snapmaker"})
 
 # Macros the PID flows must never send: both auto-SAVE_CONFIG, which
@@ -151,6 +159,17 @@ def printer_entry(model_key, registry=None):
     return firmware_update.printer_entry(model_key, registry=registry)
 
 
+def is_forgex(entry) -> bool:
+    """True for a Forge-X printer (registry vendor flashforge_forgex)."""
+    return entry is not None and getattr(entry, "vendor", None) == FORGEX_VENDOR
+
+
+def forgex_screen(facts) -> str:
+    """The Forge-X local screen from mod_params: stock, feather, headless, guppy or unknown."""
+    from .printers.flashforge_forgex import start_contract
+    return start_contract.screen_mode({"mod_params": facts.mod_params}).value
+
+
 def block_reason(entry) -> str | None:
     """Why calibrations are not offered for this registry entry, or None when they are.
 
@@ -168,7 +187,7 @@ def block_reason(entry) -> str | None:
         return (f"This printer runs {entry.vendor}'s own Klipper-based firmware — a vendor "
                 f"fork, not upstream Klipper. Its calibration macros and save behavior "
                 f"are the vendor's own, so Print Handy does not drive calibrations on it.")
-    if entry.firmware_family not in ELIGIBLE_FAMILIES:
+    if entry.firmware_family not in ELIGIBLE_FAMILIES and not is_forgex(entry):
         return (f"This printer's firmware family ({entry.firmware_family or 'none'}) is not "
                 f"one Print Handy can calibrate: only ZMod and vanilla Klipper printers "
                 f"are eligible.")
@@ -321,9 +340,10 @@ class PrinterFacts:
     bed_mesh: dict = None      # the live bed_mesh object
     input_shaper: dict = None  # the live input_shaper object
     variables: dict = None     # save_variables variables
+    mod_params: dict = None    # Forge-X's mod_params object (absent elsewhere)
 
     def __post_init__(self):
-        for name in ("settings", "bed_mesh", "input_shaper", "variables"):
+        for name in ("settings", "bed_mesh", "input_shaper", "variables", "mod_params"):
             if getattr(self, name) is None:
                 object.__setattr__(self, name, {})
 
@@ -381,7 +401,8 @@ def fetch_facts(transport) -> PrinterFacts:
         settings=configfile.get("settings") or {},
         bed_mesh=status.get("bed_mesh") or {},
         input_shaper=status.get("input_shaper") or {},
-        variables=save_variables.get("variables") or {})
+        variables=save_variables.get("variables") or {},
+        mod_params=status.get("mod_params") or {})
 
 
 def install_mode(entry, facts) -> str:
@@ -419,6 +440,8 @@ def available_options(entry, facts) -> tuple:
     the macro in the objects list, or the config section in the
     configfile settings. Mode verdicts follow the Stage 0 evidence.
     """
+    if is_forgex(entry):
+        return _forgex_options(facts)
     mode = install_mode(entry, facts)
     options = []
     if mode == "native":
@@ -500,6 +523,45 @@ def available_options(entry, facts) -> tuple:
             "zoffset", "Z offset", "guide",
             "PROBE_CALIBRATE is an interactive paper-test dialogue at the bed, so "
             "Print Handy reports the configured value and guides it"))
+    return tuple(options)
+
+
+def _forgex_options(facts) -> tuple:
+    """Forge-X's menu: its own macros, only when the printer defines them."""
+    screen = forgex_screen(facts)
+    options = []
+    if facts.has_macro("AUTO_FULL_BED_LEVEL"):
+        if screen in ("feather", "guppy", "headless"):
+            options.append(CalOption(
+                "mesh", "Full bed mesh", "run",
+                "Forge-X's AUTO_FULL_BED_LEVEL (cleans the nozzle, tares the load cell), "
+                "measured into a scratch profile; you accept before it replaces 'auto'"))
+        else:
+            options.append(CalOption(
+                "mesh", "Full bed mesh", "report",
+                "the Stock screen keeps its own MESH_DATA profile, or the screen mode "
+                "could not be read, so Print Handy reports the mesh instead of measuring"))
+    if facts.has_macro("BED_LEVEL_SCREWS_TUNE"):
+        options.append(CalOption(
+            "screws", "Bed screws", "guide",
+            "BED_LEVEL_SCREWS_TUNE is turned by hand at the printer, so Print Handy guides it"))
+    if _pid_before(facts.settings, "extruder") is not None:
+        options.append(CalOption(
+            "pid_extruder", "Extruder PID", "run",
+            "PID_CALIBRATE at the temperature you pick, restarted away on Discard"))
+    if _pid_before(facts.settings, "heater_bed") is not None:
+        options.append(CalOption(
+            "pid_bed", "Bed PID", "run",
+            "PID_CALIBRATE at the temperature you pick, restarted away on Discard"))
+    if facts.has_macro("FORGE_SHAPER_CALIBRATE"):
+        options.append(CalOption(
+            "shaper", "Input shaper", "run",
+            "FORGE_SHAPER_CALIBRATE measures both axes and applies its recommendation in "
+            "memory; you accept before SAVE_CONFIG stores it, Discard restarts it away"))
+    options.append(CalOption(
+        "zoffset", "Z offset", "guide",
+        "the Z offset is a paper test (Feather) or a first-layer adjustment saved with "
+        "load_zoffset, so Print Handy guides it"))
     return tuple(options)
 
 
@@ -1042,6 +1104,13 @@ class PreparedMesh:
         if self.family == "zmod":
             return (f"AUTO_FULL_BED_LEVEL PROFILE={MEASURE_PROFILE} SAVE=0 "
                     f"EXTRUDER_TEMP={ZMOD_MESH_EXTRUDER_TEMP} BED_TEMP={ZMOD_MESH_BED_TEMP}")
+        if self.family == "forgex":
+            # Forge-X's macro has no SAVE parameter: BED_MESH_CALIBRATE inside it
+            # stores the mesh under PROFILE in memory only. A scratch profile
+            # keeps 'auto' untouched (the macro backs up 'auto' only when asked
+            # to measure into it), and nothing is written until Accept.
+            return (f"AUTO_FULL_BED_LEVEL PROFILE={MEASURE_PROFILE} "
+                    f"EXTRUDER_TEMP={ZMOD_MESH_EXTRUDER_TEMP} BED_TEMP={ZMOD_MESH_BED_TEMP}")
         return f"BED_MESH_CALIBRATE PROFILE={MEASURE_PROFILE}"
 
 
@@ -1065,7 +1134,25 @@ def prepare_mesh(transport, entry, facts=None) -> PreparedMesh:
     if facts is None:
         facts = fetch_facts(transport)
     mode = install_mode(entry, facts)
-    if entry is not None and entry.firmware_family == "zmod":
+    if is_forgex(entry):
+        screen = forgex_screen(facts)
+        if screen == "stock":
+            raise CalibrationRefusal(
+                "This Forge-X printer is on the Stock screen, which keeps its own MESH_DATA "
+                "profile; Print Handy reports that mesh instead of measuring over it. "
+                "Nothing was sent.")
+        if screen == "unknown":
+            raise CalibrationRefusal(
+                "Print Handy could not read this Forge-X printer's screen mode "
+                "(mod_params display), so it will not measure a mesh it cannot place. "
+                "Nothing was sent.")
+        if not facts.has_macro("AUTO_FULL_BED_LEVEL"):
+            raise CalibrationRefusal(
+                "The printer does not define Forge-X's AUTO_FULL_BED_LEVEL macro, and a bare "
+                "BED_MESH_CALIBRATE skips its nozzle cleaning and load-cell tare. "
+                "Nothing was sent.")
+        family = "forgex"
+    elif entry is not None and entry.firmware_family == "zmod":
         if mode == "native":
             raise CalibrationRefusal(
                 "This printer's native screen owns the bed mesh — it loads its mesh "
@@ -1117,6 +1204,10 @@ def mesh_prompt_text(prepared: PreparedMesh) -> str:
                  "is told SAVE=0, so it measures and loads the mesh in memory only; "
                  "your saved meshes are not touched."
                  if prepared.family == "zmod" else
+                 " — Forge-X's own leveling: it heats the bed and nozzle, cleans the "
+                 "nozzle, tares the load cell, then probes the whole bed into a scratch "
+                 "profile in memory; your saved 'auto' mesh is not touched."
+                 if prepared.family == "forgex" else
                  " — it probes the whole bed and loads the mesh in memory only; "
                  "your saved profiles are not touched."),
               "",
@@ -1297,6 +1388,9 @@ _SHAPER_REC_KLIPPER_RE = re.compile(
 _SHAPER_REC_ZMOD_RE = re.compile(
     r"Recommended shaper is\s+([A-Za-z0-9_]+)\s*@\s*([0-9]+(?:\.[0-9]+)?)\s*Hz", re.I)
 _AXIS_CONTEXT_RE = re.compile(r"for\s+([xy])\s+axis", re.I)
+# Forge-X's FORGE_SHAPER_CALIBRATE: "X: recommended mzv at 52.3 Hz", one line per axis.
+_SHAPER_REC_FORGEX_RE = re.compile(
+    r"^\s*([XY]):\s*recommended\s+([A-Za-z0-9_]+)\s+at\s+([0-9]+(?:\.[0-9]+)?)\s*Hz", re.I | re.M)
 
 
 def parse_shaper_recommendations(messages) -> ShaperValues:
@@ -1322,6 +1416,10 @@ def parse_shaper_recommendations(messages) -> ShaperValues:
         match = _SHAPER_REC_ZMOD_RE.search(message)
         if match and axis is not None:
             found[axis] = (match.group(1).casefold(), float(match.group(2)))
+            continue
+        for match in _SHAPER_REC_FORGEX_RE.finditer(message):
+            found[match.group(1).casefold()] = (match.group(2).casefold(),
+                                                float(match.group(3)))
     return ShaperValues(
         type_x=found.get("x", (None, None))[0], freq_x=found.get("x", (None, None))[1],
         type_y=found.get("y", (None, None))[0], freq_y=found.get("y", (None, None))[1])
@@ -1329,12 +1427,13 @@ def parse_shaper_recommendations(messages) -> ShaperValues:
 
 @dataclass(frozen=True)
 class PreparedShaper:
-    family: str                     # "zmod" | "klipper"
+    family: str                     # "zmod" | "klipper" | "forgex"
     before: ShaperValues
 
     @property
     def script(self):
-        return "ZSHAPER" if self.family == "zmod" else "SHAPER_CALIBRATE"
+        return {"zmod": "ZSHAPER", "forgex": "FORGE_SHAPER_CALIBRATE"}.get(
+            self.family, "SHAPER_CALIBRATE")
 
 
 def prepare_shaper(transport, entry, facts=None) -> PreparedShaper:
@@ -1344,7 +1443,13 @@ def prepare_shaper(transport, entry, facts=None) -> PreparedShaper:
         raise CalibrationRefusal(reason + " Nothing was sent.")
     if facts is None:
         facts = fetch_facts(transport)
-    if entry is not None and entry.firmware_family == "zmod":
+    if is_forgex(entry):
+        if not facts.has_macro("FORGE_SHAPER_CALIBRATE"):
+            raise CalibrationRefusal("The printer does not define Forge-X's "
+                                     "FORGE_SHAPER_CALIBRATE macro, so Print Handy has no "
+                                     "input-shaper measurement to run on it. Nothing was sent.")
+        family = "forgex"
+    elif entry is not None and entry.firmware_family == "zmod":
         if not facts.has_macro("ZSHAPER"):
             raise CalibrationRefusal("The printer does not define ZMod's ZSHAPER macro, "
                                      "so Print Handy has no input-shaper measurement to "
@@ -1369,8 +1474,12 @@ def shaper_prompt_text(prepared: PreparedShaper) -> str:
         f"Current values — X axis: {prepared.before.axis_text('x')}; "
         f"Y axis: {prepared.before.axis_text('y')}.",
         "",
-        f"This sends exactly one command: `{prepared.script}`. It only *measures and "
-        "recommends* — nothing is applied or saved by the calibration itself.",
+        f"This sends exactly one command: `{prepared.script}`. "
+        + ("Forge-X's calibration applies its recommendation in memory (not saved); "
+           "Discard restarts Klipper's firmware to drop it."
+           if prepared.family == "forgex" else
+           "It only *measures and recommends* — nothing is applied or saved by the "
+           "calibration itself."),
         "",
         "Warnings: the printer will vibrate hard at many frequencies for several "
         "minutes and will be loud — stay nearby, make sure nothing loose is sitting "
@@ -1431,15 +1540,20 @@ def shaper_result_text(result: ShaperResult) -> str:
              "Before → recommended:",
              *shaper_difference_lines(result.before, result.after),
              "",
-             "The recommended values are not in force and nothing has been saved — "
-             "the calibration only holds them ready.",
+             ("Forge-X applied the recommended values in memory; nothing has been saved."
+              if result.prepared.family == "forgex" else
+              "The recommended values are not in force and nothing has been saved — "
+              "the calibration only holds them ready."),
              f"- **{ACCEPT_LABEL}**: stores them with SAVE_CONFIG, which restarts "
              "Klipper. Note SAVE_CONFIG does not change max_accel — if the report "
              "suggested a lower acceleration, set that separately.",
-             f"- **{DISCARD_LABEL}**: sends nothing. One honesty note: the "
-             "recommendation stays pending inside Klipper until the next restart, "
-             "so an unrelated SAVE_CONFIG before a restart would include it — "
-             "restarting the printer drops it for good."]
+             (f"- **{DISCARD_LABEL}**: restarts Klipper's firmware (FIRMWARE_RESTART), "
+              "which drops the values Forge-X applied in memory; nothing is saved."
+              if result.prepared.family == "forgex" else
+              f"- **{DISCARD_LABEL}**: sends nothing. One honesty note: the "
+              "recommendation stays pending inside Klipper until the next restart, "
+              "so an unrelated SAVE_CONFIG before a restart would include it — "
+              "restarting the printer drops it for good.")]
     return "\n".join(lines)
 
 
@@ -1455,7 +1569,20 @@ def accept_shaper(transport, result: ShaperResult, *, sleep=time.sleep) -> str:
 
 
 def discard_shaper(transport, result: ShaperResult) -> str:
-    """Discard: send nothing — the calibration applied nothing. Never a save."""
+    """Discard: send nothing — the calibration applied nothing. Never a save.
+
+    Forge-X's FORGE_SHAPER_CALIBRATE applies its recommendation in memory and
+    stages it for SAVE_CONFIG, so its Discard is one FIRMWARE_RESTART, the same
+    revert as a PID discard, which drops both.
+    """
+    if result.prepared.family == "forgex":
+        _require_idle_now(transport, recheck=True)
+        _send_script(transport, "FIRMWARE_RESTART")
+        return ("Discarded the recommended input shaper values and restarted Klipper's "
+                "firmware: Forge-X had applied them in memory, and the restart puts your "
+                f"configured values (X: {result.before.axis_text('x')}; "
+                f"Y: {result.before.axis_text('y')}) back in force. Nothing was saved. "
+                "A calibration record was written — `/print-calibration records` lists it.")
     return ("Discarded the recommended input shaper values — nothing was sent and "
             "nothing was saved; your configured values "
             f"(X: {result.before.axis_text('x')}; Y: {result.before.axis_text('y')}) "
@@ -1510,6 +1637,11 @@ def prepare_screws(transport, entry, facts=None) -> PreparedScrews:
     reason = block_reason(entry)
     if reason is not None:
         raise CalibrationRefusal(reason + " Nothing was sent.")
+    if is_forgex(entry):
+        raise CalibrationRefusal(
+            "On Forge-X the bed-screw tune is BED_LEVEL_SCREWS_TUNE, turned by hand at the "
+            "printer — `/print-calibration screws` gives that guide instead of driving it. "
+            "Nothing was sent.")
     if entry is not None and entry.firmware_family == "zmod":
         raise CalibrationRefusal(
             "On ZMod printers the bed-screw tune is BED_LEVEL_SCREWS_TUNE, which "
@@ -1621,6 +1753,45 @@ Print Handy cannot answer that prompt from chat, so this one is a guide.
    stock screen.
 
 Print Handy sent nothing to the printer."""
+
+SCREWS_FORGEX_GUIDE = """**Bed screws on Forge-X (guided — you run this one at the printer)**
+
+1. Clean the nozzle first: plastic on the tip makes the measurement wrong.
+2. Start the tune: in Feather, Control → Calibration → Bed screws, or from the
+   console `BED_LEVEL_SCREWS_TUNE EXTRUDER_TEMP=220 BED_TEMP=60`. It homes,
+   cleans the nozzle and probes each corner with the load cell.
+3. Turn the nuts under the bed as it tells you, then re-measure: press
+   **Repeat** in Feather, or run `BED_LEVEL_SCREWS_PROBE` while the printer is
+   still homed and hot.
+4. Rebuild the bed mesh afterwards (`/print-calibration mesh`) and check the
+   Z offset. If the bed moved by more than about 1 mm, re-tare the load cell
+   first (Forge-X FAQ).
+
+Print Handy sent nothing to the printer."""
+
+FORGEX_ZOFFSET_GUIDE = """**Z offset on Forge-X (guided — you run this one at the printer)**
+
+- In Feather: Control → Calibration → Z Offset, while the printer is idle.
+  It starts with Safe Z, cleans the nozzle, then walks you through the paper
+  test; save the result explicitly. During a print, Z Adjust changes the live
+  offset until you press Save.
+- From Fluidd or Mainsail: print a small single-layer test, adjust with
+  `SET_GCODE_OFFSET`, then save it and turn on loading at print start:
+  `SET_GCODE_OFFSET Z=<value>` and `SET_MOD PARAM=load_zoffset VALUE=1`.
+- On the AD5M, a lower Z offset brings the bed closer to the nozzle.
+
+Print Handy never puts Z_OFFSET or SKIP_ZOFFSET on the start line: both
+cancel the print on Forge-X. Nothing was sent to the printer."""
+
+
+def screws_guide(entry) -> str:
+    """The bed-screw guide for this printer's firmware."""
+    if is_forgex(entry):
+        return SCREWS_FORGEX_GUIDE
+    if entry is not None and entry.firmware_family == "zmod":
+        return SCREWS_ZMOD_GUIDE
+    return SCREWS_KLIPPER_GUIDE
+
 
 SCREWS_KLIPPER_GUIDE = """**Bed screws with [bed_screws] (guided — you run this one at the printer)**
 
@@ -1735,6 +1906,8 @@ def mesh_report_text(entry, facts) -> str:
     cannot tell who owns it. Either way the bot reports what is stored
     and never measures over the owner.
     """
+    if is_forgex(entry):
+        return _forgex_mesh_report(facts)
     mode = install_mode(entry, facts)
     active = active_mesh_summary(facts.bed_mesh)
     stored = profile_mesh_summary(facts.bed_mesh, "auto")
@@ -1765,6 +1938,32 @@ def mesh_report_text(entry, facts) -> str:
             "reports the mesh instead of measuring a new one that might fight the "
             "screen. Reconcile the display mode (the printer's settings, or "
             "`/print-handy debugging`) and try again."]
+    return "\n".join(lines)
+
+
+def _forgex_mesh_report(facts) -> str:
+    """Forge-X on the Stock screen (MESH_DATA) or an unreadable screen mode: report only."""
+    screen = forgex_screen(facts)
+    profile = "MESH_DATA" if screen == "stock" else "auto"
+    stored = profile_mesh_summary(facts.bed_mesh, profile)
+    active = active_mesh_summary(facts.bed_mesh)
+    lines = ["**Bed mesh on this Forge-X printer** (read live; nothing was sent):", ""]
+    if stored is not None:
+        lines.append(f"- Stored '{profile}' mesh: {stored.text()}.")
+    if active is not None and (stored is None or active.text() != stored.text()):
+        lines.append(f"- Currently loaded: {active.text()}.")
+    if stored is None and active is None:
+        lines.append("- No stored or loaded mesh could be read from the printer.")
+    lines.append("")
+    if screen == "stock":
+        lines.append("The Stock screen keeps its own MESH_DATA profile. Rebuild it from the "
+                     "screen, or from the console with `AUTO_FULL_BED_LEVEL PROFILE=MESH_DATA "
+                     "BED_TEMP=60 EXTRUDER_TEMP=220` then `SAVE_CONFIG`. Print Handy slices "
+                     "for Feather, Guppy or Headless, so it does not print on the Stock screen.")
+    else:
+        lines.append("Print Handy could not read the screen mode (mod_params display), so it "
+                     "reports instead of measuring. Check `SET_MOD PARAM=display`, then run "
+                     "`/print-calibration mesh` again.")
     return "\n".join(lines)
 
 
@@ -1836,6 +2035,16 @@ def zoffset_report(transport, entry, facts=None) -> str:
     if facts is None:
         facts = fetch_facts(transport)
     label = entry.label if entry is not None else "your printer"
+    if is_forgex(entry):
+        variables = facts.mod_params.get("variables") if isinstance(facts.mod_params, dict) else None
+        armed = isinstance(variables, dict) and variables.get("load_zoffset") in (1, True, "1")
+        lines = [f"**Z offset — {label}** (read live; nothing was sent):", "",
+                 "- load_zoffset is " + ("on: the saved offset is applied at print start."
+                                         if armed else
+                                         "off or unreadable: a saved offset is not applied at "
+                                         "print start until `SET_MOD PARAM=load_zoffset VALUE=1`."),
+                 "", FORGEX_ZOFFSET_GUIDE]
+        return "\n".join(lines)
     if entry is None or entry.firmware_family != "zmod":
         probe_z = _num(facts.section("probe").get("z_offset"))
         lines = [f"**Z offset — {label}** (read live; nothing was sent):", ""]

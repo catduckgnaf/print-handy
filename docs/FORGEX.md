@@ -272,14 +272,45 @@ Handy records no chamber ceiling for either model. The recorded
 ceilings are the extruder maximum of 350 C and the bed maximum of
 130 C, both sourced from the beta branch's shipped default config.
 
+## Calibration
+
+`/print-calibration` on a Forge-X printer uses Forge-X's own macros,
+from the 1.4.2 beta's calibration guide and macro files. Each driven run
+keeps Print Handy's usual pattern: current values first, a confirmation,
+the run only while the printer is idle, then the new values and an
+Accept or Discard before anything is saved.
+
+| Calibration | How Print Handy serves it on Forge-X |
+| --- | --- |
+| Full bed mesh | `AUTO_FULL_BED_LEVEL PROFILE=print_handy EXTRUDER_TEMP=220 BED_TEMP=60`: cleans the nozzle, tares the load cell and probes into a scratch profile. Accept copies it to `auto` and runs `SAVE_CONFIG`; Discard reloads the previous mesh and saves nothing. Never a bare `BED_MESH_CALIBRATE`, which skips the cleaning and the tare. Run only on Feather, Guppy or Headless; on the Stock screen (its own `MESH_DATA` profile) or an unreadable screen mode, the mesh is reported instead. |
+| Extruder and bed PID | Raw `PID_CALIBRATE` at the temperature you pick. Never `PID_TUNE_EXTRUDER` or `PID_TUNE_BED`. Accept is `SAVE_CONFIG`, Discard is `FIRMWARE_RESTART`. |
+| Input shaper | `FORGE_SHAPER_CALIBRATE`. It applies its recommendation in memory, so Accept is `SAVE_CONFIG` and Discard is `FIRMWARE_RESTART`, which drops it. Graphs stay under mod_data in Fluidd or Mainsail. |
+| Bed screws | A guide: `BED_LEVEL_SCREWS_TUNE` is turned by hand at the printer. |
+| Z offset | A guide: Feather's Z Offset paper test, or `SET_GCODE_OFFSET` plus `SET_MOD PARAM=load_zoffset VALUE=1`. Print Handy reads whether `load_zoffset` is on and never puts `Z_OFFSET` or `SKIP_ZOFFSET` on a start line. |
+
+A calibration only appears when the printer defines its macro.
+
+## Timelapse
+
+Forge-X's native timelapse is switched on at the printer
+(`SET_MOD PARAM=timelapse VALUE=1`), and finished videos appear in
+Mainsail's Timelapse view. `[printer] forgex_timelapse` controls the
+prints Print Handy slices: `printer` (the default) sends nothing and the
+printer's switch decides; `off` adds `TIMELAPSE=0` to the file's single
+`START_PRINT` line, so those prints make no timelapse. Forge-X cannot be
+told to make a timelapse for one print, so there is no `on`. A file with
+no `START_PRINT` line, more than one, or one that already names
+`TIMELAPSE` is refused rather than guessed at. Print Handy does not yet
+collect Forge-X's own timelapse videos; its Discord timelapse is its
+separate camera recording.
+
 ## What is not supported yet
 
-Scoped out of the first tranche (#1506 names the follow-up tranches):
+Scoped out so far (#1506 names the follow-up tranches):
 
-- Per-screen-mode print start (mesh profile naming, Z-offset
-  ownership, the stock screen's extra heating lines), screen-mode
-  detection, calibration routing through Forge-X's macros, and the
-  beta timelapse contract as Print Handy job behavior: tranche 2.
+- The Stock screen's print start (its extra heating lines): Stock-screen
+  prints are refused with the fix named, see above.
+- Collecting Forge-X's own timelapse videos into chat.
 - Guarded firmware apply, update alerts and a firmware watch entry:
   tranche 3, under #1280 section I.
 - Forge-X on any other printer: upstream has not ported it to the

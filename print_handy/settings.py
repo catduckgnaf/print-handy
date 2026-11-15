@@ -166,6 +166,14 @@ OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material
 # Keys that can be optionally specified even if absent from base home.yaml.
 OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int,
                  ("printer", "zmod_delivery_format"): str,
+                 ("printer", "opencreator_flow_calibration"): str,
+                 ("printer", "opencreator_purge"): str,
+                 ("printer", "opencreator_purge_line"): str,
+                 ("printer", "opencreator_purge_line_all_tools"): str,
+                 ("printer", "opencreator_bed_leveling"): str,
+                 ("printer", "opencreator_host_pressure_advance"): str,
+                 ("printer", "opencreator_buildplate_check"): str,
+                 ("printer", "forgex_timelapse"): str,
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
                  ("vision", "ai_enabled"): bool,
@@ -738,6 +746,41 @@ def _validate_zmod_delivery_format(data, model):
         raise SettingsError("[printer] zmod_delivery_format only applies to Flashforge/ZMod printers")
     if value not in ("gcode", "3mf", "auto"):
         raise SettingsError(f"[printer] zmod_delivery_format must be \"gcode\", \"3mf\" or \"auto\", got {value!r}")
+
+
+def _validate_forgex_timelapse(data, model):
+    """[printer] forgex_timelapse (#1506): "printer" or "off", Forge-X only when not the default."""
+    from .printers.flashforge_forgex import start_contract
+    try:
+        value = start_contract.timelapse_choice(data["printer"])
+    except ValueError as error:
+        raise SettingsError(str(error)) from None
+    if value != "printer" and model.vendor.key != "flashforge_forgex":
+        raise SettingsError("[printer] forgex_timelapse only applies to Flashforge printers on Forge-X firmware")
+
+
+def _validate_opencreator_overrides(data, model):
+    """[printer] opencreator_* (#1490 tranche 5): per-print C5_PRINT_START overrides.
+
+    Each switch is "printer" (send nothing), "on" or "off"; the build plate
+    check is "printer" or "off". They mean nothing on other firmware, so setting one
+    there is refused, not ignored, like zmod_delivery_format.
+    """
+    from .printers.flashforge_opencreator import start_contract
+    printer = data["printer"]
+    try:
+        start_contract.override_params(printer)
+    except ValueError as error:
+        raise SettingsError(str(error)) from None
+    # A value at its default ("printer") asks for nothing, so it is accepted
+    # anywhere: the config page submits hidden fields too, and a default must
+    # not fail another printer.
+    keys = [k for k in (*start_contract.OVERRIDE_SETTINGS, start_contract.BUILDPLATE_SETTING)
+            if printer.get(k) not in (None, "printer")]
+    if not keys:
+        return
+    if model.vendor.key != "flashforge_opencreator":
+        raise SettingsError(f"[printer] {keys[0]} only applies to Flashforge printers on OpenCreator firmware")
 
 
 def _validate_bambu_lan(data, model):
@@ -2265,6 +2308,8 @@ def validate(data):
     _check_connection_urls(services, model)
     _validate_bambu_lan(data, model)
     _validate_zmod_delivery_format(data, model)
+    _validate_opencreator_overrides(data, model)
+    _validate_forgex_timelapse(data, model)
     _validate_stock_lan(data, model)
     _validate_prusa_link(data, model)
     _validate_elegoo_sdcp(data, model)

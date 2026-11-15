@@ -2541,9 +2541,15 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     result_path = folder / 'result.json'
     # The finalized G-code, read once for every read-only check below (#1153):
     # the post-slice guard, the vendor start-code check and the printer's own
-    # refusals used to read the whole file once each. Finalizing (above) is
-    # the last write, so all three see exactly the bytes they used to read.
+    # refusals used to read the whole file once each. The printer's own last
+    # rewrite (OpenCreator's per-print start overrides, #1490) works on this
+    # same text and is written back only when it changed anything, so every
+    # check still sees exactly the bytes the printer will get, with no extra read.
     final_text = output.read_text(errors='replace')
+    printer_final = printer.finalize_output(final_text)
+    if printer_final != final_text:
+        output.write_text(printer_final)
+        final_text = printer_final
     post_gate = post_slice(final_text, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
                            bed=bed, filament_slots=(int(printer.slot_count) if multi_tool else FILAMENT_SLOTS), tool_slots=tool_slots,
                            templates=templates, profile_paths=filament_paths,

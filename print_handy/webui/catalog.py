@@ -84,6 +84,14 @@ GROUP_OF = {
     "printer.model": "printers",
     "printer.slicer": "slicing",
     "printer.zmod_delivery_format": "printers",
+    "printer.opencreator_flow_calibration": "printers",
+    "printer.opencreator_purge": "printers",
+    "printer.opencreator_purge_line": "printers",
+    "printer.opencreator_purge_line_all_tools": "printers",
+    "printer.opencreator_bed_leveling": "printers",
+    "printer.opencreator_host_pressure_advance": "printers",
+    "printer.opencreator_buildplate_check": "printers",
+    "printer.forgex_timelapse": "printers",
     "delivery.methods": "slicing",
     "layout.spacing": "slicing",
     "bot.mode": "platform",
@@ -247,6 +255,46 @@ CATALOG = (
            "reports ZMod 1.7.5+ and plain .gcode otherwise; gcode always sends .gcode; "
            "3mf always sends the package.",
            choices=("auto", "gcode", "3mf"), validator="settings zmod delivery format check"),
+    _field("printer", "opencreator_flow_calibration", "OpenCreator: Flow calibration", "picker",
+           "OpenCreator printers only. printer leaves flow (pressure advance) calibration at print start to the printer's own switch; "
+           "on or off overrides it for every print Print Handy slices, by writing the full "
+           "C5_PRINT_START line into the file.",
+           choices=("printer", "on", "off"), validator="settings opencreator override check"),
+    _field("printer", "opencreator_purge", "OpenCreator: Bucket purge", "picker",
+           "OpenCreator printers only. printer leaves purging each prepared tool into the bucket to the printer's own switch; "
+           "on or off overrides it for every print Print Handy slices, by writing the full "
+           "C5_PRINT_START line into the file.",
+           choices=("printer", "on", "off"), validator="settings opencreator override check"),
+    _field("printer", "opencreator_purge_line", "OpenCreator: Purge line", "picker",
+           "OpenCreator printers only. printer leaves the purge line drawn in front of the print to the printer's own switch; "
+           "on or off overrides it for every print Print Handy slices, by writing the full "
+           "C5_PRINT_START line into the file.",
+           choices=("printer", "on", "off"), validator="settings opencreator override check"),
+    _field("printer", "opencreator_purge_line_all_tools", "OpenCreator: Purge line for every tool", "picker",
+           "OpenCreator printers only. printer leaves a purge line for every used tool to the printer's own switch; "
+           "on or off overrides it for every print Print Handy slices, by writing the full "
+           "C5_PRINT_START line into the file.",
+           choices=("printer", "on", "off"), validator="settings opencreator override check"),
+    _field("printer", "opencreator_bed_leveling", "OpenCreator: Bed leveling", "picker",
+           "OpenCreator printers only. printer leaves a fresh adaptive mesh before each print to the printer's own switch; "
+           "on or off overrides it for every print Print Handy slices, by writing the full "
+           "C5_PRINT_START line into the file.",
+           choices=("printer", "on", "off"), validator="settings opencreator override check"),
+    _field("printer", "opencreator_host_pressure_advance", "OpenCreator: Host pressure advance test", "picker",
+           "OpenCreator printers only. printer leaves the experimental host pressure advance test to the printer's own switch; "
+           "on or off overrides it for every print Print Handy slices, by writing the full "
+           "C5_PRINT_START line into the file.",
+           choices=("printer", "on", "off"), validator="settings opencreator override check"),
+    _field("printer", "opencreator_buildplate_check", "OpenCreator: build plate check", "picker",
+           "OpenCreator printers only. printer leaves the firmware's build plate check on; off "
+           "skips it for prints Print Handy slices, by writing the full C5_PRINT_START line "
+           "into the file.",
+           choices=("printer", "off"), validator="settings opencreator override check"),
+    _field("printer", "forgex_timelapse", "Forge-X: timelapse", "picker",
+           "Forge-X printers only. printer leaves the printer's own timelapse switch in charge; "
+           "off adds TIMELAPSE=0 to the start line of prints Print Handy slices, so they make "
+           "no timelapse. Forge-X cannot be told to make one for a single print.",
+           choices=("printer", "off"), validator="settings forgex timelapse check"),
     # Bot and chat platform (guided setup: mode, plus bot platform from #164).
     _field("bot", "mode", "Bot mode", "picker",
            "standalone: Print Handy runs as its own bot (the only mode; the Hermes "
@@ -972,6 +1020,10 @@ def config_page_visible(field, data, reveal=None) -> bool:
     model = _configured_model(data)
     if field.id == "printer.zmod_delivery_format":
         return bool(model and model.vendor.key == "flashforge")
+    if field.id == "printer.forgex_timelapse":
+        return bool(model and model.vendor.key == "flashforge_forgex")
+    if field.id.startswith("printer.opencreator_"):
+        return bool(model and model.vendor.key == "flashforge_opencreator")
     if field.id == "bambu.lan_serial":
         # The serial belongs with the Bambu LAN address: it follows the
         # same per-model visibility as bambu.lan_host, so the pair the
