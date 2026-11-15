@@ -77,7 +77,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 - Logging markers for the supervisor, Web UI and gates (#1420); default Docker log writes stay fail-open so a logging failure cannot take the container down (#1419).
 - Tests no longer inherit a credential from the machine running the suite (#1441), and every test gets its own prompt registry (#1442).
 - Development-checkout bug reports can answer the diagnostics-bundle field with Not applicable (#1477).
-- Release housekeeping: the 2.3.4 release commit and notes updates (#1502, #1507), and explanatory source comments in about ten modules, with no behavior change (#1521).
+- Release housekeeping: the 2.3.4 release commit and notes updates (#1502, #1507, #1528, #1531), and explanatory source comments in about ten modules, with no behavior change (#1521).
 - The README leads with what Print Handy does, three install paths and honest printer support. (#1509, #1511)
 - The slicing-speed gate keeps a baseline per runner CPU, so a different CI CPU is no longer read as a slowdown. (#1513)
 - Slicing-speed baselines verified unchanged for this release: from main CI run 43675045757 on the release commit, the discord-timing median ratio is 0.945 over the 28 cases of 0.3 s and up with no gate failures, and the real-slicer leg (same EPYC 7763 runner class as its baseline) shows no rises.

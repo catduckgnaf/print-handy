@@ -24,7 +24,7 @@
 - Firmware feed: release notices for every followed firmware and a Web UI Firmware page (PR #1512, #1280 section I).
 - Paint: extended painted-color states past 18 decoded and remapped (PR #1520).
 - Timing gate: per-CPU baseline profiles (PR #1513).
-- Docs and release: README leads with what Print Handy does (PR #1509) and gets three install paths and honest printer support (PR #1511); behavior-neutral source comments (PR #1521); release commit (PR #1502) and notes updates (PR #1507).
+- Docs and release: README leads with what Print Handy does (PR #1509) and gets three install paths and honest printer support (PR #1511); behavior-neutral source comments (PR #1521); release commit (PR #1502) and notes updates (PR #1507, #1528, #1531).
 - Release gate: #1490, #1506 and #1515 stay open; their remaining work moves to 2.3.5 (catduck, #1501).
 
 Merged PRs in the range, one line each:
@@ -93,6 +93,8 @@ Merged PRs in the range, one line each:
 - feat(webui): downloadable settings report for sliced jobs (PR #1522).
 - Web UI: click a slot's spool to switch, add, rename, shelve or archive (#1515) (PR #1523).
 - Forge-X tranche 2b: calibration through Forge-X's own macros and a per-print timelapse skip (#1506) (PR #1527).
+- docs(release): bring the 2.3.4 notes up to date with #1500-#1527 (PR #1528).
+- docs(release): name the notes PRs themselves in the 2.3.4 notes (PR #1531).
 
 # Version 2.3.3
 
