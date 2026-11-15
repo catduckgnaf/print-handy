@@ -278,6 +278,19 @@ class OpenCreatorAdapter(KlipperAdapter):
             problems.append(mismatch)
         return problems
 
+    def backup_lane_summary(self, status, selection=None):
+        """Advisory text only; never a readiness refusal or mapping write."""
+        from .backup import summarize_backup_lanes
+        mapping = selection.get("tool_mapping") if isinstance(selection, dict) else None
+        tools = list(mapping) if isinstance(mapping, dict) and mapping else range(self.tool_count)
+        result = summarize_backup_lanes(status, tools)
+        lines = ["OpenCreator backup lanes (display only; not hardware verified):"]
+        for row in result["rows"]:
+            lines.append(f"T{row['tool']}: {row['lane'] or 'unknown lane'} runout_lane="
+                         f"{row['runout_lane'] or 'not configured'}")
+        lines.extend(f"Warning: {warning}" for warning in result["warnings"])
+        return "\n".join(lines)
+
     def moonraker_objects(self):
         return ["webhooks", "print_stats", "virtual_sdcard",
                 *[self._extruder_name(tool) for tool in range(self.tool_count)],
@@ -310,6 +323,8 @@ class OpenCreatorAdapter(KlipperAdapter):
             # The sensors disagree: whatever the field holds is not a reading.
             active = None
         out["active_tool"] = active if type(active) is int and 0 <= active < self.tool_count else None
+        from .backup import summarize_backup_lanes
+        out["backup_lanes"] = summarize_backup_lanes(raw, range(self.tool_count))
         return out
 
     def tool_lane_data(self, value):

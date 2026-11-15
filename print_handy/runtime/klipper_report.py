@@ -128,6 +128,40 @@ def _temp(obj: dict[str, Any]) -> str:
     return f"{t:.0f}°C" + (f" (target {tgt:.0f}°C)" if tgt else " (off)")
 
 
+class ActionPrompt:
+    """Incremental reader for Moonraker's action prompt response protocol.
+
+    Only actual response lines count, never echoed RESPOND commands. A new
+    prompt or prompt_end invalidates every previous choice.
+    """
+
+    def __init__(self):
+        self.title = None
+        self.commands = []
+        self.shown = False
+
+    def feed(self, response: str) -> list[str] | None:
+        result = None
+        for line in str(response).splitlines():
+            line = line.removeprefix("// ").strip()
+            if line.startswith("action:prompt_begin "):
+                self.title = line[len("action:prompt_begin "):]
+                self.commands = []
+                self.shown = False
+            elif line == "action:prompt_end":
+                self.__init__()
+                result = None
+            elif self.title is not None:
+                if line.startswith(("action:prompt_button ", "action:prompt_footer_button ")):
+                    fields = line.split(" ", 1)[1].split("|")
+                    if len(fields) >= 2:
+                        self.commands.append(fields[1].strip())
+                elif line == "action:prompt_show" and not self.shown:
+                    self.shown = True
+                    result = list(self.commands)
+        return result
+
+
 def prompt_noise(line: str) -> bool:
     """UI prompt traffic or echo chatter that says nothing about why a print stopped."""
     return bool(PROMPT_NOISE.search(line))

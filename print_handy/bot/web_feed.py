@@ -96,7 +96,8 @@ def entry_for(message, *, platform="", alert=None, now=None) -> dict:
 
 def alert_spec(kind, filename, fields=None) -> dict | None:
     """The alert part of a line: what web chat records its own alert from."""
-    if kind not in ALERT_KINDS:
+    from ..printers.flashforge_opencreator.alerts import choices
+    if kind not in ALERT_KINDS and not choices(kind):
         return None
     return {"kind": str(kind), "filename": str(filename or ""),
             "fields": {k: v for k, v in (fields or {}).items() if v}}

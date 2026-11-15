@@ -147,6 +147,11 @@ def _verify_readiness_adapter(adapter, state, selection=None):
             objects = urllib.parse.quote("&".join(extra), safe="&")
             more = request_json(f"{state['moonraker_url']}/printer/objects/query?{objects}")["result"]["status"]
             status = {**status, **more}
+        warnings = getattr(adapter, "backup_lane_summary", None)
+        if warnings:
+            summary = warnings(status, selection)
+            state["opencreator_backup_lanes"] = summary
+            print(summary, flush=True)
         problems = adapter.readiness_problems(state, status, selection)
         if problems:
             raise RuntimeError("; ".join(problems))
