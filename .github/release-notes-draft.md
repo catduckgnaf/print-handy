@@ -29,6 +29,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 
 ### Print to a Creator 5 or Creator 5 Pro on OpenCreator firmware
 - Creator 5 and Creator 5 Pro owners running OpenCreator firmware can pick their printer (Flashforge Creator 5 (OpenCreator) / Flashforge Creator 5 Pro (OpenCreator)): slicing uses the firmware's documented start form with labeled objects, delivery is plain G-code, and pointing a Creator profile at the wrong custom firmware (ZMod vs OpenCreator) now says so in the readiness refusal. Documented and configuration verified; not yet hardware verified. See docs/OPENCREATOR.md. (#1495)
+- Thanks to Cartrigger (FlashForge C5 Modding Group, OpenCreator) for explaining the firmware's VDS, ACE and print-start behavior on #1490 and for offering support.
 
 ### See where the time goes
 - A new Timing page in the Web UI, a doctor section and the diagnostics bundle show the waits you actually feel — link to first question, last answer to ready, slicing, tap to print started — as medians and p90s from each job's timing log. (#1489)

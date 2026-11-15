@@ -380,6 +380,10 @@ Scoped out of the first tranche (#1490 names the follow-up tranches):
   (see the start form section).
 - The Legacy edition (see Editions above).
 
+## Credits
+
+Thanks to [Cartrigger](https://github.com/Cartrigger) of the FlashForge C5 Modding Group, who develops OpenCreator. On #1490 he explained how VDS and ACE appear to Moonraker (dedicated temperature sensors with macros; ACE behaves like current AFC systems), pointed us to the [opencreator-send](https://github.com/FlashForge-C5-Modding-Group/opencreator-send) plugin as the print-start reference behind this page's start contract, and offered help with anything else Print Handy needs. Print Handy reads that plugin for behavior only and copies none of its code.
+
 ## Choosing between the Creator firmwares
 
 Same printer, two firmwares, two model keys. If the printer runs ZMod,
