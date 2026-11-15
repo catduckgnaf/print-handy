@@ -5700,12 +5700,51 @@ class Listener:
             self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S
             warn(f"printer clock sync ({why}) failed: {exc!r}")
 
+    async def opencreator_recovery(self):
+        """Read-only recovery detection on connect/ready; no new print record."""
+        from ..printers.flashforge_opencreator import alerts as oc
+        if not oc.is_opencreator(self._clock_adapter()):
+            return
+        try:
+            reply = await asyncio.to_thread(print_control._call,
+                                           "/printer/objects/query?power_loss_recovery")
+            status = (reply.get("result") or {}).get("status") or {}
+            found = oc.recovery(status)
+            if not found:
+                self.oc_recovery_identity = None
+                return
+            identity, text = found
+            if identity != getattr(self, "oc_recovery_identity", None):
+                filename = (status.get("power_loss_recovery") or {}).get("filename") or ""
+                if await asyncio.to_thread(post_alert, text, oc.RECOVERY_KIND, filename):
+                    self.oc_recovery_identity = identity
+        except Exception as exc:
+            warn(f"OpenCreator recovery query failed: {exc!r}")
+
+    async def opencreator_prompt(self, line):
+        from ..printers.flashforge_opencreator import alerts as oc
+        if not oc.is_opencreator(self._clock_adapter()):
+            return
+        from .klipper_report import ActionPrompt
+        if not hasattr(self, "oc_prompt"):
+            self.oc_prompt = ActionPrompt()
+        commands = self.oc_prompt.feed(line)
+        kind = oc.runout_kind(commands) if commands else None
+        if kind:
+            text = ("OpenCreator runout: the printer offered the choices below. "
+                    "Actions are not hardware verified and remain blocked in Print Handy; "
+                    "use the printer's own prompt.")
+            await asyncio.to_thread(post_alert, text, kind, self.filename)
+
     async def session(self):
         self.ifs_monitor.reset_baseline(warmup=True)
         async with websockets.connect(WS_URL, ping_interval=20, ping_timeout=20, max_size=2**22) as ws:
             self.moonraker_connected = True
             await ws.send(SUBSCRIBE)
             await asyncio.to_thread(self._sync_printer_clock, "connect")
+            await self.opencreator_recovery()
+            from .klipper_report import ActionPrompt
+            self.oc_prompt = ActionPrompt()
             last_tick = time.monotonic()
             capture_timer = asyncio.create_task(self._capture_timer())
             visual_timer = asyncio.create_task(self._visual_timer())
@@ -5744,6 +5783,7 @@ class Listener:
                                     self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
                     elif method == "notify_gcode_response":
                         for line in msg.get("params") or []:
+                            await self.opencreator_prompt(line)
                             if no_mesh_line(line):
                                 log(f"no bed mesh at print start: {self.filename!r}")
                                 await asyncio.to_thread(post, f"{NO_MESH_ALERT}\nPrint: {print_summary.safe_label(self.filename)}")
@@ -5764,6 +5804,7 @@ class Listener:
                         self.ifs_monitor.reset_baseline(warmup=True)
                         log("klippy ready; resubscribing")
                         await asyncio.to_thread(self._sync_printer_clock, "klippy ready")
+                        await self.opencreator_recovery()
                         await ws.send(SUBSCRIBE)
                 if time.monotonic() - self.last_native_poll >= NATIVE_POLL_SECONDS:
                     self.last_native_poll = time.monotonic()

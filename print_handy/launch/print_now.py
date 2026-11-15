@@ -648,6 +648,7 @@ def job_details(out, *, hardware=None, selection=None, settings=None, record_pat
         f"- Stock nozzle: {u(nozzle_mm)} mm; targets nozzle {u(hot)} C, bed {u(bed)} C",
         *([f"- Temperature material: {u((hardware or {}).get('spool', {}).get('material'))}; source: {u((hardware or {}).get('temperature_resolution', {}).get('source'))}"] if hardware else []),
         *([f"- Calibration: Z offset {z}; {mesh_line(mesh)}"] if calibration else []),
+        *([(hardware or {})["opencreator_backup_lanes"]] if (hardware or {}).get("opencreator_backup_lanes") else []),
         _maintenance_detail_line(),
     ])
 

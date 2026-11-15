@@ -370,6 +370,43 @@ Not hardware verified: the swapped-map and ACE cases are checked
 against the firmware source and one live capture, not against a print.
 The capture did not include the per-lane objects of an ACE printer.
 
+### Runout and power-loss alerts (not hardware verified)
+
+The listener reads Moonraker action-prompt responses, not echoed commands.
+A complete runout prompt is mirrored with exactly its offered Load and continue
+(`_OC_RUNOUT_LOAD_CONTINUE`) and loaded-tool switch choices
+(`_OC_RUNOUT_SWITCH TO=n`). Missing, incomplete or unrecognized choices do not
+create a guessed action. Discord, Telegram, Matrix and web chat use the same
+alert action path.
+
+On connection and when Klipper becomes ready, `power_loss_recovery` is queried.
+When `recovery_available` is true, one alert per observed interruption names the
+file, file-byte progress if valid, and the reported `holding_bed` state. Resume
+corresponds to `RECOVER_PRINT`; Discard corresponds to
+`CLEAR_POWER_LOSS_RECOVERY`. Neither command is sent automatically.
+
+**All of these buttons currently refuse to send commands, even after a press.**
+Runout switching and power-loss recovery are not hardware verified. Use the
+printer's own controls after checking the printer. There is no enable setting
+or bypass. This tranche adds the alert foundation, not authorization for live
+recovery. Consequently, resumed-print record correlation is not claimed here:
+no recovery action or new print number is created by these alerts. A hardware
+pass and original-record correlation remain tracked by #1490 before enabling
+commands. Dedupe lasts for this listener's lifetime; restarting it may repeat
+an available recovery notice.
+
+### Backup lanes (display only; not hardware verified)
+
+Before start, Print Handy displays each selected tool's AFC lane (all four
+when the selection does not name tools) and
+`runout_lane`, and includes that summary in Job Details. Lane names come from
+AFC's resolved tool map, never from an assumed `extruderN` name. Missing or
+unreadable targets, a self-target, unconfirmed filament (`load` is false or
+unknown), unknown material, and differing material families produce advisory
+warnings. These warnings never become readiness blockers. Material metadata
+alone is not evidence of filament presence. Print Handy never sends
+`SET_RUNOUT` or `SET_MAP` from this surface.
+
 ### Firmware updates
 
 Print Handy reports OpenCreator's update state and never installs an
