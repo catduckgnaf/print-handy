@@ -299,6 +299,11 @@ class StandaloneAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.warning("Discord card Stop attach failed: %r", exc)
             return SendResult(False, error=str(exc))
+        # Recorded like every other prompt, so retire_prompt finds it when the
+        # step ends and takes the Stop button off the card (review of #1488:
+        # unrecorded, the button stayed on the card after the step).
+        self._record_prompt(clarify_id, {"message": message, "choices": [prepared_intake.STOP_LABEL],
+                                         "question": str(text), "card": card, "stop": True})
         return SendResult(True, message_id=str(message.id))
 
     async def open_card_thread(self, chat_id, card, metadata=None):
@@ -345,7 +350,8 @@ class StandaloneAdapter(BasePlatformAdapter):
             # A card prompt collapses into a line on the card (#1472), the
             # generalization of the standalone edit below.
             card = row["card"]
-            card.add_answered(row["question"], note)
+            if not row.get("stop"):  # a progress step's Stop is not a question to record
+                card.add_answered(row["question"], note)
             self._card_views[str(getattr(row["message"], "id", ""))] = None
             try:
                 await row["message"].edit(embed=self._card_embed(card), view=None)

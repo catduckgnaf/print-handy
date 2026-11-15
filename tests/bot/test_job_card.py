@@ -418,3 +418,26 @@ def test_discord_card_thread_opens_on_the_card_message():
     assert thread_id is not None
     assert fake.threads and str(fake.threads[0].id) == thread_id
     assert fake.threads[0].name == "Ghost Stand"
+
+
+def test_discord_card_stop_button_retires_when_the_step_ends():
+    """The card's Stop button is recorded like any prompt, so retire_prompt
+    takes it off the card when the step ends (review of #1488: it stayed)."""
+    fake = discord_env()
+    adapter = DiscordAdapter(fake.client, [OPERATOR])
+    card = JobCard("Ghost Stand")
+
+    async def flow():
+        assert (await adapter.post_card(CHAT, card)).success
+        cid = uuid.uuid4().hex
+        prompts.register(cid, "sess", "Slicing. Press Stop to cancel.", ["Stop"])
+        assert (await adapter.attach_card_stop(card, "Slicing. Press Stop to cancel.", cid)).success
+        message = fake.messages[-1]
+        assert message.view is not None
+        await adapter.retire_prompt(cid)
+        return message
+
+    message = run(flow())
+    assert message.view is None
+    assert message.embed is not None
+    assert not card.answered  # a progress step's Stop is not an answered question
