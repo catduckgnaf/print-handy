@@ -5,12 +5,12 @@
 # Version 2.3.4
 
 **Release Date:** 2026-11-14
-**Range:** 2.3.3..main (44 PRs, #1409 to #1498; checklist #1501; baselines verified unchanged from main CI run 43675045757 — discord-timing median ratio 0.945 over 28 cases of 0.3 s and up, no gate failures; real-slicer leg on the same EPYC 7763 runner class as its baseline, no rises). Driven by the combined Web UI delivery (#1460), the ten-lane batch (#1466–#1475), the #1417 silent-handler sweep, the diagnostics tranche (#1404) and OpenCreator tranche 1 (#1490).
+**Range:** 2.3.3..main (46 PRs, #1409 to #1505; checklist #1501; baselines verified unchanged from main CI run 43675045757 — discord-timing median ratio 0.945 over 28 cases of 0.3 s and up, no gate failures; real-slicer leg on the same EPYC 7763 runner class as its baseline, no rises). Driven by the combined Web UI delivery (#1460), the ten-lane batch (#1466–#1475), the #1417 silent-handler sweep, the diagnostics tranche (#1404) and OpenCreator tranche 1 (#1490).
 **Live checks performed for this release:** none on hardware.
 **Not verified live:** OpenCreator on a real Creator 5 / 5 Pro (toolchanger and AFC status shapes unverified; active tool reports unknown), the Discord voice-channel Activity (#1453), a live slash-command sitting, and the Web UI workflow against a live printer. Real-install timing not measured (no proof-run summary). All covered by offline tests.
 
 - Web UI combined delivery (PR #1464, #1460): dashboard replacing the Status page, Workflow page, Sliced files page and Slice and Download, printer settings tab, design from the browser, Pasta Wrapped polish, Layers removal, PWA foundation, favicon.
-- Discord: real slash commands with subcommands, autocomplete and /print-status (PR #1484); fuzzy parity for subcommands with near-miss correction and a mechanical coverage guard (PR #1498); one job card per job edited in place, new `discord.job_card_thread` setting (PR #1488); color mapping proposed and remembered, grouped questions (PR #1487); fast start acceptance with fire-and-readback and one in-place status message (PR #1485); channel-noise fixes (PR #1486).
+- Discord: /print-live now works from the live voice channel’s own chat, and the refusal names the print channel (#1505); the color question no longer regroups your parts three times before asking — it was slowing the ask (#1500); real slash commands with subcommands, autocomplete and /print-status (PR #1484); fuzzy parity for subcommands with near-miss correction and a mechanical coverage guard (PR #1498); one job card per job edited in place, new `discord.job_card_thread` setting (PR #1488); color mapping proposed and remembered, grouped questions (PR #1487); fast start acceptance with fire-and-readback and one in-place status message (PR #1485); channel-noise fixes (PR #1486).
 - Printers: OpenCreator models for Creator 5 and Creator 5 Pro (PR #1495); OctoPrint and Marlin family G-code guard (PR #1481); slices verified with the job's own adapter at slice time (PR #1478); MOONRAKER_API_KEY through one shared Moonraker transport (PR #1483); spool lane_data kept in step on swap and unassign (PR #1427).
 - Diagnostics and logging: crash records, bundle log fallback, shared Web UI/live logging (PR #1409); job correlation ID through the print lifecycle (PR #1424) and the bundle finding IDs beyond the newest 50 jobs (PR #1429); TIMING.jsonl real-wait reporting and budgets (PR #1489); explicit listener/watch log levels and the Moonraker legacy log file retired (PR #1422); REBOOT drop at info and plate-alias fall-through at debug (PR #1465).
 - Silent-handler sweep (#1417, #1455): silent except-pass and contextlib.suppress replaced with logging or recovery across core, runtime, bot, launch, Web UI, jobs/G-code and package-root modules (PRs #1421, #1423, #1426, #1431–#1440, #1482), with a package-wide guard (PR #1457) extended to broad no-log handlers on decision paths (PR #1479).
@@ -64,6 +64,8 @@ Merged PRs in the range, one line each:
 - feat(#1476): report and budget the real waits from TIMING.jsonl (PR #1489).
 - feat(printers): OpenCreator firmware models for Creator 5 and Creator 5 Pro (#1490 tranche 1) (PR #1495).
 - feat(#1496): fuzzy parity for subcommands — phrases, near-miss correction, mechanical coverage guard (PR #1498).
+- Fix the color-plan ask regrouping parts three times before asking; it was slowing the ask (PR #1500).
+- /print-live now works from the live voice channel’s own chat, and the refusal names the print channel (PR #1505).
 
 # Version 2.3.3
 
