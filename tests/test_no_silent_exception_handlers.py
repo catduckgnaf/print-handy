@@ -379,6 +379,22 @@ def _is_broad(handler: ast.ExceptHandler) -> bool:
     return handler.type is None or (isinstance(handler.type, ast.Name) and handler.type.id == "Exception")
 
 
+_NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _walk_same_scope(node):
+    """``ast.walk`` that does not enter nested functions, lambdas or classes.
+
+    A log call or a raise inside a function the handler only defines does
+    not run when the handler does, so it must not count as the handler
+    reporting the failure (review of #1479)."""
+    yield node
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _NESTED_SCOPES):
+            continue
+        yield from _walk_same_scope(child)
+
+
 def _is_broad_no_log(handler: ast.ExceptHandler) -> bool:
     """A broad handler that discards the failure: no log, no raise, no exception name.
 
@@ -390,7 +406,7 @@ def _is_broad_no_log(handler: ast.ExceptHandler) -> bool:
     if not _is_broad(handler) or handler.name is not None:
         return False
     for stmt in handler.body:
-        for node in ast.walk(stmt):
+        for node in _walk_same_scope(stmt):
             if isinstance(node, ast.Raise):
                 return False
             if isinstance(node, ast.Call):
