@@ -327,6 +327,12 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?spools{_END}", re.I), "/spool list"),
     (re.compile(rf"^{_LEAD}(?:sync|synchronize)\s+(?:the\s+)?(?:spools?|filament)(?:\s+with\s+spoolman)?{_END}", re.I), "/spool sync"),
     (re.compile(rf"^{_LEAD}sync\s+(?:with\s+)?spoolman{_END}", re.I), "/spool sync"),
+    # Spool rename, shelve, archive (#1515): the Web UI's slot actions in chat.
+    (re.compile(rf"^{_LEAD}(?:rename|name)\s+(?:a\s+|the\s+|my\s+)?(?:spool|roll){_END}", re.I), "/spool rename"),
+    (re.compile(rf"^{_LEAD}(?:put|move)\s+(?:a\s+|the\s+|my\s+)?(?:spool|roll)\s+back\s+on\s+(?:the\s+)?shelf{_END}", re.I), "/spool shelve"),
+    (re.compile(rf"^{_LEAD}(?:shelve|unload)\s+(?:a\s+|the\s+|my\s+)?(?:spool|roll){_END}", re.I), "/spool shelve"),
+    (re.compile(rf"^{_LEAD}archive\s+(?:a\s+|the\s+|my\s+|an\s+old\s+)?(?:spool|roll){_END}", re.I), "/spool archive"),
+    (re.compile(rf"^{_LEAD}(?:unarchive|restore)\s+(?:a\s+|the\s+|my\s+)?(?:spool|roll){_END}", re.I), "/spool unarchive"),
     # Spool weight wrong (#1374): correcting the grams left is /spool weight.
     # No "correct" here: as an intent word it would pull the typo layer's
     # "corected" / "corectly" to "correct" for every other command.
