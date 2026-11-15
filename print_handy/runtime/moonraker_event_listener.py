@@ -1545,13 +1545,15 @@ def _post_completion(message, completion_message, job_key=None):
 def _deliver_completion(message, completion_message, job_key=None):
     """Acknowledge only a matching pending notice after transport success.
 
-    A post carrying a timelapse (a MEDIA: attachment) delivers its roast
-    as a separate follow-up post, so the roast lands UNDER the video in
-    the chat: on Discord a message's text always renders above its
-    attachments, and the Telegram and Matrix senders likewise post text
-    before files, so a roast inside the timelapse's own message — wherever
-    it sits in the string — always appears above the video. The follow-up
-    is best-effort and never un-delivers the completion: the notice is
+    On Discord the completion and its roast are ONE post (#1472), even
+    when the post carries a timelapse: the channel reads as one line per
+    print, and the roast rides in the completion's own text (above the
+    video — a message's text always renders above its attachments, and
+    that trade is the one #1472 takes). On Telegram and Matrix a post
+    carrying a timelapse (a MEDIA: attachment) still delivers its roast
+    as a separate follow-up post, so the roast lands UNDER the video:
+    those platforms keep their current behavior. The follow-up is
+    best-effort and never un-delivers the completion: the notice is
     acknowledged on the timelapse post's success alone, and a refused
     timelapse post posts no roast at all, leaving it pending for the
     caller's text-only fallback post to carry inline.
@@ -1568,6 +1570,14 @@ def _deliver_completion(message, completion_message, job_key=None):
             job_key = None
     mention = starter_pings.ping_for("complete", job_key=job_key) or None
     mention_kwargs = {"mention_user_id": mention} if mention else {}
+    if re.search(r"MEDIA:\S+", str(message)) and _buttonless_standalone() is None:
+        # Discord (#1472): one post carries the completion, the roast and
+        # the timelapse. _with_completion_roast puts the roast under the
+        # completion text and ahead of any suffix lines, MEDIA: included.
+        delivered = post(_with_completion_roast(message, completion_message), **mention_kwargs)
+        if delivered:
+            _acknowledge_completion(completion_message)
+        return delivered
     if re.search(r"MEDIA:\S+", str(message)):
         roast = _completion_roast_line(message, completion_message)
         delivered = post(message, **mention_kwargs)

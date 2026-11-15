@@ -8,7 +8,7 @@ import pytest
 
 from print_handy.core import prepared_intake
 
-UPLOADED, ACCEPTED = (text for _stage, _grace, text in prepared_intake.START_PROGRESS)
+UPLOADED, ACCEPTED, PREPARING = (text for _stage, _grace, text in prepared_intake.START_PROGRESS)
 SHIPPED_PROGRESS = prepared_intake.START_PROGRESS  # before the autouse fixture shortens the graces
 
 
@@ -137,6 +137,99 @@ def test_scripted_adapters_get_no_notes(tmp_path):
         return True, 'preparing'
     run(tmp_path, adapter, script)
     assert adapter.sent == []
+
+
+def test_preparation_seen_is_the_first_accepted_answer(tmp_path):
+    """#1471: preparation evidence lands while the start is still running; its note is
+    posted without waiting out any floor, and the two earlier notes it supersedes
+    are stale and never posted."""
+    adapter = Adapter()
+
+    async def script():
+        log(tmp_path, 'upload_verified')
+        log(tmp_path, 'start_submitted')
+        log(tmp_path, 'preparation_seen')
+        await asyncio.sleep(0.2)
+        return True, 'preparing'
+    run(tmp_path, adapter, script)
+    assert adapter.sent == [PREPARING]
+
+
+class EditingAdapter(Adapter):
+    """A platform adapter that can edit: send returns a message id, edits are recorded."""
+
+    def __init__(self):
+        super().__init__()
+        self.edits = []
+
+    async def send(self, chat_id, content, metadata=None):
+        self.sent.append(content)
+        return S(success=True, message_id='m-1')
+
+    async def edit_message(self, chat_id, message_id, content, metadata=None):
+        self.edits.append((message_id, content))
+        return S(success=True, message_id=message_id)
+
+
+def test_progress_notes_update_one_message_in_place(tmp_path):
+    """#1471: upload, start sent and preparation seen are one status message:
+    the first note is sent, the later ones edit it."""
+    adapter = EditingAdapter()
+    progress = {}
+
+    async def script():
+        log(tmp_path, 'upload_verified')
+        await asyncio.sleep(0.2)
+        log(tmp_path, 'start_submitted')
+        await asyncio.sleep(0.2)
+        log(tmp_path, 'preparation_seen')
+        await asyncio.sleep(0.2)
+        return True, 'preparing'
+
+    async def work():
+        return await script()
+    result = asyncio.run(prepared_intake._with_start_progress(
+        adapter, S(chat_id='c1'), {}, tmp_path / 'JOB.json', work(), progress=progress))
+    assert result == (True, 'preparing')
+    assert adapter.sent == [UPLOADED]
+    assert adapter.edits == [('m-1', ACCEPTED), ('m-1', PREPARING)]
+    assert progress == {'message_id': 'm-1'}
+
+
+def test_failed_edit_falls_back_to_a_fresh_post(tmp_path):
+    class Uneditable(EditingAdapter):
+        async def edit_message(self, chat_id, message_id, content, metadata=None):
+            return S(success=False, error='cannot edit')
+
+    adapter = Uneditable()
+
+    async def script():
+        log(tmp_path, 'upload_verified')
+        await asyncio.sleep(0.2)
+        log(tmp_path, 'start_submitted')
+        await asyncio.sleep(0.2)
+        return True, 'preparing'
+    run(tmp_path, adapter, script)
+    assert adapter.sent == [UPLOADED, ACCEPTED]
+
+
+def test_start_result_edits_the_progress_message_in_place():
+    """#1471: the start's final word updates the progress message instead of posting
+    a second one, and the returned id still names that message (the listener's
+    warmup edit targets it)."""
+    adapter = EditingAdapter()
+    sent = asyncio.run(prepared_intake._deliver_start_result(
+        adapter, S(chat_id='c1'), {}, 'Print started', 'm-1'))
+    assert adapter.edits == [('m-1', 'Print started')] and adapter.sent == []
+    assert sent.message_id == 'm-1'
+
+
+def test_start_result_posts_fresh_without_a_progress_message():
+    adapter = EditingAdapter()
+    sent = asyncio.run(prepared_intake._deliver_start_result(
+        adapter, S(chat_id='c1'), {}, 'Print started', None))
+    assert adapter.sent == ['Print started'] and adapter.edits == []
+    assert sent.message_id == 'm-1'
 
 
 def test_start_confirmed_seconds_after_submit_posts_no_interim_note(tmp_path, monkeypatch):

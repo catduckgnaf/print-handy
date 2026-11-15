@@ -13,6 +13,7 @@ is reference for people who want the details.
 | --- | --- | --- | --- |
 | Flashforge (ZMod) | AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro | Moonraker on your network | [AD5X best practices](./DEVICE-AD5X.md) · [ZMod](./ZMOD.md) |
 | Flashforge (stock) | AD5X on factory firmware | The printer's own LAN interface | [Stock Flashforge](./FLASHFORGE-STOCK.md) |
+| Flashforge (OpenCreator) | Creator 5, Creator 5 Pro on OpenCreator firmware | Moonraker on your network | [OpenCreator](./OPENCREATOR.md) |
 | Bambu Lab | A1, A1 mini, P1P, P1S, P2S, X1, X1C, X1E, H2S, A2L, plus the dual-nozzle H2D, H2D Pro, X2D and H2C | Slices locally; print starts are opt-in over the LAN | [Bambu Lab](./BAMBU-LAB.md) |
 | Prusa | MK4S, Core One, XL, MINI+ | PrusaLink on your network | [Prusa](./PRUSA.md) |
 | Elegoo | Neptune 4, 4 Pro, 4 Plus, 4 Max; Centauri Carbon | Moonraker, or SDCP for the Centauri | [Elegoo](./ELEGOO.md) |
