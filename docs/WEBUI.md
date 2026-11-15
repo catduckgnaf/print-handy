@@ -2,10 +2,15 @@
 
 [Documentation home](README.md) · [Settings reference](SETTINGS.md) · [YAML configuration](CONFIGURATION-YAML.md) · [Docker](DOCKER.md) · [Guided setup and debugging](GUIDED-SETUP-DEBUGGING.md)
 
-The Web UI is a local page for two jobs:
+The Web UI is for more than watching a status indicator change color. It gives you a browser route through much of the Print Handy workflow, without needing to keep Discord open just to change a setting.
 
-- **Status:** whether Print Handy, its bot, printer listener and Spoolman are up, plus the doctor checks.
-- **Configuration:** a picker-based editor for the catalogued settings in the same YAML settings file Print Handy already loads.
+- **Print workflow and chat:** paste a model link or upload an STL/3MF, answer the job questions and work with the same bot logic in your browser.
+- **Printers and spools:** see printer status, manage the roster and review filament information.
+- **Slices and history:** browse/download sliced plates, print records and the Pasta Wrapped recap.
+- **Optional design workshop:** describe a part and iterate on its OpenSCAD model when an AI design endpoint is configured.
+- **Status and settings:** check the bot, printer listeners, Spoolman and doctor results, and edit the settings file through the forms.
+
+Not every printer connection reports the same telemetry, and camera checks, timelapses and recap videos have their own prerequisites. The routes below spell those out rather than hiding them behind a shiny screenshot.
 
 It is **on by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state. On first boot the Web UI serves openly and offers the setup walkthrough. That is by design: the walkthrough has to run before any login exists, so set a password in its Login step before you expose port 8088 beyond a network you trust. There is no token on the local network, and a login exists only once you set one. See [First boot and logins](#first-boot-and-logins).
 
