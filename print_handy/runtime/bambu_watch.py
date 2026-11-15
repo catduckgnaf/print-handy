@@ -421,6 +421,10 @@ class BambuPrintMonitor:
         # a later reprint of the same file is a different monitor and asks
         # again. Derived in __init__ from the injected wall clock.
         self._identity = f"bambu:{self.filename}@{int(wall())}"
+        # #1474: this print's streak of inconclusive (endpoint "uncertain")
+        # camera checks; one monitor exists per print, so it lives and
+        # dies with the print like the local detector's streak.
+        self._inconclusive_streak = _cw.InconclusiveStreak()
         self._changed = changed or _frame_changed_safe
         self._camera_source_fn = camera_source_fn
         self._begin_fn = begin_fn or self._begin_default
@@ -874,6 +878,24 @@ class BambuPrintMonitor:
             # None for an endpoint answer. The weak-detection rules decide
             # on it, never on the detail text.
             detection = local_vision.detection_of(result)
+            # A verdict call that could not judge the frame is a watch
+            # failure, not an inconclusive judgement (#1474): computed here
+            # because the suspicious decision below needs the distinction.
+            watch_failed = _cw.watch_failed(verdict, detail)
+            # This print's inconclusive streak (#1474): an endpoint
+            # "uncertain" (no local detection behind it) is only noted
+            # until it persists. An unchanged frame is not independent
+            # evidence and does not build the streak.
+            # A watch failure is not a judgement and neither builds nor
+            # breaks the streak; a check the local detector spoke on is a
+            # different kind of evidence and ends an endpoint streak.
+            if watch_failed:
+                uncertain_seen = None
+            elif detection is None:
+                uncertain_seen = self._inconclusive_streak.note(verdict, counted=changed is not False)
+            else:
+                self._inconclusive_streak.reset()
+                uncertain_seen = None
             # Bambu Lab's recorded rules (camera_watch.FAMILY_RULES): a
             # healthy verdict vetoes a stall only where the sensitivity
             # profile allows it, and a supposedly empty idle bed during a
@@ -881,17 +903,17 @@ class BambuPrintMonitor:
             suspicious = _cw.is_suspicious(verdict, reason=reason, changed=changed,
                                            profile=watch.profile,
                                            rules=_cw.FAMILY_RULES["bambulab_lan"],
-                                           detection=detection)
+                                           detection=detection, failed=watch_failed,
+                                           uncertain_seen=uncertain_seen)
             log(f"bambu visual check file={self.filename!r} reason={reason} layer={layer} "
                 f"changed={changed} verdict={verdict} detail={detail!r}")
             if self._abandoned():
                 log(f"bambu visual check discarded file={self.filename!r} reason={reason} "
                     f"verdict={verdict}: it overran its deadline")
                 return
-            # A verdict call that could not judge the frame is a watch failure
-            # (one throttled episode with failed snapshots and timeouts); any
-            # real judgement ends the episode, with one notice if it alerted.
-            watch_failed = _cw.watch_failed(verdict, detail)
+            # A watch failure (computed above) runs as one throttled
+            # episode with failed snapshots and timeouts; any real
+            # judgement ends the episode, with one notice if it alerted.
             if not watch_failed and watch.failures.recovered() and not self._visual_muted():
                 self._post(_vw.recovery_text(print_summary.safe_label(self.filename, "print")))
             # The opt-in early-layer auto-pause: the Moonraker rule, shared
@@ -926,12 +948,15 @@ class BambuPrintMonitor:
                         log(f"bambu auto-pause not sent file={self.filename!r}: {pause_why}")
                     text = _cw.alert_text(reason, layer, verdict, detail,
                                           pause_why=pause_why if pause_now else "",
-                                          detection=detection)
+                                          detection=detection,
+                                          uncertain_seen=uncertain_seen)
                     # A weak local detection that persisted is posted for a
                     # look but pings nobody, as on Moonraker; a stall alert
                     # pings as always (camera_watch.alert_pings).
                     self._alert(self.filename, image, text, identity=self._identity,
-                                **({} if _cw.alert_pings(reason, verdict, detection)
+                                **({} if _cw.alert_pings(reason, verdict, detection,
+                                                         uncertain_seen=uncertain_seen,
+                                                         failed=watch_failed)
                                    else {"ping": False}))
                     self._record_watchdog_event(verdict, action="auto_pause" if pause_now else "alert")
                     if pause_now:
@@ -948,6 +973,13 @@ class BambuPrintMonitor:
                 # above and recorded, never posted (camera_watch.weak_noted).
                 log(f"bambu visual check file={self.filename!r} reason={reason}: weak local "
                     "detection noted, not posted")
+                self._record_watchdog_event(verdict, action="noted")
+            elif _cw.inconclusive_noted(verdict, detection, reason=reason, changed=changed,
+                                        failed=watch_failed, uncertain_seen=uncertain_seen):
+                # An inconclusive check that is not yet a streak (#1474):
+                # logged above and recorded, never posted.
+                log(f"bambu visual check file={self.filename!r} reason={reason}: inconclusive "
+                    "check noted, not posted")
                 self._record_watchdog_event(verdict, action="noted")
             else:
                 self._record_watchdog_event(verdict, action="none")
