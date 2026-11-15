@@ -2,7 +2,7 @@
 
 [Documentation home](README.md) · [Printer profiles](PRINTER-PROFILES.md) · [Contributing](../CONTRIBUTING.md)
 
-This page answers three questions: what "supported" means for a printer, what to do if yours is not listed, and how to confirm that a listed printer really works. The [README](../README.md#is-my-printer-supported) groups printers by how they connect; the model-by-model detail is in the vendor guides linked from there.
+This page answers three questions: what "supported" means for a printer, what to do if yours is not listed, and how to confirm that a listed printer really works. The [README](../README.md#will-it-work-with-my-printer) groups printers by firmware and connection; the model-by-model detail is in the vendor guides linked from there.
 
 ## What "supported" means
 
@@ -32,7 +32,7 @@ Extensive testing is still not a hardware test of your printer. Keep the confirm
 
 ## Your printer is not listed
 
-Pick the route that matches what the printer runs.
+Pick the route that matches what the printer runs. This matters particularly on FlashForge hardware: [factory firmware](FLASHFORGE-STOCK.md), [ZMod](ZMOD.md) and [OpenCreator](OPENCREATOR.md) have different, non-interchangeable profiles. [Reforge](https://github.com/Klipper4FlashForge/firmware) is an independent Creator 5 firmware with **no dedicated Print Handy profile or hardware verification** at this time. Don't substitute another firmware's model key just because the printer shell looks familiar.
 
 **Klipper with Moonraker.** Select `klipper.generic`. In your settings file (`config/local.yaml`, or the matching `PRINT_HANDY__...` environment variables from [SETTINGS.md](SETTINGS.md)) set at least:
 
