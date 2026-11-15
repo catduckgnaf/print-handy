@@ -333,7 +333,7 @@ def test_completion_post_carries_the_roast_in_the_same_post_on_discord(monkeypat
     # one completion post per print, enforced at the point of posting) —
     # and still reports delivered, so no caller falls back to a text post.
     assert listener._post_completion("Print complete: Stand", "Print complete: Stand")
-    assert len(calls) == 1 and len(posted) == 2
+    assert len(calls) == 1 and len(posted) == 1
 
 
 def test_completion_post_posts_the_roast_under_the_timelapse_on_telegram(monkeypatch, tmp_path):
