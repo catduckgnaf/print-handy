@@ -176,6 +176,7 @@ async def _ac_plates(interaction, current):
         plan = await asyncio.to_thread(print_next.load_plan, str(plan_id))
         parts = print_next.remaining_parts(plan)
     except Exception:
+        logger.debug("plate autocomplete could not load plan %s", plan_id, exc_info=True)
         return []
     out = []
     for part, _index in parts:
@@ -206,6 +207,7 @@ async def _ac_macros(interaction, current):
         listing = await asyncio.to_thread(macro_lib.discover, spool_sync.moonraker_for(None))
         names = [m.name for m in listing.macros]
     except Exception:
+        logger.debug("macro autocomplete could not list macros", exc_info=True)
         names = []
     return [app_commands.Choice(name=n[:100], value=n) for n in names
             if not current or current.casefold() in n.casefold()][:25]
@@ -216,6 +218,7 @@ async def _ac_printers(interaction, current):
     try:
         entries = settings.current().get("printers") or []
     except Exception:
+        logger.debug("printer autocomplete could not read the roster", exc_info=True)
         entries = []
     out = []
     for entry in entries:

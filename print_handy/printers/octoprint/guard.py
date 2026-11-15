@@ -23,10 +23,13 @@ hand — G28, G29, M104/M109/M140/M190 waits, purge moves — contains none of t
 """
 from __future__ import annotations
 
+import logging
 import math
 import re
 
 from .. import job_checks
+
+logger = logging.getLogger(__name__)
 
 # Commands that belong to other vendors' start code. Marlin output is plain G/M/T codes;
 # none of these words appear in it, and Marlin cannot execute any of them.
@@ -55,6 +58,7 @@ def _fact(adapter, name):
     try:
         value = fact(name)
     except Exception:  # a model without that fact declares nothing to check against
+        logger.debug("printer fact %s unavailable", name, exc_info=True)
         return None
     return value
 

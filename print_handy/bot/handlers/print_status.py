@@ -93,6 +93,7 @@ def _camera_frame(st, pid):
             try:
                 url = settings.by_id(pid, data).get("camera_snapshot_url")
             except Exception:
+                logger.warning("print status could not read the camera URL for %s", pid, exc_info=True)
                 url = None
         url = url or (data.get("services") or {}).get("camera_snapshot_url")
         if not url:
@@ -274,6 +275,7 @@ def _roster():
         from print_handy import settings
         return settings.current().get('printers') or []
     except Exception:
+        logger.warning("print status could not read the printer roster", exc_info=True)
         return []
 
 

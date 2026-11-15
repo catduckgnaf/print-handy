@@ -160,6 +160,7 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
                 result = await adapter.edit_message(chat_id=str(source.chat_id), message_id=message_id,
                                                     content=text, metadata=metadata)
             except Exception:
+                logger.info("status message edit failed; posting a fresh one", exc_info=True)
                 result = None
             if result is not None and getattr(result, 'success', False):
                 return

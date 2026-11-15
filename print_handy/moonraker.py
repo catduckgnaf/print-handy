@@ -20,10 +20,13 @@ same requests go out in the same shape.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "MoonrakerAuthError",
@@ -71,6 +74,7 @@ def _profile_key() -> str:
 
         return _config.profile_env_value("MOONRAKER_API_KEY")
     except Exception:
+        logger.warning("could not read MOONRAKER_API_KEY from the profile", exc_info=True)
         return ""
 
 
@@ -104,6 +108,7 @@ def _configured_bases() -> tuple[str, ...]:
             if url:
                 bases.append(str(url).rstrip("/"))
     except Exception:
+        logger.warning("could not read the roster's Moonraker URLs", exc_info=True)
         return ()
     return tuple(dict.fromkeys(bases))
 

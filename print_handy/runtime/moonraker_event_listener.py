@@ -1511,6 +1511,7 @@ def _post_completion(message, completion_message, job_key=None):
     try:
         state = announcer.load_state()
     except Exception:
+        logger.warning("could not load the announcer state", exc_info=True)
         state = {}
     if not job_key:
         job_key = state.get("job_key")
