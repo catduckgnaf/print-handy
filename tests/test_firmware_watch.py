@@ -744,6 +744,7 @@ class ShippedBaselines(unittest.TestCase):
             "QIDI X-Plus 4": "1.7.1", "QIDI X-Max 3": "4.3.15",
             "QIDI X-Smart 3": "4.1.13",
             "Forge-X": "1.4.1",
+            "OpenCreator": "0.0.7.4",
         }
         self.assertEqual(
             {name: w.baseline for name, w in self.watched.items() if name != "ZMod"},
@@ -1050,6 +1051,9 @@ class RecordedRunBehavior(unittest.TestCase):
         # Forge-X: the 1.4.2 betas are prereleases; the newest final is the baseline.
         responses[("GET", "/repos/DrA1ex/ff5m/releases")] = [
             gh_release("1.4.2-beta-4", prerelease=True), gh_release("1.4.1")]
+        # OpenCreator: final releases only, the audited release is the newest.
+        responses[("GET", "/repos/FlashForge-C5-Modding-Group/OpenCreator/releases")] = [
+            gh_release("0.0.7.4"), gh_release("0.0.7.3")]
         client = FakeClient(responses)
         shipped = (ROOT / "docs" / "firmware-baselines.toml").read_text(encoding="utf-8")
         self.assertEqual(run_in_tree(client, recorded=shipped), 0)

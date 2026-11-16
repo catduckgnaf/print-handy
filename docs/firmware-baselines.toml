@@ -170,3 +170,15 @@ repo = "DrA1ex/ff5m"
 feed = "releases"
 baseline = "1.4.1"
 basis = "1.4.1 (2026-02-18) is the newest final Forge-X release; Print Handy's Forge-X models were written against the 1.4.2 beta line on top of it (#1506), so a final 1.4.2 is the release that moves support to stable"
+
+# OpenCreator (FlashForge-C5-Modding-Group/OpenCreator): releases. Every
+# OpenCreator release so far is a final release on its main branch, and
+# they land close together, so the watch is the reminder to re-check the
+# Creator 5 / 5 Pro contracts (docs/OPENCREATOR.md) against each one.
+
+[[firmware]]
+name = "OpenCreator"
+repo = "FlashForge-C5-Modding-Group/OpenCreator"
+feed = "releases"
+baseline = "0.0.7.4"
+basis = "0.0.7.4 (2026-11-14) is the release whose source the OpenCreator contracts were verified against (docs/OPENCREATOR.md, #1490, #1555, #1556)"

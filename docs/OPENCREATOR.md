@@ -485,6 +485,11 @@ read from the printer, with the reason and the manual path.
 - **Release notices:** a new OpenCreator release is announced in chat
   through the firmware feed, with no Update button (see
   [FIRMWARE-UPDATE.md](FIRMWARE-UPDATE.md)).
+- **Audited version:** the weekly firmware watch compares each OpenCreator
+  release with the release these contracts were last checked against
+  (0.0.7.4, in `docs/firmware-baselines.toml`) and opens a maintainer issue
+  when a newer one appears, so the contracts are re-checked release by
+  release.
 
 The report wording is checked against a live update status shared on
 #1490. The SBC edition's entry name comes from the project's
