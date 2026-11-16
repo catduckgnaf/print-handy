@@ -31,7 +31,7 @@
 #            for a firmware whose supported line is a prerelease
 #   models   printer model keys this firmware runs on, as registry keys
 #            or globs ("flashforge.*"). Empty for a component that is
-#            not tied to a model (HelixScreen)
+#            not tied to a model
 #   line     optional, releases only: printer names that select one
 #            printer line's releases from a shared repository, matched
 #            against the release title (Prusa Buddy)
@@ -77,7 +77,7 @@ name = "HelixScreen"
 repo = "prestonbrown/helixscreen"
 feed = "releases"
 channel = "stable"
-models = []
+models = ["flashforge.*"]
 update = "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer."
 
 [[firmware]]

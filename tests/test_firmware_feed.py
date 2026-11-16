@@ -568,6 +568,10 @@ def test_every_shipped_source_names_its_kind():
     assert kinds["zmod"] == kinds["forge-x"] == kinds["opencreator"] == "firmware"
     assert kinds["helixscreen"] == kinds["moonraker"] == kinds["octoprint"] == "plugin"
     assert kinds["prusa-buddy-mk4s"] == kinds["qidi-q1pro"] == "stock"
+    # HelixScreen is listed under the ZMod printers it runs on, so it shows
+    # in the printer's own Plugins table.
+    helix = next(s for s in sources if s["id"] == "helixscreen")
+    assert helix["models"] == ["flashforge.*"]
 
 
 def test_a_source_without_a_known_kind_fails_closed():
