@@ -39,6 +39,9 @@
 #   release, asset  feed "assets" only: the release tag whose attached
 #            files are read, and the file-name prefix before the version
 #            (AD5X-3.1.0-1.1.1-....tgz is asset "AD5X", version 3.1.0)
+#   tag_prefix  optional, releases only: keep only tags that start with
+#            this ("adventurer-5x/") and read the version right after it,
+#            for one repository that publishes every model
 #   line     optional, releases only: printer names that select one
 #            printer line's releases from a shared repository, matched
 #            against the release title (Prusa Buddy)
@@ -223,66 +226,62 @@ channel = "stable"
 models = ["qidi.xsmart3"]
 update = "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware."
 
-# Stock Flashforge firmware. Flashforge publishes it only on its own
-# download pages; ZMod's author mirrors each version as a file on one
-# GitHub release (ghzserg/FF, tag R), which is what is read here.
+# Stock Flashforge firmware. Flashforge publishes it on its own update
+# server and download pages; Parallel-7/FlashForge-Firmware-Updates mirrors
+# each package from that server as a GitHub release, tagged per model
+# (adventurer-5x/3.1.8-1.1.1), which is what is read here.
 
 [[firmware]]
 id = "flashforge-stock-ad5x"
 kind = "stock"
 name = "Flashforge stock (AD5X)"
-repo = "ghzserg/FF"
-feed = "assets"
-release = "R"
-asset = "AD5X"
+repo = "Parallel-7/FlashForge-Firmware-Updates"
+feed = "releases"
+tag_prefix = "adventurer-5x/"
 channel = "stable"
 models = ["flashforge.ad5x", "flashforge_stock.ad5x"]
-update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+update = "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
 
 [[firmware]]
 id = "flashforge-stock-ad5m"
 kind = "stock"
 name = "Flashforge stock (AD5M)"
-repo = "ghzserg/FF"
-feed = "assets"
-release = "R"
-asset = "Adventurer5M"
+repo = "Parallel-7/FlashForge-Firmware-Updates"
+feed = "releases"
+tag_prefix = "adventurer-5m/"
 channel = "stable"
 models = ["flashforge.ad5m", "flashforge_forgex.ad5m"]
-update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+update = "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
 
 [[firmware]]
 id = "flashforge-stock-ad5m-pro"
 kind = "stock"
 name = "Flashforge stock (AD5M Pro)"
-repo = "ghzserg/FF"
-feed = "assets"
-release = "R"
-asset = "Adventurer5MPro"
+repo = "Parallel-7/FlashForge-Firmware-Updates"
+feed = "releases"
+tag_prefix = "adventurer-5m-pro/"
 channel = "stable"
 models = ["flashforge.ad5m_pro", "flashforge_forgex.ad5m_pro"]
-update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+update = "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
 
 [[firmware]]
 id = "flashforge-stock-creator5"
 kind = "stock"
 name = "Flashforge stock (Creator 5)"
-repo = "ghzserg/FF"
-feed = "assets"
-release = "R"
-asset = "Creator5"
+repo = "Parallel-7/FlashForge-Firmware-Updates"
+feed = "releases"
+tag_prefix = "creator-5/"
 channel = "stable"
 models = ["flashforge.creator5"]
-update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+update = "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
 
 [[firmware]]
 id = "flashforge-stock-creator5-pro"
 kind = "stock"
 name = "Flashforge stock (Creator 5 Pro)"
-repo = "ghzserg/FF"
-feed = "assets"
-release = "R"
-asset = "Creator5Pro"
+repo = "Parallel-7/FlashForge-Firmware-Updates"
+feed = "releases"
+tag_prefix = "creator-5-pro/"
 channel = "stable"
 models = ["flashforge.creator5_pro"]
-update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+update = "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."

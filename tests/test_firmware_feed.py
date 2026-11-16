@@ -57,7 +57,7 @@ class FakeGitHub:
 def _source(**over):
     base = {"id": "fw", "kind": "firmware", "name": "FW", "repo": "o/r", "feed": "releases",
             "channel": "stable", "models": ["v.*"], "stock_models": [], "line": [],
-            "release": None, "asset": None, "update": "How."}
+            "release": None, "asset": None, "tag_prefix": None, "update": "How."}
     return {**base, **over}
 
 
@@ -644,24 +644,61 @@ FF_RELEASE = {"html_url": "https://github.com/ghzserg/FF/releases/tag/R", "asset
 ]}
 
 
-def test_stock_flashforge_reads_the_newest_versioned_file_for_its_model():
+def test_assets_feed_reads_the_newest_versioned_file():
+    """The assets feed type: versioned files attached to one release."""
+    source = _source(id="mirror", kind="stock", repo="ghzserg/FF", feed="assets",
+                     release="R", asset="AD5X")
+    feed = build.build_feed([source], {}, AssetGitHub(FF_RELEASE), now=NOW, log=lambda _m: None)
+    assert feed["firmware"][0]["latest"]["version"] == "3.1.0"
+    pro = _source(id="pro", kind="stock", repo="ghzserg/FF", feed="assets",
+                  release="R", asset="Adventurer5M")
+    feed = build.build_feed([pro], {}, AssetGitHub(FF_RELEASE), now=NOW, log=lambda _m: None)
+    assert feed["firmware"][0]["latest"]["version"] == "5.1.1"
+
+
+def _tagged(tag, when):
+    return {"tag_name": tag, "prerelease": False, "draft": False, "published_at": when,
+            "html_url": f"https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/{tag}",
+            "name": tag}
+
+
+FF_RELEASES = [
+    _tagged("adventurer-5x/3.1.8-1.1.1", "2026-11-06T02:51:00Z"),
+    _tagged("creator-5/2.0.0-1.3.0", "2026-10-22T00:00:00Z"),
+    _tagged("adventurer-5x/3.1.7-1.1.1", "2026-10-16T00:00:00Z"),
+    _tagged("adventurer-5x/3.1.0-1.1.1", "2026-08-10T00:00:00Z"),
+    _tagged("adventurer-5m-pro/5.1.9-2.2.3", "2026-09-15T00:00:00Z"),
+    _tagged("adventurer-5m/5.1.9-2.2.3", "2026-09-04T00:00:00Z"),
+    _tagged("adventurer-5m/5.1.8-2.2.3", "2026-07-09T00:00:00Z"),
+]
+
+
+def test_stock_flashforge_reads_each_models_newest_tagged_release():
+    """catduck's AD5X runs stock 3.1.7; the feed must know 3.1.8 is out."""
     sources = {s["id"]: s for s in build.parse_sources(
         (ROOT / build.SOURCES_FILE).read_text(encoding="utf-8"))}
-    ad5x, ad5m = sources["flashforge-stock-ad5x"], sources["flashforge-stock-ad5m"]
-    feed = build.build_feed([ad5x, ad5m], {}, AssetGitHub(FF_RELEASE), now=NOW,
-                            log=lambda _m: None)
-    by_id = {row["id"]: row for row in feed["firmware"]}
-    assert by_id["flashforge-stock-ad5x"]["latest"]["version"] == "3.1.0"
-    assert by_id["flashforge-stock-ad5x"]["latest"]["url"] == "https://github.com/ghzserg/FF/releases/tag/R"
-    # "Adventurer5M-" never picks up an Adventurer5MPro file.
-    assert by_id["flashforge-stock-ad5m"]["latest"]["version"] == "5.1.1"
+    picked = [sources[i] for i in ("flashforge-stock-ad5x", "flashforge-stock-ad5m",
+                                   "flashforge-stock-ad5m-pro", "flashforge-stock-creator5")]
+    github = FakeGitHub(releases={"Parallel-7/FlashForge-Firmware-Updates": FF_RELEASES})
+    feed = build.build_feed(picked, {}, github, now=NOW, log=lambda _m: None)
+    by_id = {row["id"]: row["latest"] for row in feed["firmware"]}
+    assert by_id["flashforge-stock-ad5x"]["version"] == "3.1.8"
+    assert by_id["flashforge-stock-ad5x"]["tag"] == "adventurer-5x/3.1.8-1.1.1"
+    assert by_id["flashforge-stock-ad5x"]["published_at"] == "2026-11-06T02:51:00Z"
+    # "adventurer-5m/" never picks up an "adventurer-5m-pro/" release, and
+    # the control-board suffix (-2.2.3) is not part of the version.
+    assert by_id["flashforge-stock-ad5m"]["version"] == "5.1.9"
+    assert by_id["flashforge-stock-ad5m-pro"]["version"] == "5.1.9"
+    assert by_id["flashforge-stock-creator5"]["version"] == "2.0.0"
     assert all(row["kind"] == "stock" for row in feed["firmware"])
 
 
 def test_shipped_stock_flashforge_covers_every_flashforge_model():
     sources = build.parse_sources((ROOT / build.SOURCES_FILE).read_text(encoding="utf-8"))
     stock = [s for s in sources if s["id"].startswith("flashforge-stock-")]
-    assert {s["kind"] for s in stock} == {"stock"} and {s["repo"] for s in stock} == {"ghzserg/FF"}
+    assert {s["kind"] for s in stock} == {"stock"}
+    assert {s["repo"] for s in stock} == {"Parallel-7/FlashForge-Firmware-Updates"}
+    assert len({s["tag_prefix"] for s in stock}) == len(stock) == 5
     covered = {m for s in stock for m in s["models"]}
     flashforge = {key for key in printers.MODELS
                   if key.split(".")[0].startswith("flashforge")}
@@ -670,6 +707,17 @@ def test_shipped_stock_flashforge_covers_every_flashforge_model():
     assert covered <= set(printers.MODELS)
     # The update line never claims Print Handy installs it.
     assert all("never installs" in s["update"] for s in stock)
+
+
+@pytest.mark.parametrize("extra, problem", [
+    ("feed='tags'\ntag_prefix='adventurer-5x/'\n", "needs feed = \"releases\""),
+    ("feed='releases'\ntag_prefix='Adventurer 5X'\n", "must be lowercase and end in '/'"),
+])
+def test_tag_prefix_sources_fail_closed(extra, problem):
+    text = ("[[firmware]]\nid='a'\nkind='stock'\nname='n'\nrepo='o/r'\nchannel='stable'\n"
+            "update='u'\n" + extra)
+    with pytest.raises(build.FeedError, match=re.escape(problem)):
+        build.parse_sources(text)
 
 
 @pytest.mark.parametrize("extra, problem", [

@@ -219,7 +219,7 @@ a newer release appears:
   Creator 5 Pro), Klipper and Moonraker (generic Klipper, Sovol SV06),
   OctoPrint and Marlin, Prusa Buddy per printer line, QIDI per model, and
   stock Flashforge per model (AD5X, AD5M, AD5M Pro, Creator 5 and
-  Creator 5 Pro, read from the files ZMod's author mirrors on GitHub).
+  Creator 5 Pro, read from a GitHub mirror of Flashforge's update server).
   The list is `docs/firmware-feed.toml`. Firmware published only through
   a vendor's cloud or download page (Bambu Lab, Creality
   and Anycubic stock firmware, Elegoo) has no release feed to follow and
