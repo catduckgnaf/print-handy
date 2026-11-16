@@ -119,7 +119,14 @@ know:
   automatically a fault.
 - Forge-X ships no `[spoolman]` section, so Spoolman is absent on the
   printer by default, unlike on ZMod. A user can enable it in their
-  own Moonraker configuration; Print Handy does not assume it.
+  own Moonraker configuration; Print Handy does not assume it. With
+  no `[spoolman]` section nothing on the printer charges a spool, so
+  with spool accounting on `auto` Print Handy counts: it charges each
+  finished print once, at the end, to the spool recorded as loaded
+  (`/spool`), scaled for a cancelled print. If you add a `[spoolman]`
+  section, Moonraker charges the active spool live and Print Handy
+  stops charging at the end, so the print is not counted twice. See
+  [Working with an outside Spoolman](OUTSIDE-SPOOLMAN.md).
 
 ## Slicer differences from the ZMod AD5M profiles
 

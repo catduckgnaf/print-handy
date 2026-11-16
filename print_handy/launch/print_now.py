@@ -155,17 +155,48 @@ def _launch_accounting_authority(st, adapter=None, printer_id=None):
     all returns None, which keeps the end-of-print charge on its legacy
     behavior.
     """
+    return (_launch_accounting(st, adapter, printer_id) or {}).get('authority')
+
+
+def _launch_accounting(st, adapter=None, printer_id=None):
+    """The full accounting resolution at launch (authority and Moonraker link), or None.
+
+    See _launch_accounting_authority; this also carries ``moonraker_linked``,
+    which says whether the printer's own Moonraker charges a spool at all.
+    """
     try:
         from ..core import spoolman_link
 
         def call(method, path):
             return _mr(st, path)
 
-        return spoolman_link.accounting_authority_for(
-            printer_id, moonraker_call=call, adapter=adapter).get('authority')
+        return spoolman_link.accounting_authority_for(printer_id, moonraker_call=call, adapter=adapter)
     except Exception as exc:
         logger.warning('could not resolve the spool accounting authority: %s', exc)
         return None
+
+
+def _charge_at_end_spool(st, resolution):
+    """The spool Print Handy charges at the end of a one-spool print, or None (#1570).
+
+    Only when Print Handy is the accounting authority and the printer's
+    Moonraker has no Spoolman link (Forge-X ships the component without a
+    [spoolman] section): nothing on the printer charges a spool then, so
+    the print's grams go to the spool Print Handy records as loaded. A
+    linked Moonraker charges its active spool live, and the printer as
+    the authority counts the print itself; both are left alone.
+    """
+    if not isinstance(resolution, dict) or resolution.get('authority') != 'print_handy':
+        return None
+    if resolution.get('moonraker_linked'):
+        return None
+    sid = (st.get('spool') or {}).get('spoolman_id')
+    if not isinstance(sid, int) or isinstance(sid, bool) or sid <= 0:
+        print("WARNING: this printer has no Moonraker Spoolman link and no spool is recorded as "
+              "loaded, so Print Handy will not charge this print. Set the loaded spool with /spool.",
+              flush=True)
+        return None
+    return sid
 
 
 def _record_usage_baseline(st, job, job_path, spool_id):
@@ -182,19 +213,35 @@ def _record_usage_baseline(st, job, job_path, spool_id):
     (#1536), resolved live from the printer's Moonraker Spoolman link, so
     the end-of-print charge knows whether the printer already counted
     this print and must not be charged twice.
+
+    When nothing on the printer charges a spool (no Moonraker Spoolman
+    link) and Print Handy is the authority, the job instead records the
+    spool to charge once at the end (``spool_charge_at_end``, #1570); it
+    carries no baseline, because there is no Moonraker charge to check.
     """
     if not isinstance(job, dict) or job_path is None:
         return
     try:
         from ..runtime import multislot_usage
-        baseline = multislot_usage.launch_baseline(spool_id, base_url=printer_state.spoolman_url(st))
+        resolution = _launch_accounting(st, printer_id=_recorded_printer_id(job))
+        authority = (resolution or {}).get('authority')
+        charge_sid = _charge_at_end_spool(st, resolution) if spool_id is None else None
         changed = False
-        if baseline:
-            job['spool_usage_baseline'] = baseline
+        if charge_sid is not None:
+            job['spool_charge_at_end'] = {'spool_id': charge_sid}
+            job.pop('spool_usage_baseline', None)
             changed = True
-        elif job.pop('spool_usage_baseline', None) is not None:
-            changed = True
-        authority = _launch_accounting_authority(st, printer_id=_recorded_printer_id(job))
+            print(f"SPOOL CHARGE AT END: spool #{charge_sid} (the printer has no Moonraker Spoolman link)",
+                  flush=True)
+        else:
+            if job.pop('spool_charge_at_end', None) is not None:
+                changed = True
+            baseline = multislot_usage.launch_baseline(spool_id, base_url=printer_state.spoolman_url(st))
+            if baseline:
+                job['spool_usage_baseline'] = baseline
+                changed = True
+            elif job.pop('spool_usage_baseline', None) is not None:
+                changed = True
         if authority:
             job['spool_accounting_authority'] = authority
             changed = True
@@ -611,6 +658,18 @@ def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None,
         # and a mapped one whose tools all feed one slot (the slot_plan
         # rule). Only a job feeding two or more slots charges per slot.
         ctx['spool_usage_baseline'] = baseline
+    charge = (job or {}).get('spool_charge_at_end')
+    if (multislot_usage.slot_plan(ctx) is None and isinstance(charge, dict)
+            and charge.get('spool_id') is not None
+            and charge.get('spool_id') == ctx['active_spool']['id']):
+        # No Moonraker Spoolman link (#1570): Print Handy charges this
+        # one-spool print at the end, to the spool the launch recorded and
+        # only while it is still the recorded spool. The planned length
+        # scales a stopped print's charge, as for a multi-slot print.
+        ctx['spool_charge_at_end'] = {'spool_id': charge['spool_id']}
+        planned_mm = multislot_usage.planned_filament_mm(text)
+        if planned_mm is not None:
+            ctx['planned_filament_mm'] = planned_mm
     # #913: risky prints get the early-layer camera watch; the listener reads
     # this back from the context sidecar and the record keeps it.
     try:

@@ -4849,12 +4849,14 @@ class Listener:
         The print context is charged only when it is this print's: its
         start inside the history entry's window (#1362), as the missed-end
         charge requires, so an earlier launch's context is never charged.
+        A one-spool print on a printer with no Moonraker Spoolman link is
+        charged the same way, to the spool its launch recorded (#1570).
         """
         from . import multislot_usage
         filename = self.filename
         try:
             context = print_records.load_context(filename) if filename else {}
-            plan = multislot_usage.slot_plan(context)
+            plan = multislot_usage.charge_plan(context)
             if plan is None and not context.get("spool_usage_baseline"):
                 return
             history = await asyncio.to_thread(self._history_entry, filename)
@@ -4910,7 +4912,7 @@ class Listener:
         filename = self.filename
         try:
             context = print_records.load_context(filename) if filename else {}
-            if multislot_usage.slot_plan(context) is None and not context.get("spool_usage_baseline"):
+            if multislot_usage.charge_plan(context) is None and not context.get("spool_usage_baseline"):
                 return
             history = await asyncio.to_thread(self._history_entry, filename)
             if history is None or history.get("status") in (None, "in_progress"):

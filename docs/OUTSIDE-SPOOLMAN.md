@@ -9,7 +9,7 @@ A Moonraker that is linked to a Spoolman charges filament usage itself, live, wh
 So for every printer exactly one side counts:
 
 - **The printer** counts when its Moonraker is linked to the Spoolman Print Handy uses. Moonraker charges live; Print Handy records the print in its usage ledger as skipped, with the reason named, and charges nothing.
-- **Print Handy** counts when the printer has no Spoolman link of its own. Print Handy charges at the end of the print, exactly as it always has.
+- **Print Handy** counts when the printer has no Spoolman link of its own. Print Handy charges at the end of the print, through its usage ledger, so a print is never charged twice. A multi-slot print charges each slot's spool. A one-spool print on a printer whose Moonraker has no Spoolman link (Forge-X ships without a `[spoolman]` section, and so can any plain Klipper install) charges the spool recorded as loaded when the print started, set with `/spool`. A completed print charges the sliced grams; a cancelled or stopped one charges its share, scaled by the filament it actually used. If no spool is recorded as loaded, the launch says so and nothing is charged.
 
 The choice is a setting, shown with the rest of the spool settings:
 
@@ -23,7 +23,7 @@ The printer check (`printer_state check`, and the status surfaces that use it) r
 - the printer is set to count, but no Moonraker Spoolman link was detected: nothing will count usage until one side is fixed;
 - Moonraker points at one Spoolman instance while Print Handy is configured for a different one: two inventories are in play, and if Print Handy is also set to count, the same print can be charged by both.
 
-One detail for single-spool printers: Moonraker's live charge is checked against the launch baseline and corrected only when it runs away (it charged far more than the print used). That correction only ever undoes an overcharge; it never adds a second one, so it stays on under either authority.
+One detail for single-spool printers with a linked Moonraker: Moonraker's live charge is checked against the launch baseline and corrected only when it runs away (it charged far more than the print used). That correction only ever undoes an overcharge; it never adds a second one, so it stays on under either authority.
 
 ## Case 1: the bundled Spoolman
 
