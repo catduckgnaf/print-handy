@@ -15,6 +15,11 @@
 #
 # Fields:
 #   id       short stable key, lowercase letters, digits and hyphens; unique
+#   kind     which Web UI group it belongs to: "firmware" (community or
+#            open firmware: ZMod, Forge-X, OpenCreator, Klipper, Marlin),
+#            "stock" (the printer maker's own firmware: Prusa Buddy, QIDI)
+#            or "plugin" (an add-on that runs beside the firmware: a
+#            screen such as HelixScreen, Moonraker, OctoPrint)
 #   name     display name. When it equals a name in
 #            docs/firmware-baselines.toml (or "ZMod"), that baseline is
 #            published as the entry's audited version
@@ -26,7 +31,7 @@
 #            for a firmware whose supported line is a prerelease
 #   models   printer model keys this firmware runs on, as registry keys
 #            or globs ("flashforge.*"). Empty for a component that is
-#            not tied to a model (HelixScreen)
+#            not tied to a model
 #   line     optional, releases only: printer names that select one
 #            printer line's releases from a shared repository, matched
 #            against the release title (Prusa Buddy)
@@ -35,6 +40,7 @@
 
 [[firmware]]
 id = "zmod"
+kind = "firmware"
 name = "ZMod"
 repo = "ghzserg/zmod"
 feed = "releases"
@@ -44,6 +50,7 @@ update = "Run /print-firmware: an update within your ZMod base installs from cha
 
 [[firmware]]
 id = "forge-x"
+kind = "firmware"
 name = "Forge-X"
 repo = "DrA1ex/ff5m"
 feed = "releases"
@@ -55,6 +62,7 @@ update = "Update from Fluidd or Mainsail (Settings, Software Update) within your
 
 [[firmware]]
 id = "opencreator"
+kind = "firmware"
 name = "OpenCreator"
 repo = "FlashForge-C5-Modding-Group/OpenCreator"
 feed = "releases"
@@ -64,15 +72,17 @@ update = "OpenCreator updates itself from its own updater, or from Fluidd or Mai
 
 [[firmware]]
 id = "helixscreen"
+kind = "plugin"
 name = "HelixScreen"
 repo = "prestonbrown/helixscreen"
 feed = "releases"
 channel = "stable"
-models = []
+models = ["flashforge.*"]
 update = "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer."
 
 [[firmware]]
 id = "klipper"
+kind = "firmware"
 name = "Klipper"
 repo = "Klipper3d/klipper"
 feed = "tags"
@@ -82,6 +92,7 @@ update = "Run /print-firmware: a Klipper component your Moonraker reports with a
 
 [[firmware]]
 id = "moonraker"
+kind = "plugin"
 name = "Moonraker"
 repo = "Arksine/moonraker"
 feed = "tags"
@@ -91,6 +102,7 @@ update = "Run /print-firmware: a Moonraker component your Moonraker reports with
 
 [[firmware]]
 id = "octoprint"
+kind = "plugin"
 name = "OctoPrint"
 repo = "OctoPrint/OctoPrint"
 feed = "releases"
@@ -100,6 +112,7 @@ update = "Update OctoPrint from its own Software Update page. Print Handy does n
 
 [[firmware]]
 id = "marlin"
+kind = "firmware"
 name = "Marlin"
 repo = "MarlinFirmware/Marlin"
 feed = "releases"
@@ -109,6 +122,7 @@ update = "Board firmware is flashed with board-specific tooling at the printer. 
 
 [[firmware]]
 id = "prusa-buddy-mk4s"
+kind = "stock"
 name = "Prusa Buddy (MK4S)"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
@@ -119,6 +133,7 @@ update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer'
 
 [[firmware]]
 id = "prusa-buddy-coreone"
+kind = "stock"
 name = "Prusa Buddy (CORE One)"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
@@ -129,6 +144,7 @@ update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer'
 
 [[firmware]]
 id = "prusa-buddy-xl"
+kind = "stock"
 name = "Prusa Buddy (XL)"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
@@ -139,6 +155,7 @@ update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer'
 
 [[firmware]]
 id = "prusa-buddy-mini"
+kind = "stock"
 name = "Prusa Buddy (MINI+)"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
@@ -149,6 +166,7 @@ update = "Copy the .bbf file to a FAT32 USB drive and flash it from the printer'
 
 [[firmware]]
 id = "qidi-q1pro"
+kind = "stock"
 name = "QIDI Q1 Pro"
 repo = "QIDITECH/QIDI_Q1_Pro"
 feed = "releases"
@@ -158,6 +176,7 @@ update = "Install QIDI's official update file from a USB drive at the printer. P
 
 [[firmware]]
 id = "qidi-xplus3"
+kind = "stock"
 name = "QIDI X-Plus 3"
 repo = "QIDITECH/QIDI_PLUS3"
 feed = "releases"
@@ -167,6 +186,7 @@ update = "Install QIDI's official update file from a USB drive at the printer. P
 
 [[firmware]]
 id = "qidi-xplus4"
+kind = "stock"
 name = "QIDI X-Plus 4"
 repo = "QIDITECH/QIDI_PLUS4"
 feed = "releases"
@@ -176,6 +196,7 @@ update = "Install QIDI's official update file from a USB drive at the printer. P
 
 [[firmware]]
 id = "qidi-xmax3"
+kind = "stock"
 name = "QIDI X-Max 3"
 repo = "QIDITECH/QIDI_MAX3"
 feed = "releases"
@@ -185,6 +206,7 @@ update = "Install QIDI's official update file from a USB drive at the printer. P
 
 [[firmware]]
 id = "qidi-xsmart3"
+kind = "stock"
 name = "QIDI X-Smart 3"
 repo = "QIDITECH/QIDI_SMART3"
 feed = "releases"

@@ -46,7 +46,10 @@ import check_firmware_releases as watch  # noqa: E402  (sibling script, stdlib o
 SOURCES_FILE = "docs/firmware-feed.toml"
 SCHEMA = 1
 CHANNELS = ("stable", "prerelease")
-_FIELDS = {"id", "name", "repo", "feed", "channel", "models", "line", "update"}
+_FIELDS = {"id", "kind", "name", "repo", "feed", "channel", "models", "line", "update"}
+# Web UI groups (catduck, 2026-11-16): firmware, the maker's stock firmware,
+# and plugins that run beside the firmware are shown separately.
+KINDS = ("firmware", "stock", "plugin")
 _ID_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _MODEL_RE = re.compile(r"[a-z0-9_]+\.(?:[a-z0-9_]+|\*)")
 # Listing depth: enough to find the newest release on every channel and
@@ -96,6 +99,8 @@ def parse_sources(text: str) -> list[dict]:
         if record["feed"] == "releases" and record["repo"] in watch.TAG_ONLY_REPOS:
             raise FeedError(f'{where}: {record["repo"]} publishes no usable releases; '
                             'use feed = "tags"')
+        if record.get("kind") not in KINDS:
+            raise FeedError(f"{where}: kind must be one of {KINDS}")
         if record["channel"] not in CHANNELS:
             raise FeedError(f"{where}: channel must be one of {CHANNELS}")
         models = record.get("models", [])
@@ -110,7 +115,8 @@ def parse_sources(text: str) -> list[dict]:
             raise FeedError(f'{where}: a printer line selects releases by title; '
                             'it needs feed = "releases"')
         sources.append({
-            "id": record["id"], "name": record["name"].strip(), "repo": record["repo"],
+            "id": record["id"], "kind": record["kind"],
+            "name": record["name"].strip(), "repo": record["repo"],
             "feed": record["feed"], "channel": record["channel"],
             "models": list(models), "line": [n.strip() for n in line],
             "update": " ".join(record["update"].split()),
@@ -219,7 +225,8 @@ def build_entry(source: dict, candidates: list[dict], audited: str | None) -> di
     newest = candidates[0] if candidates else None
     latest = newest if source["channel"] == "prerelease" else stable
     return {
-        "id": source["id"], "name": source["name"], "repo": source["repo"],
+        "id": source["id"], "kind": source["kind"],
+        "name": source["name"], "repo": source["repo"],
         "feed": source["feed"], "channel": source["channel"],
         "models": source["models"], "update": source["update"],
         "latest": _public(latest), "latest_stable": _public(stable),

@@ -55,7 +55,7 @@ class FakeGitHub:
 
 
 def _source(**over):
-    base = {"id": "fw", "name": "FW", "repo": "o/r", "feed": "releases",
+    base = {"id": "fw", "kind": "firmware", "name": "FW", "repo": "o/r", "feed": "releases",
             "channel": "stable", "models": ["v.*"], "line": [], "update": "How."}
     return {**base, **over}
 
@@ -93,15 +93,15 @@ def test_every_audited_baseline_reaches_the_feed():
     ("[[firmware]]\nid='a'\n", "missing or empty 'name'"),
     ("[[firmware]]\nid='A b'\nname='n'\nrepo='o/r'\nfeed='releases'\nchannel='stable'\nupdate='u'\n",
      "lowercase letters"),
-    ("[[firmware]]\nid='a'\nname='n'\nrepo='o/r'\nfeed='rss'\nchannel='stable'\nupdate='u'\n",
+    ("[[firmware]]\nid='a'\nkind='firmware'\nname='n'\nrepo='o/r'\nfeed='rss'\nchannel='stable'\nupdate='u'\n",
      "feed must be one of"),
-    ("[[firmware]]\nid='a'\nname='n'\nrepo='o/r'\nfeed='releases'\nchannel='beta'\nupdate='u'\n",
+    ("[[firmware]]\nid='a'\nkind='firmware'\nname='n'\nrepo='o/r'\nfeed='releases'\nchannel='beta'\nupdate='u'\n",
      "channel must be one of"),
-    ("[[firmware]]\nid='a'\nname='n'\nrepo='o/r'\nfeed='releases'\nchannel='stable'\nupdate='u'\n"
+    ("[[firmware]]\nid='a'\nkind='firmware'\nname='n'\nrepo='o/r'\nfeed='releases'\nchannel='stable'\nupdate='u'\n"
      "models=['Not A Key']\n", "'models' must be registry keys"),
-    ("[[firmware]]\nid='a'\nname='n'\nrepo='Klipper3d/klipper'\nfeed='releases'\n"
+    ("[[firmware]]\nid='a'\nkind='firmware'\nname='n'\nrepo='Klipper3d/klipper'\nfeed='releases'\n"
      "channel='stable'\nupdate='u'\n", "publishes no usable releases"),
-    ("[[firmware]]\nid='a'\nname='n'\nrepo='o/r'\nfeed='releases'\nchannel='stable'\nupdate='u'\n"
+    ("[[firmware]]\nid='a'\nkind='firmware'\nname='n'\nrepo='o/r'\nfeed='releases'\nchannel='stable'\nupdate='u'\n"
      "extra=1\n", "unknown field"),
 ])
 def test_malformed_sources_fail_closed(text, problem):
@@ -110,7 +110,7 @@ def test_malformed_sources_fail_closed(text, problem):
 
 
 def test_duplicate_ids_are_refused():
-    one = "[[firmware]]\nid='a'\nname='{}'\nrepo='o/r'\nfeed='releases'\nchannel='stable'\nupdate='u'\n"
+    one = "[[firmware]]\nid='a'\nkind='firmware'\nname='{}'\nrepo='o/r'\nfeed='releases'\nchannel='stable'\nupdate='u'\n"
     with pytest.raises(build.FeedError, match="duplicate id or name"):
         build.parse_sources(one.format("n") + one.format("m"))
 
@@ -208,7 +208,7 @@ def test_the_feed_carries_nothing_but_public_release_facts():
     assert set(feed) == {"schema", "generated_at", "source", "firmware"}
     assert set(feed["firmware"][0]) == {
         "id", "name", "repo", "feed", "channel", "models", "update",
-        "latest", "latest_stable", "audited", "stale"}
+        "latest", "latest_stable", "audited", "stale", "kind"}
     assert all(method == "GET" for method, _ in github.calls)
 
 
@@ -235,17 +235,18 @@ def test_workflow_publishes_to_its_own_branch_with_least_privilege():
 FEED = {
     "schema": 1, "generated_at": "2026-11-15T12:00:00Z",
     "firmware": [
-        {"id": "zmod", "name": "ZMod", "repo": "ghzserg/zmod", "channel": "stable",
+        {"id": "zmod", "kind": "firmware", "name": "ZMod", "repo": "ghzserg/zmod", "channel": "stable",
          "models": ["flashforge.*"], "update": "Use chat.",
          "latest": {"version": "1.7.6", "tag": "1.7.6", "published_at": "2026-11-11T11:08:42Z",
                     "url": "https://github.com/ghzserg/zmod/releases/tag/1.7.6"},
          "latest_stable": {"version": "1.7.6", "tag": "1.7.6"}, "audited": "1.7.6"},
-        {"id": "opencreator", "name": "OpenCreator", "channel": "stable",
+        {"id": "opencreator", "kind": "firmware", "name": "OpenCreator", "channel": "stable",
          "models": ["flashforge_opencreator.*"], "update": "Its own updater.",
          "latest": {"version": "0.0.7.4", "published_at": "2026-11-14T05:51:55Z",
                     "url": "https://example.invalid/not-github"},
          "latest_stable": {"version": "0.0.7.4"}, "audited": None},
-        {"id": "helixscreen", "name": "HelixScreen", "models": [], "update": "",
+        {"id": "helixscreen", "kind": "plugin", "name": "HelixScreen", "models": ["flashforge.*"],
+         "update": "",
          "latest": {"version": "1.0.9"}},
         "not an entry", {"id": "", "name": "blank"}, {"id": "zmod", "name": "duplicate"},
     ],
@@ -270,7 +271,7 @@ def test_parse_keeps_good_entries_and_drops_bad_ones():
     feed = firmware_feed.parse(FEED)
     assert [row.id for row in feed.firmware] == ["zmod", "opencreator", "helixscreen"]
     assert feed.get("zmod").latest.version == "1.7.6" and feed.get("nope") is None
-    assert [r.id for r in feed.for_model("flashforge.ad5x")] == ["zmod"]
+    assert [r.id for r in feed.for_model("flashforge.ad5x")] == ["zmod", "helixscreen"]
     assert [r.id for r in feed.for_model("flashforge_opencreator.creator5_pro")] == ["opencreator"]
     assert feed.for_model("bambulab.x1c") == [] and feed.for_model(None) == []
     # A link that is not GitHub's is dropped, never rendered.
@@ -554,3 +555,59 @@ def test_page_without_a_feed_still_renders_the_roster(monkeypatch):
     page = _page(monkeypatch, feed=None)
     assert firmware_page.FEED_UNAVAILABLE[:40] in page
     assert "Garage AD5X" in page and "Every firmware Print Handy follows" not in page
+
+
+# ------------------------------------------------- firmware, stock and plugins
+# catduck (2026-11-16): plugins, firmware and the maker's stock firmware are
+# three different things, shown separately on the Web UI.
+
+def test_every_shipped_source_names_its_kind():
+    sources = build.parse_sources((ROOT / build.SOURCES_FILE).read_text(encoding="utf-8"))
+    kinds = {s["id"]: s["kind"] for s in sources}
+    assert set(kinds.values()) <= set(build.KINDS) == set(firmware_feed.KINDS)
+    assert kinds["zmod"] == kinds["forge-x"] == kinds["opencreator"] == "firmware"
+    assert kinds["helixscreen"] == kinds["moonraker"] == kinds["octoprint"] == "plugin"
+    assert kinds["prusa-buddy-mk4s"] == kinds["qidi-q1pro"] == "stock"
+    # HelixScreen is listed under the ZMod printers it runs on, so it shows
+    # in the printer's own Plugins table.
+    helix = next(s for s in sources if s["id"] == "helixscreen")
+    assert helix["models"] == ["flashforge.*"]
+
+
+def test_a_source_without_a_known_kind_fails_closed():
+    base = ("[[firmware]]\nid='a'\nname='n'\nrepo='o/r'\nfeed='releases'\n"
+            "channel='stable'\nupdate='u'\n")
+    for text in (base, base + "kind='addon'\n"):
+        with pytest.raises(build.FeedError, match="kind must be one of"):
+            build.parse_sources(text)
+
+
+def test_built_entry_carries_its_kind_and_an_old_feed_reads_as_firmware():
+    github = FakeGitHub(releases={"o/r": [_release("1.0.0")]})
+    feed = build.build_feed([_source(kind="plugin")], {}, github, now=NOW, log=lambda _m: None)
+    assert feed["firmware"][0]["kind"] == "plugin"
+    old = {**FEED, "firmware": [{k: v for k, v in row.items() if k != "kind"}
+                                for row in FEED["firmware"] if isinstance(row, dict)]}
+    assert {row.kind for row in firmware_feed.parse(old).firmware} == {"firmware"}
+    odd = {**FEED, "firmware": [{**FEED["firmware"][0], "kind": "addon"}]}
+    assert firmware_feed.parse(odd).firmware[0].kind == "firmware"
+
+
+def test_page_shows_firmware_stock_and_plugins_as_separate_tables(monkeypatch):
+    stock = {"id": "prusa-buddy-mk4s", "kind": "stock", "name": "Prusa Buddy (MK4S)",
+             "models": ["prusa.mk4s"], "update": "USB.", "latest": {"version": "6.4.0"}}
+    page = _page(monkeypatch, feed=firmware_feed.parse({**FEED, "firmware": FEED["firmware"] + [stock]}))
+    every = page[page.index("Every firmware Print Handy follows"):]
+    fw_at, stock_at, plugin_at = (every.index(f"<h3>{t}</h3>")
+                                  for t in ("Firmware", "Stock firmware", "Plugins"))
+    assert fw_at < stock_at < plugin_at
+    assert "ZMod" in every[fw_at:stock_at] and "HelixScreen" not in every[fw_at:stock_at]
+    assert "Prusa Buddy (MK4S)" in every[stock_at:plugin_at]
+    assert "HelixScreen" in every[plugin_at:] and "ZMod" not in every[plugin_at:]
+    assert "<th>Plugin</th>" in every[plugin_at:]
+    # The AD5X's own section splits the same way: ZMod under Firmware,
+    # HelixScreen under Plugins, and no empty Stock firmware heading.
+    ad5x = page[page.index("Garage AD5X"):page.index("Shop &lt;Creator&gt;")]
+    assert ad5x.index("<h3>Firmware</h3>") < ad5x.index("<td>ZMod</td>") < ad5x.index("<h3>Plugins</h3>")
+    assert ad5x.index("<h3>Plugins</h3>") < ad5x.index("<td>HelixScreen</td>")
+    assert "<h3>Stock firmware</h3>" not in ad5x

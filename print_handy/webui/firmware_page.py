@@ -8,7 +8,13 @@ Two views of one question, "what firmware is there, and is mine current":
   firmware is updated. A Moonraker printer has a "Check installed
   versions" link, which reads that one printer's update state on
   request and shows the same report ``/print-firmware`` gives in chat.
-- **Every firmware Print Handy follows.** The whole feed as a table.
+- **Every firmware Print Handy follows.** The whole feed.
+
+Both views split the feed into three groups, each its own table:
+**Firmware** (community or open firmware such as ZMod, Forge-X,
+OpenCreator, Klipper), **Stock firmware** (the printer maker's own, such
+as Prusa Buddy or QIDI) and **Plugins** (add-ons that run beside the
+firmware, such as HelixScreen, Moonraker or OctoPrint).
 
 Read-only. The page never refreshes a printer's update manager, never
 applies an update and has no update button: applying stays the
@@ -75,6 +81,25 @@ _FIRMWARE_HEAD = ("<table><tr><th>Firmware</th><th>Newest release</th>"
                   "<th>Audited against</th><th>How it updates</th></tr>")
 
 
+def _grouped_tables(rows, heading):
+    """One table per kind, in KINDS order: Firmware, Stock firmware, Plugins.
+
+    catduck (2026-11-16): firmware, the maker's stock firmware and plugins
+    are three different things and are shown apart. An empty group is left
+    out. ``heading`` is the HTML tag for each group's title.
+    """
+    out = []
+    for kind in firmware_feed.KINDS:
+        group = [row for row in rows if row.kind == kind]
+        if not group:
+            continue
+        title = firmware_feed.KIND_TITLES[kind]
+        head = _FIRMWARE_HEAD.replace("<th>Firmware</th>",
+                                      f"<th>{'Plugin' if kind == 'plugin' else 'Firmware'}</th>")
+        out.append(f"<{heading}>{_esc(title)}</{heading}>" + head + _firmware_rows(group) + "</table>")
+    return "".join(out)
+
+
 def installed_report(printer_id, entry, transport_for):
     """The ``/print-firmware`` report for one printer, or a plain reason it has none."""
     if entry is None:
@@ -95,7 +120,7 @@ def _printer_section(row, feed, *, checked, transport_for):
              f"<p class=\"muted\">{_esc(_model_label(model_key))}</p>"]
     lines = feed.for_model(model_key) if feed is not None else []
     if lines:
-        parts.append(_FIRMWARE_HEAD + _firmware_rows(lines) + "</table>")
+        parts.append(_grouped_tables(lines, "h3"))
     elif feed is not None:
         parts.append("<p>The firmware feed lists no firmware for this model. "
                      "Either its maker publishes no release feed Print Handy can "
@@ -154,7 +179,7 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
         if current.generated_at:
             parts.append(f"<p class=\"muted\">Feed last changed "
                          f"{_esc(current.generated_at[:10])}.</p>")
-        parts.append(_FIRMWARE_HEAD + _firmware_rows(current.firmware) + "</table>")
+        parts.append(_grouped_tables(current.firmware, "h3"))
         parts.append("<p class=\"muted\">\"Audited against\" is the upstream version "
                      "Print Handy's code for that firmware was last checked with. A "
                      "newer release is one it has not been checked with yet, not one "
