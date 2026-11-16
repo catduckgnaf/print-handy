@@ -202,14 +202,10 @@ finished), each with its print number and exact plate alias such as
 `plate 82B (Left arm)`. A project counts as one entry toward the list's
 length, so grouping never pushes a standalone print off the list.
 
-## Project readout in the Web UI
-
-The Web UI's [Projects page](WEBUI.md#projects-page) (`/projects`, and
-`/api/projects` as JSON) shows each project's components, plates,
-quantities, every attempt per plate and its run, and whether the project
-is complete or can be resumed. It reads the job's manifest, the live plan
-file and the print records; it keeps no store of its own and starts
-nothing.
+Project state is tracked internally (the job's manifest, the live plan
+file and the print records) and worked from chat: `/print-next` continues
+a project and `/print-again list` shows where each project stands. There
+is no Web UI page for it.
 
 **Not implemented yet:** an AI design's parts enter the project flow above,
 but the design does not yet declare assembly roles or placements for them,

@@ -56,7 +56,6 @@ NAV = (
     ("/printer-settings", "Printer settings"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
-    ("/projects", "Projects"),
     ("/firmware", "Firmware"),
     ("/config", "Settings"),
 )

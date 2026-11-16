@@ -66,9 +66,6 @@ step) serving:
   and ``POST /designs/choice`` are the workshop's forms: they submit
   through this browser's web chat view, so a design started here runs
   the chat design dispatch itself, not a page-side pipeline.
-- ``GET /projects`` and ``GET /api/projects`` — the read-only
-  multi-part project readout (#1204; :mod:`print_handy.webui.projects`),
-  read from each job's ``project_v1`` manifest and the print records.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
   walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
   every install that has not finished it; its steps write through the
@@ -195,7 +192,6 @@ from . import firmware_page as firmware_page_module
 from . import pages
 from . import printer_settings as printer_settings_module
 from . import printers_page
-from . import projects as projects_module
 from . import pwa as pwa_module
 from . import routes as routes_module
 from . import screen as screen_module
@@ -1534,12 +1530,6 @@ class _Handler(BaseHTTPRequestHandler):
                                          "the answer belongs to another step.")
                 return
         self._redirect("/designs")
-
-    def _projects_route(self, path):
-        # The read-only multi-part project readout (#1204 item 5).
-        self._send(*projects_module.respond(
-            self.server.settings_data, path, theme=self._theme(),
-            nav=data_module.nav_for(self.server.settings_data)))
 
     def _firmware_route(self):
         # Firmware and updates per printer (#1280 section I), read-only.
