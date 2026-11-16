@@ -2,6 +2,24 @@
 
 # Unreleased
 
+# Version 2.3.5
+
+**Release Date:** 2026-11-16
+**Range:** 2.3.4..main (#1529 to #1562, plus this release PR #1564; checklist #1563; baselines verified unchanged from main CI run 43806603862 on bcf821cb: discord-timing median ratio 1.067 over 28 cases of 0.3 s and up with no rise over 20%, real-slicer leg median ratio 0.944 with no rises).
+**Live checks performed for this release:** none on hardware.
+**Not verified live:** OpenCreator on a real Creator 5 / 5 Pro and Forge-X on a real AD5M / AD5M Pro (testers wanted, #1557); an outside Spoolman with a linked Moonraker (#1550, #1560); two-way spool sync against a live printer (#1554).
+
+- Spoolman: outside Spoolman and per-printer accounting (PR #1550, #1536); printer accounting without a Moonraker link falls back to Print Handy with a warning (PR #1553); the double-count warning asks both servers for their identity before warning (PR #1560).
+- Spools: two-way `/spool sync` (PR #1554); `/spool shelve`, `rename`, `archive`, `unarchive` (PR #1540, #1515); filament action parity test across Web UI, chat and Home Assistant (PR #1552).
+- Intake: the spool line uses the sliced grams (PR #1562); a model of distinct parts prints all of them without asking, `discord.ask_which_parts` brings the question back (PR #1561); color-mapped slicing after an unassigned spool, empty spool records, failed first slice reported (PR #1545); no-active-spool slicing hotfix (PR #1533); link question expiry, plate download 404, missing-value slicing crash, timestamp tracebacks (PR #1542); toolhead material warning and unrecorded multi-slot prints (PR #1543).
+- Discord: job card removed, plain messages again, `discord.job_card_thread` removed (PR #1559); `/print-pause` and better command suggestions, E-stop with a login, job-card question hiding (PR #1535).
+- Web UI: nozzle and bed on the dashboard (PR #1534); Status page layout (PR #1541); Timing page removed (PR #1558); upload, nozzle facts and nozzle change for API clients (PR #1549, #1548); printer settings save atomically, credentials hidden in Status errors, quieter restart waits (PR #1546).
+- OpenCreator (#1490, closed; hardware pass #1557): AFC map followed and ACE named (PR #1538); firmware update refused, commits-behind report (PR #1539); runout, power-loss recovery and backup lanes, recovery fails closed (PR #1547); setup profile and snapshot camera, calibration menus fail closed (PR #1551); code-only items: empty tool, held recovery, Pro chamber heater, per-tool charging, refused start named, toolhead runout sensor, doctor firmware line (PR #1556).
+- Firmware audit (PR #1555): Forge-X screen mode fails closed, Guppy and Headless numbers recognized; OpenCreator material warning per toolhead and at slicing.
+- Forge-X: beta ordering and opt-in in-line updates (PR #1532).
+- Docs: printers by brand, model and firmware (PR #1529, #1526); printer list on a phone (PR #1544).
+- Release: version bump and notes (PR #1564).
+
 # Version 2.3.4
 
 **Release Date:** 2026-11-15
