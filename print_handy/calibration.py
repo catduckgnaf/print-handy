@@ -468,10 +468,18 @@ def available_options(entry, facts) -> tuple:
                                      "Print Handy does not drive it before hardware verification"))
         for heater, key, label in (("extruder", "pid_extruder", "Extruder PID"),
                                    ("heater_bed", "pid_bed", "Bed PID")):
-            if facts.section(heater):
-                options.append(CalOption(key, label, "guide",
-                                         "OpenCreator's C5_PID_CALIBRATE has firmware-specific tool "
-                                         "selection and save behavior not hardware verified"))
+            section = facts.section(heater)
+            if not section:
+                continue
+            if str(section.get("control") or "").strip().lower() == "mpc":
+                if heater == "extruder":
+                    options.append(CalOption("mpc_extruder", "Extruder MPC", "guide",
+                                             "OpenCreator's C5_MPC_CALIBRATE is firmware-specific and "
+                                             "not hardware verified; use it at the printer"))
+                continue
+            options.append(CalOption(key, label, "guide",
+                                     "OpenCreator's C5_PID_CALIBRATE has firmware-specific tool "
+                                     "selection and save behavior not hardware verified"))
         if facts.has_macro("CALIBRATE_INPUT_SHAPER"):
             options.append(CalOption("shaper", "Input shaper", "guide",
                                      "OpenCreator's CALIBRATE_INPUT_SHAPER controls attached tools, "

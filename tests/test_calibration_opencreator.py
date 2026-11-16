@@ -51,6 +51,16 @@ def test_discovered_opencreator_options_are_all_guidance_only():
     assert "CALIBRATE_INPUT_SHAPER" in options["shaper"].note
 
 
+def test_mpc_controller_is_not_misrepresented_as_pid_option():
+    transport = OpenCreatorTransport(settings_map={
+        **SETTINGS, "extruder": {"control": "mpc"}})
+    entry = cal.printer_entry(MODELS[0])
+    options = {option.key: option for option in cal.available_options(entry, cal.fetch_facts(transport))}
+    assert "pid_extruder" not in options
+    assert "mpc_extruder" in options
+    assert "C5_MPC_CALIBRATE" in options["mpc_extruder"].note
+
+
 @pytest.mark.parametrize("calibration,args,primitive", [
     ("mesh", (), "BED_MESH_CALIBRATE"),
     ("screws", (), "C5_SCREWS_TILT"),
