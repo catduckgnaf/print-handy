@@ -417,9 +417,11 @@ class ApiRouteTests(unittest.TestCase):
         # the unreachable printer still answers 200 unavailable.
         with tempfile.TemporaryDirectory() as tmp:
             _httpd, port = self.start(tmp)
-            code, raw = self.request(
-                port, "GET", f"/api/printers/{PRINTER}/status",
-                headers={server.TOKEN_HEADER: TOKEN})
+            with mock.patch.object(printer_state, "STATE",
+                                   str(Path(tmp) / "printer_hardware.json")):
+                code, raw = self.request(
+                    port, "GET", f"/api/printers/{PRINTER}/status",
+                    headers={server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200, raw)
             payload = json.loads(raw)
             self.assertEqual(payload["status"]["state"], "unavailable")
