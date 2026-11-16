@@ -8,7 +8,6 @@ only adapter module that imports ``discord``.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -54,30 +53,15 @@ class StandaloneAdapter(BasePlatformAdapter):
     max_buttons = MAX_BUTTONS
     supports_live_stream = True
     channel_is_boundary = True
-    # One job card per job, edited in place (#1472): Discord is the one
-    # adapter with embeds, message editing and threads, so it is the one
-    # that presents a job as a card. The card session lives in
-    # print_handy.bot.job_card; the methods below are its rendering arms.
-    supports_job_card = True
-    supports_embeds = True
 
     def __init__(self, client, allowed, *, denied=(), approver=None, approve_all=False, registry=prompts,
-                 upload_max_bytes=None, job_card_thread=False):
+                 upload_max_bytes=None):
         super().__init__(allowed, denied=denied, approver=approver, approve_all=approve_all, registry=registry)
         self.client = client
         # [discord] upload_max_bytes when BotCore builds this adapter; None
         # means the caller sizes uploads from settings itself.
         self.upload_max_bytes = upload_max_bytes
-        # [discord] job_card_thread (#1472): the card session opens a
-        # thread on the card for long detail when this is on.
-        self.job_card_thread = bool(job_card_thread)
         self._prompts: dict[str, dict[str, Any]] = {}
-        self._card_messages: dict[str, Any] = {}
-        self._card_views: dict[str, Any] = {}
-        # Which prompt owns a card's current buttons, and one edit lock per
-        # card message: see _card_lock.
-        self._card_view_owner: dict[str, Any] = {}
-        self._card_locks: dict[Any, asyncio.Lock] = {}
 
     # ------------------------------------------------------------------ delivery
 
@@ -250,192 +234,9 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.warning("Discord batch question failed: %r", exc)
             return SendResult(False, error=str(exc))
 
-    # ------------------------------------------------------------------ job card (#1472)
-
-    def _card_embed(self, card):
-        """A discord.Embed for a job card's current spec (bot/job_card.py)."""
-        import discord
-        spec = card.embed_spec()
-        embed = discord.Embed(title=spec["title"], description=spec["description"] or None,
-                              color=discord.Color(spec["color"]))
-        for field in spec["fields"]:
-            embed.add_field(name=field["name"], value=field["value"], inline=field["inline"])
-        if spec.get("thumbnail"):
-            embed.set_thumbnail(url=spec["thumbnail"])
-        embed.set_footer(text=spec["footer"])
-        return embed
-
-    def _card_lock(self, mid):
-        """The edit lock for one card message (per event loop).
-
-        A button press and the intake's next question both edit the same
-        card message. Unserialized, the press's edit, built before the
-        next question existed and sent with no buttons, could land last
-        and wipe that question and its buttons from the card, leaving the
-        intake waiting on a prompt nobody could see (live, after "Choose
-        files"). Every card edit takes this lock and renders the card's
-        state at that moment, so the last edit always shows the newest
-        question.
-        """
-        key = (id(asyncio.get_running_loop()), str(mid))
-        lock = self._card_locks.get(key)
-        if lock is None:
-            lock = self._card_locks[key] = asyncio.Lock()
-        return lock
-
-    def _set_card_view(self, mid, view, owner=None):
-        self._card_views[mid] = view
-        self._card_view_owner[mid] = str(owner) if (view is not None and owner) else None
-
-    def _clear_card_view_of(self, mid, cid):
-        """Retire the card's buttons only when they belong to prompt ``cid``:
-        a newer question's buttons stay."""
-        if self._card_view_owner.get(mid) in (None, str(cid)):
-            self._set_card_view(mid, None)
-
-    def _card_files(self, card):
-        """[discord.File] carrying the card's thumbnail once, else [].
-
-        The embed's thumbnail points at attachment://<name>, so the file
-        must ride the message that shows it; after that first ride the
-        attachment stays on the message and later edits send nothing.
-        """
-        import discord
-        path = getattr(card, "thumbnail_path", None)
-        if not path or getattr(card, "_thumbnail_attached", False):
-            return []
-        try:
-            handle = discord.File(str(path))
-        except Exception:
-            logger.debug("job card thumbnail unreadable", exc_info=True)
-            return []
-        card._thumbnail_attached = True
-        return [handle]
-
-    async def post_card(self, chat_id, card, metadata=None):
-        """Post the job card: one embed message the whole job edits."""
-        import discord
-        try:
-            channel = await self._channel(chat_id, metadata)
-            files = self._card_files(card)
-            kwargs = {"embed": self._card_embed(card),
-                      "allowed_mentions": discord.AllowedMentions.none()}
-            if files:
-                kwargs["files"] = files
-            message = await channel.send(None, **kwargs)
-        except Exception as exc:
-            logger.warning("Discord job card post failed: %r", exc)
-            return SendResult(False, error=str(exc))
-        card.message_id = str(message.id)
-        self._card_messages[str(message.id)] = message
-        self._card_views[str(message.id)] = None
-        return SendResult(True, message_id=str(message.id))
-
-    async def update_card(self, card, view=None, clear_view=False, metadata=None):
-        """Re-render a posted card in place, keeping its current buttons
-        unless ``view`` replaces them or ``clear_view`` retires them."""
-        message = self._card_messages.get(str(getattr(card, "message_id", "") or ""))
-        if message is None:
-            return SendResult(False, error="job card message is not tracked")
-        mid = str(message.id)
-        async with self._card_lock(mid):
-            if view is not None:
-                self._set_card_view(mid, view)
-            elif clear_view:
-                self._set_card_view(mid, None)
-            try:
-                kwargs = {"embed": self._card_embed(card), "view": self._card_views.get(mid)}
-                files = self._card_files(card)
-                if files:
-                    kwargs["attachments"] = files
-                await message.edit(**kwargs)
-            except Exception as exc:
-                logger.info("Discord job card edit failed: %r", exc)
-                return SendResult(False, error=str(exc))
-        return SendResult(True, message_id=mid)
-
-    async def attach_card_prompt(self, chat_id, card, question, choices, clarify_id, session_key,
-                                 metadata=None):
-        """Put a question's buttons on the card itself (#1472).
-
-        The prompt row records the card, so a press (handle_click) and a
-        typed answer (close_prompt) collapse the question into a line on
-        the card instead of editing a standalone message. The buttons use
-        the same pbq: custom ids as send_clarify, so every access rule in
-        handle_click applies unchanged.
-        """
-        import discord
-        message = self._card_messages.get(str(getattr(card, "message_id", "") or ""))
-        if message is None:
-            return SendResult(False, error="job card message is not tracked")
-        labels = [str(c) for c in choices][:MAX_BUTTONS]
-        view = discord.ui.View(timeout=None)
-        for index, label in enumerate(labels):
-            style = (discord.ButtonStyle.secondary if _is_cancel(label)
-                     else discord.ButtonStyle.primary)
-            view.add_item(discord.ui.Button(label=label[:LABEL_LIMIT], style=style,
-                                            custom_id=custom_id(clarify_id, index)))
-        mid = str(message.id)
-        async with self._card_lock(mid):
-            self._set_card_view(mid, view, owner=clarify_id)
-            try:
-                await message.edit(embed=self._card_embed(card), view=view)
-            except Exception as exc:
-                logger.warning("Discord card prompt attach failed: %r", exc)
-                return SendResult(False, error=str(exc))
-        self._record_prompt(clarify_id, {"message": message, "choices": labels,
-                                         "question": str(question), "card": card})
-        return SendResult(True, message_id=str(message.id))
-
-    async def attach_card_stop(self, card, text, clarify_id, metadata=None):
-        """Put the one Stop button on the card for a progress step (#1472).
-
-        Same custom id the standalone Stop prompt uses (prepared_intake's
-        STOP_CUSTOM_ID), so the handlers' stop listener resolves it the
-        same way; the button retires when the step ends (retire_prompt or
-        the stop handle's edit).
-        """
-        import discord
-        from ..core import prepared_intake
-        message = self._card_messages.get(str(getattr(card, "message_id", "") or ""))
-        if message is None:
-            return SendResult(False, error="job card message is not tracked")
-        view = discord.ui.View(timeout=None)
-        view.add_item(discord.ui.Button(label=prepared_intake.STOP_LABEL,
-                                        style=discord.ButtonStyle.danger,
-                                        custom_id=f"{prepared_intake.STOP_CUSTOM_ID}{clarify_id}"))
-        mid = str(message.id)
-        async with self._card_lock(mid):
-            self._set_card_view(mid, view, owner=clarify_id)
-            try:
-                await message.edit(embed=self._card_embed(card), view=view)
-            except Exception as exc:
-                logger.warning("Discord card Stop attach failed: %r", exc)
-                return SendResult(False, error=str(exc))
-        # Recorded like every other prompt, so retire_prompt finds it when the
-        # step ends and takes the Stop button off the card (review of #1488:
-        # unrecorded, the button stayed on the card after the step).
-        self._record_prompt(clarify_id, {"message": message, "choices": [prepared_intake.STOP_LABEL],
-                                         "question": str(text), "card": card, "stop": True})
-        return SendResult(True, message_id=str(message.id))
-
-    async def open_card_thread(self, chat_id, card, metadata=None):
-        """Open a thread on the card for long detail (#1472). Returns its
-        id, or None when Discord will not open one here."""
-        message = self._card_messages.get(str(getattr(card, "message_id", "") or ""))
-        if message is None:
-            return None
-        try:
-            thread = await message.create_thread(name=str(card.title)[:100])
-        except Exception:
-            logger.debug("job card thread open failed", exc_info=True)
-            return None
-        return str(getattr(thread, "id", "") or "") or None
-
     async def retire_prompt(self, clarify_id):
         """Retire a prompt's buttons without an answer (prepared_intake's
-        Stop flow): the card re-renders bare, a standalone message just
-        loses its view."""
+        Stop flow): the message loses its view."""
         with _prompts_guard(self):
             row = self._prompts.pop(str(clarify_id), None)
         if not row:
@@ -443,21 +244,10 @@ class StandaloneAdapter(BasePlatformAdapter):
         message = row.get("message")
         if message is None:
             return
-        mid = str(getattr(message, "id", ""))
-        if row.get("card") is None:
-            self._card_views[mid] = None
-            try:
-                await message.edit(view=None)
-            except Exception:
-                logger.debug("could not retire prompt buttons", exc_info=True)
-            return
-        async with self._card_lock(mid):
-            self._clear_card_view_of(mid, clarify_id)
-            try:
-                await message.edit(embed=self._card_embed(row["card"]),
-                                   view=self._card_views.get(mid))
-            except Exception:
-                logger.debug("could not retire prompt buttons", exc_info=True)
+        try:
+            await message.edit(view=None)
+        except Exception:
+            logger.debug("could not retire prompt buttons", exc_info=True)
 
     # ------------------------------------------------------------------ answers
 
@@ -470,21 +260,6 @@ class StandaloneAdapter(BasePlatformAdapter):
         if batch is not None and batch["pending"] - {str(cid)}:
             # One select of a batch message closed; the others stay live.
             batch["pending"].discard(str(cid))
-            return
-        if row.get("card") is not None:
-            # A card prompt collapses into a line on the card (#1472), the
-            # generalization of the standalone edit below.
-            card = row["card"]
-            mid = str(getattr(row["message"], "id", ""))
-            async with self._card_lock(mid):
-                if not row.get("stop"):  # a progress step's Stop is not a question to record
-                    card.add_answered(row["question"], note, cid=cid)
-                self._clear_card_view_of(mid, cid)
-                try:
-                    await row["message"].edit(embed=self._card_embed(card),
-                                              view=self._card_views.get(mid))
-                except Exception:
-                    logger.debug("could not collapse answered card prompt", exc_info=True)
             return
         try:
             await row["message"].edit(content=f"{row['question']}\n> {note}"[:rest.LIMIT], view=None)
@@ -587,26 +362,6 @@ class StandaloneAdapter(BasePlatformAdapter):
                     content=f"{question}\n{picked}"[:rest.LIMIT], view=None)
             except Exception:
                 logger.debug("could not record the batch choices on the prompt", exc_info=True)
-            return True
-        if row is not None and row.get("card") is not None:
-            # A press on the job card (#1472): every check above (allowed,
-            # approver, initiator, channel) already ran exactly as for a
-            # standalone prompt. The answer collapses into a line on the
-            # card and the card re-renders without its buttons.
-            # The resolve above already woke the intake, which may attach its
-            # next question to this card before this edit runs: collapse only
-            # this prompt, and render under the card's lock from the card's
-            # current state, so a newer question and its buttons survive.
-            card = row["card"]
-            mid = str(getattr(row["message"], "id", ""))
-            async with self._card_lock(mid):
-                card.add_answered(question, f"{who} chose **{answer}**", cid=cid)
-                self._clear_card_view_of(mid, cid)
-                try:
-                    await row["message"].edit(embed=self._card_embed(card),
-                                              view=self._card_views.get(mid))
-                except Exception:
-                    logger.debug("could not record the choice on the job card", exc_info=True)
             return True
         try:
             await interaction.edit_original_response(

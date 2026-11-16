@@ -1961,22 +1961,6 @@ def _variant_estimate_str(job_data, result):
     return 'slicing...'
 
 
-def _card_wrap(adapter, source):
-    """The job-card session for this intake (#1472), or the adapter itself.
-
-    Only adapters that support job cards (Discord) are wrapped; every
-    other platform's intake presents exactly as before. Presentation
-    only: the session delegates everything it does not render, so the
-    intake's decisions, prompts and access rules are untouched.
-    """
-    try:
-        from ..bot.job_card import JobCardSession
-        return JobCardSession.maybe(adapter, source)
-    except Exception:
-        logger.debug("job card wrap unavailable", exc_info=True)
-        return adapter
-
-
 def multi_file_fix_note(job):
     """Why no AI fix is offered on a job built from several files, or ''.
 
@@ -2026,14 +2010,9 @@ def _question_timeout(timeout):
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None, confirm_target=False):
     timeout = _question_timeout(timeout)
-    wrapped = _card_wrap(adapter, getattr(event, 'source', None))
-    try:
-        return await _prepare_link_intake(event, wrapped, state, root, timeout=timeout, reuse=reuse,
-                                          printer_id=printer_id, before_start=before_start,
-                                          confirm_target=confirm_target)
-    finally:
-        if wrapped is not adapter:
-            await wrapped.close()
+    return await _prepare_link_intake(event, adapter, state, root, timeout=timeout, reuse=reuse,
+                                      printer_id=printer_id, before_start=before_start,
+                                      confirm_target=confirm_target)
 
 
 async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
@@ -2082,13 +2061,8 @@ YOLO_GCODE_LABEL = 'Print it as-is (yolo)'
 
 async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=None):
     timeout = _question_timeout(timeout)
-    wrapped = _card_wrap(adapter, getattr(event, 'source', None))
-    try:
-        return await _print_gcode_file_intake(event, wrapped, root, path, timeout=timeout,
-                                              printer_id=printer_id)
-    finally:
-        if wrapped is not adapter:
-            await wrapped.close()
+    return await _print_gcode_file_intake(event, adapter, root, path, timeout=timeout,
+                                          printer_id=printer_id)
 
 
 async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, printer_id=None):
