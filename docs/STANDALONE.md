@@ -238,24 +238,64 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 * A typed reply answers your own open question ("2" for two copies, "split", "cancel"). It
   never answers another allowed user's question, even in the same channel or thread. Buttons are shared: any
   allowed user may press an open question's button, and the message then shows who chose.
-* Anything else is tried with a model lane first; the `[agent]` lane when an agent endpoint is
+* Anything else is tried, in order, with the deterministic natural-language layer and then a
+  model lane; the `[agent]` lane when an agent endpoint is
   configured, else the LLM when `[llm]` is set, and only falls back to the short
   “didn't understand” reply when
-  the model cannot solve it. The agent lane is different in kind from the LLM call below: the bot
+  nothing answers it. The agent lane is different in kind from the LLM call below: the bot
   sends your text once, with no bot system prompt, and posts the endpoint's reply as-is; the
   endpoint (a Hermes agent behind its API, say) answers in its own voice, and its reply can never
   name a command into execution. The bot keeps no conversation history; it sends the live session
   key as an `X-Print-Handy-Session` header the endpoint may key its own conversation on. If a
   configured agent endpoint does not answer, the reply says so (“The chat agent didn't answer…”)
   instead of pretending the message was not understood. The order is: explicit commands, deterministic phrases (like "print 57" above),
-  links/files and typed answers to an open question run first and are never rerouted through the model; any
-  other text goes to the model, which may answer directly or name one command from a fixed list (read-only or
-  button-gated: `/print-stop`, `/print-next`, `/spool list`, `/print-spools`, ...). A named command runs through the same
-  handler as a typed one and asks for its button the same way. Only if the model declines, names no usable
-  command, errors or times out does that reply appear, once, and never together with a model reply for
-  the same message. The model can never run `/spool change`, `/spool new`, `/spool sync`, `/print-colors` or
+  links/files and typed answers to an open question run first and are never rerouted through the model;
+  then the natural-language layer answers plain questions from local data (see the next section);
+  only what is left reaches a model lane, and only when the message actually invoked it (next section).
+  The model never writes command text: it may call one typed read-only tool (inventory facts,
+  the firmware report, printer status, doc lookup) and may propose an action as a capability plus
+  typed slots, which the bot turns into the normal command and confirmation. It can never run
+  `/spool change`, `/spool new`, `/spool sync`, `/print-colors` or
   `/print-again stop`, and it never sees links, files or the printer. With no `[llm]` configured, unmatched
   text gets that short reply as before, and Telegram and Matrix never use the LLM at all (see above).
+
+## Plain words first: the three routes
+
+Print Handy is natural-language first, with three separate routes that never blur:
+
+1. **Normal chat is local and deterministic.** Plain questions ("How much purple PLA do I
+   have?", "What's in slot 2?", "Are there ZMod updates?", "What firmware am I on?") are
+   answered from Spoolman, the printer and the firmware state on this machine. No model is
+   called, mentioned or not: a mentioned "how much purple PLA" gets the same Spoolman answer.
+   The capability list behind these answers is one registry; "What can you do?" prints it,
+   generated from the same example phrases the tests run.
+2. **The conversational AI is opt-in per message.** It runs only when the message carries a
+   trusted invocation: a real platform @mention of this bot (not @everyone, a role, a quoted
+   mention, an edited message, or another bot's mention), a Telegram command suffix for this
+   bot, a typed "ask ai:"/"ai:"/"hey ai" **in a direct message only**, or the Web UI chat's
+   Ask AI checkbox (set by the authenticated form post, never parsed from message text).
+   A reply to one of the bot's messages is not an invocation. The first time a user's message
+   goes to the endpoint, the bot posts a one-time notice saying so. The lane is rate-limited
+   per user (`natural_language.ai_rate_limit_per_hour`, default 20), can be switched off per
+   channel (`natural_language.ai_disabled_channel_ids`), and its model gets only the typed
+   read-only tools above. A mention is never consent to change anything.
+3. **Design is a dedicated AI path.** Asking for a new or edited model uses the design engine
+   with no mention required, as before. Specialized AI paths keep their own gates and are
+   unchanged: Pasta Cam vision, spool-label and purchase photos, and edit repair.
+
+Firmware answers keep seven honest states: confirmed update available, verified current,
+a new release published but the installed comparison unknown, unknown, unsupported,
+temporarily unavailable, and blocked from applying. They never claim "up to date" when the
+version state could not be read. Applying an update stays on the guarded `/print-firmware`
+flow. Inventory answers never invent fields: an unknown remaining weight makes the total
+"incomplete" rather than zero, and a Spoolman failure is answered as unavailable, never with
+stale numbers.
+
+Two `[natural_language]` settings are for tuning the rollout: `shadow_mode = true` makes the
+deterministic layer log disagreements locally and answer nothing itself (the previous behavior
+answers instead), and `unmatched_log_enabled = true` keeps a sanitized, local-only log of
+phrases nothing matched, exportable from the bot's diagnostics (`status` carries the route
+counters and the recent unmatched phrases). Nothing in this layer is transmitted anywhere.
 
 ## Running Discord with no chat LLM
 

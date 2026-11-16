@@ -559,7 +559,7 @@ def test_matrix_botcore_never_calls_the_llm(cfg, tmp_path):
     source = runtime.make_source(USER, ROOM, platform_name="matrix")
     with mock.patch.object(runtime.llm, "ask", exploding_ask), \
             mock.patch.object(runtime.llm, "configured", return_value=True):
-        out = run(core.process(runtime.make_event(source, "what is the printer doing?", "$e7")))
+        out = run(core.process(runtime.make_event(source, "hello there, how is it going?", "$e7")))
     assert calls == []
     assert out == {"action": "skip", "reason": "command list"}
     assert any("didn't understand" in body and "/print-help" in body for body in stub.sent_bodies())

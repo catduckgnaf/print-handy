@@ -917,3 +917,31 @@ jobs:
           args=(--base "$base")
           if [ -f "$RUNNER_TEMP/pr-body.txt" ]; then args+=(--body-file "$RUNNER_TEMP/pr-body.txt"); fi
           python scripts/check_us_spelling.py "${args[@]}"
+  natural-language-contract:
+    # The #1524 natural-language contract: capability registry completeness,
+    # the gold corpus (positive / negative / ambiguity / followups / typos /
+    # inventory / firmware / platform), the no-LLM gate on unmentioned chat,
+    # routing collisions, and the typed-tools lane. Fast and offline: the
+    # whole point of the layer is that plain questions never need a network.
+    name: natural-language-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ".[test]"
+      - name: Natural-language contract tests
+        run: |
+          python -m pytest -q \
+            tests/bot/test_natural_language.py \
+            tests/bot/test_provenance_gate.py \
+            tests/bot/test_intent_split.py \
+            tests/bot/test_inventory_answers.py \
+            tests/bot/test_firmware_answers.py \
+            tests/bot/test_ai_tools_lane.py \
+            tests/bot/test_broader_coverage.py \
+            tests/bot/test_docs_examples.py \
+            tests/bot/test_suggestion_targets.py \
+            tests/bot/test_command_fuzzy_coverage.py

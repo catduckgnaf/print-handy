@@ -336,6 +336,8 @@ class OverrideTests(unittest.TestCase):
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
                        "ntfy_enabled", "ntfy_url", "ntfy_topic"},
             "firmware": {"update_alerts", "update_check_hours", "notice_firmwares", "forgex_apply"},
+            "natural_language": {"shadow_mode", "unmatched_log_enabled",
+                                 "ai_rate_limit_per_hour", "ai_disabled_channel_ids"},
             "maintenance": {"quick_hours", "full_hours", "full_days", "bed_separate_mm"},
             "public_text": {"denylist"},
             "delivery": {"methods"},

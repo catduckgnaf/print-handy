@@ -545,7 +545,7 @@ class WebChatService:
         """The page's own switch, read live from the settings mapping."""
         return chat_enabled(self.cfg)
 
-    def submit(self, text, scope="", media_urls=()):
+    def submit(self, text, scope="", media_urls=(), ask_ai=False):
         """Queue one operator message in ``scope``. False when rate-limited or off.
 
         The rate limit counts every scope together: it guards the bot
@@ -554,7 +554,15 @@ class WebChatService:
         attachments ride its events (a file dropped in chat): the Web UI
         workflow page submits an uploaded file this way, so the intake
         sees exactly the event a file drop produces. With no text, the
-        transcript's operator line names the files instead."""
+        transcript's operator line names the files instead.
+
+        ``ask_ai`` is the per-message Ask AI control (#1524): it is set
+        here, server-side, from the authenticated chat action — never
+        from text the operator typed — and stamps the event with
+        ``ui_flag`` provenance, the Web UI's trusted invocation. Without
+        it, web chat provenance is ``none`` (or ``typed_ai_phrase`` for
+        an explicit "ask ai:" opening, which the Web UI policy allows).
+        """
         if not self._enabled():
             return False
         scope = str(scope or "")
@@ -578,8 +586,14 @@ class WebChatService:
             from pathlib import Path as _Path
             shown = "📎 " + ", ".join(_Path(str(p)).name for p in media_urls)
         self._append({"kind": "operator", "content": shown}, scope)
+        from . import provenance as _provenance
+        if ask_ai:
+            prov = _provenance.Provenance(value="ui_flag", platform="webui",
+                                          channel_kind="webui")
+        else:
+            prov = self.core.provenance_for(addressed, None, channel_kind="webui")
         event = runtime.make_event(self._source(scope), addressed.text, f"web-{count}",
-                                   media_urls=media_urls)
+                                   media_urls=media_urls, prov=prov)
         future = asyncio.run_coroutine_threadsafe(
             self._in_scope(scope, lambda: self.core.process(event)), self._loop)
         future.add_done_callback(lambda done: self._process_done(done, scope))
@@ -692,8 +706,8 @@ class ScopedChat:
         self.service = service
         self.scope = str(scope or "")
 
-    def submit(self, text, media_urls=()):
-        return self.service.submit(text, self.scope, media_urls=media_urls)
+    def submit(self, text, media_urls=(), ask_ai=False):
+        return self.service.submit(text, self.scope, media_urls=media_urls, ask_ai=ask_ai)
 
     def answer(self, clarify_id, index):
         return self.service.answer(clarify_id, index, self.scope)

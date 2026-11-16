@@ -269,7 +269,7 @@ def help_text(bot_name="Print Handy", supports_live_stream=True):
              "- Post a model link or .3mf/.stl to print it.",
              '- "print it" prints the last link; "print again"/"print 57" reprints.',
              '- "add new filament", "add a new spool" or "swap the filament" starts the guided /spool flow.',
-             '- @mention me: "spool list".']
+             '- @mention me: "spool list", or ask in plain words.']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
               for c in COMMANDS if c.name != "print-help"

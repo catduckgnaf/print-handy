@@ -1,0 +1,104 @@
+{
+ "cases": [
+  {
+   "text": "Don't stop the print",
+   "intent": null,
+   "mood": "negated",
+   "allowed_effects": []
+  },
+  {
+   "text": "Do not cancel anything",
+   "intent": null,
+   "mood": "negated",
+   "allowed_effects": []
+  },
+  {
+   "text": "Never print that file again",
+   "intent": null,
+   "mood": "negated",
+   "allowed_effects": []
+  },
+  {
+   "text": "I updated ZMod yesterday",
+   "intent": null,
+   "mood": "past",
+   "allowed_effects": []
+  },
+  {
+   "text": "I bought purple PLA",
+   "intent": "purchase_record",
+   "mood": "past",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "note": "a purchase statement never creates inventory"
+  },
+  {
+   "text": "I bought 2 rolls yesterday",
+   "intent": "purchase_record",
+   "mood": "past",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is there an update?",
+   "intent": "firmware_updates",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "note": "a question never starts the update flow"
+  },
+  {
+   "text": "Stop",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": [],
+   "note": "a bare verb with no object is not a command"
+  },
+  {
+   "text": "Update",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": []
+  },
+  {
+   "text": "Show red filament, not orange",
+   "intent": "inventory_list",
+   "slots": {
+    "color": "red",
+    "exclude_color": "orange"
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "note": "the negation binds to the color slot, not the intent"
+  },
+  {
+   "text": "Purple is my favorite color",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": []
+  },
+  {
+   "text": "The print stopped on its own",
+   "intent": null,
+   "mood": "past",
+   "allowed_effects": []
+  },
+  {
+   "text": "Good morning everyone",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": []
+  },
+  {
+   "text": "lol nice",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": []
+  }
+ ]
+}

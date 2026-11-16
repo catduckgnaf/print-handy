@@ -146,6 +146,10 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         '<input id="c-text" name="text" autocomplete="off" '
         + (f'value="{_esc(prefill_text(prefill))}" autofocus ' if prefill_text(prefill) else "")
         + 'placeholder="A model link, /print-help, or describe a design"></div>'
+        '<div class="field"><label for="c-ask-ai">'
+        '<input id="c-ask-ai" type="checkbox" name="ask_ai" value="1"> '
+        'Ask AI — send this message to the conversational AI (only when '
+        'chat AI is switched on)</label></div>'
         '<button type="submit" class="accent">Send</button></form>')
     return shell.page("chat", "".join(parts), path="/chat", theme=theme,
                       heading="Chat", nav=nav)

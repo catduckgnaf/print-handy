@@ -19,6 +19,7 @@ import asyncio
 import contextvars
 import collections
 import contextlib
+import inspect
 import logging
 import os
 import re
@@ -30,7 +31,7 @@ from types import SimpleNamespace
 from .. import settings
 from ..core import fuzzy, prompts
 from ..runtime import _config
-from . import agent, commands, llm, mention, platform, rest, routing
+from . import agent, commands, llm, mention, platform, provenance, rest, routing
 from .router import Router
 
 logger = logging.getLogger(__name__)
@@ -354,6 +355,13 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^new\s+(?:spool|roll){_END}", re.I), "/spool new"),
     (re.compile(rf"^{_LEAD}(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll){_END}", re.I), "/spool"),
     (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?spools{_END}", re.I), "/spool list"),
+    # Load is its own intent (#1524 tranche 2): putting an existing spool
+    # into a slot is the guided change flow, never guided creation.
+    (re.compile(rf"^{_LEAD}load\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+#?\d+)?(?:\s+into\s+slot\s+[1-4])?{_END}", re.I), "/spool change"),
+    (re.compile(rf"^{_LEAD}load\s+spool\s+#?\d+\s+into\s+slot\s+[1-4]{_END}", re.I), "/spool change"),
+    # "How much filament" is an inventory question (#1524 tranche 2): the
+    # list is the deterministic answer surface, not creation or loading.
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+filament\s+do\s+i\s+have{_END}", re.I), "/spool list"),
     (re.compile(rf"^{_LEAD}(?:sync|synchronize)\s+(?:the\s+)?(?:spools?|filament)(?:\s+with\s+spoolman)?{_END}", re.I), "/spool sync"),
     (re.compile(rf"^{_LEAD}sync\s+(?:with\s+)?spoolman{_END}", re.I), "/spool sync"),
     # Spool rename, shelve, archive (#1515): the Web UI's slot actions in chat.
@@ -530,11 +538,17 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:layers?\s+shifted|layers\s+are\s+misaligned|(?:the\s+|my\s+)?print\s+shifted|staircase\s+effect|skipped\s+steps){_END}", re.I), "/print-lookup layer shift"),
     (re.compile(rf"^(?:layers\s+are\s+splitting|layer\s+separation|delamination|cracking\s+between\s+layers){_END}", re.I), "/print-lookup layer separation"),
     (re.compile(rf"^(?:wet\s+filament|popping\s+sounds?\s+from\s+(?:the\s+)?nozzle|steam\s+from\s+(?:the\s+)?nozzle|bubbly\s+extrusion){_END}", re.I), "/print-lookup wet filament"),
-    # Shopping: buying filament goes through the spool flows; running low
-    # starts with seeing what is loaded and how much is left.
-    (re.compile(rf"^{_LEAD}(?:buy|order|purchase)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/spool"),
-    (re.compile(rf"^(?:i\s+)?(?:need|want)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/spool"),
-    (re.compile(rf"^where\s+(?:can|do)\s+i\s+(?:buy|get|order)\s+(?:more\s+)?(?:filament|spools?){_END}", re.I), "/spool"),
+    # Shopping (#1524 tranche 2): "buy filament", "I bought filament",
+    # "add a spool", "load a spool" and "how much filament" are five
+    # different intents. Buying is shopping guidance — it must never
+    # route to the guided /spool creation flow, and a past-tense purchase
+    # ("I bought ...") gets no suggestion at all: the purchase-intake
+    # handler owns recording a purchase, and only from a link or an
+    # image, with its own offer question. Running low starts with seeing
+    # what is loaded and how much is left.
+    (re.compile(rf"^where\s+(?:can|do)\s+i\s+(?:buy|get|order)\s+(?:more\s+)?(?:filament|spools?){_END}", re.I), "/print-lookup buying filament"),
+    (re.compile(rf"^{_LEAD}(?:buy|order|purchase)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/print-lookup buying filament"),
+    (re.compile(rf"^(?:i\s+)?(?:need|want)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/print-lookup buying filament"),
     (re.compile(rf"^(?:i'm\s+|im\s+|we're\s+|we\s+are\s+)?running\s+low\s+on\s+(?:filament|spools?|pla|petg|abs|tpu){_END}", re.I), "/print-spools"),
     # Model sites
     (re.compile(rf"^(?:what|which)\s+(?:model\s+)?sites?\s+(?:can|do)\s+you\s+(?:print|download)\s+from{_END}", re.I), "/print-source"),
@@ -765,6 +779,23 @@ def _ai_invocation(text):
     return match.group("q").strip() or None
 
 
+def ai_endpoint_notice_text():
+    """The one-time notice: mentioned messages go to the configured AI endpoint (#1524).
+
+    Sent once per user before their first conversational-lane call, so
+    nobody's words leave for an endpoint without being told once.
+    """
+    return ("A quick note: when you mention me or ask the AI, that message is sent to this "
+            "bot's configured AI endpoint to answer. Plain questions and commands are "
+            "handled locally and never leave this machine.")
+
+
+def ai_rate_limited_text():
+    """The reply when a user is over the conversational lane's rate limit."""
+    return ("You've hit the AI chat rate limit for now, so I didn't send that. "
+            "Commands and plain questions still work — type `/print-help`.")
+
+
 def ai_not_enabled_text():
     """The honest reply to an explicit AI invocation when no lane is enabled.
 
@@ -845,11 +876,19 @@ def make_source(user_id, chat_id, thread_id=None, is_bot=False, platform_name="d
                            if shared_printer_ids else None)
 
 
-def make_event(source, text, message_id, media_urls=(), metadata=None):
+def make_event(source, text, message_id, media_urls=(), metadata=None, prov=None):
     # A chat user's text is third-party text: a handler that echoes an
     # argument back must never turn a typed MEDIA: line into an attachment.
+    # ``prov`` is the invocation provenance (#1524): stamped by the
+    # platform adapter and carried unchanged through process/fallback.
+    meta = dict(metadata or {})
+    if prov is not None:
+        meta = provenance.stamp(meta, prov)
+    elif "provenance" in meta and not isinstance(meta["provenance"], provenance.Provenance):
+        meta["provenance"] = provenance.from_event(
+            SimpleNamespace(metadata=meta), platform_name_of(source))
     return SimpleNamespace(source=source, text=rest.inert_media(text), media_urls=list(media_urls),
-                           message_id=str(message_id), metadata=dict(metadata or {}), internal=False)
+                           message_id=str(message_id), metadata=meta, internal=False)
 
 
 _MESSAGE_LINK = re.compile(
@@ -1103,6 +1142,13 @@ class BotCore(_RoutedAdapter):
             if use_llm is None else bool(use_llm)
         self.llm_opener = llm_opener
         self.agent_opener = agent_opener
+        # #1524 tranche 6: the conversational lane's per-user rate limit
+        # and the one-time endpoint notice. Both are process-local.
+        from . import ai_tools as _ai_tools
+        _nl_settings = self.cfg.get("natural_language") or {}
+        self._ai_rate = _ai_tools.RateLimiter(
+            max_calls=int(_nl_settings.get("ai_rate_limit_per_hour") or 20))
+        self._ai_noticed: set = set()
         self.agent_unavailable = agent_unavailable_text()
         self._refusal_notices: dict[str, float] = {}  # user_id -> last notice time (#386)
         self._elsewhere_notices: dict[tuple, float] = {}  # (user_id, chat_id) -> last notice time
@@ -1197,6 +1243,36 @@ class BotCore(_RoutedAdapter):
 
     # ------------------------------------------------------------------ messages
 
+    def provenance_for(self, addressed, message=None, *, channel_kind=None):
+        """The stamped provenance for one addressed message (#1524).
+
+        The value comes from the mention evidence in ``addressed``; a
+        typed "ask ai:" opening with no stronger evidence becomes
+        typed_ai_phrase. Channel kind defaults from the message: a
+        Discord message with no guild is a direct message, Telegram
+        private chats are direct messages, everything else is shared.
+        Edited messages are stamped edited so they never re-trigger the
+        conversational lane.
+        """
+        value = getattr(addressed, "provenance", "none") or "none"
+        if value == "none" and _ai_invocation(getattr(addressed, "text", "")):
+            value = "typed_ai_phrase"
+        if channel_kind is None:
+            channel_kind = "shared"
+            kinds = " ".join(str(getattr(message, attr, "") or "") for attr in
+                             ("chat_type", "conversation_type")) if message is not None else ""
+            channel = getattr(message, "channel", None) if message is not None else None
+            kinds += " " + str(getattr(channel, "type", "") or "")
+            if "private" in kinds.casefold():
+                channel_kind = "dm"
+            elif self.platform_name == "webui":
+                channel_kind = "webui"
+        edited = bool(message is not None and (getattr(message, "edited_timestamp", None)
+                                               or getattr(message, "edited_at", None)
+                                               or getattr(message, "edited", False)))
+        return provenance.Provenance(value=value, platform=self.platform_name,
+                                     channel_kind=channel_kind, edited=edited)
+
     def addressed(self, text, message=None):
         """``text`` with a mention of this bot recognised and stripped (see ``bot/mention.py``).
 
@@ -1233,7 +1309,8 @@ class BotCore(_RoutedAdapter):
             # refuses every non-setup command itself; no other handler
             # is authorized by this branch. Nothing is downloaded here:
             # nobody has been admitted yet, and setup takes no attachments.
-            event = make_event(source, addressed.text, message.id)
+            event = make_event(source, addressed.text, message.id,
+                               prov=self.provenance_for(addressed, message))
             return await self.process(event)
         if not self.gateway._is_user_authorized_for_source(source):
             # In the print channel but refused by an access list: never
@@ -1255,7 +1332,11 @@ class BotCore(_RoutedAdapter):
                 return None  # the linked message was meant for a different bot
             text = linked.text
         media = await self.save_attachments(content_from)
-        event = make_event(source, text, message.id, media)
+        prov = self.provenance_for(addressed, message)
+        if content_from is not message:
+            prov = self.provenance_for(self.addressed(getattr(content_from, "content", ""), content_from),
+                                       content_from)
+        event = make_event(source, text, message.id, media, prov=prov)
         return await self.process(event)
 
     async def _note_elsewhere(self, user_id, chat_id, thread_id=None):
@@ -1430,7 +1511,50 @@ class BotCore(_RoutedAdapter):
         metadata = {"thread_id": source.thread_id} if source.thread_id else None
         invoke = _ai_invocation(event.text)
         lane_text = invoke if invoke is not None else event.text
-        if allow_llm and self.use_llm and agent.configured(self.cfg):
+        # #1524: provenance decides whether a general conversational lane
+        # may run at all, and a deterministic match always beats the AI
+        # lane. An unstamped event (a direct process call) derives its
+        # provenance from the text evidence, exactly as handle_message
+        # would have stamped it.
+        from . import natural_language
+        prov = provenance.from_event(event, self.platform_name)
+        if "provenance" not in (getattr(event, "metadata", None) or {}):
+            prov = self.provenance_for(self.addressed(event.text), None,
+                                       channel_kind="webui" if self.platform_name == "webui" else "shared")
+        if prov.value == "none" and invoke is not None:
+            prov = provenance.Provenance(
+                value="typed_ai_phrase", platform=self.platform_name,
+                channel_kind=prov.channel_kind, edited=prov.edited)
+        nl_cfg = (self.cfg.get("natural_language") or {}) if isinstance(self.cfg, dict) else {}
+        lane_unlocked = prov.unlocks_for_channel(
+            source.chat_id, ai_disabled_channels=nl_cfg.get("ai_disabled_channel_ids") or ())
+        lane_allowed = bool(allow_llm and self.use_llm and lane_unlocked)
+        if not _llm_replied:
+            # Deterministic-first: a direct natural-language answer (the
+            # #1524 capability layer) always beats the AI lane — a
+            # mentioned "how much purple PLA" gets the Spoolman answer,
+            # never a model call. Did-you-mean suggestions stay after the
+            # lanes, as before: a suggestion is a clarification prompt,
+            # not an answer.
+            det = await self._natural_language_answer(event, metadata)
+            if det is not None:
+                await self.adapter.send(chat_id=source.chat_id, content=det,
+                                        reply_to=event.message_id, metadata=metadata)
+                return {"action": "skip", "reason": "natural language answer"}
+        if lane_allowed and (agent.configured(self.cfg) or llm.configured(self.cfg)):
+            # #1524 tranche 6: per-user rate limit and the one-time
+            # endpoint notice gate every conversational-lane call.
+            if not self._ai_rate.allow(source.user_id):
+                await self.adapter.send(chat_id=source.chat_id, content=ai_rate_limited_text(),
+                                        reply_to=event.message_id, metadata=metadata)
+                return {"action": "skip", "reason": "ai rate limited"}
+            if str(source.user_id) not in self._ai_noticed:
+                self._ai_noticed.add(str(source.user_id))
+                await self.adapter.send(chat_id=source.chat_id,
+                                        content=ai_endpoint_notice_text(), metadata=metadata)
+            from . import natural_language as _nl
+            _nl.record_route("ai_lane")
+        if lane_allowed and agent.configured(self.cfg):
             try:
                 reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
                                                 cfg=self.cfg, opener=self.agent_opener)
@@ -1443,37 +1567,52 @@ class BotCore(_RoutedAdapter):
             await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                     reply_to=event.message_id, metadata=metadata)
             return {"action": "skip", "reason": "agent reply"}
-        if allow_llm and self.use_llm and llm.configured(self.cfg):
+        if lane_allowed and llm.configured(self.cfg):
             try:
                 # One turn per session at a time, queued on the loop: the
                 # blocking HTTP call alone runs in a worker thread, so asks
                 # waiting behind it hold no thread (llm.ask's own session
                 # lock is then never contended from here).
+                from . import ai_tools
+
+                def _tool_runner(name, arguments):
+                    return ai_tools.run_tool(self, name, arguments)
+
                 async with self._lane_turns.turn(session_key(source)):
-                    reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help,
-                                                             session=session_key(source), cfg=self.cfg,
-                                                             opener=self.llm_opener)
+                    reply, proposal = await asyncio.to_thread(
+                        llm.ask, lane_text, self.help, session=session_key(source),
+                        cfg=self.cfg, opener=self.llm_opener, tool_runner=_tool_runner)
             except Exception as exc:
                 logger.warning("LLM reply failed, sending the unmatched reply: %r", exc)
             else:
-                if command:
-                    # A named command is dispatched before any reply is
-                    # sent when the command's own output IS the help text:
-                    # the LLM's wording plus the help dump for one message
-                    # is exactly the double reply #437 forbids.
-                    # A reply that tells the person to type the very command
-                    # about to run ("Use `/print-stop` ...") contradicts the
-                    # confirm that follows it three seconds later (#1373):
-                    # the command's own output is the answer, so that reply
-                    # is dropped.
-                    replied = (bool(reply) and command.casefold() not in HELP_WORDS
-                               and not _names_command(reply, command))
-                    if replied:
-                        await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
-                                                reply_to=event.message_id, metadata=metadata)
-                    routed = make_event(source, command, f"{event.message_id}:llm",
-                                        media_urls=event.media_urls, metadata={"llm_command": True})
-                    return await self.process(routed, allow_llm=False, _llm_replied=replied)
+                if proposal:
+                    # #1524 tranche 6: the model proposed an action as a
+                    # capability plus typed slots. The runtime builds the
+                    # command from the slots, the allowlist gate decides
+                    # whether the lane may run it at all, and the normal
+                    # handler's own confirmation is what the user sees —
+                    # a mention is never consent to mutate. A proposal
+                    # whose built command is not allowlisted is dropped
+                    # and the reply stands alone.
+                    built = ai_tools.proposal_command(proposal["capability"],
+                                                      proposal["slots"])
+                    command = llm.allowed_command(built) if built else None
+                    if command:
+                        # A reply that tells the person to type the very
+                        # command about to run contradicts the confirm
+                        # that follows it (#1373): the command's own
+                        # output is the answer, so that reply is dropped.
+                        replied = (bool(reply) and command.casefold() not in HELP_WORDS
+                                   and not _names_command(reply, command))
+                        if replied:
+                            await self.adapter.send(
+                                chat_id=source.chat_id, content=rest.inert_media(reply),
+                                reply_to=event.message_id, metadata=metadata)
+                        routed = make_event(source, command, f"{event.message_id}:llm",
+                                            media_urls=event.media_urls,
+                                            metadata={"llm_command": True})
+                        return await self.process(routed, allow_llm=False,
+                                                  _llm_replied=replied)
                 if reply:
                     await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                             reply_to=event.message_id, metadata=metadata)
@@ -1485,36 +1624,70 @@ class BotCore(_RoutedAdapter):
         suggestion = command_suggestion(event.text, self.bot_name)
         if suggestion is not None:
             # #468 stage 3: a near-miss command gets a did-you-mean prompt
-            # instead of the plain unmatched reply. It sits here — after
-            # both model lanes have declined — so it fires with no LLM
-            # configured too, and never competes with a lane's answer.
+            # instead of the plain unmatched reply.
+            natural_language.record_route("suggestion")
             return await self._offer_suggestion(event, suggestion, metadata)
         candidates = command_suggestion_candidates(event.text)
         if candidates:
-            # The confidence/conflict policy found no single clear
-            # command but real contenders: offer them as a pick-list
-            # rather than guessing or staying silent.
+            natural_language.record_route("suggestion")
             return await self._offer_suggestion_choice(event, candidates, metadata)
         if invoke is not None:
             # An explicit invocation no lane answered: the stripped
             # question gets the deterministic chance on its own words,
-            # then the AI-specific terminal reply (see the docstring).
+            # then — only when the invocation's provenance actually
+            # unlocks the lane (a typed "ask ai:" in a shared channel
+            # does not, by owner decision) — the AI-specific terminal
+            # reply; otherwise the plain unmatched reply below.
             suggestion = command_suggestion(invoke, self.bot_name)
             if suggestion is not None:
+                natural_language.record_route("suggestion")
                 return await self._offer_suggestion(event, suggestion, metadata)
             candidates = command_suggestion_candidates(invoke)
             if candidates:
+                natural_language.record_route("suggestion")
                 return await self._offer_suggestion_choice(event, candidates, metadata)
-            if allow_llm and self.use_llm and (agent.configured(self.cfg) or llm.configured(self.cfg)):
-                await self.adapter.send(chat_id=source.chat_id, content=ai_no_answer_text(),
+            if lane_unlocked:
+                if lane_allowed and (agent.configured(self.cfg) or llm.configured(self.cfg)):
+                    await self.adapter.send(chat_id=source.chat_id, content=ai_no_answer_text(),
+                                            reply_to=event.message_id, metadata=metadata)
+                    return {"action": "skip", "reason": "ai no answer"}
+                await self.adapter.send(chat_id=source.chat_id, content=ai_not_enabled_text(),
                                         reply_to=event.message_id, metadata=metadata)
-                return {"action": "skip", "reason": "ai no answer"}
-            await self.adapter.send(chat_id=source.chat_id, content=ai_not_enabled_text(),
-                                    reply_to=event.message_id, metadata=metadata)
-            return {"action": "skip", "reason": "ai not enabled"}
+                return {"action": "skip", "reason": "ai not enabled"}
         await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
                                 metadata=metadata)
         return {"action": "skip", "reason": "command list"}
+
+    async def _natural_language_answer(self, event, metadata):
+        """A direct deterministic natural-language answer (#1524).
+
+        Delegates to the capability layer (bot/natural_language.py):
+        read-only intents answer directly from real services, in shadow
+        mode the layer only logs disagreements and this returns None.
+        Any failure in the layer reads as no answer — the lanes and the
+        suggestion path below still get their chance.
+        """
+        try:
+            from . import natural_language
+            result = natural_language.answer(self, event, metadata)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except Exception:
+            logger.exception("natural-language layer failed; continuing to the fallback")
+            return None
+
+    def _natural_language_status(self):
+        try:
+            from . import natural_language as _nl
+            return {"routes": _nl.route_counters(),
+                    "unmatched_logged": len(_nl.export_unmatched()),
+                    "unmatched_recent": [row["phrase"] for row in _nl.export_unmatched()[-20:]],
+                    "shadow_disagreements": len(_nl.shadow_disagreements())}
+        except Exception:
+            logger.debug("natural-language diagnostics unavailable", exc_info=True)
+            return {"routes": {}, "unmatched_logged": 0, "unmatched_recent": [],
+                    "shadow_disagreements": 0}
 
     def _background_suggestion(self, coro):
         """Run a did-you-mean wait off the message path (P1-109).
@@ -2004,4 +2177,7 @@ class BotCore(_RoutedAdapter):
                 "handlers": len(self.router.dispatch_hooks),
                 "llm": bool(self.use_llm and llm.configured(self.cfg)),
                 "agent": bool(self.use_llm and agent.configured(self.cfg)),
-                "open_prompts": prompts.open_count()}
+                "open_prompts": prompts.open_count(),
+                # #1524: local route counters and the opt-in unmatched
+                # log's export — diagnostics only, never transmitted.
+                "natural_language": self._natural_language_status()}

@@ -1,0 +1,73 @@
+{
+ "cases": [
+  {
+   "text": "How much purple PLA do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "purple",
+    "material": "pla"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "facts": {
+    "total_grams": 1250,
+    "known_spools": 2,
+    "unknown_spools": 1,
+    "incomplete": true
+   }
+  },
+  {
+   "text": "How much black PETG do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "black",
+    "material": "petg"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "facts": {
+    "total_grams": 300,
+    "known_spools": 1,
+    "unknown_spools": 0,
+    "incomplete": false
+   }
+  },
+  {
+   "text": "How much lilac PLA do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "lilac",
+    "material": "pla"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "facts": {
+    "total_grams": 200,
+    "tier": "exact"
+   },
+   "note": "lilac is its own color, never silently purple"
+  },
+  {
+   "text": "How much green PLA do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "green",
+    "material": "pla"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "facts": {
+    "total_grams": 0,
+    "no_match": true
+   }
+  }
+ ]
+}

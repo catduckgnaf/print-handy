@@ -717,6 +717,17 @@ async def _dispatch(event, gateway, **kwargs):
     if model_link(text) or model_file(event):
         return None  # a fresh intake owns links and files
     undo = bool(_EDIT_UNDO_RE.match(text.strip()))
+    if not undo:
+        # Routing precedence (#1524): an unambiguous deterministic
+        # read-only intent ("How much purple PLA do I have?") is not an
+        # edit, even when the fuzzy plan resolver would claim a word in
+        # it ("pla" ~ a scale plan). The fallback's NL layer answers it.
+        from print_handy.bot import natural_language as _nl
+        if len(_nl.matching_intents(text)) == 1:
+            _parsed = _nl.parse(text)
+            if _parsed is not None and not _parsed.blocked \
+                    and _parsed.effect == _nl.READ_ONLY:
+                return None
     from print_handy.core import model_questions
     question_kind = None if undo else model_questions.classify(text)
     if question_kind is not None:

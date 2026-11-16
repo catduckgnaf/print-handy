@@ -261,7 +261,7 @@ def test_telegram_botcore_never_calls_the_llm(cfg):
     source = runtime.make_source(USER, CHAT, platform_name="telegram")
     with mock.patch.object(runtime.llm, "ask", exploding_ask), \
             mock.patch.object(runtime.llm, "configured", return_value=True):
-        out = run(core.process(runtime.make_event(source, "what is the printer doing?", 9)))
+        out = run(core.process(runtime.make_event(source, "hello there, how is it going?", 9)))
     assert calls == []
     assert out == {"action": "skip", "reason": "command list"}
     texts = [p["text"] for p in stub.payloads("sendMessage")]

@@ -1,0 +1,92 @@
+{
+ "cases": [
+  {
+   "text": "How much purple PLA do I have?",
+   "intent": "inventory_total",
+   "platform": "discord",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Update ZMod",
+   "intent": "firmware_update_apply",
+   "platform": "discord",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Don't stop the print",
+   "intent": null,
+   "platform": "discord",
+   "allowed_effects": []
+  },
+  {
+   "text": "How much purple PLA do I have?",
+   "intent": "inventory_total",
+   "platform": "telegram",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Update ZMod",
+   "intent": "firmware_update_apply",
+   "platform": "telegram",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Don't stop the print",
+   "intent": null,
+   "platform": "telegram",
+   "allowed_effects": []
+  },
+  {
+   "text": "How much purple PLA do I have?",
+   "intent": "inventory_total",
+   "platform": "matrix",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Update ZMod",
+   "intent": "firmware_update_apply",
+   "platform": "matrix",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Don't stop the print",
+   "intent": null,
+   "platform": "matrix",
+   "allowed_effects": []
+  },
+  {
+   "text": "How much purple PLA do I have?",
+   "intent": "inventory_total",
+   "platform": "webui",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Update ZMod",
+   "intent": "firmware_update_apply",
+   "platform": "webui",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Don't stop the print",
+   "intent": null,
+   "platform": "webui",
+   "allowed_effects": []
+  }
+ ]
+}
