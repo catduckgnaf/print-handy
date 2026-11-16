@@ -60,7 +60,7 @@ def _same_instance_by_probe(a, b, fetch):
     try:
         result = _spoolman_fingerprint(a, fetch) == _spoolman_fingerprint(b, fetch)
     except Exception as exc:
-        logger.debug("Could not verify Spoolman identity: %s", exc)
+        logger.info("could not confirm the two Spoolman URLs are one instance: %s", exc)
         result = None
     with _identity_cache_lock:
         _identity_cache[key] = (now, result)
@@ -209,7 +209,9 @@ def resolve_accounting_authority(configured, detection=None, configured_url="", 
             try:
                 same_instance = (_spoolman_fingerprint(moonraker_server, identity_probe) ==
                                  _spoolman_fingerprint(configured_url, identity_probe))
-            except Exception:
+            except Exception as exc:
+                # Unverified, never assumed: the warning below says so.
+                logger.info("could not confirm the two Spoolman URLs are one instance: %s", exc)
                 same_instance = None
     warnings = []
     if configured_norm == ACCOUNTING_PRINT_HANDY:
