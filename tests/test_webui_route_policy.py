@@ -76,8 +76,6 @@ EXPECTED = [
     ("GET", "/sources", S),
     ("GET", "/designs", S),
     ("GET", "/designs/*", S),
-    ("GET", "/projects", S),
-    ("GET", "/api/projects", S),
     ("GET", "/sliced", S),
     ("GET", "/sliced/*", S),
     ("GET", "/settings-report/*", S),

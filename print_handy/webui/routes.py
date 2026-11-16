@@ -166,8 +166,6 @@ ROUTES = (
     _get("/sources", SESSION, "_sources_page"),
     _get("/designs", SESSION, "_designs_page"),
     _get("/designs/*", SESSION, "_design_route", decode=False),
-    _get("/projects", SESSION, "_projects_route", pass_path=True),
-    _get("/api/projects", SESSION, "_projects_route", pass_path=True),
     _get("/sliced", SESSION, "_sliced_route"),
     _get("/sliced/*", SESSION, "_sliced_route", decode=False),
     _get("/settings-report/*", SESSION, "_settings_report_route", decode=False),

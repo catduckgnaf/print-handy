@@ -40,8 +40,6 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `POST /designs/choice` | One button of the design's open question (Slice it / Change it / Cancel) |
 | `GET /designs/<id>` | One design session: its final `.scad` source and file downloads |
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
-| `GET /projects` | The read-only multi-part project readout: components, plates, quantities, per-plate attempts and resumable completion state |
-| `GET /api/projects` | The same project readout as JSON |
 | `GET /sliced` | Read-only list of sliced jobs in the archive, with a download per plate file |
 | `GET /sliced/<job>/<n>` | Download of plate number `n` of that job (`.gcode` or `.gcode.3mf`), as an attachment |
 | `GET /settings-report/<job>` | Download of that job's settings report as JSON: which recorded settings were kept and which were replaced, and by what |
@@ -65,7 +63,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /offline` | The offline fallback page the service worker shows when a navigation cannot reach the server |
 | `GET /static/<file>` | The one PWA-only install asset: the separate padded 512 maskable icon the manifest lists. Public; every other file name is a 404. The favicon and the branding icons are served by their own routes, not this one |
 
-Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
+Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
 ### Chat page
 
@@ -102,18 +100,6 @@ The page can mint an **upload link**, `/u/<token>`: a no-login address that open
 ### Designs page
 
 The designs page leads with the design workshop: describe a part and the design runs right there, with its preview, the bot's replies, and the Slice it / Change it / Cancel question as page buttons, followed by a form for the next change. The workshop submits through web chat, so it is the same design flow as `/print-design` in chat (same engine, same hand-off into intake, same confirmations), and it needs web chat on; while design is disabled or no design model is configured, the workshop says why instead of showing a form that cannot work. Below it, the catalog lists the AI design sessions kept on the machine (the same 14-day window the design engine keeps under the cache directory). Each row names the session (derived from the instruction it was started with), says whether it was created from a description or is an edit (and of what), its state (in progress, ready, handed off, cancelled), its turn count, its created/updated times, and its preview when one exists. A session's own page shows the final `.scad` source and downloads for the source, the final STL and the preview PNG; files are served only from inside that session's own directory. The catalog lists what is on disk whether or not `[design]` is currently enabled. See [AI design with OpenSCAD](DESIGN.md#designing-in-the-web-ui).
-
-### Projects page
-
-`/projects` is a read-only readout of the multi-part projects in the archive (see [multi-part print projects](PROJECTS.md#project-readout-in-the-web-ui)). One section per archived job that carries a `project_v1` manifest shows:
-
-- the source **components** from the manifest, with their required quantity and any declared role;
-- the **plates** from the job's multipart plan, each with its exact alias (`82A`), the parts on it, and how many of its required copies are printed, read from the live plan file;
-- every physical **attempt** of each plate, read from the print records by `project_id` and `project_plate_id`: its print number, its outcome, its start time, and the reprint run it belongs to;
-- the **runs**: the original run and each reprint run (`project_run_id`), counted separately, so a reprint never looks like progress on the original;
-- the **completion state**: complete, printing, or resumable with the plates still left and the chat command that continues it.
-
-The page keeps no store of its own and changes nothing: continuing or reprinting a project still happens in chat, where every plate asks for its own bed-clear confirmation. It is served under the same access rules as every other page (behind the login on a claimed install) and adds no script of its own.
 
 ### Firmware page
 
