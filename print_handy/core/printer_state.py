@@ -1373,7 +1373,7 @@ def check(st=None, printer_id=None, adapter=None, *, live=True):
         resolved = spoolman_link.resolve_accounting_authority(
             (view.get("spool") or {}).get("accounting") or "", detection,
             (view.get("services") or {}).get("spoolman_url") or "",
-            firmware_assigns_spools=bool(getattr(adapter, "firmware_assigns_spools", False)))
+            firmware_assigns_spools=spoolman_link.firmware_assigns_spools(adapter))
         facts["spool_accounting"] = resolved
         warnings.extend(resolved["warnings"])
     except Exception:

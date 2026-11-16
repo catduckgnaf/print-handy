@@ -89,6 +89,28 @@ def test_configured_printer_authority_gates_without_a_launch_stamp(ledger):
     assert fake.calls == [] and entry["status"] == "skipped"
 
 
+def test_single_slot_printer_authority_skips_the_reconciliation_write(ledger):
+    data = settings.load(local=False, environ={}, user=False)
+    data["spool"]["accounting"] = "printer"
+    settings.set_override(data)
+    try:
+        fake = FakeSpoolman()
+        context = {"job_key": "single-tool.gcode", "print_number": 42,
+                   "tool_to_physical_slot": {"0": 2},
+                   "slicer_settings": {"filament_used_g_list": [6.8], "mapped_materials":
+                       {"0": {"spoolman_id": 12}}},
+                   "spool_accounting_authority": "printer",
+                   "spool_usage_baseline": {"spool_id": 12, "used_weight": 10.0,
+                                             "recorded_at": 0}}
+        entry = multislot_usage.guard_single_slot(
+            context, "complete", actual_mm=10, active_spool_id=12, request=fake)
+    finally:
+        settings.set_override(None)
+    assert fake.calls == []
+    assert entry["status"] == "skipped"
+    assert entry["reason"] == multislot_usage.PRINTER_AUTHORITY_REASON
+
+
 # --- Item 4: extra-field fallback ---------------------------------------------
 
 class FieldRefusingSpoolman:

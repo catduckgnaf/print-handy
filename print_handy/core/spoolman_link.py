@@ -165,17 +165,22 @@ def resolve_accounting_authority(configured, detection=None, configured_url="", 
     moonraker_server = str(detection.get("server_url") or "").strip()
     both_known = bool(moonraker_server) and bool(str(configured_url or "").strip())
     same_instance = same_spoolman_instance(moonraker_server, configured_url) if both_known else None
-    if configured_norm in (ACCOUNTING_PRINT_HANDY, ACCOUNTING_PRINTER):
-        authority, source = configured_norm, "setting"
+    warnings = []
+    if configured_norm == ACCOUNTING_PRINT_HANDY:
+        authority, source = ACCOUNTING_PRINT_HANDY, "setting"
+    elif configured_norm == ACCOUNTING_PRINTER and linked:
+        authority, source = ACCOUNTING_PRINTER, "setting"
+    elif configured_norm == ACCOUNTING_PRINTER:
+        # A missing link cannot act as an accounting authority. Fall back to
+        # Print Handy rather than silently losing every filament charge.
+        authority, source = ACCOUNTING_PRINT_HANDY, "fallback"
+        warnings.append(
+            "Spool accounting is set to the printer, but no Moonraker Spoolman link "
+            "was detected for it; Print Handy will count filament usage instead.")
     else:
         authority = (ACCOUNTING_PRINTER if linked and firmware_assigns_spools
                      else ACCOUNTING_PRINT_HANDY)
         source = "auto"
-    warnings = []
-    if authority == ACCOUNTING_PRINTER and not linked:
-        warnings.append(
-            "Spool accounting is set to the printer, but no Moonraker Spoolman link "
-            "was detected for it, so nothing will count filament usage.")
     if linked and same_instance is False:
         if authority == ACCOUNTING_PRINT_HANDY:
             warnings.append(
@@ -207,7 +212,17 @@ def _firmware_assigns_spools(printer_id, adapter=None) -> bool:
         from print_handy import printers, settings
         adapter = (printers.get(settings.by_id(printer_id)["model"], settings.view_for(printer_id))
                    if printer_id else printers.current())
-    return bool(getattr(adapter, "firmware_assigns_spools", False))
+    return firmware_assigns_spools(adapter)
+
+
+def firmware_assigns_spools(adapter) -> bool:
+    """True only when the adapter declares the fact as a real ``True``.
+
+    A missing attribute, None or any other truthy object (a test double, a
+    misspelled override) keeps Print Handy counting: handing a print to the
+    printer on a guess would count it zero times.
+    """
+    return getattr(adapter, "firmware_assigns_spools", False) is True
 
 
 def accounting_authority_for(printer_id=None, *, moonraker_call=None, data=None, adapter=None) -> dict:

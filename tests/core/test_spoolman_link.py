@@ -130,7 +130,11 @@ def test_explicit_setting_wins_over_detection():
     assert spoolman_link.resolve_accounting_authority(
         "print_handy", _linked())["authority"] == "print_handy"
     assert spoolman_link.resolve_accounting_authority(
-        "printer", UNLINKED)["authority"] == "printer"
+        "printer", _linked())["authority"] == "printer"
+    # Without a link, an explicit printer authority falls back to the only
+    # available counter so the print is never silently unaccounted.
+    assert spoolman_link.resolve_accounting_authority(
+        "printer", UNLINKED)["authority"] == "print_handy"
     assert spoolman_link.resolve_accounting_authority(
         "print_handy", _linked())["source"] == "setting"
 
@@ -171,9 +175,10 @@ def test_print_handy_with_a_different_linked_instance_warns_about_double_countin
     assert any("counted twice" in warning for warning in resolved["warnings"])
 
 
-def test_printer_authority_without_a_link_warns_that_nothing_will_count():
+def test_printer_authority_without_a_link_warns_and_falls_back_to_print_handy():
     resolved = spoolman_link.resolve_accounting_authority("printer", UNLINKED)
-    assert any("nothing will count" in warning for warning in resolved["warnings"])
+    assert resolved["authority"] == "print_handy"
+    assert any("will count filament usage instead" in warning for warning in resolved["warnings"])
 
 
 def test_printer_authority_with_a_different_instance_warns_the_weights_diverge():
@@ -202,3 +207,14 @@ def test_accounting_authority_for_uses_settings_and_live_detection():
         assert offline["authority"] == "print_handy" and offline["moonraker_linked"] is False
     finally:
         settings.set_override(None)
+
+
+def test_only_a_real_true_hands_counting_to_the_firmware():
+    from unittest import mock
+    assert spoolman_link.firmware_assigns_spools(mock.Mock()) is False
+    assert spoolman_link.firmware_assigns_spools(object()) is False
+    assert spoolman_link.firmware_assigns_spools(mock.Mock(firmware_assigns_spools=True)) is True
+    from print_handy.printers.base import PrinterAdapter
+    from print_handy.printers.flashforge_opencreator.adapter import OpenCreatorAdapter
+    assert PrinterAdapter.firmware_assigns_spools is False
+    assert OpenCreatorAdapter.firmware_assigns_spools is True

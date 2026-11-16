@@ -518,8 +518,22 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
     if key is None or baseline is None or slot_plan(context) is not None:
         return None
     path = path or ledger_path()
-    request = request or spoolman_client.request
     sid = int(baseline["spool_id"])
+    with _lock:
+        ledger = _load(path)
+        if key in ledger:
+            return json.loads(json.dumps(ledger[key]))
+        if effective_authority(context) == "printer":
+            # This single-slot guard must never correct or re-charge a weight
+            # owned by the printer's Moonraker Spoolman integration.
+            entry = {"kind": "single_slot", "job_key": context.get("job_key"),
+                     "outcome": outcome, "recorded_at": time.time(), "spool_id": sid,
+                     "status": "skipped", "reason": PRINTER_AUTHORITY_REASON,
+                     "accounting_authority": "printer"}
+            ledger[key] = entry
+            _save(path, ledger)
+            return json.loads(json.dumps(entry))
+    request = request or spoolman_client.request
     before = float(baseline["used_weight"])
     with _lock:
         ledger = _load(path)
