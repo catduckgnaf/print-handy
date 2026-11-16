@@ -185,14 +185,6 @@ class BasePlatformAdapter:
     upload_max_bytes: int | None = None
     supports_buttons = False
     max_buttons = 0
-    # One job card per job, edited in place (#1472): only Discord sets
-    # this. An adapter that cannot edit or embed leaves it False and the
-    # intake presents exactly as it does today — the card session in
-    # print_handy.bot.job_card wraps only adapters that opt in, and asks
-    # the adapter for post_card / update_card / attach_card_prompt /
-    # attach_card_stop / open_card_thread to do the actual rendering.
-    supports_job_card = False
-    supports_embeds = False
     # Pure-bot platforms set this False: BotCore then never calls the LLM
     # fallback for them, even when [llm] is configured (#164 stage 2, #73).
     uses_llm = True
