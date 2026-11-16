@@ -65,7 +65,10 @@ every install.
   gets no second, plainer notice for ZMod.
 - **The Web UI Firmware page** (`/firmware`). Each printer with its
   firmware, the newest release, the audited version and how it updates,
-  then the whole feed as a table. A Moonraker printer has a "Check
+  then the whole feed. Both are split into three tables: **Firmware**
+  (ZMod, Forge-X, OpenCreator, Klipper, Marlin), **Stock firmware** (the
+  maker's own, such as Prusa Buddy and QIDI) and **Plugins** (HelixScreen,
+  Moonraker, OctoPrint). A Moonraker printer has a "Check
   installed versions" link that reads that one printer's update state
   and shows the `/print-firmware` report. The page is read-only.
 
@@ -109,6 +112,7 @@ do not add a scraper.
    ```toml
    [[firmware]]
    id = "forge-x"
+   kind = "firmware"
    name = "Forge-X"
    repo = "DrA1ex/ff5m"
    feed = "releases"
@@ -120,6 +124,7 @@ do not add a scraper.
    | Field | What to write |
    |---|---|
    | `id` | A short key that never changes: lowercase letters, digits and hyphens. Notices are remembered by it. |
+   | `kind` | Which group the Web UI Firmware page shows it in: `firmware` for community or open firmware (ZMod, Forge-X, OpenCreator, Klipper, Marlin), `stock` for the printer maker's own firmware (Prusa Buddy, QIDI), or `plugin` for an add-on that runs beside the firmware (HelixScreen, Moonraker, OctoPrint). Required; anything else fails the build. |
    | `name` | The name people use. If the firmware also has an audited baseline, use exactly the same name as in `docs/firmware-baselines.toml` so the audited version is published with it. |
    | `repo` | `owner/name` on GitHub. |
    | `feed` | `releases`, or `tags` for a repository that publishes no usable releases (Klipper, Moonraker). |

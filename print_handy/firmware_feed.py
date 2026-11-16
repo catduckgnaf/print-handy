@@ -47,6 +47,11 @@ CACHE_S = 3600.0
 MAX_BYTES = 512 * 1024
 
 
+# The Web UI groups, in page order (catduck, 2026-11-16).
+KINDS = ("firmware", "stock", "plugin")
+KIND_TITLES = {"firmware": "Firmware", "stock": "Stock firmware", "plugin": "Plugins"}
+
+
 @dataclass(frozen=True)
 class Release:
     version: str
@@ -62,6 +67,9 @@ class Firmware:
     id: str
     name: str
     repo: str = ""
+    # "firmware", "stock" or "plugin": the Web UI group. A feed published
+    # before the field existed reads as "firmware".
+    kind: str = "firmware"
     channel: str = "stable"
     models: tuple = ()
     update: str = ""
@@ -126,6 +134,7 @@ def parse(payload) -> Feed | None:
         models = raw.get("models")
         out.append(Firmware(
             id=ident, name=name, repo=_text(raw.get("repo")),
+            kind=_text(raw.get("kind")) if _text(raw.get("kind")) in KINDS else "firmware",
             channel=_text(raw.get("channel")) or "stable",
             models=tuple(m for m in models if isinstance(m, str)) if isinstance(models, list) else (),
             update=_text(raw.get("update")),
@@ -182,5 +191,5 @@ def current() -> Feed | None:
     return _shared.get()
 
 
-__all__ = ["CACHE_S", "FEED_URL", "Feed", "FeedCache", "Firmware", "Release",
+__all__ = ["CACHE_S", "FEED_URL", "KINDS", "KIND_TITLES", "Feed", "FeedCache", "Firmware", "Release",
            "SCHEMA", "current", "fetch", "parse"]
