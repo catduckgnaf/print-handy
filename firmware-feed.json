@@ -1,10 +1,11 @@
 {
  "schema": 1,
- "generated_at": "2026-11-16T14:21:55Z",
+ "generated_at": "2026-11-16T15:16:00Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
    "id": "zmod",
+   "kind": "firmware",
    "name": "ZMod",
    "repo": "ghzserg/zmod",
    "feed": "releases",
@@ -30,6 +31,7 @@
   },
   {
    "id": "forge-x",
+   "kind": "firmware",
    "name": "Forge-X",
    "repo": "DrA1ex/ff5m",
    "feed": "releases",
@@ -55,6 +57,7 @@
   },
   {
    "id": "opencreator",
+   "kind": "firmware",
    "name": "OpenCreator",
    "repo": "FlashForge-C5-Modding-Group/OpenCreator",
    "feed": "releases",
@@ -80,11 +83,14 @@
   },
   {
    "id": "helixscreen",
+   "kind": "plugin",
    "name": "HelixScreen",
    "repo": "prestonbrown/helixscreen",
    "feed": "releases",
    "channel": "stable",
-   "models": [],
+   "models": [
+    "flashforge.*"
+   ],
    "update": "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer.",
    "latest": {
     "version": "1.0.9",
@@ -103,6 +109,7 @@
   },
   {
    "id": "klipper",
+   "kind": "firmware",
    "name": "Klipper",
    "repo": "Klipper3d/klipper",
    "feed": "tags",
@@ -129,6 +136,7 @@
   },
   {
    "id": "moonraker",
+   "kind": "plugin",
    "name": "Moonraker",
    "repo": "Arksine/moonraker",
    "feed": "tags",
@@ -155,6 +163,7 @@
   },
   {
    "id": "octoprint",
+   "kind": "plugin",
    "name": "OctoPrint",
    "repo": "OctoPrint/OctoPrint",
    "feed": "releases",
@@ -180,6 +189,7 @@
   },
   {
    "id": "marlin",
+   "kind": "firmware",
    "name": "Marlin",
    "repo": "MarlinFirmware/Marlin",
    "feed": "releases",
@@ -206,6 +216,7 @@
   },
   {
    "id": "prusa-buddy-mk4s",
+   "kind": "stock",
    "name": "Prusa Buddy (MK4S)",
    "repo": "prusa3d/Prusa-Firmware-Buddy",
    "feed": "releases",
@@ -231,6 +242,7 @@
   },
   {
    "id": "prusa-buddy-coreone",
+   "kind": "stock",
    "name": "Prusa Buddy (CORE One)",
    "repo": "prusa3d/Prusa-Firmware-Buddy",
    "feed": "releases",
@@ -256,6 +268,7 @@
   },
   {
    "id": "prusa-buddy-xl",
+   "kind": "stock",
    "name": "Prusa Buddy (XL)",
    "repo": "prusa3d/Prusa-Firmware-Buddy",
    "feed": "releases",
@@ -281,6 +294,7 @@
   },
   {
    "id": "prusa-buddy-mini",
+   "kind": "stock",
    "name": "Prusa Buddy (MINI+)",
    "repo": "prusa3d/Prusa-Firmware-Buddy",
    "feed": "releases",
@@ -306,6 +320,7 @@
   },
   {
    "id": "qidi-q1pro",
+   "kind": "stock",
    "name": "QIDI Q1 Pro",
    "repo": "QIDITECH/QIDI_Q1_Pro",
    "feed": "releases",
@@ -331,6 +346,7 @@
   },
   {
    "id": "qidi-xplus3",
+   "kind": "stock",
    "name": "QIDI X-Plus 3",
    "repo": "QIDITECH/QIDI_PLUS3",
    "feed": "releases",
@@ -356,6 +372,7 @@
   },
   {
    "id": "qidi-xplus4",
+   "kind": "stock",
    "name": "QIDI X-Plus 4",
    "repo": "QIDITECH/QIDI_PLUS4",
    "feed": "releases",
@@ -381,6 +398,7 @@
   },
   {
    "id": "qidi-xmax3",
+   "kind": "stock",
    "name": "QIDI X-Max 3",
    "repo": "QIDITECH/QIDI_MAX3",
    "feed": "releases",
@@ -406,6 +424,7 @@
   },
   {
    "id": "qidi-xsmart3",
+   "kind": "stock",
    "name": "QIDI X-Smart 3",
    "repo": "QIDITECH/QIDI_SMART3",
    "feed": "releases",
