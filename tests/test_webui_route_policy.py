@@ -105,6 +105,7 @@ EXPECTED = [
     ("POST", "/printers", SC),
     ("POST", "/spools/*", SC),
     ("POST", "/dashboard/estop/*", SC),
+    ("POST", "/api/upload", H),
     ("POST", "/api/printers/*", H),
     ("POST", "*", P),
     ("PUT", "*", P),

@@ -307,6 +307,11 @@ def prepare_run(transport, name_token, arg_tokens=(), registry=None, printer=Non
     if not _NAME_RE.fullmatch(name_token):
         raise MacroRefusal(f"{name_token!r} is not a macro name. Run one of the names "
                            "`/print-macros` lists, exactly as one word. Nothing was sent.")
+    # OpenCreator macro names and behavior are not hardware-validated. Never
+    # let its descriptive registry entries enable the live execution path.
+    if printer and str(printer).casefold().startswith("flashforge_opencreator."):
+        raise MacroRefusal("OpenCreator macro execution is not enabled: command behavior "
+                           "has not been verified on hardware. Nothing was sent.")
     wanted = name_token.casefold()
     entry = None
     canonical = None

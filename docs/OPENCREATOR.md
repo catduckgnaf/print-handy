@@ -29,14 +29,11 @@ release ships, and upstream Kalico) and source-verified the contracts
 tranche 1 had to leave open: the dispatcher's synthesized print start,
 the `creator5_toolchanger` status shape, and the AFC lane objects and
 their map. Those contracts are graded source-verified below. No
-OpenCreator printer has printed through Print Handy, and nobody on
-this side has an OpenCreator install to query, so nothing here is
-hardware verified yet. The one contract source could not settle is
-the `lane_data` record shape the firmware publishes for OrcaSlicer
-filament sync (the sources disagree three ways; see the research
-issue). Treat these profiles the way the ZMod profiles were treated
-before their first live checks: the slicing path is tested offline,
-the printer path is not yet proven.
+OpenCreator printer has printed through Print Handy. Read-only captures
+shared on #1490 establish selected Moonraker component and record shapes,
+not successful print or calibration execution. Nothing here is hardware
+verified as a complete workflow yet. Treat these profiles as source-backed,
+offline-tested contracts; a hardware pass remains tracked by #1490.
 
 ## Public alpha: upstream's own warning
 
@@ -58,6 +55,36 @@ above, never a silent extension of the ZMod Creator profiles.
 | OpenCreator CFW | Kalico, Moonraker and a web UI on the printer's own computer; the installer replaces the stock host software end to end and flashes all four MCU boards | The edition these profiles target |
 | OpenCreator for SBC | The same stack on a Raspberry Pi or other SBC, with the printer's boards tunneled over one USB gadget cable; Moonraker's address is the SBC's address | Same profiles; point `services.moonraker_url` at the SBC |
 | OpenCreator Legacy | The stock FlashForge stack plus comfort mods; upstream says it no longer gets meaningful updates or Discord support | Not an OpenCreator target here: a Legacy printer is a stock printer for Print Handy's purposes, and there is no stock Creator profile yet |
+
+## Guided setup, camera and SBC edition
+
+Select the Creator base or Pro model for the installed firmware. Once the
+Moonraker address is entered, setup reads `/printer/objects/list`. An exclusive
+`creator5_toolchanger` or `zmod_color` match offers the corresponding firmware
+model while preserving base versus Pro. It changes nothing without confirmation
+(answer key `use_detected_firmware`, with `p2_` etc. for additional printers).
+Missing or conflicting evidence never selects a firmware. Readiness remains the
+final mismatch guard. Print Handy does the slicing; an upstream slicer plugin
+is not needed.
+
+When a camera is requested, setup reads `/server/webcams/list` and offers the
+first enabled camera with a snapshot URL. Relative paths resolve against the
+web host, not the conventional Moonraker API port 7125. An explicit custom
+web port is retained. A missing snapshot is not replaced with a guessed stream.
+The offered URL can be edited; discovery is not a hardware camera test.
+
+On SBC installs, set `services.moonraker_url` to the SBC, not the printer.
+The update component may be `opencreator-updater`. Reboot and service control
+use the SBC's normal Moonraker provider; do not infer printer-board control
+from that. When the printer is airgapped its built-in camera is unavailable:
+use a camera exposed by the SBC. Rendered timelapse files live on the SBC.
+Print Handy uses Moonraker's `timelapse` file root rather than assuming a local
+output folder. A real rendered-video retrieval on both editions remains
+unverified; no timelapse path change or successful capture is claimed.
+
+Calibration menus name OpenCreator's own macros and remain guide only until
+hardware validation. PID, MPC, mesh, input shaper and screws never fall back
+to generic Klipper execution. See [CALIBRATION.md](CALIBRATION.md).
 
 ## Install boundaries
 
@@ -514,6 +541,15 @@ Scoped out of the first tranche (#1490 names the follow-up tranches):
   an optional `temperature_ace` sensor type. So when ACE ships, it
   rides the existing AFC and sensor paths rather than a new surface;
   Print Handy adds no ACE code until it is in a release.
+- Runtime `/print-macros run` is disabled for OpenCreator models. The
+  macro names in the descriptive registry are backed by source
+  configuration only; no live hardware validation exists. Macro
+  listing is read-only, and source presence is never permission to
+  dispatch a command.
+- Firmware update, calibration, first-setup, load/unload, tool-change,
+  dryer, ACE, or other motion/heat commands are intentionally absent
+  from the OpenCreator registry. G-code upload of 3MF and the upstream
+  Send plugin are also out of scope.
 - Installing OpenCreator updates. Print Handy reports them and never
   applies them (see Firmware updates below).
 - The OpenCreator Send OrcaSlicer plugin: Print Handy's slice guard
