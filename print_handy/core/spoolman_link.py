@@ -237,8 +237,8 @@ def resolve_accounting_authority(configured, detection=None, configured_url="", 
                 ("could not confirm they are the same Spoolman, so the print may be counted twice. "
                  "Point both at one Spoolman instance, or set spool accounting to the printer."
                  if unverified else
-                 "counted twice, once by each side. Point both at one Spoolman instance, or set spool "
-                 "accounting to the printer."))
+                 "the same print can be counted twice, once by each side. Point both at one "
+                 "Spoolman instance, or set spool accounting to the printer."))
         else:
             warnings.append(
                 "This printer's Moonraker counts usage in Spoolman at "
@@ -246,7 +246,8 @@ def resolve_accounting_authority(configured, detection=None, configured_url="", 
                 f"{normalize_spoolman_url(configured_url)}: " +
                 ("could not confirm they are the same Spoolman, so loaded spools and remaining weights "
                  "may not line up." if unverified else
-                 "in play, so loaded spools and remaining weights will not line up."))
+                 "two Spoolman instances are in play, so loaded spools and remaining weights "
+                 "will not line up."))
     return {
         "authority": authority,
         "source": source,

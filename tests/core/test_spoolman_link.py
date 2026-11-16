@@ -253,3 +253,17 @@ def test_failed_identity_probe_keeps_unverified_warning():
     assert any("could not confirm they are the same Spoolman" in warning
                and "may be counted twice" in warning for warning in resolved["warnings"])
     assert all("; " not in warning for warning in resolved["warnings"])
+
+
+def test_warning_text_reads_as_full_sentences():
+    def probe(url, path):
+        return {"version": "1.0"} if path.endswith("info") else [
+            {"id": 1 if "printer-side" in url else 2, "registered": "2024-01-02T03:04:05"}]
+    counted = spoolman_link.resolve_accounting_authority(
+        "print_handy", _linked("http://printer-side:7912"),
+        configured_url="http://container-local:8000", identity_probe=probe)["warnings"]
+    assert any("the same print can be counted twice, once by each side" in w for w in counted)
+    split = spoolman_link.resolve_accounting_authority(
+        "printer", _linked("http://printer-side:7912"),
+        configured_url="http://container-local:8000", identity_probe=probe)["warnings"]
+    assert any("two Spoolman instances are in play" in w for w in split)
