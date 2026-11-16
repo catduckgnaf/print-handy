@@ -98,6 +98,8 @@ def test_mesh_runs_auto_full_bed_level_into_a_scratch_profile_then_saves_auto():
     assert prepared.script == "AUTO_FULL_BED_LEVEL PROFILE=print_handy EXTRUDER_TEMP=220 BED_TEMP=60"
     assert "BED_MESH_CALIBRATE" not in prepared.script and "SAVE=" not in prepared.script
     assert "Forge-X's own leveling" in cal.mesh_prompt_text(prepared)
+    # #235 audit F6: the ZMod-only Z-offset warning is not shown on Forge-X.
+    assert "on ZMod" not in cal.mesh_prompt_text(prepared)
     result = cal.execute_mesh(transport, prepared, poll_interval_s=0, sleep=NO_SLEEP)
     assert transport.scripts == [prepared.script, "TURN_OFF_HEATERS"]
     cal.accept_mesh(transport, result)

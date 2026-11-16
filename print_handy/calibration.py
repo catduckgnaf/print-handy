@@ -1213,8 +1213,8 @@ def mesh_prompt_text(prepared: PreparedMesh) -> str:
               "",
               "Warnings: the printer will heat up and move across the whole bed for "
               "several minutes — stay nearby and keep the bed clear of tools and "
-              "prints. This also re-zeros the Z offset's start point on ZMod, as "
-              "ZMod's leveling always does.",
+              "prints." + (" This also re-zeros the Z offset's start point on ZMod, "
+                            "as ZMod's leveling always does." if prepared.family == "zmod" else ""),
               "",
               "When it finishes, Print Handy shows the new mesh range and the "
               "difference and asks before anything is saved."]

@@ -151,7 +151,10 @@ def test_templates_carry_the_forgex_deltas(key):
 @pytest.mark.parametrize("key", KEYS)
 def test_readiness_fails_closed_and_needs_no_zmod_object(key):
     adapter = adapter_for(key)
-    assert adapter.readiness_problems({}, _ready_status()) == []
+    ready = {**_ready_status(), "mod_params": {"variables": {"display": 1}}}  # Feather (#235 F1)
+    assert adapter.readiness_problems({}, ready) == []
+    # No screen report is a refusal of its own (#235 audit F1).
+    assert any("screen mode is unknown" in p for p in adapter.readiness_problems({}, _ready_status()))
     assert adapter.readiness_problems({}, {})
     missing_extruder = _ready_status()
     del missing_extruder["extruder"]

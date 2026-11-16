@@ -67,7 +67,33 @@ def _refuse_multicolor(text, adapter=None):
     return adapter
 
 
-def _tool_material_problems(text, listed, state, spool_material):
+def _live_tool_heads(adapter, state):
+    """The printer's AFC map (file tool -> toolhead index) read live, or None.
+
+    Only for adapters that publish a tool map (OpenCreator, #1490). Read
+    the same way the start gate reads readiness: the adapter's objects,
+    then the lane objects AFC names. Any failure is None: the material
+    check then says the map was not read instead of guessing (#235 audit O1).
+    """
+    head_map = getattr(adapter, "tool_head_map", None)
+    if not callable(head_map):
+        return None
+    try:
+        import urllib.parse
+        query = urllib.parse.quote("&".join(adapter.moonraker_objects()), safe="&")
+        status = _mr(state, f"/printer/objects/query?{query}")["result"]["status"]
+        followup = getattr(adapter, "moonraker_followup_objects", None)
+        extra = followup(status) if followup else []
+        if extra:
+            query = urllib.parse.quote("&".join(extra), safe="&")
+            status = {**status, **_mr(state, f"/printer/objects/query?{query}")["result"]["status"]}
+        return head_map(status)
+    except Exception as exc:
+        logger.warning("the printer's AFC tool map could not be read for the material check: %s", exc)
+        return None
+
+
+def _tool_material_problems(text, listed, state, spool_material, heads=None, map_known=True):
     """Material warnings for a toolhead printer's file, one tool at a time.
 
     The slicer writes one filament_type entry per toolhead, so the whole
@@ -77,6 +103,11 @@ def _tool_material_problems(text, listed, state, spool_material):
     active spool. Every problem here is a warning the operator may accept
     at start, never a hard block (#1336), including a used tool the file
     lists no material for.
+
+    ``heads`` is the printer's tool map (file tool -> toolhead index, the
+    adapter's tool_head_map): tool n prints from position heads[n] + 1.
+    Without one, position n + 1 is checked, and when ``map_known`` is
+    False the warning says the printer's map was not read.
     """
     used = sorted(_gcode_tools(text) | {0})
     slots = state.get("filament_slots") or {}
@@ -88,13 +119,18 @@ def _tool_material_problems(text, listed, state, spool_material):
                             f"{len(listed)} material(s), so its material cannot be checked",
                 f"T{tool}", "unlisted")
             continue
-        record = slots.get(str(tool + 1))
+        head = heads.get(tool) if isinstance(heads, dict) else None
+        position = (head if isinstance(head, int) and not isinstance(head, bool) else tool) + 1
+        record = slots.get(str(position))
         loaded = record.get("material") if isinstance(record, dict) else None
         if not loaded and len(used) == 1:
             loaded = spool_material
         if not printer_state.same_material(listed[tool], loaded):
-            problems += material_accept.material_problem(
-                listed[tool], loaded, f" for T{tool} (position {tool + 1})")
+            where = f" for T{tool} (position {position})"
+            if not map_known:
+                # No "; " here: the reply splits a refusal into warnings on it.
+                where += ", assumed because the printer's AFC tool map was not read"
+            problems += material_accept.material_problem(listed[tool], loaded, where)
     return problems
 
 
@@ -245,9 +281,26 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
             limit_low, limit_high = map(float, limits[axis])
             if low < limit_low - 1e-3 or high > limit_high + 1e-3:
                 errors.append(f'{axis.upper()} bounds {low:.3f}..{high:.3f} exceed {limit_low:.3f}..{limit_high:.3f}')
+        # Per-tool material (#235 audit O2): offline there is no live AFC map,
+        # so positions are the identity and each warning says so. Material is
+        # never a hard stop (#1336): alone, the warnings are reported and the
+        # slice goes on; the live check at start asks the operator.
+        material_warnings = []
+        if getattr(adapter, 'tool_based', False):
+            from ..core.orca_config import split_config_list
+            try:
+                listed = split_config_list(lines.config_value('filament_type') or '')
+            except ValueError:
+                listed = []
+            if len(listed) > 1:
+                material_warnings = _tool_material_problems(
+                    text, listed, state, (state.get('spool') or {}).get('material'), map_known=False)
         if errors:
-            raise RuntimeError('offline G-code verification failed: ' + '; '.join(errors))
-        return {'bounds_mm': bounds, 'nozzle': nozzle, 'offline': True}
+            raise RuntimeError('offline G-code verification failed: ' + '; '.join(errors + material_warnings))
+        for warning in material_warnings:
+            print(f'MATERIAL WARNING: {warning}', flush=True)
+        return {'bounds_mm': bounds, 'nozzle': nozzle, 'offline': True,
+                'material_warnings': material_warnings}
     state = _with_gcode_temperatures(state, text, recorded_temps, lines=lines)
     from ..core.nozzle import effective_nozzle_temperature
     nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
@@ -405,7 +458,10 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         # The active-spool record is legitimately empty (fresh install, unassign).
         spool_material = (st.get("spool") or {}).get("material")
         if len(listed) > 1 and adapter.tool_based:
-            errors += _tool_material_problems(text, listed, st, spool_material)
+            maps = callable(getattr(adapter, "tool_head_map", None))
+            heads = _live_tool_heads(adapter, st) if maps else None
+            errors += _tool_material_problems(text, listed, st, spool_material, heads=heads,
+                                              map_known=heads is not None or not maps)
         elif not printer_state.same_material(material, spool_material):
             # A warning the operator may accept at start, never a hard block (#1336).
             errors += material_accept.material_problem(material, spool_material)

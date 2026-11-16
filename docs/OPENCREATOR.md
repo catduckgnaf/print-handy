@@ -445,10 +445,14 @@ key. The record is kept under its tool, with the toolhead beside it. A
 Spool charging per tool is not built for this printer family yet, so
 the map does not change what is charged today.
 
-Writing spool data to the printer is not done yet. Live `lane_data`
-ownership is unverified, and Cartrigger's capture is pending. Outbound
-`SET_SPOOL_ID` wiring, the setting that enables it, and announcing a
-mid-print remap are later work.
+Print Handy never sends AFC's `SET_SPOOL_ID`, `SET_MATERIAL` or
+`SET_COLOR`. Spools are bound at the printer. In AFC's source
+(`extras/AFC_spool.py`), `SET_SPOOL_ID` also moves Moonraker's active
+spool, which is the printer's accounting under #1536; `SET_MATERIAL`
+takes one word; and `SET_COLOR` takes a hex code and cannot clear a
+color. Writing `lane_data` is not done either: live ownership is
+unverified, and Cartrigger's capture is pending. Announcing a
+mid-print remap is later work.
 
 Guidance from Cartrigger (OpenCreator) on #1490.
 

@@ -37,11 +37,18 @@ class ScreenMode(str, Enum):
     UNKNOWN = "unknown"
 
 
-# DisplayEnum: names as mod_params.json lists them; numbers as the macros compare them
-# (display == 0 is the stock screen; 1 is Feather, per macros/headless.cfg).
+# How Forge-X publishes the screen (ff5m 1.4.2, checked against its source):
+# mod_params.json declares DisplayEnum as an int enum STOCK=0, FEATHER=1,
+# HEADLESS=2, GUPPY=3; the plugin (.py/klipper/plugins/mod_params.py) stores
+# an enum parameter as its member's value (_load_param) and get_status
+# returns the stored variables unchanged, so Moonraker reports display as
+# that integer; the macros compare it the same way (display == 0 is Stock).
+# Names are accepted too, for SET_MOD input echoed back; anything else is
+# UNKNOWN and readiness refuses it.
 _BY_NAME = {"STOCK": ScreenMode.STOCK, "FEATHER": ScreenMode.FEATHER,
             "HEADLESS": ScreenMode.HEADLESS, "GUPPY": ScreenMode.GUPPY}
-_BY_NUMBER = {0: ScreenMode.STOCK, 1: ScreenMode.FEATHER}
+_BY_NUMBER = {0: ScreenMode.STOCK, 1: ScreenMode.FEATHER,
+              2: ScreenMode.HEADLESS, 3: ScreenMode.GUPPY}
 
 # START_PRINT parameters Forge-X rejects: Z_OFFSET / SKIP_ZOFFSET are deprecated on Forge-X
 # and cancel the print.
@@ -66,9 +73,20 @@ def screen_mode(status) -> ScreenMode:
     return ScreenMode.UNKNOWN
 
 
-def stock_screen_problem(status) -> str | None:
-    """A readiness problem when the printer positively runs the stock screen."""
-    if screen_mode(status) is not ScreenMode.STOCK:
+def readiness_screen_problem(status) -> str | None:
+    """Refuse start when screen mode is Stock or its report is incomplete/unknown."""
+    if not isinstance(status, dict):
+        return "Forge-X screen mode is unknown: Moonraker status is missing"
+    mod = status.get("mod_params")
+    if not isinstance(mod, dict):
+        return "Forge-X screen mode is unknown: mod_params object is missing"
+    variables = mod.get("variables")
+    if not isinstance(variables, dict) or "display" not in variables:
+        return "Forge-X screen mode is unknown: mod_params display key is missing"
+    mode = screen_mode(status)
+    if mode is ScreenMode.UNKNOWN:
+        return f"Forge-X screen mode is unknown: mod_params display value {variables['display']!r} is not recognized"
+    if mode is not ScreenMode.STOCK:
         return None
     return ("this Forge-X printer is set to the Stock screen, and Print Handy's Forge-X profile "
             "slices the Feather/Guppy/Headless start form. Switch the display to Feather, "
