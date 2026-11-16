@@ -94,6 +94,13 @@ EXEMPTIONS = {
     ("listener", "spool_nag_s"): (frozenset({"webui"}), "#657"),
     ("listener", "start_claim_ttl_s"): (frozenset({"webui"}), "#657"),
     ("listener", "tick_s"): (frozenset({"webui"}), "#657"),
+    # The [natural_language] knobs (#1524) are rollout and diagnostics
+    # tuning set in the settings file, like the [listener] timings: no
+    # Web UI catalog fields.
+    ("natural_language", "ai_disabled_channel_ids"): (frozenset({"webui"}), "#1524"),
+    ("natural_language", "ai_rate_limit_per_hour"): (frozenset({"webui"}), "#1524"),
+    ("natural_language", "shadow_mode"): (frozenset({"webui"}), "#1524"),
+    ("natural_language", "unmatched_log_enabled"): (frozenset({"webui"}), "#1524"),
     ("llm", "api_key_env"): (frozenset({"webui"}), "#286"),
     ("llm", "timeout_s"): (frozenset({"webui"}), "#657"),
     ("logging", "file"): (frozenset({"webui"}), "#657"),

@@ -214,7 +214,9 @@ def test_the_chat_fallback_uses_the_chat_tier_fallback_model():
                  ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "backup-model"}})
     endpoint = Endpoint(answer=json.dumps({"reply": "Press stop.", "command": "/print-stop"}), fail={"chat-model"})
     assert llm.configured(config)
-    assert llm.ask("kill it", "help text", cfg=config, opener=endpoint) == ("Press stop.", "/print-stop")
+    # #1524 tranche 6: the recorded legacy "command" is ignored - ask
+    # returns the reply and no proposal, so nothing can be dispatched.
+    assert llm.ask("kill it", "help text", cfg=config, opener=endpoint) == ("Press stop.", None)
     assert endpoint.models == ["chat-model", "backup-model"]
 
 

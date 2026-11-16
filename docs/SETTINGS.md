@@ -119,7 +119,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `natural_language.shadow_mode` | `PRINT_HANDY__NATURAL_LANGUAGE__SHADOW_MODE` | `false` | Rollout switch for the deterministic plain-language layer (#1524): `true` makes it log disagreements locally and answer nothing itself, so the previous behavior answers instead |
 | `natural_language.unmatched_log_enabled` | `PRINT_HANDY__NATURAL_LANGUAGE__UNMATCHED_LOG_ENABLED` | `false` | Keeps a sanitized, local-only log of phrases nothing matched; exportable from the bot's diagnostics. Never transmitted |
 | `natural_language.ai_rate_limit_per_hour` | `PRINT_HANDY__NATURAL_LANGUAGE__AI_RATE_LIMIT_PER_HOUR` | `20` | Per-user cap on conversational AI lane calls (mentions and explicit AI asks) per rolling hour |
-| `natural_language.ai_disabled_channel_ids` | `PRINT_HANDY__NATURAL_LANGUAGE__AI_DISABLED_CHANNEL_IDS` | empty | Channel ids where the conversational AI lane never runs; plain questions and commands still work there |
+| `natural_language.ai_disabled_channel_ids` | file only | empty | Channel ids where the conversational AI lane never runs; plain questions and commands still work there |
 | `agent.model` | `PRINT_HANDY__AGENT__MODEL` | empty | Agent model name; optional, unlike `llm.model`: empty omits `model` from the request, for endpoints that are not model-addressable |
 | `agent.api_key_env` | `PRINT_HANDY__AGENT__API_KEY_ENV` | `AGENT_API_KEY` | Name of the environment variable holding the agent endpoint's API key |
 | `agent.timeout_s` | `PRINT_HANDY__AGENT__TIMEOUT_S` | `120` | Agent request timeout; one attempt, no retries. Longer than `llm.timeout_s` because an agent turn does real work |

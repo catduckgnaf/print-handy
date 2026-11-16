@@ -20,10 +20,13 @@ A legacy "command" string in model output is ignored entirely.
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 
 from . import natural_language as nl
+
+logger = logging.getLogger(__name__)
 
 MAX_TOOL_RESULT_CHARS = 2000
 
@@ -105,6 +108,7 @@ def run_tool(core, name, arguments):
         if name == "doc_lookup":
             return _doc_lookup(cleaned.get("query", ""))[:MAX_TOOL_RESULT_CHARS]
     except Exception:
+        logger.debug("tool %s failed", name, exc_info=True)
         return "That lookup is unavailable right now."
     return "That tool is not available."
 
@@ -122,6 +126,7 @@ def _printer_status(core):
         filename = status.get("filename") or ""
         return f"Printer state: {state_name}." + (f" Current file: {filename}." if filename else "")
     except Exception:
+        logger.debug("printer status tool failed", exc_info=True)
         return "The printer's status could not be read right now."
 
 
@@ -212,6 +217,7 @@ def proposal_command(capability_id, slots):
     try:
         return builder(slots or {})
     except Exception:
+        logger.debug("proposal builder failed for %s", capability_id, exc_info=True)
         return None
 
 

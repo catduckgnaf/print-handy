@@ -311,7 +311,7 @@ def test_unmatched_text_on_telegram_gets_the_short_reply_and_no_llm(cfg, monkeyp
     client.core = core
     calls = _exploding_llm(monkeypatch)
     source = runtime.make_source("424242", "-1001", platform_name="telegram")
-    out = run(core.process(runtime.make_event(source, "what is the printer doing?", 9)))
+    out = run(core.process(runtime.make_event(source, "hello there, how is it going?", 9)))
     assert calls == []
     assert out == {"action": "skip", "reason": "command list"}
     texts = [p["text"] for p in stub.payloads if "text" in p]
@@ -335,7 +335,7 @@ def test_unmatched_text_on_matrix_gets_the_short_reply_and_no_llm(cfg, tmp_path,
     client.user = S(id="@bot:example.org")
     calls = _exploding_llm(monkeypatch)
     source = runtime.make_source("@u:example.org", "!r:example.org", platform_name="matrix")
-    out = run(core.process(runtime.make_event(source, "what is the printer doing?", "$e7")))
+    out = run(core.process(runtime.make_event(source, "hello there, how is it going?", "$e7")))
     assert calls == []
     assert out == {"action": "skip", "reason": "command list"}
     bodies = [p.get("body", "") for p in stub.payloads]
@@ -351,6 +351,6 @@ def test_unmatched_text_on_discord_without_an_llm_gets_the_same_short_reply(cfg)
     assert core.use_llm is False
     source = runtime.make_source(cfg["discord"]["allowed_user_ids"],
                                  cfg["discord"]["chat_id"], platform_name="discord")
-    out = run(core.process(runtime.make_event(source, "what is the printer doing?", 9)))
+    out = run(core.process(runtime.make_event(source, "hello there, how is it going?", 9)))
     assert out == {"action": "skip", "reason": "command list"}
     assert adapter.sent and adapter.sent[-1] == runtime.unmatched_text()

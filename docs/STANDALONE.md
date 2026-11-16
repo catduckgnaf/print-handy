@@ -263,8 +263,8 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 
 Print Handy is natural-language first, with three separate routes that never blur:
 
-1. **Normal chat is local and deterministic.** Plain questions — "How much purple PLA do I
-   have?", "What's in slot 2?", "Are there ZMod updates?", "What firmware am I on?" — are
+1. **Normal chat is local and deterministic.** Plain questions ("How much purple PLA do I
+   have?", "What's in slot 2?", "Are there ZMod updates?", "What firmware am I on?") are
    answered from Spoolman, the printer and the firmware state on this machine. No model is
    called, mentioned or not: a mentioned "how much purple PLA" gets the same Spoolman answer.
    The capability list behind these answers is one registry; "What can you do?" prints it,
@@ -278,14 +278,14 @@ Print Handy is natural-language first, with three separate routes that never blu
    goes to the endpoint, the bot posts a one-time notice saying so. The lane is rate-limited
    per user (`natural_language.ai_rate_limit_per_hour`, default 20), can be switched off per
    channel (`natural_language.ai_disabled_channel_ids`), and its model gets only the typed
-   read-only tools above — a mention is never consent to change anything.
+   read-only tools above. A mention is never consent to change anything.
 3. **Design is a dedicated AI path.** Asking for a new or edited model uses the design engine
    with no mention required, as before. Specialized AI paths keep their own gates and are
    unchanged: Pasta Cam vision, spool-label and purchase photos, and edit repair.
 
-Firmware answers keep seven honest states — confirmed update available, verified current,
+Firmware answers keep seven honest states: confirmed update available, verified current,
 a new release published but the installed comparison unknown, unknown, unsupported,
-temporarily unavailable, and blocked from applying — and never claim "up to date" when the
+temporarily unavailable, and blocked from applying. They never claim "up to date" when the
 version state could not be read. Applying an update stays on the guarded `/print-firmware`
 flow. Inventory answers never invent fields: an unknown remaining weight makes the total
 "incomplete" rather than zero, and a Spoolman failure is answered as unavailable, never with

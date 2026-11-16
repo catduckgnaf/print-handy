@@ -855,6 +855,7 @@ def _nl_cfg(core):
     try:
         return dict((core.cfg or {}).get("natural_language") or {})
     except Exception:
+        logger.debug("natural_language settings unreadable; defaults apply", exc_info=True)
         return {}
 
 
@@ -875,6 +876,7 @@ def _fetch_spool_records(core):
         state = spool_sync.load_state()
         loaded_ids = spool_sync._loaded_spool_ids(state)
     except Exception:
+        logger.debug("loaded-slot state unreadable; loaded set empty", exc_info=True)
         loaded_ids = set()
     records = [normalize_spool(row, loaded_ids) for row in rows if isinstance(row, dict)]
     return records, loaded_ids
@@ -884,6 +886,7 @@ def answer_inventory_total(core, parsed, facade):
     try:
         records, _loaded = _fetch_spool_records(core)
     except Exception:
+        logger.debug("inventory answer failed", exc_info=True)
         return ("Spoolman is unavailable right now, so I can't give you a verified "
                 "inventory number.")
     return inventory_answer_text(records, parsed.slots, capability_id=parsed.capability_id)
@@ -893,6 +896,7 @@ def answer_spool_detail(core, parsed, facade):
     try:
         records, _loaded = _fetch_spool_records(core)
     except Exception:
+        logger.debug("spool detail answer failed", exc_info=True)
         return "Spoolman is unavailable right now, so I can't look that spool up."
     wanted = parsed.slots.get("spool_id")
     record = next((r for r in records if r.get("id") == wanted), None)
@@ -903,6 +907,7 @@ def answer_loaded(core, parsed, facade):
     try:
         records, _loaded = _fetch_spool_records(core)
     except Exception:
+        logger.debug("loaded answer failed", exc_info=True)
         return "Spoolman is unavailable right now, so I can't tell you what's loaded."
     slot = parsed.slots.get("slot")
     loaded = [r for r in records if r.get("loaded")]
@@ -932,6 +937,7 @@ def answer_enough(core, parsed, facade):
     try:
         records, _loaded = _fetch_spool_records(core)
     except Exception:
+        logger.debug("enough answer failed", exc_info=True)
         return "Spoolman is unavailable right now, so I can't check your stock."
     matches, _tier = filter_spools(records, parsed.slots)
     total, _known, unknown = aggregate(matches)
@@ -991,6 +997,7 @@ def firmware_answer(core, parsed):
         return firmware_state_text(entry.get("name") or component, family, fw_state,
                                    installed=installed, available=available)
     except Exception:
+        logger.debug("firmware report unreadable; state stays unknown", exc_info=True)
         return firmware_state_text(component, family, "unknown")
 
 
@@ -1033,6 +1040,7 @@ def answer_status(core, parsed, facade):
         from ..runtime import print_stop
         return status_answer_text(print_stop.status())
     except Exception:
+        logger.debug("printer status answer failed", exc_info=True)
         return "I couldn't read the printer's status just now."
 
 
@@ -1089,18 +1097,26 @@ def answer(core, event, metadata):
         from .runtime import session_key
         key = session_key(event.source)
     except Exception:
+        logger.debug("no session key for follow-up context", exc_info=True)
         key = None
-    vocabulary = None
-    try:
-        records, _loaded = _fetch_spool_records(core)
-        vocabulary = build_vocabulary(records)
-    except Exception:
-        vocabulary = build_vocabulary()
+    # Parse with the base vocabulary first: ordinary chat must not cost
+    # a Spoolman call. Live vocabulary (the user's own colors, brands
+    # and materials) is fetched only when a template actually matched
+    # or a follow-up needs the stored scope, and refines the slots then.
+    vocabulary = build_vocabulary()
     parsed = parse_with_context(event.text, key, vocabulary)
     if parsed is None:
         record_route("unmatched")
         log_unmatched(event.text, enabled=bool(cfg.get("unmatched_log_enabled")))
         return None
+    try:
+        records, _loaded = _fetch_spool_records(core)
+        live = build_vocabulary(records)
+        refined = parse_with_context(event.text, key, live)
+        if refined is not None:
+            parsed = refined
+    except Exception:
+        logger.debug("live vocabulary fetch failed; base vocabulary stands", exc_info=True)
     effective = parsed.routed_to or parsed.capability_id
     if parsed.blocked:
         record_route("clarification")

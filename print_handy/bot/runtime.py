@@ -1685,6 +1685,7 @@ class BotCore(_RoutedAdapter):
                     "unmatched_recent": [row["phrase"] for row in _nl.export_unmatched()[-20:]],
                     "shadow_disagreements": len(_nl.shadow_disagreements())}
         except Exception:
+            logger.debug("natural-language diagnostics unavailable", exc_info=True)
             return {"routes": {}, "unmatched_logged": 0, "unmatched_recent": [],
                     "shadow_disagreements": 0}
 

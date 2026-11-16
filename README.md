@@ -75,13 +75,13 @@ You do not need slash commands. In the print channel or the Web UI chat, just as
 - "Where can I buy PLA?"
 - "What can you do?"
 
-Plain questions are answered **locally** from your own Spoolman, printer and firmware state — no AI is involved and nothing leaves the machine. Follow-ups work too: after an inventory answer, "Only Polymaker" or "What about black?" narrows it.
+Plain questions are answered **locally** from your own Spoolman, printer and firmware state. No AI is involved and nothing leaves the machine. Follow-ups work too: after an inventory answer, "Only Polymaker" or "What about black?" narrows it.
 
 Three routes, on purpose:
 
 1. **Normal chat is local.** Plain questions get deterministic answers from real data. Nothing is sent to a model.
-2. **@mention is the conversational AI.** Mention the bot (or use the Web UI's Ask AI checkbox, or `ask ai:` in a direct message) and, when a chat endpoint is configured and switched on, that message goes to it. The AI gets only typed read-only tools — it cannot start, stop or change anything itself; if it proposes an action, you still get the normal confirmation prompt. A mention is never consent to change anything.
-3. **Designing is its own AI path.** Asking for a new or edited model uses the dedicated design engine, exactly as before — no mention needed. A few specialized paths also use AI for their one job: camera watch (Pasta Cam), spool-label and purchase photos, and edit repair. Those are unchanged.
+2. **@mention is the conversational AI.** Mention the bot (or use the Web UI's Ask AI checkbox, or `ask ai:` in a direct message) and, when a chat endpoint is configured and switched on, that message goes to it. The AI gets only typed read-only tools. It cannot start, stop or change anything itself; if it proposes an action, you still get the normal confirmation prompt. A mention is never consent to change anything.
+3. **Designing is its own AI path.** Asking for a new or edited model uses the dedicated design engine, exactly as before, no mention needed. A few specialized paths also use AI for their one job: camera watch (Pasta Cam), spool-label and purchase photos, and edit repair. Those are unchanged.
 
 Buying words stay separate from inventory words: "Where can I buy PLA?" is shopping guidance, "I bought purple PLA" records nothing by itself (send the product link or a photo and you will be asked first), and "Load spool 12 into slot 2" is the guided spool flow with its own confirmation.
 
