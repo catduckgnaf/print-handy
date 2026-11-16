@@ -104,6 +104,7 @@ GROUP_OF = {
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
     "discord.mention_starter": "platform",
+    "discord.ask_which_parts": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
     "telegram.approval_user_id": "platform",
@@ -345,6 +346,14 @@ CATALOG = (
            "recorded starter and never mentions anyone. (Earlier this was "
            "mention_starter_on_complete and covered only the end-of-print post; the "
            "old name still works and is read as this setting.)",
+           validator="settings discord check"),
+    _field("discord", "ask_which_parts", "Ask which parts to print", "toggle",
+           "Off by default: when a model's files are all different parts (a shell, a "
+           "lid and a spring, with no versions to choose between), every part prints "
+           "on one job and the chat says which. On: ask Print all or Choose files "
+           "first, so you can print only some of them. Versions of one part, and a "
+           "3MF offered next to its STL files, are always asked. Applies on every "
+           "chat platform.",
            validator="settings discord check"),
     _field("telegram", "chat_id", "Telegram chat", "text",
            "Telegram chat (group) ID; group and channel IDs are negative.",

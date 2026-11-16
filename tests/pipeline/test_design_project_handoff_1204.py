@@ -18,7 +18,7 @@ from unittest import mock
 from print_handy.core import design, prepared_intake, printer_state
 from print_handy.runtime import _config
 from .helpers import external
-from .test_prepared_intake import Adapter, env, state  # noqa: F401  (env is the fixture)
+from .test_prepared_intake import Adapter, ask_which_parts, env, state  # noqa: F401  (fixtures)
 
 print_next = external("print_next")
 print_records = external("print_records")
@@ -105,7 +105,7 @@ def _hand_off(env, cfg, result, picks):
     return adapter, out, (json.loads(jobs[0].read_text()) if jobs else None), jobs
 
 
-def test_a_multi_part_design_becomes_one_project_v1_project(env, tmp_path):
+def test_a_multi_part_design_becomes_one_project_v1_project(env, tmp_path, ask_which_parts):
     cfg, result = _designed(tmp_path, THREE_PART)
     adapter, _out, job, _jobs = _hand_off(env, cfg, result, [0, 1, 0, 3])
     # The upload path's own first question, for the design's three parts.
@@ -131,7 +131,7 @@ def test_a_multi_part_design_becomes_one_project_v1_project(env, tmp_path):
     assert not env.starts
 
 
-def test_a_design_slice_only_sends_the_sliced_file(env, tmp_path):
+def test_a_design_slice_only_sends_the_sliced_file(env, tmp_path, ask_which_parts):
     """#1443: an AI-made design answered with Slice and Download hands over the file, like a
     dropped link — the design handoff runs the same intake, so the same delivery
     menu offers "Send the files here" on the default (printer-only) profile."""
@@ -228,7 +228,7 @@ def _complete(plans, plate, gcode):
             "completed_at": f"2026-11-10T0{plate}:30:00Z", "success": True})
 
 
-def test_design_plates_continue_through_next_plate_and_each_start_is_gated(env, tmp_path):
+def test_design_plates_continue_through_next_plate_and_each_start_is_gated(env, tmp_path, ask_which_parts):
     cfg, result = _designed(tmp_path, THREE_PART)
     _adapter, _out, job, _jobs = _hand_off(env, cfg, result, [0, 1, 0, 3])
     plan, plans, gcodes = _split(env, job, "design-plan")
