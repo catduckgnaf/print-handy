@@ -944,4 +944,5 @@ jobs:
             tests/bot/test_broader_coverage.py \
             tests/bot/test_docs_examples.py \
             tests/bot/test_suggestion_targets.py \
+            tests/bot/test_nl_audit_1524.py \
             tests/bot/test_command_fuzzy_coverage.py

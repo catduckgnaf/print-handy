@@ -284,14 +284,14 @@ def normalize_spool(raw, loaded_ids=()):
     material = filament.get("material") or raw.get("material")
     remaining = raw.get("remaining_weight", raw.get("remaining_grams"))
     initial = raw.get("initial_weight", raw.get("initial_grams"))
-    extra = raw.get("extra") or {}
-    slot = None
-    ph = extra.get("ph_slot") if isinstance(extra, dict) else None
-    if isinstance(ph, str) and ":" in ph:
-        try:
-            slot = int(ph.rsplit(":", 1)[1])
-        except ValueError:
-            slot = None
+    slot, slot_printer = None, None
+    # Spoolman returns extra-field values JSON-encoded ('"ad5x:2"', quotes
+    # included). spool_sync.parse_ph_slot is the one reader of that field;
+    # a hand-rolled split here read every live slot claim as no slot.
+    from ..runtime import spool_sync
+    claim = spool_sync.spool_ph_slot(raw)
+    if claim is not None:
+        slot_printer, slot = claim
     spool_id = raw.get("id", raw.get("spool_id"))
     return {
         "id": int(spool_id) if spool_id is not None else None,
@@ -304,6 +304,7 @@ def normalize_spool(raw, loaded_ids=()):
         "location": raw.get("location"),
         "archived": bool(raw.get("archived")),
         "slot": slot,
+        "slot_printer": slot_printer,
         "loaded": (spool_id in set(loaded_ids or ())) or slot is not None,
         "name": raw.get("name") or filament.get("name"),
     }
@@ -394,6 +395,36 @@ def _scan_vocabulary(clean, vocabulary):
     return slots
 
 
+# Words an inventory question uses that are not a filter: the question's
+# own frame, quantities and filament nouns. Anything else left over names
+# a filter the vocabulary does not know ("purpel", a typo for purple).
+_INVENTORY_FRAME_WORDS = frozenset("""
+how much many do does did i we have own any is are was left of my the a an
+what whats s filament filaments spool spools roll rolls in on stock total
+there got still remaining kg grams g and or all some color colour colors
+colours brand material type kind with which shelf loaded available
+""".split())
+
+
+def _unrecognized_filament_words(text, vocabulary, slots):
+    """Words in an inventory question that matched no filter, else ''.
+
+    The total is then labeled as ignoring them, so "how much purpel pla"
+    never silently reports every PLA spool as if it were purple.
+    """
+    if not vocabulary:
+        return ""
+    known = set()
+    for key in ("colors", "brands", "materials", "printers"):
+        for name in vocabulary.get(key) or ():
+            known.update(re.findall(r"[a-z0-9+]+", str(name).casefold()))
+    known.update(str(v).casefold() for v in slots.values() if isinstance(v, str))
+    words = re.findall(r"[a-z][a-z0-9+]*", text.casefold())
+    left = [w for w in words if w not in _INVENTORY_FRAME_WORDS and w not in known
+            and w not in COLOR_FAMILIES and len(w) > 2]
+    return " ".join(dict.fromkeys(left))
+
+
 def matching_intents(text, vocabulary=None):
     """Every intent whose template matches, in template order.
 
@@ -449,6 +480,10 @@ def parse(text, vocabulary=None):
             if re.search(r"\b" + re.escape(component) + r"\b", stripped, re.I):
                 slots.setdefault("component", _COMPONENTS[component])
                 break
+        if template.intent == "inventory_total":
+            unknown = _unrecognized_filament_words(stripped, vocabulary, slots)
+            if unknown:
+                slots["unrecognized"] = unknown
         grams = re.search(r"\b(\d+(?:\.\d+)?)\s*g\b", stripped, re.I)
         if grams and template.intent == "inventory_enough":
             slots.setdefault("required_grams", float(grams.group(1)))
@@ -529,11 +564,30 @@ def parse_with_context(text, key=None, vocabulary=None):
     if stored:
         only = _FOLLOWUP_ONLY.match(clean)
         about = _FOLLOWUP_WHAT_ABOUT.match(clean)
-        if parsed is None and (only or about):
-            fragment = (only or about).group(1)
+        fragment = (only or about).group(1) if (only or about) else ""
+        component = _COMPONENTS.get(re.sub(r"[^a-z0-9 -]", "", fragment.casefold()).strip()) \
+            if fragment else None
+        if parsed is None and about and component:
+            # "What about HelixScreen?" names a firmware component: a
+            # firmware follow-up, never the stored filament totals (#1524
+            # audit found it answered with the purple PLA grams).
+            parsed = ParsedIntent(capability_id="firmware_updates",
+                                  slots={"component": component},
+                                  mood="interrogative", text=clean)
+        elif parsed is None and (only or about):
             extra = _scan_vocabulary(fragment, vocabulary)
+            if stored.get("component"):
+                # A firmware scope never turns into a filament total.
+                return None
             merged = dict(stored)
+            merged.pop("unrecognized", None)
             merged.update(extra)
+            if not extra:
+                # Nothing here narrows the total. The base vocabulary lacks
+                # the user's own brands and colors, so answer() re-parses
+                # with the live vocabulary; this mark lets it refuse
+                # instead of re-answering the old question as the new one.
+                merged["unrecognized"] = fragment
             parsed = ParsedIntent(capability_id="inventory_total", slots=merged,
                                   mood="interrogative", text=clean)
         elif parsed is None and _FOLLOWUP_LOADED.match(clean):
@@ -670,9 +724,15 @@ def inventory_answer_text(records, slots, *, capability_id="inventory_total"):
         describe += " (loaded)"
     unit = slots.get("unit", "g")
     if not matches:
+        if slots.get("unrecognized"):
+            return (f"I don't recognize {slots['unrecognized']!r} as a color, brand or "
+                    f"material in Spoolman, and you have no {describe} spools recorded.")
         return f"You have no {describe} spools recorded in Spoolman."
     total, known, unknown = aggregate(matches)
     lines = []
+    if slots.get("unrecognized"):
+        lines.append(f"I don't recognize {slots['unrecognized']!r} as a color, brand or "
+                     "material in Spoolman, so it was not used as a filter:")
     if tier == "family":
         lines.append(f"No spool is recorded with the exact color {slots.get('color')!r}; "
                      "counting the broader color family instead:")
@@ -790,7 +850,7 @@ def firmware_state_text(component, family, state, *, installed=None, available=N
     line = f"{name}: {_STATE_TEXT.get(state, _STATE_TEXT['unknown'])}."
     if installed:
         line += f" Installed: {installed}."
-    if available and state == "update_available":
+    if available and state in ("update_available", "blocked"):
         line += f" Available: {available}."
     if state == "blocked" and blocked_reason:
         line += f" ({blocked_reason})"
@@ -872,12 +932,23 @@ def _fetch_spool_records(core):
     """(records, loaded_ids) from Spoolman via the one client, or raise."""
     from ..runtime import spool_sync
     rows = spool_sync.spoolman("GET", "/api/v1/spool?allow_archived=false", None) or []
+    # Loaded = claimed by a slot in Spoolman (ph_slot, read in
+    # normalize_spool) or recorded in any roster printer's hardware
+    # record. One unreadable record never hides the others.
+    loaded_ids = set()
+    printer_ids = [None]
     try:
-        state = spool_sync.load_state()
-        loaded_ids = spool_sync._loaded_spool_ids(state)
+        from .. import settings
+        printer_ids += [str(row["id"]) for row in settings.printers(core.cfg)
+                        if isinstance(row, dict) and row.get("id") is not None]
     except Exception:
-        logger.debug("loaded-slot state unreadable; loaded set empty", exc_info=True)
-        loaded_ids = set()
+        logger.debug("roster unreadable; default printer record only", exc_info=True)
+    for printer_id in printer_ids:
+        try:
+            loaded_ids |= spool_sync._loaded_spool_ids(spool_sync.load_state(printer_id=printer_id))
+        except Exception:
+            logger.debug("loaded-slot state unreadable for %s", printer_id or "default",
+                         exc_info=True)
     records = [normalize_spool(row, loaded_ids) for row in rows if isinstance(row, dict)]
     return records, loaded_ids
 
@@ -970,35 +1041,94 @@ def answer_firmware(core, parsed, facade):
     return firmware_answer(core, parsed)
 
 
+def _firmware_target(core):
+    """(transport, registry entry, family) for the default printer.
+
+    The same resolution /print-firmware uses for an unnamed printer:
+    the configured Moonraker client and the roster model's registry
+    entry. Raises LookupError for a printer with no Moonraker.
+    """
+    from ..runtime import spool_sync
+    from .. import firmware_update, printers
+    current = printers.current()
+    if current.connection != "moonraker":
+        raise LookupError(f"{current.connection} printer: no Update Manager to read")
+    entry = firmware_update.printer_entry(current.model.key)
+    family = (getattr(entry, "firmware_family", "") or "") if entry is not None else ""
+    return spool_sync.moonraker_for(None), entry, family
+
+
+def component_firmware_state(component, *, blocked_reason=""):
+    """One live Update Manager component -> one of the seven states.
+
+    Moonraker's own comparison decides: a readable newer remote is a
+    confirmed update; a "?" remote is unknown, never current; a
+    component Moonraker marks invalid is blocked from applying.
+    """
+    if component is None:
+        return "unknown"
+    if component.invalid:
+        return "blocked"
+    if component.update_available:
+        return "blocked" if blocked_reason else "update_available"
+    if component.remote_unknown or not component.current:
+        return "unknown"
+    return "current"
+
+
 def firmware_answer(core, parsed):
-    """Best-effort firmware answer; unreadable state stays unknown, never current."""
-    component = parsed.slots.get("component") or "ZMod"
-    family = "zmod"
+    """The installed firmware and its update state, read from the printer.
+
+    Reads Moonraker's Update Manager through the same transport and
+    status parser /print-firmware uses. Nothing is refreshed or applied.
+    An unreadable state stays unknown, never current, and a missing
+    printer or connection says unavailable or unsupported.
+    """
+    from .. import firmware_update
+    wanted = parsed.slots.get("component")
     try:
-        from ..runtime import spool_sync
-        from .. import firmware_update
-        state = spool_sync.load_state()
-        conn = spool_sync.moonraker_for(state=state)
-        if conn is None:
-            raise LookupError("no Moonraker connection")
-        report = firmware_update.firmware_report(conn[0], conn[1], conn[2])
-        entry = next((c for c in report.get("components") or []
-                      if component.casefold() in str(c.get("name", "")).casefold()), None)
-        if entry is None:
-            entry = (report.get("components") or [{}])[0]
-        installed = entry.get("installed_version") or entry.get("version")
-        available = entry.get("available_version") or entry.get("remote_version")
-        status = str(entry.get("status") or "")
-        fw_state = classify_firmware_state(
-            family, installed=installed, available=available,
-            apply_blocked_reason="the printer is busy"
-            if status in ("printing", "paused") and parsed.capability_id == "firmware_update_apply"
-            else "")
-        return firmware_state_text(entry.get("name") or component, family, fw_state,
-                                   installed=installed, available=available)
+        transport, _entry, family = _firmware_target(core)
+    except LookupError as exc:
+        logger.debug("firmware answer: %s", exc)
+        return firmware_state_text(wanted or "Firmware", "", "unsupported")
     except Exception:
-        logger.debug("firmware report unreadable; state stays unknown", exc_info=True)
-        return firmware_state_text(component, family, "unknown")
+        logger.debug("firmware answer: no printer resolved", exc_info=True)
+        return firmware_state_text(wanted or "Firmware", "zmod", "unavailable")
+    try:
+        status = firmware_update.fetch_status(transport)
+    except Exception:
+        # Unreadable is unknown, never current (#1524 tranche 5).
+        logger.debug("firmware answer: update status unreadable", exc_info=True)
+        return firmware_state_text(wanted or "Firmware", family, "unknown")
+    if wanted:
+        component = status.component(wanted)
+        if component is None:
+            return (f"{wanted}: this printer's update manager does not list it, so its "
+                    "version can't be read here.")
+        state = component_firmware_state(component)
+        return firmware_state_text(wanted, family, state, installed=component.current,
+                                   available=component.remote,
+                                   blocked_reason=component.invalid or "")
+    rows = [c for c in status.components if c.name != "system"]
+    if not rows:
+        return firmware_state_text("Firmware", family, "unknown")
+    if parsed.capability_id == "firmware_version":
+        # "What firmware am I on?" asks what is installed; the update
+        # state is "Are there firmware updates?".
+        return "Installed, as the printer's update manager reports it:\n" + "\n".join(
+            f"{c.name}: {c.current or 'version unreadable'}" for c in rows)
+    lines = []
+    for component in rows:
+        state = component_firmware_state(component)
+        if parsed.capability_id == "firmware_updates" and state == "current":
+            continue
+        lines.append(firmware_state_text(component.name, family, state,
+                                         installed=component.current,
+                                         available=component.remote,
+                                         blocked_reason=component.invalid or ""))
+    if not lines:
+        return "Everything the update manager lists is verified current."
+    return "\n".join(lines)
 
 
 def status_answer_text(st):
@@ -1117,6 +1247,12 @@ def answer(core, event, metadata):
             parsed = refined
     except Exception:
         logger.debug("live vocabulary fetch failed; base vocabulary stands", exc_info=True)
+    if parsed.slots.get("unrecognized") and (_FOLLOWUP_ONLY.match(parsed.text)
+                                             or _FOLLOWUP_WHAT_ABOUT.match(parsed.text)):
+        # "What about zzz?" named nothing Spoolman knows: say so rather
+        # than repeat the previous total as if it answered this.
+        return (f"I don't recognize {parsed.slots['unrecognized']!r} as a color, brand or "
+                "material in Spoolman, so I can't narrow the last answer by it.")
     effective = parsed.routed_to or parsed.capability_id
     if parsed.blocked:
         record_route("clarification")
