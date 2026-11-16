@@ -36,35 +36,40 @@ _LAYER_COUNT = re.compile(r"^;\s*(?:total layers|layer count)\s*[:=]\s*(\d+)", r
 
 
 def parse_statistics_json(text):
-    """Per-filament grams from an Orca statistics record, or None.
+    """Per-filament grams from an Orca ``plate_N.statistics.json``, or None.
 
-    Accepts the shapes Orca's statistics writer is documented to use:
-    a mapping with a per-filament weight list under a filament/weight
-    key. A record without a per-filament list proves nothing here and
-    returns None, so the caller falls back to G-code comments.
+    The shape is OrcaSlicer's own writer (``gcode_statistics_json`` in
+    src/libslic3r/GCode/GCodeStatistics.cpp, the file ``--export-statistics``
+    writes): ``{"version": 1, "units": {"weight": "g", ...},
+    "summary": {"filaments": [{"id": 1, "weight": 4.12, ...}, ...]}}``.
+    Weights are listed in ``id`` order. A newer major version, a weight
+    unit other than grams, or a filament without a numeric weight proves
+    nothing and returns None, so the caller falls back to G-code comments
+    rather than guessing a different shape.
     """
     try:
         record = json.loads(text)
     except (ValueError, TypeError):
         return None
-    if not isinstance(record, dict):
+    if not isinstance(record, dict) or record.get("version") != 1:
         return None
-    for key in ("filament_used_g", "filament_weights_g", "filaments"):
-        value = record.get(key)
-        if isinstance(value, list) and value and all(
-                isinstance(v, (int, float)) for v in value):
-            return [float(v) for v in value]
-        if isinstance(value, list) and value and all(
-                isinstance(v, dict) for v in value):
-            weights = []
-            for row in value:
-                weight = row.get("used_g") or row.get("weight_g") or row.get("filament_used_g")
-                if not isinstance(weight, (int, float)):
-                    break
-                weights.append(float(weight))
-            else:
-                return weights
-    return None
+    units = record.get("units")
+    if not isinstance(units, dict) or units.get("weight") != "g":
+        return None
+    summary = record.get("summary")
+    filaments = summary.get("filaments") if isinstance(summary, dict) else None
+    if not isinstance(filaments, list) or not filaments:
+        return None
+    rows = []
+    for row in filaments:
+        if not isinstance(row, dict):
+            return None
+        weight, ident = row.get("weight"), row.get("id")
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)) \
+                or isinstance(ident, bool) or not isinstance(ident, int):
+            return None
+        rows.append((ident, float(weight)))
+    return [weight for _ident, weight in sorted(rows)]
 
 
 def suggest_spools(filament: dict, spools) -> list[dict]:

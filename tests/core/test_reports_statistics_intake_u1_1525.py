@@ -86,10 +86,19 @@ class TestPlateStatistics:
     def test_statistics_json_wins_when_it_names_per_filament_weights(self):
         artifact = ps.build_plate_statistics(
             gcode_text=self.GCODE,
-            statistics_text=json.dumps({"filament_used_g": [7.0, 1.5]}),
+            statistics_text=json.dumps(ORCA_STATISTICS),
             filaments=[{"source_extruder": 1}, {"source_extruder": 2}])
         assert artifact["statistics_source"] == "orca-statistics-json"
         assert artifact["filaments"][0]["estimated_grams"] == 7.0
+        assert artifact["filaments"][1]["estimated_grams"] == 1.5
+
+    def test_statistics_json_of_another_shape_is_not_trusted(self):
+        # A guessed key, a future major version or another weight unit
+        # proves nothing: the G-code comments stand instead.
+        for record in ({"filament_used_g": [7.0, 1.5]},
+                       dict(ORCA_STATISTICS, version=2),
+                       dict(ORCA_STATISTICS, units={"weight": "kg"})):
+            assert ps.parse_statistics_json(json.dumps(record)) is None, record
 
     def test_total_only_never_fabricates_per_filament(self):
         artifact = ps.build_plate_statistics(
@@ -105,6 +114,20 @@ class TestPlateStatistics:
                   {"id": 2, "material": "PETG", "color": "#FF0000"}]
         got = ps.suggest_spools({"material": "PLA", "color": "#FF0000"}, spools)
         assert [row["spool_id"] for row in got] == [3, 5]  # never the near color
+
+
+# The shape OrcaSlicer's --export-statistics writes (plate_N.statistics.json,
+# gcode_statistics_json in its GCodeStatistics.cpp), trimmed to the keys read.
+# Filaments listed out of id order on purpose: weights follow the id.
+ORCA_STATISTICS = {
+    "version": 1,
+    "generator": "OrcaSlicer 2.5.0",
+    "units": {"time": "s", "length": "mm", "volume": "mm3", "weight": "g"},
+    "summary": {"time": 812.0, "weight": 8.5, "filaments": [
+        {"id": 2, "length": 500.1, "volume": 1203.0, "weight": 1.5},
+        {"id": 1, "length": 2333.4, "volume": 5600.0, "weight": 7.0}]},
+    "layers": [], "objects": [],
+}
 
 
 class TestExternalIntake:

@@ -221,7 +221,8 @@ def test_one_click_slice_and_print_needs_no_typed_approval(env):
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     last = adapter.questions[-1]['choices']
     assert last[0].startswith('Slice and print') and 'bed is clear' in last[0]
-    assert last[1] == 'Slice and Download' and last[2] == 'Scale the model' and last[3] == 'Cancel print request'
+    assert last[1:] == ['Slice and Download', 'Scale the model', 'Export editable 3MF',
+                        'Cancel print request']
     assert 'does not authorize printing' not in adapter.questions[-1]['question']
     assert len(env.sliced) == 1 and len(env.starts) == 1
     assert receipt['status'] == 'STARTED' and receipt['started'] is True
@@ -337,7 +338,7 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
 
 
 def test_cancel_choice_discards_the_early_slice_and_never_starts(env):
-    adapter, result, receipt = run_flow(env, [2, 0, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 4])
     # Issue 63 starts the slice while the confirm question is up. Cancel throws it away.
     assert env.starts == [] and receipt['status'] == 'CANCELLED'
     assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
@@ -368,7 +369,7 @@ def test_scale_smaller_stacks_on_the_previous_scale(env, monkeypatch):
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 1)
     # Scale smaller by 10% (to 90%), then scale bigger by 10% (to 99%), then Cancel.
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 1, 2, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 1, 2, 2, 0, 2, 4])
     ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
     assert len(ready) == 3
     assert 'Scaled to 90% of the authored size.' in ready[1]['question']
@@ -383,7 +384,7 @@ def test_scale_that_does_not_fit_the_bed_is_refused_and_nothing_is_scaled(env, m
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
                         lambda path, st, **kw: 0 if float(kw.get('scale') or 1.0) > 1.0 else real(path, st))
     # Scale bigger by 10% is refused; the repeated question is answered with Cancel.
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 4])
     assert any('110% does not fit' in text and 'stays at 100%' in text for text in adapter.sent)
     assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
     assert env.starts == [] and env.sliced == []
@@ -427,7 +428,7 @@ def test_scale_fit_search_probe_failure_names_the_slicer_failure(env, monkeypatc
 
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)
     # Scale bigger by 10%; the repeated Ready question is answered with Cancel.
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 4])
     assert any('could not work out the biggest size that fits because the slicer check failed' in text
                and 'stays at 100%' in text for text in adapter.sent)
     assert not any('biggest size that fits is' in q['question'] for q in adapter.questions)
@@ -439,7 +440,7 @@ def test_declining_the_biggest_fit_offer_keeps_the_current_size(env, monkeypatch
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', _capacity_up_to(1.04))
     # Scale bigger by 10% does not fit; keep 100% at the offer, then Cancel.
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 1, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 1, 4])
     offer = [q for q in adapter.questions if 'biggest size that fits' in q['question']]
     assert offer and offer[0]['choices'][0] == 'Scale to 104%'
     assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
@@ -459,7 +460,7 @@ def test_a_failed_biggest_fit_search_is_reported_not_called_a_no_fit(env, monkey
 
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)
     # Scale bigger by 10% is refused and the search fails; Cancel at the repeated question.
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 4])
     assert any('110% does not fit' in text and 'stays at 100%' in text
                and 'could not work out the biggest size that fits' in text for text in adapter.sent)
     assert not [q for q in adapter.questions if 'biggest size that fits' in q['question']]
@@ -470,7 +471,7 @@ def test_a_failed_biggest_fit_search_is_reported_not_called_a_no_fit(env, monkey
 def test_scale_prompts_can_be_backed_out_without_changing_anything(env):
     # Scale the model, back out of the amount question, back out of the
     # direction question on a second try, then Cancel the print request.
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 3, 2, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 3, 2, 2, 4])
     ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
     assert len(ready) == 3
     assert not any('Scaled to' in q['question'] for q in ready)
@@ -1108,7 +1109,7 @@ def test_color_save_prompt_shows_spool_projection_and_estimate_before_print_choi
                         lambda path: {**real(path), 'filament_stats': {'total_g': 25, 'total_m': 8, 'extruders': {}}})
     st = state()
     st['filament_slots']['1']['remaining_grams'] = 200
-    adapter = Adapter([2, 0, 3])  # one color, slot 1, cancel the print request
+    adapter = Adapter([2, 0, 4])  # one color, slot 1, cancel the print request
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='spool1',
               text='https://www.printables.com/model/1-ghost')
     asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))

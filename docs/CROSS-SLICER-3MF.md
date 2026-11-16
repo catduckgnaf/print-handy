@@ -30,7 +30,7 @@ kind and one user-facing class:
 | OrcaSlicer | Native project, author intent carried by the established allowlist | Yes | Real destination slice in CI |
 | Bambu Studio | Native lineage project; Bambu Studio is also a supported fallback executor | Yes | Real Bambu Studio A1 slice in CI (that check is not branch-protection required) |
 | PrusaSlicer | Slic3r config translated through the versioned compatibility registry | Yes | Real Orca slice; a genuine PrusaSlicer 2.8.1 CLI fixture is in the corpus (its CLI export carries geometry and a model config, no settings snapshot) |
-| Cura | Validated subset only: layer heights, wall count, top/bottom shell, infill density/pattern, support enable/structure/placement, brim, seam — each range- or enum-checked | Yes | Spec-synthetic fixture through the production reader plus a real Orca slice; no genuine Cura-produced fixture yet (Cura has no headless project-save operation; the gap is tracked in the capability manifest) |
+| Cura | Validated subset only: layer heights, wall count, top/bottom shell, infill density/pattern, support enable/structure/placement, brim, seam. Each range- or enum-checked | Yes | Spec-synthetic fixture through the production reader plus a real Orca slice; no genuine Cura-produced fixture yet (Cura has no headless project-save operation; the gap is tracked in the capability manifest) |
 | Anycubic Slicer Next | Detection only, on the X-ACNext slice-info marker; no settings translation is claimed | As a Bambu-lineage project | Parser-level |
 | Plain core 3MF | None (no settings carried) | Yes | Real destination slice |
 | Sliced-only G-code.3MF | None | Refused, with the reason stated | Parser-level |
@@ -56,7 +56,7 @@ up as a project.
 Each sliced job's settings report (Web UI JSON download) has a readable
 twin at the job's conversion report page: preserved, translated,
 replaced by destination, dropped and unknown decisions, rendered from
-the same provenance record as the JSON — never a second version of the
+the same provenance record as the JSON, never a second version of the
 truth.
 
 ## Per-plate statistics
@@ -68,12 +68,12 @@ Estimates come from Orca's statistics output when the pinned binary
 emits it, else from verified G-code comments; the artifact records
 which. Figures a source does not state stay unknown. Slicing alone
 never deducts inventory, and spool suggestions are exact material/color
-matches — never a closest-color guess.
+matches, never a closest-color guess.
 
 ## External sliced jobs (opt-in)
 
 An operator may configure one watched import directory. New stable
-files there become draft job cards — nothing prints, sends or charges
+files there become draft job cards. Nothing prints, sends or charges
 on appearance. Only an explicit **mark as printed** confirmation from
 the operator records accounting, exactly once per physical print; a
 print already recorded (including one Print Handy launched) cannot be

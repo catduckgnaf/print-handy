@@ -60,6 +60,28 @@ from ..intake.worker import (  # moved in 2.3.0 (#1323); old path kept for one r
 logger = logging.getLogger(__name__)
 
 
+EXPORT_EDITABLE_LABEL = 'Export editable 3MF'
+
+
+async def _send_editable_export(adapter, source, metadata, folder, path):
+    """Export editable 3MF (#1525): deliver the cleaned project as a file.
+
+    A file delivery, not a slice: it starts no print, sends no machine
+    command and touches no spool, and the Ready menu stays open after
+    it. A source that cannot be exported says why in plain words.
+    """
+    from . import editable_export as _editable_export
+    export_target = folder / (path.stem + '-editable.3mf')
+    try:
+        report = await _heavy(_editable_export.export_editable, path, export_target)
+    except _editable_export.ExportRefused as exc:
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=str(exc))
+        return
+    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                       content=_editable_export.export_summary(report),
+                       files=[str(export_target)])
+
+
 def _voice_identity(source):
     """Scope first-time copy jokes to a user and platform, not the job."""
     platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
@@ -3583,8 +3605,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     menu_options.append({'kind': 'print_anyway',
                                          'label': PRINT_ANYWAY_RISK_LABEL if can_print else SLICE_ANYWAY_RISK_LABEL})
                 menu_options.append({'kind': 'slice_only', 'label': 'Slice and Download'})
-                menu_options.append({'kind': 'export_editable', 'label': 'Export editable 3MF'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
+                # Export editable 3MF (#1525) goes after Scale: Print, Slice
+                # and Scale keep their positions. Cancel stays last because
+                # ask() adds its own Cancel to a menu that does not end on one.
+                menu_options.append({'kind': 'export_editable', 'label': EXPORT_EDITABLE_LABEL})
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
                 first_labels = [opt['label'] for opt in menu_options]
             else:
@@ -3592,8 +3617,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 menu_options = [
                     {'kind': 'print', 'label': print_label},
                     {'kind': 'slice_only', 'label': 'Slice and Download'},
-                    {'kind': 'export_editable', 'label': 'Export editable 3MF'},
                     {'kind': 'scale', 'label': SCALE_LABEL},
+                    {'kind': 'export_editable', 'label': EXPORT_EDITABLE_LABEL},
                     {'kind': 'cancel', 'label': cancel_label},
                 ]
                 if not can_print:
@@ -3839,18 +3864,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # Export editable 3MF (#1525): a file delivery, not a
                     # slice. It starts no print, sends no machine command
                     # and touches no spool; the menu stays open afterwards.
-                    from . import editable_export as _editable_export
-                    export_target = folder / (path.stem + '-editable.3mf')
-                    try:
-                        report = await _heavy(_editable_export.export_editable,
-                                              path, export_target)
-                        await adapter.send(
-                            chat_id=source.chat_id, metadata=metadata,
-                            content=_editable_export.export_summary(report),
-                            files=[str(export_target)])
-                    except _editable_export.ExportRefused as exc:
-                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                           content=str(exc))
+                    await _send_editable_export(adapter, source, metadata, folder, path)
                     continue
                 elif opt['kind'] == 'cancel':
                     choice = 3
@@ -3862,18 +3876,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 if kind == 'export_editable':
                     # Export editable 3MF (#1525): file delivery only, as
                     # in the flagged dispatch above; the menu stays open.
-                    from . import editable_export as _editable_export
-                    export_target = folder / (path.stem + '-editable.3mf')
-                    try:
-                        report = await _heavy(_editable_export.export_editable,
-                                              path, export_target)
-                        await adapter.send(
-                            chat_id=source.chat_id, metadata=metadata,
-                            content=_editable_export.export_summary(report),
-                            files=[str(export_target)])
-                    except _editable_export.ExportRefused as exc:
-                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                           content=str(exc))
+                    await _send_editable_export(adapter, source, metadata, folder, path)
                     continue
                 if kind != 'scale':
                     # The legacy choice numbers the rest of the flow reads:

@@ -109,23 +109,27 @@ machine_depth = 220
 machine_height = 250
 """
 
-CUBE_STL = """solid cube
- facet normal 0 0 0
-  outer loop
-   vertex 0 0 0
-   vertex 10 10 0
-   vertex 10 0 0
-  endloop
- endfacet
- facet normal 0 0 0
-  outer loop
-   vertex 0 0 0
-   vertex 0 10 0
-   vertex 10 10 0
-  endloop
- endfacet
-endsolid cube
-"""
+def _cube_stl(size: float = 20.0) -> str:
+    """A closed, outward-facing cube (12 facets) as ASCII STL.
+
+    A real solid: a flat square has no volume, and a slicer drops it as
+    "no object fully inside the print volume" (#1578 review).
+    """
+    s = size
+    corners = {"a": (0, 0, 0), "b": (s, 0, 0), "c": (s, s, 0), "d": (0, s, 0),
+               "e": (0, 0, s), "f": (s, 0, s), "g": (s, s, s), "h": (0, s, s)}
+    faces = ("acb", "adc", "efg", "egh", "abf", "afe",
+             "bcg", "bgf", "cdh", "chg", "dae", "deh")
+    lines = ["solid cube"]
+    for face in faces:
+        lines += [" facet normal 0 0 0", "  outer loop"]
+        lines += ["   vertex %g %g %g" % corners[k] for k in face]
+        lines += ["  endloop", " endfacet"]
+    lines.append("endsolid cube")
+    return "\n".join(lines) + "\n"
+
+
+CUBE_STL = _cube_stl()
 
 
 def _sha256(path: Path) -> str:
@@ -194,7 +198,10 @@ def main() -> int:
             by_name[target.name] = {
                 "file": target.name, "class": "genuine",
                 "producer": banner,
-                "basis": f"{args.prusa} --export-3mf --output {target.name} cube.stl",
+                # The binary's name only: a local install path is not
+                # provenance and must not land in a public fixture record.
+                "basis": f"{Path(args.prusa).name} --export-3mf --output "
+                         f"{target.name} cube.stl (a closed 20 mm cube)",
                 "sha256": _sha256(target)}
     provenance["fixtures"] = [by_name[name] for name in sorted(by_name)]
     provenance_path.write_text(json.dumps(provenance, indent=2) + "\n")

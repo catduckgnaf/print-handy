@@ -384,7 +384,8 @@ def test_bambu_printer_offers_no_print_and_hands_off_a_package(env, monkeypatch,
     # one color, slot 1, "Slice and Download" (first button: no print button exists), package, send, (menu ends)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1, 0])
     first = [q for q in adapter.questions if "Slice and Download" in q["choices"]][0]
-    assert first["choices"] == ["Slice and Download", "Scale the model", "Cancel print request"]
+    assert first["choices"] == ["Slice and Download", "Scale the model", "Export editable 3MF",
+                                "Cancel print request"]
     assert not any(print_next.START_LABEL in q["choices"] or any("print now" in c for c in q["choices"])
                    for q in adapter.questions)
     menus = _delivery_menu(adapter)

@@ -21,10 +21,13 @@ byte is rewritten:
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from pathlib import Path
 
 from . import package_remap, source_colors, source_descriptor
+
+logger = logging.getLogger(__name__)
 
 SUPPORT_SUBTYPES = ("support_blocker", "support_enforcer")
 NON_PRINTING_SUBTYPES = ("modifier_part", "negative_part") + SUPPORT_SUBTYPES
@@ -116,7 +119,10 @@ def validate(source, mapping=None, selected_plate_ids=None,
     try:
         with zipfile.ZipFile(source) as archive:
             negatives = source_colors.negative_volumes(archive)
-    except Exception:
+    except (OSError, zipfile.BadZipFile, ValueError) as exc:
+        # An unreadable archive here only loses the negative-volume
+        # warning; the descriptor pass already refuses damaged archives.
+        logger.info("negative-volume scan skipped for %s: %s", Path(source).name, exc)
         negatives = []
     if negatives and not roles["negative_parts"]:
         warnings.append(

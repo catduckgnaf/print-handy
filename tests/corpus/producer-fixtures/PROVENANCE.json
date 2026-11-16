@@ -12,8 +12,8 @@
       "file": "prusa-genuine.3mf",
       "class": "genuine",
       "producer": "PrusaSlicer-2.8.1+linux-x64-GTK3-202409181416 based on Slic3r (with GUI support)",
-      "basis": "/home/hatch/workspace/projects/print-handy-1525/fixtures-tools/prusa-extract/squashfs-root/usr/bin/prusa-slicer --export-3mf --output prusa-genuine.3mf cube.stl",
-      "sha256": "9b9827cc9ace11171f29d936fbae897636e8f71ca3ab889be7291c4d70c6360f"
+      "basis": "prusa-slicer --export-3mf --output prusa-genuine.3mf cube.stl (a closed 20 mm cube)",
+      "sha256": "d61bb9d56ec9e29c6fea418c4f2a57c47851adba98a68f90ef1b4fc99674cee8"
     }
   ]
 }
