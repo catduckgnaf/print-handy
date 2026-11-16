@@ -1,0 +1,27 @@
+# Repositories whose issue trackers are checked weekly. Terms match issue
+# titles and bodies as whole words or phrases, case-insensitive. Keep them
+# specific: a broad word such as "filament" or "slicer" matches most
+# printer issues and turns the watch into noise. "feather" is left out on
+# purpose: the Forge-X issue form puts "I use Feather screen" in every issue.
+[[repositories]]
+name = "Forge-X"
+repo = "DrA1ex/ff5m"
+
+[[repositories]]
+name = "OpenCreator"
+repo = "FlashForge-C5-Modding-Group/OpenCreator"
+
+[keywords]
+terms = [
+  "spoolman",
+  "moonraker",
+  "print handy",
+  "print-handy",
+  "start_print",
+  "mod_params",
+  "update_manager",
+  "orca",
+  "orcaslicer",
+  "api",
+  "spool",
+]

@@ -1,0 +1,40 @@
+name: Upstream issue watch
+
+# Weekly, notify-only scan of Forge-X and OpenCreator issues relevant to Print Handy.
+on:
+  schedule:
+    # Wednesdays 14:17 UTC; separate from the firmware and upstream release watches.
+    - cron: "17 14 * * 3"
+  workflow_dispatch:
+    inputs:
+      all_open:
+        description: Read every open upstream issue, not only the last week's activity
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-issue-watch
+  cancel-in-progress: false
+
+jobs:
+  check-upstream-issues:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check upstream issue trackers
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALL_OPEN: ${{ inputs.all_open }}
+        run: |
+          if [ "$ALL_OPEN" = "true" ]; then
+            python3 scripts/check_upstream_issues.py --all-open
+          else
+            python3 scripts/check_upstream_issues.py
+          fi

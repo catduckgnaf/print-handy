@@ -85,6 +85,12 @@ with no printer, model, version or account in it.
   code was last checked against. The weekly firmware watch compares
   upstream with it and opens a maintainer issue for each newer release.
 
+The separate weekly upstream issue watch checks Forge-X and OpenCreator
+for recent issues matching the editable keywords in
+`docs/upstream-issue-watch.toml`. It opens one labeled, deduplicated
+Print Handy issue per match, including issues a maintainer previously
+closed. It is notify-only and never writes to the upstream trackers.
+
 The feed shows both side by side. A release newer than the audited
 version is one Print Handy has not been checked with yet, not one it is
 known to fail on. A firmware can be in the feed without an audited
