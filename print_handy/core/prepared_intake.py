@@ -3583,6 +3583,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     menu_options.append({'kind': 'print_anyway',
                                          'label': PRINT_ANYWAY_RISK_LABEL if can_print else SLICE_ANYWAY_RISK_LABEL})
                 menu_options.append({'kind': 'slice_only', 'label': 'Slice and Download'})
+                menu_options.append({'kind': 'export_editable', 'label': 'Export editable 3MF'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
                 first_labels = [opt['label'] for opt in menu_options]
@@ -3591,6 +3592,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 menu_options = [
                     {'kind': 'print', 'label': print_label},
                     {'kind': 'slice_only', 'label': 'Slice and Download'},
+                    {'kind': 'export_editable', 'label': 'Export editable 3MF'},
                     {'kind': 'scale', 'label': SCALE_LABEL},
                     {'kind': 'cancel', 'label': cancel_label},
                 ]
@@ -3833,15 +3835,51 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 elif opt['kind'] == 'slice_only':
                     choice = 1
                     break
+                elif opt['kind'] == 'export_editable':
+                    # Export editable 3MF (#1525): a file delivery, not a
+                    # slice. It starts no print, sends no machine command
+                    # and touches no spool; the menu stays open afterwards.
+                    from . import editable_export as _editable_export
+                    export_target = folder / (path.stem + '-editable.3mf')
+                    try:
+                        report = await _heavy(_editable_export.export_editable,
+                                              path, export_target)
+                        await adapter.send(
+                            chat_id=source.chat_id, metadata=metadata,
+                            content=_editable_export.export_summary(report),
+                            files=[str(export_target)])
+                    except _editable_export.ExportRefused as exc:
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content=str(exc))
+                    continue
                 elif opt['kind'] == 'cancel':
                     choice = 3
                     break
                 elif opt['kind'] == 'scale':
                     pass  # drops through to scaling direction question
             else:
-                picked = picked if can_print else picked + 1
-                if picked != 2:
-                    choice = picked
+                kind = menu_options[picked]['kind']
+                if kind == 'export_editable':
+                    # Export editable 3MF (#1525): file delivery only, as
+                    # in the flagged dispatch above; the menu stays open.
+                    from . import editable_export as _editable_export
+                    export_target = folder / (path.stem + '-editable.3mf')
+                    try:
+                        report = await _heavy(_editable_export.export_editable,
+                                              path, export_target)
+                        await adapter.send(
+                            chat_id=source.chat_id, metadata=metadata,
+                            content=_editable_export.export_summary(report),
+                            files=[str(export_target)])
+                    except _editable_export.ExportRefused as exc:
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content=str(exc))
+                    continue
+                if kind != 'scale':
+                    # The legacy choice numbers the rest of the flow reads:
+                    # 0 print, 1 slice-and-download, 3 cancel. Mapped by
+                    # kind so menu additions cannot re-map them.
+                    choice = {'print': 0, 'slice_only': 1, 'cancel': 3}[kind]
                     break
             direction = await _ask(adapter, source, key,
                                     'Scale the model bigger or smaller?',

@@ -169,6 +169,7 @@ ROUTES = (
     _get("/sliced", SESSION, "_sliced_route"),
     _get("/sliced/*", SESSION, "_sliced_route", decode=False),
     _get("/settings-report/*", SESSION, "_settings_report_route", decode=False),
+    _get("/editable-export/*", SESSION, "_editable_export_route", decode=False),
     # Anything else: the themed 404 for a browser, JSON otherwise, behind
     # the read rule like every page.
     _get("*", SESSION, "_not_found", decode=False),

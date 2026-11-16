@@ -79,6 +79,7 @@ EXPECTED = [
     ("GET", "/sliced", S),
     ("GET", "/sliced/*", S),
     ("GET", "/settings-report/*", S),
+    ("GET", "/editable-export/*", S),
     ("GET", "*", S),
     ("POST", "/u/*", L),
     ("POST", "/login", P),
