@@ -13,6 +13,14 @@
    ]
   },
   {
+   "text": "How much filament do I have?",
+   "intent": "inventory_total",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
    "text": "How much is left of my matte black PLA+?",
    "intent": "inventory_total",
    "slots": {

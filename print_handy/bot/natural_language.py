@@ -107,7 +107,7 @@ CAPABILITIES = (
     Capability("firmware_update_apply", "Apply one firmware update through the existing guarded flow",
                MUTATING, examples=("Update ZMod",), confirmation="existing"),
     Capability("printer_status", "Printer and job state", READ_ONLY,
-               examples=("What is the AD5X doing?", "How long left?", "What layer?"),
+               examples=("What is the AD5X doing?", "How long left?", "What layer is it on?"),
                handler="answer_status"),
     Capability("print_history", "Past prints and their outcomes", READ_ONLY,
                examples=("What was my last print?", "Did the last print fail?"),

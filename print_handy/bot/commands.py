@@ -269,6 +269,8 @@ def help_text(bot_name="Print Handy", supports_live_stream=True):
              "- Post a model link or .3mf/.stl to print it.",
              '- "print it" prints the last link; "print again"/"print 57" reprints.',
              '- "add new filament", "add a new spool" or "swap the filament" starts the guided /spool flow.',
+             '- Ask in plain words: "how much purple PLA do I have?", "what\'s loaded?", '
+             '"are there ZMod updates?" — answered locally, no AI. "What can you do?" lists them all.',
              '- @mention me: "spool list".']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
