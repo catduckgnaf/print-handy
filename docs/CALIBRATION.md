@@ -133,6 +133,39 @@ point) before and after, with the signed range difference.
   `BED_SCREWS_ADJUST` is an interactive `ACCEPT`/`ADJUSTED` dialogue at
   the nozzle.
 
+### OpenCreator (config-sourced, hardware unverified)
+
+OpenCreator is Kalico, but it is not treated as generic Klipper for driven
+calibration. The shipped config names firmware-specific wrappers and
+save/physical-action behavior; no OpenCreator hardware run has validated
+them. Print Handy therefore discovers and names these paths but fails closed
+rather than issuing a guessed command:
+
+- **PID:** `C5_PID_CALIBRATE TOOL=<n> SAVE=0` has tool pickup, purge-bucket,
+docking and accept/save behavior. Use the printer-side calibration controls.
+  An MPC-controlled heater has no PID; OpenCreator documents
+  `C5_MPC_CALIBRATE TOOL=<n>`, also printer-side only until verified.
+- **Input shaper:** `CALIBRATE_INPUT_SHAPER SAVE=0` homes, attaches T0,
+holds fans, runs shaper measurement, docks and releases the fan hold. Use
+OpenCreator's printer-side controls; generic `SHAPER_CALIBRATE` skips those
+firmware-specific steps.
+- **Bed mesh:** the wrapped `BED_MESH_CALIBRATE` docks any attached tool and
+checks tool sensors before probing. Print Handy will not substitute the
+unwrapped generic command, and does not run the wrapper until motion, mesh
+profile and save/revert semantics are hardware verified.
+- **Bed screws:** `C5_SCREWS_TILT` homes if needed and calls
+`SCREWS_TILT_CALCULATE`; guidance names the macro, but Print Handy does not
+start it until its motion/access sequence is hardware verified.
+- **Offsets and dock position:** `C5_CALIBRATE_OFFSETS` requires removing
+the build plate for its explicit calibration path, and
+`C5_CALIBRATE_TOOL_POSITION` is a hands-on carriage operation. These remain
+guides, never chat-driven.
+
+These are source-backed macro names/semantics from the OpenCreator config
+and docs, not evidence of safe operation on a physical printer. Nothing is
+sent by these guides/refusals. Hardware verification is still required
+before any driven flow is enabled.
+
 ### Z offset, report + guide in every mode
 
 This is the Stage 0 verdict, and it is deliberate. On ZMod, the native

@@ -377,15 +377,25 @@ def _load_firmware_entries(root, problems):
     if not commands_dir.is_dir():
         raise RegistryError(f"registry file missing: {commands_dir}")
     by_name = {path.stem: path for path in commands_dir.glob("*.toml")}
+    # OpenCreator is a separately maintained Klipper-derived firmware
+    # registry, but its entries remain in the shared `klipper` namespace.
+    # Load it adjacent to Klipper while validating its entries as Klipper.
     paths = [by_name.pop(family) for family in FIRMWARES if family in by_name]
+    opencreator = by_name.pop("opencreator", None)
+    if opencreator is not None:
+        klipper_index = next((i for i, path in enumerate(paths) if path.stem == "klipper"), len(paths))
+        paths.insert(klipper_index + (klipper_index < len(paths)), opencreator)
     paths += [by_name[name] for name in sorted(by_name)]
     if not paths:
         raise RegistryError(f"registry file missing: no *.toml files in {commands_dir}")
     entries: list[FirmwareEntry] = []
     for path in paths:
         doc = _load(path)
+        # OpenCreator uses the shared Klipper schema/family while retaining
+        # its own source file for provenance and maintenance.
+        file_firmware = "klipper" if path.stem == "opencreator" else path.stem
         for raw in doc.get("entry", []):
-            entries.append(_firmware_entry(raw, path.stem, problems))
+            entries.append(_firmware_entry(raw, file_firmware, problems))
     return entries
 
 

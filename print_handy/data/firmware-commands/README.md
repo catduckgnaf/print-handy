@@ -9,7 +9,10 @@ guarded print-control flows and their confirmation buttons.
 ## Files
 
 One file per firmware family in this directory (issue #644): `zmod.toml`,
-`klipper.toml`, `marlin.toml` and `prusa.toml`. An entry lives in the file
+`klipper.toml`, `opencreator.toml`, `marlin.toml` and `prusa.toml`. The OpenCreator
+file is a source/provenance partition within Klipper, not a distinct firmware
+family: its entries carry `firmware = "klipper"` and `klipper.` IDs, and the
+loader validates it in the Klipper family. An entry lives in the file
 named for its `firmware` value — the loader loads every `*.toml` in
 this directory in firmware-family order (the sequence the single file used,
 so name resolution behaves exactly as it did before the split), merges
@@ -19,7 +22,10 @@ an entry applies along its firmware, not its brand (the AD5X entries are
 ZMod macros, shared Klipper entries span brands, and single brands span
 firmwares).
 
-Each file holds one `[[entry]]` per command, macro or error:
+OpenCreator's separately sourced entries are stored in `opencreator.toml`
+but validated and exposed in the shared `klipper` firmware family. They
+are loaded immediately after `klipper.toml`; `firmware` and `id` therefore
+remain `klipper`-prefixed. OpenCreator is not a new printer firmware family.
 
 | Field | Meaning |
 | --- | --- |

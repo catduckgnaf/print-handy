@@ -136,6 +136,7 @@ ELIGIBLE_FAMILIES = frozenset({"zmod", "klipper"})
 # BED_MESH_CALIBRATE (it skips the nozzle cleaning and load-cell tare),
 # raw PID_CALIBRATE, and FORGE_SHAPER_CALIBRATE for the input shaper.
 FORGEX_VENDOR = "flashforge_forgex"
+OPENCREATOR_VENDOR = "flashforge_opencreator"
 FORK_VENDORS = frozenset({"elegoo", "creality", "qidi", "anycubic", "snapmaker"})
 
 # Macros the PID flows must never send: both auto-SAVE_CONFIG, which
@@ -162,6 +163,19 @@ def printer_entry(model_key, registry=None):
 def is_forgex(entry) -> bool:
     """True for a Forge-X printer (registry vendor flashforge_forgex)."""
     return entry is not None and getattr(entry, "vendor", None) == FORGEX_VENDOR
+
+
+def is_opencreator(entry) -> bool:
+    """True for a Creator 5 running the separate OpenCreator firmware."""
+    return entry is not None and getattr(entry, "vendor", None) == OPENCREATOR_VENDOR
+
+
+def _opencreator_guide_refusal(primitive):
+    raise CalibrationRefusal(
+        f"OpenCreator defines {primitive}, but its calibration behavior has not been "
+        "hardware verified. Print Handy will not run it or substitute a generic Klipper "
+        "command. Follow the printer's OpenCreator calibration controls at the printer. "
+        "Nothing was sent.")
 
 
 def forgex_screen(facts) -> str:
@@ -442,6 +456,37 @@ def available_options(entry, facts) -> tuple:
     """
     if is_forgex(entry):
         return _forgex_options(facts)
+    if is_opencreator(entry):
+        options = []
+        if facts.has_macro("BED_MESH_CALIBRATE") or facts.section("bed_mesh"):
+            options.append(CalOption("mesh", "Full bed mesh", "guide",
+                                     "OpenCreator wraps BED_MESH_CALIBRATE to dock any attached tool; "
+                                     "guided at the printer until hardware behavior is verified"))
+        if facts.has_macro("C5_SCREWS_TILT"):
+            options.append(CalOption("screws", "Bed screws", "guide",
+                                     "OpenCreator's C5_SCREWS_TILT is a printer-side guided measurement; "
+                                     "Print Handy does not drive it before hardware verification"))
+        for heater, key, label in (("extruder", "pid_extruder", "Extruder PID"),
+                                   ("heater_bed", "pid_bed", "Bed PID")):
+            section = facts.section(heater)
+            if not section:
+                continue
+            if str(section.get("control") or "").strip().lower() == "mpc":
+                if heater == "extruder":
+                    options.append(CalOption("mpc_extruder", "Extruder MPC", "guide",
+                                             "OpenCreator's C5_MPC_CALIBRATE is firmware-specific and "
+                                             "not hardware verified; use it at the printer"))
+                continue
+            options.append(CalOption(key, label, "guide",
+                                     "OpenCreator's C5_PID_CALIBRATE has firmware-specific tool "
+                                     "selection and save behavior not hardware verified"))
+        if facts.has_macro("CALIBRATE_INPUT_SHAPER"):
+            options.append(CalOption("shaper", "Input shaper", "guide",
+                                     "OpenCreator's CALIBRATE_INPUT_SHAPER controls attached tools, "
+                                     "fans and save behavior; use at the printer until verified"))
+        options.append(CalOption("zoffset", "Z offset", "guide",
+                                 "OpenCreator offset calibration requires hands-on tool/build-plate work"))
+        return tuple(options)
     mode = install_mode(entry, facts)
     options = []
     if mode == "native":
@@ -963,6 +1008,14 @@ def prepare_pid(transport, entry, heater, target) -> PreparedPid:
         raise CalibrationRefusal(f"{heater!r} is not a heater Print Handy calibrates. Use "
                                  "`/print-calibration pid extruder` or "
                                  "`/print-calibration pid bed`. Nothing was sent.")
+    if is_opencreator(entry):
+        facts = fetch_facts(transport)
+        section = facts.section(heater)
+        if str(section.get("control") or "").strip().lower() == "mpc":
+            raise CalibrationRefusal(f"The {HEATER_LABELS[heater].lower()} runs MPC, not PID. "
+                                     "OpenCreator's C5_MPC_CALIBRATE is firmware-specific and "
+                                     "not hardware verified; use it at the printer. Nothing was sent.")
+        _opencreator_guide_refusal("C5_PID_CALIBRATE")
     try:
         target = int(target)
     except (TypeError, ValueError):
@@ -1133,6 +1186,11 @@ def prepare_mesh(transport, entry, facts=None) -> PreparedMesh:
         raise CalibrationRefusal(reason + " Nothing was sent.")
     if facts is None:
         facts = fetch_facts(transport)
+    if is_opencreator(entry):
+        if not (facts.has_macro("BED_MESH_CALIBRATE") or facts.section("bed_mesh")):
+            raise CalibrationRefusal("OpenCreator has no discovered BED_MESH_CALIBRATE/[bed_mesh] "
+                                     "primitive. Nothing was sent.")
+        _opencreator_guide_refusal("the wrapped BED_MESH_CALIBRATE")
     mode = install_mode(entry, facts)
     if is_forgex(entry):
         screen = forgex_screen(facts)
@@ -1441,6 +1499,13 @@ def prepare_shaper(transport, entry, facts=None) -> PreparedShaper:
     reason = block_reason(entry)
     if reason is not None:
         raise CalibrationRefusal(reason + " Nothing was sent.")
+    if is_opencreator(entry):
+        if facts is None:
+            facts = fetch_facts(transport)
+        if not facts.has_macro("CALIBRATE_INPUT_SHAPER"):
+            raise CalibrationRefusal("OpenCreator does not define CALIBRATE_INPUT_SHAPER. "
+                                     "Nothing was sent.")
+        _opencreator_guide_refusal("CALIBRATE_INPUT_SHAPER")
     if facts is None:
         facts = fetch_facts(transport)
     if is_forgex(entry):
@@ -1637,6 +1702,12 @@ def prepare_screws(transport, entry, facts=None) -> PreparedScrews:
     reason = block_reason(entry)
     if reason is not None:
         raise CalibrationRefusal(reason + " Nothing was sent.")
+    if is_opencreator(entry):
+        if facts is None:
+            facts = fetch_facts(transport)
+        if not facts.has_macro("C5_SCREWS_TILT"):
+            raise CalibrationRefusal("OpenCreator does not define C5_SCREWS_TILT. Nothing was sent.")
+        _opencreator_guide_refusal("C5_SCREWS_TILT")
     if is_forgex(entry):
         raise CalibrationRefusal(
             "On Forge-X the bed-screw tune is BED_LEVEL_SCREWS_TUNE, turned by hand at the "
@@ -1754,6 +1825,16 @@ Print Handy cannot answer that prompt from chat, so this one is a guide.
 
 Print Handy sent nothing to the printer."""
 
+OPENCREATOR_SCREWS_GUIDE = """**Bed screws on OpenCreator (guided — hardware not verified)**
+
+OpenCreator defines `C5_SCREWS_TILT`, a wrapper around
+`SCREWS_TILT_CALCULATE` that homes if needed. Use the printer's own controls
+for this measurement; Print Handy will not invoke it until the motion and
+screw-access sequence has been verified on hardware.
+
+Print Handy sent nothing to the printer."""
+
+
 SCREWS_FORGEX_GUIDE = """**Bed screws on Forge-X (guided — you run this one at the printer)**
 
 1. Clean the nozzle first: plastic on the tip makes the measurement wrong.
@@ -1786,6 +1867,8 @@ cancel the print on Forge-X. Nothing was sent to the printer."""
 
 def screws_guide(entry) -> str:
     """The bed-screw guide for this printer's firmware."""
+    if is_opencreator(entry):
+        return OPENCREATOR_SCREWS_GUIDE
     if is_forgex(entry):
         return SCREWS_FORGEX_GUIDE
     if entry is not None and entry.firmware_family == "zmod":
@@ -2035,6 +2118,13 @@ def zoffset_report(transport, entry, facts=None) -> str:
     if facts is None:
         facts = fetch_facts(transport)
     label = entry.label if entry is not None else "your printer"
+    if is_opencreator(entry):
+        return (f"**Z offset — {label}** (read live; nothing was sent):\n\n"
+                "OpenCreator offset calibration is a hands-on tool/build-plate procedure. "
+                "Use its printer-side `C5_CALIBRATE_OFFSETS` wizard only with the build "
+                "plate removed as its prompt requires; dock position uses "
+                "`C5_CALIBRATE_TOOL_POSITION` and needs manual work on the carriage. "
+                "Neither flow is hardware verified, so Print Handy gives guidance only.")
     if is_forgex(entry):
         variables = facts.mod_params.get("variables") if isinstance(facts.mod_params, dict) else None
         armed = isinstance(variables, dict) and variables.get("load_zoffset") in (1, True, "1")

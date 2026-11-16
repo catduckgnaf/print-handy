@@ -415,6 +415,23 @@ def _ask_printer(w, prefix="", roster=False):
     if connection == "moonraker":
         has_software = w.confirm(prefix + "has_printer_software", "Is Klipper with Moonraker already running on the printer?")
         services["moonraker_url"] = w.ask(prefix + "moonraker_url", "Moonraker URL", "http://printer.local:7125", _url)
+        if has_software:
+            from .setup_probe import CREATOR_KEYS, matching_creator, read_result
+            if key in CREATOR_KEYS:
+                result = read_result(services["moonraker_url"], "/printer/objects/list")
+                matching = matching_creator(key, result.get("objects"))
+                if matching:
+                    w.say(f"Firmware mismatch: {key} does not match the printer's objects. "
+                          f"Matching model: {matching}.")
+                    if w.confirm(prefix + "use_detected_firmware", "Use the matching firmware model?", default=False):
+                        key = matching
+                        model = models[key]
+                        vendor = model.vendor
+                        display = model.label
+                        printer["model"] = key
+                elif not result:
+                    notes.append("Creator firmware discovery unavailable; profile identity is unverified. "
+                                 "Readiness will still refuse a firmware mismatch.")
         if not has_software:
             actions.append(("Install Klipper, Moonraker and Mainsail with KIAUH (official, menu-driven)", KIAUH))
     elif connection == "octoprint":
@@ -464,8 +481,13 @@ def _ask_camera(w, rec, prefix=""):
     if w.confirm(prefix + "camera", "Do you have a printer camera?", default=False):
         default_cam = ""
         if services.get("moonraker_url"):
-            host = services["moonraker_url"].split("://", 1)[1].split("/", 1)[0].rsplit(":", 1)[0]
-            default_cam = f"http://{host}/webcam/?action=snapshot"
+            from .setup_probe import read_result, webcam_snapshot
+            base = services["moonraker_url"]
+            result = read_result(base, "/server/webcams/list")
+            default_cam = webcam_snapshot(base, result.get("webcams"))
+            if not default_cam:
+                notes.append("No enabled Moonraker snapshot camera was discovered. "
+                             "Enter the camera's snapshot URL; no stream URL is guessed.")
         cam = w.ask(prefix + "camera_snapshot_url", "Camera snapshot URL", default_cam, _url)
         if cam:
             services["camera_snapshot_url"] = cam
