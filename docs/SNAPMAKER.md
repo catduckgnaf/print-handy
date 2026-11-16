@@ -30,8 +30,9 @@ The adapter has an unwired helper (`spool_remain_g`) that reads `filament_remain
 ## Multicolor feasibility report
 
 For a project that uses more logical filaments than the U1's four
-toolheads, Print Handy can produce a read-only feasibility report
-(`print_handy/core/u1_feasibility.py`): per plate it lists the logical
+toolheads, Print Handy has a read-only feasibility report builder
+(`print_handy/core/u1_feasibility.py`). It is library code only: no chat
+command or Web UI page shows it yet. Per plate it lists the logical
 filaments, any support-only filaments, and whether painting or height
 changes interleave several filaments within a plate's layers. The
 report collapses no colors and plans no swaps, and it changes nothing
