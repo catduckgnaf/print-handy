@@ -71,6 +71,7 @@ BLOCK_INVALID = "invalid"
 BLOCK_UNREPORTED = "unreported"
 BLOCK_USB = "usb"
 BLOCK_PAIRING = "pairing"
+BLOCK_HELIXSCREEN_INVALID = "helixscreen_invalid"
 
 _BLOCK_TEXT = {
     BLOCK_INVALID: ("Moonraker marks this Z-Mod install as not valid (usually files "
@@ -83,6 +84,9 @@ _BLOCK_TEXT = {
     BLOCK_USB: f"this release changes the ZMod base, so it installs from USB: {USB_HOW}.",
     BLOCK_PAIRING: ("the printer's ZMod base and component versions do not pair, so "
                     f"the base updates from USB first: {USB_HOW}."),
+    BLOCK_HELIXSCREEN_INVALID: ("Moonraker marks this HelixScreen component as not valid "
+                               "and refuses to update it. Fix it, then update from "
+                               "Fluidd or Mainsail: Settings, Software Update."),
 }
 
 
@@ -144,6 +148,9 @@ class Observation:
     valid: bool = True                 # Moonraker's is_valid (and not corrupt)
     base: str | None = None            # the USB-installed ZMod base
     latest_release: str | None = None  # newest final GitHub release, None if unread
+    helixscreen_current: str | None = None
+    helixscreen_remote: str | None = None
+    helixscreen_valid: bool = True
 
 
 def zmod_base_from_system_info(payload):
@@ -176,6 +183,10 @@ def observe(transport, latest_release=None) -> Observation:
         raise fw.FirmwareError(f"the update-status request failed: {exc}") from exc
     component = fw.parse_update_status(payload).component(COMPONENT)
     raw = _raw_component(payload, COMPONENT)
+    helixscreen_component = fw.parse_update_status(payload).component("helixscreen")
+    helixscreen_raw = _raw_component(payload, "helixscreen")
+    helixscreen_valid = (helixscreen_raw.get("is_valid", True) is not False
+                         and not helixscreen_raw.get("corrupt"))
     try:
         system_info = transport("GET", fw.SYSTEM_INFO_PATH)
     except Exception:
@@ -188,7 +199,12 @@ def observe(transport, latest_release=None) -> Observation:
                        remote=component.remote if component is not None else None,
                        valid=valid,
                        base=zmod_base_from_system_info(system_info) if system_info else None,
-                       latest_release=latest_release)
+                       latest_release=latest_release,
+                       helixscreen_current=(helixscreen_component.current
+                                            if helixscreen_component is not None else None),
+                       helixscreen_remote=(helixscreen_component.remote
+                                           if helixscreen_component is not None else None),
+                       helixscreen_valid=helixscreen_valid)
 
 
 def latest_release(opener=None, timeout=GITHUB_TIMEOUT_S):
@@ -256,13 +272,14 @@ class Offer:
     available: str
     key: str                 # one alert per key: "zmod:<release>"
     block: str | None = None  # None: the Update button applies it from chat
+    display_name: str = "ZMod"
 
     @property
     def applicable(self):
         return self.block is None
 
     def text(self, label, *, buttons=True):
-        head = f"**ZMod update available for {label}:** {self.current} -> {self.available}."
+        head = f"**{self.display_name} update available for {label}:** {self.current} -> {self.available}."
         if self.block is not None:
             return f"{head}\nNot from chat: {_BLOCK_TEXT[self.block]}"
         if buttons:
@@ -304,9 +321,22 @@ def zmod_offers(obs: Observation) -> list:
     return out
 
 
+def helixscreen_offers(obs: Observation) -> list:
+    """HelixScreen offers reported by the same Moonraker status read."""
+    current, remote = obs.helixscreen_current, obs.helixscreen_remote
+    if not current or not remote:
+        return []
+    if version_key(remote) <= version_key(current):
+        return []
+    block = None if obs.helixscreen_valid else BLOCK_HELIXSCREEN_INVALID
+    available = remote.lstrip("v")
+    return [Offer("helixscreen", current, remote,
+                  f"helixscreen:{available}", block, "HelixScreen")]
+
+
 # Sources: each turns an observation into offers. #1294 adds the others
 # (klipper, moonraker, web clients, plugins, other families) here.
-SOURCES = (zmod_offers,)
+SOURCES = (zmod_offers, helixscreen_offers)
 
 
 def offers(obs: Observation) -> list:

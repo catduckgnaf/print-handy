@@ -422,7 +422,7 @@ class FirmwareAlerter:
             fa.save(state_dir, fa.record_skipped(fa.load(state_dir, self.surface), offer.key,
                                                  self.clock()), self.surface)
             await adapter.close_prompt(clarify_id, "Skipped. Print Handy will tell you about "
-                                                   "the next ZMod release.")
+                                                   f"the next {offer.display_name} release.")
             return "skipped"
         if answer != UPDATE_LABEL:
             await adapter.close_prompt(clarify_id, "This alert expired. "

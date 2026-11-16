@@ -114,7 +114,9 @@ On by default (`[firmware] update_alerts`, see [Settings](SETTINGS.md)).
 For each ZMod printer, Print Handy checks once a day
 (`[firmware] update_check_hours`) and posts one alert in the printer's chat
 when a new ZMod release is available, on whichever platform the bot runs
-(Discord, Telegram or Matrix):
+(Discord, Telegram or Matrix). It also alerts when Moonraker lists a newer
+HelixScreen component version, with the same Update button and confirmed
+apply path:
 
 > **ZMod update available for Garage AD5X:** 1.7.5-2 -> 1.7.6-17.
 > Press **Update** to install it. Print Handy asks once more, checks the
@@ -181,9 +183,11 @@ OS name as `zmod <USB version> -> <current version>`, which
 `/machine/system_info` reports, and the release names the target.
 
 Only ZMod printers get this alert, with its Update button: the AD5X, AD5M,
-AD5M Pro, Creator 5 and Creator 5 Pro under ZMod (`flashforge.*`), and only
-for the ZMod component. Every other firmware Print Handy follows gets a
-plain release notice instead (next section). Generic Klipper printers, other Moonraker components
+AD5M Pro, Creator 5 and Creator 5 Pro under ZMod (`flashforge.*`). The alert
+covers the ZMod component and also the HelixScreen component when the
+printer's Moonraker lists it; HelixScreen updates use the same Update button
+and confirmed path. Every other firmware Print Handy follows gets a plain
+release notice instead (next section). Generic Klipper printers, other Moonraker components
 (Klipper, Moonraker, Fluidd/Mainsail, plugins) and every other family are
 #1294: vendor Klipper forks (Elegoo Neptune 4, Creality, QIDI, Anycubic,
 Snapmaker) are never apply-eligible, and Bambu Lab, PrusaLink, OctoPrint,

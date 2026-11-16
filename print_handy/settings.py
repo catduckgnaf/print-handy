@@ -1839,9 +1839,9 @@ FIRMWARE_NOTICE_DEFAULT = ("zmod", "opencreator", "forge-x")
 def _validate_firmware(data):
     """[firmware]: chat alerts when a printer firmware update is available.
 
-    ``update_alerts`` (default true) posts one alert per new ZMod release
-    for each ZMod printer, with an Update button that runs the same
-    confirmed apply as ``/print-firmware update zmod``. Nothing is ever
+    ``update_alerts`` (default true) posts one alert per new ZMod or
+    HelixScreen release for each ZMod printer, with an Update button that
+    runs the same confirmed apply as ``/print-firmware update <component>``. Nothing is ever
     applied without that press and its confirmation. ``update_check_hours``
     is how often each printer is checked (1 to 168 hours, default 24).
     ``notice_firmwares`` lists the firmware feed lines whose new releases
