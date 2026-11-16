@@ -217,9 +217,11 @@ a newer release appears:
   the printer itself reports.
 - **Which firmware.** Forge-X (AD5M, AD5M Pro), OpenCreator (Creator 5,
   Creator 5 Pro), Klipper and Moonraker (generic Klipper, Sovol SV06),
-  OctoPrint and Marlin, Prusa Buddy per printer line, and QIDI per model.
+  OctoPrint and Marlin, Prusa Buddy per printer line, QIDI per model, and
+  stock Flashforge per model (AD5X, AD5M, AD5M Pro, Creator 5 and
+  Creator 5 Pro, read from the files ZMod's author mirrors on GitHub).
   The list is `docs/firmware-feed.toml`. Firmware published only through
-  a vendor's cloud or download page (Bambu Lab, stock Flashforge, Creality
+  a vendor's cloud or download page (Bambu Lab, Creality
   and Anycubic stock firmware, Elegoo) has no release feed to follow and
   gets no notice.
 - **One notice per release**, remembered in the printer's state folder so a

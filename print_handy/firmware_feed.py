@@ -72,6 +72,11 @@ class Firmware:
     kind: str = "firmware"
     channel: str = "stable"
     models: tuple = ()
+    # Models on which this firmware is the maker's own stock firmware
+    # (Marlin as Sovol ships it): shown under Stock firmware for those
+    # printers, under its kind everywhere else. catduck (2026-11-16):
+    # Klipper and Marlin can be stock or modified.
+    stock_models: tuple = ()
     update: str = ""
     latest: Release | None = None
     latest_stable: Release | None = None
@@ -81,6 +86,13 @@ class Firmware:
     def covers(self, model_key) -> bool:
         key = str(model_key or "")
         return bool(key) and any(fnmatch.fnmatchcase(key, pattern) for pattern in self.models)
+
+    def kind_for(self, model_key) -> str:
+        """This line's Web UI group on one printer model."""
+        key = str(model_key or "")
+        if key and any(fnmatch.fnmatchcase(key, p) for p in self.stock_models):
+            return "stock"
+        return self.kind
 
 
 @dataclass(frozen=True)
@@ -95,6 +107,10 @@ class Feed:
     def for_model(self, model_key) -> list:
         """Every firmware line that runs on one printer model, in feed order."""
         return [row for row in self.firmware if row.covers(model_key)]
+
+
+def _strings(value) -> tuple:
+    return tuple(v for v in value if isinstance(v, str)) if isinstance(value, list) else ()
 
 
 def _text(value) -> str:
@@ -137,6 +153,7 @@ def parse(payload) -> Feed | None:
             kind=_text(raw.get("kind")) if _text(raw.get("kind")) in KINDS else "firmware",
             channel=_text(raw.get("channel")) or "stable",
             models=tuple(m for m in models if isinstance(m, str)) if isinstance(models, list) else (),
+            stock_models=_strings(raw.get("stock_models")),
             update=_text(raw.get("update")),
             latest=_release(raw.get("latest")),
             latest_stable=_release(raw.get("latest_stable")),

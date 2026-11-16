@@ -56,7 +56,8 @@ class FakeGitHub:
 
 def _source(**over):
     base = {"id": "fw", "kind": "firmware", "name": "FW", "repo": "o/r", "feed": "releases",
-            "channel": "stable", "models": ["v.*"], "line": [], "update": "How."}
+            "channel": "stable", "models": ["v.*"], "stock_models": [], "line": [],
+            "release": None, "asset": None, "update": "How."}
     return {**base, **over}
 
 
@@ -208,7 +209,7 @@ def test_the_feed_carries_nothing_but_public_release_facts():
     assert set(feed) == {"schema", "generated_at", "source", "firmware"}
     assert set(feed["firmware"][0]) == {
         "id", "name", "repo", "feed", "channel", "models", "update",
-        "latest", "latest_stable", "audited", "stale", "kind"}
+        "latest", "latest_stable", "audited", "stale", "kind", "stock_models"}
     assert all(method == "GET" for method, _ in github.calls)
 
 
@@ -611,3 +612,100 @@ def test_page_shows_firmware_stock_and_plugins_as_separate_tables(monkeypatch):
     assert ad5x.index("<h3>Firmware</h3>") < ad5x.index("<td>ZMod</td>") < ad5x.index("<h3>Plugins</h3>")
     assert ad5x.index("<h3>Plugins</h3>") < ad5x.index("<td>HelixScreen</td>")
     assert "<h3>Stock firmware</h3>" not in ad5x
+
+
+# ------------------------------------------- stock Flashforge, stock or modified
+# catduck (2026-11-16): add stock Flashforge firmware, and Marlin and Klipper
+# can be stock or modified.
+
+def _asset(name, when="2026-06-03T00:00:00Z"):
+    return {"name": name, "updated_at": when}
+
+
+class AssetGitHub(FakeGitHub):
+    def __init__(self, release):
+        super().__init__()
+        self.release = release
+
+    def request(self, method, path, payload=None):
+        self.calls.append((method, path))
+        assert method == "GET" and path == "/repos/ghzserg/FF/releases/tags/R"
+        return self.release
+
+
+FF_RELEASE = {"html_url": "https://github.com/ghzserg/FF/releases/tag/R", "assets": [
+    _asset("AD5X-1.2.3-1.1.1-3.0.7-20260205-Factory.tgz", "2026-02-13T00:00:00Z"),
+    _asset("AD5X-3.1.0-1.1.1-3.0.7-20260515.tgz", "2026-06-03T00:00:00Z"),
+    _asset("AD5X-3.0.9-1.1.1-3.0.7-20260417.tgz", "2026-05-05T00:00:00Z"),
+    _asset("AD5X-factory-1.0.9.tgz", "2026-06-10T00:00:00Z"),      # recovery image
+    _asset("AD5X-fix_klipper.tgz"), _asset("AD5X-enable-zmod.tgz"),
+    _asset("Adventurer5MPro-5.1.2-2.2.3-20260418.tgz"),
+    _asset("Adventurer5M-5.1.1-2.2.3-20260417.tgz"),
+]}
+
+
+def test_stock_flashforge_reads_the_newest_versioned_file_for_its_model():
+    sources = {s["id"]: s for s in build.parse_sources(
+        (ROOT / build.SOURCES_FILE).read_text(encoding="utf-8"))}
+    ad5x, ad5m = sources["flashforge-stock-ad5x"], sources["flashforge-stock-ad5m"]
+    feed = build.build_feed([ad5x, ad5m], {}, AssetGitHub(FF_RELEASE), now=NOW,
+                            log=lambda _m: None)
+    by_id = {row["id"]: row for row in feed["firmware"]}
+    assert by_id["flashforge-stock-ad5x"]["latest"]["version"] == "3.1.0"
+    assert by_id["flashforge-stock-ad5x"]["latest"]["url"] == "https://github.com/ghzserg/FF/releases/tag/R"
+    # "Adventurer5M-" never picks up an Adventurer5MPro file.
+    assert by_id["flashforge-stock-ad5m"]["latest"]["version"] == "5.1.1"
+    assert all(row["kind"] == "stock" for row in feed["firmware"])
+
+
+def test_shipped_stock_flashforge_covers_every_flashforge_model():
+    sources = build.parse_sources((ROOT / build.SOURCES_FILE).read_text(encoding="utf-8"))
+    stock = [s for s in sources if s["id"].startswith("flashforge-stock-")]
+    assert {s["kind"] for s in stock} == {"stock"} and {s["repo"] for s in stock} == {"ghzserg/FF"}
+    covered = {m for s in stock for m in s["models"]}
+    flashforge = {key for key in printers.MODELS
+                  if key.split(".")[0].startswith("flashforge")}
+    assert flashforge - covered <= {"flashforge_opencreator.creator5",
+                                    "flashforge_opencreator.creator5_pro"}
+    assert covered <= set(printers.MODELS)
+    # The update line never claims Print Handy installs it.
+    assert all("never installs" in s["update"] for s in stock)
+
+
+@pytest.mark.parametrize("extra, problem", [
+    ("feed='assets'\nrelease='R'\n", "'asset' goes with feed"),
+    ("feed='releases'\nrelease='R'\n", "'release' goes with feed"),
+    ("feed='assets'\nrelease='R'\nasset='A B'\n", "plain tag or file-name prefix"),
+])
+def test_asset_sources_fail_closed(extra, problem):
+    text = ("[[firmware]]\nid='a'\nkind='stock'\nname='n'\nrepo='o/r'\nchannel='stable'\n"
+            "update='u'\n" + extra)
+    with pytest.raises(build.FeedError, match=re.escape(problem)):
+        build.parse_sources(text)
+
+
+def test_marlin_is_stock_on_a_sovol_and_firmware_elsewhere(monkeypatch):
+    sources = {s["id"]: s for s in build.parse_sources(
+        (ROOT / build.SOURCES_FILE).read_text(encoding="utf-8"))}
+    assert sources["marlin"]["kind"] == "firmware"
+    assert sources["marlin"]["stock_models"] == ["sovol_marlin.*"]
+    with pytest.raises(build.FeedError, match="stock_models"):
+        build.parse_sources("[[firmware]]\nid='a'\nkind='plugin'\nname='n'\nrepo='o/r'\n"
+                            "feed='releases'\nchannel='stable'\nupdate='u'\n"
+                            "stock_models=['sovol_marlin.*']\n")
+    marlin = {"id": "marlin", "kind": "firmware", "name": "Marlin",
+              "models": ["octoprint.*", "sovol_marlin.*"], "stock_models": ["sovol_marlin.*"],
+              "update": "Board tooling.", "latest": {"version": "2.1.2.5"}}
+    feed = firmware_feed.parse({**FEED, "firmware": [marlin]})
+    row = feed.firmware[0]
+    assert row.kind_for("sovol_marlin.sv06") == "stock"
+    assert row.kind_for("octoprint.marlin") == "firmware"
+    data = {"printers": [{"id": "sv06", "model": "sovol_marlin.sv06", "name": "Sovol"},
+                         {"id": "op", "model": "octoprint.marlin", "name": "Op"}]}
+    monkeypatch.setattr(firmware_page.settings, "printers", lambda d: d["printers"])
+    page = firmware_page.render_firmware_page(data, feed=feed,
+                                              transport_for=lambda pid: pytest.fail("read"))
+    sovol = page[page.index("<h2>Sovol</h2>"):page.index("<h2>Op</h2>")]
+    other = page[page.index("<h2>Op</h2>"):page.index("Every firmware Print Handy follows")]
+    assert "<h3>Stock firmware</h3>" in sovol and "<h3>Firmware</h3>" not in sovol
+    assert "<h3>Firmware</h3>" in other and "<h3>Stock firmware</h3>" not in other

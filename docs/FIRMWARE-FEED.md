@@ -67,8 +67,11 @@ every install.
   firmware, the newest release, the audited version and how it updates,
   then the whole feed. Both are split into three tables: **Firmware**
   (ZMod, Forge-X, OpenCreator, Klipper, Marlin), **Stock firmware** (the
-  maker's own, such as Prusa Buddy and QIDI) and **Plugins** (HelixScreen,
-  Moonraker, OctoPrint). A Moonraker printer has a "Check
+  maker's own, such as Prusa Buddy, QIDI and stock Flashforge) and
+  **Plugins** (HelixScreen, Moonraker, OctoPrint). Klipper and Marlin can
+  be stock or modified: on a printer whose maker ships one of them as its
+  own firmware (Marlin on a Sovol), that printer's section lists it under
+  Stock firmware. A Moonraker printer has a "Check
   installed versions" link that reads that one printer's update state
   and shows the `/print-firmware` report. The page is read-only.
 
@@ -101,11 +104,14 @@ version (Forge-X, OpenCreator and HelixScreen are today).
 
 ## Adding a firmware
 
-You need a firmware whose releases are on GitHub, as GitHub Releases or
-as version tags. A firmware published only on a vendor's download page
-or through a cloud service cannot be followed this way (Bambu Lab, stock
-Flashforge, Creality's stock firmware and Anycubic's are in that group);
-do not add a scraper.
+You need a firmware whose releases are on GitHub: as GitHub Releases, as
+version tags, or as versioned files attached to one release. A firmware
+published only on a vendor's download page or through a cloud service
+cannot be followed this way (Bambu Lab, Creality's stock firmware and
+Anycubic's are in that group); do not add a scraper. Stock Flashforge
+firmware is the exception that proves the rule: Flashforge publishes it
+on its own pages, but ZMod's author mirrors every version as a file on
+one GitHub release (`ghzserg/FF`, tag `R`), and the feed reads that.
 
 1. **Add one entry to `docs/firmware-feed.toml`.**
 
@@ -127,7 +133,9 @@ do not add a scraper.
    | `kind` | Which group the Web UI Firmware page shows it in: `firmware` for community or open firmware (ZMod, Forge-X, OpenCreator, Klipper, Marlin), `stock` for the printer maker's own firmware (Prusa Buddy, QIDI), or `plugin` for an add-on that runs beside the firmware (HelixScreen, Moonraker, OctoPrint). Required; anything else fails the build. |
    | `name` | The name people use. If the firmware also has an audited baseline, use exactly the same name as in `docs/firmware-baselines.toml` so the audited version is published with it. |
    | `repo` | `owner/name` on GitHub. |
-   | `feed` | `releases`, or `tags` for a repository that publishes no usable releases (Klipper, Moonraker). |
+   | `feed` | `releases`, or `tags` for a repository that publishes no usable releases (Klipper, Moonraker), or `assets` for versioned files attached to one release (stock Flashforge). |
+   | `release`, `asset` | Only with `feed = "assets"`: the release tag whose files are read, and the file-name prefix before the version. `AD5X-3.1.0-1.1.1-3.0.7-20260515.tgz` is asset `AD5X`, version 3.1.0; a file whose version does not follow the prefix directly (a recovery image such as `AD5X-factory-1.0.9.tgz`) is skipped. |
+   | `stock_models` | Optional, `kind = "firmware"` only: the models on which this firmware is the maker's own (Marlin on `sovol_marlin.*`). Those printers list it under Stock firmware. |
    | `channel` | `stable` unless the line Print Handy supports is a prerelease. `prerelease` makes the newest release of any kind the latest. |
    | `models` | The printer model keys this firmware runs on, exactly as in the printer registry, or a whole vendor as `vendor.*`. Leave it empty for a component that is not tied to a model. |
    | `line` | Only for a repository that publishes several printer lines together: the printer names that pick this line's releases out by their title. |
