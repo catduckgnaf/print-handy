@@ -19,6 +19,7 @@ import asyncio
 import contextvars
 import collections
 import contextlib
+import inspect
 import logging
 import os
 import re
@@ -1512,7 +1513,9 @@ class BotCore(_RoutedAdapter):
             # not an answer.
             det = await self._natural_language_answer(event, metadata)
             if det is not None:
-                return det
+                await self.adapter.send(chat_id=source.chat_id, content=det,
+                                        reply_to=event.message_id, metadata=metadata)
+                return {"action": "skip", "reason": "natural language answer"}
         if lane_allowed and agent.configured(self.cfg):
             try:
                 reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
@@ -1609,7 +1612,10 @@ class BotCore(_RoutedAdapter):
         """
         try:
             from . import natural_language
-            return await natural_language.answer(self, event, metadata)
+            result = natural_language.answer(self, event, metadata)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
         except Exception:
             logger.exception("natural-language layer failed; continuing to the fallback")
             return None

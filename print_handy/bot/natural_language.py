@@ -360,6 +360,8 @@ class ParsedIntent:
         return bool(cap and cap.effect == MUTATING and not self.blocked and not self.routed_to)
 
 
+_ACTION_IMPERATIVE = re.compile(r"\b(?:kill|stop|cancel|pause|abort|restart)\s+it\b", re.I)
+
 _COMPONENTS = {"zmod": "ZMod", "klipper": "Klipper", "moonraker": "Moonraker",
                "forge-x": "Forge-X", "ff5m": "Forge-X", "opencreator": "OpenCreator",
                "open creator": "OpenCreator", "helixscreen": "HelixScreen",
@@ -422,6 +424,11 @@ def parse(text, vocabulary=None):
     for template in TEMPLATES:
         match = template.regex.match(stripped)
         if not match:
+            continue
+        if template.intent == "troubleshooting" and _ACTION_IMPERATIVE.search(stripped):
+            # "The print is spaghetti, kill it" is a symptom PLUS an
+            # action request: the action owns the message (the lanes and
+            # their confirmations), not the diagnosis.
             continue
         slots = {k: v for k, v in match.groupdict().items() if v is not None}
         if template.intent == "firmware_update_apply" and "component" in slots:
