@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-16T15:16:00Z",
+ "generated_at": "2026-11-16T15:40:46Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -13,6 +13,7 @@
    "models": [
     "flashforge.*"
    ],
+   "stock_models": [],
    "update": "Run /print-firmware: an update within your ZMod base installs from chat behind a confirmation, and a new base installs from USB with the ZFLASH macro.",
    "latest": {
     "version": "1.7.6",
@@ -39,6 +40,7 @@
    "models": [
     "flashforge_forgex.*"
    ],
+   "stock_models": [],
    "update": "Update from Fluidd or Mainsail (Settings, Software Update) within your Forge-X line; a new line installs from a USB image. Print Handy reports Forge-X updates and does not apply them.",
    "latest": {
     "version": "1.4.2-beta-4",
@@ -65,6 +67,7 @@
    "models": [
     "flashforge_opencreator.*"
    ],
+   "stock_models": [],
    "update": "OpenCreator updates itself from its own updater, or from Fluidd or Mainsail; an update can flash the printer's boards, so never start one during a print. Print Handy reports OpenCreator updates and does not apply them.",
    "latest": {
     "version": "0.0.7.4",
@@ -91,6 +94,7 @@
    "models": [
     "flashforge.*"
    ],
+   "stock_models": [],
    "update": "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer.",
    "latest": {
     "version": "1.0.9",
@@ -118,6 +122,7 @@
     "klipper.generic",
     "sovol.sv06"
    ],
+   "stock_models": [],
    "update": "Run /print-firmware: a Klipper component your Moonraker reports with a real version updates from chat behind a confirmation.",
    "latest": {
     "version": "0.13.0",
@@ -145,6 +150,7 @@
     "klipper.generic",
     "sovol.sv06"
    ],
+   "stock_models": [],
    "update": "Run /print-firmware: a Moonraker component your Moonraker reports with a real version updates from chat behind a confirmation.",
    "latest": {
     "version": "0.11.0",
@@ -171,6 +177,7 @@
    "models": [
     "octoprint.*"
    ],
+   "stock_models": [],
    "update": "Update OctoPrint from its own Software Update page. Print Handy does not update OctoPrint or the printer's board firmware.",
    "latest": {
     "version": "2.0.0",
@@ -196,6 +203,9 @@
    "channel": "stable",
    "models": [
     "octoprint.*",
+    "sovol_marlin.*"
+   ],
+   "stock_models": [
     "sovol_marlin.*"
    ],
    "update": "Board firmware is flashed with board-specific tooling at the printer. Print Handy does not flash boards.",
@@ -224,6 +234,7 @@
    "models": [
     "prusa.mk4s"
    ],
+   "stock_models": [],
    "update": "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot.",
    "latest": {
     "version": "8.0.2",
@@ -250,6 +261,7 @@
    "models": [
     "prusa.coreone"
    ],
+   "stock_models": [],
    "update": "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot.",
    "latest": {
     "version": "8.0.2",
@@ -276,6 +288,7 @@
    "models": [
     "prusa.xl"
    ],
+   "stock_models": [],
    "update": "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot.",
    "latest": {
     "version": "8.0.2",
@@ -302,6 +315,7 @@
    "models": [
     "prusa.miniplus"
    ],
+   "stock_models": [],
    "update": "Copy the .bbf file to a FAT32 USB drive and flash it from the printer's prompt at reboot.",
    "latest": {
     "version": "8.0.2",
@@ -328,6 +342,7 @@
    "models": [
     "qidi.q1pro"
    ],
+   "stock_models": [],
    "update": "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware.",
    "latest": {
     "version": "4.4.24",
@@ -354,6 +369,7 @@
    "models": [
     "qidi.xplus3"
    ],
+   "stock_models": [],
    "update": "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware.",
    "latest": {
     "version": "4.2.15",
@@ -380,6 +396,7 @@
    "models": [
     "qidi.xplus4"
    ],
+   "stock_models": [],
    "update": "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware.",
    "latest": {
     "version": "1.7.1",
@@ -406,6 +423,7 @@
    "models": [
     "qidi.xmax3"
    ],
+   "stock_models": [],
    "update": "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware.",
    "latest": {
     "version": "4.3.15",
@@ -432,6 +450,7 @@
    "models": [
     "qidi.xsmart3"
    ],
+   "stock_models": [],
    "update": "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware.",
    "latest": {
     "version": "4.1.13",
@@ -446,6 +465,144 @@
     "url": "https://github.com/QIDITECH/QIDI_SMART3/releases/tag/Smart_V4.1.13"
    },
    "audited": "4.1.13",
+   "stale": false
+  },
+  {
+   "id": "flashforge-stock-ad5x",
+   "kind": "stock",
+   "name": "Flashforge stock (AD5X)",
+   "repo": "ghzserg/FF",
+   "feed": "assets",
+   "channel": "stable",
+   "models": [
+    "flashforge.ad5x",
+    "flashforge_stock.ad5x"
+   ],
+   "stock_models": [],
+   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "latest": {
+    "version": "3.1.0",
+    "tag": "R",
+    "published_at": "2026-06-03T03:38:48Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "latest_stable": {
+    "version": "3.1.0",
+    "tag": "R",
+    "published_at": "2026-06-03T03:38:48Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "audited": null,
+   "stale": false
+  },
+  {
+   "id": "flashforge-stock-ad5m",
+   "kind": "stock",
+   "name": "Flashforge stock (AD5M)",
+   "repo": "ghzserg/FF",
+   "feed": "assets",
+   "channel": "stable",
+   "models": [
+    "flashforge.ad5m",
+    "flashforge_forgex.ad5m"
+   ],
+   "stock_models": [],
+   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "latest": {
+    "version": "5.1.1",
+    "tag": "R",
+    "published_at": "2026-05-18T13:40:57Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "latest_stable": {
+    "version": "5.1.1",
+    "tag": "R",
+    "published_at": "2026-05-18T13:40:57Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "audited": null,
+   "stale": false
+  },
+  {
+   "id": "flashforge-stock-ad5m-pro",
+   "kind": "stock",
+   "name": "Flashforge stock (AD5M Pro)",
+   "repo": "ghzserg/FF",
+   "feed": "assets",
+   "channel": "stable",
+   "models": [
+    "flashforge.ad5m_pro",
+    "flashforge_forgex.ad5m_pro"
+   ],
+   "stock_models": [],
+   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "latest": {
+    "version": "5.1.2",
+    "tag": "R",
+    "published_at": "2026-05-18T13:41:10Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "latest_stable": {
+    "version": "5.1.2",
+    "tag": "R",
+    "published_at": "2026-05-18T13:41:10Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "audited": null,
+   "stale": false
+  },
+  {
+   "id": "flashforge-stock-creator5",
+   "kind": "stock",
+   "name": "Flashforge stock (Creator 5)",
+   "repo": "ghzserg/FF",
+   "feed": "assets",
+   "channel": "stable",
+   "models": [
+    "flashforge.creator5"
+   ],
+   "stock_models": [],
+   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "latest": {
+    "version": "2.0.0",
+    "tag": "R",
+    "published_at": "2026-10-22T10:31:20Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "latest_stable": {
+    "version": "2.0.0",
+    "tag": "R",
+    "published_at": "2026-10-22T10:31:20Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "audited": null,
+   "stale": false
+  },
+  {
+   "id": "flashforge-stock-creator5-pro",
+   "kind": "stock",
+   "name": "Flashforge stock (Creator 5 Pro)",
+   "repo": "ghzserg/FF",
+   "feed": "assets",
+   "channel": "stable",
+   "models": [
+    "flashforge.creator5_pro"
+   ],
+   "stock_models": [],
+   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "latest": {
+    "version": "2.0.0",
+    "tag": "R",
+    "published_at": "2026-10-22T10:31:32Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "latest_stable": {
+    "version": "2.0.0",
+    "tag": "R",
+    "published_at": "2026-10-22T10:31:32Z",
+    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+   },
+   "audited": null,
    "stale": false
   }
  ]
