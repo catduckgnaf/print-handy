@@ -105,7 +105,6 @@ GROUP_OF = {
     "discord.chat_llm_enabled": "platform",
     "discord.mention_starter": "platform",
     "discord.ask_which_parts": "platform",
-    "discord.job_card_thread": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
     "telegram.approval_user_id": "platform",
@@ -355,13 +354,6 @@ CATALOG = (
            "first, so you can print only some of them. Versions of one part, and a "
            "3MF offered next to its STL files, are always asked. Applies on every "
            "chat platform.",
-           validator="settings discord check"),
-    _field("discord", "job_card_thread", "Job card detail thread", "toggle",
-           "On Discord a print job is one card (an embed) edited in place instead of a "
-           "stream of messages. Off by default: long detail (support analysis, shortage "
-           "details, camera checks) stays on the card. On: the card opens a thread and "
-           "the long detail goes there, so the main channel keeps just the card and "
-           "the completion post.",
            validator="settings discord check"),
     _field("telegram", "chat_id", "Telegram chat", "text",
            "Telegram chat (group) ID; group and channel IDs are negative.",

@@ -228,7 +228,6 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("discord", "approval_all_users"): bool,
                  ("discord", "mention_starter"): bool,
                  ("discord", "ask_which_parts"): bool,
-                 ("discord", "job_card_thread"): bool,
                  ("elegoo_sdcp", "host"): str,
                  ("purge", "flush_multiplier"): float}
 # List settings that may also come from the environment, as a comma- or space-separated value
@@ -2163,14 +2162,6 @@ def _validate_bot(data):
     ask_which_parts = discord.setdefault("ask_which_parts", False)
     if not isinstance(ask_which_parts, bool):
         raise SettingsError(f"[discord] ask_which_parts must be true or false, got {ask_which_parts!r}")
-    # Job card detail thread (#1472): a Discord job is one embed card
-    # edited in place; with this on, the card opens a thread and the long
-    # detail (support analysis, shortage details, camera checks) goes
-    # there, so the main channel keeps just the card and the completion.
-    # Off by default: the detail stays on the card itself.
-    job_card_thread = discord.setdefault("job_card_thread", False)
-    if not isinstance(job_card_thread, bool):
-        raise SettingsError(f"[discord] job_card_thread must be true or false, got {job_card_thread!r}")
     _validate_telegram(data)
     _validate_matrix(data)
     llm = data.setdefault("llm", {})

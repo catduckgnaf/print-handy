@@ -19,6 +19,8 @@ The parsers here are pure; the only network shape is the caller's
 from __future__ import annotations
 
 import logging
+import threading
+import time
 
 from urllib.parse import urlsplit
 
@@ -32,6 +34,41 @@ ACCOUNTING_VALUES = ("", ACCOUNTING_AUTO, ACCOUNTING_PRINT_HANDY, ACCOUNTING_PRI
 
 
 logger = logging.getLogger(__name__)
+_identity_cache = {}
+_identity_cache_lock = threading.Lock()
+_IDENTITY_CACHE_SECONDS = 300
+
+def _spoolman_fingerprint(url, fetch):
+    """Stable instance evidence: API info and the lowest-id spool identity."""
+    info = fetch(url, "/api/v1/info")
+    spools = fetch(url, "/api/v1/spool")
+    if not isinstance(info, dict) or not isinstance(spools, list) or not spools:
+        raise ValueError("incomplete Spoolman identity response")
+    spool = min(spools, key=lambda item: int(item["id"]))
+    registered = spool.get("registered") or spool.get("registered_at")
+    if not registered:
+        raise ValueError("spool registration timestamp missing")
+    return (info, int(spool["id"]), str(registered))
+
+def _same_instance_by_probe(a, b, fetch):
+    key = tuple(sorted((normalize_spoolman_url(a), normalize_spoolman_url(b))))
+    now = time.monotonic()
+    with _identity_cache_lock:
+        cached = _identity_cache.get(key)
+        if cached and now - cached[0] < _IDENTITY_CACHE_SECONDS:
+            return cached[1]
+    try:
+        result = _spoolman_fingerprint(a, fetch) == _spoolman_fingerprint(b, fetch)
+    except Exception as exc:
+        logger.info("could not confirm the two Spoolman URLs are one instance: %s", exc)
+        result = None
+    with _identity_cache_lock:
+        _identity_cache[key] = (now, result)
+    return result
+
+def _production_identity_fetch(url, path):
+    from . import spoolman_client
+    return spoolman_client.request("GET", path, base_url=url, timeout=2)
 
 
 def normalize_spoolman_url(url) -> str:
@@ -143,7 +180,7 @@ def detect_spoolman_link(moonraker_call) -> dict:
 
 
 def resolve_accounting_authority(configured, detection=None, configured_url="", *,
-                                 firmware_assigns_spools=False) -> dict:
+                                 firmware_assigns_spools=False, identity_probe=None) -> dict:
     """Resolve the one accounting authority for a printer.
 
     An explicit configured value ("print_handy" or "printer") wins. "" and
@@ -164,7 +201,18 @@ def resolve_accounting_authority(configured, detection=None, configured_url="", 
     linked = bool(detection.get("linked"))
     moonraker_server = str(detection.get("server_url") or "").strip()
     both_known = bool(moonraker_server) and bool(str(configured_url or "").strip())
-    same_instance = same_spoolman_instance(moonraker_server, configured_url) if both_known else None
+    same_instance = (same_spoolman_instance(moonraker_server, configured_url) if both_known else None)
+    if both_known and same_instance is False and identity_probe is not None:
+        if identity_probe is _production_identity_fetch:
+            same_instance = _same_instance_by_probe(moonraker_server, configured_url, identity_probe)
+        else:
+            try:
+                same_instance = (_spoolman_fingerprint(moonraker_server, identity_probe) ==
+                                 _spoolman_fingerprint(configured_url, identity_probe))
+            except Exception as exc:
+                # Unverified, never assumed: the warning below says so.
+                logger.info("could not confirm the two Spoolman URLs are one instance: %s", exc)
+                same_instance = None
     warnings = []
     if configured_norm == ACCOUNTING_PRINT_HANDY:
         authority, source = ACCOUNTING_PRINT_HANDY, "setting"
@@ -181,20 +229,27 @@ def resolve_accounting_authority(configured, detection=None, configured_url="", 
         authority = (ACCOUNTING_PRINTER if linked and firmware_assigns_spools
                      else ACCOUNTING_PRINT_HANDY)
         source = "auto"
-    if linked and same_instance is False:
+    if linked and both_known and same_instance is not True:
+        unverified = same_instance is None
         if authority == ACCOUNTING_PRINT_HANDY:
             warnings.append(
                 "This printer's Moonraker charges Spoolman at "
                 f"{normalize_spoolman_url(moonraker_server)} while Print Handy charges "
-                f"{normalize_spoolman_url(configured_url)}: the same print can be "
-                "counted twice, once by each side. Point both at one Spoolman instance, or set spool "
-                "accounting to the printer.")
+                f"{normalize_spoolman_url(configured_url)}: " +
+                ("could not confirm they are the same Spoolman, so the print may be counted twice. "
+                 "Point both at one Spoolman instance, or set spool accounting to the printer."
+                 if unverified else
+                 "the same print can be counted twice, once by each side. Point both at one "
+                 "Spoolman instance, or set spool accounting to the printer."))
         else:
             warnings.append(
                 "This printer's Moonraker counts usage in Spoolman at "
                 f"{normalize_spoolman_url(moonraker_server)} while Print Handy reads "
-                f"{normalize_spoolman_url(configured_url)}: two Spoolman instances are "
-                "in play, so loaded spools and remaining weights will not line up.")
+                f"{normalize_spoolman_url(configured_url)}: " +
+                ("could not confirm they are the same Spoolman, so loaded spools and remaining weights "
+                 "may not line up." if unverified else
+                 "two Spoolman instances are in play, so loaded spools and remaining weights "
+                 "will not line up."))
     return {
         "authority": authority,
         "source": source,
@@ -248,4 +303,4 @@ def accounting_authority_for(printer_id=None, *, moonraker_call=None, data=None,
         logger.warning("could not read the printer's spool handling, Print Handy keeps counting: %s", exc)
         assigns = False
     return resolve_accounting_authority(configured, detection, configured_url,
-                                        firmware_assigns_spools=assigns)
+                                        firmware_assigns_spools=assigns, identity_probe=_production_identity_fetch)

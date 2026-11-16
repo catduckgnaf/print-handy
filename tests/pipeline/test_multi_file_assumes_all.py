@@ -41,14 +41,17 @@ def asked(monkeypatch):
 
 def _run(rows, ask_which_parts=None):
     adapter = Adapter()
-    data = settings.current()
+    # Restore the session's own override (tests/conftest.py installs one for
+    # every test); resetting it to None would leak into every later test.
+    saved = _config._override
+    data = _config.cfg()
     if ask_which_parts is not None:
         data = {**data, 'discord': {**(data.get('discord') or {}), 'ask_which_parts': ask_which_parts}}
     _config.set_override(data)
     try:
         result = asyncio.run(_choose_files(adapter, S(chat_id='test', thread_id=None), 'key', rows, 1))
     finally:
-        _config.set_override(None)
+        _config.set_override(saved)
     return adapter, result
 
 

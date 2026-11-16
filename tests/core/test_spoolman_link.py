@@ -170,7 +170,8 @@ def test_same_instance_is_reported_when_both_urls_are_known():
 def test_print_handy_with_a_different_linked_instance_warns_about_double_counting():
     resolved = spoolman_link.resolve_accounting_authority(
         "print_handy", _linked("http://printer-side:7912"),
-        configured_url="http://nas.local:7912")
+        configured_url="http://nas.local:7912",
+        identity_probe=lambda url, path: ({} if path.endswith("info") else [{"id": 1, "registered": "2020-01-01"}] if "nas.local" in url else [{"id": 2, "registered": "2021-01-01"}]))
     assert resolved["same_instance"] is False
     assert any("counted twice" in warning for warning in resolved["warnings"])
 
@@ -184,7 +185,8 @@ def test_printer_authority_without_a_link_warns_and_falls_back_to_print_handy():
 def test_printer_authority_with_a_different_instance_warns_the_weights_diverge():
     resolved = spoolman_link.resolve_accounting_authority(
         "printer", _linked("http://printer-side:7912"),
-        configured_url="http://nas.local:7912")
+        configured_url="http://nas.local:7912",
+        identity_probe=lambda url, path: ({} if path.endswith("info") else [{"id": 1 if "printer-side" in url else 2, "registered": "2024"}]))
     assert any("will not line up" in warning for warning in resolved["warnings"])
 
 
@@ -218,3 +220,50 @@ def test_only_a_real_true_hands_counting_to_the_firmware():
     from print_handy.printers.flashforge_opencreator.adapter import OpenCreatorAdapter
     assert PrinterAdapter.firmware_assigns_spools is False
     assert OpenCreatorAdapter.firmware_assigns_spools is True
+
+
+def test_different_urls_with_matching_spoolman_fingerprint_are_same_instance():
+    def probe(url, path):
+        if path.endswith("info"):
+            return {"version": "1.0"}
+        return [{"id": 12, "registered": "2024-01-02T03:04:05"}]
+    resolved = spoolman_link.resolve_accounting_authority(
+        "print_handy", _linked("http://printer-side:7912"),
+        configured_url="http://container-local:8000", identity_probe=probe)
+    assert resolved["same_instance"] is True
+    assert not any("counted twice" in warning for warning in resolved["warnings"])
+
+def test_different_fingerprints_keep_double_count_warning():
+    def probe(url, path):
+        return {"version": "1.0"} if path.endswith("info") else [
+            {"id": 1 if "printer-side" in url else 2, "registered": "2024-01-02T03:04:05"}]
+    resolved = spoolman_link.resolve_accounting_authority(
+        "print_handy", _linked("http://printer-side:7912"),
+        configured_url="http://container-local:8000", identity_probe=probe)
+    assert resolved["same_instance"] is False
+    assert any("counted twice" in warning for warning in resolved["warnings"])
+
+def test_failed_identity_probe_keeps_unverified_warning():
+    def fail(url, path):
+        raise ConnectionError("offline")
+    resolved = spoolman_link.resolve_accounting_authority(
+        "print_handy", _linked("http://printer-side:7912"),
+        configured_url="http://container-local:8000", identity_probe=fail)
+    assert resolved["same_instance"] is None
+    assert any("could not confirm they are the same Spoolman" in warning
+               and "may be counted twice" in warning for warning in resolved["warnings"])
+    assert all("; " not in warning for warning in resolved["warnings"])
+
+
+def test_warning_text_reads_as_full_sentences():
+    def probe(url, path):
+        return {"version": "1.0"} if path.endswith("info") else [
+            {"id": 1 if "printer-side" in url else 2, "registered": "2024-01-02T03:04:05"}]
+    counted = spoolman_link.resolve_accounting_authority(
+        "print_handy", _linked("http://printer-side:7912"),
+        configured_url="http://container-local:8000", identity_probe=probe)["warnings"]
+    assert any("the same print can be counted twice, once by each side" in w for w in counted)
+    split = spoolman_link.resolve_accounting_authority(
+        "printer", _linked("http://printer-side:7912"),
+        configured_url="http://container-local:8000", identity_probe=probe)["warnings"]
+    assert any("two Spoolman instances are in play" in w for w in split)
