@@ -1555,6 +1555,27 @@ class _Handler(BaseHTTPRequestHandler):
                    headers=[("Content-Disposition", f'attachment; filename="{name}"'),
                             ("Cache-Control", "no-store")])
 
+    def _conversion_report_route(self, rest=""):
+        """The readable conversion report for an archived job (#1525).
+
+        Rendered from the same conversion provenance as the JSON
+        settings report; ?format=text serves the chat form.
+        """
+        segments = [segment for segment in rest.split("/") if segment]
+        archive = data_module.archive_root(self.server.settings_data)
+        rendered = (settings_report_module.conversion_report(archive, segments[0])
+                    if len(segments) == 1 else None)
+        if rendered is None:
+            self._json(404, {"ok": False, "reason": "no recorded conversion provenance for this job"})
+            return
+        html_body, text_body = rendered
+        if "text" in (parse_qs(urlparse(self.path).query).get("format") or []):
+            self._send(200, text_body.encode("utf-8"), "text/plain; charset=utf-8",
+                       headers=[("Cache-Control", "no-store")])
+            return
+        self._send(200, html_body.encode("utf-8"), "text/html; charset=utf-8",
+                   headers=[("Cache-Control", "no-store")])
+
     def _editable_export_route(self, rest=""):
         """Download an editable destination 3MF export for an archived job (#1525).
 
