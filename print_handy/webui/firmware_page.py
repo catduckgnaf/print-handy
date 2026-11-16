@@ -81,7 +81,7 @@ _FIRMWARE_HEAD = ("<table><tr><th>Firmware</th><th>Newest release</th>"
                   "<th>Audited against</th><th>How it updates</th></tr>")
 
 
-def _grouped_tables(rows, heading):
+def _grouped_tables(rows, heading, model_key=None):
     """One table per kind, in KINDS order: Firmware, Stock firmware, Plugins.
 
     catduck (2026-11-16): firmware, the maker's stock firmware and plugins
@@ -90,7 +90,10 @@ def _grouped_tables(rows, heading):
     """
     out = []
     for kind in firmware_feed.KINDS:
-        group = [row for row in rows if row.kind == kind]
+        # On one printer, a firmware that is that maker's own (Marlin on a
+        # Sovol) is stock there; the full list groups each line by its kind.
+        group = [row for row in rows
+                 if (row.kind_for(model_key) if model_key else row.kind) == kind]
         if not group:
             continue
         title = firmware_feed.KIND_TITLES[kind]
@@ -120,7 +123,7 @@ def _printer_section(row, feed, *, checked, transport_for):
              f"<p class=\"muted\">{_esc(_model_label(model_key))}</p>"]
     lines = feed.for_model(model_key) if feed is not None else []
     if lines:
-        parts.append(_grouped_tables(lines, "h3"))
+        parts.append(_grouped_tables(lines, "h3", model_key))
     elif feed is not None:
         parts.append("<p>The firmware feed lists no firmware for this model. "
                      "Either its maker publishes no release feed Print Handy can "

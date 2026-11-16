@@ -24,14 +24,21 @@
 #            docs/firmware-baselines.toml (or "ZMod"), that baseline is
 #            published as the entry's audited version
 #   repo     GitHub owner/repo
-#   feed     "releases" (GitHub Releases) or "tags" (Git tags, for
-#            repositories that publish no usable releases)
+#   feed     "releases" (GitHub Releases), "tags" (Git tags, for
+#            repositories that publish no usable releases) or "assets"
+#            (versioned files attached to one release, see release/asset)
 #   channel  "stable": prereleases are never the latest.
 #            "prerelease": the newest release of any kind is the latest,
 #            for a firmware whose supported line is a prerelease
 #   models   printer model keys this firmware runs on, as registry keys
 #            or globs ("flashforge.*"). Empty for a component that is
 #            not tied to a model
+#   stock_models  optional, kind "firmware" only: models on which this
+#            firmware is the maker's own (Marlin on a Sovol). The Web UI
+#            shows it under Stock firmware for those printers
+#   release, asset  feed "assets" only: the release tag whose attached
+#            files are read, and the file-name prefix before the version
+#            (AD5X-3.1.0-1.1.1-....tgz is asset "AD5X", version 3.1.0)
 #   line     optional, releases only: printer names that select one
 #            printer line's releases from a shared repository, matched
 #            against the release title (Prusa Buddy)
@@ -118,6 +125,8 @@ repo = "MarlinFirmware/Marlin"
 feed = "releases"
 channel = "stable"
 models = ["octoprint.*", "sovol_marlin.*"]
+# Sovol ships Marlin as its own firmware: stock there, built-your-own elsewhere.
+stock_models = ["sovol_marlin.*"]
 update = "Board firmware is flashed with board-specific tooling at the printer. Print Handy does not flash boards."
 
 [[firmware]]
@@ -213,3 +222,67 @@ feed = "releases"
 channel = "stable"
 models = ["qidi.xsmart3"]
 update = "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware."
+
+# Stock Flashforge firmware. Flashforge publishes it only on its own
+# download pages; ZMod's author mirrors each version as a file on one
+# GitHub release (ghzserg/FF, tag R), which is what is read here.
+
+[[firmware]]
+id = "flashforge-stock-ad5x"
+kind = "stock"
+name = "Flashforge stock (AD5X)"
+repo = "ghzserg/FF"
+feed = "assets"
+release = "R"
+asset = "AD5X"
+channel = "stable"
+models = ["flashforge.ad5x", "flashforge_stock.ad5x"]
+update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+
+[[firmware]]
+id = "flashforge-stock-ad5m"
+kind = "stock"
+name = "Flashforge stock (AD5M)"
+repo = "ghzserg/FF"
+feed = "assets"
+release = "R"
+asset = "Adventurer5M"
+channel = "stable"
+models = ["flashforge.ad5m", "flashforge_forgex.ad5m"]
+update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+
+[[firmware]]
+id = "flashforge-stock-ad5m-pro"
+kind = "stock"
+name = "Flashforge stock (AD5M Pro)"
+repo = "ghzserg/FF"
+feed = "assets"
+release = "R"
+asset = "Adventurer5MPro"
+channel = "stable"
+models = ["flashforge.ad5m_pro", "flashforge_forgex.ad5m_pro"]
+update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+
+[[firmware]]
+id = "flashforge-stock-creator5"
+kind = "stock"
+name = "Flashforge stock (Creator 5)"
+repo = "ghzserg/FF"
+feed = "assets"
+release = "R"
+asset = "Creator5"
+channel = "stable"
+models = ["flashforge.creator5"]
+update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."
+
+[[firmware]]
+id = "flashforge-stock-creator5-pro"
+kind = "stock"
+name = "Flashforge stock (Creator 5 Pro)"
+repo = "ghzserg/FF"
+feed = "assets"
+release = "R"
+asset = "Creator5Pro"
+channel = "stable"
+models = ["flashforge.creator5_pro"]
+update = "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware."

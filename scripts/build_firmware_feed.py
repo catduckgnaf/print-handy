@@ -46,7 +46,13 @@ import check_firmware_releases as watch  # noqa: E402  (sibling script, stdlib o
 SOURCES_FILE = "docs/firmware-feed.toml"
 SCHEMA = 1
 CHANNELS = ("stable", "prerelease")
-_FIELDS = {"id", "kind", "name", "repo", "feed", "channel", "models", "line", "update"}
+_FIELDS = {"id", "kind", "name", "repo", "feed", "channel", "models", "stock_models",
+           "line", "release", "asset", "update"}
+# "assets": the newest file named <asset>-<version>-... attached to one
+# release (``release``, a tag) of ``repo``. Flashforge publishes its stock
+# firmware only on its own download pages; ZMod's author mirrors those files
+# on one GitHub release (ghzserg/FF, tag R), adding each new version to it.
+FEEDS = (*watch.FEEDS, "assets")
 # Web UI groups (catduck, 2026-11-16): firmware, the maker's stock firmware,
 # and plugins that run beside the firmware are shown separately.
 KINDS = ("firmware", "stock", "plugin")
@@ -94,8 +100,15 @@ def parse_sources(text: str) -> list[dict]:
         seen_names.add(record["name"])
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", record["repo"]):
             raise FeedError(f"{where}: repo must be owner/name")
-        if record["feed"] not in watch.FEEDS:
-            raise FeedError(f"{where}: feed must be one of {watch.FEEDS}")
+        if record["feed"] not in FEEDS:
+            raise FeedError(f"{where}: feed must be one of {FEEDS}")
+        for key in ("release", "asset"):
+            value = record.get(key)
+            if (record["feed"] == "assets") != (value is not None):
+                raise FeedError(f'{where}: \'{key}\' goes with feed = "assets", and only there')
+            if value is not None and not (isinstance(value, str)
+                                          and re.fullmatch(r"[A-Za-z0-9_.-]+", value)):
+                raise FeedError(f"{where}: '{key}' must be a plain tag or file-name prefix")
         if record["feed"] == "releases" and record["repo"] in watch.TAG_ONLY_REPOS:
             raise FeedError(f'{where}: {record["repo"]} publishes no usable releases; '
                             'use feed = "tags"')
@@ -108,6 +121,13 @@ def parse_sources(text: str) -> list[dict]:
                 isinstance(m, str) and _MODEL_RE.fullmatch(m) for m in models):
             raise FeedError(f"{where}: 'models' must be registry keys or vendor globs "
                             '("flashforge.ad5x", "flashforge.*")')
+        stock_models = record.get("stock_models", [])
+        if not isinstance(stock_models, list) or not all(
+                isinstance(m, str) and _MODEL_RE.fullmatch(m) for m in stock_models):
+            raise FeedError(f"{where}: 'stock_models' must be registry keys or vendor globs")
+        if stock_models and record.get("kind") != "firmware":
+            raise FeedError(f"{where}: 'stock_models' marks where a firmware is the "
+                            "maker's own; it applies only to kind = \"firmware\"")
         line = record.get("line", [])
         if not isinstance(line, list) or not all(isinstance(n, str) and n.strip() for n in line):
             raise FeedError(f"{where}: 'line' must be a list of printer names")
@@ -118,7 +138,9 @@ def parse_sources(text: str) -> list[dict]:
             "id": record["id"], "kind": record["kind"],
             "name": record["name"].strip(), "repo": record["repo"],
             "feed": record["feed"], "channel": record["channel"],
-            "models": list(models), "line": [n.strip() for n in line],
+            "models": list(models), "stock_models": list(stock_models),
+            "line": [n.strip() for n in line],
+            "release": record.get("release"), "asset": record.get("asset"),
             "update": " ".join(record["update"].split()),
         })
     return sources
@@ -181,6 +203,8 @@ def _iso(text):
 def list_candidates(client, source: dict) -> list[dict]:
     """Every readable release (or tag) of one source, newest version first."""
     repo = source["repo"]
+    if source["feed"] == "assets":
+        return _asset_candidates(client, source)
     if source["feed"] == "tags":
         raw = client.request("GET", f"/repos/{repo}/tags?per_page={PAGE_SIZE}")
         items = [{"tag": item.get("name"), "prerelease": None, "published_at": None,
@@ -216,6 +240,34 @@ def list_candidates(client, source: dict) -> list[dict]:
     return out
 
 
+def _asset_candidates(client, source: dict) -> list[dict]:
+    """Versions from the files attached to one release, newest first.
+
+    A file counts when its name is ``<asset>-<version>-...``: the version
+    must follow the prefix directly, so ``AD5X-factory-1.0.9.tgz`` (a
+    recovery image) and ``AD5X-fix_klipper.tgz`` are skipped, and
+    ``Adventurer5M-`` never matches ``Adventurer5MPro-`` files.
+    """
+    repo, tag = source["repo"], source["release"]
+    raw = client.request("GET", f"/repos/{repo}/releases/tags/{tag}")
+    if not isinstance(raw, dict):
+        raise watch.WatchError(f"{repo}: release {tag} not found")
+    pattern = re.compile(rf"{re.escape(source['asset'])}-(\d+(?:\.\d+)+)-")
+    url = raw.get("html_url") or f"https://github.com/{repo}/releases/tag/{tag}"
+    out = []
+    for item in raw.get("assets") or []:
+        match = pattern.match(str(item.get("name") or "")) if isinstance(item, dict) else None
+        parsed = parse_version(match.group(1)) if match else None
+        if parsed is None:
+            continue
+        display, key = parsed
+        out.append({"version": display, "tag": tag, "key": key, "prerelease": False,
+                    "published_at": _iso(item.get("updated_at") or item.get("created_at")),
+                    "url": url})
+    out.sort(key=lambda row: (row["key"], row["published_at"] or ""), reverse=True)
+    return out
+
+
 def _public(row):
     return None if row is None else {k: row[k] for k in ("version", "tag", "published_at", "url")}
 
@@ -228,7 +280,8 @@ def build_entry(source: dict, candidates: list[dict], audited: str | None) -> di
         "id": source["id"], "kind": source["kind"],
         "name": source["name"], "repo": source["repo"],
         "feed": source["feed"], "channel": source["channel"],
-        "models": source["models"], "update": source["update"],
+        "models": source["models"], "stock_models": source["stock_models"],
+        "update": source["update"],
         "latest": _public(latest), "latest_stable": _public(stable),
         "audited": audited, "stale": False,
     }
