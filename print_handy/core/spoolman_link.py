@@ -212,7 +212,17 @@ def _firmware_assigns_spools(printer_id, adapter=None) -> bool:
         from print_handy import printers, settings
         adapter = (printers.get(settings.by_id(printer_id)["model"], settings.view_for(printer_id))
                    if printer_id else printers.current())
-    return bool(getattr(adapter, "firmware_assigns_spools", False))
+    return firmware_assigns_spools(adapter)
+
+
+def firmware_assigns_spools(adapter) -> bool:
+    """True only when the adapter declares the fact as a real ``True``.
+
+    A missing attribute, None or any other truthy object (a test double, a
+    misspelled override) keeps Print Handy counting: handing a print to the
+    printer on a guess would count it zero times.
+    """
+    return getattr(adapter, "firmware_assigns_spools", False) is True
 
 
 def accounting_authority_for(printer_id=None, *, moonraker_call=None, data=None, adapter=None) -> dict:

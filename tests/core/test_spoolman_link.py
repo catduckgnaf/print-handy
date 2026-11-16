@@ -207,3 +207,14 @@ def test_accounting_authority_for_uses_settings_and_live_detection():
         assert offline["authority"] == "print_handy" and offline["moonraker_linked"] is False
     finally:
         settings.set_override(None)
+
+
+def test_only_a_real_true_hands_counting_to_the_firmware():
+    from unittest import mock
+    assert spoolman_link.firmware_assigns_spools(mock.Mock()) is False
+    assert spoolman_link.firmware_assigns_spools(object()) is False
+    assert spoolman_link.firmware_assigns_spools(mock.Mock(firmware_assigns_spools=True)) is True
+    from print_handy.printers.base import PrinterAdapter
+    from print_handy.printers.flashforge_opencreator.adapter import OpenCreatorAdapter
+    assert PrinterAdapter.firmware_assigns_spools is False
+    assert OpenCreatorAdapter.firmware_assigns_spools is True

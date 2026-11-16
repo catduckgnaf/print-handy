@@ -354,6 +354,9 @@ class PrinterAdapter(ABC):
     # it, and the record's single spool stays the slot-1 offer (#263). Only the AD5X
     # families (ZMod and stock Flashforge) bind slots in the record.
     slots_bound_by_record: bool = False
+    # True when the firmware sets Moonraker's active spool itself at each tool change (OpenCreator
+    # AFC). With a Moonraker Spoolman link, "auto" accounting then hands counting to the printer (#1536).
+    firmware_assigns_spools: bool = False
     # True when filament_template() selects a checked vendor profile per material (Bambu Lab). Every other
     # printer has one PLA template per model, so core.filament_families puts the job's material family on it.
     vendor_material_profiles: bool = False
