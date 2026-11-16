@@ -2259,6 +2259,18 @@ def test_second_slice_failure_replaces_the_first_failure_record(env, monkeypatch
 UNO_FILES = ['UNO - cap-sign-1.stl', 'UNO - container-1.stl', 'UNO - uno-latch-1.stl', 'UNO - cap-nosign-1.stl']
 
 
+@pytest.fixture
+def ask_which_parts():
+    """[discord] ask_which_parts on: the "Print all N / Choose files" question
+    is asked again (by default every distinct part prints without it)."""
+    from print_handy.runtime import _config
+    saved = _config._override
+    base = _config.cfg()
+    _config.set_override(dict(base, discord=dict(base.get("discord") or {}, ask_which_parts=True)))
+    yield
+    _config.set_override(saved)
+
+
 def _parts_model(env, monkeypatch, names, answers, typed=None, size=None):
     """A Printables model whose files are tiny STL boxes (or a 3MF); returns adapter, downloads, JOB.json."""
     from .test_model_parts import cube_stl
@@ -2312,11 +2324,11 @@ def test_uno_link_prints_all_parts_and_asks_only_which_cap(env, monkeypatch):
                for t in adapter.sent)
 
 
-def test_parts_without_versions_offer_all_or_choose_files(env, monkeypatch):
+def test_parts_without_versions_offer_all_or_choose_files(env, monkeypatch, ask_which_parts):
     adapter, downloads, job = _parts_model(env, monkeypatch, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
                                            [0, 1, 0, 3])
-    assert not adapter.questions or 'Print all' not in str(adapter.questions[0].get('choices'))
-    assert any('arm left, arm right and base' in message for message in adapter.sent)
+    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
+    assert 'arm left, arm right and base' in adapter.questions[0]['question']
     assert downloads == ['arm_left.stl', 'arm_right.stl', 'base.stl']
     assert len(job['selected_sources']) == 3
 
@@ -2325,11 +2337,9 @@ def _unit_questions(adapter):
     return [q for q in adapter.questions if 'do not record units' in q['question']]
 
 
-def test_tiny_stl_parts_ask_inch_or_mm_once_for_the_set(env, monkeypatch):
-    # No 'Print all 3' question any more (every file is its own part), so the
-    # first scripted answer is the units question's: Inches.
+def test_tiny_stl_parts_ask_inch_or_mm_once_for_the_set(env, monkeypatch, ask_which_parts):
     adapter, downloads, job = _parts_model(env, monkeypatch, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
-                                           [1, 0, 0, 3], size=(3, 2, 1))
+                                           [0, 1, 0, 0, 3], size=(3, 2, 1))
     asked = _unit_questions(adapter)
     assert len(asked) == 1 and 'One answer covers all the STL files' in asked[0]['question']
     assert asked[0]['choices'][:2] == ['Millimeters — print at 3 x 2 x 1 mm', 'Inches — print at 76.2 x 50.8 x 25.4 mm']
@@ -2724,7 +2734,7 @@ def _uploaded_parts(env, names, answers, *, typed=None):
     return adapter, (json.loads(files[0].read_text()) if files else None)
 
 
-def test_multiple_stl_attachments_are_one_project_and_preserve_left_right(env, monkeypatch):
+def test_multiple_stl_attachments_are_one_project_and_preserve_left_right(env, monkeypatch, ask_which_parts):
     # _choose_files + _fetch_parts + single-color prep are shared with links.
     def no_site(*a, **kw):
         raise AssertionError('a local multi-file upload must not contact a model website')
@@ -2738,8 +2748,8 @@ def test_multiple_stl_attachments_are_one_project_and_preserve_left_right(env, m
     assert len(job['combined_objects']) == 3
     assert Path(job['downloaded_file']).is_file()
     assert all(Path(x['downloaded_file']).is_file() for x in job['selected_sources'])
-    assert not adapter.questions or 'Print all' not in str(adapter.questions[0].get('choices'))
-    assert any('arm left, arm right and base' in message for message in adapter.sent)
+    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
+    assert 'arm left, arm right and base' in adapter.questions[0]['question']
 
 
 def test_two_uploads_with_the_same_name_stay_two_parts(env, monkeypatch):
@@ -2820,7 +2830,7 @@ def _run_upload_event(env, media, answers, metadata=None, message_id='zip-upload
     return adapter, result, (json.loads(files[0].read_text()) if files else None)
 
 
-def test_source_zip_reaches_the_project_builder_with_only_printable_parts(env, monkeypatch):
+def test_source_zip_reaches_the_project_builder_with_only_printable_parts(env, monkeypatch, ask_which_parts):
     """A designer ZIP (three STL parts, a STEP, a reference envelope, a PNG,
     a README and a script) is the multi-file upload flow: the same chooser,
     combiner and project manifest, with only the printable parts."""
@@ -2847,8 +2857,7 @@ def test_source_zip_reaches_the_project_builder_with_only_printable_parts(env, m
     assert ignored == {'Rack/REFERENCE_MAC_MINI_ENVELOPE_NOT_FOR_PRINTING.step', 'Rack/rack.step',
                        'Rack/render.png', 'README.md', 'tools/make.py'}
     assert len(job['combined_objects']) == 3
-    assert not any('Print all' in str(q.get('choices')) for q in adapter.questions)
-    assert any('This model has 3 files that print together' in m for m in adapter.sent)
+    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
     assert any('left out 5' in m for m in adapter.sent)
 
 

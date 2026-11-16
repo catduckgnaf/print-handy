@@ -227,6 +227,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("discord", "chat_llm_enabled"): bool,
                  ("discord", "approval_all_users"): bool,
                  ("discord", "mention_starter"): bool,
+                 ("discord", "ask_which_parts"): bool,
                  ("discord", "job_card_thread"): bool,
                  ("elegoo_sdcp", "host"): str,
                  ("purge", "flush_multiplier"): float}
@@ -2155,6 +2156,13 @@ def _validate_bot(data):
     mention_starter = discord.setdefault("mention_starter", True)
     if not isinstance(mention_starter, bool):
         raise SettingsError(f"[discord] mention_starter must be true or false, got {mention_starter!r}")
+    # Ask which parts to print: a model whose files are all different
+    # parts (no versions to pick between) prints them all by default and
+    # says which. True asks "Print all N / Choose files" first instead.
+    # Versions of one part and a 3MF against its STLs are always asked.
+    ask_which_parts = discord.setdefault("ask_which_parts", False)
+    if not isinstance(ask_which_parts, bool):
+        raise SettingsError(f"[discord] ask_which_parts must be true or false, got {ask_which_parts!r}")
     # Job card detail thread (#1472): a Discord job is one embed card
     # edited in place; with this on, the card opens a thread and the long
     # detail (support analysis, shortage details, camera checks) goes

@@ -58,6 +58,7 @@ def without_added(data):
     data.get("vision", {}).pop("roast_custom_bank", None)  # added by #1002 Phase 4, after capture
     data.get("discord", {}).pop("clarify_ui", None)  # added by #524 stage 2, after capture
     data.get("discord", {}).pop("mention_starter", None)  # added with starter mentions, after capture
+    data.get("discord", {}).pop("ask_which_parts", None)  # added with the ask-which-parts option, after capture
     data.get("discord", {}).pop("job_card_thread", None)  # added by #1472 (the job card detail thread), after capture
     data.pop("spool", None)  # added by #512 (spool.prompt_brand), after the golden files were captured
     data.pop("telegram", None)  # added by #164 stage 2, after the golden files were captured
