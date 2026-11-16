@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-16T15:40:46Z",
+ "generated_at": "2026-11-16T18:29:52Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -471,26 +471,26 @@
    "id": "flashforge-stock-ad5x",
    "kind": "stock",
    "name": "Flashforge stock (AD5X)",
-   "repo": "ghzserg/FF",
-   "feed": "assets",
+   "repo": "Parallel-7/FlashForge-Firmware-Updates",
+   "feed": "releases",
    "channel": "stable",
    "models": [
     "flashforge.ad5x",
     "flashforge_stock.ad5x"
    ],
    "stock_models": [],
-   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "update": "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
    "latest": {
-    "version": "3.1.0",
-    "tag": "R",
-    "published_at": "2026-06-03T03:38:48Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "version": "3.1.8",
+    "tag": "adventurer-5x/3.1.8-1.1.1",
+    "published_at": "2026-11-06T02:51:03Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/adventurer-5x/3.1.8-1.1.1"
    },
    "latest_stable": {
-    "version": "3.1.0",
-    "tag": "R",
-    "published_at": "2026-06-03T03:38:48Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "version": "3.1.8",
+    "tag": "adventurer-5x/3.1.8-1.1.1",
+    "published_at": "2026-11-06T02:51:03Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/adventurer-5x/3.1.8-1.1.1"
    },
    "audited": null,
    "stale": false
@@ -499,26 +499,26 @@
    "id": "flashforge-stock-ad5m",
    "kind": "stock",
    "name": "Flashforge stock (AD5M)",
-   "repo": "ghzserg/FF",
-   "feed": "assets",
+   "repo": "Parallel-7/FlashForge-Firmware-Updates",
+   "feed": "releases",
    "channel": "stable",
    "models": [
     "flashforge.ad5m",
     "flashforge_forgex.ad5m"
    ],
    "stock_models": [],
-   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "update": "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
    "latest": {
-    "version": "5.1.1",
-    "tag": "R",
-    "published_at": "2026-05-18T13:40:57Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "version": "5.1.9",
+    "tag": "adventurer-5m/5.1.9-2.2.3",
+    "published_at": "2026-09-04T16:12:12Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/adventurer-5m/5.1.9-2.2.3"
    },
    "latest_stable": {
-    "version": "5.1.1",
-    "tag": "R",
-    "published_at": "2026-05-18T13:40:57Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "version": "5.1.9",
+    "tag": "adventurer-5m/5.1.9-2.2.3",
+    "published_at": "2026-09-04T16:12:12Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/adventurer-5m/5.1.9-2.2.3"
    },
    "audited": null,
    "stale": false
@@ -527,26 +527,26 @@
    "id": "flashforge-stock-ad5m-pro",
    "kind": "stock",
    "name": "Flashforge stock (AD5M Pro)",
-   "repo": "ghzserg/FF",
-   "feed": "assets",
+   "repo": "Parallel-7/FlashForge-Firmware-Updates",
+   "feed": "releases",
    "channel": "stable",
    "models": [
     "flashforge.ad5m_pro",
     "flashforge_forgex.ad5m_pro"
    ],
    "stock_models": [],
-   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "update": "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
    "latest": {
-    "version": "5.1.2",
-    "tag": "R",
-    "published_at": "2026-05-18T13:41:10Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "version": "5.1.9",
+    "tag": "adventurer-5m-pro/5.1.9-2.2.3",
+    "published_at": "2026-09-15T17:10:38Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/adventurer-5m-pro/5.1.9-2.2.3"
    },
    "latest_stable": {
-    "version": "5.1.2",
-    "tag": "R",
-    "published_at": "2026-05-18T13:41:10Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "version": "5.1.9",
+    "tag": "adventurer-5m-pro/5.1.9-2.2.3",
+    "published_at": "2026-09-15T17:10:38Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/adventurer-5m-pro/5.1.9-2.2.3"
    },
    "audited": null,
    "stale": false
@@ -555,25 +555,25 @@
    "id": "flashforge-stock-creator5",
    "kind": "stock",
    "name": "Flashforge stock (Creator 5)",
-   "repo": "ghzserg/FF",
-   "feed": "assets",
+   "repo": "Parallel-7/FlashForge-Firmware-Updates",
+   "feed": "releases",
    "channel": "stable",
    "models": [
     "flashforge.creator5"
    ],
    "stock_models": [],
-   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "update": "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
    "latest": {
     "version": "2.0.0",
-    "tag": "R",
-    "published_at": "2026-10-22T10:31:20Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "tag": "creator-5/2.0.0-1.3.0",
+    "published_at": "2026-10-22T09:36:11Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/creator-5/2.0.0-1.3.0"
    },
    "latest_stable": {
     "version": "2.0.0",
-    "tag": "R",
-    "published_at": "2026-10-22T10:31:20Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "tag": "creator-5/2.0.0-1.3.0",
+    "published_at": "2026-10-22T09:36:11Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/creator-5/2.0.0-1.3.0"
    },
    "audited": null,
    "stale": false
@@ -582,25 +582,25 @@
    "id": "flashforge-stock-creator5-pro",
    "kind": "stock",
    "name": "Flashforge stock (Creator 5 Pro)",
-   "repo": "ghzserg/FF",
-   "feed": "assets",
+   "repo": "Parallel-7/FlashForge-Firmware-Updates",
+   "feed": "releases",
    "channel": "stable",
    "models": [
     "flashforge.creator5_pro"
    ],
    "stock_models": [],
-   "update": "Install from a USB drive at the printer. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
+   "update": "Install it from the printer's own Firmware Update screen (over the network) or from a USB drive. Under ZMod or Forge-X the stock firmware is the layer underneath, so check that mod's compatibility first; /print-firmware guide stock has the steps for the AD5X. Print Handy never installs stock Flashforge firmware.",
    "latest": {
     "version": "2.0.0",
-    "tag": "R",
-    "published_at": "2026-10-22T10:31:32Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "tag": "creator-5-pro/2.0.0-1.3.0",
+    "published_at": "2026-10-22T09:36:48Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/creator-5-pro/2.0.0-1.3.0"
    },
    "latest_stable": {
     "version": "2.0.0",
-    "tag": "R",
-    "published_at": "2026-10-22T10:31:32Z",
-    "url": "https://github.com/ghzserg/FF/releases/tag/R"
+    "tag": "creator-5-pro/2.0.0-1.3.0",
+    "published_at": "2026-10-22T09:36:48Z",
+    "url": "https://github.com/Parallel-7/FlashForge-Firmware-Updates/releases/tag/creator-5-pro/2.0.0-1.3.0"
    },
    "audited": null,
    "stale": false
