@@ -58,7 +58,6 @@ EXPECTED = [
     ("GET", "/api/wrapped", S),
     ("GET", "/wrapped/video-file", S),
     ("GET", "/api/wrapped/video-status", S),
-    ("GET", "/timing", S),
     ("GET", "/firmware", S),
     ("GET", "/readyz", S),
     ("GET", "/api/printers/*", S),
