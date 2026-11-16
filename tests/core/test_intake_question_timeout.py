@@ -19,7 +19,6 @@ def _run(monkeypatch, name, call):
         return {"action": "skip"}
 
     monkeypatch.setattr(prepared_intake, name, fake)
-    monkeypatch.setattr(prepared_intake, "_card_wrap", lambda adapter, source: adapter)
     monkeypatch.setattr(_config, "question_timeout_s", lambda: 1800)
     asyncio.run(call())
     return seen["timeout"]
