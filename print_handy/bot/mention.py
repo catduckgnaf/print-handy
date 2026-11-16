@@ -20,7 +20,7 @@ answering to "Print Handy".
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import commands
 
@@ -58,6 +58,7 @@ class Identity:
     handles: tuple[str, ...] = ()
     suffixes: bool = False
     flagged: bool = False
+    reply_to_bot: bool = False
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,15 @@ class Addressed:
     mentioned: bool = False
     named: bool = False
     elsewhere: bool = False
+    # Invocation provenance for the conversational AI gate (#1524, see
+    # bot/provenance.py): one of platform_entity, command_suffix,
+    # reply_to_bot, typed_at_name, typed_name, typed_ai_phrase, ui_flag,
+    # none. ``mentioned`` stays the routing signal it always was (a
+    # managed-role mention still routes commands); provenance is the
+    # stricter evidence the AI policy table reads, so a role mention
+    # carries provenance "none". Excluded from equality: the routing
+    # record's identity is its text and routing flags, as before.
+    provenance: str = field(default="none", compare=False)
 
 
 def _unique(values):
@@ -148,9 +158,17 @@ def identity_for(platform, client, bot_name, message=None):
         names.insert(0, bot_name)
     elif not _unique(names):
         names.append(DEFAULT_BOT_NAME)
+    reply_to_bot = bool(getattr(message, "reply_to_bot", False)) if message is not None else False
+    if message is not None and not reply_to_bot:
+        reference = getattr(message, "reference", None)
+        resolved = getattr(reference, "resolved", None) if reference is not None else None
+        ref_author = getattr(resolved, "author", None) if resolved is not None else None
+        if uid is not None and getattr(ref_author, "id", None) is not None:
+            reply_to_bot = str(ref_author.id) == str(uid)
     return Identity(names=_unique(names), tokens=_unique(tokens), handles=_unique(handles),
                     suffixes=platform == "telegram",
-                    flagged=bool(getattr(message, "mentions_bot", False)))
+                    flagged=bool(getattr(message, "mentions_bot", False)),
+                    reply_to_bot=reply_to_bot)
 
 
 def _name_pattern(name):
@@ -159,7 +177,10 @@ def _name_pattern(name):
 
 
 def _strip_tokens(text, tokens):
+    """(text, found, entity_found): role markup (<@&id>) routes commands
+    like before but is not platform-entity evidence for the AI gate."""
     found = False
+    entity_found = False
     for token in sorted(tokens, key=len, reverse=True):
         # "@bot:example.org" must not match inside "@bot:example.org.evil",
         # while "@bot:example.org: help" ends the id at the colon. Markup that
@@ -168,7 +189,21 @@ def _strip_tokens(text, tokens):
         pattern = re.compile(r"[ \t]*" + re.escape(token) + guard + r"[ \t]*", re.I)
         text, count = pattern.subn(" ", text)
         found = found or bool(count)
-    return text, found
+        if count and not token.startswith("<@&"):
+            entity_found = True
+    return text, found, entity_found
+
+
+def _unquoted(text):
+    """The message text with quote-block lines removed (``> ...``).
+
+    A mention that appears only inside a quote block is somebody else's
+    words being shown, not an invocation of this bot (#1524), so mention
+    evidence is read from the unquoted text only.
+    """
+    lines = str(text or "").splitlines()
+    kept = [line for line in lines if not line.lstrip().startswith(">")]
+    return "\n".join(kept) if len(kept) != len(lines) else str(text or "")
 
 
 def _strip_leading_name(text, names):
@@ -234,10 +269,20 @@ def address(text, identity):
     only when the handle is this bot's known username.
     """
     raw = str(text or "")
-    work, mentioned = _strip_tokens(raw, identity.tokens)
+    # Mention evidence comes from the unquoted text only: a mention that
+    # lives solely inside a quote block never counts (#1524).
+    evidence = _unquoted(raw)
+    _probe, probe_found, probe_entity = _strip_tokens(evidence, identity.tokens)
+    quoted_only = bool(_strip_tokens(raw, identity.tokens)[1]) and not probe_found \
+        and not identity.flagged
+    work, mentioned, entity = _strip_tokens(raw, identity.tokens)
+    if quoted_only:
+        work, mentioned, entity = raw, False, False
     if mentioned:
         work = _LEADING_PUNCT.sub("", work)  # "<@123>, spool list"
+    entity = entity or identity.flagged
     mentioned = mentioned or identity.flagged
+    provenance = "platform_entity" if entity else "none"
     work = work.strip()
     if identity.suffixes:
         head, space, rest = _split_head(work)
@@ -249,16 +294,24 @@ def address(text, identity):
                 # never guess that a suffixed command was meant for this bot.
                 return Addressed(raw, elsewhere=True)
             work, mentioned = command + space + rest, True
+            provenance = "command_suffix"
         elif _other_bot_handle(head, own):
             return Addressed(raw, elsewhere=True)
     work, how = _strip_leading_name(work, identity.names)
     mentioned = mentioned or how == "at"
+    if how == "at" and provenance == "none":
+        provenance = "typed_at_name"
     rest = work.strip()
     if mentioned:
-        return Addressed(command_text(rest) if rest else _HELP, mentioned=True)
+        return Addressed(command_text(rest) if rest else _HELP, mentioned=True,
+                         provenance=provenance)
     if how == "plain" and rest:
         routed = command_text(rest)
         if routed.startswith("/"):
-            return Addressed(routed, named=True)
+            return Addressed(routed, named=True, provenance="typed_name")
         return Addressed(raw)  # the name in a sentence, not a command for the bot
-    return Addressed(raw)
+    if identity.reply_to_bot:
+        # A reply to the bot is recorded as provenance, but by owner
+        # decision it does not by itself count as addressing the bot.
+        return Addressed(raw, provenance="reply_to_bot")
+    return Addressed(raw, provenance=provenance)

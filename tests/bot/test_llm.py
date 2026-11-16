@@ -80,7 +80,7 @@ def test_llm_picked_stop_still_waits_for_the_button_and_writes_nothing_without_i
     discord, core = make(llm_cfg, opener)
 
     async def flow():
-        task = asyncio.create_task(core.handle_message(discord.message("the print is spaghetti, kill it")))
+        task = asyncio.create_task(core.handle_message(discord.message("<@300000000000000003> the print is spaghetti, kill it")))
         for _ in range(300):
             message = discord.last_question()
             if message:
@@ -110,7 +110,7 @@ def test_llm_reply_telling_the_user_to_type_the_command_it_runs_is_dropped_1373(
     discord, core = make(llm_cfg, opener)
 
     async def flow():
-        task = asyncio.create_task(core.handle_message(discord.message("Cancel the print")))
+        task = asyncio.create_task(core.handle_message(discord.message("<@300000000000000003> Cancel the print")))
         for _ in range(300):
             message = discord.last_question()
             if message:
@@ -289,7 +289,11 @@ def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
                                        operator_id=int(llm_cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, llm_cfg, llm_opener=opener, router=Router(plugin=_Plugin()))
     source = runtime.make_source(discord.operator.id, discord.channel.id)
-    event = runtime.make_event(source, "make it taller", "m1", media_urls=["/tmp/uploads/model.scad"])
+    # #1524: the conversational lane needs a trusted invocation — this
+    # event carries the platform-entity provenance a real mention stamps.
+    event = runtime.make_event(source, "make it taller", "m1", media_urls=["/tmp/uploads/model.scad"],
+                               prov=runtime.provenance.Provenance(
+                                   value="platform_entity", platform="discord", channel_kind="shared"))
     out = asyncio.run(core.process(event))
     assert out == {"action": "skip", "reason": "recorded"}
     assert [e.text for e in seen] == ["/print-design make it taller"]
@@ -301,7 +305,7 @@ def test_llm_naming_a_write_command_runs_nothing(llm_cfg):
     discord, core = make(llm_cfg, opener)
     with mock.patch("print_handy.runtime.spool_sync.sync_all_screens") as sync, \
             mock.patch("print_handy.runtime.spool_sync.bind_slot") as bind:
-        out = asyncio.run(core.handle_message(discord.message("sync the spools on the screen")))
+        out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> sync the spools on the screen")))
     sync.assert_not_called()
     bind.assert_not_called()
     assert out == {"action": "skip", "reason": "llm reply"}
@@ -314,7 +318,7 @@ def test_llm_gcode_or_prose_is_only_text(llm_cfg):
     discord, core = make(llm_cfg, opener)
     with mock.patch("urllib.request.urlopen", side_effect=AssertionError("no other network")), \
             mock.patch("print_handy.runtime.print_next.start") as start:
-        out = asyncio.run(core.handle_message(discord.message("home the printer")))
+        out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> home the printer")))
     start.assert_not_called()
     assert out["reason"] == "llm reply" and discord.sent == ["Sure! Send M112 and G28 to the printer."]
 
@@ -323,7 +327,7 @@ def test_llm_failure_falls_back_to_the_unmatched_reply(llm_cfg):
     def broken(req, timeout=None):
         raise OSError("llm down")
     discord, core = make(llm_cfg, broken)
-    out = asyncio.run(core.handle_message(discord.message("hello?")))
+    out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
     assert out == {"action": "skip", "reason": "command list"} and discord.sent == [core.unmatched]
 
 
@@ -340,7 +344,7 @@ def test_typed_answer_to_an_llm_routed_question_is_not_sent_to_the_llm(llm_cfg):
     discord, core = make(llm_cfg, opener)
 
     async def flow():
-        task = asyncio.create_task(core.handle_message(discord.message("stop the print")))
+        task = asyncio.create_task(core.handle_message(discord.message("<@300000000000000003> stop the print")))
         for _ in range(300):
             if discord.last_question():
                 break
@@ -380,7 +384,7 @@ def test_llm_named_print_again_runs_through_the_normal_handler_with_its_confirma
             mock.patch.object(print_next, "start", side_effect=accepted), \
             mock.patch.object(summary, "gcode_metadata", return_value=(60, 1.0)), \
             mock.patch.object(summary, "_print_number", return_value=57):
-        out = asyncio.run(core.handle_message(discord.message("could you run number 57 again?")))
+        out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> could you run number 57 again?")))
     assert out == {"action": "skip", "reason": "deterministic print again handled"}
     assert len(opener.requests) == 1
     resolve.assert_called_once_with("57")
@@ -393,7 +397,7 @@ def test_llm_named_print_again_runs_through_the_normal_handler_with_its_confirma
 def test_llm_answer_alone_is_the_only_reply_no_help_after_it(llm_cfg):
     opener = FakeLLM("The printer is idle right now.", None)
     discord, core = make(llm_cfg, opener)
-    out = asyncio.run(core.handle_message(discord.message("what does the printer dream about")))
+    out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> what does the printer dream about")))
     assert out == {"action": "skip", "reason": "llm reply"}
     assert discord.sent == ["The printer is idle right now."]
     assert len(opener.requests) == 1
@@ -402,10 +406,19 @@ def test_llm_answer_alone_is_the_only_reply_no_help_after_it(llm_cfg):
 def test_llm_declining_falls_back_to_the_unmatched_reply_once(llm_cfg):
     opener = FakeLLM("", None)
     discord, core = make(llm_cfg, opener)
-    out = asyncio.run(core.handle_message(discord.message("what is the meaning of layer adhesion")))
+    out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> what is the meaning of layer adhesion")))
     assert out == {"action": "skip", "reason": "command list"}
     assert discord.sent == [core.unmatched]
     assert len(opener.requests) == 1
+
+
+def _dm_event(core, discord, text):
+    """An "ask ai:" message in a direct message (#1524): typed AI phrases
+    unlock the lane in DMs and the Web UI only, never in shared channels,
+    so these tests stamp the DM provenance a DM adapter would set."""
+    source = runtime.make_source(discord.operator.id, discord.channel.id)
+    return runtime.make_event(source, text, "m-dm", prov=runtime.provenance.Provenance(
+        value="typed_ai_phrase", platform="discord", channel_kind="dm"))
 
 
 def test_ai_invocation_asks_the_llm_the_bare_question(llm_cfg):
@@ -413,7 +426,7 @@ def test_ai_invocation_asks_the_llm_the_bare_question(llm_cfg):
     question itself, and its answer is the reply."""
     opener = FakeLLM("Stringing usually means wet filament or too much retraction.")
     discord, core = make(llm_cfg, opener)
-    out = asyncio.run(core.handle_message(discord.message("ask ai: why is my print stringing")))
+    out = asyncio.run(core.process(_dm_event(core, discord, "ask ai: why is my print stringing")))
     assert out == {"action": "skip", "reason": "llm reply"}
     assert discord.sent == ["Stringing usually means wet filament or too much retraction."]
     assert opener.requests[0]["messages"][-1]["content"] == "why is my print stringing"
@@ -424,7 +437,7 @@ def test_ai_invocation_the_llm_declines_gets_the_ai_wording(llm_cfg):
     the generic unmatched wording."""
     opener = FakeLLM("", None)
     discord, core = make(llm_cfg, opener)
-    out = asyncio.run(core.handle_message(discord.message("ask ai: tell me a joke")))
+    out = asyncio.run(core.process(_dm_event(core, discord, "ask ai: tell me a joke")))
     assert out == {"action": "skip", "reason": "ai no answer"}
     assert discord.sent == [runtime.ai_no_answer_text()]
     assert len(opener.requests) == 1
@@ -432,16 +445,27 @@ def test_ai_invocation_the_llm_declines_gets_the_ai_wording(llm_cfg):
 
 def test_ai_invocation_without_an_llm_gets_the_not_enabled_reply(cfg):
     discord, core = make(cfg, None)
-    out = asyncio.run(core.handle_message(discord.message("ask ai: tell me a joke")))
+    out = asyncio.run(core.process(_dm_event(core, discord, "ask ai: tell me a joke")))
     assert out == {"action": "skip", "reason": "ai not enabled"}
     assert discord.sent == [runtime.ai_not_enabled_text()]
+
+
+def test_ai_invocation_in_a_shared_channel_does_not_unlock_the_lane(llm_cfg):
+    """Owner decision (#1524): a typed "ask ai:" in a shared channel is
+    ordinary chat — no model call, even with the lane configured on."""
+    opener = FakeLLM("should not be asked")
+    discord, core = make(llm_cfg, opener)
+    out = asyncio.run(core.handle_message(discord.message("ask ai: tell me a joke")))
+    assert opener.requests == []
+    assert out == {"action": "skip", "reason": "command list"}
+    assert discord.sent == [core.unmatched]
 
 
 def test_llm_timeout_falls_back_to_the_unmatched_reply_once(llm_cfg):
     def timing_out(req, timeout=None):
         raise TimeoutError("llm timed out")
     discord, core = make(llm_cfg, timing_out)
-    out = asyncio.run(core.handle_message(discord.message("hello?")))
+    out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
     assert out == {"action": "skip", "reason": "command list"} and discord.sent == [core.unmatched]
 
 
@@ -450,7 +474,7 @@ def test_llm_naming_print_help_sends_the_help_once_without_its_own_reply(llm_cfg
     so the LLM's wording is not sent alongside it."""
     opener = FakeLLM("Here is everything I can do.", "/print-help")
     discord, core = make(llm_cfg, opener)
-    out = asyncio.run(core.handle_message(discord.message("hello?")))
+    out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
     assert out == {"action": "skip", "reason": "help"}
     assert discord.sent == [core.help]
     assert len(opener.requests) == 1

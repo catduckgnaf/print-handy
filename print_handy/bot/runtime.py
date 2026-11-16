@@ -30,7 +30,7 @@ from types import SimpleNamespace
 from .. import settings
 from ..core import fuzzy, prompts
 from ..runtime import _config
-from . import agent, commands, llm, mention, platform, rest, routing
+from . import agent, commands, llm, mention, platform, provenance, rest, routing
 from .router import Router
 
 logger = logging.getLogger(__name__)
@@ -845,11 +845,19 @@ def make_source(user_id, chat_id, thread_id=None, is_bot=False, platform_name="d
                            if shared_printer_ids else None)
 
 
-def make_event(source, text, message_id, media_urls=(), metadata=None):
+def make_event(source, text, message_id, media_urls=(), metadata=None, prov=None):
     # A chat user's text is third-party text: a handler that echoes an
     # argument back must never turn a typed MEDIA: line into an attachment.
+    # ``prov`` is the invocation provenance (#1524): stamped by the
+    # platform adapter and carried unchanged through process/fallback.
+    meta = dict(metadata or {})
+    if prov is not None:
+        meta = provenance.stamp(meta, prov)
+    elif "provenance" in meta and not isinstance(meta["provenance"], provenance.Provenance):
+        meta["provenance"] = provenance.from_event(
+            SimpleNamespace(metadata=meta), platform_name_of(source))
     return SimpleNamespace(source=source, text=rest.inert_media(text), media_urls=list(media_urls),
-                           message_id=str(message_id), metadata=dict(metadata or {}), internal=False)
+                           message_id=str(message_id), metadata=meta, internal=False)
 
 
 _MESSAGE_LINK = re.compile(
@@ -1197,6 +1205,36 @@ class BotCore(_RoutedAdapter):
 
     # ------------------------------------------------------------------ messages
 
+    def provenance_for(self, addressed, message=None, *, channel_kind=None):
+        """The stamped provenance for one addressed message (#1524).
+
+        The value comes from the mention evidence in ``addressed``; a
+        typed "ask ai:" opening with no stronger evidence becomes
+        typed_ai_phrase. Channel kind defaults from the message: a
+        Discord message with no guild is a direct message, Telegram
+        private chats are direct messages, everything else is shared.
+        Edited messages are stamped edited so they never re-trigger the
+        conversational lane.
+        """
+        value = getattr(addressed, "provenance", "none") or "none"
+        if value == "none" and _ai_invocation(getattr(addressed, "text", "")):
+            value = "typed_ai_phrase"
+        if channel_kind is None:
+            channel_kind = "shared"
+            kinds = " ".join(str(getattr(message, attr, "") or "") for attr in
+                             ("chat_type", "conversation_type")) if message is not None else ""
+            channel = getattr(message, "channel", None) if message is not None else None
+            kinds += " " + str(getattr(channel, "type", "") or "")
+            if "private" in kinds.casefold():
+                channel_kind = "dm"
+            elif self.platform_name == "webui":
+                channel_kind = "webui"
+        edited = bool(message is not None and (getattr(message, "edited_timestamp", None)
+                                               or getattr(message, "edited_at", None)
+                                               or getattr(message, "edited", False)))
+        return provenance.Provenance(value=value, platform=self.platform_name,
+                                     channel_kind=channel_kind, edited=edited)
+
     def addressed(self, text, message=None):
         """``text`` with a mention of this bot recognised and stripped (see ``bot/mention.py``).
 
@@ -1233,7 +1271,8 @@ class BotCore(_RoutedAdapter):
             # refuses every non-setup command itself; no other handler
             # is authorized by this branch. Nothing is downloaded here:
             # nobody has been admitted yet, and setup takes no attachments.
-            event = make_event(source, addressed.text, message.id)
+            event = make_event(source, addressed.text, message.id,
+                               prov=self.provenance_for(addressed, message))
             return await self.process(event)
         if not self.gateway._is_user_authorized_for_source(source):
             # In the print channel but refused by an access list: never
@@ -1255,7 +1294,11 @@ class BotCore(_RoutedAdapter):
                 return None  # the linked message was meant for a different bot
             text = linked.text
         media = await self.save_attachments(content_from)
-        event = make_event(source, text, message.id, media)
+        prov = self.provenance_for(addressed, message)
+        if content_from is not message:
+            prov = self.provenance_for(self.addressed(getattr(content_from, "content", ""), content_from),
+                                       content_from)
+        event = make_event(source, text, message.id, media, prov=prov)
         return await self.process(event)
 
     async def _note_elsewhere(self, user_id, chat_id, thread_id=None):
@@ -1430,7 +1473,34 @@ class BotCore(_RoutedAdapter):
         metadata = {"thread_id": source.thread_id} if source.thread_id else None
         invoke = _ai_invocation(event.text)
         lane_text = invoke if invoke is not None else event.text
-        if allow_llm and self.use_llm and agent.configured(self.cfg):
+        # #1524: provenance decides whether a general conversational lane
+        # may run at all, and a deterministic match always beats the AI
+        # lane. An unstamped event (a direct process call) derives its
+        # provenance from the text evidence, exactly as handle_message
+        # would have stamped it.
+        prov = provenance.from_event(event, self.platform_name)
+        if "provenance" not in (getattr(event, "metadata", None) or {}):
+            prov = self.provenance_for(self.addressed(event.text), None,
+                                       channel_kind="webui" if self.platform_name == "webui" else "shared")
+        if prov.value == "none" and invoke is not None:
+            prov = provenance.Provenance(
+                value="typed_ai_phrase", platform=self.platform_name,
+                channel_kind=prov.channel_kind, edited=prov.edited)
+        nl_cfg = (self.cfg.get("natural_language") or {}) if isinstance(self.cfg, dict) else {}
+        lane_unlocked = prov.unlocks_for_channel(
+            source.chat_id, ai_disabled_channels=nl_cfg.get("ai_disabled_channel_ids") or ())
+        lane_allowed = bool(allow_llm and self.use_llm and lane_unlocked)
+        if not _llm_replied:
+            # Deterministic-first: a direct natural-language answer (the
+            # #1524 capability layer) always beats the AI lane — a
+            # mentioned "how much purple PLA" gets the Spoolman answer,
+            # never a model call. Did-you-mean suggestions stay after the
+            # lanes, as before: a suggestion is a clarification prompt,
+            # not an answer.
+            det = await self._natural_language_answer(event, metadata)
+            if det is not None:
+                return det
+        if lane_allowed and agent.configured(self.cfg):
             try:
                 reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
                                                 cfg=self.cfg, opener=self.agent_opener)
@@ -1443,7 +1513,7 @@ class BotCore(_RoutedAdapter):
             await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                     reply_to=event.message_id, metadata=metadata)
             return {"action": "skip", "reason": "agent reply"}
-        if allow_llm and self.use_llm and llm.configured(self.cfg):
+        if lane_allowed and llm.configured(self.cfg):
             try:
                 # One turn per session at a time, queued on the loop: the
                 # blocking HTTP call alone runs in a worker thread, so asks
@@ -1485,36 +1555,51 @@ class BotCore(_RoutedAdapter):
         suggestion = command_suggestion(event.text, self.bot_name)
         if suggestion is not None:
             # #468 stage 3: a near-miss command gets a did-you-mean prompt
-            # instead of the plain unmatched reply. It sits here — after
-            # both model lanes have declined — so it fires with no LLM
-            # configured too, and never competes with a lane's answer.
+            # instead of the plain unmatched reply.
             return await self._offer_suggestion(event, suggestion, metadata)
         candidates = command_suggestion_candidates(event.text)
         if candidates:
-            # The confidence/conflict policy found no single clear
-            # command but real contenders: offer them as a pick-list
-            # rather than guessing or staying silent.
             return await self._offer_suggestion_choice(event, candidates, metadata)
         if invoke is not None:
             # An explicit invocation no lane answered: the stripped
             # question gets the deterministic chance on its own words,
-            # then the AI-specific terminal reply (see the docstring).
+            # then — only when the invocation's provenance actually
+            # unlocks the lane (a typed "ask ai:" in a shared channel
+            # does not, by owner decision) — the AI-specific terminal
+            # reply; otherwise the plain unmatched reply below.
             suggestion = command_suggestion(invoke, self.bot_name)
             if suggestion is not None:
                 return await self._offer_suggestion(event, suggestion, metadata)
             candidates = command_suggestion_candidates(invoke)
             if candidates:
                 return await self._offer_suggestion_choice(event, candidates, metadata)
-            if allow_llm and self.use_llm and (agent.configured(self.cfg) or llm.configured(self.cfg)):
-                await self.adapter.send(chat_id=source.chat_id, content=ai_no_answer_text(),
+            if lane_unlocked:
+                if lane_allowed and (agent.configured(self.cfg) or llm.configured(self.cfg)):
+                    await self.adapter.send(chat_id=source.chat_id, content=ai_no_answer_text(),
+                                            reply_to=event.message_id, metadata=metadata)
+                    return {"action": "skip", "reason": "ai no answer"}
+                await self.adapter.send(chat_id=source.chat_id, content=ai_not_enabled_text(),
                                         reply_to=event.message_id, metadata=metadata)
-                return {"action": "skip", "reason": "ai no answer"}
-            await self.adapter.send(chat_id=source.chat_id, content=ai_not_enabled_text(),
-                                    reply_to=event.message_id, metadata=metadata)
-            return {"action": "skip", "reason": "ai not enabled"}
+                return {"action": "skip", "reason": "ai not enabled"}
         await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
                                 metadata=metadata)
         return {"action": "skip", "reason": "command list"}
+
+    async def _natural_language_answer(self, event, metadata):
+        """A direct deterministic natural-language answer (#1524).
+
+        Delegates to the capability layer (bot/natural_language.py):
+        read-only intents answer directly from real services, in shadow
+        mode the layer only logs disagreements and this returns None.
+        Any failure in the layer reads as no answer — the lanes and the
+        suggestion path below still get their chance.
+        """
+        try:
+            from . import natural_language
+            return await natural_language.answer(self, event, metadata)
+        except Exception:
+            logger.exception("natural-language layer failed; continuing to the fallback")
+            return None
 
     def _background_suggestion(self, coro):
         """Run a did-you-mean wait off the message path (P1-109).

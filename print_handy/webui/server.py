@@ -2603,7 +2603,11 @@ class _Handler(BaseHTTPRequestHandler):
         if not text:
             self._redirect("/chat")
             return
-        if not self._chat_view().submit(text):
+        # The Ask AI checkbox is read here, on the authenticated POST,
+        # and passed as a server-side flag — never parsed out of the
+        # message text (#1524).
+        ask_ai = (form.get("ask_ai") or [""])[0] in ("1", "true", "on")
+        if not self._chat_view().submit(text, ask_ai=ask_ai):
             self._chat_page(error="Too many messages in the last minute; "
                                   "give the bot a moment to catch up.")
             return
