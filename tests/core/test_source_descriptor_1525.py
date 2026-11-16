@@ -177,3 +177,21 @@ def test_provenance_manifest_labels_fixture_classes_honestly():
     for row in rows.values():
         assert row["class"] in ("genuine", "spec-synthetic")
         assert row["sha256"]
+
+
+def test_genuine_prusa_fixture_is_a_real_prusa_export():
+    import json
+    provenance = json.loads((FIXTURES / "PROVENANCE.json").read_text())
+    rows = {row["file"]: row for row in provenance["fixtures"]}
+    genuine = rows.get("prusa-genuine.3mf")
+    if genuine is None:
+        return  # the extended tier has not produced one yet; nothing to check
+    assert genuine["class"] == "genuine"
+    assert "PrusaSlicer-2.8.1" in genuine["producer"]
+    descriptor = sd.describe(FIXTURES / "prusa-genuine.3mf")
+    # The real CLI export names PrusaSlicer in its Application metadata
+    # and carries a model config, but no settings snapshot: producer
+    # proven, class honestly geometry-only.
+    assert descriptor["kind"] == "prusa"
+    assert descriptor["source_version"] == "2.8.1"
+    assert descriptor["user_class"] == "geometry-only"

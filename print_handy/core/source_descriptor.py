@@ -284,6 +284,13 @@ def describe(source):
             out["kind"] = "cura"
             out["format"] = "cura_project"
             out["cura_settings"] = parse_cura_settings(archive, name_set)
+        elif application and "prusaslicer" in application.lower():
+            # A genuine PrusaSlicer CLI export carries the Application
+            # metadata and a Slic3r_PE_model.config but no settings
+            # snapshot: the producer is proven, the class stays
+            # geometry-only below because no settings ride along.
+            out["kind"] = "prusa"
+            out["format"] = "core_3mf"
         elif has_mesh:
             out["kind"] = "generic-core"
             out["format"] = "core_3mf"
