@@ -102,6 +102,54 @@ DISCORD_ONLY_BUTTON_POSTS = {"post_plate_picker", "post_insertion_confirmation",
 
 SAFE_LABELS = ("cancel", "not now", "keep", "skip", "no", "later", "done")
 
+# Filament-flow parity for #1515: each spool action a person can take in chat
+# must also be reachable from the Web UI API that the Home Assistant
+# integration (catduckgnaf/ha-print-handy) calls. Each row is driven through
+# the production entry points: the chat command registry, the Web UI route
+# table, and spools.spool_action against a stateful fake Spoolman. Runout is
+# a printer event, not a spool action; the operator answers it with assign or
+# swap, which are rows here.
+FILAMENT_ACTIONS = (
+    # (action, chat subcommand, API action, API body, check on the fake Spoolman)
+    ("load / assign", "change", "assign", {"slot": 1, "spool_id": 7},
+     lambda fake: fake.spools[7]["extra"].get("ph_slot")),
+    ("swap", "change", "swap", {"slot_a": 1, "slot_b": 2},
+     lambda fake: fake.spools[3]["extra"].get("ph_slot")),
+    ("shelve", "shelve", "unassign", {"slot": 2},
+     lambda fake: any(c[0] == "PATCH" and c[1] == "/api/v1/spool/3" for c in fake.calls)),
+    ("new spool", "new", "add", {"material": "PLA", "color": "White", "grams": 1000},
+     lambda fake: any(c[0] == "POST" and c[1] == "/api/v1/spool" for c in fake.calls)),
+    ("rename", "rename", "edit", {"spool_id": 7, "nickname": "Lucy's pink"},
+     lambda fake: "ph_nickname" in fake.spools[7]["extra"]),
+    ("archive", "archive", "edit", {"spool_id": 7, "archived": True},
+     lambda fake: fake.spools[7]["archived"] is True),
+    ("unarchive", "unarchive", "edit", {"spool_id": 11, "archived": False},
+     lambda fake: fake.spools[11]["archived"] is False),
+)
+
+
+@pytest.mark.parametrize("label,chat_word,api_action,body,check", FILAMENT_ACTIONS,
+                         ids=[row[0] for row in FILAMENT_ACTIONS])
+def test_every_filament_action_reaches_chat_and_the_web_ui_api(label, chat_word, api_action,
+                                                               body, check, tmp_path, monkeypatch):
+    from print_handy.runtime import spool_sync
+    from print_handy.webui import routes, spools
+    from tests.test_webui_spools import PRINTER, FakeSpoolman, enabled, fake_mr, state_file
+
+    spool_command = next(c for c in commands.COMMANDS if c.name == "spool")
+    assert chat_word in {s.word for s in spool_command.subcommands}, label
+
+    route, _ = routes.resolve("POST", f"/api/printers/{PRINTER}/spools/{api_action}")
+    assert route is not None and route.handler == "_printer_post_route", label
+
+    monkeypatch.setattr(spool_sync, "push_screen", lambda *a, **k: "pushed")
+    monkeypatch.setattr(spool_sync, "_printer_adapter", lambda pid: None)
+    fake = FakeSpoolman()
+    code, out = spools.spool_action(enabled(str(tmp_path)), PRINTER, api_action, dict(body),
+                                    client=fake, mr=fake_mr(), state_path=state_file(str(tmp_path)))
+    assert code == 200, (label, out)
+    assert check(fake), (label, fake.calls)
+
 
 def _safe_index(labels):
     for want in SAFE_LABELS:
