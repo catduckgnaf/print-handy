@@ -1,1 +1,129 @@
-{"cells":[{"destination":"orca","evidence":"real-destination-slice","feature":"import, slice, editable export, filament accounting","fixture":"tests/corpus/cases (Orca-shaped projects)","gap":null,"id":"orca-source-orca-slice","owner":"print_handy/core/orca_adapter.py","source":"orca"},{"destination":"orca","evidence":"real-destination-slice","feature":"import and slice","fixture":"tests/corpus/cases/foreign-bambu-profile","gap":null,"id":"bambu-source-orca-slice","owner":"print_handy/core/author_settings.py","source":"bambu"},{"destination":"bambu_studio","evidence":"real-destination-slice","feature":"real A1 slice, primary and Orca fallback","fixture":"tests/slicer/test_bambu_real_a1.py","gap":"The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.","id":"bambu-source-bambu-slice","owner":"print_handy/core/orca_adapter.py","source":"bambu"},{"destination":"orca","evidence":"real-destination-slice","feature":"settings translation, object and volume roles, real slice","fixture":"tests/slicer/test_prusa_foreign_real.py","gap":"The long-standing slicer-tier fixture is a hand-built Slic3r config shape, not a genuine PrusaSlicer export. A genuine PrusaSlicer-produced fixture is tracked by the fixture provenance manifest (tests/corpus/producer-fixtures/PROVENANCE.json); until its class is genuine, this cell does not claim genuine-producer evidence.","id":"prusa-source-orca-slice","owner":"print_handy/core/author_settings.py","source":"prusa"},{"destination":"orca","evidence":"spec-synthetic","feature":"validated-subset settings translation, then destination slice","fixture":"tests/corpus/producer-fixtures/cura-spec-synthetic.3mf","gap":"No genuine Cura-produced fixture is claimed until a real UltiMaker Cura binary produces one in the extended tier; see the fixture provenance manifest and scripts/generate_producer_fixtures.py.","id":"cura-source-orca-slice","owner":"print_handy/core/source_descriptor.py","source":"cura"},{"destination":"orca","evidence":"mocked-parse","feature":"detection only (X-ACNext slice_info marker); geometry import as a Bambu-lineage project","fixture":"tests/core/test_source_descriptor_1525.py (synthetic marker fixture)","gap":"No settings translation is claimed for Anycubic Slicer Next Gen; no genuine fixture is redistributed. Detection only, on the published slice_info marker.","id":"anycubic-source-generic","owner":"print_handy/core/source_descriptor.py","source":"anycubic"},{"destination":"orca","evidence":"real-destination-slice","feature":"geometry-only import with destination defaults","fixture":"tests/corpus/cases/core-one-color","gap":null,"id":"generic-core-destination","owner":"print_handy/core/source_descriptor.py","source":"generic-core"},{"destination":"none","evidence":"mocked-parse","feature":"read-only plan and statistics; editable export refused","fixture":"tests/core/test_editable_export_1525.py (synthetic sliced-only package)","gap":"Sliced-only packages are never presented as editable projects.","id":"gcode-only-readonly","owner":"print_handy/core/editable_export.py","source":"gcode-only"},{"destination":"snapmaker_u1","evidence":"mocked-parse","feature":"read-only feasibility report for projects exceeding physical tools","fixture":"tests/core/test_u1_feasibility_1525.py","gap":"U1 hardware is unverified: no U1 has printed through Print Handy. The report never claims a print is possible on hardware.","id":"u1-multicolor-feasibility","owner":"print_handy/core/u1_feasibility.py","source":"any"}],"gaps":[{"cell":"cura-source-orca-slice","gap":"Genuine Cura-produced 3MF fixture not yet produced in this environment; translation ships against spec-synthetic fixtures plus an extended-tier generator script.","id":"gap-cura-genuine-fixture","owner":"extended CI tier (.github/workflows/cross-slicer-extended.yml)"},{"cell":"prusa-source-orca-slice","gap":"Genuine PrusaSlicer-produced fixture provenance is recorded in tests/corpus/producer-fixtures/PROVENANCE.json; the slicer-tier hand-built fixture remains labeled synthetic.","id":"gap-prusa-genuine-fixture","owner":"extended CI tier (.github/workflows/cross-slicer-extended.yml)"},{"cell":"bambu-source-bambu-slice","gap":"Bambu Studio slicer check exists in CI but is not branch-protection-required (verified 2026-11-16). Promoting it is a repository-settings decision for catduck, not a code change in this PR.","id":"gap-bambu-not-required","owner":"repository settings"},{"cell":"orca-source-orca-slice","gap":"Orca --export-statistics and plate statistics JSON are verified only where the slicer-tier test runs against the pinned Orca 2.5.0 binary; the offline path falls back to verified G-code comment parsing and records which path produced the numbers.","id":"gap-orca-statistics-flag","owner":"print_handy/core/plate_statistics.py"},{"cell":"u1-multicolor-feasibility","gap":"No physical U1 verification exists; feasibility output is a report, never a print plan.","id":"gap-u1-hardware","owner":"manual hardware verification"}],"issue":1525,"note":"Machine-readable cross-slicer capability manifest. Evidence levels: genuine-producer (a real producer binary made the fixture), real-destination-slice (a real destination slicer opened or sliced the result), spec-synthetic (fixture built from the producer's published or open-source format, labeled as such), mocked-parse (parser-level tests only), unverified (no executed evidence). A cell may only be upgraded when an executed test proves the higher level.","schema_version":1}
+{
+  "cells": [
+    {
+      "destination": "orca",
+      "evidence": "real-destination-slice",
+      "feature": "import, slice, editable export, filament accounting",
+      "fixture": "tests/corpus/cases (Orca-shaped projects)",
+      "gap": null,
+      "id": "orca-source-orca-slice",
+      "owner": "print_handy/core/orca_adapter.py",
+      "source": "orca"
+    },
+    {
+      "destination": "orca",
+      "evidence": "real-destination-slice",
+      "feature": "import and slice",
+      "fixture": "tests/corpus/cases/foreign-bambu-profile",
+      "gap": null,
+      "id": "bambu-source-orca-slice",
+      "owner": "print_handy/core/author_settings.py",
+      "source": "bambu"
+    },
+    {
+      "destination": "bambu_studio",
+      "evidence": "real-destination-slice",
+      "feature": "real A1 slice, primary and Orca fallback",
+      "fixture": "tests/slicer/test_bambu_real_a1.py",
+      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "id": "bambu-source-bambu-slice",
+      "owner": "print_handy/core/orca_adapter.py",
+      "source": "bambu"
+    },
+    {
+      "destination": "orca",
+      "evidence": "real-destination-slice",
+      "feature": "settings translation, object and volume roles, real slice",
+      "fixture": "tests/slicer/test_prusa_foreign_real.py",
+      "gap": "The long-standing slicer-tier fixture is a hand-built Slic3r config shape, not a genuine PrusaSlicer export. A genuine PrusaSlicer-produced fixture is tracked by the fixture provenance manifest (tests/corpus/producer-fixtures/PROVENANCE.json); until its class is genuine, this cell does not claim genuine-producer evidence.",
+      "id": "prusa-source-orca-slice",
+      "owner": "print_handy/core/author_settings.py",
+      "source": "prusa"
+    },
+    {
+      "destination": "orca",
+      "evidence": "spec-synthetic",
+      "feature": "validated-subset settings translation, then destination slice",
+      "fixture": "tests/corpus/producer-fixtures/cura-spec-synthetic.3mf",
+      "gap": "No genuine Cura-produced fixture is claimed until a real UltiMaker Cura binary produces one in the extended tier; see the fixture provenance manifest and scripts/generate_producer_fixtures.py.",
+      "id": "cura-source-orca-slice",
+      "owner": "print_handy/core/source_descriptor.py",
+      "source": "cura"
+    },
+    {
+      "destination": "orca",
+      "evidence": "mocked-parse",
+      "feature": "detection only (X-ACNext slice_info marker); geometry import as a Bambu-lineage project",
+      "fixture": "tests/core/test_source_descriptor_1525.py (synthetic marker fixture)",
+      "gap": "No settings translation is claimed for Anycubic Slicer Next Gen; no genuine fixture is redistributed. Detection only, on the published slice_info marker.",
+      "id": "anycubic-source-generic",
+      "owner": "print_handy/core/source_descriptor.py",
+      "source": "anycubic"
+    },
+    {
+      "destination": "orca",
+      "evidence": "real-destination-slice",
+      "feature": "geometry-only import with destination defaults",
+      "fixture": "tests/corpus/cases/core-one-color",
+      "gap": null,
+      "id": "generic-core-destination",
+      "owner": "print_handy/core/source_descriptor.py",
+      "source": "generic-core"
+    },
+    {
+      "destination": "none",
+      "evidence": "mocked-parse",
+      "feature": "read-only plan and statistics; editable export refused",
+      "fixture": "tests/core/test_editable_export_1525.py (synthetic sliced-only package)",
+      "gap": "Sliced-only packages are never presented as editable projects.",
+      "id": "gcode-only-readonly",
+      "owner": "print_handy/core/editable_export.py",
+      "source": "gcode-only"
+    },
+    {
+      "destination": "snapmaker_u1",
+      "evidence": "mocked-parse",
+      "feature": "read-only feasibility report for projects exceeding physical tools",
+      "fixture": "tests/core/test_u1_feasibility_1525.py",
+      "gap": "U1 hardware is unverified: no U1 has printed through Print Handy. The report never claims a print is possible on hardware.",
+      "id": "u1-multicolor-feasibility",
+      "owner": "print_handy/core/u1_feasibility.py",
+      "source": "any"
+    }
+  ],
+  "gaps": [
+    {
+      "cell": "cura-source-orca-slice",
+      "gap": "Genuine Cura-produced 3MF fixture not yet produced in this environment; translation ships against spec-synthetic fixtures plus an extended-tier generator script.",
+      "id": "gap-cura-genuine-fixture",
+      "owner": "extended CI tier (.github/workflows/cross-slicer-extended.yml)"
+    },
+    {
+      "cell": "prusa-source-orca-slice",
+      "gap": "Genuine PrusaSlicer-produced fixture provenance is recorded in tests/corpus/producer-fixtures/PROVENANCE.json; the slicer-tier hand-built fixture remains labeled synthetic.",
+      "id": "gap-prusa-genuine-fixture",
+      "owner": "extended CI tier (.github/workflows/cross-slicer-extended.yml)"
+    },
+    {
+      "cell": "bambu-source-bambu-slice",
+      "gap": "Bambu Studio slicer check exists in CI but is not branch-protection-required (verified 2026-11-16). Promoting it is a repository-settings decision for catduck, not a code change in this PR.",
+      "id": "gap-bambu-not-required",
+      "owner": "repository settings"
+    },
+    {
+      "cell": "orca-source-orca-slice",
+      "gap": "Orca --export-statistics and plate statistics JSON are verified only where the slicer-tier test runs against the pinned Orca 2.5.0 binary; the offline path falls back to verified G-code comment parsing and records which path produced the numbers.",
+      "id": "gap-orca-statistics-flag",
+      "owner": "print_handy/core/plate_statistics.py"
+    },
+    {
+      "cell": "u1-multicolor-feasibility",
+      "gap": "No physical U1 hardware verification exists; feasibility output is a report, never a print plan, and U1 stays hardware-unverified.",
+      "id": "gap-u1-hardware",
+      "owner": "manual hardware verification"
+    }
+  ],
+  "issue": 1525,
+  "note": "Machine-readable cross-slicer capability manifest. Evidence levels: genuine-producer (a real producer binary made the fixture), real-destination-slice (a real destination slicer opened or sliced the result), spec-synthetic (fixture built from the producer's published or open-source format, labeled as such), mocked-parse (parser-level tests only), unverified (no executed evidence). A cell may only be upgraded when an executed test proves the higher level.",
+  "schema_version": 1
+}
