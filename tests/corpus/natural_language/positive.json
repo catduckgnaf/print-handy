@@ -1,0 +1,895 @@
+{
+ "cases": [
+  {
+   "text": "How much purple PLA do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "purple",
+    "material": "pla"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How much is left of my matte black PLA+?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "black",
+    "material": "pla+"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Do I have any red filament?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "red"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Do I own any ASA?",
+   "intent": "inventory_total",
+   "slots": {
+    "material": "asa"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which colors do I own?",
+   "intent": "inventory_list",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Show all Polymaker spools",
+   "intent": "inventory_list",
+   "slots": {
+    "brand": "polymaker"
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which brand has the most grams remaining?",
+   "intent": "inventory_list",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How many rolls of black PETG are left?",
+   "intent": "inventory_count",
+   "slots": {
+    "color": "black",
+    "material": "petg"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Tell me about spool #12",
+   "intent": "spool_detail",
+   "slots": {
+    "spool_id": 12
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What color is spool 12?",
+   "intent": "spool_detail",
+   "slots": {
+    "spool_id": 12
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Where is spool 12?",
+   "intent": "spool_detail",
+   "slots": {
+    "spool_id": 12
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is spool 12 in the IFS?",
+   "intent": "spool_detail",
+   "slots": {
+    "spool_id": 12
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What's loaded?",
+   "intent": "loaded_spools",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What's in slot 2?",
+   "intent": "loaded_spools",
+   "slots": {
+    "slot": 2
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which spools are loaded?",
+   "intent": "loaded_spools",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How much white PLA is loaded?",
+   "intent": "loaded_spools",
+   "slots": {
+    "color": "white",
+    "material": "pla"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is the purple PLA loaded?",
+   "intent": "loaded_spools",
+   "slots": {
+    "color": "purple",
+    "material": "pla"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which spools are on the shelf?",
+   "intent": "inventory_shelf",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How many kilograms are on the shelf?",
+   "intent": "inventory_shelf",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which spools are nearly empty?",
+   "intent": "inventory_nearly_empty",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which color am I running out of?",
+   "intent": "inventory_nearly_empty",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which spool is almost empty?",
+   "intent": "inventory_nearly_empty",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which spools have missing weights?",
+   "intent": "inventory_unknown_weights",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which have unknown weights?",
+   "intent": "inventory_unknown_weights",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Do I have enough purple PETG for this 240 g model?",
+   "intent": "inventory_enough",
+   "slots": {
+    "color": "purple",
+    "material": "petg",
+    "required_grams": 240.0
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Do I have enough for this model?",
+   "intent": "inventory_enough",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "note": "no verified requirement: the answer must ask for the model or slice"
+  },
+  {
+   "text": "Where can I buy PLA?",
+   "intent": "purchase_guidance",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Buy filament",
+   "intent": "purchase_guidance",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Add a new spool",
+   "intent": "spool_add",
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Add three new spools",
+   "intent": "spool_add",
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Load a spool",
+   "intent": "spool_load",
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Load spool 12 into slot 2",
+   "intent": "spool_load",
+   "slots": {
+    "spool_id": 12,
+    "slot": 2
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Move spool 12 to the shelf",
+   "intent": "spool_load",
+   "slots": {
+    "spool_id": 12
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "My spool weight is wrong",
+   "intent": "spool_weight_guidance",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Correct spool 12 to 400 g",
+   "intent": "spool_weight_guidance",
+   "slots": {
+    "spool_id": 12
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What firmware am I on?",
+   "intent": "firmware_version",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What ZMod version is installed?",
+   "intent": "firmware_version",
+   "slots": {
+    "component": "ZMod"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Are there ZMod updates?",
+   "intent": "firmware_updates",
+   "slots": {
+    "component": "ZMod"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is there an update?",
+   "intent": "firmware_updates",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is Klipper current?",
+   "intent": "firmware_updates",
+   "slots": {
+    "component": "Klipper"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Check for updates",
+   "intent": "firmware_updates",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which components need updating?",
+   "intent": "firmware_updates",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Update ZMod",
+   "intent": "firmware_update_apply",
+   "slots": {
+    "component": "ZMod"
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Update Moonraker",
+   "intent": "firmware_update_apply",
+   "slots": {
+    "component": "Moonraker"
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "How do I update?",
+   "intent": "firmware_howto",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How do I update the stock AD5X?",
+   "intent": "firmware_howto",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Can Print Handy apply a Bambu update itself?",
+   "intent": "firmware_howto",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Show the latest Forge-X release",
+   "intent": "firmware_release_notes",
+   "slots": {
+    "component": "Forge-X"
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Has OpenCreator published a new release?",
+   "intent": "firmware_release_notes",
+   "slots": {
+    "component": "OpenCreator"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is OpenCreator newer than what I have?",
+   "intent": "firmware_updates",
+   "slots": {
+    "component": "OpenCreator"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What did the latest release change?",
+   "intent": "firmware_release_notes",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What is the AD5X doing?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is anything printing?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which printers are idle?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How long left?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What layer is it on?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Percent complete?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "When will it finish?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How much filament has it used?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What file is printing?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What's the nozzle temperature?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is the printer offline?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Why is the printer offline?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Why did the print stop?",
+   "intent": "printer_status",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Pause isn't working",
+   "intent": "printer_status",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "note": "a diagnostic statement, never a pause command"
+  },
+  {
+   "text": "Show my printer statuses",
+   "intent": "printer_status",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What was my last print?",
+   "intent": "print_history",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Did the last print fail?",
+   "intent": "print_history",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What did I print yesterday?",
+   "intent": "print_history",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How many prints failed this month?",
+   "intent": "print_history",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Show Wrapped",
+   "intent": "print_history",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Roast my last print",
+   "intent": "print_history",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Show my camera",
+   "intent": "camera_view",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Take a picture",
+   "intent": "camera_view",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is Pasta Cam running?",
+   "intent": "camera_view",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Show my last timelapse",
+   "intent": "camera_view",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "When did it last flag a problem?",
+   "intent": "camera_view",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Pause my print",
+   "intent": "print_pause",
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Pause the printer",
+   "intent": "print_pause",
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Resume it",
+   "intent": "print_resume",
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "Stop this job",
+   "intent": "print_stop",
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ]
+  },
+  {
+   "text": "My first layer won't stick",
+   "intent": "troubleshooting",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "The extruder clicks",
+   "intent": "troubleshooting",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Why are my layers shifting?",
+   "intent": "troubleshooting",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "My filament is popping",
+   "intent": "troubleshooting",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "The printer isn't printing",
+   "intent": "troubleshooting",
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What maintenance is due?",
+   "intent": "maintenance_due",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "When was my last calibration?",
+   "intent": "maintenance_due",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What macros are available?",
+   "intent": "maintenance_due",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What can you do?",
+   "intent": "capability_help",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which models are supported?",
+   "intent": "capability_help",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What sites can you print from?",
+   "intent": "capability_help",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Is Spoolman connected?",
+   "intent": "capability_help",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What is on T2?",
+   "intent": "indx_tool_question",
+   "slots": {
+    "tool": "t2"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which tool has black PETG?",
+   "intent": "indx_tool_question",
+   "slots": {
+    "color": "black",
+    "material": "petg"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Put black PETG on T2",
+   "intent": "indx_tool_question",
+   "slots": {
+    "tool": "t2"
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "note": "registered only (#1198): never loads anything"
+  },
+  {
+   "text": "Can this fit on my bed?",
+   "intent": "model_fit_question",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Can this printer print TPU?",
+   "intent": "model_fit_question",
+   "slots": {
+    "material": "tpu"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "How many copies will fit?",
+   "intent": "model_fit_question",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  }
+ ]
+}

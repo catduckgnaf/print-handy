@@ -1,0 +1,378 @@
+{
+ "comment": "Sentence templates for the natural-language capability layer (#1524). Each template is a regex matched against the normalized message; named groups spool_id, slot, component and tool are slots. Word slots (color, material, brand, printer) are filled by the vocabulary scan in natural_language.py, built from live Spoolman and roster data. Order is priority: the first matching template wins, and the pairwise-ambiguity corpus test fails when a positive utterance matches more than one intent.",
+ "templates": [
+  {
+   "intent": "purchase_record",
+   "pattern": "^i (just )?(bought|ordered|purchased)\\b.*$"
+  },
+  {
+   "intent": "troubleshooting",
+   "pattern": "^(my |the )?(first layer|print|prints|filament|extruder|nozzle|bed|corners|layers|stringing|strings|spaghetti).*(won't stick|not sticking|clicking|clicks|clogged|clog|warping|shifting|shifted|popping|spaghetti|stringing|strings everywhere|won't feed|not feeding).*$"
+  },
+  {
+   "intent": "troubleshooting",
+   "pattern": "^why (are|is|does|do|did) .*(shift|warp|pop|click|clog|string).*$"
+  },
+  {
+   "intent": "troubleshooting",
+   "pattern": "^(my printer|the printer) (isn't|is not|won't|wont) printing.*$"
+  },
+  {
+   "intent": "spool_detail",
+   "pattern": "^(tell me about|show( me)?|details for|show details for|where is|where's) (the )?spool #?(?P<spool_id>\\d+)\\b.*$"
+  },
+  {
+   "intent": "spool_detail",
+   "pattern": "^spool #?(?P<spool_id>\\d+)\\b.*$"
+  },
+  {
+   "intent": "spool_detail",
+   "pattern": "^(what|which) (brand|material|color|colour) is (spool )?#?(?P<spool_id>\\d+)\\b.*$"
+  },
+  {
+   "intent": "loaded_spools",
+   "pattern": "^what('s| is| are)? (in|on) (the )?(ifs |ams |slot )?(?P<slot>\\d+)\\b.*$"
+  },
+  {
+   "intent": "loaded_spools",
+   "pattern": "^what('s| is)? loaded.*$"
+  },
+  {
+   "intent": "loaded_spools",
+   "pattern": "^which spools are loaded.*$"
+  },
+  {
+   "intent": "loaded_spools",
+   "pattern": "^how much .* is loaded.*$"
+  },
+  {
+   "intent": "loaded_spools",
+   "pattern": "^is .* loaded.*$"
+  },
+  {
+   "intent": "inventory_shelf",
+   "pattern": "^which spools are on the shelf.*$"
+  },
+  {
+   "intent": "inventory_shelf",
+   "pattern": "^(show|list) (the )?shelf spools.*$"
+  },
+  {
+   "intent": "inventory_shelf",
+   "pattern": "^how many kilograms are on the shelf.*$"
+  },
+  {
+   "intent": "inventory_nearly_empty",
+   "pattern": "^which (spools|rolls) are (nearly empty|almost empty|running out|low).*$"
+  },
+  {
+   "intent": "inventory_nearly_empty",
+   "pattern": "^which color am i running out of.*$"
+  },
+  {
+   "intent": "inventory_nearly_empty",
+   "pattern": "^which spool is almost empty.*$"
+  },
+  {
+   "intent": "inventory_unknown_weights",
+   "pattern": "^which spools have (missing|unknown) weights.*$"
+  },
+  {
+   "intent": "inventory_unknown_weights",
+   "pattern": "^which have unknown weights.*$"
+  },
+  {
+   "intent": "inventory_count",
+   "pattern": "^how many (rolls|spools) of .* (are )?(left|do i have).*$"
+  },
+  {
+   "intent": "inventory_count",
+   "pattern": "^how many (rolls|spools) do i have.*$"
+  },
+  {
+   "intent": "inventory_total",
+   "pattern": "^how much .* do i have.*$"
+  },
+  {
+   "intent": "inventory_total",
+   "pattern": "^how much filament do i have.*$"
+  },
+  {
+   "intent": "inventory_total",
+   "pattern": "^what('s| is) left of (my|the) .*$"
+  },
+  {
+   "intent": "inventory_total",
+   "pattern": "^do i (own|have) any .*$"
+  },
+  {
+   "intent": "inventory_list",
+   "pattern": "^(show|list) (all )?.* spools.*$"
+  },
+  {
+   "intent": "inventory_list",
+   "pattern": "^which (colors|colours) do i own.*$"
+  },
+  {
+   "intent": "inventory_list",
+   "pattern": "^which brand has the most grams remaining.*$"
+  },
+  {
+   "intent": "inventory_enough",
+   "pattern": "^do i have enough .*$"
+  },
+  {
+   "intent": "inventory_enough",
+   "pattern": "^is there enough .* for .*$"
+  },
+  {
+   "intent": "firmware_howto",
+   "pattern": "^how do i update.*$"
+  },
+  {
+   "intent": "firmware_howto",
+   "pattern": "^can print handy apply.*$"
+  },
+  {
+   "intent": "firmware_release_notes",
+   "pattern": "^(show|what is|what's) the latest (forge-x|ff5m|opencreator|open creator) release.*$"
+  },
+  {
+   "intent": "firmware_release_notes",
+   "pattern": "^has (opencreator|open creator|forge-x|ff5m) published a new release.*$"
+  },
+  {
+   "intent": "firmware_release_notes",
+   "pattern": "^what did the latest release change.*$"
+  },
+  {
+   "intent": "firmware_release_notes",
+   "pattern": "^show release notes.*$"
+  },
+  {
+   "intent": "firmware_updates",
+   "pattern": "^(are there|is there|check for|any) .*(updates?|new firmware).*$"
+  },
+  {
+   "intent": "firmware_updates",
+   "pattern": "^is .* (current|up to date).*$"
+  },
+  {
+   "intent": "firmware_updates",
+   "pattern": "^which components need updating.*$"
+  },
+  {
+   "intent": "firmware_updates",
+   "pattern": "^is (opencreator|open creator) newer.*$"
+  },
+  {
+   "intent": "firmware_version",
+   "pattern": "^what firmware.*$"
+  },
+  {
+   "intent": "firmware_version",
+   "pattern": "^what .* version is (installed|running).*$"
+  },
+  {
+   "intent": "firmware_version",
+   "pattern": "^what version .* (running|installed).*$"
+  },
+  {
+   "intent": "firmware_update_apply",
+   "pattern": "^(please )?(update|upgrade) (?P<component>[a-z0-9 -]+)$"
+  },
+  {
+   "intent": "firmware_update_apply",
+   "pattern": "^(please )?update (the )?firmware.*$"
+  },
+  {
+   "intent": "printer_status",
+   "pattern": "^what is .* doing.*$"
+  },
+  {
+   "intent": "printer_status",
+   "pattern": "^what('s| is) the .*(status|temperature|eta).*$"
+  },
+  {
+   "intent": "printer_status",
+   "pattern": "^(is anything printing|which printers are idle|is the printer offline|why is the printer offline).*$"
+  },
+  {
+   "intent": "printer_status",
+   "pattern": "^(how long left|what layer|percent complete|when will it finish|how much filament has it used|what file is printing).*$"
+  },
+  {
+   "intent": "printer_status",
+   "pattern": "^show my printer statuses.*$"
+  },
+  {
+   "intent": "printer_status",
+   "pattern": "^why did the print stop.*$"
+  },
+  {
+   "intent": "printer_status",
+   "pattern": "^pause isn't working.*$"
+  },
+  {
+   "intent": "print_history",
+   "pattern": "^what was my last print.*$"
+  },
+  {
+   "intent": "print_history",
+   "pattern": "^did the last print fail.*$"
+  },
+  {
+   "intent": "print_history",
+   "pattern": "^what did i print (yesterday|today).*$"
+  },
+  {
+   "intent": "print_history",
+   "pattern": "^how many prints failed this month.*$"
+  },
+  {
+   "intent": "print_history",
+   "pattern": "^show (pasta )?wrapped.*$"
+  },
+  {
+   "intent": "print_history",
+   "pattern": "^roast my last print.*$"
+  },
+  {
+   "intent": "camera_view",
+   "pattern": "^(show|check) (me )?(the |my )?camera.*$"
+  },
+  {
+   "intent": "camera_view",
+   "pattern": "^take a picture.*$"
+  },
+  {
+   "intent": "camera_view",
+   "pattern": "^is pasta cam running.*$"
+  },
+  {
+   "intent": "camera_view",
+   "pattern": "^show my last timelapse.*$"
+  },
+  {
+   "intent": "camera_view",
+   "pattern": "^when did it last flag a problem.*$"
+  },
+  {
+   "intent": "maintenance_due",
+   "pattern": "^what maintenance is due.*$"
+  },
+  {
+   "intent": "maintenance_due",
+   "pattern": "^when was my last calibration.*$"
+  },
+  {
+   "intent": "maintenance_due",
+   "pattern": "^what macros are available.*$"
+  },
+  {
+   "intent": "print_pause",
+   "pattern": "^(please )?pause (my |the )?(print|printer|job).*$"
+  },
+  {
+   "intent": "print_resume",
+   "pattern": "^(please )?(resume|continue|unpause)( it| the print| my print)?$"
+  },
+  {
+   "intent": "print_stop",
+   "pattern": "^(please )?(stop|cancel|abort) (this|the|my) (job|print).*$"
+  },
+  {
+   "intent": "spool_add",
+   "pattern": "^(please )?(add|create) (a |an )?(new )?(spool|roll|filament).*$"
+  },
+  {
+   "intent": "spool_add",
+   "pattern": "^add (three|two|\\d+) new spools.*$"
+  },
+  {
+   "intent": "spool_load",
+   "pattern": "^(please )?load spool #?(?P<spool_id>\\d+) into slot (?P<slot>\\d+).*$"
+  },
+  {
+   "intent": "spool_load",
+   "pattern": "^(please )?load (a |the )?(spool|roll|filament).*$"
+  },
+  {
+   "intent": "spool_load",
+   "pattern": "^move spool #?(?P<spool_id>\\d+) to the shelf.*$"
+  },
+  {
+   "intent": "spool_weight_guidance",
+   "pattern": "^my spool weight is wrong.*$"
+  },
+  {
+   "intent": "spool_weight_guidance",
+   "pattern": "^correct spool #?(?P<spool_id>\\d+) to \\d+ ?g.*$"
+  },
+  {
+   "intent": "purchase_guidance",
+   "pattern": "^where (can|do) i (buy|get|order) .*$"
+  },
+  {
+   "intent": "purchase_guidance",
+   "pattern": "^(please )?(buy|order|purchase) (more )?(filament|spools?|pla|petg|abs|asa|tpu|nylon).*$"
+  },
+  {
+   "intent": "capability_help",
+   "pattern": "^what can you do.*$"
+  },
+  {
+   "intent": "capability_help",
+   "pattern": "^which models are supported.*$"
+  },
+  {
+   "intent": "capability_help",
+   "pattern": "^what sites can you print from.*$"
+  },
+  {
+   "intent": "capability_help",
+   "pattern": "^is spoolman connected.*$"
+  },
+  {
+   "intent": "capability_help",
+   "pattern": "^show diagnostics.*$"
+  },
+  {
+   "intent": "indx_tool_question",
+   "pattern": "^what is on (?P<tool>t\\d+).*$"
+  },
+  {
+   "intent": "indx_tool_question",
+   "pattern": "^which tool has .*$"
+  },
+  {
+   "intent": "indx_tool_question",
+   "pattern": "^put .* on (?P<tool>t\\d+).*$"
+  },
+  {
+   "intent": "model_fit_question",
+   "pattern": "^can this (fit|printer print) .*$"
+  },
+  {
+   "intent": "model_fit_question",
+   "pattern": "^can this fit on my bed.*$"
+  },
+  {
+   "intent": "model_fit_question",
+   "pattern": "^how many copies will fit.*$"
+  },
+  {
+   "intent": "inventory_total",
+   "pattern": "^how much is left of .*$"
+  },
+  {
+   "intent": "spool_detail",
+   "pattern": "^is spool #?(?P<spool_id>\\d+) in .*$"
+  },
+  {
+   "intent": "inventory_list",
+   "pattern": "^(show|list) .* filament.*$"
+  }
+ ],
+ "version": 1
+}
