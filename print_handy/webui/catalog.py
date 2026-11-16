@@ -462,13 +462,15 @@ CATALOG = (
            "ntfy topic the events are published to. A protected topic's access "
            "token is NTFY_ACCESS_TOKEN in the environment — never a setting.",
            validator="settings notify check"),
-    # Firmware update alerts: one chat alert per new ZMod release, with an
-    # Update button that runs the confirmed /print-firmware update path.
+    # Firmware update alerts: one chat alert per new ZMod or HelixScreen
+    # release, with an Update button that runs the confirmed
+    # /print-firmware update path.
     _field("firmware", "update_alerts", "Firmware update alerts", "toggle",
            "Post one chat notice when the firmware a printer runs has a new "
-           "release, and for a ZMod printer one alert per new ZMod release. The "
-           "ZMod alert's Update button asks once more and checks the "
-           "printer is idle before anything is sent; nothing updates on its own.",
+           "release, and for a ZMod printer one alert per new ZMod or "
+           "HelixScreen release. The alert's Update button asks once more and "
+           "checks the printer is idle before anything is sent; nothing updates "
+           "on its own.",
            validator="settings firmware check"),
     _field("firmware", "update_check_hours", "Update check interval (hours)", "number",
            "Hours between update checks for each printer (1 to 168). A check is "
