@@ -1,4 +1,8 @@
-"""The optional LLM words replies and may name a command. It can never start, stop or write anything itself."""
+"""The optional LLM words replies, may call one typed read-only tool, and may
+propose an action as a capability plus typed slots (#1524 tranche 6). It never
+names a command string: the runtime builds any command from the proposal's
+slots and the normal handler's confirmation still decides. A legacy "command"
+field in model output is ignored."""
 import asyncio
 import io
 import json
@@ -18,8 +22,16 @@ LLM_URL = "http://llm.test/v1/chat/completions"
 
 
 class FakeLLM:
-    def __init__(self, reply, command=None, raw=None):
-        self.content = raw if raw is not None else json.dumps({"reply": reply, "command": command})
+    def __init__(self, reply, command=None, raw=None, proposal=None, tool=None):
+        if raw is not None:
+            self.content = raw
+        else:
+            payload = {"reply": reply, "command": command}
+            if proposal is not None:
+                payload["proposal"] = proposal
+            if tool is not None:
+                payload["tool"] = tool
+            self.content = json.dumps(payload)
         self.requests = []
 
     def __call__(self, req, timeout=None):
@@ -76,7 +88,8 @@ def test_only_read_only_or_button_gated_commands_are_allowed(command, allowed):
 
 
 def test_llm_picked_stop_still_waits_for_the_button_and_writes_nothing_without_it(llm_cfg):
-    opener = FakeLLM("I can stop it, press the button to confirm.", "/print-stop")
+    opener = FakeLLM("I can stop it, press the button to confirm.",
+                     proposal={"capability": "print_stop", "slots": {}})
     discord, core = make(llm_cfg, opener)
 
     async def flow():
@@ -97,7 +110,8 @@ def test_llm_picked_stop_still_waits_for_the_button_and_writes_nothing_without_i
         out = asyncio.run(flow())
     assert out["reason"] == "deterministic print stop handled"
     moonraker.assert_not_called()  # no Moonraker cancel: the button said keep printing
-    assert discord.sent[0].startswith("I can stop it") and discord.sent[-1] == "Kept printing. Nothing sent."
+    assert discord.sent[0] == runtime.ai_endpoint_notice_text()  # the one-time notice goes first
+    assert discord.sent[1].startswith("I can stop it") and discord.sent[-1] == "Kept printing. Nothing sent."
     assert len(opener.requests) == 1 and opener.requests[0]["model"] == "small-model"
 
 
@@ -106,7 +120,7 @@ def test_llm_reply_telling_the_user_to_type_the_command_it_runs_is_dropped_1373(
     cancellation" and, three seconds later, the stop confirm anyway. The
     confirm is the answer; the contradicting instruction is not posted."""
     opener = FakeLLM("Use `/print-stop` to request cancellation; it will ask you to confirm first.",
-                     "/print-stop")
+                     proposal={"capability": "print_stop", "slots": {}})
     discord, core = make(llm_cfg, opener)
 
     async def flow():
@@ -284,7 +298,8 @@ def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
                 return None
             router.register_hook("pre_gateway_dispatch", record)
 
-    opener = FakeLLM("Editing it now.", "/print-design make it taller")
+    opener = FakeLLM("Editing it now.",
+                     proposal={"capability": "print_design", "slots": {"prompt": "make it taller"}})
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(llm_cfg["discord"]["chat_id"]),
                                        operator_id=int(llm_cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, llm_cfg, llm_opener=opener, router=Router(plugin=_Plugin()))
@@ -301,6 +316,8 @@ def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
 
 
 def test_llm_naming_a_write_command_runs_nothing(llm_cfg):
+    """A legacy "command" string in model output is ignored entirely
+    (#1524 tranche 6): only the reply is posted, nothing is dispatched."""
     opener = FakeLLM("Syncing the screens now!", "/spool sync")
     discord, core = make(llm_cfg, opener)
     with mock.patch("print_handy.runtime.spool_sync.sync_all_screens") as sync, \
@@ -309,7 +326,7 @@ def test_llm_naming_a_write_command_runs_nothing(llm_cfg):
     sync.assert_not_called()
     bind.assert_not_called()
     assert out == {"action": "skip", "reason": "llm reply"}
-    assert discord.sent == ["Syncing the screens now!"]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), "Syncing the screens now!"]
     assert prompts.open_count() == 0
 
 
@@ -320,7 +337,9 @@ def test_llm_gcode_or_prose_is_only_text(llm_cfg):
             mock.patch("print_handy.runtime.print_next.start") as start:
         out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> home the printer")))
     start.assert_not_called()
-    assert out["reason"] == "llm reply" and discord.sent == ["Sure! Send M112 and G28 to the printer."]
+    assert out["reason"] == "llm reply"
+    assert discord.sent == [runtime.ai_endpoint_notice_text(),
+                            "Sure! Send M112 and G28 to the printer."]
 
 
 def test_llm_failure_falls_back_to_the_unmatched_reply(llm_cfg):
@@ -328,7 +347,8 @@ def test_llm_failure_falls_back_to_the_unmatched_reply(llm_cfg):
         raise OSError("llm down")
     discord, core = make(llm_cfg, broken)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
-    assert out == {"action": "skip", "reason": "command list"} and discord.sent == [core.unmatched]
+    assert out == {"action": "skip", "reason": "command list"}
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), core.unmatched]
 
 
 def test_llm_is_never_asked_about_commands_or_links(llm_cfg):
@@ -340,7 +360,8 @@ def test_llm_is_never_asked_about_commands_or_links(llm_cfg):
 
 
 def test_typed_answer_to_an_llm_routed_question_is_not_sent_to_the_llm(llm_cfg):
-    opener = FakeLLM("Stopping needs a button.", "/print-stop")
+    opener = FakeLLM("Stopping needs a button.",
+                     proposal={"capability": "print_stop", "slots": {}})
     discord, core = make(llm_cfg, opener)
 
     async def flow():
@@ -365,9 +386,11 @@ def test_typed_answer_to_an_llm_routed_question_is_not_sent_to_the_llm(llm_cfg):
 
 def test_llm_named_print_again_runs_through_the_normal_handler_with_its_confirmation(llm_cfg):
     """The #437 acceptance example, on a phrase no deterministic handler takes:
-    the stub LLM names /print-again 57, the normal handler runs it (bed-clear
+    the stub LLM proposes print_again for print 57, the runtime builds the
+    command from the typed slot, the normal handler runs it (bed-clear
     confirmation included) and no help text is sent."""
-    opener = FakeLLM("Running print 57 again — it still needs its button press.", "/print-again 57")
+    opener = FakeLLM("Running print 57 again — it still needs its button press.",
+                     proposal={"capability": "print_again", "slots": {"target": "57"}})
     discord, core = make(llm_cfg, opener)
     target = {"title": "Widget", "gcode": "/archive/widget.gcode", "job_json": "/archive/JOB.json"}
     started = []
@@ -391,7 +414,8 @@ def test_llm_named_print_again_runs_through_the_normal_handler_with_its_confirma
     confirm.assert_awaited_once()
     assert len(started) == 1 and started[0]["title"] == "Widget"
     assert core.help not in discord.sent
-    assert discord.sent[0].startswith("Running print 57 again")
+    assert discord.sent[0] == runtime.ai_endpoint_notice_text()
+    assert discord.sent[1].startswith("Running print 57 again")
 
 
 def test_llm_answer_alone_is_the_only_reply_no_help_after_it(llm_cfg):
@@ -399,7 +423,7 @@ def test_llm_answer_alone_is_the_only_reply_no_help_after_it(llm_cfg):
     discord, core = make(llm_cfg, opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> what does the printer dream about")))
     assert out == {"action": "skip", "reason": "llm reply"}
-    assert discord.sent == ["The printer is idle right now."]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), "The printer is idle right now."]
     assert len(opener.requests) == 1
 
 
@@ -408,7 +432,7 @@ def test_llm_declining_falls_back_to_the_unmatched_reply_once(llm_cfg):
     discord, core = make(llm_cfg, opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> what is the meaning of layer adhesion")))
     assert out == {"action": "skip", "reason": "command list"}
-    assert discord.sent == [core.unmatched]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), core.unmatched]
     assert len(opener.requests) == 1
 
 
@@ -428,7 +452,8 @@ def test_ai_invocation_asks_the_llm_the_bare_question(llm_cfg):
     discord, core = make(llm_cfg, opener)
     out = asyncio.run(core.process(_dm_event(core, discord, "ask ai: why is my print stringing")))
     assert out == {"action": "skip", "reason": "llm reply"}
-    assert discord.sent == ["Stringing usually means wet filament or too much retraction."]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(),
+                            "Stringing usually means wet filament or too much retraction."]
     assert opener.requests[0]["messages"][-1]["content"] == "why is my print stringing"
 
 
@@ -439,7 +464,7 @@ def test_ai_invocation_the_llm_declines_gets_the_ai_wording(llm_cfg):
     discord, core = make(llm_cfg, opener)
     out = asyncio.run(core.process(_dm_event(core, discord, "ask ai: tell me a joke")))
     assert out == {"action": "skip", "reason": "ai no answer"}
-    assert discord.sent == [runtime.ai_no_answer_text()]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), runtime.ai_no_answer_text()]
     assert len(opener.requests) == 1
 
 
@@ -466,17 +491,20 @@ def test_llm_timeout_falls_back_to_the_unmatched_reply_once(llm_cfg):
         raise TimeoutError("llm timed out")
     discord, core = make(llm_cfg, timing_out)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
-    assert out == {"action": "skip", "reason": "command list"} and discord.sent == [core.unmatched]
+    assert out == {"action": "skip", "reason": "command list"}
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), core.unmatched]
 
 
-def test_llm_naming_print_help_sends_the_help_once_without_its_own_reply(llm_cfg):
-    """Never both for one message (#437): /print-help's own output is the help,
-    so the LLM's wording is not sent alongside it."""
+def test_llm_naming_print_help_no_longer_dispatches_it(llm_cfg):
+    """#1524 tranche 6: the model cannot name commands at all — a legacy
+    "command" field is ignored, so its wording is the only reply (the
+    help text itself is one typed "/print-help" away, as always)."""
     opener = FakeLLM("Here is everything I can do.", "/print-help")
     discord, core = make(llm_cfg, opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
-    assert out == {"action": "skip", "reason": "help"}
-    assert discord.sent == [core.help]
+    assert out == {"action": "skip", "reason": "llm reply"}
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), "Here is everything I can do."]
+    assert core.help not in discord.sent
     assert len(opener.requests) == 1
 
 

@@ -779,6 +779,23 @@ def _ai_invocation(text):
     return match.group("q").strip() or None
 
 
+def ai_endpoint_notice_text():
+    """The one-time notice: mentioned messages go to the configured AI endpoint (#1524).
+
+    Sent once per user before their first conversational-lane call, so
+    nobody's words leave for an endpoint without being told once.
+    """
+    return ("A quick note: when you mention me or ask the AI, that message is sent to this "
+            "bot's configured AI endpoint to answer. Plain questions and commands are "
+            "handled locally and never leave this machine.")
+
+
+def ai_rate_limited_text():
+    """The reply when a user is over the conversational lane's rate limit."""
+    return ("You've hit the AI chat rate limit for now, so I didn't send that. "
+            "Commands and plain questions still work — type `/print-help`.")
+
+
 def ai_not_enabled_text():
     """The honest reply to an explicit AI invocation when no lane is enabled.
 
@@ -1125,6 +1142,13 @@ class BotCore(_RoutedAdapter):
             if use_llm is None else bool(use_llm)
         self.llm_opener = llm_opener
         self.agent_opener = agent_opener
+        # #1524 tranche 6: the conversational lane's per-user rate limit
+        # and the one-time endpoint notice. Both are process-local.
+        from . import ai_tools as _ai_tools
+        _nl_settings = self.cfg.get("natural_language") or {}
+        self._ai_rate = _ai_tools.RateLimiter(
+            max_calls=int(_nl_settings.get("ai_rate_limit_per_hour") or 20))
+        self._ai_noticed: set = set()
         self.agent_unavailable = agent_unavailable_text()
         self._refusal_notices: dict[str, float] = {}  # user_id -> last notice time (#386)
         self._elsewhere_notices: dict[tuple, float] = {}  # (user_id, chat_id) -> last notice time
@@ -1516,6 +1540,19 @@ class BotCore(_RoutedAdapter):
                 await self.adapter.send(chat_id=source.chat_id, content=det,
                                         reply_to=event.message_id, metadata=metadata)
                 return {"action": "skip", "reason": "natural language answer"}
+        if lane_allowed and (agent.configured(self.cfg) or llm.configured(self.cfg)):
+            # #1524 tranche 6: per-user rate limit and the one-time
+            # endpoint notice gate every conversational-lane call.
+            if not self._ai_rate.allow(source.user_id):
+                await self.adapter.send(chat_id=source.chat_id, content=ai_rate_limited_text(),
+                                        reply_to=event.message_id, metadata=metadata)
+                return {"action": "skip", "reason": "ai rate limited"}
+            if str(source.user_id) not in self._ai_noticed:
+                self._ai_noticed.add(str(source.user_id))
+                await self.adapter.send(chat_id=source.chat_id,
+                                        content=ai_endpoint_notice_text(), metadata=metadata)
+            from . import natural_language as _nl
+            _nl.record_route("ai_lane")
         if lane_allowed and agent.configured(self.cfg):
             try:
                 reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
@@ -1535,31 +1572,46 @@ class BotCore(_RoutedAdapter):
                 # blocking HTTP call alone runs in a worker thread, so asks
                 # waiting behind it hold no thread (llm.ask's own session
                 # lock is then never contended from here).
+                from . import ai_tools
+
+                def _tool_runner(name, arguments):
+                    return ai_tools.run_tool(self, name, arguments)
+
                 async with self._lane_turns.turn(session_key(source)):
-                    reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help,
-                                                             session=session_key(source), cfg=self.cfg,
-                                                             opener=self.llm_opener)
+                    reply, proposal = await asyncio.to_thread(
+                        llm.ask, lane_text, self.help, session=session_key(source),
+                        cfg=self.cfg, opener=self.llm_opener, tool_runner=_tool_runner)
             except Exception as exc:
                 logger.warning("LLM reply failed, sending the unmatched reply: %r", exc)
             else:
-                if command:
-                    # A named command is dispatched before any reply is
-                    # sent when the command's own output IS the help text:
-                    # the LLM's wording plus the help dump for one message
-                    # is exactly the double reply #437 forbids.
-                    # A reply that tells the person to type the very command
-                    # about to run ("Use `/print-stop` ...") contradicts the
-                    # confirm that follows it three seconds later (#1373):
-                    # the command's own output is the answer, so that reply
-                    # is dropped.
-                    replied = (bool(reply) and command.casefold() not in HELP_WORDS
-                               and not _names_command(reply, command))
-                    if replied:
-                        await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
-                                                reply_to=event.message_id, metadata=metadata)
-                    routed = make_event(source, command, f"{event.message_id}:llm",
-                                        media_urls=event.media_urls, metadata={"llm_command": True})
-                    return await self.process(routed, allow_llm=False, _llm_replied=replied)
+                if proposal:
+                    # #1524 tranche 6: the model proposed an action as a
+                    # capability plus typed slots. The runtime builds the
+                    # command from the slots, the allowlist gate decides
+                    # whether the lane may run it at all, and the normal
+                    # handler's own confirmation is what the user sees —
+                    # a mention is never consent to mutate. A proposal
+                    # whose built command is not allowlisted is dropped
+                    # and the reply stands alone.
+                    built = ai_tools.proposal_command(proposal["capability"],
+                                                      proposal["slots"])
+                    command = llm.allowed_command(built) if built else None
+                    if command:
+                        # A reply that tells the person to type the very
+                        # command about to run contradicts the confirm
+                        # that follows it (#1373): the command's own
+                        # output is the answer, so that reply is dropped.
+                        replied = (bool(reply) and command.casefold() not in HELP_WORDS
+                                   and not _names_command(reply, command))
+                        if replied:
+                            await self.adapter.send(
+                                chat_id=source.chat_id, content=rest.inert_media(reply),
+                                reply_to=event.message_id, metadata=metadata)
+                        routed = make_event(source, command, f"{event.message_id}:llm",
+                                            media_urls=event.media_urls,
+                                            metadata={"llm_command": True})
+                        return await self.process(routed, allow_llm=False,
+                                                  _llm_replied=replied)
                 if reply:
                     await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                             reply_to=event.message_id, metadata=metadata)

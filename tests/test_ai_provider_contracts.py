@@ -111,8 +111,10 @@ def test_recorded_chat_success_replays_through_the_route():
     endpoint = RecordedEndpoint({"big": "openai_chat_success.json"})
     answer, served = ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
     assert served == "big"
-    # The chat caller parses the recorded content into reply + command.
-    assert llm._parse(answer) == ("Press stop to halt the print.", "/print-stop")
+    # The chat caller parses the recorded content into a reply plus typed
+    # tool/proposal fields; the recorded legacy "command" string is
+    # ignored - model output is never command text (#1524 tranche 6).
+    assert llm._parse(answer) == ("Press stop to halt the print.", None, None)
     assert llm.allowed_command("/print-stop") == "/print-stop"
 
 

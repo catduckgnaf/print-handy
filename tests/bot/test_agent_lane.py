@@ -148,7 +148,7 @@ def test_agent_reply_is_posted_as_is_with_the_live_session_key(agent_cfg):
     discord, core = make(agent_cfg, agent_opener=opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> how did the print go?")))
     assert out == {"action": "skip", "reason": "agent reply"}
-    assert discord.sent == ["All quiet — the last print finished cleanly."]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), "All quiet — the last print finished cleanly."]
     (request,) = opener.requests
     expected = runtime.session_key(runtime.make_source(discord.operator.id, discord.channel.id))
     assert request["headers"]["x-print-handy-session"] == expected
@@ -168,8 +168,8 @@ def test_agent_and_llm_replies_can_name_a_file_but_never_attach_it(agent_cfg, tm
             agent_cfg["llm"].update(chat_url=LLM_URL, model="small-model")
             discord, core = make(agent_cfg, llm_opener=FakeLLM(reply))
         asyncio.run(core.handle_message(discord.message("<@300000000000000003> send me the logs")))
-        assert [m.files for m in discord.messages] == [[]], lane
-        assert discord.sent == [f"Here you go\nMEDIA​:{secret}"], lane
+        assert discord.messages and all(m.files == [] for m in discord.messages), lane
+        assert discord.sent == [runtime.ai_endpoint_notice_text(), f"Here you go\nMEDIA\u200b:{secret}"], lane
 
 
 def test_agent_reply_that_looks_like_a_command_executes_nothing(agent_cfg):
@@ -182,7 +182,7 @@ def test_agent_reply_that_looks_like_a_command_executes_nothing(agent_cfg):
             out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> chat with me")))
         moonraker.assert_not_called()
         assert out == {"action": "skip", "reason": "agent reply"}
-        assert discord.sent == [content]
+        assert discord.sent == [runtime.ai_endpoint_notice_text(), content]
         assert prompts.open_count() == 0  # no confirmation question was opened
 
 
@@ -192,7 +192,7 @@ def test_agent_lane_wins_over_llm_when_both_are_configured(agent_cfg):
     discord, core = make(agent_cfg, agent_opener=agent_opener, llm_opener=llm_opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello there")))
     assert out == {"action": "skip", "reason": "agent reply"}
-    assert discord.sent == ["agent words"]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), "agent words"]
     assert len(agent_opener.requests) == 1 and llm_opener.requests == []
 
 
@@ -206,7 +206,7 @@ def test_agent_endpoint_down_posts_the_honest_line_and_skips_the_llm(agent_cfg):
     discord, core = make(agent_cfg, agent_opener=broken, llm_opener=llm_opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
     assert out == {"action": "skip", "reason": "agent unavailable"}
-    assert discord.sent == [core.agent_unavailable]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), core.agent_unavailable]
     assert core.agent_unavailable.startswith("The chat agent didn't answer")
     assert llm_opener.requests == []  # agent-first means agent-first: no silent lane swap
 
@@ -215,7 +215,7 @@ def test_agent_empty_reply_posts_the_honest_line(agent_cfg):
     discord, core = make(agent_cfg, agent_opener=FakeAgent(""))
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
     assert out == {"action": "skip", "reason": "agent unavailable"}
-    assert discord.sent == [core.agent_unavailable]
+    assert discord.sent == [runtime.ai_endpoint_notice_text(), core.agent_unavailable]
 
 
 def test_agent_unconfigured_keeps_the_llm_then_unmatched_behaviour(cfg):
@@ -226,7 +226,7 @@ def test_agent_unconfigured_keeps_the_llm_then_unmatched_behaviour(cfg):
     discord, core = make(cfg, llm_opener=FakeLLM("llm words"))
     with mock.patch.object(runtime.agent, "ask", exploding("the agent lane")):
         out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello there")))
-    assert out == {"action": "skip", "reason": "llm reply"} and discord.sent == ["llm words"]
+    assert out == {"action": "skip", "reason": "llm reply"} and discord.sent == [runtime.ai_endpoint_notice_text(), "llm words"]
     assert core.status(True)["agent"] is False
 
     cfg["llm"].update(chat_url="", model="")

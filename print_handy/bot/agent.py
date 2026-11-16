@@ -7,9 +7,9 @@ Hermes agent behind its API. The lane is deliberately unlike ``bot/llm.py``:
 * No bot system prompt, no JSON contract and **no command channel**. The
   endpoint has its own persona and answers in its own voice; its reply is
   posted as-is and can never name a command into execution. ``llm.ask``'s
-  whitelist is safe only because the bot controls that system prompt and the
-  model is stateless; a remote agent's free text must not gain printer
-  authority by being parsed for commands.
+  typed tools and proposals are safe only because the bot controls that
+  system prompt and every call is validated; a remote agent's free text
+  must not gain printer authority by being parsed for actions.
 * The bot keeps no conversation history. It sends the user's text once, as a
   single user message, keyed by the live session key in the
   ``X-Print-Handy-Session`` header; the endpoint may key its own
