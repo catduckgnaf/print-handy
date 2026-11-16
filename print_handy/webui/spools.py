@@ -24,7 +24,8 @@ a second state store:
   name, material, color and brand/vendor on its filament record (the
   record Spoolman's own UI edits; every spool of that filament type
   shares it, which the response says out loud);
-- sync runs ``spool_sync.reconcile`` for that printer.
+- sync runs ``spool_sync.sync_external_spoolman`` for that printer: a slot
+  only the local record holds is written to Spoolman, then reconcile.
 
 Guard posture mirrors the print controls (#708, controls.py): every
 POST first checks ``[webui] controls_enabled`` and answers 403 with
@@ -546,20 +547,28 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
 
 def sync(data, printer_id, body=None, *, client=None, mr=None,
          state_path=None, pending_path=None):
-    """(code, body) for POST /api/printers/<id>/spools/sync: reconcile."""
+    """(code, body) for POST /api/printers/<id>/spools/sync: the two-way sync (#1536).
+
+    A slot only the local record holds is written to Spoolman first, then
+    reconcile rebuilds from Spoolman's claims (spool_sync.sync_external_spoolman).
+    """
     try:
         entry = _resolve_write(data, printer_id)
-        result = _call(spool_sync.reconcile, printer_id,
+        synced = _call(spool_sync.sync_external_spoolman, printer_id,
                        client=_client(client), mr=_mr(mr, printer_id),
                        state_path=state_path, pending_path=pending_path)
-        if result.get("error"):
-            raise SpoolsError(502, str(result["error"]))
+        result = synced.get("reconcile") or {}
+        if synced.get("reconcile") is None or result.get("error"):
+            raise SpoolsError(502, str(result.get("error") or synced.get("error")))
     except SpoolsError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
+    plan_conflicts = [c["reason"] for c in (synced.get("plan") or {}).get("conflicts") or []]
     return 200, {"ok": True, "id": entry["id"], "action": "sync",
                  "assignments": result.get("assignments") or {},
-                 "conflicts": result.get("conflicts") or [],
-                 "detail": spool_sync.reconcile_text(result)}
+                 "conflicts": (result.get("conflicts") or []) + plan_conflicts,
+                 "pushed": synced.get("pushed") or [],
+                 "not_pushed": synced.get("not_pushed") or [],
+                 "detail": spool_sync.sync_external_text(synced)}
 
 
 # ------------------------------------------------------------------ #801 hook

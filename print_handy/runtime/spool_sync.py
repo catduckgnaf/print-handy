@@ -2093,15 +2093,50 @@ def sync_external_spoolman(printer_id: str | None = None, *, client: Client = sp
              if isinstance(rec, dict) and str(key).isdigit()}
     plan = external_spool_sync_plan(local, rows, printer_id=pid)
     result["plan"] = plan
+    result["pushed"], result["not_pushed"] = [], []
+    live = {int(row["id"]): row for row in rows if isinstance(row, dict) and row.get("id") is not None}
     for change in plan["slot_changes"]:
-        if change["source"] == "local":
-            _set_ph_slot(client, change["spool_id"], format_ph_slot(pid, change["slot"]))
+        if change["source"] != "local":
+            continue
+        slot, sid = change["slot"], change["spool_id"]
+        row = live.get(int(sid))
+        # Only a spool Spoolman still has, and has not archived, gets the
+        # local claim; anything else is named and the rebuild drops it.
+        if row is None:
+            result["not_pushed"].append({"slot": slot, "spool_id": sid,
+                                         "reason": "Spoolman has no such spool"})
+        elif row.get("archived"):
+            result["not_pushed"].append({"slot": slot, "spool_id": sid,
+                                         "reason": "the spool is archived in Spoolman"})
+        elif _set_ph_slot(client, sid, format_ph_slot(pid, slot)):
+            result["pushed"].append({"slot": slot, "spool_id": sid})
+        else:
+            result["not_pushed"].append({"slot": slot, "spool_id": sid,
+                                         "reason": "Spoolman did not accept the slot claim"})
     result["reconcile"] = reconcile(pid, client=client, mr=mr,
                                      state_path=state_path, pending_path=pending_path)
     result["ok"] = bool((result["reconcile"] or {}).get("ok"))
     if not result["ok"] and result["reconcile"] and result["reconcile"].get("error"):
         result["error"] = str(result["reconcile"]["error"])
     return result
+
+
+def sync_external_text(result: dict[str, Any]) -> str:
+    """The /spool sync and Web UI wording for one sync_external_spoolman result (#1536)."""
+    if result.get("reconcile") is None:
+        return str(result.get("error") or "Spool sync: nothing was changed")
+    lines = []
+    for item in result.get("pushed") or []:
+        lines.append(f"Slot {item['slot']}: spool #{item['spool_id']} was only in Print Handy's "
+                     "record, so it was written to Spoolman as loaded.")
+    for item in result.get("not_pushed") or []:
+        lines.append(f"Slot {item['slot']}: spool #{item['spool_id']} was not written to Spoolman "
+                     f"({item['reason']}), so the slot follows Spoolman.")
+    for conflict in (result.get("plan") or {}).get("conflicts") or []:
+        lines.append(f"Conflict: {conflict['reason']}. Print Handy did not write its own claim, so "
+                     "the slot follows Spoolman; rebind the slot if that is wrong.")
+    lines.append(reconcile_text(result["reconcile"]))
+    return "\n".join(lines)
 
 
 def repair_usage_spool(*, mr: Client = moonraker, state_path: Path | None = None,

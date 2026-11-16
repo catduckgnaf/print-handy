@@ -592,8 +592,10 @@ async def spool_dispatch(event, gateway, **kwargs):
                 # the local cache and converge the screens, then the existing
                 # screen sync runs as before. The message shows both outcomes.
                 try:
-                    reconciled = await asyncio.to_thread(spool_sync.reconcile, **mr_kw)
-                    reconcile_line = spool_sync.reconcile_text(reconciled)
+                    # Both ways (#1536): a slot only the local record holds is
+                    # written to Spoolman first, then Spoolman's claims rebuild.
+                    synced = await asyncio.to_thread(spool_sync.sync_external_spoolman, **mr_kw)
+                    reconcile_line = spool_sync.sync_external_text(synced)
                 except Exception:
                     logger.exception('/spool sync reconcile failed')
                     reconcile_line = ('Spool reconcile: could not run — the local slot record '
