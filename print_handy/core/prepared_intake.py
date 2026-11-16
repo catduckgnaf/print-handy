@@ -1724,9 +1724,12 @@ async def _choose_files(adapter, source, key, rows, timeout):
         lead += f" ({_and(counts)}; I still print one of each, so print more copies separately if you need them.)"
     picked = list(plan['parts'])
     if not groups:
-        pick = await _ask(adapter, source, key, lead, [f'Print all {len(rows)}', CHOOSE_FILES], timeout)
-        if pick == 1:
-            return await _pick_files(adapter, source, key, rows, timeout)
+        # Every file is a different part of one model: print them all and say
+        # so, no question (catduck). Real choices (versions of a part, a 3MF
+        # against STLs) still ask below.
+        thread = getattr(source, 'thread_id', None)
+        await adapter.send(chat_id=str(source.chat_id), content=lead,
+                           metadata={'thread_id': thread} if thread else None)
         return rows
     for n, group in enumerate(groups):
         options = group['options'][:5]

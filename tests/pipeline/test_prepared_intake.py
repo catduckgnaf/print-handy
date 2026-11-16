@@ -2315,8 +2315,8 @@ def test_uno_link_prints_all_parts_and_asks_only_which_cap(env, monkeypatch):
 def test_parts_without_versions_offer_all_or_choose_files(env, monkeypatch):
     adapter, downloads, job = _parts_model(env, monkeypatch, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
                                            [0, 1, 0, 3])
-    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
-    assert 'arm left, arm right and base' in adapter.questions[0]['question']
+    assert not adapter.questions or 'Print all' not in str(adapter.questions[0].get('choices'))
+    assert any('arm left, arm right and base' in message for message in adapter.sent)
     assert downloads == ['arm_left.stl', 'arm_right.stl', 'base.stl']
     assert len(job['selected_sources']) == 3
 
@@ -2326,8 +2326,10 @@ def _unit_questions(adapter):
 
 
 def test_tiny_stl_parts_ask_inch_or_mm_once_for_the_set(env, monkeypatch):
+    # No 'Print all 3' question any more (every file is its own part), so the
+    # first scripted answer is the units question's: Inches.
     adapter, downloads, job = _parts_model(env, monkeypatch, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
-                                           [0, 1, 0, 0, 3], size=(3, 2, 1))
+                                           [1, 0, 0, 3], size=(3, 2, 1))
     asked = _unit_questions(adapter)
     assert len(asked) == 1 and 'One answer covers all the STL files' in asked[0]['question']
     assert asked[0]['choices'][:2] == ['Millimeters — print at 3 x 2 x 1 mm', 'Inches — print at 76.2 x 50.8 x 25.4 mm']
@@ -2687,8 +2689,8 @@ def test_multiple_stl_attachments_are_one_project_and_preserve_left_right(env, m
     assert len(job['combined_objects']) == 3
     assert Path(job['downloaded_file']).is_file()
     assert all(Path(x['downloaded_file']).is_file() for x in job['selected_sources'])
-    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
-    assert 'arm left, arm right and base' in adapter.questions[0]['question']
+    assert not adapter.questions or 'Print all' not in str(adapter.questions[0].get('choices'))
+    assert any('arm left, arm right and base' in message for message in adapter.sent)
 
 
 def test_two_uploads_with_the_same_name_stay_two_parts(env, monkeypatch):
@@ -2796,7 +2798,8 @@ def test_source_zip_reaches_the_project_builder_with_only_printable_parts(env, m
     assert ignored == {'Rack/REFERENCE_MAC_MINI_ENVELOPE_NOT_FOR_PRINTING.step', 'Rack/rack.step',
                        'Rack/render.png', 'README.md', 'tools/make.py'}
     assert len(job['combined_objects']) == 3
-    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
+    assert not any('Print all' in str(q.get('choices')) for q in adapter.questions)
+    assert any('This model has 3 files that print together' in m for m in adapter.sent)
     assert any('left out 5' in m for m in adapter.sent)
 
 
