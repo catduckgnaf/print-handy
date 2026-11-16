@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "file": "cura-spec-synthetic.3mf",
+      "class": "spec-synthetic",
+      "producer": "UltiMaker Cura (format)",
+      "basis": "Cura workspace writer layout: setting stacks serialized as INI .cfg members under Cura/; built by scripts/generate_producer_fixtures.py, not by a Cura binary.",
+      "sha256": "33a89f4b2bfa9e80de261008b8bf6765ff6b3005335f434f0a7da600547225d5"
+    }
+  ]
+}

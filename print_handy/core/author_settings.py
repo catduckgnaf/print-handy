@@ -163,6 +163,17 @@ def read_project(source):
             record.update({'format': 'prusaslicer_project', 'settings': data,
                            'author': _prusa(data.encode()), 'source_slicer': slicer,
                            'source_family': 'prusaslicer', 'source_version': version})
+        elif any(name.startswith('Cura/') and name.endswith('.cfg') for name in names):
+            # A Cura project: setting stacks serialized under Cura/ (#1525).
+            # Only the registry's validated subset is translated; the raw
+            # stack values stay in `settings` for provenance, and no machine,
+            # G-code or temperature key can ride into `author`.
+            from . import source_descriptor
+            raw = source_descriptor.parse_cura_settings(archive, names)
+            author, _notes = source_descriptor.translate_cura_settings(raw)
+            record.update({'format': 'cura_project', 'settings': raw,
+                           'author': author, 'source_slicer': 'UltiMaker Cura',
+                           'source_family': 'cura', 'source_version': None})
     return record
 
 
