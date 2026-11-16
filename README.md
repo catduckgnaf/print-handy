@@ -13,7 +13,7 @@ Find a model, drop its link or STL/3MF into Discord, Telegram, Matrix or the Web
 
 It also has a personality problem. Your model might get roasted, your eleventh copy deserves a Spinal Tap reference, and Pasta Cam would very much like your printer to stop making spaghetti.
 
-Current release: **2.3.4**
+Current release: **2.3.5**
 
 [Install](#get-started) · [See it work](#from-link-to-print) · [Printer support](#find-your-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
@@ -68,8 +68,8 @@ Three ways in: Docker (right here), [Unraid](#unraid) or the [Home Assistant add
 
 ```bash
 mkdir print-handy && cd print-handy
-curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.4/docker-compose.yml
-curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.4/.env.example -o .env
+curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.5/docker-compose.yml
+curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.5/.env.example -o .env
 ```
 
 Edit `.env` and fill in three things:
