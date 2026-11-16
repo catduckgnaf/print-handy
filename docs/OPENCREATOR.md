@@ -246,6 +246,11 @@ The check reads object names only, never unverified inner fields, and
 absence of evidence is treated as absence: a plain missing-object
 failure keeps its usual wording.
 
+`print-handy doctor` shows the same check on a `creator firmware` row
+for every Creator model: which firmware the printer runs, and the
+mismatch message when it is not the configured one. An unreachable
+printer shows as unknown.
+
 ## Persistent feature switches (the Misc switches)
 
 OpenCreator keeps 13 virtual Misc switches that persist across
@@ -359,6 +364,31 @@ AFC is part of readiness as well: the `AFC` object must be reporting
 with no error state, and no toolhead's `AFC_extruder` object may
 report a mount sensor error.
 
+Readiness also refuses the start, naming the cause, when:
+
+- **A used tool has no filament.** Each tool the job uses is checked at
+  the toolhead the printer's map sends it to, from that toolhead's
+  `AFC_extruder` `tool_start_status`. The printer's own start checks
+  only the first tool, so a second tool with no filament would
+  otherwise stop the print on runout. Unknown presence is a refusal.
+- **An interrupted print is held for power-loss recovery.** While
+  `power_loss_recovery` reports `recovery_available`, the printer holds
+  the bed hot for that print. Resume or discard it at the printer
+  first. A sample with no `power_loss_recovery` object fails closed.
+- **The Pro's chamber heater is not reporting.** The Pro's start line
+  can carry a chamber target, so `heater_generic chamber_heater` must
+  answer. The base model has no chamber heater and is never asked.
+
+When a print is cancelled during print start, the cancel report names
+the printer's reason from its console: a tool with no filament, no
+build plate, or a cancel while preparing. The exact console text is
+source-verified, not checked on a printer.
+
+During a pause, the resume guard reads the filament sensor of the
+toolhead that is printing (`extruderN_tool_start`, with
+`extruder_tool_start` for tool 0), so an idle tool's empty sensor does
+not block a resume.
+
 The printer's AFC tool map is part of readiness too. Inside
 `C5_PRINT_START`, the firmware sends each tool in the file to the lane
 mapped to it, so the map, not the tool number, decides which toolhead
@@ -469,8 +499,15 @@ a remapped printer a `T<n>` record's `extruder_index` differs from its
 key. The record is kept under its tool, with the toolhead beside it. A
 `T<n>` record with no usable `extruder_index` is left out.
 
-Spool charging per tool is not built for this printer family yet, so
-the map does not change what is charged today.
+**Charging follows the map.** When Print Handy counts filament (the
+printer's own Moonraker Spoolman link is off, see #1536), a print that
+uses two or more tools is charged per toolhead. At launch Print Handy
+reads the printer's AFC map and records which toolhead each file tool
+prints on. When the print ends, each toolhead's spool is charged its
+tool's grams from the file. If the map cannot be read at launch, no
+per-toolhead charge is recorded and the launch says so. A one-tool
+print keeps Moonraker's active spool. When the printer is the
+accounting authority, Print Handy charges nothing.
 
 Print Handy never sends AFC's `SET_SPOOL_ID`, `SET_MATERIAL` or
 `SET_COLOR`. Spools are bound at the printer. In AFC's source

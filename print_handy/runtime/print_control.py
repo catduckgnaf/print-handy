@@ -253,6 +253,26 @@ def active_head_sensors(names: list[str], active: Any) -> list[str]:
     return [n for n in names if active in tokens(n)]
 
 
+def _adapter_head_sensors(printer_id: str | None, objects: Any) -> dict[str, list[str]] | None:
+    """{extruder: sensor names that exist} from an adapter that names its own, else None.
+
+    OpenCreator (#1490) names each toolhead's sensor itself. Other adapters
+    define no ``head_filament_sensors`` and keep the name-based selection.
+    """
+    try:
+        adapter = _adapter_for(printer_id)
+    except Exception as exc:
+        # No adapter: the name-based selection decides, as before this existed.
+        __import__("logging").getLogger(__name__).warning(
+            "resume guard: printer adapter unavailable, using sensor names: %r", exc)
+        return None
+    named = getattr(adapter, "head_filament_sensors", None)
+    if not callable(named) or not isinstance(objects, list):
+        return None
+    listed = set(o for o in objects if isinstance(o, str))
+    return {tool: [n for n in names if n in listed] for tool, names in named().items()}
+
+
 def head_filament_loaded(printer_id: str | None = None) -> bool | None:
     """False when an enabled toolhead switch sensor reads empty; True when all read loaded; None when unknown.
 
@@ -262,7 +282,9 @@ def head_filament_loaded(printer_id: str | None = None) -> bool | None:
     try:
         listing = _send("/printer/objects/list", printer_id=printer_id)
         objects = (listing.get("result") or {}).get("objects")
-        names = head_switch_sensors(objects)
+        by_tool = _adapter_head_sensors(printer_id, objects)
+        names = (sorted({n for found in by_tool.values() for n in found}) if by_tool is not None
+                 else head_switch_sensors(objects))
         if not names:
             return None
         multi = isinstance(objects, list) and any(
@@ -273,7 +295,9 @@ def head_filament_loaded(printer_id: str | None = None) -> bool | None:
     except Exception:
         return None
     if multi:
-        names = active_head_sensors(names, (st.get("toolhead") or {}).get("extruder"))
+        active = (st.get("toolhead") or {}).get("extruder")
+        names = ((by_tool.get(active) or []) if by_tool is not None and isinstance(active, str)
+                 else [] if by_tool is not None else active_head_sensors(names, active))
         if not names:
             return None  # the active tool's sensor is unknown: do not block on another tool's
     readings = [s.get("filament_detected") for s in (st.get(n) for n in names)

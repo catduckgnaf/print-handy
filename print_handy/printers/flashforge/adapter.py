@@ -31,6 +31,18 @@ class ZmodAdapter(PrinterAdapter):
         """A heater-ceiling fact for this model; KeyError when the profile has none."""
         return HEATER_FACTS[self.key][name]
 
+    # The macro names the vendor settings document (START_PRINT / END_PRINT).
+    # Live verification reads these for every adapter without a native
+    # screen (the AD5M and the Creator pair); without them it raised an
+    # AttributeError instead of checking the start line (#1490 follow-up).
+    @property
+    def start_macro(self):
+        return self.config["printer"].get("start_macro", "START_PRINT")
+
+    @property
+    def end_macro(self):
+        return self.config["printer"].get("end_macro", "END_PRINT")
+
     def machine_start_gcode(self, template_start, mesh="auto"):
         # Exactly what orca_adapter built inline before the adapter existed.
         start = re.sub(r"\bMESH=\S+", "MESH=" + mesh, template_start)

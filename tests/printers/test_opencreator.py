@@ -48,6 +48,10 @@ def _ready_status():
                                        "tool_measurements": [[0, 0, 0]] * 4},
               # AFC lists its own lanes; a standalone toolhead lane is named
               # after its AFC_extruder section (live capture and fork source).
+              # No interrupted print is held, and the Pro's chamber heater
+              # reports (the base model ignores it): readiness facts (#1490).
+              "power_loss_recovery": {"recovery_available": False, "holding_bed": False},
+              "heater_generic chamber_heater": {"temperature": 24.0, "target": 0.0},
               "AFC": {"maps": ["T0", "T1", "T2", "T3"], "error_state": False,
                       "units": ["Toolchanger Tools"], "multiple_tool_mapping": False,
                       "lanes": [f"extruder{tool}" for tool in range(4)]}}
@@ -58,7 +62,8 @@ def _ready_status():
         # the mount sensors and no map; the standalone lane registered
         # as "AFC_lane extruderN" carries the map (current_map is empty
         # until the first tool change).
-        status[f"AFC_extruder extruder{tool}"] = {"mount_sensor_error": None, "on_shuttle": tool == 0}
+        status[f"AFC_extruder extruder{tool}"] = {"mount_sensor_error": None, "on_shuttle": tool == 0,
+                                                  "tool_start_status": True}
         status[f"AFC_lane extruder{tool}"] = {"map": [f"T{tool}"], "current_map": "",
                                               "extruder": f"extruder{tool}"}
     return status
@@ -113,7 +118,11 @@ def test_moonraker_objects_are_the_standard_multi_tool_set(key):
         "extruder", "extruder1", "extruder2", "extruder3",
         "heater_bed", "exclude_object", "creator5_toolchanger", "AFC",
         "AFC_extruder extruder0", "AFC_extruder extruder1",
-        "AFC_extruder extruder2", "AFC_extruder extruder3"]
+        "AFC_extruder extruder2", "AFC_extruder extruder3",
+        # A held power-loss recovery and, on the Pro, the chamber heater are
+        # readiness facts too (#1490 tranche 3).
+        "power_loss_recovery",
+        *(["heater_generic chamber_heater"] if key.endswith("_pro") else [])]
     # Lane objects are named by the printer, so they are asked for only
     # after AFC has listed them (#1490): never assumed from a tool number.
     assert adapter.moonraker_followup_objects(_ready_status()) == [

@@ -204,6 +204,67 @@ def _record_usage_baseline(st, job, job_path, spool_id):
         logger.warning('could not record the spool usage baseline: %s', exc)
 
 
+def _record_toolhead_charge_plan(st, adapter, job, job_path, text):
+    """Record which spool each file tool prints from, for a multi-tool job (#1490).
+
+    OpenCreator only (``tool_head_map``). The printer's AFC map decides
+    which toolhead each file tool prints with, so the plan is
+    ``{tool: toolhead position}`` read from the live map, and the listener
+    charges each position's spool its share when the print ends
+    (runtime/multislot_usage). Recorded only when Print Handy is the
+    accounting authority and the file uses two or more toolheads: a
+    one-head job keeps the active-spool path, and with the printer as the
+    authority (its own Moonraker Spoolman link, #1536) nothing is charged
+    here. An unreadable map records no plan and says so, never a guess.
+    Returns True when a plan was recorded. Never blocks the launch.
+    """
+    head_map = getattr(adapter, 'tool_head_map', None)
+    if not callable(head_map) or not isinstance(job, dict) or job_path is None:
+        return False
+    tools = sorted(_gcode_tools(text) | {0})
+    if len(tools) < 2:
+        return False
+    authority = _launch_accounting_authority(st, adapter, _recorded_printer_id(job))
+    if authority == 'printer':
+        job['spool_accounting_authority'] = authority
+        print("WARNING: spool accounting is set to the printer, so Print Handy will not charge "
+              "this multi-tool print.", flush=True)
+        _write_job_quietly(job, job_path)
+        return True
+    try:
+        from ..gcode.verify import _live_tool_heads
+        heads = _live_tool_heads(adapter, st)
+    except Exception as exc:
+        logger.warning('the AFC tool map could not be read for the charge plan: %s', exc)
+        heads = None
+    if not isinstance(heads, dict):
+        print("WARNING: the printer's AFC tool map could not be read, so this multi-tool print's "
+              "filament is not charged per toolhead. Check Spoolman after the print.", flush=True)
+        return False
+    plan = {}
+    for tool in tools:
+        head = heads.get(tool)
+        if not (isinstance(head, int) and not isinstance(head, bool)):
+            print(f"WARNING: T{tool} has no toolhead in the printer's AFC map, so this print's "
+                  "filament is not charged per toolhead.", flush=True)
+            return False
+        plan[str(tool)] = head + 1
+    job['toolhead_charge_plan'] = plan
+    if authority in ('print_handy', 'printer'):
+        job['spool_accounting_authority'] = authority
+    _write_job_quietly(job, job_path)
+    print(f"TOOLHEAD CHARGE PLAN: {plan} (file tool -> toolhead position, from the printer's AFC map)",
+          flush=True)
+    return True
+
+
+def _write_job_quietly(job, job_path):
+    try:
+        write_job(Path(job_path).parent, job)
+    except Exception as exc:
+        logger.warning('could not record the toolhead charge plan: %s', exc)
+
+
 def _moonraker_active_spool(st):
     """Moonraker's active Spoolman spool id, or None when there is none or it cannot be read.
 
@@ -485,6 +546,25 @@ def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None,
         native = current.native_or_none
         if native is not None:
             mapped = native.embedded_mapping(text, st)
+    head_plan = (job or {}).get('toolhead_charge_plan')
+    if mapped is None and isinstance(head_plan, dict) and head_plan:
+        # OpenCreator multi-tool launch (#1490): the printer's AFC map at
+        # launch, file tool -> toolhead position. Each position's spool is
+        # charged its tool's grams when the print ends (multislot_usage).
+        try:
+            plan = {str(tool): int(position) for tool, position in head_plan.items()}
+        except (TypeError, ValueError):
+            plan = None
+        slots = st.get('filament_slots') or {}
+        if plan:
+            ctx['tool_to_physical_slot'] = plan
+            ctx['active_spool']['accounting_only_not_job_color'] = True
+            ctx['slicer_settings']['mapped_materials'] = {
+                tool: slots.get(str(position)) or {} for tool, position in plan.items()}
+            from ..runtime import multislot_usage
+            planned_mm = multislot_usage.planned_filament_mm(text)
+            if planned_mm is not None:
+                ctx['planned_filament_mm'] = planned_mm
     if mapped is not None:
         ctx['tool_to_physical_slot'] = mapped
         ctx['active_spool']['accounting_only_not_job_color'] = True
@@ -3127,10 +3207,11 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         if delivery: _note_delivery_format(job, job_path, delivery)
         try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        # Moonraker charges its active spool while this print runs, like the
-        # mapped one-slot route: record that spool's used weight first so
-        # the listener can catch a runaway charge at the end (#1374).
-        _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
+        if not _record_toolhead_charge_plan(st, adapter, job, job_path, text):
+            # Moonraker charges its active spool while this print runs, like the
+            # mapped one-slot route: record that spool's used weight first so
+            # the listener can catch a runaway charge at the end (#1374).
+            _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
     except BaseException:

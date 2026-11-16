@@ -81,6 +81,10 @@ DOCUMENTED_START_LINES = (
 BASE_START_LINES = tuple(line for line in DOCUMENTED_START_LINES if not line.startswith("M191 "))
 
 
+# The Pro's chamber heater (shipped printer.pro.cfg, findings comment on #1490).
+CHAMBER_OBJECT = "heater_generic chamber_heater"
+
+
 class OpenCreatorAdapter(KlipperAdapter):
     # Not a Bondtech INDX host (#1198): the INDX code inherited from
     # KlipperAdapter never runs here, as on the Snapmaker adapter.
@@ -263,6 +267,74 @@ class OpenCreatorAdapter(KlipperAdapter):
         _, map_problems = afc.resolve_tool_map(status, self.tool_count)
         return problems + map_problems
 
+    def _recovery_problems(self, status):
+        """A held power-loss recovery refuses a new start (tranche 3).
+
+        While ``recovery_available`` is true the printer holds the bed at
+        the interrupted print's temperature and offers Resume every minute;
+        a new start on top of it would fight that state. The object is part
+        of the shipped config, so a sample without it fails closed.
+        """
+        row = status.get("power_loss_recovery")
+        if not isinstance(row, dict):
+            return ["power_loss_recovery is not reporting (a held interrupted print "
+                    "cannot be ruled out)"]
+        if row.get("recovery_available") is True:
+            name = row.get("filename") if isinstance(row.get("filename"), str) else ""
+            return [f"the printer is holding an interrupted print for power-loss recovery"
+                    f"{f' ({name})' if name.strip() else ''}: resume or discard it at the "
+                    "printer first"]
+        if row.get("recovery_available") is not False:
+            return ["power_loss_recovery reports no readable recovery state"]
+        return []
+
+    def _chamber_problems(self, status):
+        """On the Pro, the chamber heater must be reporting (tranche 3).
+
+        The Pro's start line can carry a chamber target, which the printer
+        sends to ``heater_generic chamber_heater``. A Pro sample without
+        that heater fails closed. The base model has no chamber heater and
+        is never asked for one.
+        """
+        if not self.has_chamber:
+            return []
+        if not isinstance(status.get(CHAMBER_OBJECT), dict):
+            return [f"{CHAMBER_OBJECT} is not reporting on this Creator 5 Pro "
+                    "(the chamber target cannot be checked)"]
+        return []
+
+    def _used_tool_filament_problems(self, status, selection):
+        """Every tool the job uses must have filament at its toolhead (tranche 3).
+
+        The firmware's own synthesized start checks filament in the first
+        tool only (findings comment on #1490), so a used second tool with
+        no filament passes print start and stops later on runout. Print
+        Handy checks each used tool's toolhead, following the printer's
+        AFC map, from ``AFC_extruder extruderN.tool_start_status``. The
+        used tools come from the job's recorded tool mapping; with none,
+        every tool is checked. Unknown is a refusal, never a pass.
+        """
+        mapping = selection.get("tool_mapping") if isinstance(selection, dict) else None
+        tools = sorted(int(t) for t in mapping if str(t).isdigit()) \
+            if isinstance(mapping, dict) and mapping else list(range(self.tool_count))
+        heads = self.tool_head_map(status) or {}
+        problems = []
+        for tool in tools:
+            head = heads.get(tool, tool)
+            if not (isinstance(head, int) and 0 <= head < self.tool_count):
+                continue  # an unresolved map is already its own refusal
+            block = status.get(self._afc_extruder_name(head))
+            present = block.get("tool_start_status") if isinstance(block, dict) else None
+            if present is True:
+                continue
+            where = f"T{tool}" + (f" (toolhead {head + 1})" if head != tool else "")
+            if present is False:
+                problems.append(f"{where} has no filament at the toolhead; load it at the printer")
+            else:
+                problems.append(f"{where} filament presence is not reporting "
+                                f"({self._afc_extruder_name(head)} tool_start_status)")
+        return problems
+
     def readiness_problems(self, state, status, selection=None, **kw):
         problems = super().readiness_problems(state, status, selection, **kw)
         status = status if isinstance(status, dict) else {}
@@ -276,6 +348,9 @@ class OpenCreatorAdapter(KlipperAdapter):
         problems += self._toolchanger_problems(status)
         problems += self._afc_state_problems(status)
         problems += self._afc_map_problems(status)
+        problems += self._recovery_problems(status)
+        problems += self._chamber_problems(status)
+        problems += self._used_tool_filament_problems(status, selection)
         mismatch = firmware_check.zmod_mismatch_problem(status)
         if mismatch:
             problems.append(mismatch)
@@ -298,7 +373,24 @@ class OpenCreatorAdapter(KlipperAdapter):
         return ["webhooks", "print_stats", "virtual_sdcard",
                 *[self._extruder_name(tool) for tool in range(self.tool_count)],
                 "heater_bed", "exclude_object", "creator5_toolchanger", "AFC",
-                *[self._afc_extruder_name(tool) for tool in range(self.tool_count)]]
+                *[self._afc_extruder_name(tool) for tool in range(self.tool_count)],
+                "power_loss_recovery", *([CHAMBER_OBJECT] if self.has_chamber else [])]
+
+    def head_filament_sensors(self):
+        """{extruder object name: its toolhead filament sensor objects}, for the resume guard.
+
+        The fork names each tool's sensor ``extruderN_tool_start`` and the
+        start macro falls back to ``extruder_tool_start`` for tool 0
+        (findings comment on #1490). The shared resume guard finds no
+        sensor named ``head`` on this printer, so it asks the adapter.
+        """
+        out = {}
+        for tool in range(self.tool_count):
+            names = [f"filament_switch_sensor extruder{tool}_tool_start"]
+            if tool == 0:
+                names.append("filament_switch_sensor extruder_tool_start")
+            out[self._extruder_name(tool)] = names
+        return out
 
     def moonraker_followup_objects(self, status):
         """Lane objects to query once AFC has named its lanes.
