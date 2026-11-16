@@ -1516,6 +1516,7 @@ class BotCore(_RoutedAdapter):
         # lane. An unstamped event (a direct process call) derives its
         # provenance from the text evidence, exactly as handle_message
         # would have stamped it.
+        from . import natural_language
         prov = provenance.from_event(event, self.platform_name)
         if "provenance" not in (getattr(event, "metadata", None) or {}):
             prov = self.provenance_for(self.addressed(event.text), None,
@@ -1624,9 +1625,11 @@ class BotCore(_RoutedAdapter):
         if suggestion is not None:
             # #468 stage 3: a near-miss command gets a did-you-mean prompt
             # instead of the plain unmatched reply.
+            natural_language.record_route("suggestion")
             return await self._offer_suggestion(event, suggestion, metadata)
         candidates = command_suggestion_candidates(event.text)
         if candidates:
+            natural_language.record_route("suggestion")
             return await self._offer_suggestion_choice(event, candidates, metadata)
         if invoke is not None:
             # An explicit invocation no lane answered: the stripped
@@ -1637,9 +1640,11 @@ class BotCore(_RoutedAdapter):
             # reply; otherwise the plain unmatched reply below.
             suggestion = command_suggestion(invoke, self.bot_name)
             if suggestion is not None:
+                natural_language.record_route("suggestion")
                 return await self._offer_suggestion(event, suggestion, metadata)
             candidates = command_suggestion_candidates(invoke)
             if candidates:
+                natural_language.record_route("suggestion")
                 return await self._offer_suggestion_choice(event, candidates, metadata)
             if lane_unlocked:
                 if lane_allowed and (agent.configured(self.cfg) or llm.configured(self.cfg)):
@@ -1671,6 +1676,17 @@ class BotCore(_RoutedAdapter):
         except Exception:
             logger.exception("natural-language layer failed; continuing to the fallback")
             return None
+
+    def _natural_language_status(self):
+        try:
+            from . import natural_language as _nl
+            return {"routes": _nl.route_counters(),
+                    "unmatched_logged": len(_nl.export_unmatched()),
+                    "unmatched_recent": [row["phrase"] for row in _nl.export_unmatched()[-20:]],
+                    "shadow_disagreements": len(_nl.shadow_disagreements())}
+        except Exception:
+            return {"routes": {}, "unmatched_logged": 0, "unmatched_recent": [],
+                    "shadow_disagreements": 0}
 
     def _background_suggestion(self, coro):
         """Run a did-you-mean wait off the message path (P1-109).
@@ -2160,4 +2176,7 @@ class BotCore(_RoutedAdapter):
                 "handlers": len(self.router.dispatch_hooks),
                 "llm": bool(self.use_llm and llm.configured(self.cfg)),
                 "agent": bool(self.use_llm and agent.configured(self.cfg)),
-                "open_prompts": prompts.open_count()}
+                "open_prompts": prompts.open_count(),
+                # #1524: local route counters and the opt-in unmatched
+                # log's export — diagnostics only, never transmitted.
+                "natural_language": self._natural_language_status()}

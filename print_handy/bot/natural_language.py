@@ -847,6 +847,7 @@ LIVE_CAPABILITIES = frozenset({
     "purchase_record", "spool_weight_guidance", "firmware_version",
     "firmware_updates", "firmware_release_notes", "firmware_howto",
     "troubleshooting", "capability_help", "indx_tool_question", "model_fit_question",
+    "printer_status",
 })
 
 
@@ -993,8 +994,46 @@ def firmware_answer(core, parsed):
         return firmware_state_text(component, family, "unknown")
 
 
+def status_answer_text(st):
+    """A plain-language status answer from the family's normalized status.
+
+    Only fields the read actually returned are named; a state that
+    could not be read says so instead of inventing an idle printer.
+    """
+    if not st:
+        return "I couldn't read the printer's status just now."
+    state = str(st.get("state") or "unknown")
+    parts = [f"The printer is {state}."]
+    if st.get("filename"):
+        parts.append(f"Printing {st['filename']}.")
+    progress = st.get("progress")
+    if isinstance(progress, (int, float)) and state in ("printing", "paused"):
+        parts.append(f"{progress * 100:.0f}% complete.")
+    if st.get("layer") and st.get("total_layer"):
+        parts.append(f"Layer {st['layer']} of {st['total_layer']}.")
+    remaining = st.get("remaining_min")
+    if isinstance(remaining, (int, float)) and state == "printing":
+        parts.append(f"About {remaining:.0f} minutes left.")
+    temps = []
+    if isinstance(st.get("hotend_c"), (int, float)):
+        temps.append(f"nozzle {st['hotend_c']:.0f}°C")
+    if isinstance(st.get("bed_c"), (int, float)):
+        temps.append(f"bed {st['bed_c']:.0f}°C")
+    if temps:
+        parts.append("Temperatures: " + ", ".join(temps) + ".")
+    return " ".join(parts)
+
+
 def answer_status(core, parsed, facade):
-    return None  # status/history/camera are answered by the existing deterministic handlers
+    if parsed.capability_id != "printer_status":
+        # History, camera and maintenance keep their existing handlers;
+        # the corpus pins their classification here.
+        return None
+    try:
+        from ..runtime import print_stop
+        return status_answer_text(print_stop.status())
+    except Exception:
+        return "I couldn't read the printer's status just now."
 
 
 def answer_troubleshooting(core, parsed, facade):
