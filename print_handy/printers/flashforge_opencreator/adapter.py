@@ -2,8 +2,8 @@
 
 Modeled on the Snapmaker U1 adapter (a Klipper-line multi-tool adapter),
 not on the ZMod multi-tool adapter: OpenCreator is Kalico plus upstream
-Moonraker, its positions are tools (position i is slicer tool i-1; the
-printer's AFC map decides which toolhead prints it), and none of the ZMod firmware's
+Moonraker, and the printer's AFC map decides which toolhead each slicer
+tool uses (position i is the mapped head for tool i-1). None of the ZMod firmware's
 objects or start form exist on it.
 
 Start contract (documented form, OpenCreator slicer documentation,

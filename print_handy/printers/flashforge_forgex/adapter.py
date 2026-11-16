@@ -99,7 +99,7 @@ class ForgeXAdapter(KlipperAdapter):
             problems.append(mismatch)
         # The stock screen needs a different start form than the one these
         # profiles slice (start_contract.py, #1506 tranche 2): refuse it by name.
-        stock = start_contract.stock_screen_problem(status)
+        stock = start_contract.readiness_screen_problem(status)
         if stock:
             problems.append(stock)
         return problems

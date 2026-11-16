@@ -485,6 +485,7 @@ def test_mesh_flow_zmod_screenless_measures_without_saving_then_accepts_once():
     prepared = cal.prepare_mesh(transport, AD5X, facts)
     prompt = cal.mesh_prompt_text(prepared)
     assert "0.420" in prompt  # before range presented
+    assert "re-zeros the Z offset's start point on ZMod" in prompt  # ZMod keeps its warning (#235 F6)
     assert "SAVE=0" in prepared.script and "AUTO_FULL_BED_LEVEL" in prepared.script
     result = cal.execute_mesh(transport, prepared, poll_interval_s=0, sleep=NO_SLEEP)
     text = cal.mesh_result_text(result)

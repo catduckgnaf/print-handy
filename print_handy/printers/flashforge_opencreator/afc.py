@@ -194,25 +194,3 @@ def parse_tool_records(value: Any, tool_count: int = 4) -> dict[int, dict[str, A
         if 0 <= keyed < int(tool_count) and 0 <= head < int(tool_count):
             out[keyed] = {**record, "tool": keyed, "head": head}
     return out
-
-
-def bind_commands(lane: str, spool: dict[str, Any] | None, *, spoolman_enabled: bool,
-                  printer_idle: bool) -> list[str]:
-    """Build printer-side spool bind commands only while the printer is idle."""
-    if not printer_idle:
-        return []
-    if not isinstance(lane, str) or not lane.strip() or any(c.isspace() for c in lane.strip()):
-        raise ValueError("invalid AFC lane name")
-    lane = lane.strip()
-    if spoolman_enabled:
-        if not isinstance(spool, dict) or isinstance(spool.get("id"), bool) or not isinstance(spool.get("id"), int):
-            raise ValueError("a Spoolman spool id is required")
-        return [f"SET_SPOOL_ID LANE={lane} SPOOL_ID={spool['id']}"]
-    if not isinstance(spool, dict):
-        return [f"SET_MATERIAL LANE={lane} MATERIAL=", f"SET_COLOR LANE={lane} COLOR="]
-    material = str(spool.get("material") or "")
-    color = str(spool.get("color") or spool.get("color_hex") or "")
-    for value in (material, color):
-        if any(c in value for c in "\r\n"):
-            raise ValueError("unsafe AFC value")
-    return [f"SET_MATERIAL LANE={lane} MATERIAL={material}", f"SET_COLOR LANE={lane} COLOR={color}"]

@@ -4,8 +4,11 @@ Forge-X documents one machine start form for Feather, Guppy and Headless
 (the form these profiles slice) and a different one for the stock screen
 (the same line plus M190/M104). The screen is mod_params.variables.display
 (DisplayEnum STOCK/FEATHER/HEADLESS/GUPPY; the macros compare 0 for stock).
-A printer that positively reports the stock screen is refused by name; an
-unknown or missing value is not guessed, and adds no problem of its own.
+A printer that positively reports the stock screen is refused by name. An
+unreadable screen is not guessed either way: a missing mod_params object, a
+missing display key or an unrecognized value refuses the start, naming which
+(#235 audit F1). Upstream publishes display as DisplayEnum's integer value
+(ff5m 1.4.2 mod_params.json: STOCK=0, FEATHER=1, HEADLESS=2, GUPPY=3).
 """
 import pytest
 
@@ -29,6 +32,7 @@ def _status(display=None, **extra):
     ("STOCK", ScreenMode.STOCK), ("stock", ScreenMode.STOCK), ("'STOCK'", ScreenMode.STOCK),
     (0, ScreenMode.STOCK), ("FEATHER", ScreenMode.FEATHER), (1, ScreenMode.FEATHER),
     ("GUPPY", ScreenMode.GUPPY), ("HEADLESS", ScreenMode.HEADLESS),
+    (2, ScreenMode.HEADLESS), (3, ScreenMode.GUPPY),
     ("SOMETHING_NEW", ScreenMode.UNKNOWN), (7, ScreenMode.UNKNOWN), (True, ScreenMode.UNKNOWN),
     (None, ScreenMode.UNKNOWN),
 ])
@@ -47,10 +51,21 @@ def test_stock_screen_is_refused_by_name_and_the_others_pass(key):
     adapter = adapter_for(key)
     problems = adapter.readiness_problems({}, _status("STOCK"))
     assert any("Stock screen" in p and "SET_MOD PARAM=display" in p for p in problems)
-    for display in ("FEATHER", "GUPPY", "HEADLESS", 1):
+    for display in ("FEATHER", "GUPPY", "HEADLESS", 1, 2, 3):
         assert adapter.readiness_problems({}, _status(display)) == []
-    # Unknown is not guessed either way: no screen problem is added.
-    assert adapter.readiness_problems({}, _status("SOMETHING_NEW")) == []
+
+
+@pytest.mark.parametrize("key", KEYS)
+@pytest.mark.parametrize("status, cause", [
+    (_status(), "mod_params object is missing"),
+    (_status(mod_params={"variables": {}}), "display key is missing"),
+    (_status(mod_params={}), "display key is missing"),
+    (_status("SOMETHING_NEW"), "display value 'SOMETHING_NEW' is not recognized"),
+    (_status(7), "display value 7 is not recognized"),
+])
+def test_an_unreadable_screen_mode_refuses_the_start_and_names_why(key, status, cause):
+    problems = adapter_for(key).readiness_problems({}, status)
+    assert any("screen mode is unknown" in p and cause in p for p in problems), problems
 
 
 @pytest.mark.parametrize("key", KEYS)

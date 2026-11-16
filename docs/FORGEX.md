@@ -46,8 +46,9 @@ What the beta line means in practice:
   screen and turns it into a full interactive screen. The other beta
   screen modes (the stock screen, Guppy, headless) exist, but screen
   mode changes mesh profile naming, Z-offset handling and
-  filament-runout behavior, and per-screen-mode print start is
-  follow-up work in #1506, not part of these profiles yet.
+  filament-runout behavior. Print Handy slices the Feather, Guppy and
+  Headless start form and refuses a Stock or unreadable screen (see
+  "Print start by screen mode" below).
 - **Delivery:** the beta accepts plain G-code and Orca's
   `.gcode.3mf` packages, but whether it accepts Print Handy's own
   ZMod-shaped package is not proven, so these profiles deliver plain
@@ -154,13 +155,13 @@ What is absent is the point:
   name whose meaning depends on the screen mode (`MESH_DATA` on the
   stock screen, `auto` on the others, because the stock software owns
   that profile and the Z-offset handling there). ZMod's `MESH=auto`
-  does not carry over, and the per-screen-mode start work is a
-  follow-up tranche in #1506.
+  does not carry over. Readiness checks the reported screen mode and
+  refuses Stock or an unreadable mode before start.
 - **No `Z_OFFSET`, no `SKIP_ZOFFSET`.** Both are deprecated on
   Forge-X and fatal: passing either one cancels the print.
 - **No `TIMELAPSE_TAKE_FRAME`** anywhere in the file (see the table
-  above), and no `TIMELAPSE=` parameter in this tranche: the beta
-  accepts one, and per-print timelapse choices are tranche 2 work.
+  above). With `forgex_timelapse=off`, Print Handy adds `TIMELAPSE=0`;
+  otherwise it leaves the firmware's printer-wide switch in control.
 
 `START_PRINT` must stay on a single line with both temperatures:
 missing either one aborts the job. The stock screen's documented form
@@ -182,11 +183,11 @@ Forge-X documents two machine start forms, chosen by the printer's local screen 
 | Feather, Guppy or Headless | `START_PRINT EXTRUDER_TEMP=<nozzle> BED_TEMP=<bed>` on one line |
 | Stock | the same line, then `M190 S<bed>` and `M104 S<nozzle>` |
 
-Print Handy's Forge-X profiles slice the Feather, Guppy and Headless form. Print Handy reads the screen from Moonraker (`mod_params`, the `display` setting of Forge-X's `SET_MOD` system). If the printer reports the Stock screen, the start is refused with the reason: switch the display with `SET_MOD PARAM=display VALUE=FEATHER` (or `GUPPY` or `HEADLESS`). A missing or unrecognized value is not guessed in either direction.
+Print Handy's Forge-X profiles slice the Feather, Guppy and Headless form. Print Handy reads the screen from Moonraker (`mod_params`, the `display` setting of Forge-X's `SET_MOD` system). If the printer reports the Stock screen, the start is refused with the reason: switch the display with `SET_MOD PARAM=display VALUE=FEATHER` (or `GUPPY` or `HEADLESS`). If `mod_params` or its `display` key is missing, or the reported value is not recognized, readiness refuses the start and names the missing or unknown report; no screen mode is guessed.
 
 The start line never carries `Z_OFFSET` or `SKIP_ZOFFSET`. Both are deprecated on Forge-X, and passing either cancels the print. Nor does it carry any ZMod start parameter. The two-way firmware mismatch warning (below) still applies.
 
-Documented and config verified, not hardware verified (#1506). Calibration routing and timelapse are separate follow-ups.
+Documented and config verified, not hardware verified (#1506). Calibration and timelapse are described in their own sections below.
 
 ## Delivery: plain G-code
 
@@ -321,8 +322,6 @@ Scoped out so far (#1506 names the follow-up tranches):
 - The Stock screen's print start (its extra heating lines): Stock-screen
   prints are refused with the fix named, see above.
 - Collecting Forge-X's own timelapse videos into chat.
-- Guarded firmware apply, update alerts and a firmware watch entry:
-  tranche 3, under #1280 section I.
 - Forge-X on any other printer: upstream has not ported it to the
   AD5X or the Creator line, so no Print Handy key implies it.
 - Driving the USB full-image update flow from Print Handy: that flow

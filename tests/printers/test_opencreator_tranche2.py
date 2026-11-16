@@ -469,3 +469,68 @@ def test_per_tool_material_problems_are_warnings_never_a_hard_stop(monkeypatch, 
     message = _verify_with_slots(monkeypatch, tmp_path, text, {})
     assert "for T0 (position 1)" in message and "for T1 (position 2)" in message
     assert _every_material_problem_is_acceptable(message)
+
+
+# --- #235 audit O1/O2: the material check follows the printer's AFC map ------
+
+def _swapped_status():
+    from .test_opencreator import _ready_status
+    status = _ready_status()
+    status["AFC_lane extruder0"]["map"] = ["T2"]
+    status["AFC_lane extruder2"]["map"] = ["T0"]
+    return status
+
+
+def _verify_live_map(monkeypatch, tmp_path, text, slots, status):
+    from print_handy.gcode import verify
+
+    def mr(state, path, *a, **k):
+        if status is None:
+            raise OSError("printer not reachable")
+        return {"result": {"status": status}}
+
+    monkeypatch.setattr(verify, "_mr", mr)
+    return _verify_with_slots(monkeypatch, tmp_path, text, slots)
+
+
+def test_a_remapped_printer_checks_the_spool_on_the_toolhead_that_prints(monkeypatch, tmp_path):
+    # T0 prints on toolhead 3 (position 3) on this printer: PLA there, PETG on position 1.
+    slots = {"1": {"material": "PETG"}, "3": {"material": "PLA"}}
+    text = _four_tool("PLA;PLA;PETG;PLA") + "T2\nG1 X20 Y20 E1\n"
+    message = _verify_live_map(monkeypatch, tmp_path, text, slots, _swapped_status())
+    assert "for T0" not in message, message
+    assert "G-code filament_type 'PETG' != loaded 'PLA' for T2 (position 1)" not in message
+    assert "filament_type" not in message, message
+
+
+def test_a_remapped_printer_names_the_real_mismatch(monkeypatch, tmp_path):
+    slots = {"1": {"material": "PLA"}, "3": {"material": "PETG"}}
+    message = _verify_live_map(monkeypatch, tmp_path, _four_tool("PLA;PLA;PLA;PLA"), slots,
+                               _swapped_status())
+    assert "G-code filament_type 'PLA' != loaded 'PETG' for T0 (position 3)" in message
+    assert _every_material_problem_is_acceptable(message)
+
+
+def test_an_unread_map_is_named_in_the_warning(monkeypatch, tmp_path):
+    message = _verify_live_map(monkeypatch, tmp_path, _four_tool("PETG;PLA;PLA;PLA"),
+                               {"1": {"material": "PLA"}}, None)
+    assert "for T0 (position 1), assumed because the printer's AFC tool map was not read" in message
+    assert _every_material_problem_is_acceptable(message)
+
+
+def test_offline_verification_warns_about_material_without_refusing(monkeypatch, tmp_path, capsys):
+    from print_handy.gcode import verify
+
+    path = tmp_path / "job.gcode"
+    path.write_text(_four_tool("PETG;PLA;PLA;PLA"))
+    state = {"nozzle": {"diameter_mm": 0.4, "type": "hardened_steel"}, "spool": {},
+             "filament_slots": {"1": {"material": "PLA"}},
+             "temps_c": {"nozzle": 220, "bed": 60},
+             "axis_limits_mm": {"x": [0, 256], "y": [0, 256], "z": [0, 256]}}
+    result = verify.verify_gcode_offline(path, state, adapter_for(PRO),
+                                         recorded_temps={"nozzle": 220, "bed": 60})
+    assert result["offline"] is True
+    [warning] = result["material_warnings"]
+    assert "G-code filament_type 'PETG' != loaded 'PLA' for T0 (position 1)" in warning
+    assert "AFC tool map was not read" in warning
+    assert "MATERIAL WARNING:" in capsys.readouterr().out

@@ -1,5 +1,6 @@
+from pathlib import Path
+
 from print_handy.printers.flashforge_opencreator.afc import (
-    bind_commands,
     identity_map_problems,
     parse_tool_records,
 )
@@ -29,11 +30,14 @@ def test_remapped_tool_map_is_refused_and_names_the_lane():
     assert "T3" in problems[0]
 
 
-def test_bind_commands_are_built_only_for_idle_printers():
-    assert bind_commands("extruder0", {"material": "PLA"},
-                         spoolman_enabled=False, printer_idle=False) == []
-    assert bind_commands("extruder0", {"material": "PLA"},
-                         spoolman_enabled=False, printer_idle=True) == [
-        "SET_MATERIAL LANE=extruder0 MATERIAL=PLA",
-        "SET_COLOR LANE=extruder0 COLOR=",
-    ]
+def test_print_handy_builds_no_afc_spool_commands():
+    # #235 audit O4: AFC's SET_SPOOL_ID moves the printer's active spool
+    # (an accounting write the printer owns under #1536), SET_MATERIAL reads
+    # one word and SET_COLOR wants a hex code and cannot clear (AFC
+    # extras/AFC_spool.py). Spools are bound at the printer, so no builder
+    # for these commands exists to be wired up by mistake.
+    from print_handy.printers.flashforge_opencreator import afc
+    assert not hasattr(afc, "bind_commands")
+    source = Path(afc.__file__).read_text()
+    for command in ("SET_SPOOL_ID", "SET_MATERIAL", "SET_COLOR"):
+        assert f'"{command} ' not in source and f"'{command} " not in source and f'f"{command}' not in source
