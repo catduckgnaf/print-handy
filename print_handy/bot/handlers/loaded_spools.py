@@ -71,6 +71,12 @@ _LOADED_FUZZY_RIVALS = (
     "swap the filament",
     "replace the filament",
     "load the filament",
+    # "Load a spool" is a load request (#1524 tranche 2 routes it to the
+    # guided /spool change); one letter from "loaded spools", it must
+    # lose to these, not earn a "what is loaded" prompt.
+    "load a spool",
+    "load the spool",
+    "load a roll",
 )
 
 _LOADED_SUGGEST_YES = 'Yes — show it'

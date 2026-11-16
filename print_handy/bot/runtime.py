@@ -379,9 +379,13 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:please\s+)?what(?:'s|\s+is)\s+in\s+the\s+(?:ams|ifs){_END}", re.I), "/print-spools"),
     (re.compile(rf"^(?:please\s+)?(?:which\s+spools\s+are\s+loaded|show\s+loaded\s+spools|check\s+filament\s+slots|how\s+much\s+filament\s+is\s+left){_END}", re.I), "/print-spools"),
     # Print control
-    (re.compile(rf"^{_LEAD}(?:stop|cancel|abort)\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-stop"),
-    (re.compile(rf"^{_LEAD}pause\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-pause"),
-    (re.compile(rf"^{_LEAD}(?:resume|continue|unpause)\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-resume"),
+    # "my print", "this job" (#1524 audit): the checklist's own "Pause my
+    # print" and the corpus "Stop this job" fell through to "I didn't
+    # understand". Each still only offers the did-you-mean prompt; the
+    # command then asks or acts as it always has.
+    (re.compile(rf"^{_LEAD}(?:stop|cancel|abort)\s+(?:the\s+|my\s+|this\s+)?(?:current\s+)?(?:print|job|print\s+job){_END}", re.I), "/print-stop"),
+    (re.compile(rf"^{_LEAD}pause\s+(?:the\s+|my\s+|this\s+)?(?:current\s+)?(?:print|job|print\s+job){_END}", re.I), "/print-pause"),
+    (re.compile(rf"^{_LEAD}(?:resume|continue|unpause)\s+(?:the\s+|my\s+|this\s+)?(?:current\s+)?(?:print|job|print\s+job){_END}", re.I), "/print-resume"),
     (re.compile(rf"^{_LEAD}(?:restart|reboot)\s+(?:the\s+)?printer{_END}", re.I), "/print-reboot"),
     (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:a\s+)?cold\s*pull{_END}", re.I), "/print-coldpull"),
     # Prepare to clean: separate the bed and nozzle (the stop recovery ask).

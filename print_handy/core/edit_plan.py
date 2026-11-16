@@ -484,6 +484,11 @@ def resolve_request(text):
     cleaned = _strip_polite(text)
     if not cleaned:
         return None
+    if _NOT_A_MODEL_EDIT.search(cleaned.casefold()):
+        # "add a spool" scored 70 against "add supports" and earned a
+        # supports prompt (#1524 audit): filament words name a spool
+        # request, never a model edit.
+        return None
     relative = _relative_scale(cleaned)
     if relative is not None:
         return relative
@@ -526,11 +531,15 @@ _EDIT_INTENT = re.compile(
     r"lay flat|flat side|edit|change|adjust|bigger|smaller|larger|shrink|enlarge|half|double|wider brim|tree)\b")
 
 
+_NOT_A_MODEL_EDIT = re.compile(r"\b(spools?|rolls?|filaments?|spoolman)\b")
+
+
 def looks_like_edit(text):
     """A request that names an edit concept but resolved to no plan: the
     hook's cue to offer the AI lane or the vocabulary list. Deliberately
     narrow — ordinary chat must not be hijacked."""
-    return bool(_EDIT_INTENT.search(_strip_polite(text).casefold()))
+    folded = _strip_polite(text).casefold()
+    return bool(_EDIT_INTENT.search(folded)) and not _NOT_A_MODEL_EDIT.search(folded)
 
 
 def vocabulary_text():
