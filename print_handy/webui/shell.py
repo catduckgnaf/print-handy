@@ -58,7 +58,6 @@ NAV = (
     ("/designs", "Designs"),
     ("/projects", "Projects"),
     ("/firmware", "Firmware"),
-    ("/timing", "Timing"),
     ("/config", "Settings"),
 )
 

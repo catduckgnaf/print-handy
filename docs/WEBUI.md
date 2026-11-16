@@ -58,7 +58,6 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /api/wrapped/video-status?year=<year>` | The compile's state as JSON, polled by the Pasta Wrapped page: `idle`, `queued`, `running` (with `step` of `steps`), `done` or `failed` (with a short `reason`), plus whether the finished file `available`. Same login and `wrapped_enabled` gate |
 | `GET /wrapped/video-file?year=<year>` | The compiled Pasta Wrapped video file: serves only `wrapped-<year>.mp4` from the wrapped outputs, behind the same login and the `wrapped_enabled` gate, so the Pasta Wrapped page can embed it. Streamed in chunks and answers `Range` requests with `206`, so a browser can seek (Safari needs this) |
 | `POST /wrapped/share` | The Pasta Wrapped page's share form: exports the year's static share bundle locally, on demand. Same gating as `/wrapped` |
-| `GET /timing` | The Timing page: median and p90 for the user-facing waits (link to first question, slice, tap to start, and the rest), read back from the archive's `TIMING.jsonl` files, with the budget per span and the count of lost start responses |
 | `GET /firmware` (and `GET /firmware?printer=<id>`) | The Firmware page: each roster printer with the firmware lines the firmware feed lists for its model (newest release, date, audited version, how it updates), then the whole feed as a table. `?printer=<id>` also reads that one Moonraker printer's update state and shows the `/print-firmware` report. Read-only: no refresh, no apply, no button |
 | `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
 | `GET /manifest.webmanifest` (and `GET /manifest.json`) | The PWA web app manifest (#450 Phase 1): name, stable `id`, standalone display, theme colors and install icons. Public, like the login form, because a browser fetches it before any sign-in; it carries no state |
@@ -115,10 +114,6 @@ The designs page leads with the design workshop: describe a part and the design 
 - the **completion state**: complete, printing, or resumable with the plates still left and the chat command that continues it.
 
 The page keeps no store of its own and changes nothing: continuing or reprinting a project still happens in chat, where every plate asks for its own bed-clear confirmation. It is served under the same access rules as every other page (behind the login on a claimed install) and adds no script of its own.
-
-### Timing page
-
-`/timing` is a read-only report of the waits a person actually feels, read back from the `TIMING.jsonl` file every job writes in its archive folder. Over the newest 100 jobs it shows the median and the 90th percentile for each span: link to first question (the message arriving to the first question being posted), last answer to ready to slice, the slice itself, the post-slice verify, launch preflight, tap to start accepted, and tap to print started, with the two timing stages each span is measured between, the budget the span is held to, and a note when a span is over budget. It also counts lost start responses: a start whose answer never arrived, afterwards confirmed from the printer's own state and never assumed. The same report appears in the doctor (`python3 -m print_handy.doctor`) and in the diagnostics bundle, and `python3 -m print_handy.jobs.timing_report` prints it on its own, can write the summary JSON a release checklist records, and can check the budgets (`--check-budgets`). A job contributes to a span only when both of its stages were recorded, so spans appear as the stages land on real installs; a span with no samples reads "not measured" rather than zero.
 
 ### Firmware page
 

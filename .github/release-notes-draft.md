@@ -40,7 +40,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 - Thanks to Cartrigger (FlashForge C5 Modding Group, OpenCreator) for explaining the firmware's VDS, ACE, AFC and print-start behavior on #1490 and for offering support.
 
 ### See where the time goes
-- A new Timing page in the Web UI, a doctor section and the diagnostics bundle show the waits you actually feel — link to first question, last answer to ready, slicing, tap to print started — as medians and p90s from each job's timing log. (#1489)
+- A doctor section and the diagnostics bundle show the waits you actually feel — link to first question, last answer to ready, slicing, tap to print started — as medians and p90s from each job's timing log. (#1489)
 - Crashes now leave evidence: an unhandled error saves a redacted crash record, the diagnostics bundle gains a Crashes section and carries logs even on installs that never configured a log file, and every job carries a correlation ID so one job can be followed across slicing, launch and monitoring. (#1409, #1424, #1429)
 
 ### Find your printer by brand
