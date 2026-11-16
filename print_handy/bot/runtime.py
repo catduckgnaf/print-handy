@@ -354,6 +354,13 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^new\s+(?:spool|roll){_END}", re.I), "/spool new"),
     (re.compile(rf"^{_LEAD}(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll){_END}", re.I), "/spool"),
     (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?spools{_END}", re.I), "/spool list"),
+    # Load is its own intent (#1524 tranche 2): putting an existing spool
+    # into a slot is the guided change flow, never guided creation.
+    (re.compile(rf"^{_LEAD}load\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+#?\d+)?(?:\s+into\s+slot\s+[1-4])?{_END}", re.I), "/spool change"),
+    (re.compile(rf"^{_LEAD}load\s+spool\s+#?\d+\s+into\s+slot\s+[1-4]{_END}", re.I), "/spool change"),
+    # "How much filament" is an inventory question (#1524 tranche 2): the
+    # list is the deterministic answer surface, not creation or loading.
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+filament\s+do\s+i\s+have{_END}", re.I), "/spool list"),
     (re.compile(rf"^{_LEAD}(?:sync|synchronize)\s+(?:the\s+)?(?:spools?|filament)(?:\s+with\s+spoolman)?{_END}", re.I), "/spool sync"),
     (re.compile(rf"^{_LEAD}sync\s+(?:with\s+)?spoolman{_END}", re.I), "/spool sync"),
     # Spool rename, shelve, archive (#1515): the Web UI's slot actions in chat.
@@ -530,11 +537,17 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:layers?\s+shifted|layers\s+are\s+misaligned|(?:the\s+|my\s+)?print\s+shifted|staircase\s+effect|skipped\s+steps){_END}", re.I), "/print-lookup layer shift"),
     (re.compile(rf"^(?:layers\s+are\s+splitting|layer\s+separation|delamination|cracking\s+between\s+layers){_END}", re.I), "/print-lookup layer separation"),
     (re.compile(rf"^(?:wet\s+filament|popping\s+sounds?\s+from\s+(?:the\s+)?nozzle|steam\s+from\s+(?:the\s+)?nozzle|bubbly\s+extrusion){_END}", re.I), "/print-lookup wet filament"),
-    # Shopping: buying filament goes through the spool flows; running low
-    # starts with seeing what is loaded and how much is left.
-    (re.compile(rf"^{_LEAD}(?:buy|order|purchase)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/spool"),
-    (re.compile(rf"^(?:i\s+)?(?:need|want)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/spool"),
-    (re.compile(rf"^where\s+(?:can|do)\s+i\s+(?:buy|get|order)\s+(?:more\s+)?(?:filament|spools?){_END}", re.I), "/spool"),
+    # Shopping (#1524 tranche 2): "buy filament", "I bought filament",
+    # "add a spool", "load a spool" and "how much filament" are five
+    # different intents. Buying is shopping guidance — it must never
+    # route to the guided /spool creation flow, and a past-tense purchase
+    # ("I bought ...") gets no suggestion at all: the purchase-intake
+    # handler owns recording a purchase, and only from a link or an
+    # image, with its own offer question. Running low starts with seeing
+    # what is loaded and how much is left.
+    (re.compile(rf"^where\s+(?:can|do)\s+i\s+(?:buy|get|order)\s+(?:more\s+)?(?:filament|spools?){_END}", re.I), "/print-lookup buying filament"),
+    (re.compile(rf"^{_LEAD}(?:buy|order|purchase)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/print-lookup buying filament"),
+    (re.compile(rf"^(?:i\s+)?(?:need|want)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/print-lookup buying filament"),
     (re.compile(rf"^(?:i'm\s+|im\s+|we're\s+|we\s+are\s+)?running\s+low\s+on\s+(?:filament|spools?|pla|petg|abs|tpu){_END}", re.I), "/print-spools"),
     # Model sites
     (re.compile(rf"^(?:what|which)\s+(?:model\s+)?sites?\s+(?:can|do)\s+you\s+(?:print|download)\s+from{_END}", re.I), "/print-source"),
