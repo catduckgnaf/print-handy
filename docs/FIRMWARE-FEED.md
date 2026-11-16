@@ -110,8 +110,10 @@ published only on a vendor's download page or through a cloud service
 cannot be followed this way (Bambu Lab, Creality's stock firmware and
 Anycubic's are in that group); do not add a scraper. Stock Flashforge
 firmware is the exception that proves the rule: Flashforge publishes it
-on its own pages, but ZMod's author mirrors every version as a file on
-one GitHub release (`ghzserg/FF`, tag `R`), and the feed reads that.
+on its own update server and pages, and
+`Parallel-7/FlashForge-Firmware-Updates` mirrors each package from that
+server as a GitHub release tagged per model (`adventurer-5x/3.1.8-1.1.1`),
+which the feed reads with `tag_prefix`.
 
 1. **Add one entry to `docs/firmware-feed.toml`.**
 
@@ -138,6 +140,7 @@ one GitHub release (`ghzserg/FF`, tag `R`), and the feed reads that.
    | `stock_models` | Optional, `kind = "firmware"` only: the models on which this firmware is the maker's own (Marlin on `sovol_marlin.*`). Those printers list it under Stock firmware. |
    | `channel` | `stable` unless the line Print Handy supports is a prerelease. `prerelease` makes the newest release of any kind the latest. |
    | `models` | The printer model keys this firmware runs on, exactly as in the printer registry, or a whole vendor as `vendor.*`. Leave it empty for a component that is not tied to a model. |
+   | `tag_prefix` | Only with `feed = "releases"`, for one repository that publishes every model: keep only tags starting with this (`adventurer-5x/`), and read the version right after it up to the first `-` (`adventurer-5x/3.1.8-1.1.1` is 3.1.8). |
    | `line` | Only for a repository that publishes several printer lines together: the printer names that pick this line's releases out by their title. |
    | `update` | One sentence on how an owner installs the update, including what Print Handy does not do. It is shown with every notice. |
 
