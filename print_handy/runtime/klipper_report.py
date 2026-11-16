@@ -230,6 +230,36 @@ def log_alarms(text: str, limit: int = 6) -> list[str]:
     return seen[-limit:]
 
 
+# OpenCreator's print start refuses by cancelling after print_stats already
+# reads printing, with info lines (not `!!` errors) on the console (findings
+# comment on #1490, source-verified; the exact live text is a hardware check).
+OPENCREATOR_START_REFUSALS = (
+    ("Cancelling print: no filament detected in selected",
+     "the printer refused the start: a tool the start checks had no filament"),
+    ("Cancelling print: build plate not detected",
+     "the printer refused the start: the build plate was not detected"),
+    ("Print cancelled during print start",
+     "the print was cancelled while the printer was still preparing it"),
+)
+
+
+def start_refusal(store: list[dict[str, Any]], since: float) -> str:
+    """The OpenCreator start-phase refusal in the console since ``since``, or "".
+
+    Read from the same console store the report reads. The line itself is
+    kept, so a tool number the printer names stays visible.
+    """
+    for entry in reversed(store or []):
+        if not isinstance(entry, dict) or float(entry.get("time") or 0) < since:
+            continue
+        for line in reversed(str(entry.get("message") or "").splitlines()):
+            text = line.lstrip("/! ").strip()
+            for prefix, meaning in OPENCREATOR_START_REFUSALS:
+                if text.startswith(prefix):
+                    return f"{meaning} (printer: {text[:160]})"
+    return ""
+
+
 def build(filename: str, status: dict[str, Any], store: list[dict[str, Any]], log_tail: str,
           *, by_bot: bool, now: float | None = None, job: dict[str, Any] | None = None,
           stop_reason: str = "") -> str:
@@ -275,6 +305,10 @@ def build(filename: str, status: dict[str, Any], store: list[dict[str, Any]], lo
         lines.append(f"{printers.current().firmware_name} is still in an emergency stop. It needs one firmware restart (/print-reboot) "
                      "before it will accept anything else.")
     since = now - max(float(ps.get("total_duration") or 0), 600) - 60
+    refusal = start_refusal(store, since)
+    if refusal and not stop_reason:
+        lines.insert(1, "**Stop reason:** " + refusal)
+        stop_reason = refusal
     console = console_lines(store, since)
     if console:
         lines.append("Last console messages:\n```\n" + "\n".join(console) + "\n```")

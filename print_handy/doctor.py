@@ -199,6 +199,43 @@ def check_zmod_version(data):
     return "unknown (not reported by Moonraker)"
 
 
+def check_firmware_identity(data):
+    """Which Creator firmware the printer runs, against the configured model (#1490 tranche 1).
+
+    Creator models only (ZMod ``flashforge.creator5*`` and OpenCreator
+    ``flashforge_opencreator.creator5*``). Read-only: one Moonraker
+    objects query for ``zmod_color``, ``creator5_toolchanger`` and
+    ``AFC``. A mismatch is reported in the words readiness uses; an
+    unreachable printer is unknown, never a failure.
+    """
+    model = str(data["printer"]["model"])
+    if not (model.startswith("flashforge.creator5") or model.startswith("flashforge_opencreator.creator5")):
+        return None
+    url = data.get("services", {}).get("moonraker_url")
+    if not url:
+        return None
+    from .printers.flashforge_opencreator import firmware_check
+    try:
+        reply = moonraker.moonraker_json(url.rstrip("/"),
+                                         "/printer/objects/query?zmod_color&creator5_toolchanger&AFC",
+                                         timeout=5)
+        status = (reply.get("result") or {}).get("status") or {}
+    except Exception as exc:
+        return f"unknown (the printer's objects could not be read: {exc})"
+    # An unknown object comes back as an empty mapping: absent, not present.
+    status = {name: block for name, block in status.items() if isinstance(block, dict) and block}
+    opencreator = model.startswith("flashforge_opencreator.")
+    problem = (firmware_check.zmod_mismatch_problem(status) if opencreator
+               else firmware_check.opencreator_mismatch_problem(status))
+    if problem:
+        raise RuntimeError(problem)
+    if opencreator and firmware_check.opencreator_evidence(status):
+        return "OpenCreator, matching the configured model"
+    if not opencreator and firmware_check.looks_like_zmod(status):
+        return "ZMod, matching the configured model"
+    return "unknown (the printer reports neither ZMod's nor OpenCreator's objects)"
+
+
 def check_purge(data):
     """Where each ZMod printer's color-change purge goes, and which ZMod plugins are enabled (#832).
 
@@ -370,6 +407,7 @@ def run(out=sys.stdout):
     for key in SERVICE_PATHS:
         report(key.replace("_url", ""), check_service, data, key)
     report("zmod version", check_zmod_version, data)
+    report("creator firmware", check_firmware_identity, data)
     report("zmod purge", check_purge, data)
     report("bot mode", check_bot, data)
     report("logging", check_logging, data)
