@@ -1131,7 +1131,43 @@ def _unsupported_for(site):
     return None
 
 
-async def _spool_projection_text(mj, job, manifest, state, copies, shortages=None):
+def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
+    """Use real sliced grams for a single spool; otherwise preserve source estimates.
+
+    When both support variants are shown, the largest real single-color slice
+    is used so the displayed shortage warning cannot understate either option.
+    """
+    try:
+        from print_handy.runtime import discord_print_summary as dps
+        usage = mj.filament_usage_by_selection(job, manifest)
+        if len(usage) != 1:
+            return manifest, False
+        sliced_totals = []
+        for variant in variant_jobs:
+            if not variant:
+                continue
+            estimates = dps.plate_estimates(variant)
+            if not estimates or any(row.get('basis') != 'sliced' for row in estimates):
+                continue
+            grams = [row.get('filament_g') for row in estimates]
+            if grams and all(isinstance(g, (int, float)) and not isinstance(g, bool) for g in grams):
+                # The G-code already holds every cloned copy; the projection
+                # multiplies by copies itself, so count one copy here.
+                sliced_totals.append(sum(grams) / dps._sliced_copies(variant))
+        if not sliced_totals:
+            return manifest, False
+        result = dict(manifest or {})
+        stats = dict(result.get('filament_stats') or {})
+        stats['total_g'] = max(sliced_totals)
+        stats.pop('estimated', None)
+        result['filament_stats'] = stats
+        return result, True
+    except Exception:
+        logger.debug("Best-effort recovery from sliced spool estimate", exc_info=True)
+        return manifest, False
+
+
+async def _spool_projection_text(mj, job, manifest, state, copies, shortages=None, sliced_variants=()):
     """Display only: filament needed vs the chosen spool's grams. Never blocks the intake.
 
     ``shortages``, when given, collects the filament-shortage warning keys
@@ -1139,6 +1175,7 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
     text shows as short. A print button pressed under that text is the
     operator's answer to them, so the start does not ask again (#1373).
     """
+    manifest, used_sliced = _sliced_spool_manifest(mj, job, manifest, sliced_variants)
     try:
         ids = [sel.get('spoolman_id') for sel, _ in mj.filament_usage_by_selection(job, manifest)]
         if not ids:
@@ -1162,6 +1199,8 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
                                       float(row.get('estimated_used_g') or 0)))
         text = mj.format_spool_projection(
             rows, position_noun='Toolhead' if mj._job_adapter(job).tool_based else 'Slot')
+        if sliced_variants and not used_sliced and (manifest or {}).get('filament_stats', {}).get('estimated'):
+            text = f'{text}\nSpool usage is a model estimate from before slicing.' if text else ''
         if getattr(weights, 'fetch_failed', False):
             # The amounts above fell back to the slot record because
             # Spoolman did not answer (#839): say so on the same post, or
@@ -3570,8 +3609,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 first_labels = [opt['label'] for opt in menu_options]
 
             shown_shortages = []
+            spool_variants = ()
+            if is_flagged:
+                # Show the worst real slice when both support choices are on the menu.
+                spool_variants = (early.job_with_supports, early.job_no_supports)
+            else:
+                spool_variants = (early.job_with_supports if getattr(early, 'supports_result', None)
+                                  else early.job_no_supports,)
             spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity,
-                                                      shortages=shown_shortages)
+                                                      shortages=shown_shortages, sliced_variants=spool_variants)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
             estimate_s = source_estimate[0] * chosen_quantity if source_estimate else None

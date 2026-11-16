@@ -2540,6 +2540,55 @@ def test_spool_projection_warns_when_the_weights_are_cached_not_live(monkeypatch
     assert "Spoolman didn't answer" in text and 'last recorded' in text
 
 
+def test_spool_projection_uses_larger_sliced_support_variant_for_single_spool(monkeypatch):
+    from print_handy.core import printer_state
+    from print_handy.runtime import discord_print_summary as dps
+    monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: '')
+    monkeypatch.setattr(dps, 'plate_estimates', lambda job: [{'basis': 'sliced', 'filament_g': job['grams']}])
+    manifest = {'filament_stats': {'total_g': 14.8, 'estimated': True}}
+    selection = {'slot': 4, 'spoolman_id': 5, 'color': 'dark green', 'material': 'PLA'}
+
+    def usage(job, current_manifest):
+        return [(selection, current_manifest['filament_stats']['total_g'])]
+
+    def projection(job, weights, current_manifest, copies=1):
+        grams = usage(job, current_manifest)[0][1] * copies
+        return [{'slot': 4, 'color': 'dark green', 'material': 'PLA', 'spoolman_id': 5,
+                 'estimated_used_g': round(grams, 1), 'remaining_g': 165.4,
+                 'projected_remaining_g': round(165.4 - grams, 1)}]
+
+    mj = S(filament_usage_by_selection=usage, intake_spool_weights=lambda *a: {5: 165.4},
+           intake_spool_projection=projection,
+           format_spool_projection=lambda rows, **kw: f"Slot 4 dark green PLA: needs about {rows[0]['estimated_used_g']:g} g; spool has 165.4 g",
+           _job_adapter=lambda job: S(tool_based=False))
+    text = asyncio.run(prepared_intake._spool_projection_text(
+        mj, {}, manifest, {}, 1, sliced_variants=({'grams': 26.67}, {'grams': 22.14})))
+    assert 'needs about 26.7 g' in text
+    assert '14.8 g' not in text
+
+
+def test_spool_projection_says_when_it_is_still_the_pre_slice_estimate(monkeypatch):
+    # No usable sliced figure (the slices have no grams yet): the line keeps
+    # the model estimate and says so, never passing it off as the slice.
+    from print_handy.core import printer_state
+    from print_handy.runtime import discord_print_summary as dps
+    monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: '')
+    monkeypatch.setattr(dps, 'plate_estimates', lambda job: [{'basis': 'unknown', 'filament_g': None}])
+    manifest = {'filament_stats': {'total_g': 14.8, 'estimated': True}}
+    selection = {'slot': 4, 'spoolman_id': 5, 'color': 'dark green', 'material': 'PLA'}
+    rows = [{'slot': 4, 'color': 'dark green', 'material': 'PLA', 'spoolman_id': 5,
+             'estimated_used_g': 14.8, 'remaining_g': 165.4, 'projected_remaining_g': 150.6}]
+    mj = S(filament_usage_by_selection=lambda job, m: [(selection, m['filament_stats']['total_g'])],
+           intake_spool_weights=lambda *a: {5: 165.4},
+           intake_spool_projection=lambda job, w, m, copies=1: rows,
+           format_spool_projection=lambda rows, **kw: 'Slot 4 dark green PLA: needs about 14.8 g',
+           _job_adapter=lambda job: S(tool_based=False))
+    text = asyncio.run(prepared_intake._spool_projection_text(
+        mj, {}, manifest, {}, 1, sliced_variants=({'grams': None},)))
+    assert 'needs about 14.8 g' in text
+    assert 'model estimate from before slicing' in text
+
+
 def test_spool_projection_stays_quiet_without_spoolman(monkeypatch):
     from print_handy.core import printer_state
     monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: '')
