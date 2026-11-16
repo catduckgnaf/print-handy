@@ -1,6 +1,8 @@
-# Repositories whose issue trackers are checked weekly. Add lowercase or
-# mixed-case terms here; matching is case-insensitive against issue titles
-# and bodies. Keep terms specific enough to avoid unrelated notifications.
+# Repositories whose issue trackers are checked weekly. Terms match issue
+# titles and bodies as whole words or phrases, case-insensitive. Keep them
+# specific: a broad word such as "filament" or "slicer" matches most
+# printer issues and turns the watch into noise. "feather" is left out on
+# purpose: the Forge-X issue form puts "I use Feather screen" in every issue.
 [[repositories]]
 name = "Forge-X"
 repo = "DrA1ex/ff5m"
@@ -17,11 +19,9 @@ terms = [
   "print-handy",
   "start_print",
   "mod_params",
-  "slicer",
-  "orca",
-  "api",
-  "feather",
-  "spool",
-  "filament",
   "update_manager",
+  "orca",
+  "orcaslicer",
+  "api",
+  "spool",
 ]

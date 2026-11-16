@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import tomllib
@@ -50,26 +51,41 @@ def issue_title(name: str, number: int, title: str) -> str:
 
 
 def match_keywords(issue: dict, keywords: list[str]) -> list[str]:
-    text = f"{issue.get('title', '')}\n{issue.get('body') or ''}".casefold()
-    return [term for term in keywords if term.casefold() in text]
+    """Keywords found in the issue as whole words or phrases, case-insensitive.
+
+    Word boundaries keep a short term such as ``api`` from matching inside
+    another word (``rapid``).
+    """
+    text = f"{issue.get('title', '')}\n{issue.get('body') or ''}"
+    return [term for term in keywords
+            if re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", text, re.IGNORECASE)]
 
 
-def tracking_title(issue: dict) -> str:
-    """Title of an upstream issue already tracked here, if supplied."""
-    return issue.get("title", "")
+_TRACKED = re.compile(r"^Upstream issue: (?P<name>.+?) #(?P<number>\d+)(?: |$)")
+
+
+def tracking_key(issue: dict) -> tuple[str, int] | None:
+    """(watched name, upstream number) of a tracking issue here, or None.
+
+    The key ignores the upstream title, so a renamed upstream issue does
+    not open a second tracking issue.
+    """
+    match = _TRACKED.match(issue.get("title", ""))
+    return (match["name"], int(match["number"])) if match else None
 
 
 def plan_actions(upstream: list[tuple[dict, dict]], existing: list[dict], keywords: list[str]) -> list[dict]:
-    existing_titles = {tracking_title(issue) for issue in existing}
+    tracked = {key for key in (tracking_key(issue) for issue in existing) if key}
     actions = []
     for repo, issue in upstream:
         if issue.get("pull_request"):
             continue
         matched = match_keywords(issue, keywords)
-        title = issue_title(repo["name"], issue["number"], issue["title"])
-        if matched and title not in existing_titles:
+        key = (repo["name"], int(issue["number"]))
+        if matched and key not in tracked:
+            title = issue_title(repo["name"], issue["number"], issue["title"])
             actions.append({"title": title, "url": issue["html_url"], "keywords": matched})
-            existing_titles.add(title)
+            tracked.add(key)
     return actions
 
 
@@ -131,10 +147,20 @@ class GitHubClient:
         return self.request("POST", f"/repos/{repo}/issues", {"title": title, "body": body, "labels": labels})
 
 
-def run(root: Path, client: GitHubClient, *, dry_run: bool = False, now: datetime | None = None, repo: str = DEFAULT_REPO) -> list[dict]:
+def run(root: Path, client: GitHubClient, *, dry_run: bool = False, now: datetime | None = None,
+        repo: str = DEFAULT_REPO, all_open: bool = False) -> list[dict]:
+    """Plan (and unless dry_run, open) tracking issues.
+
+    By default only upstream issues updated in the last SINCE_DAYS days are
+    read. ``all_open`` reads every open upstream issue instead, for a first
+    run or a catch-up after a missed week.
+    """
     repositories, keywords = read_config(root)
-    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=SINCE_DAYS)
-    since = cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
+    if all_open:
+        since = None
+    else:
+        cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=SINCE_DAYS)
+        since = cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
     upstream = []
     for watched in repositories:
         for issue in client.list_issues(watched["repo"], since=since):
@@ -157,6 +183,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="show planned issues without writing")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="tracking repository")
+    parser.add_argument("--all-open", action="store_true",
+                        help="read every open upstream issue, not only the last week's activity")
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[1]
     token = os.environ.get("GITHUB_TOKEN")
@@ -164,7 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         print("GITHUB_TOKEN is required to create tracking issues", file=sys.stderr)
         return 2
     try:
-        actions = run(root, GitHubClient(token), dry_run=args.dry_run, repo=args.repo)
+        actions = run(root, GitHubClient(token), dry_run=args.dry_run, repo=args.repo,
+                      all_open=args.all_open)
     except WatchError as exc:
         print(f"upstream-issue-watch: {exc}", file=sys.stderr)
         return 1

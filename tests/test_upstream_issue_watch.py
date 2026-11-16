@@ -118,6 +118,44 @@ class UpstreamIssueWatch(unittest.TestCase):
         self.assertTrue(client.calls[0][2].endswith("Z"))
         self.assertFalse(any(call[0] in {"create", "label"} for call in client.calls))
 
+    def test_short_keyword_matches_whole_words_only(self):
+        rapid = upstream_issue(title="Rapid moves are loud", body="Travel speed")
+        api = upstream_issue(number=25, title="Expose the API", body="")
+        self.assertEqual(watch.match_keywords(rapid, ["api"]), [])
+        self.assertEqual(watch.match_keywords(api, ["api"]), ["api"])
+
+    def test_renamed_upstream_issue_is_not_tracked_twice(self):
+        existing = [{"title": "Upstream issue: Forge-X #23 An older title", "state": "closed"}]
+        actions, client = self.run_watch([upstream_issue()], existing)
+        self.assertEqual(actions, [])
+        self.assertFalse(any(call[0] == "create" for call in client.calls))
+
+    def test_all_open_reads_every_open_issue_without_a_window(self):
+        client = FakeClient([upstream_issue()], ())
+        actions = watch.run(ROOT, client, dry_run=True, all_open=True)
+        self.assertEqual(len(actions), 1)
+        upstream_reads = [call for call in client.calls
+                          if call[0] == "list" and call[1] != watch.DEFAULT_REPO]
+        self.assertTrue(upstream_reads)
+        self.assertTrue(all(call[2] is None for call in upstream_reads))
+
+    def test_workflow_passes_all_open_from_a_manual_run(self):
+        document = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
+        self.assertIn("all_open", document["on"]["workflow_dispatch"]["inputs"])
+        self.assertIn("--all-open", WORKFLOW.read_text())
+
+    def test_forge_x_issue_form_boilerplate_does_not_match(self):
+        """Every Forge-X issue body carries the screen-type checkboxes; a
+        keyword from that form would flag every issue."""
+        _, keywords = watch.read_config(ROOT)
+        form_only = upstream_issue(
+            title="[Feature]: manual bed mesh editing",
+            body="### Screen Type\n- I use Stock screen.\nI use Feather screen / Headless.\nI use Guppy screen.")
+        self.assertEqual(watch.match_keywords(form_only, keywords), [])
+
+    def test_watch_doc_is_linked_from_the_docs_index(self):
+        self.assertIn("(upstream-issue-watch.md)", (ROOT / "docs" / "README.md").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

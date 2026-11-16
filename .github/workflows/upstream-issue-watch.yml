@@ -6,6 +6,11 @@ on:
     # Wednesdays 14:17 UTC; separate from the firmware and upstream release watches.
     - cron: "17 14 * * 3"
   workflow_dispatch:
+    inputs:
+      all_open:
+        description: Read every open upstream issue, not only the last week's activity
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,4 +31,10 @@ jobs:
       - name: Check upstream issue trackers
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/check_upstream_issues.py
+          ALL_OPEN: ${{ inputs.all_open }}
+        run: |
+          if [ "$ALL_OPEN" = "true" ]; then
+            python3 scripts/check_upstream_issues.py --all-open
+          else
+            python3 scripts/check_upstream_issues.py
+          fi
