@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import socket
 import threading
@@ -47,6 +48,8 @@ from urllib.parse import urlparse
 from .. import __version__, doctor, healthcheck, logs, moonraker, printers, settings
 from ..bot import health as bot_health
 from ..core import purge
+
+log = logging.getLogger(__name__)
 
 # Heartbeat record keys that are safe and useful to show. The record is
 # written by the bot itself; whitelisting keeps anything unexpected (and
@@ -585,7 +588,8 @@ def read_live_status(adapter, view):
     raise ValueError(f"no live status read for connection {connection!r}")
 
 
-def printer_status(data, printer_id, *, read=None):
+def printer_status(data, printer_id, *, read=None, hardware_for=None,
+                   hardware_facts_func=None):
     """(http_code, body) for GET /api/printers/<id>/status (#664).
 
     The identity fields match the /api/status roster rows. An unknown id
@@ -595,6 +599,15 @@ def printer_status(data, printer_id, *, read=None):
     ``status.state == "unavailable"`` and a detail: a consumer polling
     every printer must not lose the whole poll to one dead machine.
     ``read`` overrides the live read for tests.
+
+    The body also carries a ``hardware`` object (#1548): the same
+    nozzle and bed facts the dashboard panels show
+    (``dashboard.hardware_facts`` over the printer's hardware record),
+    so the Home Assistant integration reads the facts the Web UI
+    shows. The facts are fail-soft: a hardware read or build that
+    fails omits the key and never breaks the status answer.
+    ``hardware_for`` overrides the record read and
+    ``hardware_facts_func`` the facts builder, for tests.
     """
     try:
         entry = settings.by_id(printer_id, data)
@@ -620,4 +633,20 @@ def printer_status(data, printer_id, *, read=None):
         normalized = {**_STATUS_DEFAULTS, "state": "unavailable",
                       "detail": f"{type(exc).__name__}: {exc}"}
     body["status"] = normalized
+    # Hardware facts (#1548): the dashboard's own facts, fail-soft.
+    try:
+        if hardware_facts_func is None:
+            from . import dashboard as _dashboard
+            hardware_facts_func = _dashboard.hardware_facts
+        if hardware_for is None:
+            from . import controls as _controls
+            record = _controls._hardware_record(entry["id"])
+        else:
+            record = hardware_for(entry["id"])
+        facts = hardware_facts_func(view, record)
+        if isinstance(facts, dict):
+            body["hardware"] = facts
+    except Exception as exc:  # a hardware problem omits the key, never the status
+        log.warning("printer status hardware facts failed for %s: %s",
+                    printer_id, exc)
     return 200, body
