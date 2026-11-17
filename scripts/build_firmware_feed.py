@@ -47,7 +47,7 @@ SOURCES_FILE = "docs/firmware-feed.toml"
 SCHEMA = 1
 CHANNELS = ("stable", "prerelease")
 _FIELDS = {"id", "kind", "name", "repo", "feed", "channel", "models", "stock_models",
-           "line", "release", "asset", "update"}
+           "line", "release", "asset", "tag_prefix", "update"}
 # "assets": the newest file named <asset>-<version>-... attached to one
 # release (``release``, a tag) of ``repo``. Flashforge publishes its stock
 # firmware only on its own download pages; ZMod's author mirrors those files
@@ -128,6 +128,16 @@ def parse_sources(text: str) -> list[dict]:
         if stock_models and record.get("kind") != "firmware":
             raise FeedError(f"{where}: 'stock_models' marks where a firmware is the "
                             "maker's own; it applies only to kind = \"firmware\"")
+        tag_prefix = record.get("tag_prefix")
+        if tag_prefix is not None:
+            # One repository, every model: Parallel-7/FlashForge-Firmware-Updates
+            # tags each release <model>/<version>-<control>, e.g.
+            # adventurer-5x/3.1.8-1.1.1.
+            if record["feed"] != "releases":
+                raise FeedError(f'{where}: tag_prefix selects releases by tag; '
+                                'it needs feed = "releases"')
+            if not (isinstance(tag_prefix, str) and re.fullmatch(r"[a-z0-9][a-z0-9_.-]*/", tag_prefix)):
+                raise FeedError(f"{where}: tag_prefix must be lowercase and end in '/'")
         line = record.get("line", [])
         if not isinstance(line, list) or not all(isinstance(n, str) and n.strip() for n in line):
             raise FeedError(f"{where}: 'line' must be a list of printer names")
@@ -141,6 +151,7 @@ def parse_sources(text: str) -> list[dict]:
             "models": list(models), "stock_models": list(stock_models),
             "line": [n.strip() for n in line],
             "release": record.get("release"), "asset": record.get("asset"),
+            "tag_prefix": tag_prefix,
             "update": " ".join(record["update"].split()),
         })
     return sources
@@ -220,9 +231,18 @@ def list_candidates(client, source: dict) -> list[dict]:
     if raw is None:
         raise watch.WatchError(f"{repo}: not found")
     line = set(source["line"])
+    prefix = source.get("tag_prefix")
     out = []
     for item in items:
-        parsed = parse_version(item["tag"])
+        tag = str(item["tag"] or "")
+        if prefix:
+            if not tag.startswith(prefix):
+                continue
+            # The version is what follows the prefix, up to the first "-":
+            # adventurer-5x/3.1.8-1.1.1 is 3.1.8 (1.1.1 is the control board).
+            parsed = parse_version(tag[len(prefix):].partition("-")[0])
+        else:
+            parsed = parse_version(item["tag"])
         if parsed is None:
             continue
         if line and not (watch.release_printers(item["title"]) & line):

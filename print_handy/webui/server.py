@@ -198,6 +198,7 @@ from . import screen as screen_module
 from . import shell
 from . import sliced as sliced_module
 from . import settings_report as settings_report_module
+from . import editable_download as editable_download_module
 from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
@@ -1554,6 +1555,47 @@ class _Handler(BaseHTTPRequestHandler):
                    headers=[("Content-Disposition", f'attachment; filename="{name}"'),
                             ("Cache-Control", "no-store")])
 
+    def _conversion_report_route(self, rest=""):
+        """The readable conversion report for an archived job (#1525).
+
+        Rendered from the same conversion provenance as the JSON
+        settings report; ?format=text serves the chat form.
+        """
+        segments = [segment for segment in rest.split("/") if segment]
+        archive = data_module.archive_root(self.server.settings_data)
+        rendered = (settings_report_module.conversion_report(archive, segments[0])
+                    if len(segments) == 1 else None)
+        if rendered is None:
+            self._json(404, {"ok": False, "reason": "no recorded conversion provenance for this job"})
+            return
+        html_body, text_body = rendered
+        if "text" in (parse_qs(urlparse(self.path).query).get("format") or []):
+            self._send(200, text_body.encode("utf-8"), "text/plain; charset=utf-8",
+                       headers=[("Cache-Control", "no-store")])
+            return
+        self._send(200, html_body.encode("utf-8"), "text/html; charset=utf-8",
+                   headers=[("Cache-Control", "no-store")])
+
+    def _editable_export_route(self, rest=""):
+        """Download an editable destination 3MF export for an archived job (#1525).
+
+        The export is built from the job's own named source by
+        core.editable_export: it starts no print and touches no spool.
+        A refusal (for example a sliced-only source) is the answer, in
+        the export's own words.
+        """
+        segments = [segment for segment in rest.split("/") if segment]
+        archive = data_module.archive_root(self.server.settings_data)
+        path, report = (editable_download_module.export_for_job(archive, segments[0])
+                        if len(segments) == 1 else (None, "no such job"))
+        if path is None:
+            self._json(404, {"ok": False, "reason": report})
+            return
+        self._send_file(path, "model/3mf",
+                        headers=[("Content-Disposition",
+                                  f'attachment; filename="{path.name}"'),
+                                 ("Cache-Control", "no-store")])
+
     def _sliced_route(self, rest=""):
         """GET /sliced (the downloads page) and /sliced/<job>/<n> (one plate file, #1443).
 
@@ -2593,7 +2635,11 @@ class _Handler(BaseHTTPRequestHandler):
         if not text:
             self._redirect("/chat")
             return
-        if not self._chat_view().submit(text):
+        # The Ask AI checkbox is read here, on the authenticated POST,
+        # and passed as a server-side flag — never parsed out of the
+        # message text (#1524).
+        ask_ai = (form.get("ask_ai") or [""])[0] in ("1", "true", "on")
+        if not self._chat_view().submit(text, ask_ai=ask_ai):
             self._chat_page(error="Too many messages in the last minute; "
                                   "give the bot a moment to catch up.")
             return

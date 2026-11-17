@@ -60,6 +60,31 @@ These screenshots are **mockups based on real bot text and controls**, not proof
 
 </details>
 
+## Talk to it in plain words
+
+You do not need slash commands. In the print channel or the Web UI chat, just ask:
+
+- "How much purple PLA do I have?"
+- "What's loaded?"
+- "What's in slot 2?"
+- "Tell me about spool #12"
+- "Which spools are nearly empty?"
+- "Are there ZMod updates?"
+- "What firmware am I on?"
+- "My first layer won't stick"
+- "Where can I buy PLA?"
+- "What can you do?"
+
+Plain questions are answered **locally** from your own Spoolman, printer and firmware state. No AI is involved and nothing leaves the machine. Follow-ups work too: after an inventory answer, "Only Polymaker" or "What about black?" narrows it.
+
+Three routes, on purpose:
+
+1. **Normal chat is local.** Plain questions get deterministic answers from real data. Nothing is sent to a model.
+2. **@mention is the conversational AI.** Mention the bot (or use the Web UI's Ask AI checkbox, or `ask ai:` in a direct message) and, when a chat endpoint is configured and switched on, that message goes to it. The AI gets only typed read-only tools. It cannot start, stop or change anything itself; if it proposes an action, you still get the normal confirmation prompt. A mention is never consent to change anything.
+3. **Designing is its own AI path.** Asking for a new or edited model uses the dedicated design engine, exactly as before, no mention needed. A few specialized paths also use AI for their one job: camera watch (Pasta Cam), spool-label and purchase photos, and edit repair. Those are unchanged.
+
+Buying words stay separate from inventory words: "Where can I buy PLA?" is shopping guidance, "I bought purple PLA" records nothing by itself (send the product link or a photo and you will be asked first), and "Load spool 12 into slot 2" is the guided spool flow with its own confirmation.
+
 ## Get started
 
 Three ways in: Docker (right here), [Unraid](#unraid) or the [Home Assistant add-on](#home-assistant-add-on).

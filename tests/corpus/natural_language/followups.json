@@ -1,0 +1,109 @@
+{
+ "cases": [
+  {
+   "text": "How much purple PLA do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "purple",
+    "material": "pla"
+   },
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Only Polymaker",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "purple",
+    "material": "pla",
+    "brand": "polymaker"
+   },
+   "allowed_effects": [
+    "read-only"
+   ],
+   "followup": true
+  },
+  {
+   "text": "What about black?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "black",
+    "material": "pla"
+   },
+   "allowed_effects": [
+    "read-only"
+   ],
+   "followup": true
+  },
+  {
+   "text": "Which are loaded?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "black",
+    "material": "pla",
+    "loaded_only": true
+   },
+   "allowed_effects": [
+    "read-only"
+   ],
+   "followup": true
+  },
+  {
+   "text": "How much is that in kg?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "black",
+    "material": "pla",
+    "unit": "kg"
+   },
+   "allowed_effects": [
+    "read-only"
+   ],
+   "followup": true
+  },
+  {
+   "text": "Tell me about spool #12",
+   "intent": "spool_detail",
+   "slots": {
+    "spool_id": 12
+   },
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Show details",
+   "intent": "spool_detail",
+   "slots": {
+    "spool_id": 12
+   },
+   "allowed_effects": [
+    "read-only"
+   ],
+   "followup": true
+  },
+  {
+   "text": "Are there ZMod updates?",
+   "intent": "firmware_updates",
+   "slots": {
+    "component": "ZMod"
+   },
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Can I update it?",
+   "intent": "firmware_updates",
+   "slots": {
+    "component": "ZMod"
+   },
+   "allowed_effects": [
+    "read-only"
+   ],
+   "followup": true,
+   "note": "a follow-up question about updating never applies the update"
+  }
+ ]
+}

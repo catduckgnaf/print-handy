@@ -1,0 +1,51 @@
+{
+ "cases": [
+  {
+   "text": "How much purple PAL do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "color": "purple"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "note": "a typo may lose the material slot, never invent one"
+  },
+  {
+   "text": "How much blak PETG do I have?",
+   "intent": "inventory_total",
+   "slots": {
+    "material": "petg"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Waht is loaded?",
+   "intent": null,
+   "allowed_effects": [],
+   "note": "a typo may cause a miss"
+  },
+  {
+   "text": "Plese pause my print",
+   "intent": null,
+   "allowed_effects": [],
+   "note": "a typo'd mutation is a miss, never a mutation"
+  },
+  {
+   "text": "Updte ZMod",
+   "intent": null,
+   "allowed_effects": [],
+   "note": "a typo'd update is a miss, never an update"
+  },
+  {
+   "text": "Stop ths job",
+   "intent": null,
+   "allowed_effects": [],
+   "note": "a typo'd stop is a miss, never a stop"
+  }
+ ]
+}

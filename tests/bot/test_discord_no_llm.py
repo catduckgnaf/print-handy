@@ -147,7 +147,7 @@ def test_discord_chat_llm_off_never_calls_the_llm_even_when_configured(no_llm_cf
             mock.patch("print_handy.runtime.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
         out = run(core.handle_message(discord.message("/spool list")))
         assert discord.sent == ["Slot 1: #7 black PLA"]  # deterministic commands unchanged
-        out = run(core.handle_message(discord.message("what is the printer doing?")))
+        out = run(core.handle_message(discord.message("hello there, how is it going?")))
     assert calls == []
     assert out == {"action": "skip", "reason": "command list"}
     assert discord.sent == ["Slot 1: #7 black PLA", core.unmatched]

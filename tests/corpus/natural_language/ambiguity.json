@@ -1,0 +1,39 @@
+{
+ "cases": [
+  {
+   "text": "Can I print this tonight?",
+   "intent": null,
+   "mood": "interrogative",
+   "allowed_effects": [],
+   "note": "missing model, time and filament facts: ask, do not route"
+  },
+  {
+   "text": "Print the usual",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": [],
+   "note": "no resolvable referent"
+  },
+  {
+   "text": "Use the other one",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": [],
+   "note": "no resolvable referent without context"
+  },
+  {
+   "text": "Update it",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": [],
+   "note": "no component named: never applies anything"
+  },
+  {
+   "text": "Load it",
+   "intent": null,
+   "mood": "imperative",
+   "allowed_effects": [],
+   "note": "no spool or slot named"
+  }
+ ]
+}

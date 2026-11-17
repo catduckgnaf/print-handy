@@ -66,3 +66,25 @@ def report_payload(archive: Path, job_id: str) -> dict | None:
 
 def render_json(payload: dict) -> bytes:
     return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def conversion_report(archive: Path, job_id: str):
+    """The readable report (HTML + text) from the same provenance (#1525).
+
+    Built by core.conversion_report from the job's recorded
+    conversion_provenance — the identical record report_payload reads —
+    so the readable view can never disagree with the JSON download.
+    Returns (html, text) or None when the job recorded no provenance.
+    """
+    loaded = _load_job(Path(archive), job_id)
+    if loaded is None:
+        return None
+    _path, job = loaded
+    provenance = job.get("provenance")
+    conversion = (provenance.get("conversion_provenance")
+                  if isinstance(provenance, dict) else None)
+    if not isinstance(conversion, dict):
+        return None
+    from print_handy.core import conversion_report as _report
+    report = _report.build_report(conversion, job_id=job_id)
+    return _report.render_html(report), _report.render_text(report)

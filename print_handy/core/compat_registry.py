@@ -187,6 +187,36 @@ _FOREIGN_PATTERN = (r'.*_(?:speed|acceleration|jerk|gcode|temp|temperature)(?:_i
                     r'|(?:machine|printer|printable|bed|nozzle|extruder|retract|retraction|z_hop|print_host|printhost)_.*'
                     r'|curr_bed_type|default_bed_type|host_type|post_process|z_hop|wipe|wipe_distance|travel_slope'
                     r'|slicing_pipeline_plugin|plugins')
+_CURA_MAPPING = {
+    'layer_height': {'orca': 'layer_height', 'kind': 'float', 'min': 0.0, 'max': 1.0},
+    'initial_layer_height': {'orca': 'initial_layer_print_height', 'kind': 'float', 'min': 0.0, 'max': 1.0},
+    'wall_line_count': {'orca': 'wall_loops', 'kind': 'int', 'min': 1, 'max': 20},
+    'top_layers': {'orca': 'top_shell_layers', 'kind': 'int', 'min': 0, 'max': 100},
+    'bottom_layers': {'orca': 'bottom_shell_layers', 'kind': 'int', 'min': 0, 'max': 100},
+    'infill_sparse_density': {'orca': 'sparse_infill_density', 'kind': 'percent'},
+    'infill_pattern': {'orca': 'sparse_infill_pattern', 'kind': 'enum',
+                       'values': {'grid': 'grid', 'lines': 'line', 'triangles': 'triangles',
+                                  'cubic': 'cubic', 'gyroid': 'gyroid', 'zigzag': 'zigzag',
+                                  'concentric': 'concentric', 'lightning': 'lightning'}},
+    'support_enable': {'orca': 'enable_support', 'kind': 'bool_support'},
+    'support_structure': {'orca': 'support_type', 'kind': 'enum',
+                          'values': {'normal': 'normal(auto)', 'tree': 'tree(auto)'}},
+    'support_placement': {'orca': 'support_on_build_plate_only', 'kind': 'enum',
+                          'values': {'buildplate': '1', 'everywhere': '0'}},
+    'adhesion_type': {'orca': 'brim_type', 'kind': 'enum',
+                      'values': {'none': 'no_brim', 'brim': 'outer_only'}},
+    'brim_width': {'orca': 'brim_width', 'kind': 'float', 'min': 0.0, 'max': 50.0},
+    'z_seam_type': {'orca': 'seam_position', 'kind': 'enum',
+                    'values': {'random': 'random', 'aligned': 'aligned',
+                               'sharpest_corner': 'nearest'}},
+}
+_CURA_FORBIDDEN = ('machine_start_gcode', 'machine_end_gcode', 'machine_name',
+                   'machine_width', 'machine_depth', 'machine_height',
+                   'material_print_temperature', 'material_bed_temperature',
+                   'material_print_temperature_layer_0', 'material_bed_temperature_layer_0',
+                   'speed_travel', 'acceleration_print', 'acceleration_travel',
+                   'machine_acceleration', 'extruder_offset_x', 'extruder_offset_y',
+                   'machine_gcode_flavor', 'machine_extruder_count')
 _ORCA = ">=2.4,<3.0"  # the OrcaSlicer config names Print Handy targets (2.4/2.5 era)
 
 RULES = (
@@ -473,6 +503,26 @@ RULES = (
          ("docs/history/3MF-REMAP-INVENTORY.md#member-classification-and-the-object-id-policy",),
          {"on_unclassified": "refuse", "on_embedded_gcode": "refuse",
           "on_slice_record_nonidentity": "drop_named", "on_object_keyed_object_map": "refuse"}),
+    Rule("cura-key-translation", "key_translation", "cura", "any", "orca", _ORCA,
+         "A Cura project stores its setting stacks as INI-style .cfg members under Cura/ in the "
+         "archive. Only the validated subset in this rule's mapping is translated to Orca names: "
+         "layer heights, wall count, top/bottom shell layers, infill density and pattern, support "
+         "enable/structure/placement, brim and seam candidates, each with a stated value kind and "
+         "range. A value outside its range or enumeration is refused with a note, never guessed. "
+         "Evidence is spec-synthetic until a genuine Cura-produced fixture exists (see the fixture "
+         "provenance manifest); the rule claims no genuine-producer fidelity.",
+         ("tests/core/test_source_descriptor_1525.py::test_cura_settings_translate_the_validated_subset",
+          "tests/core/test_source_descriptor_1525.py::test_cura_forbidden_keys_never_translate"),
+         ("docs/history/3MF-CONVERSION-EVIDENCE.md#addendum-cross-slicer-source-evidence-1525",),
+         {"mapping": _CURA_MAPPING}),
+    Rule("cura-forbidden-keys", "hardware_key_removal", "cura", "any", "orca", _ORCA,
+         "A Cura source's machine identity, start/end G-code, material temperatures, accelerations "
+         "and extruder offsets belong to the source machine, never to the destination: the "
+         "destination machine profile, firmware commands and operator/Spoolman selections stay "
+         "authoritative, so these keys are named here and no translation may carry them.",
+         ("tests/core/test_source_descriptor_1525.py::test_cura_forbidden_keys_never_translate",),
+         ("docs/history/3MF-CONVERSION-EVIDENCE.md#addendum-cross-slicer-source-evidence-1525",),
+         {"keys": _CURA_FORBIDDEN}),
 )
 
 _BY_ID = {rule.id: rule for rule in RULES}

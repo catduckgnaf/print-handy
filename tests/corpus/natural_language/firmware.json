@@ -1,0 +1,38 @@
+{
+ "cases": [
+  {
+   "text": "Are there ZMod updates?",
+   "intent": "firmware_updates",
+   "slots": {
+    "component": "ZMod"
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ],
+   "facts": {
+    "states": [
+     "update_available",
+     "current",
+     "release_unverified",
+     "unknown",
+     "unsupported",
+     "unavailable",
+     "blocked"
+    ]
+   }
+  },
+  {
+   "text": "Update ZMod",
+   "intent": "firmware_update_apply",
+   "slots": {
+    "component": "ZMod"
+   },
+   "mood": "imperative",
+   "allowed_effects": [
+    "mutating"
+   ],
+   "note": "stays on the existing guarded flow: eligibility, idle, confirmation, verify"
+  }
+ ]
+}

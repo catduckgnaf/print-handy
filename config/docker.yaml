@@ -110,6 +110,17 @@ agent:
   model: ""
   api_key_env: "AGENT_API_KEY"
   timeout_s: 120
+natural_language:
+  # The deterministic plain-language layer (#1524): see docs/STANDALONE.md,
+  # 'Plain words first'. shadow_mode logs disagreements locally and lets
+  # the previous behavior answer; unmatched_log_enabled keeps a sanitized
+  # local-only log of unmatched phrases; ai_rate_limit_per_hour caps the
+  # conversational AI lane per user; ai_disabled_channel_ids switches
+  # that lane off per channel.
+  shadow_mode: false
+  unmatched_log_enabled: false
+  ai_rate_limit_per_hour: 20
+  ai_disabled_channel_ids: []
 design:
   # AI design with OpenSCAD (#388): no enabled key on purpose — unset is
   # AUTO (on whenever a design/LLM endpoint is configured, like roasts).
