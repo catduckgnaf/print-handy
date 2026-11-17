@@ -326,15 +326,22 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
         return False, "A different print is paused than the one you confirmed. Nothing sent."
     if head_filament_loaded(printer_id) is False:
         return False, HEAD_EMPTY_TEXT
-    from .print_stop import NO_REPLY_WAIT_S, post_print_command, read_back
+    from .print_stop import NO_REPLY_WAIT_S, post_print_command, send_once_and_read_back
+    replied = [True]
+
+    def _send_resume():
+        replied[0] = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
+        return replied[0]
+
     try:
-        replied = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
+        _took, after = send_once_and_read_back(
+            _send_resume, lambda: status(printer_id), "printing", wait_s, poll_s)
     except moonraker.MoonrakerAuthError as exc:
         return False, f"{exc} The resume was not sent."
+    replied = replied[0]
     if not replied:
         wait_s = max(wait_s, NO_REPLY_WAIT_S)
-    after = read_back(lambda: status(printer_id), lambda st: st["state"] == "printing",
-                      wait_s, poll_s) or before
+    after = after or before
     if after["state"] == "printing":
         where = where_text(after)
         return True, f"Resumed. Printer now reports printing{', ' + where if where else ''}."

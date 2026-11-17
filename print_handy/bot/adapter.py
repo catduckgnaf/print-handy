@@ -283,14 +283,14 @@ class StandaloneAdapter(BasePlatformAdapter):
         is_select = isinstance(values, list) and bool(values)
         select_answer = str(values[0]) if is_select else None
         user = getattr(interaction, "user", None)
-        if not self._is_allowed_user(str(getattr(user, "id", "")), user):
+        if not self.authorize_press(interaction, "allowed"):
             # Never silent (#386): the presser gets the ephemeral reply and
             # the log names who was refused and why.
             logger.info("refused button press from Discord user %s: %s",
                         getattr(user, "id", ""), self.refusal_reason(getattr(user, "id", "")))
             await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
             return True
-        if prompts.is_approval(cid) and not self.may_approve_id(getattr(user, "id", "")):
+        if prompts.is_approval(cid) and not self.authorize_press(interaction, "approver"):
             # Print approvals stay separate from open channel access (P1-93):
             # anyone in the channel may chat, but only the approval user
             # resolves a prompt whose answer starts a print.

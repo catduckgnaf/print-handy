@@ -8,6 +8,7 @@ import logging
 import hashlib, json, os, re, subprocess, time, zipfile
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -2821,6 +2822,63 @@ def _owning_job(g):
     return None, None
 
 
+@dataclass(frozen=True)
+class LaunchTarget:
+    """One launch's resolved identity, built once (#1590 item 3).
+
+    ``gcode`` is the final G-code path (a JOB.json target is dereferenced
+    to the G-code it names), ``job``/``job_path`` its owning job record,
+    ``printer_id`` the job's recorded printer (or None for the configured
+    single printer) and ``sha`` the G-code file's SHA-256, or None when
+    the file does not exist yet (the launch body refuses that case).
+    Note: lane #1587 builds a minimal LaunchTarget for its control-lock
+    fix on its own branch; the two definitions overlap on purpose and
+    catduck can sequence the merges.
+    """
+
+    gcode: Path
+    job: dict | None
+    job_path: Path | None
+    printer_id: str | None
+    sha: str | None
+
+
+def build_launch_target(target) -> LaunchTarget:
+    """Resolve ``target`` into a LaunchTarget, once.
+
+    The resolution is exactly the one ``_print_now_locked`` used to do
+    inline: resolve the target path, find its owning job, and dereference
+    a JOB.json target to the G-code it names (refusing a stale color
+    artifact with no G-code named).
+    """
+    g = Path(resolve_print_target(target)).expanduser().resolve()
+    job, job_path = _owning_job(g)
+    if g.name == "JOB.json":
+        if not job.get("gcode"):
+            raise RuntimeError("stale color artifact: reslice current JOB before launch")
+        g = Path(job["gcode"]).expanduser().resolve()
+    printer_id = job.get("printer_id") if isinstance(job, dict) else None
+    sha = file_sha256(g) if g.is_file() else None
+    return LaunchTarget(gcode=g, job=job, job_path=job_path, printer_id=printer_id, sha=sha)
+
+
+def _refuse_delivery_not_enabled(adapter, st, g, printer_id, job, *, via, status_note, handoff):
+    """The "delivery not enabled" refusal, in one place (#1590 item 1).
+
+    Verifies the file for manual handoff, then refuses with the exact
+    wording each transport used inline: the transport name (``via``), its
+    status note and its handoff wording are the only differences.
+    """
+    try:
+        _verify_routed(g, adapter, st, printer_id, job=job)
+    except RuntimeError as exc:
+        raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
+    raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
+                     f"'printer' to [delivery] methods to print over {via}; {status_note} "
+                     f"read-only). {g} passed offline checks; {handoff} (not yet tested on "
+                     "a printer). Nothing uploaded or started.")
+
+
 def _print_now_control_lock(target):
     """The shared interprocess control lock for this print's printer (P1-33).
 
@@ -3091,12 +3149,8 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         except ToolRemapRefused as exc:
             raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
         print(f"SLOT REMAPPED: T{remap_res['tool']} -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
-    g=Path(resolve_print_target(target)).expanduser().resolve()
-    job, job_path = _owning_job(g)
-    if g.name=="JOB.json":
-        if not job.get("gcode"):
-            raise RuntimeError("stale color artifact: reslice current JOB before launch")
-        g=Path(job["gcode"]).expanduser().resolve()
+    launch = build_launch_target(target)
+    g, job, job_path = launch.gcode, launch.job, launch.job_path
     cur = Path(job["gcode"]).expanduser().resolve() if isinstance(job, dict) and job.get("gcode") else None
     if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
             and not job.get("derived_plates")):
@@ -3111,7 +3165,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     # The job's printer (#334): a recorded printer_id resolves the roster entry, its adapter
     # and its hardware record; a record written before the upgrade has no id and prints on
     # the configured single printer, exactly as it always has.
-    printer_id = job.get("printer_id") if isinstance(job, dict) else None
+    printer_id = launch.printer_id
     if printer_id:
         from print_handy import settings as _pb_settings  # this function shadows `settings` locally below
         try:
@@ -3133,48 +3187,30 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     # accept_default_z_offset is kept for CLI compatibility only. With display_off=0 ZMod applies the
     # native screen zProbeOffset, which is the correct calibrated value; no Z_OFFSET in START_PRINT is fine.
     st=printer_state.load(printer_id) if printer_id else printer_state.load()
-    if getattr(adapter, 'transport', None) == 'octoprint':
-        return _print_octoprint(adapter, st, g, job, job_path, wait_s, reprint)
-    if getattr(adapter, 'transport', None) == 'flashforge_stock':
-        return _print_flashforge_stock(adapter, st, g, job, job_path, wait_s, reprint)
-    if getattr(adapter, 'transport', None) == 'prusalink':
+    # Transport dispatch (#1590 item 1): direct launchers run at once;
+    # delivery-gated launchers run only when 'printer' delivery is enabled,
+    # and otherwise share the one "delivery not enabled" refusal.
+    direct_launchers = {'octoprint': _print_octoprint,
+                        'flashforge_stock': _print_flashforge_stock}
+    # transport -> (launcher, via, status note, handoff wording)
+    gated_launchers = {'prusalink': (_print_prusa, "PrusaLink", "the link status alone is",
+                                     "move the file yourself"),
+                       'elegoo_sdcp': (_print_elegoo_sdcp, "SDCP", "status alone is",
+                                       "move the file yourself"),
+                       'bambulab_lan': (_print_bambu, "LAN", "LAN status alone is",
+                                        "use the Bambu package delivery and move the file yourself")}
+    transport = getattr(adapter, 'transport', None)
+    if transport in direct_launchers:
+        return direct_launchers[transport](adapter, st, g, job, job_path, wait_s, reprint)
+    if transport in gated_launchers:
+        launcher, via, status_note, handoff = gated_launchers[transport]
         from ..core import delivery as _delivery
         if 'printer' in _delivery.methods():
-            return _print_prusa(adapter, st, g, job, job_path, wait_s, reprint)
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over PrusaLink; the link status alone is "
-                         f"read-only). {g} passed offline checks; move the file yourself (not yet tested on "
-                         "a printer). Nothing uploaded or started.")
-    if getattr(adapter, 'transport', None) == 'elegoo_sdcp':
-        from ..core import delivery as _delivery
-        if 'printer' in _delivery.methods():
-            return _print_elegoo_sdcp(adapter, st, g, job, job_path, wait_s, reprint)
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over SDCP; status alone is "
-                         f"read-only). {g} passed offline checks; move the file yourself (not yet tested on "
-                        "a printer). Nothing uploaded or started.")
-    if getattr(adapter, 'transport', None) == 'bambulab_lan':
-        from ..core import delivery as _delivery
-        if 'printer' in _delivery.methods():
-            return _print_bambu(adapter, st, g, job, job_path, wait_s, reprint)
+            return launcher(adapter, st, g, job, job_path, wait_s, reprint)
         # Print delivery is not enabled for this printer: verify the file for manual handoff;
         # the bed-clear approval is left unused, exactly as for the offline path below.
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over LAN; LAN status alone is "
-                         f"read-only). {g} passed offline checks; use the Bambu package delivery and "
-                         "move the file yourself (not yet tested on a printer). Nothing uploaded or started.")
+        _refuse_delivery_not_enabled(adapter, st, g, printer_id, job,
+                                     via=via, status_note=status_note, handoff=handoff)
     if adapter.connection == 'offline':
         # No connection exists. Verify the file for manual handoff; the bed-clear approval is left unused.
         try:

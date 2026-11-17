@@ -5829,79 +5829,94 @@ class Listener:
             await self.opencreator_recovery()
             await ws.send(SUBSCRIBE)
 
+    async def _run_due_jobs(self, jobs, now=None):
+        """Run the due jobs of a (name, interval_s, coroutine) table (#1590 item 7).
+
+        One scheduler for the receive loop's cadences: a job runs when
+        ``interval_s`` has passed since its last run (tracked by name in
+        ``self._job_last_run``, seeded by ``_receive_loop`` from the
+        listener's existing timestamp attributes), and every job gets
+        the same try/except — a failure is warned as "<name> failed: ..."
+        and never drops the websocket. A job may be a coroutine function
+        or a plain callable (its return value is awaited when awaitable).
+        """
+        import inspect
+        now = time.monotonic() if now is None else now
+        last_run = getattr(self, "_job_last_run", None)
+        if last_run is None:
+            last_run = self._job_last_run = {}
+        for name, interval_s, job in jobs:
+            if now - last_run.get(name, 0.0) < interval_s:
+                continue
+            last_run[name] = now
+            try:
+                result = job()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                warn(f"{name} failed: {exc!r}")
+        return now
+
     async def _receive_loop(self, ws, last_tick):
-        if True:
-            while True:
+        # Seed the job table's clock from the timestamps this loop used
+        # to keep by hand, and write them back after each pass, so other
+        # readers of last_native_poll / maintenance_last_check /
+        # last_clock_check / last_clock_sync keep seeing them move.
+        self._job_last_run = {
+            "native presence poll": self.last_native_poll,
+            "abandoned start poll": self.last_native_poll,
+            "spoolman new-spool poll": self.last_native_poll,
+            "lane_data poll": self.last_native_poll,
+            "spool nag": self.last_native_poll,
+            "auto light idle tick": self.last_native_poll,
+            "next plate offer": self.last_native_poll,
+            "printer clock poll": self.last_clock_check,
+            "printer clock sync": self.last_clock_sync,
+            "maintenance reminder tick": self.maintenance_last_check,
+            "announcer tick": last_tick,
+        }
+        while True:
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            except asyncio.TimeoutError:
+                raw = None
+            if raw:
                 try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=30)
-                except asyncio.TimeoutError:
-                    raw = None
-                if raw:
-                    try:
-                        await self._handle_message(ws, raw)
-                    except (OSError, websockets.ConnectionClosed, json.JSONDecodeError):
-                        # The connection is gone, or the frame cannot be
-                        # decoded at all: forever() reconnects, resubscribes
-                        # and re-reads state, which is the only resync.
-                        raise
-                    except Exception:
-                        # One failing handler for a decoded message must not
-                        # drop the websocket and miss every event until the
-                        # reconnect (and then loop on the same failure).
-                        logger.exception("listener message handling failed; staying connected")
-                if time.monotonic() - self.last_native_poll >= NATIVE_POLL_SECONDS:
-                    self.last_native_poll = time.monotonic()
-                    try:
-                        await self.poll_native_presence()
-                    except Exception as exc:
-                        warn(f"native presence poll failed: {exc!r}")
-                    try:
-                        await self.poll_abandoned_starts()
-                    except Exception as exc:
-                        warn(f"abandoned start poll failed: {exc!r}")
-                    try:
-                        await self.poll_spoolman_new_spools()
-                    except Exception as exc:
-                        warn(f"spoolman new-spool poll failed: {exc!r}")
-                    if time.monotonic() - self.last_clock_check >= printer_clock.CHECK_INTERVAL_S:
-                        self.last_clock_check = time.monotonic()
-                        # Fix the clock first, so the watch below warns only about a clock
-                        # Print Handy could not set (busy printer, no DATE_SET, refused).
-                        if time.monotonic() - self.last_clock_sync >= CLOCK_SYNC_INTERVAL_S:
-                            self.last_clock_sync = time.monotonic()
-                            await asyncio.to_thread(self._sync_printer_clock, "poll")
-                        try:
-                            await self.poll_printer_clock()
-                        except Exception as exc:
-                            warn(f"printer clock poll failed: {exc!r}")
-                    try:
-                        await self.poll_lane_data()
-                    except Exception as exc:
-                        warn(f"lane_data poll failed: {exc!r}")
-                    try:
-                        await self.nag_if_due()
-                    except Exception as exc:
-                        warn(f"spool nag failed: {exc!r}")
-                    try:
-                        self._schedule_light_idle_tick()
-                    except Exception as exc:
-                        warn(f"auto light idle tick failed: {exc!r}")
-                    try:
-                        self._schedule_next_plate_offer()
-                    except Exception as exc:
-                        warn(f"next plate offer failed: {exc!r}")
-                if time.monotonic() - self.maintenance_last_check >= 3600:
-                    self.maintenance_last_check = time.monotonic()
-                    try:
-                        await maintenance_reminder_tick(self)
-                    except Exception as exc:
-                        warn(f"maintenance reminder tick failed: {exc!r}")
-                if time.monotonic() - last_tick >= TICK_SECONDS:
-                    last_tick = time.monotonic()
-                    try:
-                        await asyncio.to_thread(run_announcer, "tick")
-                    except Exception as exc:
-                        warn(f"announcer tick failed: {exc!r}")
+                    await self._handle_message(ws, raw)
+                except (OSError, websockets.ConnectionClosed, json.JSONDecodeError):
+                    # The connection is gone, or the frame cannot be
+                    # decoded at all: forever() reconnects, resubscribes
+                    # and re-reads state, which is the only resync.
+                    raise
+                except Exception:
+                    # One failing handler for a decoded message must not
+                    # drop the websocket and miss every event until the
+                    # reconnect (and then loop on the same failure).
+                    logger.exception("listener message handling failed; staying connected")
+            # The clock sync is listed before the clock poll, as it ran
+            # before it: fix the clock first, so the watch warns only
+            # about a clock Print Handy could not set.
+            jobs = [
+                ("native presence poll", NATIVE_POLL_SECONDS, self.poll_native_presence),
+                ("abandoned start poll", NATIVE_POLL_SECONDS, self.poll_abandoned_starts),
+                ("spoolman new-spool poll", NATIVE_POLL_SECONDS, self.poll_spoolman_new_spools),
+                ("printer clock sync", CLOCK_SYNC_INTERVAL_S,
+                 lambda: asyncio.to_thread(self._sync_printer_clock, "poll")),
+                ("printer clock poll", printer_clock.CHECK_INTERVAL_S, self.poll_printer_clock),
+                ("lane_data poll", NATIVE_POLL_SECONDS, self.poll_lane_data),
+                ("spool nag", NATIVE_POLL_SECONDS, self.nag_if_due),
+                ("auto light idle tick", NATIVE_POLL_SECONDS, self._schedule_light_idle_tick),
+                ("next plate offer", NATIVE_POLL_SECONDS, self._schedule_next_plate_offer),
+                ("maintenance reminder tick", 3600, lambda: maintenance_reminder_tick(self)),
+                ("announcer tick", TICK_SECONDS, lambda: asyncio.to_thread(run_announcer, "tick")),
+            ]
+            await self._run_due_jobs(jobs)
+            last = self._job_last_run
+            self.last_native_poll = last["native presence poll"]
+            self.last_clock_check = last["printer clock poll"]
+            self.last_clock_sync = last["printer clock sync"]
+            self.maintenance_last_check = last["maintenance reminder tick"]
+            last_tick = last["announcer tick"]
 
     def _beat_once(self):
         """One heartbeat write, from the writer thread (#1020 A3)."""
