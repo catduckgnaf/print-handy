@@ -20,9 +20,11 @@ PWA_SCRIPT registers the service worker on secure contexts only
 Theme: dark is the default. The ``ph-theme`` cookie (``dark`` or
 ``light``) is read by the server and stamped on ``<html>`` as
 ``data-theme`` before anything renders, so there is no flash and the
-choice is correct with JavaScript disabled. The toggle in the header is
-two plain links to ``GET /theme`` (see server.py), which sets the cookie
-and redirects back — no script is involved anywhere in the theme flow.
+choice is correct with JavaScript disabled. The toggle sits in the
+header's top-right corner and is two plain links to ``GET /theme``
+(see server.py), labeled with a moon (dark) and a sun (light), which
+sets the cookie and redirects back — no script is involved anywhere in
+the theme flow.
 The cookie is a browser presentation preference only; it is not a
 setting and no environment variable mirrors it.
 
@@ -43,6 +45,7 @@ from .. import __version__
 
 THEME_COOKIE = "ph-theme"
 THEMES = ("dark", "light")
+_THEME_ICONS = {"dark": "☾", "light": "☀"}
 DEFAULT_THEME = "dark"
 
 # The surfaces the header navigates to: only pages that exist. (The
@@ -119,6 +122,7 @@ header.site {
   border-bottom: 1px solid var(--color-line);
 }
 header.site .wrap {
+  position: relative;
   display: flex; flex-wrap: wrap; align-items: center;
   justify-content: space-between; gap: 0.75rem; padding-top: 0.75rem; padding-bottom: 0.75rem;
 }
@@ -139,10 +143,13 @@ nav.pills a {
 nav.pills a:hover { background: var(--color-bg); }
 nav.pills a.active { background: var(--color-ink); color: var(--color-bg); }
 .theme-toggle {
+  position: absolute; top: 0.75rem; right: 1rem;
   display: flex; gap: 0.125rem; padding: 0.125rem;
   border: 1px solid var(--color-line); border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
 .theme-toggle a {
+  display: inline-flex; align-items: center; gap: 0.3rem;
   padding: 0.375rem 0.625rem; border-radius: calc(var(--radius-card) - 0.125rem);
   color: var(--color-muted); text-decoration: none; font-size: 0.875rem;
 }
@@ -492,15 +499,16 @@ def _header(path, theme, nav=None):
                      f"{_esc(label)}</a>")
     toggle = "".join(
         f'<a href="/theme?set={name}&amp;back={quote(path or "/", safe="/")}"'
-        f'{" class=\"active\"" if theme == name else ""}>{name.capitalize()}</a>'
+        f'{" class=\"active\"" if theme == name else ""}>'
+        f'<span aria-hidden="true">{_THEME_ICONS[name]}</span>{name.capitalize()}</a>'
         for name in THEMES)
     return ('<header class="site"><div class="wrap">'
             '<div class="brand"><span class="tile" aria-hidden="true">PH</span>'
             f'<div><div class="name">Print Handy</div>'
             f'<div class="sub">{_esc(__version__)}</div></div></div>'
+            f'<div class="theme-toggle" role="group" aria-label="Color theme">{toggle}</div>'
             '<div class="chrome-right">'
             f'<nav class="pills" aria-label="Web UI pages">{"".join(items)}</nav>'
-            f'<div class="theme-toggle" role="group" aria-label="Color theme">{toggle}</div>'
             "</div></div></header>")
 
 
