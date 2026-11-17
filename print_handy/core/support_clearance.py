@@ -1300,6 +1300,19 @@ def verify_coverage_by_plate(regions, plates):
     attribution is impossible and the plates fall back to one grading
     over the concatenated text, named ``concatenated_fallback``.
 
+    No object labels on a multi-part plate (#1612): the whole-plate
+    mapping stretches the parts' combined source bounds onto the
+    slice's combined bounds, but a slicer may rearrange the parts, so
+    a region mapped that way can land beside the part it belongs to
+    and grade a confident 0% for a part the slice does support. When
+    a plate carries no object bounds and the source has more than one
+    part — counted from the regions' parts, or from a plate's
+    ``source_part_count`` when the caller supplies one — the targets
+    are not graded at all: they come back as a named ``unverified``
+    entry giving that reason. A single-part plate keeps the
+    whole-plate grading (that mapping is the part's own), and a
+    labeled plate keeps the per-instance grading.
+
     Nothing fails open silently: an unreadable plate file, a plate whose
     check raises, a caller-supplied ``unverified_reason`` (for example
     unreadable source bounds) and a target region matched by no plate
@@ -1350,9 +1363,36 @@ def verify_coverage_by_plate(regions, plates):
             entry['plate'] = i
         return result
 
+    # #1612: can the targets be attributed to parts at all? The target
+    # set mirrors verify_support_coverage's own filtering.
+    region_list = (regions.get('regions') if isinstance(regions, dict) else regions) or []
+    targets = [r for r in region_list
+               if r.get('kind') in ('supportable_overhang', 'low_clearance')
+               and r.get('bbox_mm')
+               and not (r.get('kind') == 'low_clearance' and r.get('flagged') is False)]
+    region_parts = {r.get('part') or r.get('object') for r in region_list
+                    if r.get('part') or r.get('object')}
+    part_count = max([len(region_parts)]
+                     + [int(p['source_part_count']) for _i, _t, _k, p in read
+                        if p.get('source_part_count')] or [0])
+    multi_part = part_count > 1 and bool(targets)
+
+    def _unattributed(plate_no, mode):
+        names = ', '.join(sorted(str(p) for p in region_parts)) or f'{part_count} parts'
+        unverified.append({'plate': plate_no,
+                           'reason': 'the G-code has no object labels and the model has '
+                                     f'more than one part ({names}), so the slicer may have '
+                                     'rearranged the parts on the plate and support coverage '
+                                     'cannot be matched to each part; its coverage is '
+                                     'unverified instead of graded against the whole plate'})
+        return {'checked': False, 'ok': True, 'regions': [], 'unverified': unverified,
+                'plate_mode': mode, 'plates': []}
+
     results = []
     if len(read) == 1:
         i, text, kw, _plate = read[0]
+        if multi_part and not gcode_object_bounds(text):
+            return _unattributed(i, 'single')
         kw.setdefault('gcode_bounds', gcode_model_bounds(text))
         result = _run(i, text, kw, matched_only=False)
         if result is not None:
@@ -1379,6 +1419,8 @@ def verify_coverage_by_plate(regions, plates):
                                          'plate; its coverage is unverified'})
     else:
         mode = 'concatenated_fallback'
+        if multi_part:
+            return _unattributed(None, mode)
         text = '\n'.join(t for _i, t, _kw, _p in read)
         kw = dict(read[0][2])
         kw['gcode_bounds'] = gcode_model_bounds(text)
