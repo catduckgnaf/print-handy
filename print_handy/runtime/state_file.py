@@ -188,7 +188,7 @@ class _Locked:
                         continue
                     if time.monotonic() >= deadline:
                         if self.raise_on_timeout:
-                            raise TimeoutError(f"state file is locked: {self.lock}")
+                            raise TimeoutError(f"state file is locked: {self.lock}") from None
                         logger.warning("state file lock %s busy for %.0fs; proceeding without it",
                                        self.lock, self.wait_s)
                         break

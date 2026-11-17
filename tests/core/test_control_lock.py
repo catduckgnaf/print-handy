@@ -7,6 +7,7 @@ a print start on the same printer. These tests pin the shared file lock:
 processes serialize, a dead holder releases, re-entry refuses instead of
 deadlocking, and print_now refuses while a control action holds the lock.
 """
+import dataclasses
 import json
 import os
 import subprocess
@@ -210,7 +211,7 @@ def test_launch_target_resolves_the_job_once(tmp_path, monkeypatch):
     assert launch.printer_id == "printer-b"
     assert launch.job["printer_id"] == "printer-b"
     assert isinstance(launch.sha, str) and len(launch.sha) == 64
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         launch.printer_id = "other"  # frozen: one resolution, never re-keyed
 
 

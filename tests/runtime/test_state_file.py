@@ -1,6 +1,5 @@
 """#1585: one shared state-file helper, corrupt quarantine, locked claims,
 and the alert store under two processes."""
-import json
 import logging
 import multiprocessing as mp
 import os
