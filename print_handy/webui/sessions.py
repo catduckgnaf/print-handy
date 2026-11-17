@@ -291,14 +291,18 @@ def _save_remembered_sessions(server):
 def _save_via_server(server):
     """Persist remembered sessions, honoring a patched
     ``server._save_remembered_sessions`` (tests patch that name on the
-    server module to simulate a failed write)."""
-    try:
-        from . import server as _server_module
-        saver = getattr(_server_module, "_save_remembered_sessions", None)
-        if saver is not None and saver is not _save_remembered_sessions:
-            return saver(server)
-    except Exception:
-        pass
+    server module to simulate a failed write).
+
+    The server module is looked up in ``sys.modules`` rather than
+    imported, so this helper introduces no exception handler of its
+    own: when the server module is not loaded yet (it always is, by
+    the time a login handler runs) the local saver is used directly."""
+    import sys
+    server_module = sys.modules.get(f"{__package__}.server")
+    saver = getattr(server_module, "_save_remembered_sessions", None) \
+        if server_module is not None else None
+    if saver is not None and saver is not _save_remembered_sessions:
+        return saver(server)
     return _save_remembered_sessions(server)
 
 # -- browser login handlers (moved from _Handler) ---------------------
