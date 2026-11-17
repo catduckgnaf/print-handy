@@ -120,6 +120,9 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `natural_language.unmatched_log_enabled` | `PRINT_HANDY__NATURAL_LANGUAGE__UNMATCHED_LOG_ENABLED` | `false` | Keeps a sanitized, local-only log of phrases nothing matched; exportable from the bot's diagnostics. Never transmitted |
 | `natural_language.ai_rate_limit_per_hour` | `PRINT_HANDY__NATURAL_LANGUAGE__AI_RATE_LIMIT_PER_HOUR` | `20` | Per-user cap on conversational AI lane calls (mentions and explicit AI asks) per rolling hour |
 | `natural_language.ai_disabled_channel_ids` | file only | empty | Channel ids where the conversational AI lane never runs; plain questions and commands still work there |
+| `external_intake.enabled` | `PRINT_HANDY__EXTERNAL_INTAKE__ENABLED` | `false` | Watched-folder intake for jobs sliced outside Print Handy (#1525): `true` lets the Web UI's External intake page scan the one configured folder for stable sliced files and show them as draft cards; nothing is scanned while off |
+| `external_intake.directory` | `PRINT_HANDY__EXTERNAL_INTAKE__DIRECTORY` | empty | The single folder the external intake watches; empty means unconfigured, and links out of the folder are not intake |
+| `external_intake.max_bytes` | `PRINT_HANDY__EXTERNAL_INTAKE__MAX_BYTES` | `536870912` | Largest file, in bytes, the external intake will card (512 MiB by default, capped at 2 GiB) |
 | `agent.model` | `PRINT_HANDY__AGENT__MODEL` | empty | Agent model name; optional, unlike `llm.model`: empty omits `model` from the request, for endpoints that are not model-addressable |
 | `agent.api_key_env` | `PRINT_HANDY__AGENT__API_KEY_ENV` | `AGENT_API_KEY` | Name of the environment variable holding the agent endpoint's API key |
 | `agent.timeout_s` | `PRINT_HANDY__AGENT__TIMEOUT_S` | `120` | Agent request timeout; one attempt, no retries. Longer than `llm.timeout_s` because an agent turn does real work |

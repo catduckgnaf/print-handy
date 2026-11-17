@@ -136,10 +136,10 @@ COMMANDS = (
             )),
     Command("print-spools", "Loaded filament and amounts (read-only)",
             usage="/print-spools", ephemeral=True),
-    Command("print-lookup", "Look up a command, macro or error",
+    Command("print-lookup", "Look up a command, macro or error (read-only)",
             (Option("query", "e.g. M600, zmod ifs load, bed mesh klipper, first layer not sticking"),),
             "/print-lookup <query>"),
-    Command("print-troubleshoot", "Troubleshooting flows",
+    Command("print-troubleshoot", "Troubleshooting flows (advice only)",
             (Option("flow", "Which problem", ("first-layer", "clog", "heat-creep", "bed-level", "ringing", "prepare-to-clean")),),
             "/print-troubleshoot [flow]"),
     Command("print-macros", "List or run printer macros (asks first)",
@@ -173,7 +173,7 @@ COMMANDS = (
                 Subcommand("zoffset", "Z offset calibration"),
                 Subcommand("records", "Past calibration records"),
             )),
-    Command("print-live", "Live camera in voice chat",
+    Command("print-live", "Live camera in voice chat (Discord only)",
             (Option("action", "start, stop or status", ("start", "stop", "status")),),
             "/print-live [start | stop | status]", live_stream=True),
     Command("print-plate-calibrate", "Calibrate plate reference",
@@ -282,10 +282,10 @@ def help_text(bot_name="Print Handy", supports_live_stream=True):
     # The name appears once, and the whole text stays one Discord message
     # (2000 characters) for a bot_name of up to 32 characters.
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
-             "- Post a model link or .3mf/.stl to print it.",
+             "- Post a model link or .3mf/.stl.",
              '- "print it" or "print again" reprints the last link.',
              '- "add a new spool" or "add new filament" starts the guided /spool flow.',
-             '- @mention me: "spool list", or ask in plain words.']
+             '- @mention me: "spool list", or just ask.']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
               for c in COMMANDS if c.name != "print-help"
