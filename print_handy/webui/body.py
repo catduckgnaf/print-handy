@@ -14,8 +14,9 @@ The rules are exactly the ones the handler enforced inline:
   (``noun`` and the trailing sentence), because a control POST and a
   spool POST have always answered with different text.
 
-Sessions are the other half of item 8 and are not moved here: they stay
-in ``server.py`` for this first step (see the PR body).
+Sessions are the other half of item 8: they live in
+``webui/sessions.py`` (#1603 item 3), next to the login, logout and
+session-cookie handlers.
 """
 from __future__ import annotations
 
