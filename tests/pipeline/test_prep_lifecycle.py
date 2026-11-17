@@ -199,7 +199,7 @@ def test_multicolor_mapped_flow_lifecycle_and_messages(env, monkeypatch):
     # 0: Choose colors for these parts (per_part multicolor)
     # 0: Shell -> Slot 1 (white PLA)
     # 1: Eyes -> Slot 3 (black PLA)
-    # 0: Slice and print now (bed is clear)
+    # 0: Slice and print now
     adapter, result, receipt = run_flow(env, [1, 0, 1, 0])
 
     assert len(transition_verified) == 1

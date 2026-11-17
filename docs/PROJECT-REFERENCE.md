@@ -30,7 +30,7 @@ In the `#3d-printer` channel, someone posts a link. The bot replies with a job s
 >
 > **Print Handy:** Model: Post it Note Holder with Stencils. Filament: Matte Black PLA (~48g). Estimated print time: 1 hour 14 minutes. Target printer: Flashforge (ZMod).
 >
-> [Slice and print now (bed is clear)]
+> [Slice and print now]
 >
 > **Print Handy:** Bed heating started. Job sent to Moonraker. Finish time estimated for 4:22 PM ET. Don't touch the build plate.
 

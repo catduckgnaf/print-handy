@@ -156,7 +156,7 @@ def test_unflagged_model_no_second_slice(env):
     # picks: one color (2 on the #1473 offer), slot 1 (0), Slice and print now (0)
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     last = adapter.questions[-1]['choices']
-    assert last[0] == 'Slice and print now (bed is clear)'
+    assert last[0] == 'Slice and print now'
     assert last[1] == 'Slice and Download'
     assert 'with supports' not in last[0]
     # Only one slice was run
@@ -199,12 +199,12 @@ def test_flagged_orca_warning_offers_supports_before_bed_clear(env, monkeypatch)
 
     monkeypatch.setattr(model_job, 'slice_job', slice_with_warning)
 
-    # picks: one color (2 on the #1473 offer), slot 1 (0), pick "Slice and print with supports (bed is clear)" (0)
+    # picks: one color (2 on the #1473 offer), slot 1 (0), pick "Slice and print with supports (recommended)" (0)
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     last_q = adapter.questions[-1]
     choices = last_q['choices']
-    assert choices[0] == 'Slice and print with supports (bed is clear)'
-    assert choices[1] == 'Slice and print without supports (bed is clear)'
+    assert choices[0] == 'Slice and print with supports (recommended)'
+    assert choices[1] == 'Slice and print without supports'
     assert 'the slicer found 1 floating region that needs support' in last_q['question']
     assert 'Slice and print with supports (recommended: the slicer found 1 floating region that needs support)' in last_q['question']
 
@@ -268,10 +268,10 @@ def test_slow_first_slice_warning_still_offers_supports_before_bed_clear(env, mo
     (CI: test_discord_flow[witch-ghost-cults3d]).
     """
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, first_delay=2.0))
-    # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print with supports (bed is clear)" (0)
+    # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print with supports (recommended)" (0)
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     last_q = adapter.questions[-1]
-    assert last_q['choices'][0] == 'Slice and print with supports (bed is clear)'
+    assert last_q['choices'][0] == 'Slice and print with supports (recommended)'
     assert 'the slicer found 1 floating region that needs support' in last_q['question']
     assert receipt['status'] == 'STARTED'
 
@@ -286,7 +286,7 @@ def test_slow_speculative_slice_does_not_break_slice_approval(env, monkeypatch):
     approval guard refused the handoff (CI: test_discord_flow[stl-open-thin-wall]).
     """
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, supports_delay=1.5))
-    # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print without supports (bed is clear)" (1)
+    # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print without supports" (1)
     adapter, result, receipt = run_flow(env, [2, 0, 1])
     assert receipt['status'] == 'STARTED'
     assert 'plate_1_nosup.gcode' in receipt['bed_clear_approval']['gcode']
@@ -310,15 +310,15 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     # blocked start sends no further question, so it still is here), but
     # find it by its choices rather than by position.
     last_q = next(q for q in adapter.questions
-                  if q['choices'] and 'Slice and print with supports, not recommended (bed is clear)' in q['choices'])
+                  if q['choices'] and 'Slice and print with supports (not recommended)' in q['choices'])
     choices = last_q['choices']
 
-    assert choices[0] == 'Slice and print without supports (bed is clear)'
-    assert choices[1] == 'Slice and print with supports, not recommended (bed is clear)'
+    assert choices[0] == 'Slice and print without supports'
+    assert choices[1] == 'Slice and print with supports (not recommended)'
     assert 'Extend underside to plate' in choices
     assert 'Flatten (sink) to plate' in choices
     assert 'Reorient (lay flat)' in choices
-    assert 'Print anyway, accept the risk (bed is clear)' in choices
+    assert 'Print anyway, accept the risk' in choices
 
     # Disclosure in question text, including the measured volume deltas (#922 gap 5)
     q_text = last_q['question']
@@ -341,7 +341,7 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     # The refusal is a question with a real override, never a dead end.
     override_q = adapter.questions[-1]
     assert override_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
-    assert 'do not cover every flagged region' in override_q['question']
+    assert 'Print Handy checked the sliced file and found' in override_q['question']
     assert 'under 1.0 mm' in override_q['question']
     assert 'support_override' not in receipt
     assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.sent)
@@ -387,7 +387,7 @@ def test_coverage_failure_without_clearance_finding_asks_instead_of_dead_ending(
     adapter, result, receipt = run_flow(env, [2, 0, 0, pick])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
-    assert 'do not cover every flagged region' in q['question']
+    assert 'Print Handy checked the sliced file and found' in q['question']
     assert 'under 1.0 mm' not in q['question']
     assert receipt['support_coverage']['ok'] is False
     assert receipt['status'] == status
@@ -437,7 +437,7 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     adapter, result, receipt = run_flow(env, [2, 0, 4, 7])
     assert any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if 'Slice and print with supports, not recommended (bed is clear)' in (q['choices'] or [])]
+             if 'Slice and print with supports (not recommended)' in (q['choices'] or [])]
     assert 'Reorient (lay flat)' in ready[0]
     assert all('Reorient (lay flat)' not in choices for choices in ready[1:]) and len(ready) > 1
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -477,7 +477,7 @@ def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeyp
     assert any('already lies flat' in m for m in adapter.sent)
     assert not any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if 'Slice and print with supports, not recommended (bed is clear)' in (q['choices'] or [])]
+             if 'Slice and print with supports (not recommended)' in (q['choices'] or [])]
     assert len(ready) == 2
     assert 'Reorient (lay flat)' in ready[0] and 'Reorient (lay flat)' not in ready[1]
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -644,7 +644,7 @@ def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch)
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (2 on the #1473 offer), slot 1 (0), "Print anyway, accept the risk (bed is clear)" (5)
+    # picks: one color (2 on the #1473 offer), slot 1 (0), "Print anyway, accept the risk" (5)
     adapter, result, receipt = run_flow(env, [2, 0, 5])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -666,7 +666,7 @@ def test_flagged_slice_labels_when_printer_cannot_print(env, monkeypatch):
     # slice-only delivery menu's "Done, don't print" (1) — Slice and Download offers
     # the file download even with no print method (#1443).
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
-    flagged = [q for q in adapter.questions if q['choices'] and q['choices'][0] == 'Slice with supports']
+    flagged = [q for q in adapter.questions if q['choices'] and q['choices'][0] == 'Slice with supports (recommended)']
     assert flagged and adapter.questions[-1]['choices'] == ['Send the files here', "Done, don't print"]
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert 'bed_clear_approval' not in receipt

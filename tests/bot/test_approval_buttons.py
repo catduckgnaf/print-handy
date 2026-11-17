@@ -105,7 +105,7 @@ def test_discord_approval_button_refuses_a_member_and_takes_the_approver(cfg):
         source = runtime.make_source(OPERATOR, cfg["discord"]["chat_id"])
         task = asyncio.create_task(link_intake.ask(
             core.adapter, source, runtime.session_key(source),
-            "Ready to slice. Start?", ["Slice and print now (bed is clear)"], approval=True))
+            "Ready to slice. Start?", ["Slice and print now"], approval=True))
         message = None
         for _ in range(200):
             message = discord.last_question()

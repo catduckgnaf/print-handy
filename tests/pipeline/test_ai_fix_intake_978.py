@@ -57,7 +57,7 @@ def test_support_gate_failure_offers_fix_and_the_fix_reslices_with_gates_rerun(e
     assert len(gate) == 1
     assert gate[0]['choices'] == [ai_fix.FIX_LABEL, ai_fix.DECIDE_LABEL,
                                   print_next.CANCEL_LABEL]
-    assert 'do not cover every flagged region' in gate[0]['question']
+    assert 'Print Handy checked the sliced file and found' in gate[0]['question']
     apply_q = [q for q in adapter.questions if ai_fix.APPLY_LABEL in (q.get('choices') or [])]
     assert len(apply_q) == 1
     assert 're-slice with tree supports' in apply_q[0]['question']  # every change shown first
