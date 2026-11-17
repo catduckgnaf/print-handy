@@ -29,11 +29,14 @@ the process's own file lock.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
 from pathlib import Path
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 try:
     import fcntl
@@ -144,7 +147,11 @@ class PrinterControlLock:
                         os.lseek(fd, 0, os.SEEK_SET)
                         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
                     except OSError:
-                        pass  # closing the handle releases the lock regardless
+                        # Closing the handle releases the lock regardless;
+                        # the unlock is belt-and-braces, so this is logged
+                        # at debug, not treated as a failure (#1417).
+                        logger.debug("msvcrt unlock failed; closing the handle instead",
+                                     exc_info=True)
             finally:
                 os.close(fd)
         self._inner.release()
