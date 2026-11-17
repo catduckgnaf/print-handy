@@ -17,11 +17,14 @@ Acquisition is fail-closed: a held lock refuses, it never queues behind a
 possibly-dead holder beyond the caller's own timeout.
 
 ``flock`` is POSIX; Print Handy ships on Linux/Docker (the codebase's
-platform pattern is ``os.name == "posix"``, see core/design.py). Where
-``fcntl`` is unavailable the lock degrades to the in-process threading
-lock alone. The threading lock stays the inner layer on purpose: it is
-what makes a same-process re-entry refuse immediately instead of
-deadlocking against the process's own flock.
+platform pattern is ``os.name == "posix"``, see core/design.py). On
+Windows, where ``fcntl`` is unavailable, the same file is locked with
+``msvcrt.locking`` instead (#1587, for the 3.0 Windows work in #1530),
+so the interprocess guarantee holds there too. Only a platform with
+neither mechanism degrades to the in-process threading lock alone. The
+threading lock stays the inner layer on purpose: it is what makes a
+same-process re-entry refuse immediately instead of deadlocking against
+the process's own file lock.
 """
 
 from __future__ import annotations
@@ -34,8 +37,13 @@ from typing import Callable
 
 try:
     import fcntl
-except ImportError:  # non-POSIX platform: in-process lock only
+except ImportError:  # non-POSIX platform
     fcntl = None  # type: ignore[assignment]
+
+try:
+    import msvcrt
+except ImportError:  # non-Windows platform
+    msvcrt = None  # type: ignore[assignment]
 
 from .. import settings
 
@@ -97,7 +105,7 @@ class PrinterControlLock:
 
     def _flock(self, blocking: bool, deadline: float | None) -> bool:
         """Take the file lock; False means another process holds it."""
-        if fcntl is None:
+        if fcntl is None and msvcrt is None:
             return True
         path = self._path_for()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,10 +113,18 @@ class PrinterControlLock:
         try:
             while True:
                 try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    if fcntl is not None:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    else:
+                        # msvcrt locks a byte range from the file position;
+                        # byte 0 is this lock's range in every process.
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
                     self._fd = fd
                     return True
-                except BlockingIOError:
+                except OSError as exc:
+                    if fcntl is None and exc.errno not in (13, 36):
+                        raise  # not lock contention (EACCES / EDEADLOCK): a real failure
                     if not blocking or (deadline is not None and time.monotonic() >= deadline):
                         os.close(fd)
                         return False
@@ -123,6 +139,12 @@ class PrinterControlLock:
             try:
                 if fcntl is not None:
                     fcntl.flock(fd, fcntl.LOCK_UN)
+                elif msvcrt is not None:
+                    try:
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    except OSError:
+                        pass  # closing the handle releases the lock regardless
             finally:
                 os.close(fd)
         self._inner.release()

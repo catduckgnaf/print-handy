@@ -662,3 +662,47 @@ def test_legacy_queue_without_nonce_has_stable_claim_and_missing_hash_refuses(tm
     queue.write_text(json.dumps(legacy))
     with pytest.raises(NextPlateError, match="no valid G-code fingerprint"):
         print_control.next_copy_target(queue, run.parent)
+
+
+# -- status fallback (#1587) ------------------------------------------------------
+
+def test_status_reraises_an_auth_error_instead_of_reporting_unknown():
+    from print_handy import moonraker
+    auth = moonraker.MoonrakerAuthError("http://printer", 401)
+    with patch("print_handy.runtime.print_control._send", side_effect=auth):
+        with pytest.raises(moonraker.MoonrakerAuthError):
+            print_control.status()
+
+
+def test_status_fallback_reports_the_klippy_state_when_the_job_query_fails():
+    def fake_send(path, **_kw):
+        if path.startswith("/printer/objects/query"):
+            raise OSError("connection reset")
+        return {"result": {"klippy_state": "ready"}}
+    with patch("print_handy.runtime.print_control._send", side_effect=fake_send):
+        st = print_control.status()
+    assert st["state"] == "unknown" and st["klippy"] == "ready"
+
+
+def test_status_returns_unreachable_when_moonraker_is_down():
+    # Before #1587 the unguarded /server/info fallback raised the raw
+    # URLError out of status(), past resume()'s MoonrakerAuthError catch.
+    with patch("print_handy.runtime.print_control._send",
+               side_effect=ConnectionError("moonraker down")):
+        st = print_control.status()
+    assert st["state"] == "unreachable" and st["klippy"] == "unknown" and st["filename"] == ""
+
+
+def test_status_fallback_auth_error_still_reraises():
+    from print_handy import moonraker
+    calls = []
+
+    def fake_send(path, **_kw):
+        calls.append(path)
+        if path.startswith("/printer/objects/query"):
+            raise OSError("connection reset")
+        raise moonraker.MoonrakerAuthError("http://printer", 403)
+    with patch("print_handy.runtime.print_control._send", side_effect=fake_send):
+        with pytest.raises(moonraker.MoonrakerAuthError):
+            print_control.status()
+    assert len(calls) == 2

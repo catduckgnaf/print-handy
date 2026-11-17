@@ -198,3 +198,87 @@ def test_print_now_gcode_start_ignores_the_default_printers_control_action(tmp_p
         assert "control action" not in str(exc.value)
     finally:
         held.release()
+
+
+# -- LaunchTarget lock keying (#1587) ----------------------------------------------
+
+def test_launch_target_resolves_the_job_once(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    launch = model_job._resolve_launch_target(str(gcode))
+    assert launch.gcode == gcode.resolve()
+    assert launch.job_path == (tmp_path / "job" / "JOB.json")
+    assert launch.printer_id == "printer-b"
+    assert launch.job["printer_id"] == "printer-b"
+    assert isinstance(launch.sha, str) and len(launch.sha) == 64
+    with pytest.raises(Exception):
+        launch.printer_id = "other"  # frozen: one resolution, never re-keyed
+
+
+def test_launch_target_for_a_job_json_target_names_its_gcode(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    launch = model_job._resolve_launch_target(str(tmp_path / "job" / "JOB.json"))
+    assert launch.gcode == gcode.resolve()
+    assert launch.printer_id == "printer-b"
+
+
+def test_print_now_refuses_when_the_owning_job_cannot_be_read(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    (tmp_path / "job" / "JOB.json").write_text("{ not json")
+    with pytest.raises(SystemExit) as exc:
+        model_job._print_now_control_lock(str(gcode))
+    assert "could not read the job" in str(exc.value)
+    with pytest.raises(SystemExit) as exc:
+        model_job.print_now(gcode)
+    assert "could not read the job" in str(exc.value)
+
+
+def test_control_lock_accepts_a_launch_target(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    launch = model_job._resolve_launch_target(str(gcode))
+    assert model_job._print_now_control_lock(launch) is cl.control_lock("printer-b")
+
+
+# -- msvcrt fallback (#1587) --------------------------------------------------------
+
+class _FakeMsvcrt:
+    """The msvcrt.locking surface control_lock uses, backed by a held-set."""
+
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(self):
+        self.held = set()
+
+    def locking(self, fd, mode, nbytes):
+        if mode == self.LK_UNLCK:
+            self.held.discard(fd)
+            return
+        # Contention is cross-process; the test models a foreign holder
+        # with the foreign_held flag, answered the way msvcrt answers a
+        # contended LK_NBLCK: OSError with EACCES.
+        if getattr(self, "foreign_held", False):
+            raise OSError(13, "permission denied")
+        self.held.add(fd)
+
+
+def test_msvcrt_fallback_locks_and_releases(tmp_path, monkeypatch):
+    fake = _FakeMsvcrt()
+    monkeypatch.setattr(cl, "fcntl", None)
+    monkeypatch.setattr(cl, "msvcrt", fake)
+    lock = cl.PrinterControlLock(lambda: tmp_path / "win.lock")
+    assert lock.acquire(blocking=False)
+    assert lock._fd is not None and lock._fd in fake.held
+    lock.release()
+    assert not fake.held
+    assert lock.acquire(blocking=False)
+    lock.release()
+
+
+def test_msvcrt_fallback_refuses_while_another_process_holds_it(tmp_path, monkeypatch):
+    fake = _FakeMsvcrt()
+    fake.foreign_held = True
+    monkeypatch.setattr(cl, "fcntl", None)
+    monkeypatch.setattr(cl, "msvcrt", fake)
+    lock = cl.PrinterControlLock(lambda: tmp_path / "win.lock")
+    assert not lock.acquire(blocking=False)
+    assert not lock.locked()
