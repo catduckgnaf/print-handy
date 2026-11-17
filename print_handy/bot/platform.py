@@ -314,6 +314,7 @@ class BasePlatformAdapter:
                 uid, user, guild=getattr(interaction, "guild", None),
                 channel_ids={str(getattr(interaction, "channel_id", ""))})
         except Exception:
+            logger.debug("press authorization check failed; refusing the button", exc_info=True)
             return False
         if not allowed:
             return False
