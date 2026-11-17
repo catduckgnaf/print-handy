@@ -466,10 +466,13 @@ def save_state(state):
 
 
 def load_state():
+    # Any unreadable or non-object state file reads as empty: a raise here
+    # would drop the listener's websocket on every announcer tick.
     try:
-        return json.loads(STATE_PATH.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+        value = json.loads(STATE_PATH.read_text())
+    except (OSError, ValueError):
         return {}
+    return value if isinstance(value, dict) else {}
 
 
 # ------------------------------------------------------- pending completion

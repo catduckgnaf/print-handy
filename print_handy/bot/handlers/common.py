@@ -1403,6 +1403,22 @@ def alert_button_handlers(bot, adapter):
                 return False
         return True
 
+    def may_start(interaction):
+        """Buttons that start, pause, resume or cancel a print need an
+        approver when approvers are configured (P1-93), exactly as the
+        prompt buttons in adapter.handle_click do. With none configured
+        this is the same answer as ``allowed``."""
+        if not allowed(interaction):
+            return False
+        approve = getattr(adapter, 'may_approve_id', None)
+        if not callable(approve):
+            return True
+        try:
+            return bool(approve(str(getattr(getattr(interaction, 'user', None), 'id', ''))))
+        except Exception:
+            logger.exception('approver check failed; refusing the button')
+            return False
+
     async def reject(interaction):
         await interaction.response.send_message('Not allowed. Nothing changed.', ephemeral=True)
 
@@ -1443,10 +1459,15 @@ def alert_button_handlers(bot, adapter):
     async def handle_stop(interaction, clarify_id):
         from print_handy.core.prompts import gateway as _prompts
         cm = _prompts()
+        # Acknowledge first: resolving wakes the waiting flow, which can
+        # hold the loop past Discord's 3 s window (see adapter.handle_click).
+        try:
+            await interaction.response.edit_message(view=None)
+        except Exception:
+            logger.debug('could not acknowledge Stop', exc_info=True)
         resolved = cm.resolve_gateway_clarify(clarify_id, _pi.STOP_LABEL)
         note = 'Stopping.' if resolved else 'That step already finished. Nothing to stop.'
         try:
-            await interaction.response.edit_message(view=None)
             await interaction.followup.send(note)
         except Exception:
             logger.debug('could not acknowledge Stop', exc_info=True)
@@ -2273,7 +2294,9 @@ def alert_button_handlers(bot, adapter):
             await interaction.response.send_message('That confirmation is old or was already used. Nothing started.', ephemeral=True)
             return
         try:
-            target = print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=alert['part_id'])
+            # Off the loop: resolve_next hashes the whole G-code file.
+            target = await asyncio.to_thread(
+                lambda: print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=alert['part_id']))
         except Exception as exc:
             await interaction.response.edit_message(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
             return
@@ -2385,6 +2408,10 @@ def alert_button_handlers(bot, adapter):
 
         try:
             receipt = json.loads(receipt_path.read_text())
+            if receipt.get('status') == 'RETRYING':
+                await interaction.response.send_message(
+                    'That retry is already running. Nothing more started.', ephemeral=True)
+                return
             target = receipt.get('retry_target')
             if (receipt.get('intake_id') != receipt_id or receipt.get('status') != 'START_REFUSED'
                     or receipt.get('uploaded') is True or receipt.get('started') is True
@@ -2394,6 +2421,10 @@ def alert_button_handlers(bot, adapter):
                 raise ValueError('this is not a confirmed pre-upload refusal')
             if str(receipt.get('start_prompt_message_id') or '') != str(getattr(interaction.message, 'id', '') or ''):
                 raise ValueError('this Retry button no longer matches the saved prompt')
+            # Single use: claimed on disk before the first await, so a second
+            # click cannot run beside this one and rewrite its receipt.
+            receipt['status'] = 'RETRYING'
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         except Exception as exc:
             await interaction.response.edit_message(content=f'Retry unavailable: {exc}. Nothing started.', view=None)
             return
@@ -2508,10 +2539,27 @@ def alert_button_handlers(bot, adapter):
         await interaction.edit_original_response(content=result['text'], view=None)
 
     async def on_interaction(interaction):
+        """One error policy for every listener button: a handler that
+        raises after claiming its alert must still answer the user."""
+        try:
+            await route(interaction)
+        except Exception:
+            logger.exception('listener button failed: %s',
+                             (getattr(interaction, 'data', None) or {}).get('custom_id', ''))
+            note = 'Something failed handling that button. Check the printer screen before pressing again.'
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(note, ephemeral=True)
+                else:
+                    await interaction.response.send_message(note, ephemeral=True)
+            except Exception:
+                logger.debug('could not report the button failure', exc_info=True)
+
+    async def route(interaction):
         data = getattr(interaction, 'data', None) or {}
         custom_id = data.get('custom_id', '')
         if str(custom_id).startswith(_pi.RETRY_CUSTOM_ID):
-            if not allowed(interaction):
+            if not may_start(interaction):
                 await reject(interaction)
                 return
             receipt_id = pab.parse_retry_custom_id(custom_id)
@@ -2536,7 +2584,7 @@ def alert_button_handlers(bot, adapter):
             return
         plate = pab.parse_plate_custom_id(custom_id)
         if plate:
-            if not allowed(interaction):
+            if not (may_start(interaction) if plate[0] == 'go' else allowed(interaction)):
                 await reject(interaction)
                 return
             await {'pick': handle_plate_pick, 'go': handle_plate_go,
@@ -2595,6 +2643,9 @@ def alert_button_handlers(bot, adapter):
             await handle_new_spool_select(interaction, aid)
             return
         action, aid = parsed
+        if action not in ('acknowledge', 'mute') and not may_start(interaction):
+            await reject(interaction)
+            return
         alert = await asyncio.to_thread(pab.take, aid)
         label = {'resume': 'Resume', 'pause': 'Pause', 'acknowledge': "It's fine",
                  'mute': "Stop asking for this print",

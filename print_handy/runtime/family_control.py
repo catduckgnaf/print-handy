@@ -188,10 +188,12 @@ class FamilyControl:
                 break
         if after.get("state") == "paused":
             return True, "Paused. Printer now reports paused."
+        # False unless the printer reached paused, as print_control.resume
+        # answers for a resume that did not take (#837).
         if after.get("state") == "printing":
-            return True, (f"Pause sent, but the printer still reports printing after {wait_s:.0f}s. "
-                          "Check the printer screen. Not retrying.")
-        return True, f"Pause sent. Printer now reports {after.get('state')}."
+            return False, (f"Pause sent, but the printer still reports printing after {wait_s:.0f}s. "
+                           "Check the printer screen. Not retrying.")
+        return False, f"Pause sent. Printer now reports {after.get('state')}."
 
     def resume(self, expected_filename: str = "", wait_s: float = 20,
                poll_s: float = 1.0) -> tuple[bool, str]:

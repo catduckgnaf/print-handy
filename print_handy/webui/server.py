@@ -833,6 +833,16 @@ class _Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         self._unread_body = max(0, int(unread or 0))
 
+    def _refuse_unread_body(self):
+        """Refuse a body without reading it: the connection closes after
+        the answer, so the unread bytes are never parsed as the next
+        request on a keep-alive connection (request desync)."""
+        try:
+            unread = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            unread = 0
+        self._refuse_body(unread)
+
     def _internal_error(self, method, path, *, html_page=False):
         """The 500 answer: a generic reason and a request id, never the
         exception text (it can carry paths, URLs or settings values).
@@ -875,8 +885,11 @@ class _Handler(BaseHTTPRequestHandler):
             return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
         names = [hostname(self.headers.get("Host"))]
         origin = self.headers.get("Origin")
-        if post and origin and origin != "null":
-            names.append(hostname(urlparse(origin).netloc))
+        if post and origin:
+            # "null" is an opaque origin (a sandboxed frame, a data: page):
+            # never this Web UI's own page, which sends its real origin
+            # (Referrer-Policy is same-origin). It counts as a mismatch.
+            names.append("null" if origin == "null" else hostname(urlparse(origin).netloc))
         if allowed is not None:
             if all(name in allowed for name in names):
                 return False
@@ -1906,6 +1919,7 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if length < 0 or length > 4096:
+            self._refuse_unread_body()
             self._json(400, {"ok": False, "reason": "bad or oversized body. Nothing sent."})
             return
         raw = self.rfile.read(length) if length else b""
@@ -1917,6 +1931,9 @@ class _Handler(BaseHTTPRequestHandler):
             body = json.loads(raw or b"{}")
         except ValueError:
             self._json(400, {"ok": False, "reason": "body is not valid JSON. Nothing sent."})
+            return
+        if not isinstance(body, dict):
+            self._json(400, {"ok": False, "reason": "body must be a JSON object. Nothing sent."})
             return
         printer_id, verb = unquote(segments[0]), segments[1]
         code, payload = self.server.printer_control_func(printer_id, verb, body)
@@ -1967,6 +1984,7 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if length < 0 or length > 65536:
+            self._refuse_unread_body()
             self._json(400, {"ok": False, "reason": "bad or oversized body. Nothing changed."})
             return
         raw = self.rfile.read(length) if length else b""
@@ -1978,6 +1996,9 @@ class _Handler(BaseHTTPRequestHandler):
             body = json.loads(raw or b"{}")
         except ValueError:
             self._json(400, {"ok": False, "reason": "body is not valid JSON. Nothing changed."})
+            return
+        if not isinstance(body, dict):
+            self._json(400, {"ok": False, "reason": "body must be a JSON object. Nothing changed."})
             return
         code, payload = self.server.spools_action_func(unquote(segments[0]), action, body)
         self._json(code, payload)
@@ -2136,9 +2157,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             path, content_type, inline = found
             disposition = "inline" if inline else "attachment"
-            self._send(200, path.read_bytes(), content_type,
-                       headers=[("Content-Disposition",
-                                 f'{disposition}; filename="{path.name}"')])
+            self._send_file(path, content_type,
+                            headers=[("Content-Disposition",
+                                      f'{disposition}; filename="{path.name}"')])
             return
         self._json(404, {"ok": False, "reason": "no such design session"})
 
@@ -2386,8 +2407,10 @@ class _Handler(BaseHTTPRequestHandler):
         succeeds with a plain ephemeral session, as before."""
         now = time.time()
         sessions = self.server.sessions
-        for stale in [sid for sid, expiry in sessions.items() if expiry <= now]:
-            del sessions[stale]
+        # list() snapshots the map and pop() tolerates a concurrent prune:
+        # two logins at once must not turn into a 500.
+        for stale in [sid for sid, expiry in list(sessions.items()) if expiry <= now]:
+            sessions.pop(stale, None)
         session_id = secrets.token_urlsafe(32)
         flags = "; Secure" if self._cookie_secure() else ""
         if remember:
@@ -2510,12 +2533,15 @@ class _Handler(BaseHTTPRequestHandler):
         """(form, None) or (None, (code, reason)) for a urlencoded POST body."""
         content_type = self.headers.get("Content-Type") or ""
         if content_type and not content_type.startswith("application/x-www-form-urlencoded"):
+            self._refuse_unread_body()
             return None, (415, "POST bodies must be application/x-www-form-urlencoded")
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
+            self._refuse_unread_body()
             return None, (400, "bad Content-Length")
         if length < 0 or length > 65536:
+            self._refuse_unread_body()
             return None, (413, "form body too large")
         raw = self.rfile.read(length) if length else b""
         return parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True), None

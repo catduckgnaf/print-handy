@@ -667,16 +667,17 @@ def run_init(tmp_path: Path, chown_exit: int) -> subprocess.CompletedProcess:
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
     service = compose["services"]["print-handy-init"]
     assert service["entrypoint"] == ["/bin/sh", "-ec"]
-    script = service["command"][0].replace("$$", "$").replace("/data/", f"{tmp_path}/data/")
+    script = service["command"][0].replace("$$", "$").replace("/data/", f"{tmp_path.as_posix()}/data/")
     shim = tmp_path / "bin"
     shim.mkdir()
     refusal = "" if chown_exit == 0 else (
         "echo \"chown: changing ownership of '$2': Operation not permitted\" >&2\n")
     (shim / "chown").write_text(f"#!/bin/sh\n{refusal}exit {chown_exit}\n")
     (shim / "chown").chmod(0o755)
-    env = dict(os.environ, PATH=f"{shim}:{os.environ['PATH']}")
+    env = dict(os.environ, PATH=f"{shim}{os.pathsep}{os.environ['PATH']}")
+    # cwd is the temp folder: a path the shell mangles lands there, never in the repo.
     return subprocess.run(["sh", "-ec", script], env=env, capture_output=True,
-                          text=True, timeout=60)
+                          text=True, timeout=60, cwd=tmp_path)
 
 
 def test_init_service_creates_every_folder_when_chown_works(tmp_path):
@@ -691,7 +692,7 @@ def test_init_service_names_the_folder_whose_chown_is_refused(tmp_path):
     result = run_init(tmp_path, 1)
     assert result.returncode != 0
     assert result.stderr.count(INIT_FAILED) == 1, result.stderr
-    folder = f"{tmp_path}/data/state"
+    folder = f"{tmp_path.as_posix()}/data/state"
     assert f"{INIT_FAILED} {folder} or make it owned by 1000:1000" in result.stderr
     assert "sudo chown -R 1000:1000 ./data" in result.stderr
     assert not (tmp_path / "data" / "archive").exists()    # stopped at the first

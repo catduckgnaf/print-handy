@@ -38,7 +38,67 @@ MAINTENANCE_FOLLOW_UP = ("The stopped print is cleared. Check the filament path 
                          "free the part, use `/print-bed-down` (Prepare to clean: separate bed and "
                          "nozzle). It asks first and never homes or heats.")
 TTL = 24 * 3600
-_LOCK = threading.Lock()
+
+logger = logging.getLogger(__name__)
+
+
+class _StoreLock:
+    """Serialize every read-modify-write of the alert store.
+
+    The listener process records alerts and the gateway process claims
+    them, both by load, modify, replace of one file: a thread lock alone
+    lets one process save an older snapshot over the other's row (a lost
+    alert, or a claimed row coming back for a second click). An O_EXCL
+    lock file beside the store covers processes; the thread lock covers
+    threads. A lock file older than ``stale_s`` belongs to a crashed
+    holder and is broken. If the lock cannot be had in ``wait_s`` the
+    write proceeds unlocked, which is the behavior before this lock.
+    """
+
+    wait_s, stale_s = 5.0, 30.0
+
+    def __init__(self) -> None:
+        self._thread = threading.Lock()
+        self._held: Path | None = None
+
+    def __enter__(self) -> "_StoreLock":
+        self._thread.acquire()
+        lock = STATE.with_suffix(".lock")
+        deadline = time.monotonic() + self.wait_s
+        try:
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            while True:
+                try:
+                    os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    self._held = lock
+                    break
+                except FileExistsError:
+                    try:
+                        if time.time() - lock.stat().st_mtime > self.stale_s:
+                            lock.unlink(missing_ok=True)
+                            continue
+                    except OSError:
+                        continue
+                    if time.monotonic() >= deadline:
+                        logger.warning("alert store lock busy for %.0fs; writing without it", self.wait_s)
+                        break
+                    time.sleep(0.02)
+        except OSError:
+            logger.debug("alert store lock unavailable; writing without it", exc_info=True)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        held, self._held = self._held, None
+        try:
+            if held is not None:
+                held.unlink(missing_ok=True)
+        except OSError:
+            logger.debug("alert store lock not removed", exc_info=True)
+        finally:
+            self._thread.release()
+
+
+_LOCK = _StoreLock()
 
 
 def _base_for(printer_id: str | None) -> str:
@@ -98,9 +158,16 @@ def _load() -> dict[str, Any]:
 
 def _save(data: dict[str, Any]) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=1))
-    os.replace(tmp, STATE)
+    # A temp name of its own per write: two processes share this store.
+    import tempfile
+    fd, tmp = tempfile.mkstemp(prefix=f".{STATE.name}-", suffix=".tmp", dir=STATE.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(data, indent=1))
+        os.replace(tmp, STATE)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def _timestamp(value: Any) -> float | None:

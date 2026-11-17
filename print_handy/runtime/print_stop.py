@@ -444,7 +444,8 @@ def pause(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
             break
     if after["state"] == "paused":
         return True, "Paused. Check the printer screen for the current state."
+    # False unless the printer reached paused (#837, as resume answers).
     if after["state"] == "printing":
-        return True, (f"Pause sent, but the printer still reports printing after {wait_s:.0f}s. "
-                      "Check the printer screen. Not retrying.")
-    return True, f"Pause sent. Printer now reports {after['state']}."
+        return False, (f"Pause sent, but the printer still reports printing after {wait_s:.0f}s. "
+                       "Check the printer screen. Not retrying.")
+    return False, f"Pause sent. Printer now reports {after['state']}."

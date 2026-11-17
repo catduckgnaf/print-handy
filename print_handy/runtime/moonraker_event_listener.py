@@ -2395,9 +2395,18 @@ def read_json_object(path):
 
 def atomic_write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2) + "\n")
-    os.replace(temporary, path)
+    # A unique temp name per write: two writers of the same file (threads
+    # or processes) must never share, truncate or replace each other's
+    # half-written temp file.
+    import tempfile
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}-", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(value, indent=2) + "\n")
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def insertion_prompt(slot):
@@ -4584,6 +4593,27 @@ class Listener:
                     warn(f"visual alert failed file={filename!r}: {alert_exc!r}")
 
     async def on_status(self, print_stats, reason):
+        """Apply one print_stats update. The transition's state and its
+        at-most-once claim are committed before its alert is posted, so an
+        alert that raises would otherwise be lost for good: the reconnect
+        re-reads the same state and sees no transition. This posts a plain
+        fallback for the states an operator must act on."""
+        before = self.state
+        try:
+            await self._on_status(print_stats, reason)
+        except Exception:
+            logger.exception("print status handling failed (state %r -> %r)", before, self.state)
+            now = self.state
+            if now == before or now not in ("paused", "error", "cancelled", "complete"):
+                return
+            try:
+                await asyncio.to_thread(
+                    post, f"Printer now reports {now}: {print_summary.safe_label(self.filename)}. "
+                          "The full alert could not be built. Check the printer screen.")
+            except Exception:
+                logger.exception("fallback status alert failed")
+
+    async def _on_status(self, print_stats, reason):
         self.last_stats.update(print_stats)
         new_state = print_stats.get("state", self.state)
         if "filename" in print_stats:
@@ -5746,6 +5776,54 @@ class Listener:
                 capture_timer.cancel()
                 visual_timer.cancel()
 
+    async def _handle_message(self, ws, raw):
+        """Act on one websocket message. Raises only what the caller sorts:
+        a lost connection reconnects, anything else is logged and skipped."""
+        msg = json.loads(raw)
+        method = msg.get("method")
+        if msg.get("id") == 1:
+            if "error" in msg:  # klippy not ready yet; notify_klippy_ready resubscribes
+                warn(f"subscribe refused: {msg['error']}")
+            else:
+                status = ((msg.get("result") or {}).get("status") or {}).get("print_stats") or {}
+                await self.on_status(status, "subscribe")
+                self._schedule_capture(_visual_layer(self.last_stats))
+        elif method == "notify_status_update":
+            ps = (msg.get("params") or [{}])[0].get("print_stats")
+            if ps:
+                await self.on_status(ps, "event")
+                self._schedule_capture(_visual_layer(self.last_stats))
+                if self.state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
+                    layer = _visual_layer(self.last_stats)
+                    reason_due = self.visual_watch.due(layer, time.time())
+                    if reason_due and self._watch_ready():
+                        self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
+        elif method == "notify_gcode_response":
+            for line in msg.get("params") or []:
+                await self.opencreator_prompt(line)
+                if no_mesh_line(line):
+                    log(f"no bed mesh at print start: {self.filename!r}")
+                    await asyncio.to_thread(post, f"{NO_MESH_ALERT}\nPrint: {print_summary.safe_label(self.filename)}")
+        elif method in ("notify_klippy_disconnected", "notify_klippy_shutdown"):
+            self.ifs_monitor.reset_baseline(warmup=True)
+            log(f"{method} while state={self.state}")
+            if self.state in ("printing", "paused"):
+                if getattr(self, "shutdown_alerted", None) != self.filename:
+                    self.shutdown_alerted = self.filename  # one firmware-stopped alert per job
+                    await asyncio.to_thread(post_shutdown_alert, self.filename)
+                else:
+                    log("firmware stop already alerted for this job; not posting again")
+                self.state = "error"
+                # Klipper comes back as error -> standby, which
+                # is not a terminal transition: clean up here.
+                await self._print_ended("error")
+        elif method == "notify_klippy_ready":
+            self.ifs_monitor.reset_baseline(warmup=True)
+            log("klippy ready; resubscribing")
+            await asyncio.to_thread(self._sync_printer_clock, "klippy ready")
+            await self.opencreator_recovery()
+            await ws.send(SUBSCRIBE)
+
     async def _receive_loop(self, ws, last_tick):
         if True:
             while True:
@@ -5754,53 +5832,21 @@ class Listener:
                 except asyncio.TimeoutError:
                     raw = None
                 if raw:
-                    msg = json.loads(raw)
-                    method = msg.get("method")
-                    if msg.get("id") == 1:
-                        if "error" in msg:  # klippy not ready yet; notify_klippy_ready resubscribes
-                            warn(f"subscribe refused: {msg['error']}")
-                        else:
-                            status = ((msg.get("result") or {}).get("status") or {}).get("print_stats") or {}
-                            await self.on_status(status, "subscribe")
-                            self._schedule_capture(_visual_layer(self.last_stats))
-                    elif method == "notify_status_update":
-                        ps = (msg.get("params") or [{}])[0].get("print_stats")
-                        if ps:
-                            await self.on_status(ps, "event")
-                            self._schedule_capture(_visual_layer(self.last_stats))
-                            if self.state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
-                                layer = _visual_layer(self.last_stats)
-                                reason_due = self.visual_watch.due(layer, time.time())
-                                if reason_due and self._watch_ready():
-                                    self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
-                    elif method == "notify_gcode_response":
-                        for line in msg.get("params") or []:
-                            await self.opencreator_prompt(line)
-                            if no_mesh_line(line):
-                                log(f"no bed mesh at print start: {self.filename!r}")
-                                await asyncio.to_thread(post, f"{NO_MESH_ALERT}\nPrint: {print_summary.safe_label(self.filename)}")
-                    elif method in ("notify_klippy_disconnected", "notify_klippy_shutdown"):
-                        self.ifs_monitor.reset_baseline(warmup=True)
-                        log(f"{method} while state={self.state}")
-                        if self.state in ("printing", "paused"):
-                            if getattr(self, "shutdown_alerted", None) != self.filename:
-                                self.shutdown_alerted = self.filename  # one firmware-stopped alert per job
-                                await asyncio.to_thread(post_shutdown_alert, self.filename)
-                            else:
-                                log("firmware stop already alerted for this job; not posting again")
-                            self.state = "error"
-                            # Klipper comes back as error -> standby, which
-                            # is not a terminal transition: clean up here.
-                            await self._print_ended("error")
-                    elif method == "notify_klippy_ready":
-                        self.ifs_monitor.reset_baseline(warmup=True)
-                        log("klippy ready; resubscribing")
-                        await asyncio.to_thread(self._sync_printer_clock, "klippy ready")
-                        await self.opencreator_recovery()
-                        await ws.send(SUBSCRIBE)
+                    try:
+                        await self._handle_message(ws, raw)
+                    except (OSError, websockets.ConnectionClosed):
+                        raise  # the connection is gone: forever() reconnects
+                    except Exception:
+                        # One bad message or one failing handler must not
+                        # drop the websocket and miss every event until the
+                        # reconnect (and then loop on the same failure).
+                        logger.exception("listener message handling failed; staying connected")
                 if time.monotonic() - self.last_native_poll >= NATIVE_POLL_SECONDS:
                     self.last_native_poll = time.monotonic()
-                    await self.poll_native_presence()
+                    try:
+                        await self.poll_native_presence()
+                    except Exception as exc:
+                        warn(f"native presence poll failed: {exc!r}")
                     try:
                         await self.poll_abandoned_starts()
                     except Exception as exc:
@@ -5838,10 +5884,16 @@ class Listener:
                         warn(f"next plate offer failed: {exc!r}")
                 if time.monotonic() - self.maintenance_last_check >= 3600:
                     self.maintenance_last_check = time.monotonic()
-                    await maintenance_reminder_tick(self)
+                    try:
+                        await maintenance_reminder_tick(self)
+                    except Exception as exc:
+                        warn(f"maintenance reminder tick failed: {exc!r}")
                 if time.monotonic() - last_tick >= TICK_SECONDS:
                     last_tick = time.monotonic()
-                    await asyncio.to_thread(run_announcer, "tick")
+                    try:
+                        await asyncio.to_thread(run_announcer, "tick")
+                    except Exception as exc:
+                        warn(f"announcer tick failed: {exc!r}")
 
     def _beat_once(self):
         """One heartbeat write, from the writer thread (#1020 A3)."""
@@ -6030,8 +6082,12 @@ class Listener:
         beating = asyncio.create_task(self.heartbeat())
         try:
             while True:
-                await self.backfill_slot_colors()
-                await self.reconcile_spools()
+                for name, step in (("slot color backfill", self.backfill_slot_colors),
+                                   ("spool reconcile", self.reconcile_spools)):
+                    try:
+                        await asyncio.wait_for(step(), RECONNECT_PREP_TIMEOUT_S)
+                    except Exception as exc:
+                        warn(f"{name} skipped before connecting: {exc!r}")
                 started = time.monotonic()
                 lost = None
                 try:
@@ -6057,6 +6113,7 @@ class Listener:
 #: RECONNECT_MAX_S, and starts again at the minimum once a session stayed up
 #: for HEALTHY_SESSION_S.
 RECONNECT_MIN_S = 5
+RECONNECT_PREP_TIMEOUT_S = 60  # Spoolman prep before each connect; never gates the session
 RECONNECT_MAX_S = 120
 HEALTHY_SESSION_S = 60
 
