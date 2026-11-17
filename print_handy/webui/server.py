@@ -181,6 +181,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from .. import __version__, logs, settings
 from ..bot import health as bot_health
 from . import access as access_module
+from . import body as body_module
 from . import camera as camera_module
 from . import chat as chat_module
 from . import config as config_api
@@ -1913,27 +1914,10 @@ class _Handler(BaseHTTPRequestHandler):
                                                     "firmware_restart, server_restart, gcode, "
                                                     "exclude or nozzle"})
             return
-        content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = -1
-        if length < 0 or length > 4096:
-            self._refuse_unread_body()
-            self._json(400, {"ok": False, "reason": "bad or oversized body. Nothing sent."})
-            return
-        raw = self.rfile.read(length) if length else b""
-        if content_type != "application/json":
-            self._json(415, {"ok": False, "reason": "control POSTs must be application/json. "
-                                                    "Nothing sent."})
-            return
-        try:
-            body = json.loads(raw or b"{}")
-        except ValueError:
-            self._json(400, {"ok": False, "reason": "body is not valid JSON. Nothing sent."})
-            return
-        if not isinstance(body, dict):
-            self._json(400, {"ok": False, "reason": "body must be a JSON object. Nothing sent."})
+        body, error = body_module.read_json(
+            self, limit=4096, noun="control", tail="Nothing sent.")
+        if error:
+            self._json(error[0], {"ok": False, "reason": error[1]})
             return
         printer_id, verb = unquote(segments[0]), segments[1]
         code, payload = self.server.printer_control_func(printer_id, verb, body)
@@ -1978,27 +1962,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(404, {"ok": False, "reason": "try /api/printers/<id>/spools/"
                                                     + ", ".join(actions)})
             return
-        content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = -1
-        if length < 0 or length > 65536:
-            self._refuse_unread_body()
-            self._json(400, {"ok": False, "reason": "bad or oversized body. Nothing changed."})
-            return
-        raw = self.rfile.read(length) if length else b""
-        if content_type != "application/json":
-            self._json(415, {"ok": False, "reason": "spool POSTs must be application/json. "
-                                                    "Nothing changed."})
-            return
-        try:
-            body = json.loads(raw or b"{}")
-        except ValueError:
-            self._json(400, {"ok": False, "reason": "body is not valid JSON. Nothing changed."})
-            return
-        if not isinstance(body, dict):
-            self._json(400, {"ok": False, "reason": "body must be a JSON object. Nothing changed."})
+        body, error = body_module.read_json(
+            self, limit=65536, noun="spool", tail="Nothing changed.")
+        if error:
+            self._json(error[0], {"ok": False, "reason": error[1]})
             return
         code, payload = self.server.spools_action_func(unquote(segments[0]), action, body)
         self._json(code, payload)
@@ -2530,21 +2497,10 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- config writes (stage 3) -------------------------------------------
     def _read_form(self):
-        """(form, None) or (None, (code, reason)) for a urlencoded POST body."""
-        content_type = self.headers.get("Content-Type") or ""
-        if content_type and not content_type.startswith("application/x-www-form-urlencoded"):
-            self._refuse_unread_body()
-            return None, (415, "POST bodies must be application/x-www-form-urlencoded")
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self._refuse_unread_body()
-            return None, (400, "bad Content-Length")
-        if length < 0 or length > 65536:
-            self._refuse_unread_body()
-            return None, (413, "form body too large")
-        raw = self.rfile.read(length) if length else b""
-        return parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True), None
+        """(form, None) or (None, (code, reason)) for a urlencoded POST body.
+
+        The reading itself lives in webui/body.py (#1590 item 8)."""
+        return body_module.read_form(self)
 
     def _post_authorized(self, form, process_token=False):
         """Whether a state-changing form POST may proceed.

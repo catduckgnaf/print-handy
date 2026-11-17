@@ -290,6 +290,43 @@ class BasePlatformAdapter:
             return False
         return self.is_allowed_id(uid)
 
+    def authorize_press(self, interaction, kind="allowed"):
+        """May this button press proceed? The one press check (#1590 item 5).
+
+        Both ``on_interaction`` listeners call this: the Discord adapter's
+        prompt clicks (``adapter.handle_click``) and the listener alert
+        buttons (``bot/handlers/common.alert_button_handlers``). ``kind``
+        is ``"allowed"`` (the presser may act at all) or ``"approver"``
+        (the presser may also approve a print: a start, pause, resume or
+        cancel press, P1-93). A bot presser is always refused, and a
+        checker that raises refuses instead of guessing, exactly as the
+        two hand-rolled checks did. ``guild`` and ``channel_ids`` are
+        passed through to ``_is_allowed_user`` as the alert-button check
+        always passed them (the current implementation ignores them, so
+        listener buttons have no channel binding yet).
+        """
+        user = getattr(interaction, "user", None)
+        if getattr(user, "bot", False):
+            return False
+        uid = str(getattr(user, "id", "") or "")
+        try:
+            allowed = self._is_allowed_user(
+                uid, user, guild=getattr(interaction, "guild", None),
+                channel_ids={str(getattr(interaction, "channel_id", ""))})
+        except Exception:
+            return False
+        if not allowed:
+            return False
+        if kind == "allowed":
+            return True
+        if kind == "approver":
+            try:
+                return bool(self.may_approve_id(uid))
+            except Exception:
+                logger.exception("approver check failed; refusing the button")
+                return False
+        return False
+
     # ------------------------------------------------------------------ working signal
 
     async def signal_working(self, chat_id, metadata=None):
