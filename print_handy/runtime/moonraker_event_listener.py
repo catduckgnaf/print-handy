@@ -3695,6 +3695,18 @@ class Listener:
         self.light_target = None  # #516: resolved Moonraker light object, cached
         self.light_target_resolved = False
         self.light_unresolved_logged = False
+        # #1589: attributes that used to be created lazily and read back
+        # through getattr/hasattr, so a typo in the string name silently
+        # disabled a dedup or counter. Declaring them here makes a typo an
+        # AttributeError at the use site instead of a silent default.
+        self.visual_timeouts = 0  # visual checks abandoned past their deadline
+        self._next_plate_task = None  # in-flight next-plate offer task, if any
+        self._watch_context_seen = False  # whether a start context existed when the watch mode was picked
+        self.oc_recovery_identity = None  # OpenCreator recovery identity already alerted for
+        self.oc_prompt = None  # OpenCreator ActionPrompt for the live session, if any
+        self.moonraker_connected = False  # whether the Moonraker websocket session is live
+        self.print_seen_started_at = None  # when this print was first seen live, if seen
+        self._failover_failures_posted = None  # lazily built by the failover_failures_posted property
 
     def note_slot_presence(self, slots):
         """Remember a successful slot presence read and when it was taken."""
@@ -5748,7 +5760,7 @@ class Listener:
         if not oc.is_opencreator(self._clock_adapter()):
             return
         from .klipper_report import ActionPrompt
-        if not hasattr(self, "oc_prompt"):
+        if self.oc_prompt is None:
             self.oc_prompt = ActionPrompt()
         commands = self.oc_prompt.feed(line)
         kind = oc.runout_kind(commands) if commands else None

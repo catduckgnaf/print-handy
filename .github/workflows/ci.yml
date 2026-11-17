@@ -1,5 +1,13 @@
 name: CI
 
+# Test suite platform (#1589, proposed decision for the maintainer to
+# confirm on review): the test suite is Linux only. Every job below runs
+# on Ubuntu, and the suite assumes POSIX shell scripts, fcntl, symlinks
+# and POSIX path separators; a Windows checkout currently fails hundreds
+# of tests before any change. No Windows job is added until that work is
+# scoped on its own; the Windows desktop planned for 3.0 (#1530) does not
+# by itself make this suite a Windows suite.
+
 on:
   push:
     branches: [main]
@@ -52,7 +60,7 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Run offline edit corpus shard
         env:
           PRINT_HANDY_EDIT_CORPUS: '1'
@@ -90,7 +98,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -131,7 +139,7 @@ jobs:
         run: |
           chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
           git rev-parse --is-inside-work-tree
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Ruff (syntax and undefined names, whole tree)
         run: python -m ruff check .
       - name: Install ffmpeg for the timelapse tests
@@ -266,6 +274,28 @@ jobs:
       - name: All offline shards passed
         run: test "${{ needs.offline-tests.result }}" = success
 
+  pyright:
+    # #1589: type check, reporting only. Pyright in basic mode over
+    # print_handy/runtime (the [tool.pyright] table in pyproject.toml).
+    # continue-on-error keeps this job from ever blocking a merge while
+    # its pre-existing findings are worked down; promote it by removing
+    # continue-on-error in a later change, not by widening its scope here.
+    name: Pyright (basic, runtime, reporting only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -c constraints.txt ".[test]"
+      - run: python -m pip install "pyright==1.1.414"
+      - name: Pyright basic over print_handy/runtime (reporting only)
+        run: python -m pyright print_handy/runtime
+
   bounds-image-stage:
     # Builds the Dockerfile's bounds-build stage on PRs (#952 phase 2): no
     # other PR check builds the image, so the pinned rustup-init checksum,
@@ -358,7 +388,7 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - run: python -m pip install ".[test]" "maturin==1.16.0"
+      - run: python -m pip install -c constraints.txt ".[test]" "maturin==1.16.0"
       - name: Stage the package skeleton beside the crate
         # maturin places the extension at the module path only when the
         # target package's directories exist beside the crate (mixed
@@ -396,7 +426,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Time the corpus (3 repeats, both transports)
         run: |
           mkdir -p timing
@@ -453,7 +483,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -548,7 +578,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: pip-audit
         run: python -m pip_audit
 
@@ -568,7 +598,7 @@ jobs:
       - name: Clean venv with runtime dependencies only
         run: |
           python -m venv "/tmp/clean"
-          "/tmp/clean/bin/python" -m pip install .
+          "/tmp/clean/bin/python" -m pip install -c "$GITHUB_WORKSPACE/constraints.txt" .
       # KNOWN GAP, deliberately non-blocking. The checks below run `python -m print_handy.bot check` with
       # the checkout as the working directory, so Python imports the checkout's print_handy, not the
       # wheel installed above: they prove the runtime dependencies and the standalone code path, not the
@@ -667,7 +697,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -725,7 +755,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -764,7 +794,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Install Debian tools and pinned Spoolman server
         run: |
           set -euo pipefail
@@ -823,7 +853,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Prove user and mount namespaces work on this runner
         run: |
           if ! unshare -rm true 2>/dev/null; then
@@ -857,7 +887,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install ".[test]" "playwright==1.56.0"
+      - run: python -m pip install -c constraints.txt ".[test]" "playwright==1.56.0"
       - name: Install the headless Chromium browser
         run: python -m playwright install --with-deps chromium
       - name: Run real-browser tests and record machine-readable results
@@ -931,7 +961,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
-      - run: python -m pip install ".[test]"
+      - run: python -m pip install -c constraints.txt ".[test]"
       - name: Natural-language contract tests
         run: |
           python -m pytest -q \
