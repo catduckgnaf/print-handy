@@ -181,6 +181,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from .. import __version__, logs, settings
 from ..bot import health as bot_health
 from . import access as access_module
+from . import body as body_module
 from . import camera as camera_module
 from . import chat as chat_module
 from . import config as config_api
@@ -2196,7 +2197,8 @@ class _Handler(BaseHTTPRequestHandler):
                                                     "firmware_restart, server_restart, gcode, "
                                                     "exclude or nozzle"})
             return
-        body, error = self._read_json_body(4096, nothing="Nothing sent.")
+        body, error = body_module.read_json(
+            self, limit=4096, noun="control", tail="Nothing sent.")
         if error:
             self._json(error[0], {"ok": False, "reason": error[1]})
             return
@@ -2243,7 +2245,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(404, {"ok": False, "reason": "try /api/printers/<id>/spools/"
                                                     + ", ".join(actions)})
             return
-        body, error = self._read_json_body(65536, nothing="Nothing changed.")
+        body, error = body_module.read_json(
+            self, limit=65536, noun="spool", tail="Nothing changed.")
         if error:
             self._json(error[0], {"ok": False, "reason": error[1]})
             return
@@ -2810,70 +2813,11 @@ class _Handler(BaseHTTPRequestHandler):
         self._redirect("/login", headers=[("Set-Cookie", cookie)])
 
     # -- config writes (stage 3) -------------------------------------------
-    def _read_body(self, max_bytes, content_type, *, nothing="Nothing changed."):
-        """(raw, None) or (None, (code, reason)): the one body reader
-        (#1588 item 5).
-
-        Every POST body that is read whole goes through here — the
-        urlencoded forms (``_read_form``) and the two JSON API blocks
-        (printer controls and spool actions) used to each duplicate the
-        length and content-type checks. ``max_bytes`` caps the body and
-        ``content_type`` is the one type accepted; ``nothing`` is the
-        caller's "Nothing sent." / "Nothing changed." tail for the JSON
-        refusals.
-
-        A refusal that leaves the body unread closes the connection
-        (``_refuse_unread_body``), so the bytes are never parsed as the
-        next request. The form type is checked before the read, as
-        before (a missing Content-Type still counts as a form); the
-        JSON type is checked after the read, as those blocks always
-        did, so their answers are unchanged."""
-        header_type = self.headers.get("Content-Type") or ""
-        is_form = content_type == "application/x-www-form-urlencoded"
-        if is_form:
-            if header_type and not header_type.startswith(content_type):
-                self._refuse_unread_body()
-                return None, (415, f"POST bodies must be {content_type}")
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self._refuse_unread_body()
-            if is_form:
-                return None, (400, "bad Content-Length")
-            return None, (400, f"bad or oversized body. {nothing}")
-        if length < 0 or length > max_bytes:
-            self._refuse_unread_body()
-            if is_form:
-                return None, (413, "form body too large")
-            return None, (400, f"bad or oversized body. {nothing}")
-        raw = self.rfile.read(length) if length else b""
-        if not is_form:
-            actual = header_type.split(";")[0].strip().lower()
-            if actual != content_type:
-                return None, (415, f"POST bodies must be {content_type}. {nothing}")
-        return raw, None
-
     def _read_form(self):
-        """(form, None) or (None, (code, reason)) for a urlencoded POST body."""
-        raw, error = self._read_body(65536, "application/x-www-form-urlencoded")
-        if error:
-            return None, error
-        return parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True), None
+        """(form, None) or (None, (code, reason)) for a urlencoded POST body.
 
-    def _read_json_body(self, max_bytes, *, nothing):
-        """(body dict, None) or (None, (code, reason)) for a JSON POST
-        body: ``_read_body`` plus the parse and object checks the two
-        JSON API blocks share."""
-        raw, error = self._read_body(max_bytes, "application/json", nothing=nothing)
-        if error:
-            return None, error
-        try:
-            body = json.loads(raw or b"{}")
-        except ValueError:
-            return None, (400, f"body is not valid JSON. {nothing}")
-        if not isinstance(body, dict):
-            return None, (400, f"body must be a JSON object. {nothing}")
-        return body, None
+        The reading itself lives in webui/body.py (#1590 item 8)."""
+        return body_module.read_form(self)
 
     def _post_authorized(self, form):
         """Whether a state-changing form POST may proceed.

@@ -17,7 +17,7 @@ from print_handy.core import heater_ceiling, launch_state, model_job
 from print_handy.runtime import family_event_listener as fel
 from print_handy.runtime import print_next, spool_sync
 
-from .test_launch_state import leases, make_job, uploads
+from .test_launch_state import leases, make_job, upload_ok, uploads
 from .test_launch_state import mapped, printer  # noqa: F401  (fixtures shared with the lease tests)
 
 
@@ -151,6 +151,109 @@ def test_item4_the_approval_for_this_exact_gcode_starts_it_once(printer):
     assert len(uploads(printer.run)) == 1
     with pytest.raises(SystemExit, match="already used"):  # still single-use
         model_job.print_now(jp, bed_clear=sha(g))
+
+
+@pytest.mark.bed_clear_unconfirmed
+def test_1586_a_failed_upload_does_not_burn_the_bed_clear_approval(printer):
+    """#1586: the generic Moonraker upload runs before submission, so its failure is a
+    clean failure: the retry starts on the same confirmation, no reprint flag needed."""
+    jp, g = make_job(printer.root, "a")
+    attempts = {"n": 0}
+
+    def fail_once(cmd, *args, **kwargs):
+        if len(cmd) >= 4 and cmd[1] == "upload":
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return mock.Mock(returncode=1, stdout="", stderr="wifi blip")
+        return upload_ok(cmd, *args, **kwargs)
+    printer.run.side_effect = fail_once
+    with pytest.raises(SystemExit, match="could not be uploaded"):
+        model_job.print_now(jp, bed_clear=sha(g))
+    assert "approvals" not in json.loads(jp.read_text()) and leases() == []
+    assert model_job.print_now(jp, bed_clear=sha(g))["started"] is True
+    assert attempts["n"] == 2 and len(json.loads(jp.read_text())["approvals"]) == 1
+
+
+def test_1586_a_failed_mapped_upload_does_not_burn_the_bed_clear_approval(mapped):
+    """#1586: the mapped native route orders its upload the same way, so it gets the
+    same fix: check without consuming before the upload, consume before submitting.
+    The bed-clear grant is the conftest fixture's confirmed default, as in the other
+    mapped launch tests."""
+    jp, g = make_job(mapped.root, "a")
+    job = json.loads(jp.read_text())
+    attempts = {"n": 0}
+
+    def fail_once(cmd, *args, **kwargs):
+        if len(cmd) >= 4 and cmd[1] == "upload":
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return mock.Mock(returncode=1, stdout="", stderr="wifi blip")
+        return upload_ok(cmd, *args, **kwargs)
+    mapped.run.side_effect = fail_once
+    with pytest.raises(RuntimeError, match="could not be uploaded"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    assert "approvals" not in json.loads(jp.read_text()) and leases() == []
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+                                        json.loads(jp.read_text()), jp, 0, False)
+    assert out["submission_count"] == 1 and attempts["n"] == 2
+    assert len(json.loads(jp.read_text())["approvals"]) == 1
+
+
+def test_duckcat_yolo_launch_is_not_refused_by_an_already_used_approval(printer, monkeypatch):
+    """duckcatgnaf review, PR #1595: yolo owes no single-use approval record, so a
+    G-code whose approval an earlier launch consumed must not refuse a yolo launch
+    (the bed-clear confirmation itself is still required and still checked)."""
+    monkeypatch.setattr(model_job, "require_mechanical_limits", lambda *a, **k: None)  # not this test's subject
+    jp, g = make_job(printer.root, "a")
+    assert model_job.print_now(jp, bed_clear=sha(g))["started"] is True  # consumes the approval
+    assert model_job.print_now(jp, bed_clear=sha(g), yolo=True)["started"] is True
+    assert len(uploads(printer.run)) == 2
+
+
+def test_duckcat_yolo_mapped_launch_is_not_refused_by_an_already_used_approval(mapped):
+    """duckcatgnaf review, PR #1595: the mapped route's pre-upload claim runs with
+    reprint=False when print_mapped_native is called directly, so the yolo bypass
+    cannot ride on the caller's reprint flag — a yolo run (which owes no single-use
+    record) must not be refused by an approval an earlier launch consumed."""
+    from print_handy.launch import gates
+
+    jp, g = make_job(mapped.root, "a")
+    job = json.loads(jp.read_text())
+    # An earlier launch already consumed this G-code's approval.
+    job["approvals"] = [{"gcode_sha256": sha(g), "granted_at": "2026-11-17T00:00:00-0500",
+                         "consumed_at": "2026-11-17T00:01:00-0500", "kind": "bed_clear"}]
+    jp.write_text(json.dumps(job))
+    with pytest.raises(SystemExit, match="already used"):  # a normal launch still refuses
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+                                      json.loads(jp.read_text()), jp, 0, False)
+    assert uploads(mapped.run) == []
+    token = gates._YOLO.set(True)
+    try:
+        out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+                                            json.loads(jp.read_text()), jp, 0, False)
+    finally:
+        gates._YOLO.reset(token)
+    assert out["submission_count"] == 1  # the yolo launch submitted on the same confirmation
+
+
+def test_duckcat_bed_clear_precheck_refuses_a_stale_artifact_before_any_upload(printer):
+    """duckcatgnaf review, PR #1595: the read-only pre-upload check runs the same
+    current-artifact guard as the consuming check, so a stale artifact refuses
+    before the upload instead of after it."""
+    from print_handy.launch import gates
+
+    jp, g = make_job(printer.root, "a")
+    job = json.loads(jp.read_text())
+    job["color_decisions"] = {"0": {"color": "red"}}
+    job["artifact_binding"] = None  # a color job with no current binding is stale
+    jp.write_text(json.dumps(job))
+    token = gates._BED_CLEAR.set(True)
+    try:
+        with pytest.raises(SystemExit, match="stale color artifact"):
+            gates._claim_bed_clear(jp, job, g, consume=False)
+    finally:
+        gates._BED_CLEAR.reset(token)
+    assert uploads(printer.run) == []
 
 
 @pytest.mark.bed_clear_unconfirmed

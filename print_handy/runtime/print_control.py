@@ -29,6 +29,7 @@ from typing import Any
 from .. import moonraker
 from ..core import fuzzy, projects
 from . import _config
+from . import state_file
 from ._suppress import repeated_failure
 
 BASE = _config.moonraker_url()
@@ -325,15 +326,22 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
         return False, "A different print is paused than the one you confirmed. Nothing sent."
     if head_filament_loaded(printer_id) is False:
         return False, HEAD_EMPTY_TEXT
-    from .print_stop import NO_REPLY_WAIT_S, post_print_command, read_back
+    from .print_stop import NO_REPLY_WAIT_S, post_print_command, send_once_and_read_back
+    replied = [True]
+
+    def _send_resume():
+        replied[0] = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
+        return replied[0]
+
     try:
-        replied = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
+        _took, after = send_once_and_read_back(
+            _send_resume, lambda: status(printer_id), "printing", wait_s, poll_s)
     except moonraker.MoonrakerAuthError as exc:
         return False, f"{exc} The resume was not sent."
+    replied = replied[0]
     if not replied:
         wait_s = max(wait_s, NO_REPLY_WAIT_S)
-    after = read_back(lambda: status(printer_id), lambda st: st["state"] == "printing",
-                      wait_s, poll_s) or before
+    after = after or before
     if after["state"] == "printing":
         where = where_text(after)
         return True, f"Resumed. Printer now reports printing{', ' + where if where else ''}."
@@ -508,71 +516,36 @@ def _printed_jobs_locked(archive: Path | None = None, numbers_path: Path | None 
 LAUNCH_MATCH_WINDOW_S = 3600.0
 
 
-_REGISTRY_HELD = threading.local()
-_REGISTRY_THREAD_LOCK = threading.RLock()
-
-
 class _RegistryLock:
     """Serialize every read-modify-write of the print-number registry.
 
     Each printer starts prints from its own print-now process, and the bot
     renders /print-again lists in another: without a lock two starts at once
     can mint the same number, and a list written over a start drops that
-    start's launch entry. An O_EXCL lock file (cross-process) plus an RLock
-    (threads); re-entrant per thread, since printed_jobs() calls
+    start's launch entry. The shared state-file lock (#1585,
+    ``state_file.locked``) provides the O_EXCL lock file (cross-process)
+    plus the thread lock, re-entrant per thread, since printed_jobs() calls
     assign_print_numbers() while holding it. A lock file older than a minute
-    belongs to a crashed holder and is broken.
+    belongs to a crashed holder and is broken; a lock that cannot be had in
+    ``wait_s`` raises TimeoutError, as this lock always has.
     """
 
     def __init__(self, numbers_path: Path | None = None, wait_s: float = 10.0, stale_s: float = 60.0):
-        path = Path(numbers_path or PRINT_NUMBERS)
-        self.lock = path.with_suffix(path.suffix + ".lock")
+        self._path = Path(numbers_path or PRINT_NUMBERS)
+        self.lock = self._path.with_suffix(self._path.suffix + ".lock")
         self.key = str(self.lock.resolve())
         self.wait_s, self.stale_s = wait_s, stale_s
-
-    def _depths(self) -> dict[str, int]:
-        if not hasattr(_REGISTRY_HELD, "depths"):
-            _REGISTRY_HELD.depths = {}
-        return _REGISTRY_HELD.depths
+        self._stack: list = []
 
     def __enter__(self):
-        depths = self._depths()
-        if depths.get(self.key):
-            depths[self.key] += 1
-            return self
-        _REGISTRY_THREAD_LOCK.acquire()
-        try:
-            self.lock.parent.mkdir(parents=True, exist_ok=True)
-            deadline = time.monotonic() + self.wait_s
-            while True:
-                try:
-                    os.close(os.open(self.lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-                    break
-                except FileExistsError:
-                    try:
-                        if time.time() - self.lock.stat().st_mtime > self.stale_s:
-                            self.lock.unlink(missing_ok=True)
-                            continue
-                    except OSError:
-                        continue
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(f"print number registry is locked: {self.lock}")
-                    time.sleep(0.05)
-        except BaseException:
-            _REGISTRY_THREAD_LOCK.release()
-            raise
-        depths[self.key] = 1
+        cm = state_file.locked(self._path, lock_path=self.lock, wait_s=self.wait_s,
+                               stale_s=self.stale_s, raise_on_timeout=True)
+        cm.__enter__()
+        self._stack.append(cm)
         return self
 
     def __exit__(self, *exc):
-        depths = self._depths()
-        depths[self.key] -= 1
-        if not depths[self.key]:
-            del depths[self.key]
-            try:
-                self.lock.unlink(missing_ok=True)
-            finally:
-                _REGISTRY_THREAD_LOCK.release()
+        self._stack.pop().__exit__(*exc)
         return False
 
 
