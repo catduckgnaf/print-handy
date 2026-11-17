@@ -135,6 +135,7 @@ GROUP_OF = {
     "external_intake.max_bytes": "slicing",
     "firmware.update_alerts": "notifications",
     "firmware.update_check_hours": "notifications",
+    "firmware.update_channel": "notifications",
     "firmware.notice_firmwares": "notifications",
     "firmware.forgex_apply": "notifications",
     "llm.chat_url": "ai",
@@ -481,6 +482,16 @@ CATALOG = (
            "Hours between update checks for each printer (1 to 168). A check is "
            "skipped while the printer is printing.",
            validator="settings firmware check", minimum=1, maximum=168),
+    _field("firmware", "update_channel", "Firmware prerelease subscription", "picker",
+           "The least stable prerelease track to hear about, for firmware that "
+           "publishes prereleases: stable hears about finals only, rc adds "
+           "release candidates, beta adds betas, and alpha adds every other "
+           "prerelease. A subscribed prerelease is announced and shown like a "
+           "release, labeled with its track, and is still installed only "
+           "through the confirmed update path. Forge-X follows its beta line "
+           "whatever this says.",
+           choices=tuple(settings.FIRMWARE_UPDATE_CHANNELS),
+           validator="settings firmware check"),
     _field("firmware", "forgex_apply", "Forge-X: install updates from chat", "toggle",
            "Off by default. On lets /print-firmware update forge-x install a Forge-X "
            "update within your version line, after a confirmation, only while the printer "

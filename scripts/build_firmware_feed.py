@@ -11,7 +11,9 @@ What goes in: docs/firmware-feed.toml lists the firmware (id, name,
 repository, releases or tags, channel, the printer models it runs on and
 one sentence on how the update is installed). This script asks GitHub
 for each one and records the newest release on the entry's channel, the
-newest final release, and, where docs/firmware-baselines.toml or
+newest final release, the newest prerelease with its track when it is
+newer than the newest final (#1627: owners subscribe per track with
+[firmware] update_channel), and, where docs/firmware-baselines.toml or
 docs/ZMOD.md records one under the same name, the version Print Handy's
 code was audited against.
 
@@ -198,6 +200,22 @@ def parse_version(tag: str):
     return display, key
 
 
+# Prerelease tracks by stage rank in the parse key (#1627): the same
+# alpha < beta < rc ordering the key itself uses. A prerelease with no
+# spelled stage (upstream flagged it, or the stage is dev) is alpha
+# tier, the conservative end: only alpha subscribers hear about it.
+_TRACK_BY_STAGE_RANK = {0: "alpha", 1: "alpha", 2: "beta", 3: "rc"}
+
+
+def _track(prerelease: bool, staged: bool, key: tuple) -> str:
+    """The subscription track of one candidate: stable, rc, beta or alpha."""
+    if not prerelease:
+        return "stable"
+    if staged:
+        return _TRACK_BY_STAGE_RANK.get(key[5], "alpha")
+    return "alpha"
+
+
 # ---------------------------------------------------------------------------
 # Reading GitHub
 
@@ -249,11 +267,13 @@ def list_candidates(client, source: dict) -> list[dict]:
             continue
         display, key = parsed
         staged = key[4] == 0
+        prerelease = bool(item["prerelease"]) or staged
         out.append({
             "version": display, "tag": item["tag"], "key": key,
             # Upstream's flag, or a spelled stage in the version: some
             # projects publish a beta as a full release.
-            "prerelease": bool(item["prerelease"]) or staged,
+            "prerelease": prerelease,
+            "track": _track(prerelease, staged, key),
             "published_at": item["published_at"], "url": item["url"],
         })
     out.sort(key=lambda row: row["key"], reverse=True)
@@ -282,6 +302,7 @@ def _asset_candidates(client, source: dict) -> list[dict]:
             continue
         display, key = parsed
         out.append({"version": display, "tag": tag, "key": key, "prerelease": False,
+                    "track": "stable",
                     "published_at": _iso(item.get("updated_at") or item.get("created_at")),
                     "url": url})
     out.sort(key=lambda row: (row["key"], row["published_at"] or ""), reverse=True)
@@ -292,10 +313,25 @@ def _public(row):
     return None if row is None else {k: row[k] for k in ("version", "tag", "published_at", "url")}
 
 
+def _public_prerelease(row):
+    """A prerelease entry for the feed: the public fields plus its track."""
+    if row is None:
+        return None
+    return {**_public(row), "track": row["track"]}
+
+
 def build_entry(source: dict, candidates: list[dict], audited: str | None) -> dict:
     stable = next((row for row in candidates if not row["prerelease"]), None)
     newest = candidates[0] if candidates else None
     latest = newest if source["channel"] == "prerelease" else stable
+    # The newest prerelease, published only when it is newer than the
+    # newest final (#1627): owners subscribed to its track hear about
+    # it, everyone else's surfaces are unchanged. A prerelease that a
+    # final has since overtaken is not published.
+    prerelease = next((row for row in candidates if row["prerelease"]), None)
+    if prerelease is not None and stable is not None \
+            and prerelease["key"] <= stable["key"]:
+        prerelease = None
     return {
         "id": source["id"], "kind": source["kind"],
         "name": source["name"], "repo": source["repo"],
@@ -303,6 +339,7 @@ def build_entry(source: dict, candidates: list[dict], audited: str | None) -> di
         "models": source["models"], "stock_models": source["stock_models"],
         "update": source["update"],
         "latest": _public(latest), "latest_stable": _public(stable),
+        "latest_prerelease": _public_prerelease(prerelease),
         "audited": audited, "stale": False,
     }
 
@@ -334,7 +371,9 @@ def build_feed(sources: list[dict], audited: dict[str, str], client, *,
                 # Keep what was last read, under today's metadata.
                 entries.append({**build_entry(source, [], audited.get(source["name"])),
                                 "latest": old.get("latest"),
-                                "latest_stable": old.get("latest_stable"), "stale": True})
+                                "latest_stable": old.get("latest_stable"),
+                                "latest_prerelease": old.get("latest_prerelease"),
+                                "stale": True})
             else:
                 entries.append({**build_entry(source, [], audited.get(source["name"])),
                                 "stale": True})

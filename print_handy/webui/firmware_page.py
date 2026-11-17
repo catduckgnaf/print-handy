@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+from .. import firmware_alerts as fa
 from .. import firmware_feed, printers, settings
 from .. import firmware_update as fw
 from . import shell
@@ -61,7 +62,26 @@ def _model_label(model_key):
     return model.label if model is not None else str(model_key or "unknown model")
 
 
-def _firmware_rows(rows):
+def _subscribed_prerelease(row, channel):
+    """The row's published prerelease when the owner subscribes to its track.
+
+    Mirrors the chat-notice gate in firmware_alerts.feed_notices: a
+    prerelease-channel line (Forge-X) is not part of this, because its
+    newest release already is the prerelease it follows.
+    """
+    pre = getattr(row, "latest_prerelease", None)
+    if pre is None or row.channel == "prerelease":
+        return None
+    track = pre.track or fa.release_track(pre.version)
+    if not fa.channel_accepts(channel, track):
+        return None
+    stable = row.latest_stable
+    if stable is not None and fa.version_key(pre.version) <= fa.version_key(stable.version):
+        return None
+    return pre, track
+
+
+def _firmware_rows(rows, channel="stable"):
     out = []
     for row in rows:
         notes = []
@@ -69,11 +89,18 @@ def _firmware_rows(rows):
             notes.append("follows prereleases")
         if row.stale:
             notes.append("could not be re-read; showing the last known release")
+        pre = _subscribed_prerelease(row, channel)
+        pre_cell = ""
+        if pre is not None:
+            release, track = pre
+            pre_cell = (f"<br>Prerelease: {_release_cell(release)} "
+                        f"({_esc(track)})<br><span class=\"muted\">"
+                        f"{_esc(_date(release))}</span>")
         out.append(
             "<tr>"
             f"<td>{_esc(row.name)}</td>"
             f"<td>{_release_cell(row.latest)}<br><span class=\"muted\">"
-            f"{_esc(_date(row.latest))}</span></td>"
+            f"{_esc(_date(row.latest))}</span>{pre_cell}</td>"
             f"<td>{_esc(row.audited or 'not audited')}</td>"
             f"<td>{_esc(row.update)}"
             + (f"<br><span class=\"muted\">{_esc('; '.join(notes))}</span>" if notes else "")
@@ -85,7 +112,7 @@ _FIRMWARE_HEAD = ("<table><tr><th>Firmware</th><th>Newest release</th>"
                   "<th>Audited against</th><th>How it updates</th></tr>")
 
 
-def _grouped_tables(rows, heading, model_key=None):
+def _grouped_tables(rows, heading, model_key=None, channel="stable"):
     """One table per kind, in KINDS order: Firmware, Stock firmware, Plugins.
 
     catduck (2026-11-16): firmware, the maker's stock firmware and plugins
@@ -103,7 +130,8 @@ def _grouped_tables(rows, heading, model_key=None):
         title = firmware_feed.KIND_TITLES[kind]
         head = _FIRMWARE_HEAD.replace("<th>Firmware</th>",
                                       f"<th>{'Plugin' if kind == 'plugin' else 'Firmware'}</th>")
-        out.append(f"<{heading}>{_esc(title)}</{heading}>" + head + _firmware_rows(group) + "</table>")
+        out.append(f"<{heading}>{_esc(title)}</{heading}>" + head
+                   + _firmware_rows(group, channel) + "</table>")
     return "".join(out)
 
 
@@ -174,7 +202,8 @@ def _update_actions(printer_id, entry, status, *, controls, cfg):
 
 
 def _printer_section(row, feed, *, checked, transport_for, controls=False,
-                     cfg=None, observe=None):
+                     cfg=None, observe=None,
+                     channel="stable"):
     printer_id, model_key = str(row.get("id")), row.get("model")
     name = str(row.get("name") or printer_id)
     entry = fw.printer_entry(model_key)
@@ -182,7 +211,7 @@ def _printer_section(row, feed, *, checked, transport_for, controls=False,
              f"<p class=\"muted\">{_esc(_model_label(model_key))}</p>"]
     lines = feed.for_model(model_key) if feed is not None else []
     if lines:
-        parts.append(_grouped_tables(lines, "h3", model_key))
+        parts.append(_grouped_tables(lines, "h3", model_key, channel))
     elif feed is not None:
         parts.append("<p>The firmware feed lists no firmware for this model. "
                      "Either its maker publishes no release feed Print Handy can "
@@ -233,6 +262,10 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
     update status — the route passes the notification store's recorder.
     """
     current = feed() if callable(feed) else feed
+    channel = str((data.get("firmware") or {}).get("update_channel") or "stable")
+    channel = channel.strip().lower()
+    if channel not in settings.FIRMWARE_UPDATE_CHANNELS:
+        channel = "stable"
     roster = [row for row in settings.printers(data) if row.get("id") is not None]
     ids = {str(row["id"]) for row in roster}
     checked = checked if checked in ids else None
@@ -242,7 +275,11 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
         "version Print Handy was last checked against, and how that firmware is "
         "updated. Print Handy tells you when a new release appears — in chat "
         "(<code>[firmware] update_alerts</code>) and, once a printer's installed "
-        "versions have been checked below, as a notification in this Web UI. An "
+        "versions have been checked below, as a notification in this Web UI. "
+        "A prerelease is shown under the newest release when you "
+        "subscribe to its track "
+        "(<code>[firmware] update_channel</code>). "
+        "An "
         "update is applied only behind a confirmation, from chat with "
         "<code>/print-firmware update</code> or from this page when Web UI "
         "printer controls are on, and only for the firmware that has a safe "
@@ -256,13 +293,14 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
         parts.append(_printer_section(row, current, checked=checked,
                                       transport_for=transport_for,
                                       controls=controls, cfg=data,
-                                      observe=observe))
+                                      observe=observe,
+                                      channel=channel))
     if current is not None and current.firmware:
         parts.append("<h2>Every firmware Print Handy follows</h2>")
         if current.generated_at:
             parts.append(f"<p class=\"muted\">Feed last changed "
                          f"{_esc(current.generated_at[:10])}.</p>")
-        parts.append(_grouped_tables(current.firmware, "h3"))
+        parts.append(_grouped_tables(current.firmware, "h3", channel=channel))
         parts.append("<p class=\"muted\">\"Audited against\" is the upstream version "
                      "Print Handy's code for that firmware was last checked with. A "
                      "newer release is one it has not been checked with yet, not one "
