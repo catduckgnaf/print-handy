@@ -100,6 +100,38 @@ class _StoreLock:
 
 _LOCK = _StoreLock()
 
+# The alert store gets its own small executor (#1584): the bot loop's
+# default executor is sized to the CPU quota and shared with long printer
+# waits (handle_click polls and recoveries) and other slow work, so a
+# store claim queued behind those could itself miss Discord's 3 s
+# interaction window. Store operations are short file reads/writes and
+# run here; long printer waits run on the separate action executor, so
+# neither can starve the other.
+from concurrent.futures import ThreadPoolExecutor
+
+_EXECUTORS: dict[str, ThreadPoolExecutor] = {}
+_EXECUTOR_LOCK = threading.Lock()
+
+
+def store_executor() -> ThreadPoolExecutor:
+    """The alert store's own executor (short file operations only)."""
+    with _EXECUTOR_LOCK:
+        executor = _EXECUTORS.get("store")
+        if executor is None:
+            executor = _EXECUTORS["store"] = ThreadPoolExecutor(
+                max_workers=4, thread_name_prefix="ph-alert-store")
+        return executor
+
+
+def action_executor() -> ThreadPoolExecutor:
+    """Executor for long alert actions (printer waits in handle_click)."""
+    with _EXECUTOR_LOCK:
+        executor = _EXECUTORS.get("action")
+        if executor is None:
+            executor = _EXECUTORS["action"] = ThreadPoolExecutor(
+                max_workers=4, thread_name_prefix="ph-alert-action")
+        return executor
+
 
 def _base_for(printer_id: str | None) -> str:
     """The Moonraker base URL for a roster printer (#335); the configured one when printer_id is None."""

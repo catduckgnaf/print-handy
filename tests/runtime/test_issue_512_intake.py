@@ -418,6 +418,8 @@ def test_walkthrough_second_confirm_click_creates_and_binds_nothing(tmp_path, mo
     sink.clear()
     asyncio.run(on_interaction(_interaction(sink, confirm)))
     kind, content, view = sink[-1]
+    # The alert is already gone at the peek, so nothing is claimed and
+    # the stale reply is the interaction's first (ephemeral) response.
     assert kind == "send" and "already answered" in content
     assert len(created) == 1 and len(binds) == 1
 
@@ -433,7 +435,9 @@ def test_walkthrough_confirm_that_loses_the_claim_race_creates_nothing(tmp_path,
     sink.clear()
     asyncio.run(on_interaction(_interaction(sink, confirm)))
     kind, content, view = sink[-1]
-    assert kind == "send" and "already answered" in content
+    # Stale claims answer through edit_original_response after the
+    # defer-first claim (#1584), which this fake records as an edit.
+    assert kind == "edit" and "already answered" in content
     assert created == [] and binds == []
 
 

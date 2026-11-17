@@ -39,6 +39,7 @@ class Order(list):
 def _order_interaction(order, custom_id, values=None):
     click = Interaction(custom_id, values)
     resp = click.response
+    click.edits_original = []
 
     class Response:
         async def send_message(self, *a, **k):
@@ -50,7 +51,15 @@ def _order_interaction(order, custom_id, values=None):
 
         async def defer(self, *a, **k):
             order.append("ack")
+
+        def is_done(self):
+            return "ack" in order
     click.response = Response()
+
+    async def edit_original_response(content=None, view=None, **kw):
+        click.edits_original.append(content)
+        order.texts.append(content)
+    click.edit_original_response = edit_original_response
     click.message = S(id="m1", edit=_noop)
     return click
 
@@ -255,6 +264,40 @@ def test_spool_pickers_acknowledge_before_spoolman_reads(tmp_path, monkeypatch, 
     asyncio.run(on_interaction(_bind_click(tmp_path, monkeypatch, order, make_id(pab))))
     assert "slow" in order and order[0] == "ack", order
     assert order.count("ack") == 1, order
+
+
+def test_claim_and_ack_defers_before_the_take_and_answers_stale_via_edit_original(tmp_path, monkeypatch):
+    """Regression for #1584: a claiming handler must defer before take().
+
+    On the base the plate handlers took the alert first and answered a
+    stale click with response.send_message, so the order was take, ack
+    and no edit_original_response answer at all.
+    """
+    from tests.runtime.test_stop_button_view import _install
+    from print_handy.runtime import print_alert_buttons as pab
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    _sent, on_interaction, plugin = _install(monkeypatch)
+    order = Order()
+    real_take = pab.take
+
+    def recording_take(aid):
+        order.append("take")
+        return real_take(aid)
+    monkeypatch.setattr(pab, "take", recording_take)
+    click = _order_interaction(order, f"{pab.PLATE_PREFIX}:go:missing0")
+    asyncio.run(on_interaction(click))
+    assert order == ["ack", "take"], order
+    assert click.edits_original == ["That confirmation is old or was already used. Nothing started."]
+
+
+def test_alert_store_and_action_executors_are_separate_and_stable():
+    """#1584: store claims never queue behind long printer waits."""
+    from print_handy.runtime import print_alert_buttons as pab
+    assert pab.store_executor() is pab.store_executor()
+    assert pab.action_executor() is pab.action_executor()
+    assert pab.store_executor() is not pab.action_executor()
+    assert pab.store_executor()._thread_name_prefix == "ph-alert-store"
+    assert pab.action_executor()._thread_name_prefix == "ph-alert-action"
 
 
 def test_picker_selection_acknowledges_before_the_bind_confirmation_reread(tmp_path, monkeypatch):
