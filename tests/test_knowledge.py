@@ -313,9 +313,9 @@ STAGE3_IDS = {
 def test_stage3_registry_growth_is_complete_and_provenanced(registry):
     """Stage 3 of #291: every added entry loads, is a macro, and names its source."""
     # 51 entries through #645; issue #647 added five more (the Prusa family
-    # and the Marlin sensor error), and OpenCreator adds two source-verified,
-    # hardware-unverified informational macro records.
-    assert len(registry.firmware_entries) == 58
+    # and the Marlin sensor error), and OpenCreator and Reforge add two
+    # source-verified, hardware-unverified informational macro records each.
+    assert len(registry.firmware_entries) == 60
     by_id = {e.id: e for e in registry.firmware_entries}
     assert STAGE3_IDS <= set(by_id)
     for entry_id in STAGE3_IDS:

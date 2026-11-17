@@ -9,7 +9,11 @@ from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
 CREATOR_KEYS = frozenset({"flashforge.creator5", "flashforge.creator5_pro",
-                          "flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro"})
+                          "flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro",
+                          "flashforge_reforge.creator5", "flashforge_reforge.creator5_pro"})
+# The vendor package for each Creator firmware firmware_check.identify names.
+CREATOR_VENDORS = {"zmod": "flashforge", "opencreator": "flashforge_opencreator",
+                   "reforge": "flashforge_reforge"}
 
 
 def read_result(base, path):
@@ -29,12 +33,17 @@ def matching_creator(key, objects):
     """Preserve base/Pro choice; object names identify firmware, not hardware."""
     if key not in CREATOR_KEYS or not isinstance(objects, list):
         return None
-    oc = "creator5_toolchanger" in objects
-    zmod = "zmod_color" in objects
-    if oc == zmod:  # conflicting or absent evidence
+    # Exclusive tool authority objects only: zmod_color, creator5_toolchanger,
+    # ff_toolchange or ff_print (firmware_check). AFC alone is shared by two
+    # firmwares and decides nothing here.
+    from .printers.flashforge_opencreator import firmware_check
+    found = {family for family, present in (
+        ("zmod", "zmod_color" in objects),
+        ("opencreator", "creator5_toolchanger" in objects),
+        ("reforge", bool(firmware_check.reforge_evidence(objects)))) if present}
+    if len(found) != 1:  # conflicting or absent evidence
         return None
-    vendor = "flashforge_opencreator" if oc else "flashforge"
-    target = vendor + "." + key.split(".", 1)[1]
+    target = CREATOR_VENDORS[found.pop()] + "." + key.split(".", 1)[1]
     return target if target != key else None
 
 

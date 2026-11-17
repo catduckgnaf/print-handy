@@ -137,6 +137,7 @@ ELIGIBLE_FAMILIES = frozenset({"zmod", "klipper"})
 # raw PID_CALIBRATE, and FORGE_SHAPER_CALIBRATE for the input shaper.
 FORGEX_VENDOR = "flashforge_forgex"
 OPENCREATOR_VENDOR = "flashforge_opencreator"
+REFORGE_VENDOR = "flashforge_reforge"
 FORK_VENDORS = frozenset({"elegoo", "creality", "qidi", "anycubic", "snapmaker"})
 
 # Macros the PID flows must never send: both auto-SAVE_CONFIG, which
@@ -201,6 +202,13 @@ def block_reason(entry) -> str | None:
         return (f"This printer runs {entry.vendor}'s own Klipper-based firmware — a vendor "
                 f"fork, not upstream Klipper. Its calibration macros and save behavior "
                 f"are the vendor's own, so Print Handy does not drive calibrations on it.")
+    if entry.vendor == REFORGE_VENDOR:
+        # Reforge's calibrations are tool changer procedures (tool offsets
+        # against the under-bed station, per-tool PID, a G28 that docks a
+        # mounted tool) that Print Handy has not run on hardware.
+        return ("Print Handy does not drive calibrations on Reforge yet: its calibration "
+                "macros move and heat a tool changer in ways not verified on hardware. "
+                "Use Reforge's own calibration at the printer (docs/REFORGE.md).")
     if entry.firmware_family not in ELIGIBLE_FAMILIES and not is_forgex(entry):
         return (f"This printer's firmware family ({entry.firmware_family or 'none'}) is not "
                 f"one Print Handy can calibrate: only ZMod and vanilla Klipper printers "

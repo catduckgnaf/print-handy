@@ -1,0 +1,29 @@
+# Reforge macro registry. Entries use the shared Klipper family IDs;
+# the loader keeps this separately sourced file next to klipper.toml.
+# Source: Klipper4FlashForge/firmware master eda86c1 (read 2026-11-17).
+# Source verified, hardware unverified; runtime macro execution is
+# fail-closed for these models.
+
+[[entry]]
+id = "klipper.reforge-toolchange-status"
+name = "TOOLCHANGE_STATUS"
+aliases = ["reforge toolchange status", "tool changer status reforge"]
+firmware = "klipper"
+kind = "macro"
+printers = ["flashforge_reforge.creator5", "flashforge_reforge.creator5_pro"]
+command = "TOOLCHANGE_STATUS"
+description = "Reports which tool the dock and grab sensors say is mounted, the tool frame applied, and which clog sensors are armed."
+safety = "Read-only status report; does not heat or move the printer. Source verified, but not verified on hardware."
+notes = "Source: pkgs/klipper/payload/klipper/klippy/extras/ff_toolchange.py cmd_TOOLCHANGE_STATUS. Not hardware verified."
+
+[[entry]]
+id = "klipper.reforge-tool-offset-status"
+name = "TOOL_OFFSET_STATUS"
+aliases = ["reforge tool offset status", "tool offsets reforge"]
+firmware = "klipper"
+kind = "macro"
+printers = ["flashforge_reforge.creator5", "flashforge_reforge.creator5_pro"]
+command = "TOOL_OFFSET_STATUS"
+description = "Reports each tool's calibrated nozzle position and the calibration station's Z."
+safety = "Read-only status report; does not heat or move the printer. Source verified, but not verified on hardware."
+notes = "Source: pkgs/klipper/payload/klipper/klippy/extras/ff_tool_offset.py cmd_TOOL_OFFSET_STATUS. Not hardware verified."

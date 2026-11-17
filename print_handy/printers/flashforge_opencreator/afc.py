@@ -1,7 +1,16 @@
-"""Pure readers and command builders for OpenCreator's AFC surfaces (#1490)."""
+"""Pure readers for the AFC surfaces of the Creator firmwares (#1490).
+
+OpenCreator and Reforge both run AFC in standalone toolchanger mode, one
+lane per toolhead, and differ only in naming: OpenCreator's lanes and
+``AFC_extruder`` sections are ``extruder0`` to ``extruder3``, Reforge's
+are ``e0`` to ``e3`` (Reforge ``pkgs/klipper-config/payload/config/ff-afc.cfg``).
+An ``AfcLayout`` carries that naming, so both firmwares read the same map
+through the same code.
+"""
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -12,7 +21,30 @@ from typing import Any
 LANE_PREFIXES = ("AFC_lane", "AFC_stepper")
 
 _TOOL = re.compile(r"T(\d+)")
-_HEAD = re.compile(r"extruder(\d+)")
+
+
+@dataclass(frozen=True)
+class AfcLayout:
+    """How one firmware names its AFC toolheads.
+
+    ``head`` matches a lane's ``extruder`` field (the name of the
+    ``AFC_extruder`` section it feeds) and captures the toolhead index.
+    ``extruder_object`` is the Moonraker object of toolhead n, formatted
+    with n. ``refuse_multiple_mapping`` refuses any map while AFC's
+    multiple tool mapping is on; without it, a map is judged by what it
+    actually says (one lane and one toolhead per tool).
+    """
+
+    head: re.Pattern
+    extruder_object: str
+    refuse_multiple_mapping: bool = True
+
+    def extruder_name(self, tool: int) -> str:
+        return self.extruder_object.format(tool)
+
+
+# OpenCreator: [AFC_extruder extruder0..3], lanes extruder0..3 (#1490).
+OPENCREATOR = AfcLayout(re.compile(r"extruder(\d+)"), "AFC_extruder extruder{}")
 
 
 def lane_names(status: Any) -> list[str] | None:
@@ -76,7 +108,8 @@ def ace_units(status: Any) -> list[str]:
             if isinstance(unit, str) and unit.strip().upper().startswith("ACE")]
 
 
-def resolve_tool_map(status: Any, tool_count: int = 4) -> tuple[dict[int, dict[str, Any]] | None, list[str]]:
+def resolve_tool_map(status: Any, tool_count: int = 4,
+                     layout: AfcLayout = OPENCREATOR) -> tuple[dict[int, dict[str, Any]] | None, list[str]]:
     """The printer's own tool map: file tool -> the lane and toolhead it prints on.
 
     Read from the lanes AFC lists. Each lane's map names the T commands
@@ -90,7 +123,7 @@ def resolve_tool_map(status: Any, tool_count: int = 4) -> tuple[dict[int, dict[s
         return None, ["AFC lane list is not reporting; the printer's tool map cannot be read"]
     problems = []
     afc = status["AFC"]
-    if afc.get("multiple_tool_mapping"):
+    if layout.refuse_multiple_mapping and afc.get("multiple_tool_mapping"):
         problems.append("AFC has multiple tool mapping on, so one lane can answer several tools; "
                         "Print Handy cannot tell which filament each tool prints with")
     lanes = parse_lanes(status) or {}
@@ -105,7 +138,7 @@ def resolve_tool_map(status: Any, tool_count: int = 4) -> tuple[dict[int, dict[s
         if not mapped:
             problems.append(f"AFC lane {name} does not report its tool map")
             continue
-        head = _HEAD.fullmatch(str(lane.get("extruder") or ""))
+        head = layout.head.fullmatch(str(lane.get("extruder") or ""))
         if head is None or not 0 <= int(head.group(1)) < int(tool_count):
             problems.append(f"AFC lane {name} does not report which toolhead it feeds "
                             f"(extruder is {lane.get('extruder')!r})")
