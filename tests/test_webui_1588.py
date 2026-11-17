@@ -15,7 +15,6 @@
 5. One _read_body reader backs _read_form and the two JSON API blocks.
 """
 import http.client
-import json
 import logging
 import socket
 import threading
