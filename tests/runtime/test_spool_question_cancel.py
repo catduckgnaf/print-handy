@@ -209,9 +209,15 @@ class _Interaction:
 
             async def edit_message(self, content=None, view=None, **kw):
                 interaction.out.append(("edit", content, view))
+
+            async def defer(self, **kw):
+                interaction.out.append(("defer", None))
         self.message = _Message()
         self.response = _Response()
         self.followup = S(send=self._followup)
+
+    async def edit_original_response(self, content=None, view=None, **kw):
+        self.out.append(("edit", content, view))
 
     async def _followup(self, content, view=None, ephemeral=False):
         self.out.append(("followup", content))
@@ -239,9 +245,11 @@ def test_cancel_button_cancels_and_closes_question(tmp_path, monkeypatch):
     asyncio.run(on_interaction(interaction))
     cancel.assert_called_once_with(RECORD["filename"])
     cleared.assert_called_once_with()
-    # The tap is acknowledged first (P2-164); the outcome arrives by follow-up.
-    sends = [entry for entry in interaction.out if entry[0] == "send"]
-    assert sends and "tapped Cancel print" in sends[0][1]
+    # The tap is acknowledged first (P2-164/#1584: defer, then the tap
+    # notice edits the original response); the outcome arrives by follow-up.
+    assert interaction.out[0][0] == "defer"
+    edits = [entry for entry in interaction.out if entry[0] == "edit"]
+    assert edits and "tapped Cancel print" in edits[0][1]
     followups = [entry for entry in interaction.out if entry[0] == "followup"]
     assert followups and "Print cancelled" in followups[-1][1] and "reminders are off" in followups[-1][1]
 

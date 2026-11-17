@@ -1453,6 +1453,61 @@ def alert_button_handlers(bot, adapter):
     async def reject(interaction):
         await interaction.response.send_message('Not allowed. Nothing changed.', ephemeral=True)
 
+    async def _store(func, *args, **kwargs):
+        """Run one alert-store operation on the store's own executor (#1584).
+
+        The default executor is shared with long printer waits, so a
+        queued take/peek/record there could miss Discord's 3 s window.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(pab.store_executor(), functools.partial(func, *args, **kwargs))
+
+    async def _action(func, *args, **kwargs):
+        """Run a long alert action (printer waits) on its own executor (#1584)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(pab.action_executor(), functools.partial(func, *args, **kwargs))
+
+    async def _defer_once(interaction):
+        """defer() at most once per interaction, however many helpers ask."""
+        if getattr(interaction, '_ph_deferred', False):
+            return
+        is_done = getattr(interaction.response, 'is_done', None)
+        if callable(is_done) and is_done():
+            return
+        await interaction.response.defer()
+        # A frozen or slotted interaction object cannot carry the mark;
+        # its is_done() still answers for later calls.
+        try:
+            interaction._ph_deferred = True
+        except (AttributeError, TypeError):
+            logger.debug('could not mark the interaction as deferred', exc_info=True)
+
+    async def claim_and_ack(interaction, aid, kind=None, stale_text='That prompt is old or was already used. Nothing changed.'):
+        """Acknowledge first, then claim the alert (#1584).
+
+        defer() goes out before the single-use take, so a slow or queued
+        claim can no longer eat Discord's 3 s window and leave the user
+        with a dead button whose alert is already consumed. A stale or
+        wrong-kind claim is answered through edit_original_response,
+        the only response left once deferred. ``kind`` may be one kind
+        name or a tuple of accepted names. Returns the alert, or None
+        when the claim was stale (the reply is already sent).
+        """
+        await _defer_once(interaction)
+        alert = await _store(pab.take, aid)
+        kinds = (kind,) if isinstance(kind, str) else tuple(kind or ())
+        if not alert or (kinds and alert.get('kind') not in kinds):
+            await interaction.edit_original_response(content=stale_text, view=None)
+            return None
+        return alert
+
+    async def _ephemeral(interaction, text):
+        """An ephemeral refusal, by follow-up once the interaction is deferred."""
+        if getattr(interaction, '_ph_deferred', False):
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+
     from print_handy.core import prepared_intake as _pi
     STOP_PREFIX = _pi.STOP_CUSTOM_ID
 
@@ -1509,10 +1564,10 @@ def alert_button_handlers(bot, adapter):
         from print_handy.runtime import spool_sync
         slot = alert.get('slot')
         if slot not in (1, 2, 3, 4):
-            await interaction.response.send_message('That insertion prompt is invalid. Nothing changed.', ephemeral=True)
+            await _ephemeral(interaction, 'That insertion prompt is invalid. Nothing changed.')
             return
         # Acknowledge before the Spoolman reads (3 s window).
-        await interaction.response.defer()
+        await _defer_once(interaction)
         state = await asyncio.to_thread(spool_sync.load_state)
         mapped = (state.get('filament_slots') or {}).get(str(slot)) or {}
         loaded_ids = {int(record.get('spoolman_id')) for key, record in (state.get('filament_slots') or {}).items()
@@ -1526,7 +1581,7 @@ def alert_button_handlers(bot, adapter):
         if not options:
             await interaction.followup.send('No live shelf spools are available. Nothing changed.', ephemeral=True)
             return
-        select_aid = await asyncio.to_thread(pab.record, 'insertion-select', '', slot=slot)
+        select_aid = await _store(pab.record, 'insertion-select', '', slot=slot)
         select = discord.ui.Select(placeholder='Choose a shelf spool', min_values=1, max_values=1,
                                    options=[discord.SelectOption(**option) for option in options],
                                    custom_id=f'pbinsertselect:{select_aid}')
@@ -1551,7 +1606,7 @@ def alert_button_handlers(bot, adapter):
 
     async def intake_show_step(interaction, state, *, new_message=False, deferred=False):
         """Record the walkthrough's next step and show it (#512)."""
-        aid = await asyncio.to_thread(pab.record, 'intake', '', **state)
+        aid = await _store(pab.record, 'intake', '', **state)
         state = {**state}
         text = pab.intake_step_text(state)
         view = intake_view(pab.intake_step_components(aid, state))
@@ -1577,10 +1632,10 @@ def alert_button_handlers(bot, adapter):
         """
         from print_handy.runtime import spool_sync
         if slot not in (1, 2, 3, 4):
-            await interaction.response.send_message('That prompt has no usable slot. Nothing changed.', ephemeral=True)
+            await _ephemeral(interaction, 'That prompt has no usable slot. Nothing changed.')
             return
         # Acknowledge before the Spoolman reads (3 s window).
-        await interaction.response.defer()
+        await _defer_once(interaction)
         try:
             types = await asyncio.to_thread(spool_sync.filament_types)
         except Exception:
@@ -1612,7 +1667,7 @@ def alert_button_handlers(bot, adapter):
         arrives as a plain message — so its next step is a fresh post
         carrying fresh buttons, in the modal-submit idiom.
         """
-        aid = await asyncio.to_thread(pab.record, 'intake', '', **state)
+        aid = await _store(pab.record, 'intake', '', **state)
         await channel.send(pab.intake_step_text(state),
                            view=intake_view(pab.intake_step_components(aid, state)))
 
@@ -1693,7 +1748,7 @@ def alert_button_handlers(bot, adapter):
     async def intake_field_modal(interaction, state, field, label, max_length=100):
         """The walkthrough's only typed inputs: one field, for Other/Custom choices."""
         import discord
-        modal_aid = await asyncio.to_thread(pab.record, 'intake-modal', '', state=state, field=field)
+        modal_aid = await _store(pab.record, 'intake-modal', '', state=state, field=field)
 
         class IntakeFieldModal(discord.ui.Modal, title=label):
             def __init__(self):
@@ -1703,7 +1758,7 @@ def alert_button_handlers(bot, adapter):
                 self.add_item(self.item)
 
             async def on_submit(self, modal_interaction):
-                pending = await asyncio.to_thread(pab.take, modal_aid)
+                pending = await _store(pab.take, modal_aid)
                 if not pending:
                     await modal_interaction.response.send_message('That form is old or was already submitted. Nothing changed.', ephemeral=True)
                     return
@@ -1732,7 +1787,7 @@ def alert_button_handlers(bot, adapter):
                         # gets a brand or color it has never seen.
                         new_state = {**new_state, 'step': 'newcheck', 'new_field': pending['field'],
                                      'new_value': value}
-                        aid = await asyncio.to_thread(pab.record, 'intake', '', **new_state)
+                        aid = await _store(pab.record, 'intake', '', **new_state)
                         await modal_interaction.response.send_message(
                             pab.intake_step_text(new_state),
                             view=intake_view(pab.intake_step_components(aid, new_state)))
@@ -1749,7 +1804,7 @@ def alert_button_handlers(bot, adapter):
                         new_state['color_confirmed'] = False
                 # A modal submission answers with a fresh message carrying the next step.
                 new_state = {**new_state, 'step': pab.intake_next_step(new_state)}
-                aid = await asyncio.to_thread(pab.record, 'intake', '', **new_state)
+                aid = await _store(pab.record, 'intake', '', **new_state)
                 await modal_interaction.response.send_message(
                     pab.intake_step_text(new_state),
                     view=intake_view(pab.intake_step_components(aid, new_state)))
@@ -1762,7 +1817,7 @@ def alert_button_handlers(bot, adapter):
         # inside can outlast Discord's 3 s initial-response window, after
         # which edit_message would fail and leave the consumed prompt's
         # buttons standing over a completed bind.
-        await interaction.response.defer()
+        await _defer_once(interaction)
         try:
             from print_handy.runtime import spool_sync
             values = {'brand': state.get('brand') or '', 'material': state.get('material') or '',
@@ -1779,10 +1834,10 @@ def alert_button_handlers(bot, adapter):
                           # color (and its colorcheck step, when the parse
                           # was suspicious, confirmed it explicitly).
                           'color_confirmed': True}
-                result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
+                result = await _action(_answer_spool_question, listener, spool_sync,
                                                  state.get('context') or {}, choice)
             else:
-                result = await asyncio.to_thread(pab.create_and_bind_insertion, state['slot'], values,
+                result = await _action(pab.create_and_bind_insertion, state['slot'], values,
                                                  spool_sync, state.get('disposition') or 'shelf',
                                                  expected_prior_spool_id=state.get('old_spool_id'))
         except Exception as exc:
@@ -1797,20 +1852,27 @@ def alert_button_handlers(bot, adapter):
         await interaction.edit_original_response(content=result, view=None)
 
     async def handle_intake(interaction, action, aid):
-        alert = await asyncio.to_thread(pab.peek, aid)
+        stale = 'That new-spool walkthrough is old or was already answered. Nothing changed.'
+        alert = await _store(pab.peek, aid)
         if not alert or alert.get('kind') != 'intake':
-            await interaction.response.send_message('That new-spool walkthrough is old or was already answered. Nothing changed.', ephemeral=True)
+            await interaction.response.send_message(stale, ephemeral=True)
             return
         state = {key: alert.get(key) for key in pab.INTAKE_STATE_KEYS}
         # Claim the step before acting on it: two clicks can both peek the
         # same alert, but only one take() succeeds. Without this check a
         # double confirmation would run intake_finish twice and create/bind
         # two spools (#515) — the plate picker's claim idiom.
-        if not await asyncio.to_thread(pab.take, aid):  # a parallel click got there first
-            await interaction.response.send_message('That new-spool walkthrough is old or was already answered. Nothing changed.', ephemeral=True)
+        if action in ('mat_other', 'w_custom', 'brand_type', 'new_fix'):
+            # A modal IS the acknowledgement and cannot follow a defer, so
+            # these claim without deferring; the claim itself now runs on
+            # the store's own executor (#1584).
+            if not await _store(pab.take, aid):  # a parallel click got there first
+                await interaction.response.send_message(stale, ephemeral=True)
+                return
+        elif not await claim_and_ack(interaction, aid, 'intake', stale):
             return
         if action == 'cancel':
-            await interaction.response.edit_message(content='New spool cancelled. Nothing changed.', view=None)
+            await interaction.edit_original_response(content='New spool cancelled. Nothing changed.', view=None)
             return
         if action == 'mat_other':
             await intake_field_modal(interaction, state, 'material', 'Material')
@@ -1822,7 +1884,7 @@ def alert_button_handlers(bot, adapter):
             await intake_field_modal(interaction, state, 'brand', 'Brand')
             return
         if action == 'photo':
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=('Send one photo of the spool label — the box, or the sticker on the '
                          'spool — as your next message in this channel. I will read it (the '
                          "label's own barcode/QR code first, then the vision endpoint or local "
@@ -1839,7 +1901,7 @@ def alert_button_handlers(bot, adapter):
                      'step': 'brand' if field == 'brand' else 'color'}
             if field == 'color':
                 state.update(hex=None, color_confirmed=False)
-            await intake_advance(interaction, state)
+            await intake_advance(interaction, state, deferred=True)
             return
         if action == 'new_fix':
             field = state.get('new_field')
@@ -1851,13 +1913,13 @@ def alert_button_handlers(bot, adapter):
             # The confirm-or-correct step (#792 part 2): the operator
             # confirmed the parsed color exactly as labeled.
             state['color_confirmed'] = True
-            await intake_advance(interaction, state)
+            await intake_advance(interaction, state, deferred=True)
             return
         if action == 'color_fix':
             # Correct it instead: back to the color step, color cleared so
             # the new pick/typing starts the sanity check afresh.
             await intake_show_step(interaction, {**state, 'step': 'color', 'color': None,
-                                                 'hex': None, 'color_confirmed': False})
+                                                 'hex': None, 'color_confirmed': False}, deferred=True)
             return
         if action == 'edit':
             # Switching to manual entry discards the photo-extracted
@@ -1867,7 +1929,7 @@ def alert_button_handlers(bot, adapter):
             # of the material the operator is about to pick. (The photo
             # refusal path already restarts with them cleared.)
             await intake_advance(interaction, {**state, 'step': 'start',
-                                               'nozzle_temp': None, 'bed_temp': None})
+                                               'nozzle_temp': None, 'bed_temp': None}, deferred=True)
             return
         material = pab.intake_material_for_action(action)
         if material is not None:
@@ -1883,28 +1945,36 @@ def alert_button_handlers(bot, adapter):
         if action == 'confirm':
             await intake_finish(interaction, state)
             return
-        await intake_advance(interaction, state)
+        await intake_advance(interaction, state, deferred=True)
 
     async def handle_intake_select(interaction, aid):
-        alert = await asyncio.to_thread(pab.take, aid)
+        stale = 'That choice is old or was already used. Nothing changed.'
+        alert = await _store(pab.peek, aid)
         if not alert or alert.get('kind') != 'intake':
-            await interaction.response.send_message('That choice is old or was already used. Nothing changed.', ephemeral=True)
+            await interaction.response.send_message(stale, ephemeral=True)
             return
         state = {key: alert.get(key) for key in pab.INTAKE_STATE_KEYS}
         value = str((getattr(interaction, 'data', {}) or {}).get('values', [''])[0] or '')
         step = state.get('step')
-        if step == 'material' and value == pab.INTAKE_OTHER:
-            await intake_field_modal(interaction, state, 'material', 'Material')
-            return
         if value == pab.INTAKE_OTHER:
+            # A modal IS the acknowledgement and cannot follow a defer;
+            # claim without deferring, on the store's own executor (#1584).
+            if not await _store(pab.take, aid):
+                await interaction.response.send_message(stale, ephemeral=True)
+                return
+            if step == 'material':
+                await intake_field_modal(interaction, state, 'material', 'Material')
+                return
             field = 'brand' if step == 'brand' else 'color'
             await intake_field_modal(interaction, state, field, 'Brand' if field == 'brand' else 'Color / finish')
+            return
+        if not await claim_and_ack(interaction, aid, 'intake', stale):
             return
         if step == 'material':
             subtypes = pab.intake_subtype_options(value)
             if len(subtypes) > 1:
                 # PLA has kinds: ask which before anything else.
-                await intake_show_step(interaction, {**state, 'primary': value, 'step': 'subtype'})
+                await intake_show_step(interaction, {**state, 'primary': value, 'step': 'subtype'}, deferred=True)
                 return
             state['material'] = subtypes[0]['value'] if subtypes else value
         elif step == 'subtype':
@@ -1917,7 +1987,7 @@ def alert_button_handlers(bot, adapter):
             state['color'] = value
             state['hex'] = None  # a new color name is read afresh
             state['color_confirmed'] = False  # and its parse is sanity-checked afresh
-        await intake_advance(interaction, state)
+        await intake_advance(interaction, state, deferred=True)
 
     async def spool_question_select(interaction, alert):
         import discord
@@ -1925,10 +1995,10 @@ def alert_button_handlers(bot, adapter):
         context = alert.get('context') or {}
         slot = context.get('slot')
         if slot not in (1, 2, 3, 4):
-            await interaction.response.send_message('That spool question has no usable slot. Nothing changed.', ephemeral=True)
+            await _ephemeral(interaction, 'That spool question has no usable slot. Nothing changed.')
             return
         # Acknowledge before the Spoolman reads (3 s window).
-        await interaction.response.defer()
+        await _defer_once(interaction)
         state = await asyncio.to_thread(spool_sync.load_state)
         mapped = (state.get('filament_slots') or {}).get(str(slot)) or {}
         loaded_ids = {int(record.get('spoolman_id')) for key, record in (state.get('filament_slots') or {}).items()
@@ -1942,7 +2012,7 @@ def alert_button_handlers(bot, adapter):
         if not options:
             await interaction.followup.send('No live shelf spools are available. Nothing changed.', ephemeral=True)
             return
-        select_aid = await asyncio.to_thread(pab.record, 'spool-question-select', '', context=context)
+        select_aid = await _store(pab.record, 'spool-question-select', '', context=context)
         select = discord.ui.Select(placeholder='Choose the replacement shelf spool', min_values=1, max_values=1,
                                    options=[discord.SelectOption(**option) for option in options],
                                    custom_id=f'pbspoolselect:{select_aid}')
@@ -1954,14 +2024,14 @@ def alert_button_handlers(bot, adapter):
         """'New spool' on a paused spool question opens the same walkthrough (#512)."""
         context = alert.get('context') or {}
         if context.get('slot') not in (1, 2, 3, 4):
-            await interaction.response.send_message('That spool question has no usable slot. Nothing changed.', ephemeral=True)
+            await _ephemeral(interaction, 'That spool question has no usable slot. Nothing changed.')
             return
         await intake_start(interaction, 'spool-question', context['slot'], context)
 
     async def handle_spool_question(interaction, action, aid):
-        alert = await asyncio.to_thread(pab.take, aid)
-        if not alert or alert.get('kind') != 'spool-question':
-            await interaction.response.send_message('That spool question is old or was already answered. Nothing changed.', ephemeral=True)
+        alert = await claim_and_ack(interaction, aid, 'spool-question',
+                                    'That spool question is old or was already answered. Nothing changed.')
+        if not alert:
             return
         try:
             await interaction.message.edit(view=None)
@@ -1971,14 +2041,16 @@ def alert_button_handlers(bot, adapter):
             # Acknowledge before waiting on the printer (P2-164):
             # print_stop.cancel can poll for ~20 s, far past Discord's 3 s
             # initial-response window, so the outcome goes by follow-up —
-            # the same shape as the generic alert handler.
-            await interaction.response.send_message(
-                f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Cancel print. "
-                'Checking the printer first.')
+            # the same shape as the generic alert handler. The claim
+            # already deferred (#1584), so the tap notice edits the
+            # original response instead of sending a new first response.
+            await interaction.edit_original_response(
+                content=(f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Cancel print. "
+                         'Checking the printer first.'), view=None)
             try:
                 from print_handy.runtime import moonraker_event_listener as listener
                 from print_handy.runtime import spool_sync
-                result = await asyncio.to_thread(_cancel_spool_question_print, listener, spool_sync,
+                result = await _action(_cancel_spool_question_print, listener, spool_sync,
                                                  alert.get('context') or {})
             except Exception as exc:
                 logger.exception('spool-question cancel failed')
@@ -2008,13 +2080,13 @@ def alert_button_handlers(bot, adapter):
             tapped, status = 'New roll, same filament', 'same'
         else:
             tapped, status = 'Same spool', 'same'
-        await interaction.response.send_message(
-            f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {tapped}. "
-            'Checking the printer first.')
+        await interaction.edit_original_response(
+            content=(f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {tapped}. "
+                     'Checking the printer first.'), view=None)
         try:
             from print_handy.runtime import moonraker_event_listener as listener
             from print_handy.runtime import spool_sync
-            result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
+            result = await _action(_answer_spool_question, listener, spool_sync,
                                              context, {'status': status})
         except Exception as exc:
             logger.exception('same spool-question answer failed')
@@ -2039,7 +2111,7 @@ def alert_button_handlers(bot, adapter):
         from print_handy.runtime import spool_sync
         from print_handy.runtime.discord_print_summary import spool_picker_label
         # Acknowledge before the Spoolman re-read (3 s window).
-        await interaction.response.defer()
+        await _defer_once(interaction)
         label = spool_picker_label(None, None, spool_id, None)
         try:
             spool = await asyncio.to_thread(spool_sync.spoolman, 'GET', f'/api/v1/spool/{int(spool_id)}', None)
@@ -2062,7 +2134,7 @@ def alert_button_handlers(bot, adapter):
             fate = (f" Spool #{old_id} will be marked as depleted (0 g left)."
                     if origin == 'spool-question' and (context or {}).get('cause') == 'runout'
                     else f" Spool #{old_id} goes back on the shelf.")
-        confirm_aid = await asyncio.to_thread(
+        confirm_aid = await _store(
             pab.record, 'bind-confirm', '', origin=origin, slot=int(slot), spool_id=int(spool_id),
             label=label, context=context or {},
             old_spool_id=int(old_id) if old_id else None)
@@ -2075,26 +2147,25 @@ def alert_button_handlers(bot, adapter):
             content=content, view=intake_view(pab.bind_confirm_components(confirm_aid)))
 
     async def handle_bind_confirm(interaction, action, aid):
-        pending = await asyncio.to_thread(pab.take, aid)
-        if not pending or pending.get('kind') != 'bind-confirm':
-            await interaction.response.send_message('That bind confirmation is old or was already used. Nothing changed.', ephemeral=True)
+        pending = await claim_and_ack(interaction, aid, 'bind-confirm',
+                                      'That bind confirmation is old or was already used. Nothing changed.')
+        if not pending:
             return
         if action == 'cancel':
-            await interaction.response.edit_message(content='Bind cancelled. Nothing changed.', view=None)
+            await interaction.edit_original_response(content='Bind cancelled. Nothing changed.', view=None)
             return
-        # Acknowledge before the bind (P2-191): the Spoolman/Moonraker
-        # calls inside can outlast Discord's 3 s initial-response window.
-        await interaction.response.defer()
+        # Already acknowledged by the claim (P2-191/#1584): the
+        # Spoolman/Moonraker calls inside can outlast Discord's window.
         try:
             from print_handy.runtime import spool_sync
             if pending.get('origin') == 'insertion':
-                result = await asyncio.to_thread(
+                result = await _action(
                     pab.bind_insertion_existing, pending['slot'], pending['spool_id'], spool_sync,
                     expected_prior_spool_id=(int(pending['old_spool_id'])
                                              if pending.get('old_spool_id') else None))
             else:
                 from print_handy.runtime import moonraker_event_listener as listener
-                result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
+                result = await _action(_answer_spool_question, listener, spool_sync,
                                                  pending['context'],
                                                  {'status': 'existing', 'spool_id': pending['spool_id']})
         except Exception as exc:
@@ -2104,9 +2175,9 @@ def alert_button_handlers(bot, adapter):
         await interaction.edit_original_response(content=result, view=None)
 
     async def handle_spool_question_select(interaction, aid):
-        pending = await asyncio.to_thread(pab.take, aid)
-        if not pending or pending.get('kind') != 'spool-question-select':
-            await interaction.response.send_message('That shelf choice is old or was already used. Nothing changed.', ephemeral=True)
+        pending = await claim_and_ack(interaction, aid, 'spool-question-select',
+                                      'That shelf choice is old or was already used. Nothing changed.')
+        if not pending:
             return
         try:
             spool_id = int((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
@@ -2116,15 +2187,15 @@ def alert_button_handlers(bot, adapter):
                 raise ValueError('spool question has no usable slot')
         except Exception as exc:
             logger.exception('existing spool-question spool failed')
-            await interaction.response.send_message('Nothing was changed. Check what you entered and try again.', ephemeral=True)
+            await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
         await bind_confirm_show(interaction, origin='spool-question', slot=slot,
                                 spool_id=spool_id, context=context)
 
     async def handle_insertion(interaction, action, aid):
-        alert = await asyncio.to_thread(pab.take, aid)
-        if not alert or alert.get('kind') != 'insertion':
-            await interaction.response.send_message('That insertion prompt is old or was already answered. Nothing changed.', ephemeral=True)
+        alert = await claim_and_ack(interaction, aid, 'insertion',
+                                    'That insertion prompt is old or was already answered. Nothing changed.')
+        if not alert:
             return
         try:
             await interaction.message.edit(view=None)
@@ -2132,22 +2203,22 @@ def alert_button_handlers(bot, adapter):
             logger.debug('could not strip insertion buttons', exc_info=True)
         slot = alert.get('slot')
         if action == 'same':
-            await interaction.response.send_message(f'Slot {slot}: same spool confirmed. Nothing changed.')
+            await interaction.edit_original_response(content=f'Slot {slot}: same spool confirmed. Nothing changed.', view=None)
         elif action == 'existing':
             await insertion_select(interaction, aid, alert)
         else:
             await intake_start(interaction, 'insertion', slot)
 
     async def handle_insertion_select(interaction, aid):
-        pending = await asyncio.to_thread(pab.take, aid)
-        if not pending or pending.get('kind') != 'insertion-select':
-            await interaction.response.send_message('That shelf choice is old or was already used. Nothing changed.', ephemeral=True)
+        pending = await claim_and_ack(interaction, aid, 'insertion-select',
+                                      'That shelf choice is old or was already used. Nothing changed.')
+        if not pending:
             return
         try:
             spool_id = int((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
         except Exception as exc:
             logger.exception('existing insertion spool failed')
-            await interaction.response.send_message('Nothing was changed. Check what you entered and try again.', ephemeral=True)
+            await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
         await bind_confirm_show(interaction, origin='insertion', slot=pending['slot'],
                                 spool_id=spool_id)
@@ -2164,7 +2235,7 @@ def alert_button_handlers(bot, adapter):
         import discord
         from print_handy.runtime import spool_sync
         state = await asyncio.to_thread(spool_sync.load_state)
-        select_aid = await asyncio.to_thread(pab.record, 'spoolman-new-slot', '',
+        select_aid = await _store(pab.record, 'spoolman-new-slot', '',
                                              spool_id=int(spool_id), label=label)
         select = discord.ui.Select(placeholder='Choose the slot for the new spool', min_values=1, max_values=1,
                                    options=[discord.SelectOption(**option)
@@ -2172,14 +2243,14 @@ def alert_button_handlers(bot, adapter):
                                    custom_id=f'{pab.NEW_SPOOL_SELECT_PREFIX}:{select_aid}')
         view = _question_view()
         view.add_item(select)
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=f'Which slot should spool {label} go into? Nothing changes until you confirm the load.',
             view=view)
 
     async def new_spool_confirm(interaction, spool_id, label, slot, disposition, fate='',
                                 old_spool_id=None):
         import discord
-        confirm_aid = await asyncio.to_thread(pab.record, 'spoolman-new-confirm', '',
+        confirm_aid = await _store(pab.record, 'spoolman-new-confirm', '',
                                               spool_id=int(spool_id), label=label, slot=int(slot),
                                               disposition=disposition,
                                               old_spool_id=int(old_spool_id) if old_spool_id else None)
@@ -2188,13 +2259,13 @@ def alert_button_handlers(bot, adapter):
                                         custom_id=f'{pab.NEW_SPOOL_PREFIX}:confirm:{confirm_aid}'))
         view.add_item(discord.ui.Button(label='Cancel', style=discord.ButtonStyle.secondary,
                                         custom_id=f'{pab.NEW_SPOOL_PREFIX}:cancel:{confirm_aid}'))
-        await interaction.response.edit_message(content=f'Load spool {label} into slot {slot}?{fate}', view=view)
+        await interaction.edit_original_response(content=f'Load spool {label} into slot {slot}?{fate}', view=view)
 
     async def handle_new_spool(interaction, action, aid):
-        alert = await asyncio.to_thread(pab.take, aid)
-        if not alert or alert.get('kind') not in ('spoolman-new', 'spoolman-new-disposition',
-                                                  'spoolman-new-confirm'):
-            await interaction.response.send_message('That new-spool prompt is old or was already answered. Nothing changed.', ephemeral=True)
+        alert = await claim_and_ack(interaction, aid, ('spoolman-new', 'spoolman-new-disposition',
+                                                       'spoolman-new-confirm'),
+                                    'That new-spool prompt is old or was already answered. Nothing changed.')
+        if not alert:
             return
         kind = alert.get('kind')
         spool_id = alert.get('spool_id')
@@ -2209,10 +2280,10 @@ def alert_button_handlers(bot, adapter):
             text = (f'Spool {label} stays on the shelf. Load it any time with '
                     f'`/spool change <slot> {spool_id}`.' if action == 'shelf' else
                     f'Dismissed — spool {label} stays on the shelf, and you will not be asked about it again.')
-            await interaction.response.edit_message(content=text, view=None)
+            await interaction.edit_original_response(content=text, view=None)
             return
         if action == 'cancel':
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=f'Load cancelled. Spool {label} stays on the shelf; nothing changed.', view=None)
             return
         if kind == 'spoolman-new-disposition':
@@ -2227,11 +2298,10 @@ def alert_button_handlers(bot, adapter):
             return
         # spoolman-new-confirm + confirm: the one bind, through the same
         # spool_sync.bind_slot the guided /spool change flow ends in.
-        # Acknowledge before the bind (P2-191), as in intake_finish.
-        await interaction.response.defer()
+        # Already acknowledged by the claim (P2-191/#1584).
         try:
             from print_handy.runtime import spool_sync
-            result = await asyncio.to_thread(spool_sync.bind_slot, int(alert['slot']), int(spool_id),
+            result = await _action(spool_sync.bind_slot, int(alert['slot']), int(spool_id),
                                              prior_disposition=alert.get('disposition') or 'shelf',
                                              expected_prior_spool_id=(int(alert['old_spool_id'])
                                                                       if alert.get('old_spool_id') else None),
@@ -2244,9 +2314,9 @@ def alert_button_handlers(bot, adapter):
         await interaction.edit_original_response(content=message, view=None)
 
     async def handle_new_spool_select(interaction, aid):
-        pending = await asyncio.to_thread(pab.take, aid)
-        if not pending or pending.get('kind') != 'spoolman-new-slot':
-            await interaction.response.send_message('That slot choice is old or was already used. Nothing changed.', ephemeral=True)
+        pending = await claim_and_ack(interaction, aid, 'spoolman-new-slot',
+                                      'That slot choice is old or was already used. Nothing changed.')
+        if not pending:
             return
         import discord
         from print_handy.runtime import spool_sync
@@ -2257,16 +2327,16 @@ def alert_button_handlers(bot, adapter):
         except (TypeError, ValueError):
             slot = None
         if slot not in (1, 2, 3, 4):
-            await interaction.response.send_message('That slot choice is not usable. Nothing changed.', ephemeral=True)
+            await interaction.followup.send('That slot choice is not usable. Nothing changed.', ephemeral=True)
             return
         state = await asyncio.to_thread(spool_sync.load_state)
         old_id = ((state.get('filament_slots') or {}).get(str(slot)) or {}).get('spoolman_id')
         if old_id and int(old_id) == int(spool_id):
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=f'Slot {slot} already holds spool {label}. Nothing changed.', view=None)
             return
         if old_id:
-            disp_aid = await asyncio.to_thread(pab.record, 'spoolman-new-disposition', '',
+            disp_aid = await _store(pab.record, 'spoolman-new-disposition', '',
                                                spool_id=int(spool_id), label=label, slot=slot,
                                                old_spool_id=int(old_id))
             view = _question_view()
@@ -2275,7 +2345,7 @@ def alert_button_handlers(bot, adapter):
                               ('Cancel', 'cancel')):
                 view.add_item(discord.ui.Button(label=text, style=discord.ButtonStyle.secondary,
                                                 custom_id=f'{pab.NEW_SPOOL_PREFIX}:{key}:{disp_aid}'))
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=f'Slot {slot} still holds spool #{old_id}. What happens to spool #{old_id}?', view=view)
             return
         await new_spool_confirm(interaction, spool_id, label, slot, 'shelf')
@@ -2284,54 +2354,65 @@ def alert_button_handlers(bot, adapter):
         """Choosing a plate only prepares one Confirm button; nothing starts here."""
         import discord
         from print_handy.runtime import print_next
-        alert = await asyncio.to_thread(pab.peek, aid)
+        stale = 'That plate picker is old or was already used. Nothing started.'
+        # Acknowledge first (#1584), but claim only after the resolve
+        # succeeds: a picker whose plan or G-code cannot be resolved is
+        # recoverable, so a failed resolve must not consume the alert —
+        # the operator can pick again once the plan is readable
+        # (duckcatgnaf's review of this PR). Peek, resolve, then take:
+        # two clicks can both resolve, but only one take() succeeds.
+        await _defer_once(interaction)
+        alert = await _store(pab.peek, aid)
         if not alert or alert.get('kind') != 'plate-picker':
-            await interaction.response.send_message('That plate picker is old or was already used. Nothing started.', ephemeral=True)
+            await interaction.edit_original_response(content=stale, view=None)
             return
         try:
             selected = str((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
             part_id = pab.plate_part_id(alert, selected)
-            target = print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=part_id)
+            # Off the loop and off the default executor: load/resolve
+            # hashes the whole G-code file (#1584).
+            target = await _action(
+                lambda: print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=part_id))
         except Exception as exc:
-            await interaction.response.send_message(f'Cannot start that plate: {exc}. Nothing started.', ephemeral=True)
+            await interaction.edit_original_response(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
             return
-        if not await asyncio.to_thread(pab.take, aid):  # a parallel pick got there first
-            await interaction.response.send_message('That plate picker is old or was already used. Nothing started.', ephemeral=True)
+        if not await _store(pab.take, aid):  # a parallel pick got there first
+            await interaction.edit_original_response(content=stale, view=None)
             return
-        confirm_aid = await asyncio.to_thread(pab.record, 'plate-confirm', '', plan_id=alert['plan_id'], part_id=part_id)
+        confirm_aid = await _store(pab.record, 'plate-confirm', '', plan_id=alert['plan_id'], part_id=part_id)
         view = _question_view()
         view.add_item(discord.ui.Button(label=pab.CONFIRM_LABEL, style=discord.ButtonStyle.success,
                                         custom_id=f'{pab.PLATE_PREFIX}:go:{confirm_aid}'))
-        await interaction.response.edit_message(content=print_next.question_text(target), view=view)
+        await interaction.edit_original_response(content=print_next.question_text(target), view=view)
 
     async def handle_plate_drop(interaction, aid):
         """Dismiss an empty-bed offer. Does not start a plate."""
-        alert = await asyncio.to_thread(pab.take, aid)
+        alert = await claim_and_ack(interaction, aid, None,
+                                    'That offer is old or was already used. Nothing started.')
         if not alert:
-            await interaction.response.send_message('That offer is old or was already used. Nothing started.', ephemeral=True)
             return
         from print_handy.runtime import next_plate_offer
         try:
             await asyncio.to_thread(next_plate_offer.clear)
         except Exception:
             logger.debug('could not clear the next-plate offer', exc_info=True)
-        await interaction.response.edit_message(content='Left the queue alone. Nothing started.', view=None)
+        await interaction.edit_original_response(content='Left the queue alone. Nothing started.', view=None)
 
     async def handle_plate_go(interaction, aid):
         """The one Confirm tap. The alert is single use and print_next.start re-checks the printer and claim."""
         from print_handy.runtime import print_next
-        alert = await asyncio.to_thread(pab.take, aid)
-        if not alert or alert.get('kind') != 'plate-confirm':
-            await interaction.response.send_message('That confirmation is old or was already used. Nothing started.', ephemeral=True)
+        alert = await claim_and_ack(interaction, aid, 'plate-confirm',
+                                    'That confirmation is old or was already used. Nothing started.')
+        if not alert:
             return
         try:
             # Off the loop: resolve_next hashes the whole G-code file.
-            target = await asyncio.to_thread(
+            target = await _action(
                 lambda: print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=alert['part_id']))
         except Exception as exc:
-            await interaction.response.edit_message(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
+            await interaction.edit_original_response(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
             return
-        await interaction.response.edit_message(content=f"Preparing to start {target['label']}.", view=None)
+        await interaction.edit_original_response(content=f"Preparing to start {target['label']}.", view=None)
         await run_plate_start(interaction, target, alert)
 
     async def run_plate_start(interaction, target, alert, accept_spool_change=False):
@@ -2346,7 +2427,7 @@ def alert_button_handlers(bot, adapter):
                                        f"`/print-next {alert['plan_id']} {alert['part_id']}` offers a fresh button.\n"
                                        + intake_plain_start_failure(detail))
             if not ok and not accept_spool_change and SPOOL_CHANGED in str(detail):
-                spool_aid = await asyncio.to_thread(pab.record, 'plate-spool', '',
+                spool_aid = await _store(pab.record, 'plate-spool', '',
                                                     plan_id=alert['plan_id'], part_id=alert['part_id'])
                 view = _question_view()
                 view.add_item(discord.ui.Button(label=USE_LOADED_SPOOL, style=discord.ButtonStyle.success,
@@ -2375,7 +2456,7 @@ def alert_button_handlers(bot, adapter):
         warnings = material_accept.pending(detail)
         keys = sorted(set(target.get('accept_material') or ()) | {w['key'] for w in warnings})
         stored = json.loads(json.dumps({k: v for k, v in target.items() if k != 'accept_material'}, default=str))
-        material_aid = await asyncio.to_thread(pab.record, 'start-material', '', target=stored, keys=keys)
+        material_aid = await _store(pab.record, 'start-material', '', target=stored, keys=keys)
         view = view or _question_view()
         view.add_item(discord.ui.Button(label=material_accept.print_label(warnings), style=discord.ButtonStyle.danger,
                                         custom_id=f'{pab.PLATE_PREFIX}:material:{material_aid}'))
@@ -2386,12 +2467,14 @@ def alert_button_handlers(bot, adapter):
         """Single-use Print as sliced tap: the exact stored G-code, these warnings only; start() re-checks all."""
         from print_handy.core import material_accept
         from print_handy.runtime import print_next
-        alert = await asyncio.to_thread(pab.take, aid)
-        if not alert or alert.get('kind') != 'start-material' or not isinstance(alert.get('target'), dict):
-            await interaction.response.send_message('That answer is old or was already used. Nothing started.', ephemeral=True)
+        alert = await claim_and_ack(interaction, aid, 'start-material',
+                                    'That answer is old or was already used. Nothing started.')
+        if not alert or not isinstance(alert.get('target'), dict):
+            if alert:
+                await interaction.edit_original_response(content='That answer is old or was already used. Nothing started.', view=None)
             return
         target = {**alert['target'], 'accept_material': list(alert.get('keys') or [])}
-        await interaction.response.edit_message(content='Preparing to start as sliced.', view=None)
+        await interaction.edit_original_response(content='Preparing to start as sliced.', view=None)
         try:
             ok, detail = await print_next.start(target)
         except Exception as exc:
@@ -2412,16 +2495,18 @@ def alert_button_handlers(bot, adapter):
     async def handle_plate_spool(interaction, aid):
         """Single-use 'use the loaded spool' tap. start() still re-checks the printer, claim and live slot."""
         from print_handy.runtime import print_next
-        alert = await asyncio.to_thread(pab.take, aid)
-        if not alert or alert.get('kind') != 'plate-spool':
-            await interaction.response.send_message('That spool confirmation is old or was already used. Nothing started.', ephemeral=True)
+        alert = await claim_and_ack(interaction, aid, 'plate-spool',
+                                    'That spool confirmation is old or was already used. Nothing started.')
+        if not alert:
             return
         try:
-            target = print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=alert['part_id'])
+            # Off the loop: resolve_next hashes the whole G-code file.
+            target = await _action(
+                lambda: print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=alert['part_id']))
         except Exception as exc:
-            await interaction.response.edit_message(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
+            await interaction.edit_original_response(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
             return
-        await interaction.response.edit_message(content=f"Preparing to start {target['label']} with the loaded spool.", view=None)
+        await interaction.edit_original_response(content=f"Preparing to start {target['label']} with the loaded spool.", view=None)
         await run_plate_start(interaction, target, alert, accept_spool_change=True)
 
     async def handle_intake_retry(interaction, receipt_id):
@@ -2437,12 +2522,11 @@ def alert_button_handlers(bot, adapter):
                                             custom_id=pab.retry_custom_id(receipt_id)))
             return view
 
-        try:
+        def claim_receipt():
+            """Read, validate and single-use-claim the receipt; runs off the loop (#1584)."""
             receipt = json.loads(receipt_path.read_text())
             if receipt.get('status') == 'RETRYING':
-                await interaction.response.send_message(
-                    'That retry is already running. Nothing more started.', ephemeral=True)
-                return
+                return receipt, None
             target = receipt.get('retry_target')
             if (receipt.get('intake_id') != receipt_id or receipt.get('status') != 'START_REFUSED'
                     or receipt.get('uploaded') is True or receipt.get('started') is True
@@ -2452,15 +2536,29 @@ def alert_button_handlers(bot, adapter):
                 raise ValueError('this is not a confirmed pre-upload refusal')
             if str(receipt.get('start_prompt_message_id') or '') != str(getattr(interaction.message, 'id', '') or ''):
                 raise ValueError('this Retry button no longer matches the saved prompt')
-            # Single use: claimed on disk before the first await, so a second
+            # Single use: claimed on disk before the start, so a second
             # click cannot run beside this one and rewrite its receipt.
             receipt['status'] = 'RETRYING'
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            return receipt, target
+
+        def save_receipt():
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+
+        # Acknowledge before the receipt read/claim (#1584): both used to
+        # run on the loop ahead of the first response.
+        await _defer_once(interaction)
+        try:
+            receipt, target = await asyncio.to_thread(claim_receipt)
+            if target is None:
+                await interaction.followup.send(
+                    'That retry is already running. Nothing more started.', ephemeral=True)
+                return
         except Exception as exc:
-            await interaction.response.edit_message(content=f'Retry unavailable: {exc}. Nothing started.', view=None)
+            await interaction.edit_original_response(content=f'Retry unavailable: {exc}. Nothing started.', view=None)
             return
 
-        await interaction.response.edit_message(content='Checking the printer again before retrying this prepared print.', view=None)
+        await interaction.edit_original_response(content='Checking the printer again before retrying this prepared print.', view=None)
         try:
             ok, detail = await print_next.start(target)
         except Exception as exc:
@@ -2471,7 +2569,7 @@ def alert_button_handlers(bot, adapter):
             ok = False
         receipt.update(status='STARTED' if ok else 'START_REFUSED', started=bool(ok),
                        uploaded=bool(ok), start_refusal_detail='' if ok else str(detail))
-        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        await asyncio.to_thread(save_receipt)
         if ok:
             logger.info('retry start accepted plan=%s part=%s', target.get('plan_id'), target.get('part_id'))
             await interaction.message.edit(content='Print accepted by the printer.', view=None)
@@ -2488,7 +2586,7 @@ def alert_button_handlers(bot, adapter):
         else:
             receipt.update(status='START_UNCERTAIN', uploaded=None, started=None,
                            start_refusal_detail=str(detail))
-            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            await asyncio.to_thread(save_receipt)
             await interaction.message.edit(content=(
                 'The printer did not confirm the start result. Check its screen before taking action. '
                 'Do not retry until the printer state is known.'), view=None)
@@ -2500,7 +2598,7 @@ def alert_button_handlers(bot, adapter):
         from print_handy.runtime import print_control as pc
         timeout = _safety_timeout()
         if action == 'pick':
-            alert = await asyncio.to_thread(pab.peek, aid)
+            alert = await _store(pab.peek, aid)
             if not isinstance(alert, dict):
                 await interaction.response.send_message('That object list is old or was already used. Nothing sent.', ephemeral=True)
                 return
@@ -2509,22 +2607,22 @@ def alert_button_handlers(bot, adapter):
             except (TypeError, AttributeError):
                 index = None
             # The live read is two printer calls: acknowledge first, inside Discord's 3 s window.
-            await interaction.response.defer()
-            step = await asyncio.to_thread(
+            await _defer_once(interaction)
+            step = await _action(
                 exclude_chat.prepare, alert, index, functools.partial(exclude_chat.read_live, alert.get('printer_id') or None))
             if step['step'] in ('stale', 'refuse'):
                 await interaction.followup.send(step['text'], ephemeral=True)
                 return
-            if not await asyncio.to_thread(pab.take, aid):
+            if not await _store(pab.take, aid):
                 await interaction.followup.send('That object list is old or was already used. Nothing sent.', ephemeral=True)
                 return
             if step['step'] == 'cancel_print':
-                new_id = await asyncio.to_thread(
+                new_id = await _store(
                     pab.record, 'exclude-cancel', step['filename'], printer_id=step.get('printer_id') or '')
                 labels = ((print_stop.STOP_LABEL, 'stop', discord.ButtonStyle.danger),
                           (print_stop.KEEP_LABEL, 'keep', discord.ButtonStyle.secondary))
             else:
-                new_id = await asyncio.to_thread(
+                new_id = await _store(
                     pab.record, 'exclude-go', step['filename'], name=step['name'], names=step['names'],
                     printer_id=step.get('printer_id') or '')
                 labels = (('Cancel this object', 'go', discord.ButtonStyle.danger),
@@ -2535,37 +2633,35 @@ def alert_button_handlers(bot, adapter):
                     label=label[:80], style=style, custom_id=f'{exclude_chat.PREFIX}:{act}:{new_id}'))
             await interaction.edit_original_response(content=step['text'], view=view)
             return
-        alert = await asyncio.to_thread(pab.take, aid)
+        alert = await claim_and_ack(interaction, aid, None,
+                                    'That confirm is old or was already used. Nothing sent.')
         if not alert:
-            await interaction.response.send_message('That confirm is old or was already used. Nothing sent.', ephemeral=True)
             return
         if action == 'keep':
-            await interaction.response.edit_message(content='Kept printing. Nothing sent.', view=None)
+            await interaction.edit_original_response(content='Kept printing. Nothing sent.', view=None)
             return
         printer_id = alert.get('printer_id') or None
         if action == 'stop':
             if alert.get('kind') != 'exclude-cancel':
-                await interaction.response.edit_message(content='That confirm is not a stop. Nothing sent.', view=None)
+                await interaction.edit_original_response(content='That confirm is not a stop. Nothing sent.', view=None)
                 return
-            await interaction.response.defer()
             try:
                 from print_handy import printer_control
-                _sent, message = await asyncio.to_thread(printer_control.for_printer(printer_id).cancel,
-                                                         alert.get('filename') or '')
+                _sent, message = await _action(printer_control.for_printer(printer_id).cancel,
+                                               alert.get('filename') or '')
             except Exception as exc:
                 logger.exception('exclude stop failed')
                 message = f'Stop was not sent. The print was not cancelled. {exc}'
             await interaction.edit_original_response(content=message, view=None)
             return
         if action != 'go' or alert.get('kind') != 'exclude-go':
-            await interaction.response.edit_message(content='That confirm is not an exclude. Nothing sent.', view=None)
+            await interaction.edit_original_response(content='That confirm is not an exclude. Nothing sent.', view=None)
             return
 
         def sender(script):
             pc._send('/printer/gcode/script', method='POST', data={'script': script},
                      timeout=30, printer_id=printer_id)
-        await interaction.response.defer()
-        result = await asyncio.to_thread(
+        result = await _action(
             exclude_chat.confirm_send, alert, sender, functools.partial(exclude_chat.read_live, printer_id))
         await interaction.edit_original_response(content=result['text'], view=None)
 
@@ -2666,18 +2762,22 @@ def alert_button_handlers(bot, adapter):
         if action not in ('acknowledge', 'mute') and not may_start(interaction):
             await reject(interaction)
             return
-        alert = await asyncio.to_thread(pab.take, aid)
+        alert = await claim_and_ack(interaction, aid, None,
+                                    'That alert is old or was already answered. Nothing sent.')
+        if not alert:
+            return
         label = {'resume': 'Resume', 'pause': 'Pause', 'acknowledge': "It's fine",
                  'mute': "Stop asking for this print",
                  'recover': pab.RECOVER_LABEL}.get(action, 'Cancel')
-        await interaction.response.send_message(
-            f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {label}. Checking the printer first.")
+        await interaction.edit_original_response(
+            content=(f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {label}. "
+                     'Checking the printer first.'), view=None)
         try:
             await interaction.message.edit(view=None)
         except Exception:
             logger.debug('could not strip alert buttons', exc_info=True)
         try:
-            result = await asyncio.to_thread(pab.handle_click, action, alert)
+            result = await _action(pab.handle_click, action, alert)
         except Exception as exc:
             logger.exception('alert button %s failed', action)
             result = _failure_post(label, exc, 'Check the printer screen. Not retrying.', subsystem='printer')

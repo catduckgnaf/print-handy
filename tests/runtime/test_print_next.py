@@ -456,19 +456,29 @@ class Interaction:
         self.guild = None
         self.channel_id = 'c'
         self.out = []
+        self.acks = []
         interaction = self
 
         class Response:
+            def is_done(self):
+                return bool(interaction.acks)
+
             async def send_message(self, content, ephemeral=False, **kw):
                 interaction.out.append(('send', content))
 
             async def edit_message(self, content=None, view=None, **kw):
                 interaction.out.append(('edit', content, view))
+
+            async def defer(self, **kw):
+                interaction.acks.append(('defer', kw))
         self.response = Response()
         self.followup = S(send=self._followup)
 
-    async def _followup(self, content, view=None):
+    async def _followup(self, content, view=None, **kw):
         self.out.append(('followup', content) if view is None else ('followup', content, view))
+
+    async def edit_original_response(self, content=None, view=None, **kw):
+        self.out.append(('edit', content, view))
 
 
 def plate_clicks(tmp_path, monkeypatch, starts, start_result=(True, 'START ACCEPTED')):
@@ -532,6 +542,29 @@ def test_stale_picker_for_finished_plate_starts_nothing(tmp_path, monkeypatch):
     pick = Interaction(f'pbplate:pick:{picker}', ['plate2'])
     asyncio.run(on_interaction(pick))
     assert 'Nothing started' in pick.out[0][1] and starts == []
+
+
+def test_picker_survives_a_failed_resolve_and_can_be_picked_again(tmp_path, monkeypatch):
+    """Regression (duckcatgnaf's review of #1597): the pick acknowledges
+    first, but a resolve that raises must not consume the picker — the
+    operator can pick again once the plan is readable."""
+    from print_handy.runtime import print_alert_buttons as pab
+    starts = []
+    on_interaction, picker, plans = plate_clicks(tmp_path, monkeypatch, starts)
+    plan = json.loads((plans / 'trio.json').read_text())
+    plan['parts'][1]['status'] = 'completed'
+    (plans / 'trio.json').write_text(json.dumps(plan))
+    pick = Interaction(f'pbplate:pick:{picker}', ['plate2'])
+    asyncio.run(on_interaction(pick))
+    assert 'Nothing started' in pick.out[0][1] and starts == []
+    assert pab.peek(picker) is not None  # the alert was not consumed
+    plan['parts'][1]['status'] = 'planned'
+    (plans / 'trio.json').write_text(json.dumps(plan))
+    again = Interaction(f'pbplate:pick:{picker}', ['plate2'])
+    asyncio.run(on_interaction(again))
+    kind, content, view = again.out[0]
+    assert kind == 'edit' and 'Part 2' in content and len(view.items) == 1
+    assert pab.peek(picker) is None  # the successful pick does claim it
 
 
 def test_confirm_for_plate_finished_after_pick_starts_nothing(tmp_path, monkeypatch):
