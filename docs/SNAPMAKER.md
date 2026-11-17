@@ -26,3 +26,14 @@ The adapter has an unwired helper (`spool_remain_g`) that reads `filament_remain
 - Copying or generating Snapmaker Orca or Snapmaker Orca profiles. The shipped templates are generic.
 - Applying firmware updates. The U1 is a vendor fork; Print Handy does not drive its updater.
 - Any claim of a successful print on real hardware.
+
+## Multicolor feasibility report
+
+For a project that uses more logical filaments than the U1's four
+toolheads, Print Handy has a read-only feasibility report builder
+(`print_handy/core/u1_feasibility.py`). It is library code only: no chat
+command or Web UI page shows it yet. Per plate it lists the logical
+filaments, any support-only filaments, and whether painting or height
+changes interleave several filaments within a plate's layers. The
+report collapses no colors and plans no swaps, and it changes nothing
+about the status above: the U1 remains unverified on real hardware.

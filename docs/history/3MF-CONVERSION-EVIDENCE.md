@@ -268,3 +268,30 @@ The open gaps under criteria 3 and 4 are #1155's deferred list (the
 "deferred post-2.2.9" items in its body). #1110 is closed; #1155 is the home
 for its remaining requirements. If a gap closes, update its row here in the
 same pull request and cite a test that runs the production entry point.
+
+## Addendum: cross-slicer source evidence (#1525)
+
+Issue #1525 adds a canonical source descriptor, a Cura settings
+translation, an editable destination export, readable reports, per-plate
+statistics, an opt-in external-job intake and a Snapmaker U1 feasibility
+report. The machine-readable record of what is claimed per
+source/destination cell lives in
+`print_handy/core/source_capabilities.json` (loaded by
+`print_handy/core/source_capabilities.py`); the gap table there is the
+explicit list of what is not yet proven. Fixture provenance (genuine
+producer output versus spec-synthetic construction) is recorded in
+`tests/corpus/producer-fixtures/PROVENANCE.json`.
+
+What this addendum does **not** change: criterion 3 above stays partial
+(nothing in the slice production path writes `selected_plates`; the
+#1525 export path accepts an explicit plate selection, which is a
+different surface), and criterion 4 stays partial for rebuilt exports.
+Rows are upgraded only in the manifest, and only where an executed test
+in this change proves the higher level:
+
+| Capability | Evidence after #1525 | Test |
+|---|---|---|
+| Canonical source classification (kind + user-facing class) | Parser-level, bounded archive handling | `tests/core/test_source_descriptor_1525.py` |
+| Cura validated-subset settings translation | Spec-synthetic fixture through the production reader; destination slice in the slicer tier | `tests/core/test_source_descriptor_1525.py`, `tests/slicer/test_cross_slicer_real.py` |
+| Editable destination 3MF export | Real Orca reopen/slice in the slicer tier; offline package contract | `tests/core/test_editable_export_1525.py`, `tests/slicer/test_cross_slicer_real.py` |
+| Genuine PrusaSlicer / Cura producer fixtures | Recorded per fixture in `PROVENANCE.json`; a fixture is genuine only when a real producer binary made it | `scripts/generate_producer_fixtures.py`, extended workflow |

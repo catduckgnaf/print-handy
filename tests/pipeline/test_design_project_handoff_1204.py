@@ -127,7 +127,7 @@ def test_a_multi_part_design_becomes_one_project_v1_project(env, tmp_path, ask_w
     # start questions, the start question was answered Cancel, and nothing
     # was started.
     assert adapter.questions[-1]["question"].startswith("Ready to slice")
-    assert adapter.questions[-1]["choices"][-1] == "Cancel print request"
+    assert adapter.questions[-1]["choices"][-2:] == ["Export editable 3MF", "Cancel print request"]
     assert not env.starts
 
 
@@ -272,7 +272,7 @@ def test_a_single_part_design_goes_through_intake_exactly_as_before(env, tmp_pat
               "cube([w1, d, height]);\n")
     cfg, result = _designed(tmp_path, single)
     assert result["parts"] == []
-    adapter, _out, job, _jobs = _hand_off(env, cfg, result, [0, 3])
+    adapter, _out, job, _jobs = _hand_off(env, cfg, result, [0, 4])
     assert job["site"] == "upload" and "design" not in job
     assert "project" not in job and "combined_objects" not in job
     assert Path(job["downloaded_file"]).name.endswith("turn-1.stl")
