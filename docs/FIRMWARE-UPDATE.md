@@ -182,17 +182,65 @@ it reads the same two facts through Moonraker: ZMod's `start.sh` writes the
 OS name as `zmod <USB version> -> <current version>`, which
 `/machine/system_info` reports, and the release names the target.
 
-Only ZMod printers get this alert, with its Update button: the AD5X, AD5M,
-AD5M Pro, Creator 5 and Creator 5 Pro under ZMod (`flashforge.*`). The alert
-covers the ZMod component and also the HelixScreen component when the
-printer's Moonraker lists it; HelixScreen updates use the same Update button
-and confirmed path. Every other firmware Print Handy follows gets a plain
-release notice instead (next section). Generic Klipper printers, other Moonraker components
-(Klipper, Moonraker, Fluidd/Mainsail, plugins) and every other family are
-#1294: vendor Klipper forks (Elegoo Neptune 4, Creality, QIDI, Anycubic,
-Snapmaker) are never apply-eligible, and Bambu Lab, PrusaLink, OctoPrint,
-SDCP and stock Flashforge have no update-availability state Print Handy can
+The ZMod alert above is for ZMod printers: the AD5X, AD5M, AD5M Pro,
+Creator 5 and Creator 5 Pro under ZMod (`flashforge.*`). It covers the
+ZMod component and also the HelixScreen component when the printer's
+Moonraker lists it; HelixScreen updates use the same Update button and
+confirmed path. Every other component an eligible printer's Moonraker
+reports, and every other eligible printer, is covered by the component
+alerts in the next section. Every other firmware Print Handy follows
+gets a plain release notice instead (the section after that): vendor
+Klipper forks (Elegoo Neptune 4, Creality, QIDI, Anycubic, Snapmaker)
+are never apply-eligible, and Bambu Lab, PrusaLink, OctoPrint, SDCP and
+stock Flashforge have no update-availability state Print Handy can
 read (the matrix below).
+
+## Component update alerts on eligible printers
+
+The same alert, for the rest of what Moonraker's Update Manager
+reports (#1280 section I). For each printer Print Handy may apply
+updates on — ZMod (above), generic Klipper (`klipper.generic`), the
+Sovol Klipper family (`sovol.*` over Moonraker), and Forge-X when
+`[firmware] forgex_apply` is on — Print Handy checks on the same
+schedule and posts one alert per component with a real available
+version: Klipper, Moonraker, Fluidd, Mainsail, GuppyScreen where the
+printer lists one, and any other component the printer's own
+`moonraker.conf` names.
+
+> **Klipper update available for Shop Klipper:** v0.12.0 -> v0.13.0.
+> Press **Update** to install it. Print Handy asks once more, checks
+> the printer is idle and verifies the result.
+
+- **Update** runs exactly `/print-firmware update <component>` for
+  that one component: the same confirmation, both idle checks, one
+  upgrade request, verified by re-reading. **Skip this version**
+  silences that component's release. Nothing is applied without both
+  presses, and nothing ever applies on its own.
+- **One alert per version**, remembered in the same state file as the
+  ZMod alerts, so a restart does not repeat it. A component's builds
+  inside one release do not alert on their own; the button applies
+  whatever Moonraker offers when pressed, named exactly in the
+  confirmation.
+- **Only a real available version alerts.** A component whose latest
+  version Moonraker reports as `?`, whose remote is not a version, or
+  whose remote is not newer than the installed one (a prerelease of
+  the installed release included) gets no alert. The `system`
+  component never alerts: it reports a count of system packages, not
+  a version, so there is no version to alert once per version (the
+  `/print-firmware` report still shows its packages).
+- **No button when Moonraker will not apply it.** A component
+  Moonraker marks invalid is announced without a button, with the
+  reason and the Fluidd/Mainsail route; so is a component on a ZMod
+  printer whose base and component versions do not pair.
+- **Forge-X is narrower:** only the `forge-x` component itself, only
+  when `[firmware] forgex_apply` is on, and only within the installed
+  version line — a new line is a USB re-flash and gets no alert
+  button. OpenCreator components never alert with a button (report
+  only, #1490); an OpenCreator printer is not apply-eligible.
+- **Same switch, same rules** as the ZMod alerts: `[firmware]
+  update_alerts` turns every alert off, checks are read-only and fail
+  soft, and a printing, paused or unreadable printer is asked again
+  later.
 
 ## Release notices for every other firmware
 
@@ -342,7 +390,7 @@ guides.
 | Family (registry keys) | What Print Handy can report | Apply? | How the update is actually done |
 |---|---|---|---|
 | **ZMod, AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro** (`flashforge.*`, Moonraker) | Every Update Manager component (`zmod`, `klipper`, `moonraker`, Fluidd/Mainsail, plugins incl. Print Handy's own), plus the OS↔`zmod` pairing check and Klipper 13 MCU currency | **Yes, components only**, guarded as above | Components: `/print-firmware update <component>`. ZMod itself: Software Update in Fluidd/Mainsail, no USB, unless ZMod shows "Update Z-Mod via USB"; then the `ZFLASH` macro (downloads the release to the USB drive, verifies MD5, installs on reboot) or a manual USB install, `guide zmod`. Stock firmware underneath: touchscreen / USB, `guide stock` |
-| **Generic Klipper + Sovol SV06** (`klipper.generic`, `sovol.sv06`, Moonraker) | Every Update Manager component, as the operator configured it in `moonraker.conf` | **Yes**, same guarded path, minus the ZMod layers | `/print-firmware update <component>`; what it updates is the operator's own Update Manager configuration |
+| **Generic Klipper + Sovol Klipper family** (`klipper.generic`, `sovol.*` over Moonraker) | Every Update Manager component, as the operator configured it in `moonraker.conf` | **Yes**, same guarded path, minus the ZMod layers | `/print-firmware update <component>`; what it updates is the operator's own Update Manager configuration. Component updates also alert in chat (see Component update alerts above) |
 | **Elegoo Neptune 4 family** (`elegoo.neptune4*`, Moonraker, vendor fork) | The fork's component versions, information only | **No, hard excluded** | Elegoo's `ELEGOO_UPDATE_DIR` USB package via the touchscreen; touchscreen firmware separately via TF card. Elegoo warns that updating to official Klipper/Moonraker/Fluidd "will make the machine not work properly" |
 | **Creality Klipper, K1 family, Ender-3 V3 family** (`creality.*`, vendor fork) | The fork's component versions, information only | **No, hard excluded** | Creality touchscreen OTA / Creality Cloud, or Creality's USB package |
 | **QIDI, Q1 Pro, X-Plus 3/4, X-Max 3, X-Smart 3** (`qidi.*`, vendor fork) | The fork's component versions, information only | **No, hard excluded** | QIDI's official update file on a USB drive at the printer. Online-updating Klipper/Moonraker through the web UI is documented to break QIDI's board/display connections |
