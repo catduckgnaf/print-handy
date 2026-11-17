@@ -236,7 +236,7 @@ def test_retained_242_folder_still_resolves_its_pla_name(p1s_profiles, monkeypat
 
 
 def test_profile_defaults_reference_orca_profile_names_and_sources(p1s_profiles):
-    assert facts.ORCA_RELEASE == ("v2.5.0", "40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19")
+    assert facts.ORCA_RELEASE == ("v2.5.1", "eef7710cb102fdb51a9bcdbd9efd61047f44774a")
     assert all(fact.source in {"ORCA", "BAMBU", "DERIVED"} for fact in facts.P1S.values())
 
 

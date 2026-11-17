@@ -182,7 +182,6 @@ BAMBULAB_FACTS = "print_handy/printers/bambulab/facts.py"
 BAMBULAB_P1S_TEST = "tests/printers/test_bambulab_p1s.py"
 DOC_BAMBU_A1 = "docs/BAMBU-A1-DOCKER.md"
 DOC_ENV_EXAMPLE = ".env.example"
-DOC_README = "README.md"
 ORCA_VENDOR_DOCS = (
     "docs/ANYCUBIC.md",
     "docs/CREALITY.md",
@@ -1873,11 +1872,9 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
         f"bundled OrcaSlicer (v{pin.version}):", f"bundled OrcaSlicer (v{new_pin.version}):",
         ".env.example bundled OrcaSlicer record",
     )))
-    edits.append((DOC_README, replace_exact(
-        (root / DOC_README).read_text(),
-        f"one bundled build (v{pin.version})", f"one bundled build (v{new_pin.version})",
-        "README.md bundled OrcaSlicer record",
-    )))
+    # README.md is deliberately not a recorded surface: its 2026-11
+    # rewrite (#1509) dropped the bundled-build version record, so
+    # there is no pin sentence there for a bump to move.
     for relpath in ORCA_VENDOR_DOCS:
         edits.append((relpath, replace_exact(
             (root / relpath).read_text(),
@@ -1998,7 +1995,7 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
         f"ORCA_BUNDLE_SHA256 (ci.yml, the flatpak bundle the slicer legs run): {ci_sha} -> {sha_flatpak}",
         "guard tests (tests/test_docker_release.py, tests/test_docker_release_contract.py, "
         "tests/test_ci_bambu_workflow.py), the BBL ORCA_RELEASE provenance record and its "
-        "assertion, and the COMPONENTS/DOCKER/SETTINGS/.env.example/README/"
+        "assertion, and the COMPONENTS/DOCKER/SETTINGS/.env.example/"
         "vendor-guide records updated to the same values",
         sweep_lines[-1],
         "narrative records that tell the release line's story (the pin comment in "

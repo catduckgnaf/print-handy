@@ -7,7 +7,7 @@ Print Handy ships third-party software in its container image and Compose file. 
 | Component | Pin | Where | Verification | License | Source |
 | --- | --- | --- | --- | --- | --- |
 | Base image | `debian:13-slim` (moving tag, rebuilt per release) | `Dockerfile` | Release image is inventoried by SBOM (below) | Mixed; each Debian package carries its own license in `/usr/share/doc/<package>/copyright` inside the image (unverified here) | <https://www.debian.org/legal/licenses/> |
-| OrcaSlicer | `2.5.0`, revision `40ecc66f…` | `docker/orca-prebuilt.sh` | SHA256 per architecture checked before extraction | AGPL-3.0 (upstream `LICENSE.txt`; the AppImage also bundles its own third-party libraries, unverified) | <https://github.com/OrcaSlicer/OrcaSlicer> |
+| OrcaSlicer | `2.5.1`, revision `eef7710c…` | `docker/orca-prebuilt.sh` | SHA256 per architecture checked before extraction | AGPL-3.0 (upstream `LICENSE.txt`; the AppImage also bundles its own third-party libraries, unverified) | <https://github.com/OrcaSlicer/OrcaSlicer> |
 | go2rtc | `1.9.15`, revision `7c05066` | `docker/go2rtc-prebuilt.sh` | SHA256 per architecture checked before install | MIT | <https://github.com/AlexxIT/go2rtc> |
 | BambuStudio | commit `56a57d00…` (`BAMBU_REF`) | `Dockerfile` | Build fails unless `git rev-parse HEAD` equals the ref | AGPL-3.0 (upstream `LICENSE`). Built only with `WITH_BAMBU=true`; the published image leaves it out | <https://github.com/bambulab/BambuStudio> |
 | Spoolman | v0.27.1, commit `ff8efd51…` (`SPOOLMAN_REF`) | `Dockerfile` | Build fails unless the checked-out commit equals the ref; `uv sync --locked` | MIT | <https://github.com/Donkie/Spoolman> |
