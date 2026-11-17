@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Print Handy: updating printer firmware from chat</title><style>
+:root{--bg:#313338;--text:#dbdee1;--muted:#949ba4;--name:#f2f3f5;--link:#00a8fc;--code:#2b2d31;--quote:#4e5058;
+--primary:#5865F2;--success:#248046;--danger:#DA373C;--secondary:#4E5058;--sep:#3f4147}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg)}
+body{font-family:"gg sans","Noto Sans","Segoe UI",Helvetica,Arial,sans-serif;color:var(--text);font-size:16px;line-height:1.375;width:900px;padding:14px 0 18px}
+.chan{padding:0 16px 8px;color:var(--muted);font-size:13px;border-bottom:1px solid var(--sep);margin-bottom:8px}
+.chan b{color:var(--name);font-size:15px}
+.msg{display:flex;gap:16px;padding:4px 16px 4px 16px;margin-top:17px}
+.msg.cont{margin-top:0}
+.msg.cont .av{visibility:hidden;height:0}
+.av{width:40px;height:40px;border-radius:50%;flex:none;margin-top:2px;object-fit:cover}
+.av.you{background:#3ba55d;color:#fff;font-weight:600;font-size:18px;display:flex;align-items:center;justify-content:center}
+.body{min-width:0;flex:1}
+.head{display:flex;align-items:baseline;gap:6px}
+.nm{color:var(--name);font-weight:500}
+.nm.bot{color:#fff}
+.tag{background:var(--primary);color:#fff;font-size:10px;font-weight:600;border-radius:3px;padding:0 4px;line-height:15px;height:15px;display:inline-flex;align-items:center;position:relative;top:-1px}
+.ts{color:var(--muted);font-size:12px;margin-left:4px}
+.txt{white-space:pre-wrap;word-wrap:break-word}
+.txt code{background:var(--code);border-radius:3px;padding:0 4px;font-family:Consolas,monospace;font-size:14px}
+blockquote{margin:2px 0 0;padding:0 8px 0 12px;border-left:4px solid var(--quote);white-space:pre-wrap}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.btn{font:500 14px/16px "gg sans","Noto Sans","Segoe UI",Arial,sans-serif;color:#fff;border-radius:3px;padding:2px 16px;height:32px;min-width:60px;display:inline-flex;align-items:center;justify-content:center}
+.btn.primary{background:var(--primary)}.btn.success{background:var(--success)}.btn.danger{background:var(--danger)}.btn.secondary{background:var(--secondary)}
+.att{margin-top:6px;border-radius:8px;overflow:hidden;width:400px;position:relative;border:1px solid var(--sep)}
+.att svg{display:block;width:400px;height:300px}
+.vid .play{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px;border-radius:50%;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center}
+.vid .play:after{content:"";border-left:18px solid #fff;border-top:11px solid transparent;border-bottom:11px solid transparent;margin-left:4px}
+.vid .bar{position:absolute;left:0;right:0;bottom:0;height:34px;background:linear-gradient(transparent,rgba(0,0,0,.7));color:#fff;font-size:12px;padding:0 10px;display:flex;align-items:center}
+.state{margin:18px 16px 0;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:10px}
+.state:after{content:"";flex:1;height:1px;background:var(--sep)}
+.sel{margin-top:8px;width:430px}
+.sel .box{background:#1e1f22;border:1px solid #1e1f22;border-radius:4px;height:40px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;color:var(--muted)}
+.sel .box.open{border-color:var(--primary);color:var(--text)}
+.sel .box:after{content:"";border:5px solid transparent;border-top-color:var(--muted);margin-top:5px}
+.menu{background:#2b2d31;border:1px solid #1e1f22;border-radius:4px;margin-top:4px;padding:6px}
+.opt{padding:8px 10px;border-radius:3px}.opt.hi{background:#404249}
+.opt b{display:block;font-weight:500;color:var(--name)}.opt span{font-size:12px;color:var(--muted)}
+</style></head><body><div class="chan"><b>#3d-printing</b> &nbsp; Workshop AD5X</div><div class="msg"><div class="av you">Y</div><div class="body"><div class="head"><span class="nm">you</span><span class="ts">Today at 3:36 PM</span></div><div class="txt">update helixscreen</div></div></div><div class="msg"><img class="av" src="../../branding/icon-192.png" alt=""><div class="body"><div class="head"><span class="nm bot">Print Handy</span><span class="tag">APP</span><span class="ts">Today at 3:36 PM</span></div><div class="txt">Did you mean <code>/print-firmware update helixscreen</code>? Nothing runs unless you say yes — and the command still asks before anything prints.</div><blockquote>you chose <b>Yes — run it</b></blockquote></div></div><div class="msg cont"><img class="av" src="../../branding/icon-192.png" alt=""><div class="body"><div class="txt">Update printer firmware?
+
+This applies exactly one update: <b>helixscreen</b>: v1.0.8 -&gt; v1.0.9.
+
+The printer must stay on and connected while it updates, and it may restart. Print Handy re-checks the printer is idle immediately before sending, then re-reads the firmware state afterwards and reports the verified result.
+Only this one component updates — ZMod's own guidance is one module at a time.</div><blockquote>you chose <b>Update now</b></blockquote></div></div><div class="msg"><img class="av" src="../../branding/icon-192.png" alt=""><div class="body"><div class="head"><span class="nm bot">Print Handy</span><span class="tag">APP</span><span class="ts">Today at 3:38 PM</span></div><div class="txt">Updated <b>helixscreen</b> to v1.0.9 — verified by re-reading the printer's firmware state after the update.</div></div></div></body></html>

@@ -55,6 +55,7 @@ One container runs locally; the chat provider you choose still carries messages 
 4. **Pause, runout and spool choices.** ![Pause and runout](assets/screenshots/discord-06-pause-and-runout.png)
 5. **Changing a spool.** ![Spool change](assets/screenshots/discord-09-spool-change.png)
 6. **A new Spoolman spool joins the party.** ![New spool](assets/screenshots/discord-07-new-spool.png)
+7. **Updating HelixScreen from chat.** One component, two yeses, and a re-read to prove it landed. ![Firmware update](assets/screenshots/discord-10-firmware-update.png)
 
 These screenshots are **mockups based on real bot text and controls**, not proof of a hardware print. Their sources are documented in [assets/screenshots](assets/screenshots/README.md).
 

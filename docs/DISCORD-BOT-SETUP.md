@@ -413,6 +413,10 @@ Once the bot is running, this is the whole conversation for one print. Every ste
 
 ![New spool prompt and load flow](https://raw.githubusercontent.com/catduckgnaf/print-handy/main/assets/screenshots/discord-07-new-spool.png)
 
+**Firmware updates.** Typing "update helixscreen" asks whether you meant `/print-firmware update helixscreen` before anything runs. That command then names the one component and version change and asks again. After the update, Print Handy re-reads the printer's firmware state and reports what it found, not what it hoped. See [FIRMWARE-UPDATE.md](FIRMWARE-UPDATE.md).
+
+![Firmware update: the suggestion, the confirmation and the verified result](https://raw.githubusercontent.com/catduckgnaf/print-handy/main/assets/screenshots/discord-10-firmware-update.png)
+
 ## Recovery
 
 | Symptom | Safe next step |
