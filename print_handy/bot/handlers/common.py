@@ -2687,7 +2687,8 @@ def alert_button_handlers(bot, adapter):
     # custom_id into the handler's arguments or None when the id is not
     # its row's; needs_approver is True when the press needs an approver
     # (may_start), False when any allowed user may press, or a callable
-    # of the parsed value deciding per row (the plate "go" press).
+    # of the parsed value deciding per row (the plate "go" press, the
+    # alert action buttons).
     # route() below does parse, authorize and dispatch once for every
     # row, so the approver check and the on_interaction error guard live
     # in one place instead of being repeated per parser.
@@ -2701,6 +2702,28 @@ def alert_button_handlers(bot, adapter):
         await {'pick': handle_plate_pick, 'go': handle_plate_go,
                'spool': handle_plate_spool, 'drop': handle_plate_drop,
                'material': handle_plate_material}[action](interaction, aid)
+
+    async def _handle_alert(interaction, action, aid):
+        alert = await claim_and_ack(interaction, aid, None,
+                                    'That alert is old or was already answered. Nothing sent.')
+        if not alert:
+            return
+        label = {'resume': 'Resume', 'pause': 'Pause', 'acknowledge': "It's fine",
+                 'mute': "Stop asking for this print",
+                 'recover': pab.RECOVER_LABEL}.get(action, 'Cancel')
+        await interaction.edit_original_response(
+            content=(f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {label}. "
+                     'Checking the printer first.'), view=None)
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            logger.debug('could not strip alert buttons', exc_info=True)
+        try:
+            result = await _action(pab.handle_click, action, alert)
+        except Exception as exc:
+            logger.exception('alert button %s failed', action)
+            result = _failure_post(label, exc, 'Check the printer screen. Not retrying.', subsystem='printer')
+        await interaction.followup.send(result)
 
     def _parse_retry(custom_id):
         if not str(custom_id).startswith(_pi.RETRY_CUSTOM_ID):
@@ -2734,6 +2757,14 @@ def alert_button_handlers(bot, adapter):
         (_parse_select('pbinsertselect:'), handle_insertion_select, False),
         (_parse_select('pbspoolselect:'), handle_spool_question_select, False),
         (_parse_select(f'{pab.NEW_SPOOL_SELECT_PREFIX}:'), handle_new_spool_select, False),
+        # The alert action buttons are an ordinary row (#1603): their
+        # approver rule depends on the parsed action, so needs_approver
+        # is a callable of the parsed row — every action except
+        # acknowledge and mute needs an approver, exactly as the old
+        # special final case checked after its allowed check (may_start
+        # includes the allowed check, so the order is preserved).
+        (pab.parse_custom_id, _handle_alert,
+         lambda parsed: parsed[0] not in ('acknowledge', 'mute')),
     )
 
     async def route(interaction):
@@ -2749,39 +2780,6 @@ def alert_button_handlers(bot, adapter):
                 return
             await handler(interaction, *parsed_row)
             return
-        # The alert action buttons are the remaining row: their approver
-        # rule depends on the action itself, so they keep their own check
-        # after the same allowed check every row above got.
-        parsed = pab.parse_custom_id(custom_id)
-        if not parsed:
-            return
-        if not allowed(interaction):
-            await reject(interaction)
-            return
-        action, aid = parsed
-        if action not in ('acknowledge', 'mute') and not may_start(interaction):
-            await reject(interaction)
-            return
-        alert = await claim_and_ack(interaction, aid, None,
-                                    'That alert is old or was already answered. Nothing sent.')
-        if not alert:
-            return
-        label = {'resume': 'Resume', 'pause': 'Pause', 'acknowledge': "It's fine",
-                 'mute': "Stop asking for this print",
-                 'recover': pab.RECOVER_LABEL}.get(action, 'Cancel')
-        await interaction.edit_original_response(
-            content=(f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {label}. "
-                     'Checking the printer first.'), view=None)
-        try:
-            await interaction.message.edit(view=None)
-        except Exception:
-            logger.debug('could not strip alert buttons', exc_info=True)
-        try:
-            result = await _action(pab.handle_click, action, alert)
-        except Exception as exc:
-            logger.exception('alert button %s failed', action)
-            result = _failure_post(label, exc, 'Check the printer screen. Not retrying.', subsystem='printer')
-        await interaction.followup.send(result)
 
     bot.add_listener(on_interaction, 'on_interaction')
 
