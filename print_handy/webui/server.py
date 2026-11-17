@@ -469,7 +469,7 @@ def _warn_untrusted_forwarded_for(server):
             return
         try:
             server._forwarded_for_warned = True
-        except Exception:
+        except (AttributeError, TypeError):
             return
     log.warning(
         "webui: a request carried X-Forwarded-For but [webui] trusted_proxies "
