@@ -92,6 +92,7 @@ GROUP_OF = {
     "printer.opencreator_host_pressure_advance": "printers",
     "printer.opencreator_buildplate_check": "printers",
     "printer.forgex_timelapse": "printers",
+    "printer.pause_prompt": "printers",
     "delivery.methods": "slicing",
     "layout.spacing": "slicing",
     "bot.mode": "platform",
@@ -297,6 +298,13 @@ CATALOG = (
            "off adds TIMELAPSE=0 to the start line of prints Print Handy slices, so they make "
            "no timelapse. Forge-X cannot be told to make one for a single print.",
            choices=("printer", "off"), validator="settings forgex timelapse check"),
+    _field("printer", "pause_prompt", "Pause reason pop-up", "toggle",
+           "When Print Handy pauses this printer it always puts the reason in the printer "
+           "message (M117), which HelixScreen, the printer's LCD, Mainsail and Fluidd show. "
+           "Turn this on to also pop up a Klipper prompt with the reason, for screens that "
+           "never show that message, such as Guppy Screen. Off by default, so a screen that "
+           "already shows the reason does not show it twice. Klipper printers only.",
+           validator="settings pause prompt check"),
     # Bot and chat platform (guided setup: mode, plus bot platform from #164).
     _field("bot", "mode", "Bot mode", "picker",
            "standalone: Print Handy runs as its own bot (the only mode; the Hermes "
@@ -1040,6 +1048,8 @@ def config_page_visible(field, data, reveal=None) -> bool:
         return bool(model and model.vendor.key == "flashforge")
     if field.id == "printer.forgex_timelapse":
         return bool(model and model.vendor.key == "flashforge_forgex")
+    if field.id == "printer.pause_prompt":
+        return bool(model is None or model.vendor.connection == "moonraker")
     if field.id.startswith("printer.opencreator_"):
         return bool(model and model.vendor.key == "flashforge_opencreator")
     if field.id == "bambu.lan_serial":

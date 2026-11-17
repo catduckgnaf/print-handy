@@ -3129,7 +3129,7 @@ def _record_watchdog_event(filename, verdict, *, streak=None, action="none",
         return False
 
 
-def _auto_pause_early(filename, identity, printer_id=None):
+def _auto_pause_early(filename, identity, printer_id=None, verdict=None):
     """Send PAUSE through the alert pause path (#837) for the early-layer auto-pause (#913).
 
     The same code the camera alert's Pause button runs: status readback,
@@ -3140,12 +3140,20 @@ def _auto_pause_early(filename, identity, printer_id=None):
     (print_alert_buttons._visual_extra): without it a multi-printer roster
     refused the pause as an alert of unknown printer.
     """
+    from . import pause_reason
     from . import print_alert_buttons as pab
     printer_id = printer_id or _watch_printer_id()
-    alert = {"kind": "visual", "filename": filename, "identity": identity}
+    alert = {"kind": "visual", "filename": filename, "identity": identity,
+             "pause_reason": pause_reason.verdict_reason(verdict)}
     if printer_id:
         alert["printer_id"] = str(printer_id)
     return pab.handle_click("pause", alert)
+
+
+def _clear_pause_reason(printer_id=None):
+    """Clear Print Handy's pause reason from this printer after a resume (runtime.pause_reason)."""
+    from .. import printer_control
+    return printer_control.for_printer(printer_id or _watch_printer_id()).clear_pause_reason()
 
 
 def _camera_missing_reason():
@@ -4592,7 +4600,8 @@ class Listener:
                         # #913: the only automatic printer action, opt-in, once per print
                         # (reserved above, before the alert await).
                         log(f"auto-pause early layers file={filename!r} layer={layer} streak={streak}: sending PAUSE")
-                        reply = await asyncio.to_thread(_auto_pause_early, filename, identity)
+                        reply = await asyncio.to_thread(_auto_pause_early, filename, identity,
+                                                        verdict=verdict)
                         log(f"auto-pause early layers file={filename!r}: {reply}")
                         await asyncio.to_thread(post, _with_printer_name(
                             f"Auto-pause: {clean(filename)}\n{reply}"))
@@ -4893,6 +4902,12 @@ class Listener:
             # suppressing, so a later pause of the same print is a
             # new problem that can ping (#1095).
             starter_pings.clear_pause_episodes(job_key=self.filename)
+            # A resume from the printer's own screen leaves Print Handy's
+            # pause reason up; clear it while it is still ours (#2130).
+            try:
+                await asyncio.to_thread(_clear_pause_reason)
+            except Exception as exc:
+                warn(f"pause reason clean-up failed: {exc!r}")
         else:
             self.runout_episode = None
             self.slot_tracker.reset()

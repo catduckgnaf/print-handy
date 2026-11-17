@@ -325,7 +325,7 @@ class _WeakRig:
         monkeypatch.setattr(mel, "_with_status_roast",
                             lambda text, *args, **kwargs: self.roasts.append(text) or text)
         monkeypatch.setattr(mel, "_auto_pause_early",
-                            lambda filename, identity: self.pauses.append(filename) or "Paused")
+                            lambda filename, identity, verdict=None: self.pauses.append(filename) or "Paused")
         monkeypatch.setattr(mel, "post", lambda msg, **kw: True)
         monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
         real_settings = vw.watch_settings
@@ -1310,6 +1310,7 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
 
     alerts = []
     pauses = []
+    verdicts = []  # the verdict each auto-pause reports to the printer (helixscreen#2130)
     actions = []
     clock = [10_000.0]
     real_auto_pause = mel._auto_pause_early
@@ -1317,7 +1318,7 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     monkeypatch.setattr(mel, "_watch_now", lambda: clock[0])
     monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
     monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append(text))
-    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity, verdict=None: (pauses.append((filename, identity)), verdicts.append(verdict)) and "Paused")
     monkeypatch.setattr(mel, "post", lambda msg: True)
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
@@ -1369,6 +1370,7 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     assert "Auto-pause" in alerts[1]
     assert len(pauses) == 1
     assert pauses[0][0] == "risky_on.gcode"
+    assert verdicts == ["spaghetti"]  # becomes "Paused by Print Handy: possible spaghetti"
     assert listener_on.visual_watch.auto_paused is True
 
     # Third suspicious verdict (streak 3) -> alert, but pause only sent ONCE per print
@@ -1524,7 +1526,7 @@ def test_stale_verdict_from_previous_print_never_alerts_or_pauses(monkeypatch):
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
     monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
     monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append((filename, text)))
-    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity, verdict=None: pauses.append((filename, identity)) or "Paused")
     monkeypatch.setattr(mel, "post", lambda msg: True)
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
@@ -1596,7 +1598,7 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
     monkeypatch.setattr(mel, "_watch_now", lambda: 50_000.0)
     monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
     monkeypatch.setattr(mel, "_visual_alert", slow_alert)
-    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append(filename) or "Paused")
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity, verdict=None: pauses.append(filename) or "Paused")
     monkeypatch.setattr(mel, "post", lambda msg: True)
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)

@@ -215,10 +215,29 @@ class PrinterControl:
         (print_alert_buttons.handle_click)."""
         return _driver("print_stop").pause(expected_filename, **_kw(self.printer_id), **wait)
 
-    def send_pause(self) -> None:
-        """One Moonraker pause, for a caller that confirms it by its own readback. Raises on a failed send."""
-        _driver("print_control")._send("/printer/print/pause", method="POST", timeout=15,
-                                       **_kw(self.printer_id))
+    def send_pause(self, reason: str | None = None) -> None:
+        """One Moonraker pause, for a caller that confirms it by its own readback. Raises on a failed send.
+
+        ``reason`` is shown on the printer first (``runtime.pause_reason``:
+        ``M117 Paused by Print Handy: <reason>``, plus an ``action:prompt``
+        where ``[printer] pause_prompt`` is on). That step is best effort and
+        never stops the pause.
+        """
+        driver = _driver("print_control")
+        if reason:
+            from .runtime import pause_reason
+            pause_reason.announce(driver._send, reason, prompt=self._pause_prompt(),
+                                  printer_id=self.printer_id)
+        driver._send("/printer/print/pause", method="POST", timeout=15, **_kw(self.printer_id))
+
+    def _pause_prompt(self) -> bool:
+        """``[printer] pause_prompt`` for this printer; False when its settings cannot be read,
+        so a settings problem never stands between an operator and a pause."""
+        from .runtime import pause_reason
+        try:
+            return pause_reason.prompt_enabled(self.view)
+        except Exception:
+            return False
 
     def resume(self, expected_filename: str = "", *, alert_connection: str | None = None,
                **wait) -> tuple[bool, str]:
@@ -228,7 +247,20 @@ class PrinterControl:
             if control is None:
                 return False, FOREIGN_ALERT_TEXT
             return control.resume(expected_filename, **wait)
-        return _driver("print_control").resume(expected_filename, **_kw(self.printer_id), **wait)
+        resumed, text = _driver("print_control").resume(expected_filename, **_kw(self.printer_id), **wait)
+        if resumed:
+            self.clear_pause_reason()  # stale once the print runs again
+        return resumed, text
+
+    def clear_pause_reason(self) -> bool:
+        """Clear the pause reason ``send_pause`` set on this Moonraker printer, only while it is
+        still Print Handy's (``runtime.pause_reason.clear``). Best effort; never raises."""
+        from .runtime import pause_reason
+        try:
+            return pause_reason.clear(_driver("print_control")._send, prompt=self._pause_prompt(),
+                                      printer_id=self.printer_id)
+        except Exception:
+            return False
 
     def emergency_stop(self, **ladder) -> dict[str, Any]:
         """The panic ladder (panic.force_restart): emergency stop, firmware restart, ready wait, REBOOT fallback."""
