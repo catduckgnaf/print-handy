@@ -20,9 +20,10 @@ exactly one policy:
 ``session+csrf``
     The form-write rule. While access is open, the per-process form
     token from the page. On a claimed install, the header, or a live
-    session AND the form token bound to that session (a route marked
-    ``process_token`` also accepts the per-process token beside the
-    session). The form is read before the check, so a malformed body
+    session AND the form token bound to that session. Every page embeds
+    the token for its own posture (``_Handler._form_token``), so there
+    is one token kind per posture and no route accepts the other kind
+    (#1588). The form is read before the check, so a malformed body
     keeps its 413/415/400 answer; a refusal is the themed 403 page with
     a Back link to ``back``. A multipart upload is gated on the read
     rule before its body is read and checked again once its fields are
@@ -73,8 +74,6 @@ class Route:
     ``host_check``: the host check; off only for the liveness probe.
     ``claim_lock``: authorize and answer inside the claim lock with the
     access re-read, so two racing first claims cannot both win.
-    ``process_token``: also accept the per-process form token beside a
-    live session on a claimed install (see the module docstring).
     ``multipart``: a multipart body is gated before it is read.
     """
 
@@ -88,7 +87,6 @@ class Route:
     prechecks: bool = True
     host_check: bool = True
     claim_lock: bool = False
-    process_token: bool = False
     multipart: bool = False
 
     def match(self, path) -> Tuple[bool, Optional[str]]:
@@ -191,12 +189,10 @@ ROUTES = (
     _post("/logout", PUBLIC, "_logout"),
     _post("/walkthrough", SESSION_CSRF, "_walkthrough_post", back="/walkthrough",
           claim_lock=True),
-    # The Wrapped page embeds the per-process form token, so on a claimed
-    # install these accept it beside a live session (as before #1319).
-    _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped",
-          process_token=True),
-    _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped",
-          process_token=True),
+    # The Wrapped page embeds the session-bound form token like every
+    # other page (#1588), so these take the plain session+csrf rule.
+    _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped"),
+    _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped"),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),
     _post("/config", SESSION_CSRF, "_config_save", back="/config"),
     _post("/printer-settings", SESSION_CSRF, "_printer_settings_save",

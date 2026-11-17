@@ -296,10 +296,188 @@ def session_form_token(server, session_id):
     """The ``_csrf`` value bound to one login session on ``server``: an
     HMAC-SHA256 of the session id under the server's in-memory secret
     (rotated with every access-rule change)."""
+    store = getattr(server, "session_store", None)
+    if store is not None:
+        return store.form_token_for(session_id)
     secret = getattr(server, "csrf_secret", None)
     if secret is None:
         secret = server.csrf_secret = secrets.token_bytes(32)
     return hmac.new(secret, session_id.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+class SessionStore:
+    """The Web UI's session state, in one place with its own lock (#1588).
+
+    Holds the ephemeral login sessions (raw id -> expiry, memory only),
+    the remembered sessions (SHA-256 of the id -> expiry; persistence to
+    ``webui_sessions.json`` stays with ``_save_remembered_sessions``,
+    which snapshots this store), the per-process form token and the
+    secret session-bound form tokens are derived from. Before #1588
+    these were bare attributes on the server object, created and mutated
+    at a dozen sites with ``getattr`` fallbacks; now ``make_server``
+    builds one store and the server's old attribute names delegate to
+    it, so the state has one owner and one lock (the same shape as
+    ``access.LoginThrottle``).
+    """
+
+    def __init__(self, remembered_sessions=None):
+        self.lock = threading.RLock()
+        self.sessions = {}
+        self.remembered_sessions = dict(remembered_sessions or {})
+        self.form_token = secrets.token_urlsafe(32)
+        self.csrf_secret = secrets.token_bytes(32)
+        self._remembered_pruned = False
+
+    # -- tokens -----------------------------------------------------------
+    def rotate_tokens(self):
+        """A new form token and CSRF secret (an access-rule change)."""
+        with self.lock:
+            self.form_token = secrets.token_urlsafe(32)
+            self.csrf_secret = secrets.token_bytes(32)
+            return self.form_token
+
+    def form_token_for(self, session_id):
+        """The ``_csrf`` value bound to one session (see
+        :func:`session_form_token`)."""
+        with self.lock:
+            secret = self.csrf_secret
+            if secret is None:
+                secret = self.csrf_secret = secrets.token_bytes(32)
+        return hmac.new(secret, session_id.encode("utf-8"),
+                        hashlib.sha256).hexdigest()
+
+    # -- ephemeral sessions -------------------------------------------------
+    def prune(self, *, now=None):
+        """Drop expired ephemeral sessions; returns how many went."""
+        now = time.time() if now is None else now
+        with self.lock:
+            stale = [sid for sid, expiry in list(self.sessions.items())
+                     if expiry <= now]
+            for sid in stale:
+                self.sessions.pop(sid, None)
+            return len(stale)
+
+    def mint(self, session_id=None, *, ttl_s=SESSION_TTL_S, now=None):
+        """Mint (or record) an ephemeral session; returns its id.
+
+        Expired sessions are pruned first, so two logins at once never
+        trip over a stale entry."""
+        now = time.time() if now is None else now
+        with self.lock:
+            self.prune(now=now)
+            session_id = session_id or secrets.token_urlsafe(32)
+            self.sessions[session_id] = now + ttl_s
+            return session_id
+
+    def clear(self):
+        """End every ephemeral session (the credential changed)."""
+        with self.lock:
+            self.sessions.clear()
+
+    # -- remembered sessions --------------------------------------------------
+    def remember(self, session_id, *, ttl_s=REMEMBER_TTL_S, now=None):
+        """Record a remembered session by digest; returns the digest.
+
+        In-memory only: the caller persists the snapshot and rolls this
+        back with :meth:`forget_remembered` when the write fails."""
+        now = time.time() if now is None else now
+        digest = _session_digest(session_id)
+        with self.lock:
+            for stale in [d for d, expiry in list(self.remembered_sessions.items())
+                          if expiry <= now]:
+                del self.remembered_sessions[stale]
+            self.remembered_sessions[digest] = now + ttl_s
+            return digest
+
+    def forget_remembered(self, session_id):
+        """Drop one remembered session; True when one was present."""
+        with self.lock:
+            return self.remembered_sessions.pop(
+                _session_digest(session_id), None) is not None
+
+    def revoke_all_remembered(self):
+        with self.lock:
+            self.remembered_sessions.clear()
+
+    def snapshot_remembered(self):
+        with self.lock:
+            return dict(self.remembered_sessions)
+
+    # -- validation and revocation --------------------------------------------
+    def validate(self, session_id, *, now=None):
+        """``session_id`` when it names a live session, else "".
+
+        Both stores count. An expired id is pruned on sight; when the
+        pruned entry was a remembered one, :meth:`take_remembered_pruned`
+        reports it once so the caller can persist the removal."""
+        now = time.time() if now is None else now
+        if not session_id:
+            return ""
+        with self.lock:
+            expiry = self.sessions.get(session_id)
+            if expiry is not None:
+                if expiry <= now:
+                    self.sessions.pop(session_id, None)
+                    return ""
+                return session_id
+            digest = _session_digest(session_id)
+            expiry = self.remembered_sessions.get(digest)
+            if expiry is None:
+                return ""
+            if expiry <= now:
+                del self.remembered_sessions[digest]
+                self._remembered_pruned = True
+                return ""
+            return session_id
+
+    def take_remembered_pruned(self):
+        """True (once) when :meth:`validate` pruned a remembered entry."""
+        with self.lock:
+            pruned, self._remembered_pruned = self._remembered_pruned, False
+            return pruned
+
+    def revoke(self, session_id):
+        """End one session in both stores; True when a remembered entry
+        went (the caller then persists the removal)."""
+        if not session_id:
+            return False
+        with self.lock:
+            self.sessions.pop(session_id, None)
+            return self.remembered_sessions.pop(
+                _session_digest(session_id), None) is not None
+
+
+def _session_store(server):
+    """The server's :class:`SessionStore`, or None for a server object
+    that predates it (the mutation sites stay safe either way)."""
+    return getattr(server, "session_store", None)
+
+
+_FORWARDED_WARN_LOCK = threading.Lock()
+
+
+def _warn_untrusted_forwarded_for(server):
+    """Log (once per server) that X-Forwarded-For arrived while
+    ``[webui] trusted_proxies`` is empty (#1588 item 1).
+
+    The header is ignored in that configuration, so every client behind
+    the proxy shares the proxy's address for login throttling: one
+    client's failed logins can lock out the others, the Home Assistant
+    integration included. The warning names the setting that fixes it;
+    it fires on the first forwarded request only, never per request."""
+    with _FORWARDED_WARN_LOCK:
+        if getattr(server, "_forwarded_for_warned", False):
+            return
+        try:
+            server._forwarded_for_warned = True
+        except (AttributeError, TypeError):
+            return
+    log.warning(
+        "webui: a request carried X-Forwarded-For but [webui] trusted_proxies "
+        "is empty, so the header is ignored and every client behind the proxy "
+        "shares one address for login throttling: one client's failed logins "
+        "can lock out the others. List the proxy in [webui] trusted_proxies "
+        "if a reverse proxy fronts the Web UI. [PH_WEBUI_UNTRUSTED_PROXY]")
 
 
 _BROKEN_LOG_LOCK = threading.Lock()
@@ -391,7 +569,9 @@ def _save_remembered_sessions(server):
     path = sessions_path(server.settings_data)
     with _remember_lock(server):
         try:
-            payload = dict(getattr(server, "remembered_sessions", {}) or {})
+            store = _session_store(server)
+            payload = store.snapshot_remembered() if store is not None else \
+                dict(getattr(server, "remembered_sessions", {}) or {})
             access = getattr(server, "access", None)
             if access is not None:
                 payload[_FINGERPRINT_KEY] = access.credential_fingerprint()
@@ -743,6 +923,68 @@ class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
         super().__init__(*args, **kwargs)
         self._slots = threading.BoundedSemaphore(self.max_threads)
 
+    # Session state lives in one SessionStore (#1588 item 4); the names
+    # the state used to be stored under directly on the server object
+    # delegate to it, so existing readers (and tests that seed a session
+    # by writing ``server.sessions[id]``) keep working on the same data.
+    @property
+    def session_store(self):
+        store = self.__dict__.get("_session_store")
+        if store is None:
+            store = SessionStore()
+            self.__dict__["_session_store"] = store
+        return store
+
+    @session_store.setter
+    def session_store(self, store):
+        self.__dict__["_session_store"] = store
+
+    @property
+    def sessions(self):
+        return self.session_store.sessions
+
+    @sessions.setter
+    def sessions(self, value):
+        store = self.session_store
+        with store.lock:
+            store.sessions.clear()
+            store.sessions.update(value or {})
+
+    @property
+    def remembered_sessions(self):
+        return self.session_store.remembered_sessions
+
+    @remembered_sessions.setter
+    def remembered_sessions(self, value):
+        store = self.session_store
+        with store.lock:
+            store.remembered_sessions.clear()
+            store.remembered_sessions.update(value or {})
+
+    @property
+    def remembered_lock(self):
+        return self.session_store.lock
+
+    @remembered_lock.setter
+    def remembered_lock(self, lock):
+        self.session_store.lock = lock
+
+    @property
+    def form_token(self):
+        return self.session_store.form_token
+
+    @form_token.setter
+    def form_token(self, value):
+        self.session_store.form_token = value
+
+    @property
+    def csrf_secret(self):
+        return self.session_store.csrf_secret
+
+    @csrf_secret.setter
+    def csrf_secret(self, value):
+        self.session_store.csrf_secret = value
+
     def process_request(self, request, client_address):
         self._slots.acquire()
         try:
@@ -1059,11 +1301,28 @@ class _Handler(BaseHTTPRequestHandler):
         map (raw id) and the remembered map (SHA-256 of the id)."""
         return bool(self._valid_session_id())
 
+    def _note_forwarded_for(self):
+        """Item 1 of #1588: warn once when a forwarded-for header arrives
+        but no proxy is trusted (see _warn_untrusted_forwarded_for)."""
+        if getattr(self.server, "trusted_proxies", ()):
+            return
+        if self.headers.get_all("X-Forwarded-For"):
+            _warn_untrusted_forwarded_for(self.server)
+
     def _valid_session_id(self):
         """The caller's session id when it names a live session, else ""."""
         session_id = self._session_id()
         if not session_id:
             return ""
+        store = _session_store(self.server)
+        if store is not None:
+            valid = store.validate(session_id)
+            if store.take_remembered_pruned():
+                # An expired remembered entry was pruned in memory;
+                # persist the removal, as the bare-dict code did.
+                with _remember_lock(self.server):
+                    _save_remembered_sessions(self.server)
+            return valid
         now = time.time()
         expiry = self.server.sessions.get(session_id)
         if expiry is not None:
@@ -1158,6 +1417,28 @@ class _Handler(BaseHTTPRequestHandler):
         under the id the response names). A
         method without its own routes gets the read-only refusal with no
         screens, as it always has."""
+        self._note_forwarded_for()
+        transfer_codings = [coding.strip().lower()
+                            for header in self.headers.get_all(
+                                "Transfer-Encoding", [])
+                            for coding in header.split(",")]
+        if transfer_codings and transfer_codings != ["identity"]:
+            # No transfer coding is decoded anywhere in the Web UI
+            # (#1588 item 2): a chunked or otherwise coded body would be
+            # read as length 0 and its bytes left on the keep-alive
+            # connection to be parsed as the next request. Refuse the
+            # unsupported codings and close the connection. The identity
+            # coding applies no coding at all, so a request carrying it
+            # beside a valid Content-Length is framed exactly by that
+            # length and is served normally (duckcatgnaf review,
+            # PR #1594).
+            self.close_connection = True
+            self._json(411, {"ok": False,
+                             "reason": "chunked or otherwise "
+                                       "transfer-encoded request bodies "
+                                       "are not supported: resend the body "
+                                       "unencoded with a Content-Length"})
+            return
         path = urlparse(self.path).path
         route, capture = routes_module.resolve(method, path)
         if route is None or not route.prechecks:
@@ -1264,7 +1545,7 @@ class _Handler(BaseHTTPRequestHandler):
                     # here instead of silently replacing the first one's
                     # password.
                     self._sync_access()
-                if not self._post_authorized(form, process_token=route.process_token):
+                if not self._post_authorized(form):
                     self._html_refusal(403, STALE_FORM_MESSAGE, back)
                     yield None
                     return
@@ -1295,7 +1576,7 @@ class _Handler(BaseHTTPRequestHandler):
                        "text/html; charset=utf-8")
             return False
         if route.policy == routes_module.SESSION_CSRF:
-            if self._post_authorized(fields, process_token=route.process_token):
+            if self._post_authorized(fields):
                 return True
             self._html_refusal(403, STALE_FORM_MESSAGE, self._route_back(route, arg))
             return False
@@ -1697,7 +1978,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
         self._send(200, data_module.render_wrapped_page(
-            data, payload, form_token=self.server.form_token, theme=self._theme(),
+            data, payload, form_token=self._form_token(), theme=self._theme(),
             notice=done or None), "text/html; charset=utf-8")
 
     def _wrapped_video_file_route(self):
@@ -1782,8 +2063,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _wrapped_video_post(self, form):
         """POST /wrapped/video (#956): the Wrapped page's video form.
 
-        Policy ``session+csrf`` with the process token (routes.py): a
-        login session alone never authorizes it. The compile itself, its
+        Policy ``session+csrf`` (routes.py): a login session alone never
+        authorizes it; the page embeds the session-bound form token
+        like every other page (#1588 item 3). The compile itself, its
         two toggles and every named refusal live in data.py /
         wrapped_video.py.
         """
@@ -1810,7 +2092,8 @@ class _Handler(BaseHTTPRequestHandler):
         """POST /wrapped/share (#981): the Wrapped page's share form.
 
         Authorized exactly like the video form (routes.py: the page's
-        form token; a login session alone never authorizes it). The
+        session-bound form token; a login session alone never
+        authorizes it). The
         export itself, its wrapped_enabled gate and every named
         refusal live in data.py / share_export.py. The export is a
         local file write only — nothing is uploaded anywhere.
@@ -2199,6 +2482,10 @@ class _Handler(BaseHTTPRequestHandler):
         replacing or removing the login that was just set. The browser
         that made the change is signed in with a session, and every
         page it loads next carries the new token."""
+        store = _session_store(self.server)
+        if store is not None:
+            store.rotate_tokens()
+            return
         self.server.form_token = secrets.token_urlsafe(32)
         self.server.csrf_secret = secrets.token_bytes(32)
 
@@ -2211,9 +2498,13 @@ class _Handler(BaseHTTPRequestHandler):
         credential must not outlive it. Ephemeral sessions are untouched
         — they die with the process, as before."""
         with _remember_lock(self.server):
-            remembered = getattr(self.server, "remembered_sessions", None)
-            if remembered is not None:
-                remembered.clear()
+            store = _session_store(self.server)
+            if store is not None:
+                store.revoke_all_remembered()
+            else:
+                remembered = getattr(self.server, "remembered_sessions", None)
+                if remembered is not None:
+                    remembered.clear()
             try:
                 sessions_path(self.server.settings_data).unlink(missing_ok=True)
             except OSError as exc:
@@ -2372,6 +2663,26 @@ class _Handler(BaseHTTPRequestHandler):
         persisted, so the session survives a server restart. When that
         write fails (a read-only state mount, say) the login still
         succeeds with a plain ephemeral session, as before."""
+        store = _session_store(self.server)
+        if store is not None:
+            session_id = secrets.token_urlsafe(32)
+            flags = "; Secure" if self._cookie_secure() else ""
+            if remember:
+                # Mutation through persistence under the store's lock,
+                # so a concurrent logout or revocation is never
+                # overwritten by this mint's snapshot (and this mint is
+                # never lost to one).
+                with _remember_lock(self.server):
+                    store.remember(session_id)
+                    if _save_remembered_sessions(self.server):
+                        return ("Set-Cookie",
+                                f"{SESSION_COOKIE}={session_id}; HttpOnly; "
+                                f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
+                    # Fail open to the current behavior: ephemeral, no Max-Age.
+                    store.forget_remembered(session_id)
+            store.mint(session_id)
+            return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
+                    f"SameSite=Strict; Path=/{flags}")
         now = time.time()
         sessions = self.server.sessions
         # list() snapshots the map and pop() tolerates a concurrent prune:
@@ -2485,11 +2796,17 @@ class _Handler(BaseHTTPRequestHandler):
         # the worst a cross-origin post can do is sign the operator out.
         session_id = self._session_id()
         if session_id:
-            self.server.sessions.pop(session_id, None)
-            remembered = getattr(self.server, "remembered_sessions", None) or {}
-            with _remember_lock(self.server):
-                if remembered.pop(_session_digest(session_id), None) is not None:
-                    _save_remembered_sessions(self.server)
+            store = _session_store(self.server)
+            if store is not None:
+                if store.revoke(session_id):
+                    with _remember_lock(self.server):
+                        _save_remembered_sessions(self.server)
+            else:
+                self.server.sessions.pop(session_id, None)
+                remembered = getattr(self.server, "remembered_sessions", None) or {}
+                with _remember_lock(self.server):
+                    if remembered.pop(_session_digest(session_id), None) is not None:
+                        _save_remembered_sessions(self.server)
         flags = "; Secure" if self._cookie_secure() else ""
         cookie = (f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
                   f"Path=/; Max-Age=0{flags}")
@@ -2502,7 +2819,7 @@ class _Handler(BaseHTTPRequestHandler):
         The reading itself lives in webui/body.py (#1590 item 8)."""
         return body_module.read_form(self)
 
-    def _post_authorized(self, form, process_token=False):
+    def _post_authorized(self, form):
         """Whether a state-changing form POST may proceed.
 
         While access is open (unclaimed or deliberately left open) the
@@ -2514,12 +2831,10 @@ class _Handler(BaseHTTPRequestHandler):
         access-token header, or a live login session AND the ``_csrf``
         value bound to that session (see _session_form_token). A session
         cookie alone never authorizes a POST, and a page token copied
-        from one browser authorizes nothing for another.
-
-        ``process_token``: a route whose page another module renders with
-        the process form token (the Wrapped page's forms) still needs a
-        live session on a claimed install, but accepts the process token
-        beside it until that page embeds the session-bound one."""
+        from one browser authorizes nothing for another. There is one
+        token kind per posture: every page, the Wrapped page included,
+        embeds ``_form_token()`` (#1588 item 3 removed the second,
+        process-token acceptance the Wrapped routes used to carry)."""
         provided = (form.get(pages.CSRF_FIELD) or [""])[0]
         if not self.server.access.required:
             return bool(provided) and hmac.compare_digest(provided, self.server.form_token)
@@ -2528,9 +2843,7 @@ class _Handler(BaseHTTPRequestHandler):
         session_id = self._valid_session_id()
         if not (session_id and provided):
             return False
-        if hmac.compare_digest(provided, self._session_form_token(session_id)):
-            return True
-        return process_token and hmac.compare_digest(provided, self.server.form_token)
+        return hmac.compare_digest(provided, self._session_form_token(session_id))
 
     # -- web chat -------------------------------------------------------------
 
@@ -3247,25 +3560,23 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # The config page reads and writes through the same environment the
     # settings were loaded with (PRINT_HANDY_CONFIG resolution included).
     server.webui_environ = environ
-    # Per-server form token for config POSTs (pages.CSRF_FIELD): generated
-    # here, kept only in memory, never the access token.
-    server.form_token = secrets.token_urlsafe(32)
-    # The key session-bound form tokens are derived from on a claimed
-    # install (_Handler._session_form_token); memory only, like the token.
-    server.csrf_secret = secrets.token_bytes(32)
-    # Browser login sessions: {session id: expiry epoch}. Memory only —
-    # a restart signs these out; nothing about them is persisted.
-    server.sessions = {}
-    # Remembered sessions: {sha256(session id): expiry epoch}, loaded
-    # from webui_sessions.json in the state folder (expired entries
-    # pruned on load, and the whole store discarded when the credential
-    # fingerprint it was minted under no longer matches) and re-saved
+    # All session state lives in one SessionStore (#1588 item 4): the
+    # per-server form token for config POSTs (pages.CSRF_FIELD, generated
+    # at start, kept only in memory, never the access token), the secret
+    # session-bound form tokens are derived from on a claimed install
+    # (_Handler._session_form_token; memory only, like the token), the
+    # ephemeral browser login sessions ({session id: expiry epoch};
+    # memory only — a restart signs these out) and the remembered
+    # sessions ({sha256(session id): expiry epoch}, loaded from
+    # webui_sessions.json in the state folder — expired entries pruned
+    # on load, and the whole store discarded when the credential
+    # fingerprint it was minted under no longer matches — and re-saved
     # on every change, so a browser that ticked "Keep me signed in"
-    # survives a restart. The raw id is never written to disk.
-    # Mutations and persistence are serialized with remembered_lock.
-    server.remembered_lock = threading.RLock()
-    server.remembered_sessions = _load_remembered_sessions(
-        data, server.access.credential_fingerprint())
+    # survives a restart; the raw id is never written to disk).
+    # Mutations and persistence are serialized with the store's lock
+    # (server.remembered_lock delegates to it).
+    server.session_store = SessionStore(_load_remembered_sessions(
+        data, server.access.credential_fingerprint()))
     server.login_throttle = access_module.LoginThrottle()
     # Spool files left by a process that stopped mid-upload would count
     # toward the inbox quota forever (the upload page cannot list them).
