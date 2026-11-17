@@ -300,7 +300,10 @@ def test_operator_reconciles_an_uncertain_submission_without_replaying_it(printe
     assert model_job.print_now(a, reprint=True)["started"] is True
 
 
-def test_crash_before_submission_is_released_after_restart_and_approval_stays_used(printer):
+def test_crash_during_upload_is_released_after_restart_and_the_approval_stays_unused(printer):
+    # #1586: the upload runs before the bed-clear approval is consumed, so a crash
+    # during it burns nothing: after the restart the retry starts on the same
+    # approval, with no reprint flag.
     a, _ = make_job(printer.root, "a")
 
     def crash_during_upload(cmd, *args, **kwargs):
@@ -310,9 +313,8 @@ def test_crash_before_submission_is_released_after_restart_and_approval_stays_us
         model_job.print_now(a)
     printer.run.side_effect = upload_ok
     simulate_restart()
-    with pytest.raises(SystemExit, match="already used"):
-        model_job.print_now(a)  # the approval from before the restart is not reusable
-    assert model_job.print_now(a, reprint=True)["started"] is True
+    assert "approvals" not in json.loads(a.read_text())
+    assert model_job.print_now(a)["started"] is True
     assert leases() == []
 
 

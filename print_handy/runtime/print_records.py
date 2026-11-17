@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import _config
+from . import state_file
 
 VAULT_ROOT = _config.records_vault()
 PRINTS_DIR = VAULT_ROOT / "Prints"
@@ -107,17 +108,7 @@ def _safe_slug(value: str, fallback: str = "print") -> str:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    state_file.write_text_atomic(path, content)
 
 
 def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
