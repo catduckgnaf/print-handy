@@ -30,3 +30,6 @@ def test_toggle_sits_in_the_headers_top_right_corner():
     nav_start = out.index('<div class="chrome-right">')
     assert brand_end < nav_start
     assert ".theme-toggle {\n  position: absolute; top: 0.75rem; right: 1rem;" in out
+    # The header reserves the corner's width, so the nav can never run
+    # underneath the absolutely positioned toggle on a wide screen.
+    assert "padding-right: 12rem;" in out

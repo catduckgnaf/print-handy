@@ -124,7 +124,8 @@ header.site {
 header.site .wrap {
   position: relative;
   display: flex; flex-wrap: wrap; align-items: center;
-  justify-content: space-between; gap: 0.75rem; padding-top: 0.75rem; padding-bottom: 0.75rem;
+  justify-content: space-between; gap: 0.75rem;
+  padding-top: 0.75rem; padding-bottom: 0.75rem; padding-right: 12rem;
 }
 .brand { display: flex; align-items: center; gap: 0.75rem; }
 .brand .tile {
