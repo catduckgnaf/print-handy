@@ -22,6 +22,7 @@ import secrets
 import threading
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -172,12 +173,32 @@ def _send(path: str, method: str = "GET", data: dict[str, Any] | None = None, ti
 
 
 def status(printer_id: str | None = None) -> dict[str, Any]:
-    """Moonraker job state plus Klipper host state (ready, shutdown, error, startup)."""
+    """Moonraker job state plus Klipper host state (ready, shutdown, error, startup).
+
+    An auth failure is the caller's to handle (``resume`` refuses on it),
+    so it is re-raised, never masked as an unknown state (#1587). When
+    the job query fails for another reason, the /server/info fallback
+    still reports the Klipper host state. ``unreachable`` — a state
+    distinct from ``unknown`` — is returned only when the fallback also
+    fails to connect; a fallback that Moonraker answers with an HTTP
+    error, or that fails any other way, surfaces that error instead of
+    being masked as a connection failure.
+    """
     try:
         data = _send("/printer/objects/query?print_stats&virtual_sdcard=progress&webhooks",
                      printer_id=printer_id)
+    except moonraker.MoonrakerAuthError:
+        raise
     except Exception:
-        info = (_send("/server/info", printer_id=printer_id).get("result") or {})
+        try:
+            info = (_send("/server/info", printer_id=printer_id).get("result") or {})
+        except moonraker.MoonrakerAuthError:
+            raise
+        except urllib.error.HTTPError:
+            raise  # Moonraker answered with an error: surface it, never mask it
+        except (urllib.error.URLError, OSError, TimeoutError):
+            return {"state": "unreachable", "klippy": "unknown", "filename": "",
+                    "layer": None, "total_layer": None, "progress": None, "print_duration": None}
         return {"state": "unknown", "klippy": str(info.get("klippy_state") or "unknown"), "filename": "",
                 "layer": None, "total_layer": None, "progress": None, "print_duration": None}
     s = (data.get("result") or {}).get("status") or {}

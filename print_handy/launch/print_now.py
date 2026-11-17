@@ -2831,18 +2831,23 @@ def _owning_job(g):
     return None, None
 
 
+class LaunchTargetError(RuntimeError):
+    """A print target's owning JOB.json exists but cannot be read (#1587)."""
+
+
 @dataclass(frozen=True)
 class LaunchTarget:
-    """One launch's resolved identity, built once (#1590 item 3).
+    """One print target resolved once: G-code, owning job, printer, hash.
 
-    ``gcode`` is the final G-code path (a JOB.json target is dereferenced
-    to the G-code it names), ``job``/``job_path`` its owning job record,
-    ``printer_id`` the job's recorded printer (or None for the configured
-    single printer) and ``sha`` the G-code file's SHA-256, or None when
-    the file does not exist yet (the launch body refuses that case).
-    Note: lane #1587 builds a minimal LaunchTarget for its control-lock
-    fix on its own branch; the two definitions overlap on purpose and
-    catduck can sequence the merges.
+    ``print_now`` resolves this before taking the control lock and passes
+    it down, so the lock is keyed by the printer the launch will actually
+    use (#1587). ``gcode`` is the final G-code path (a JOB.json target is
+    dereferenced to the G-code it names), ``job``/``job_path`` its owning
+    job record, ``printer_id`` the job's recorded printer (or None for
+    the configured single printer) and ``sha`` the G-code file's SHA-256,
+    or None when the file does not exist yet (the launch body refuses
+    that case). A loose G-code with no owning job keeps ``job``/``job_path``
+    None and the default printer, exactly as before.
     """
 
     gcode: Path
@@ -2850,6 +2855,37 @@ class LaunchTarget:
     job_path: Path | None
     printer_id: str | None
     sha: str | None
+
+
+def _owning_job_strict(g):
+    """_owning_job, raising LaunchTargetError when a JOB.json cannot be read.
+
+    Only a job that exists but fails to read or parse is an error; a
+    target with no owning JOB.json still returns (None, None).
+    """
+    try:
+        return _owning_job(g)
+    except Exception as exc:
+        raise LaunchTargetError(f"could not read the job owning {g}: {exc}") from exc
+
+
+def _resolve_launch_target(target) -> LaunchTarget:
+    """Resolve ``target`` once into a LaunchTarget; see its docstring."""
+    if isinstance(target, LaunchTarget):
+        return target
+    g = Path(resolve_print_target(target)).expanduser().resolve()
+    job, job_path = _owning_job_strict(g)
+    if g.name == "JOB.json" and isinstance(job, dict) and job.get("gcode"):
+        g = Path(job["gcode"]).expanduser().resolve()
+    sha = None
+    try:
+        sha = file_sha256(g) if g.is_file() else None
+    except OSError:
+        sha = None
+    return LaunchTarget(gcode=g, job=job if isinstance(job, dict) else None,
+                        job_path=job_path,
+                        printer_id=(job.get("printer_id") if isinstance(job, dict) else None),
+                        sha=sha)
 
 
 def build_launch_target(target) -> LaunchTarget:
@@ -2891,24 +2927,25 @@ def _refuse_delivery_not_enabled(adapter, st, g, printer_id, job, *, via, status
 def _print_now_control_lock(target):
     """The shared interprocess control lock for this print's printer (P1-33).
 
-    Keyed by the owning job's recorded printer_id, resolved the same way
-    _print_now_locked resolves the job it launches — from a JOB.json
-    target, or from the ancestor JOB.json of a G-code target (the chat
-    flow's print_next.start passes the G-code path, not JOB.json) — else
-    the default printer: the same identity _printer_key leases by.
-    Resolution is read-only and defensive: any failure falls back to the
-    default printer and the print body raises its own error.
+    Keyed by the owning job's recorded printer_id, from the LaunchTarget
+    resolved once for this launch — from a JOB.json target, or from the
+    ancestor JOB.json of a G-code target (the chat flow's
+    print_next.start passes the G-code path, not JOB.json) — else the
+    default printer: the same identity _printer_key leases by. A job
+    that exists but cannot be read refuses (#1587): keying the default
+    printer's lock and launching on the job's printer anyway would take
+    the wrong lock.
     """
     from ..core import control_lock as _cl
-    key = None
+    if isinstance(target, LaunchTarget):
+        return _cl.control_lock(target.printer_id)
     try:
-        g = Path(resolve_print_target(target)).expanduser().resolve()
-        job, _job_path = _owning_job(g)
-        if isinstance(job, dict):
-            key = job.get("printer_id")
+        launch = _resolve_launch_target(target)
+    except LaunchTargetError as exc:
+        raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
     except Exception:
-        key = None
-    return _cl.control_lock(key)
+        return _cl.control_lock(None)
+    return _cl.control_lock(launch.printer_id)
 
 
 # Receipt statuses a print-now start may settle: the intake sliced the job
@@ -3117,7 +3154,14 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
 def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
                          yolo=False, bed_clear=None):
     """print_now inside the run's material acceptance (if any)."""
-    lock = _print_now_control_lock(target)
+    # Resolve the target once (#1587): the lock is keyed from this same
+    # resolution the launch body uses, and an unreadable owning job
+    # refuses here instead of falling back to the default printer's lock.
+    try:
+        launch = _resolve_launch_target(target)
+    except LaunchTargetError as exc:
+        raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
+    lock = _print_now_control_lock(launch)
     if not lock.acquire(blocking=False):
         raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
                          "is in flight for this printer. Nothing uploaded or started.")
@@ -3129,7 +3173,8 @@ def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, repri
                   "not enforced, except the axis limits and heater maximums.", flush=True)
         out = _print_now_locked(target, wait_s=wait_s,
                                 accept_default_z_offset=accept_default_z_offset,
-                                reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
+                                reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num,
+                                launch_target=launch, locked_printer_id=launch.printer_id)
     finally:
         if clear_token is not None:
             _BED_CLEAR.reset(clear_token)
@@ -3150,16 +3195,48 @@ def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, repri
     return out
 
 
-def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
-    """print_now's body, run under the printer's interprocess control lock."""
+# Sentinel for _print_now_locked's locked_printer_id: the caller holds
+# no LaunchTarget-keyed lock (direct callers), so no lock check applies.
+_NO_LOCKED_PRINTER = object()
+
+
+def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
+                      launch_target=None, locked_printer_id=_NO_LOCKED_PRINTER):
+    """print_now's body, run under the printer's interprocess control lock.
+
+    ``launch_target`` is the LaunchTarget resolved once by the caller
+    (#1587): its job is the job launched, not a second read. A slot
+    remap rewrites the job first, so a remapped launch re-resolves
+    instead of trusting the pre-remap resolution — and the re-resolved
+    printer must be the printer the caller locked (``locked_printer_id``,
+    the pre-remap LaunchTarget's printer): a remap that lands on a
+    different printer refuses, because the lock held is that printer's,
+    not this one's.
+    """
     if remap_slot_num is not None:
         try:
             remap_res = remap_slot(target, remap_slot_num)
         except ToolRemapRefused as exc:
             raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
         print(f"SLOT REMAPPED: T{remap_res['tool']} -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
-    launch = build_launch_target(target)
-    g, job, job_path = launch.gcode, launch.job, launch.job_path
+        launch_target = None
+    if launch_target is not None:
+        launch = launch_target
+        g = launch_target.gcode
+        job, job_path = launch_target.job, launch_target.job_path
+        # The target named JOB.json itself (the resolved G-code is still
+        # the JOB.json path) and the job names no G-code: the stale check.
+        if job_path is not None and g == job_path and isinstance(job, dict) and not job.get("gcode"):
+            raise RuntimeError("stale color artifact: reslice current JOB before launch")
+    else:
+        launch = build_launch_target(target)
+        g, job, job_path = launch.gcode, launch.job, launch.job_path
+    if remap_slot_num is not None and locked_printer_id is not _NO_LOCKED_PRINTER:
+        resolved_printer = job.get("printer_id") if isinstance(job, dict) else None
+        if resolved_printer != locked_printer_id:
+            raise SystemExit(f"REFUSED: remapping the slot re-resolved this launch to printer "
+                             f"{resolved_printer!r}, but the control lock is held for printer "
+                             f"{locked_printer_id!r}. Nothing uploaded or started.")
     cur = Path(job["gcode"]).expanduser().resolve() if isinstance(job, dict) and job.get("gcode") else None
     if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
             and not job.get("derived_plates")):
