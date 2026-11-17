@@ -202,6 +202,9 @@ ROUTES = (
     _post("/spools/*", SESSION_CSRF, "_spools_page_post", back="/spools/{arg}"),
     # The Status page E-stop button (a browser cannot send the header).
     _post("/dashboard/estop/*", SESSION_CSRF, "_dashboard_estop_post", back="/"),
+    # The printer screen page's tap (#1626; same browser constraint).
+    _post("/printers/*/screen/touch", SESSION_CSRF, "_screen_touch_post",
+          back="/printers/{arg}/screen"),
     # Header-token upload (#1548): multipart, the header only, like the
     # other API writes — a header client cannot use the session+CSRF
     # upload page or a minted link. Exact row, so it wins over the
