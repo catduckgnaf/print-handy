@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import threading
 from pathlib import Path
 
 from print_handy.core import external_intake as ei
@@ -30,6 +32,12 @@ from . import shell
 
 _esc = shell._esc
 logger = logging.getLogger(__name__)
+
+# One confirmation at a time per process: the duplicate checks, the
+# claim write and the spool charge are one atomic sequence, so two
+# concurrent confirmations of the same card cannot both pass the
+# checks and charge twice.
+_CONFIRM_LOCK = threading.Lock()
 
 
 def _store_dir(data) -> Path:
@@ -95,14 +103,63 @@ def _multislot_ledger_keys() -> set:
     return keys
 
 
+def _validated_charge(spool_id, grams):
+    """The declared spool usage, validated before it can reach Spoolman.
+
+    Form values are untrusted: a spool id must be a positive integer
+    and grams a positive, finite number, and the two are declared
+    together or not at all. Anything else is refused here, before any
+    accounting call, so a crafted confirmation cannot corrupt spool
+    accounting with a negative or non-finite charge.
+    """
+    if spool_id is None and grams is None:
+        return None
+    if spool_id is None or grams is None:
+        raise ei.IntakeRefused(
+            "give both a spool id and its grams, or neither — a print with "
+            "no declared spool usage is recorded without a spool charge.")
+    if isinstance(spool_id, bool):
+        raise ei.IntakeRefused("the spool id must be a positive whole number.")
+    try:
+        spool = int(spool_id)
+    except (TypeError, ValueError):
+        raise ei.IntakeRefused("the spool id must be a positive whole number.") from None
+    if isinstance(spool_id, float) and not spool_id.is_integer():
+        raise ei.IntakeRefused("the spool id must be a positive whole number.")
+    if isinstance(spool_id, str) and str(spool) != spool_id.strip():
+        raise ei.IntakeRefused("the spool id must be a positive whole number.")
+    if spool < 1:
+        raise ei.IntakeRefused("the spool id must be a positive whole number.")
+    try:
+        weight = float(grams)
+    except (TypeError, ValueError):
+        raise ei.IntakeRefused("the grams used must be a positive number.") from None
+    if not math.isfinite(weight) or weight <= 0:
+        raise ei.IntakeRefused("the grams used must be a positive, finite number.")
+    return spool, weight
+
+
 def confirm_card(data, *, sha256, path, printer_id, print_id, spool_id=None,
                  grams=None) -> dict:
     """Confirm one draft card as printed, charging exactly once.
 
     Raises `ei.IntakeRefused` with the concrete reason when the print is
-    already recorded, the card is unknown, or a declared spool charge
-    could not be confirmed.
+    already recorded, the card is unknown, the declared spool usage is
+    not a valid positive charge, or a declared spool charge could not
+    be confirmed. The whole sequence runs under a lock, and the print's
+    identity is claimed in the persisted ledger before the spool charge
+    is sent, so neither a concurrent confirmation nor a crash mid-charge
+    can charge the same print twice.
     """
+    declared = _validated_charge(spool_id, grams)
+    with _CONFIRM_LOCK:
+        return _confirm_card_locked(data, sha256=sha256, path=path,
+                                    printer_id=printer_id, print_id=print_id,
+                                    declared=declared)
+
+
+def _confirm_card_locked(data, *, sha256, path, printer_id, print_id,
+                         declared) -> dict:
     store = _store_dir(data)
     cards = _read_json(store / "cards.json", [])
     card = next((row for row in cards
@@ -122,22 +179,28 @@ def confirm_card(data, *, sha256, path, printer_id, print_id, spool_id=None,
             "recorded as unconfirmed and is not retried here.")
 
     def charge(*, identity, card, printer_id):
-        if spool_id is None or grams is None:
+        # Claim first: the identity is persisted in the ledger before
+        # any charge is sent, so a crash from here on can never lead to
+        # the same print being charged again by a later confirmation.
+        ledger.add(identity)
+        _write_json(store / "ledger.json", sorted(ledger))
+        if declared is None:
             return {"recorded": True, "spool_charge": "none declared — the print "
                     "is recorded; no spool was charged"}
+        spool, weight = declared
         from print_handy.core import spoolman_client
         try:
             spoolman_client.request(
-                "PUT", f"/api/v1/spool/{int(spool_id)}/use",
-                {"use_weight": float(grams)}, timeout=8)
+                "PUT", f"/api/v1/spool/{spool}/use",
+                {"use_weight": weight}, timeout=8)
         except Exception as exc:
             unconfirmed.add(identity)
             _write_json(store / "unconfirmed.json", sorted(unconfirmed))
             raise ei.IntakeRefused(
-                f"the spool charge for spool {spool_id} could not be confirmed "
+                f"the spool charge for spool {spool} could not be confirmed "
                 f"({exc}); it is recorded as unconfirmed and will not be retried "
                 "from here.") from exc
-        return {"recorded": True, "spool_charge": f"spool {spool_id}: {float(grams):g} g"}
+        return {"recorded": True, "spool_charge": f"spool {spool}: {weight:g} g"}
 
     result = ei.confirm_mark_printed(card, printer_id=printer_id,
                                      print_id=print_id, ledger=ledger, charge=charge)

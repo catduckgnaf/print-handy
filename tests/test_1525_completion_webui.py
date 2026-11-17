@@ -266,6 +266,85 @@ def test_intake_refuses_a_print_id_already_in_the_multislot_ledger(tmp_path, mon
             printer_id="ad5x", print_id="job-77")
 
 
+@pytest.mark.parametrize("spool_id,grams", [
+    (7, -1), (7, 0), (7, float("nan")), (7, float("inf")), (7, "abc"),
+    (0, 10), (-3, 10), ("x", 10), (7, None), (None, 10), (7.5, 10),
+])
+def test_intake_confirm_refuses_invalid_spool_usage(tmp_path, monkeypatch,
+                                                    spool_id, grams):
+    # Review finding: form values are untrusted — a negative, zero,
+    # non-finite or half-declared spool charge must be refused before
+    # any Spoolman call, never reach the accounting request.
+    data, _watched = intake_settings(tmp_path)
+    external_intake_page.scan_cards(data)
+    (card,) = external_intake_page.scan_cards(data)
+    calls = []
+    monkeypatch.setattr(spoolman_client, "request",
+                        lambda *a, **k: calls.append((a, k)) or {})
+    with pytest.raises(ei.IntakeRefused):
+        external_intake_page.confirm_card(
+            data, sha256=card["sha256"], path=card["path"],
+            printer_id="ad5x", print_id="ext-bad",
+            spool_id=spool_id, grams=grams)
+    assert calls == []
+
+
+def test_intake_concurrent_confirmations_charge_once(tmp_path, monkeypatch):
+    # Review finding: two concurrent confirmations of the same card
+    # must not both pass the duplicate checks — exactly one charges.
+    import threading
+    data, _watched = intake_settings(tmp_path)
+    external_intake_page.scan_cards(data)
+    (card,) = external_intake_page.scan_cards(data)
+    calls = []
+
+    def slow_request(*a, **k):
+        calls.append((a, k))
+        threading.Event().wait(0.3)
+        return {}
+
+    monkeypatch.setattr(spoolman_client, "request", slow_request)
+    outcomes = []
+
+    def confirm():
+        try:
+            outcomes.append(("ok", external_intake_page.confirm_card(
+                data, sha256=card["sha256"], path=card["path"],
+                printer_id="ad5x", print_id="ext-race", spool_id=7, grams=10)))
+        except ei.IntakeRefused as exc:
+            outcomes.append(("refused", str(exc)))
+
+    threads = [threading.Thread(target=confirm) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert [kind for kind, _ in outcomes].count("ok") == 1
+    assert [kind for kind, _ in outcomes].count("refused") == 1
+    assert len(calls) == 1
+
+
+def test_intake_unconfirmed_charge_still_claims_the_print(tmp_path, monkeypatch):
+    # The identity is claimed in the persisted ledger before the charge
+    # is sent, so a charge whose outcome stays unknown can never be
+    # charged again by a later confirmation under a different refusal.
+    data, _watched = intake_settings(tmp_path)
+    external_intake_page.scan_cards(data)
+    (card,) = external_intake_page.scan_cards(data)
+
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(spoolman_client, "request", boom)
+    with pytest.raises(ei.IntakeRefused, match="never confirmed|not be retried|unconfirmed"):
+        external_intake_page.confirm_card(
+            data, sha256=card["sha256"], path=card["path"],
+            printer_id="ad5x", print_id="ext-claim", spool_id=7, grams=10)
+    store = external_intake_page._store_dir(data)
+    ledger = json.loads((store / "ledger.json").read_text())
+    assert f"external:{card['sha256']}:ad5x:ext-claim" in ledger
+
+
 def test_intake_http_flow_records_once(tmp_path):
     data, _watched = intake_settings(tmp_path)
     httpd, port = start(data, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
