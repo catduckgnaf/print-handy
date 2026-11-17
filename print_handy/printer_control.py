@@ -209,7 +209,10 @@ class PrinterControl:
         return _driver("print_stop").cancel(expected_filename, **_kw(self.printer_id), **wait)
 
     def pause(self, expected_filename: str = "", **wait) -> tuple[bool, str]:
-        """One verified Bambu LAN pause for the confirmed file (print_stop.pause)."""
+        """One verified pause for the confirmed file on Bambu LAN or a family adapter (print_stop.pause).
+
+        Moonraker pauses through ``send_pause`` plus the caller's readback
+        (print_alert_buttons.handle_click)."""
         return _driver("print_stop").pause(expected_filename, **_kw(self.printer_id), **wait)
 
     def send_pause(self) -> None:

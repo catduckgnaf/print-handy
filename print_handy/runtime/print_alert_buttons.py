@@ -1857,6 +1857,14 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
                 control.send_pause()
             except Exception as exc:
                 send_error = exc
+            # A typed /print-pause (#1524 review) carries ``command``: it has
+            # no alert message whose buttons need replacing, and a fresh
+            # camera alert would land in the home Discord chat, not where
+            # the command was typed. Its reply says how to try again instead.
+            from_command = bool(alert.get("command"))
+            again = ("Say /print-pause to try again." if from_command
+                     else "A fresh alert with a Pause button is posted above.")
+            repost = (lambda *_a, **_k: "") if from_command else _repost_alert
             outcome = _poll_for_paused(pc, pause_wait_s, pause_poll_s, printer_id=pid)
             state = outcome.get("state") if outcome else None
             if state == "paused":
@@ -1867,32 +1875,32 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
             if state == "printing":
                 # Only an actual printing readback earns the definitive
                 # "did not pause" wording and the still-printing alert.
-                _repost_alert("visual", filename, alert,
-                              f"Camera check: {filename} is still printing and the pause did not take. "
-                              "Tap Pause to try again.")
+                repost("visual", filename, alert,
+                       f"Camera check: {filename} is still printing and the pause did not take. "
+                       "Tap Pause to try again.")
                 if send_error is not None:
                     return (f"Pause not confirmed: sending the pause failed ({send_error}), "
                             "and readback still reports printing. The printer did not pause "
-                            "from this tap. A fresh alert with a Pause button is posted above. "
+                            f"from this tap. {again} "
                             "Not retrying the send.")
                 return (f"Pause sent, but the printer did not pause: it still reports printing "
                         f"after {pause_wait_s:.0f}s. Check the printer screen. "
-                        "A fresh alert with a Pause button is posted above. Not retrying.")
+                        f"{again} Not retrying.")
             if state is None or state == "unknown":
-                _repost_alert("visual", filename, alert,
-                              f"Camera check: the pause for {filename} could not be confirmed — "
-                              "the printer's status is unavailable. Check the printer screen; "
-                              "tap Pause to try again.")
+                repost("visual", filename, alert,
+                       f"Camera check: the pause for {filename} could not be confirmed — "
+                       "the printer's status is unavailable. Check the printer screen; "
+                       "tap Pause to try again.")
                 if send_error is not None:
                     return (f"Pause outcome unknown: sending the pause failed ({send_error}), "
                             "and the printer's status could not be read afterwards, so I "
                             "can't tell whether it paused. Check the printer screen. "
-                            "A fresh alert with a Pause button is posted above. "
+                            f"{again} "
                             "The pause was not resent.")
                 return (f"Pause sent, but it could not be confirmed: the printer's status "
                         f"became unreadable during the {pause_wait_s:.0f}s wait, so I can't "
                         "tell whether it paused. Check the printer screen. "
-                        "A fresh alert with a Pause button is posted above. Not retrying.")
+                        f"{again} Not retrying.")
             # The job ended (or entered an error state) inside the
             # window: name the actual state; there is nothing left to
             # pause, so no replacement Pause alert is posted.

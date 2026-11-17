@@ -66,6 +66,11 @@ class Command:
     # Read-only commands answer ephemerally as a slash command (#1475): the
     # answer is the interaction's own response and only the asker sees it.
     ephemeral: bool = False
+    # A command that acts on the printer with no confirmation of its own
+    # (#1524 review: /print-pause). Every surface that would run it from
+    # something short of typing it (a bare mention word, the help menu,
+    # a did-you-mean "yes") reads this flag instead of a name list.
+    at_once: bool = False
 
 
 COMMANDS = (
@@ -73,7 +78,7 @@ COMMANDS = (
             (Option("plan_id", "Plan from the completion message", autocomplete="plan", required=True),
              Option("part_id", "A specific plate (optional)", autocomplete="plate")), "/print-next <plan_id> [part_id]"),
     Command("print-stop", "Stop the current print (asks first)", usage="/print-stop"),
-    Command("print-pause", "Pause the print", usage="/print-pause"),
+    Command("print-pause", "Pause the print", usage="/print-pause", at_once=True),
     Command("print-resume", "Resume a paused print (asks first)", usage="/print-resume"),
     Command("print-status", "Current print progress (read-only)",
             (Option("printer", "Printer (optional; defaults to this channel's printer)",
@@ -251,8 +256,15 @@ HELP_MENU_EXCLUDE = frozenset({"print-help", "print-status", "print-again", "spo
 
 
 def help_menu_commands(supports_live_stream=True):
-    return [c for c in COMMANDS if c.name not in HELP_MENU_EXCLUDE
+    # A menu pick runs the command on the spot, so a command with no
+    # confirmation of its own is never offered there (#1524 review).
+    return [c for c in COMMANDS if c.name not in HELP_MENU_EXCLUDE and not c.at_once
             and (supports_live_stream or not c.live_stream)]
+
+
+def at_once_names():
+    """The slash forms of the commands that act with no confirmation of their own."""
+    return frozenset("/" + c.name for c in COMMANDS if c.at_once)
 
 
 def short_help_text(bot_name="Print Handy"):

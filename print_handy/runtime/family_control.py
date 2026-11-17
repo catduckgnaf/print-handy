@@ -145,7 +145,7 @@ def adapter_for(printer_id: str | None = None):
 
 
 class FamilyControl:
-    """Resume/cancel for one non-Moonraker printer, through its own adapter.
+    """Pause/resume/cancel for one non-Moonraker printer, through its own adapter.
 
     Mirrors ``print_control.resume`` / ``print_stop.cancel``: re-read
     first, one command at most, read back, truthful text. State and
@@ -162,6 +162,36 @@ class FamilyControl:
 
     def status(self) -> dict[str, Any]:
         return self._status_fn()
+
+    def pause(self, expected_filename: str = "", wait_s: float = 20,
+              poll_s: float = 1.0) -> tuple[bool, str]:
+        """One pause, only if the same file is still printing, then read back. Never retried."""
+        before = self.status()
+        state = str(before.get("state") or "unknown")
+        if state == "paused":
+            return False, "Already paused. Nothing sent."
+        if state != "printing":
+            return False, f"Nothing to pause: printer is {state}. Nothing sent."
+        if expected_filename and before.get("filename") and before["filename"] != expected_filename:
+            return False, "A different print is running now than the one you meant. Nothing sent."
+        self.adapter.control("pause")
+        deadline = time.monotonic() + wait_s
+        after = before
+        while time.monotonic() < deadline:
+            self._sleep(poll_s)
+            try:
+                after = self.status()
+            except Exception:
+                logger.debug("pause readback failed; still waiting", exc_info=True)
+                continue
+            if after.get("state") != "printing":
+                break
+        if after.get("state") == "paused":
+            return True, "Paused. Printer now reports paused."
+        if after.get("state") == "printing":
+            return True, (f"Pause sent, but the printer still reports printing after {wait_s:.0f}s. "
+                          "Check the printer screen. Not retrying.")
+        return True, f"Pause sent. Printer now reports {after.get('state')}."
 
     def resume(self, expected_filename: str = "", wait_s: float = 20,
                poll_s: float = 1.0) -> tuple[bool, str]:

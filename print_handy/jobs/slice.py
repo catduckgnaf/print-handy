@@ -1472,7 +1472,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
             finalize_multicolor(out, None, st, {'0': slot}, adapter=_job_adapter(job))
-            check = verify_gcode_offline(out, st, _job_adapter(job))
+            check = verify_gcode_offline(out, st, _job_adapter(job), slot=slot)
         except RuntimeError as exc:
             # One plate failing a safety guard (e.g. an off-bed move) must not discard the
             # other plates that sliced and verified cleanly. The failed plate is recorded,
@@ -1870,7 +1870,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
         out, provenance, configs = slice_model(plate, slice_dir, st, preserve_layout=True,
                                                filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
         finalize_multicolor(out, None, st, {'0': slot}, adapter=_job_adapter(job))
-        check = verify_gcode_offline(out, st, _job_adapter(job))
+        check = verify_gcode_offline(out, st, _job_adapter(job), slot=slot)
         artifacts.append({'slot': slot, 'plate_id': index, 'binding_key': f'{index}:{slot}',
                           'part_keys': keys, 'plate': str(plate), 'gcode': str(out),
                           **({'yaw_deg': yaw_deg} if yaw_deg is not None else {}),
@@ -2377,7 +2377,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
                 raise RuntimeError(f"derived plate physical IFS slot {group['slot']} has no verified material")
             finalize_multicolor(out, None, st, {'0': group['slot']}, adapter=adapter)
             # Verify the exact final bytes (after map, color and MD5 rewrite).
-            check = verify_gcode_offline(out, st, _job_adapter(job))
+            check = verify_gcode_offline(out, st, _job_adapter(job), slot=group['slot'])
             artifacts.append({'slot': group['slot'], 'part_keys': group['part_keys'], 'plate': str(plate),
                               'gcode': str(out), 'offline_check': check, 'plate_report': report,
                               'provenance': provenance, 'slice_config': [str(path) for path in configs]})

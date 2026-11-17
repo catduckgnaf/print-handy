@@ -186,7 +186,7 @@ def rig(tmp_path, monkeypatch):
     with zipfile.ZipFile(package, "w") as archive:
         archive.writestr("Metadata/plate_1.gcode", "G1 X1\n")
     monkeypatch.setattr(model_job, "START_CLAIMS", tmp_path / "claims.json")
-    monkeypatch.setattr(model_job, "verify_gcode", lambda path: {"offline": True})
+    monkeypatch.setattr(model_job, "verify_gcode", lambda path, **kw: {"offline": True})
     monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: "/records/1")
     monkeypatch.setattr(model_job.printers, "current", lambda *a, **k: FakeAdapter("octoprint", None))
     def with_gcode_temperatures(state, text, recorded=None):  # model_job's real signature

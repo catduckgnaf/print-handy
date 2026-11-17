@@ -235,7 +235,11 @@ def command_text(text):
     if not head or head.startswith("/"):
         return clean
     word = head.casefold().replace("_", "-")
-    known = {c.name for c in commands.COMMANDS} | {a for c in commands.COMMANDS for a in c.aliases}
+    # A command with no confirmation of its own (/print-pause) is never
+    # run from a bare mention word: "@bot pause" goes through the normal
+    # flow, whose did-you-mean asks for a deliberate yes (#1524 review).
+    usable = [c for c in commands.COMMANDS if not c.at_once]
+    known = {c.name for c in usable} | {a for c in usable for a in c.aliases}
     for candidate in (word, "print-" + word):
         if candidate in known:
             return "/" + candidate + (" " + rest.strip() if rest.strip() else "")
