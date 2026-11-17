@@ -121,6 +121,27 @@ def test_claim_notification_two_processes_claim_once(tmp_path):
     assert listener._claim_notification("job:7", "started", target) is False
 
 
+def test_claim_notification_lock_timeout_fails_closed(tmp_path, monkeypatch):
+    target = tmp_path / "claims.json"
+    lock = Path(str(target) + ".lock")
+    lock.write_text("")  # another process holds the claim lock, fresh
+    real_locked = state_file.locked
+
+    def quick_locked(path, **kwargs):
+        kwargs.setdefault("wait_s", 0.2)
+        kwargs.setdefault("stale_s", 60.0)
+        return real_locked(path, **kwargs)
+
+    monkeypatch.setattr(state_file, "locked", quick_locked)
+    # The claim must not proceed unlocked: it reports not-claimed and
+    # records nothing, so no duplicate notice can come from this path.
+    assert listener._claim_notification("job:9", "started", target) is False
+    assert not target.exists()
+    lock.unlink()
+    assert listener._claim_notification("job:9", "started", target) is True
+    assert listener._claim_notification("job:9", "started", target) is False
+
+
 # -- the alert store under two processes -----------------------------------------
 
 

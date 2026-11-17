@@ -2307,17 +2307,25 @@ def _claim_notification(identity, phase, path=None):
     target = Path(path or NOTIFICATION_STATE)
     # The whole read-modify-write takes the shared state-file lock (#1585):
     # two listener processes claiming at once could otherwise both read the
-    # pre-claim state, both return True, and post duplicate notices.
-    with state_file.locked(target):
-        state = read_json_object(target)
-        key = f"{identity}|{phase}"
-        if key in state.get("sent", []):
-            return False
-        sent = list(state.get("sent", []))
-        sent.append(key)
-        state["sent"] = sent[-500:]
-        atomic_write_json(target, state)
-        return True
+    # pre-claim state, both return True, and post duplicate notices. The
+    # claim fails closed: a lock that cannot be had in time means the
+    # claim is treated as not made (the notice is skipped), never that
+    # the read-modify-write proceeds unlocked.
+    try:
+        with state_file.locked(target, raise_on_timeout=True):
+            state = read_json_object(target)
+            key = f"{identity}|{phase}"
+            if key in state.get("sent", []):
+                return False
+            sent = list(state.get("sent", []))
+            sent.append(key)
+            state["sent"] = sent[-500:]
+            atomic_write_json(target, state)
+            return True
+    except TimeoutError:
+        warn(f"notification claim {identity}|{phase} could not get the state lock; "
+             "skipping this notice rather than risking a duplicate")
+        return False
 
 def _record_transition_markers(old, new_state, filename, stats):
     """Record #317 event markers for one print state transition.
