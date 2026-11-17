@@ -1705,21 +1705,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     try:
         # Again inside the lease: the first read may predate another job's start.
         require_idle()
-        # #1586: check the bed-clear confirmation without consuming it here. The upload
-        # below runs in the leased phase (nothing started), so a failed upload must not
-        # burn the single-use approval; it is consumed at the end of this block, just
-        # before lease.submitting().
-        _claim_bed_clear(job_path, job, g, reprint, consume=False)
+        _check_bed_clear(job_path, job, g, reprint)  # #1586 phase one: check, do not consume yet
         _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
-        _timing(job_path, 'upload_begin')
-        uploaded = subprocess.run([str(MOONRAKERCTL), 'upload', str(upload_path), remote, upload_sha],
-                                  text=True, capture_output=True, timeout=300, env=_moonrakerctl_env(st))
-        if uploaded.returncode:
-            raise RuntimeError('The file could not be uploaded to the printer, so nothing started. '
-                               'Check the printer is on and reachable, then try again.'
-                               + _detail_tail(uploaded.stderr or uploaded.stdout))
-        upload_json = json.loads(uploaded.stdout)
+        upload_json = json.loads(_upload_via_moonrakerctl(st, upload_path, remote, upload_sha,
+                                                          job_path, failure=RuntimeError))
         g.with_suffix('.upload.json').write_text(json.dumps(upload_json, indent=2) + '\n')
         result = upload_json.get('result', upload_json)
         item = result.get('item', {}) if isinstance(result, dict) else {}
@@ -1746,8 +1736,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         checkpoint.write_text(json.dumps(checkpoint_data, indent=2) + '\n')
         # This path posts its own start card, so the listener must not post a second one
         # when native preparation (heating, leveling) finishes minutes later (2026-10-11 duplicate).
-        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
+        _claim_start_quietly(remote, job)
         # #836: the idle guard proved every heater target was 0 before an upload that can take
         # minutes. Re-read the targets after the upload: a preheat tapped on HelixScreen during the
         # upload is not this job's preparation, and a printer someone else is heating must not be
@@ -1814,16 +1803,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _record_usage_baseline(st, job, job_path, sync.get('spool_id'))
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
-        # #1586: the upload and every pre-start step above succeeded, so consume the
-        # bed-clear approval now, just before lease.submitting() below. A failure in
-        # this block releases the lease with the approval still unused, and the retry
-        # needs no second confirmation.
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
+        _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
-        lease.release()  # nothing was sent to start
-        release_start_announcement(remote)  # the claim was taken in the block above
-        if checkpoint_data is not None:
-            _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'not_submitted'})
+        _abandon_leased_upload(lease, remote, on_abandon=(
+            (lambda: _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'not_submitted'}))
+            if checkpoint_data is not None else None))
         raise
     # What the printer shows just before the one POST. A reprint's remote name is the previous run's
     # (state complete, same file, axes homed), so only a change from this counts as this start's evidence.
@@ -2233,79 +2217,255 @@ def remap_slot(target, new_slot, tool=None, state=None):
     }
 
 
-def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
-    """A separate transport path, retaining artifact and approval guards above."""
-    client = adapter.client()
+# -- One launch pipeline (#1603 item 1) ---------------------------------------
+#
+# Every launcher used to sequence verify, idle, lease, bed-clear, upload,
+# start, confirm and record itself, so a fix like #1586's bed-clear order
+# had to be made in each one separately. The sequence now lives in shared
+# runners; a transport keeps only the steps that genuinely differ, as
+# hooks on a spec:
+#
+# - the five polled transports (OctoPrint, Bambu, Elegoo SDCP, PrusaLink,
+#   stock Flashforge) run _run_transport_launch with a TransportLaunch;
+# - the two Moonraker routes (the generic path in _print_now_locked and
+#   print_mapped_native) share the leased-upload steps below
+#   (_check_bed_clear / _consume_bed_clear, _upload_via_moonrakerctl,
+#   _claim_start_quietly, _abandon_leased_upload) and keep their own start
+#   submission and confirmation, because those differ in kind: the generic
+#   route posts print/start commands and reconciles a lost response, the
+#   mapped route posts exactly one SET_ZCOLOR with its checkpoint,
+#   held-open and abandoned-start handling.
+
+
+def _claim_start_quietly(remote, job):
+    """Claim the start (#460): the family listener must not post a second start for this print.
+
+    A claim that cannot be written only warns; it never fails the launch.
+    """
+    try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
+    except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
+
+
+def _check_bed_clear(job_path, job, gcode, reprint):
+    """Bed-clear phase one (#1586): check the confirmation without consuming it.
+
+    Runs inside the lease, before the upload: the upload runs in the leased
+    phase (nothing started), so a failed upload must not burn the
+    single-use approval.
+    """
+    _claim_bed_clear(job_path, job, gcode, reprint, consume=False)
+
+
+def _consume_bed_clear(job_path, job, gcode, reprint):
+    """Bed-clear phase two (#1586): consume the approval just before submitting.
+
+    Called only after the upload and every pre-start step succeeded; a
+    failure before this point releases the lease with the approval still
+    unused, and the retry needs no second confirmation. Yolo still owes no
+    single-use record.
+    """
+    _claim_bed_clear(job_path, job, gcode, reprint, consume=not yolo_active())
+
+
+def _abandon_leased_upload(lease, remote, on_abandon=None):
+    """Leave a leased Moonraker block in which nothing was sent to start.
+
+    The lease is released and the start-announcement claim freed (the claim
+    may have been taken inside the block); ``on_abandon`` is the caller's
+    own cleanup (the mapped route rewrites its checkpoint as
+    not_submitted). The caller re-raises.
+    """
+    lease.release()  # nothing was sent to start
+    release_start_announcement(remote)  # the claim was taken in the block above
+    if on_abandon is not None:
+        on_abandon()
+
+
+def _upload_via_moonrakerctl(st, upload_path, remote, upload_sha, job_path, *, failure):
+    """The one Moonraker upload both Moonraker routes make, inside the lease.
+
+    ``failure`` is the exception a failed upload raises on the calling
+    route (RuntimeError on the mapped route, SystemExit on the generic
+    one); the wording is the shared one. Returns the upload's stdout: each
+    route parses and verifies the reply in its own wording, as before.
+    """
+    _timing(job_path, 'upload_begin')
+    uploaded = subprocess.run([str(MOONRAKERCTL), 'upload', str(upload_path), remote, upload_sha],
+                              text=True, capture_output=True, timeout=300, env=_moonrakerctl_env(st))
+    if uploaded.returncode:
+        raise failure('The file could not be uploaded to the printer, so nothing started. '
+                      'Check the printer is on and reachable, then try again.'
+                      + _detail_tail(uploaded.stderr or uploaded.stdout))
+    return uploaded.stdout
+
+
+@dataclass
+class TransportLaunch:
+    """One polled transport's hooks for _run_transport_launch (#1603 item 1).
+
+    preflight() -> dict: every check that can refuse cleanly before the
+    lease; returns at least ``sha``, ``remote`` and ``observed_file`` (plus
+    the transport's own extras). Refusals raise the transport's own
+    SystemExit wording, exactly as the inline code did.
+    recheck(ctx) -> baseline: the idle/readiness read repeated inside the
+    lease, also the start-truth baseline. Work a transport does inside the
+    lease before the bed-clear claim (Bambu's AMS resolution) runs here.
+    upload(ctx): the upload call. Its return value replaces the remote
+    only when ``adopt_upload_remote`` is set (OctoPrint's client returns
+    the name it stored; the other clients' returns were always ignored).
+    start(ctx, remote): the start command for that exact remote.
+    confirm(ctx, remote) -> StartPoll: the transport's own confirmation
+    (Bambu); when None, the shared poll runs ``read_status(ctx)`` with
+    ``stage`` and ``truth(ctx)``.
+    settle(ctx, poll) -> (uncertain_detail, extra): per-transport settle
+    wording and outcome extras; None keeps the shared wording.
+    monitor(ctx, remote): starts the launched-print monitor for a
+    confirmed start; a failure warns with ``monitor_warning`` and never
+    fails the print.
+    """
+
+    method: str
+    label: str
+    preflight: object
+    recheck: object
+    upload: object
+    start: object
+    monitor: object = None
+    monitor_warning: str = "timelapse monitor did not start"
+    adopt_upload_remote: bool = False
+    confirm: object = None
+    read_status: object = None
+    stage: str = ""
+    truth: object = None
+    settle: object = None
+
+
+def _record_polled_start(spec, ctx, gcode, job_path, remote, out):
+    """Number, record and monitor a confirmed polled start.
+
+    The same three steps every polled transport ran inline, in the same
+    order, with the same warnings: a failure in any of them never fails
+    the print.
+    """
+    try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+    except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
     try:
-        status = client.status()
-        client.require_ready(status)
-        observed = adapter.normalize_status(status).get('filename')
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        _refuse_multicolor(gcode.read_text())
-    except RuntimeError as exc:
-        raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    # OctoPrint preheats from these, so they are the G-code spool's, resolved before anything is sent,
-    # and held to the printer's one heater ceiling (#1147): a preheat above it refuses before the lease.
-    try:
-        from ..core import heater_ceiling
-        from ..core.nozzle import effective_nozzle_temperature
-        temps = _with_gcode_temperatures(state, Path(gcode).read_text(errors='ignore'))['temps_c']
-        hotend = effective_nozzle_temperature((state.get('nozzle') or {}).get('type', 'hardened_steel'), temps['nozzle'])
-        for heater, target in (('nozzle', hotend), ('bed', temps['bed'])):
-            heater_ceiling.require(adapter, heater, target, state=state)
-    except (RuntimeError, ValueError) as exc:
-        raise SystemExit(f'REFUSED: OctoPrint preheat: {exc}. Nothing uploaded or started.') from exc
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed)
-    try:
+        out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
+    except Exception as exc:
+        print(f"WARNING: start record failed: {exc}")
+    if spec.monitor is not None:
         try:
-            ready = client.status()  # again inside the lease; also the start-truth baseline
-            client.require_ready(ready)
-            start_baseline = adapter.normalize_status(ready)
-        except RuntimeError as exc:
-            raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
+            spec.monitor(ctx, remote)
+        except Exception as exc:
+            print(f"WARNING: {spec.monitor_warning}: {exc}")
+
+
+def _run_transport_launch(spec, *, state, gcode, job, job_path, reprint):
+    """The shared launch sequence for the polled transports (#1603 item 1).
+
+    preflight (verify) -> lease -> recheck idle inside the lease ->
+    bed-clear claim -> submitting -> upload -> claim the start -> start ->
+    poll for confirmation -> settle the lease -> number, record and
+    monitor a confirmed start -> announce the outcome.
+
+    Upload and start are one uncertain step from submitting() on, exactly
+    as each transport had it: a failure there settles through
+    _submission_failed and is never resubmitted. Acceptance is confirmed
+    from fresh status readbacks over the poll window, never assumed from
+    the command being accepted.
+    """
+    ctx = spec.preflight()
+    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path,
+                                 gcode_sha256=ctx["sha"], remote=ctx["remote"],
+                                 observed_file=ctx.get("observed_file"))
+    ctx["lease"] = lease
+    try:
+        ctx["baseline"] = spec.recheck(ctx)
         _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
         lease.release()
         raise
+    remote = ctx["remote"]
     # Upload and start are one uncertain step here: the client reports either failure the same way.
     lease.submitting()
     try:
-        remote = client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start(remote, temps['bed'], hotend)
+        stored = spec.upload(ctx)
+        if spec.adopt_upload_remote and stored is not None:
+            remote = stored
+            ctx["remote"] = remote
+        _claim_start_quietly(remote, job)
+        spec.start(ctx, remote)
     except BaseException as exc:
-        _submission_failed(lease, remote, 'OctoPrint', exc)
-    # Accepted is not proof of printing: poll the readback over the confirmation window. No resubmission.
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
-                                    job_path=job_path, stage='octoprint_start_confirm',
-                                    truth=lambda live, rem: start_truth.octoprint(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method='octoprint')
-    confirmed = out['started']
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
+        _submission_failed(lease, remote, spec.label, exc)
+    if spec.confirm is not None:
+        poll = spec.confirm(ctx, remote)
+    else:
+        poll = _poll_start_confirmation(spec.read_status(ctx), remote,
+                                        job_path=job_path, stage=spec.stage,
+                                        truth=spec.truth(ctx))
+    uncertain_detail, extra = spec.settle(ctx, poll) if spec.settle is not None else (None, {})
+    out = _settle_polled_start(lease, poll, remote, method=spec.method,
+                               uncertain_detail=uncertain_detail, **extra)
+    if out["started"]:
+        _record_polled_start(spec, ctx, gcode, job_path, remote, out)
+    _announce_polled_outcome(out)
+    return out
+
+
+def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
+    """A separate transport path, retaining artifact and approval guards above."""
+    client = adapter.client()
+
+    def preflight():
         try:
-            out['record_path'] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f'WARNING: start record failed: {exc}')
+            status = client.status()
+            client.require_ready(status)
+            observed = adapter.normalize_status(status).get('filename')
+            _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
+            _refuse_multicolor(gcode.read_text())
+        except RuntimeError as exc:
+            raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
+        # OctoPrint preheats from these, so they are the G-code spool's, resolved before anything is sent,
+        # and held to the printer's one heater ceiling (#1147): a preheat above it refuses before the lease.
+        try:
+            from ..core import heater_ceiling
+            from ..core.nozzle import effective_nozzle_temperature
+            temps = _with_gcode_temperatures(state, Path(gcode).read_text(errors='ignore'))['temps_c']
+            hotend = effective_nozzle_temperature((state.get('nozzle') or {}).get('type', 'hardened_steel'), temps['nozzle'])
+            for heater, target in (('nozzle', hotend), ('bed', temps['bed'])):
+                heater_ceiling.require(adapter, heater, target, state=state)
+        except (RuntimeError, ValueError) as exc:
+            raise SystemExit(f'REFUSED: OctoPrint preheat: {exc}. Nothing uploaded or started.') from exc
+        sha = file_sha256(gcode)
+        return {"sha": sha, "remote": remote_name(gcode, sha, job), "observed_file": observed,
+                "temps": temps, "hotend": hotend}
+
+    def recheck(ctx):
+        try:
+            ready = client.status()  # again inside the lease; also the start-truth baseline
+            client.require_ready(ready)
+            return adapter.normalize_status(ready)
+        except RuntimeError as exc:
+            raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
+
+    def monitor(ctx, remote):
         # The print path starts a launched-print monitor (#373): it makes
         # the completion post, attaches the timelapse OctoPrint itself
         # rendered, and posts this print's pause alerts (#460). Prints
         # started outside Print Handy belong to the octoprint listener
-        # domain (family_event_listener). A monitor that cannot start
-        # never fails the print.
-        try:
-            from print_handy.runtime import octo_watch
-            _start_family_monitor(octo_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
+        # domain (family_event_listener).
+        from print_handy.runtime import octo_watch
+        _start_family_monitor(octo_watch, adapter, remote, job)
+
+    spec = TransportLaunch(
+        method='octoprint', label='OctoPrint', preflight=preflight, recheck=recheck,
+        upload=lambda ctx: client.upload(gcode, ctx["remote"]),
+        start=lambda ctx, remote: client.start(remote, ctx["temps"]['bed'], ctx["hotend"]),
+        monitor=monitor, adopt_upload_remote=True,
+        read_status=lambda ctx: lambda: adapter.normalize_status(client.status()),
+        stage='octoprint_start_confirm',
+        truth=lambda ctx: lambda live, rem: start_truth.octoprint(live, rem, ctx["baseline"]))
+    return _run_transport_launch(spec, state=state, gcode=gcode, job=job, job_path=job_path, reprint=reprint)
 
 
 def _bambu_start_confirm_window():
@@ -2376,32 +2536,33 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
             raise RuntimeError("; ".join(dict.fromkeys(problems)))
         return snapshot, norm
 
-    try:
-        _snapshot, observed_norm = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        packages = _delivery.bambu_handoff(job if isinstance(job, dict) else {"printer_model": adapter.key},
-                                            [gcode], settings.current())
-        if len(packages) != 1:
-            raise RuntimeError(f"expected exactly one Bambu package for this plate, got {len(packages)}")
-        package = Path(packages[0])
-        with zipfile.ZipFile(package) as archive:
-            plates = [n for n in archive.namelist() if n.startswith("Metadata/plate_") and n.endswith(".gcode")]
-        if plates != ["Metadata/plate_1.gcode"]:
-            raise RuntimeError(f"package holds plates {plates or 'none'}; LAN print start supports a "
-                               "single-plate package (Metadata/plate_1.gcode) only")
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    remote = package.name
-    sha = file_sha256(gcode)
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed_norm.get("filename"))
+    def preflight():
+        try:
+            _snapshot, observed_norm = ready_snapshot()
+            _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
+            packages = _delivery.bambu_handoff(job if isinstance(job, dict) else {"printer_model": adapter.key},
+                                                [gcode], settings.current())
+            if len(packages) != 1:
+                raise RuntimeError(f"expected exactly one Bambu package for this plate, got {len(packages)}")
+            package = Path(packages[0])
+            with zipfile.ZipFile(package) as archive:
+                plates = [n for n in archive.namelist() if n.startswith("Metadata/plate_") and n.endswith(".gcode")]
+            if plates != ["Metadata/plate_1.gcode"]:
+                raise RuntimeError(f"package holds plates {plates or 'none'}; LAN print start supports a "
+                                   "single-plate package (Metadata/plate_1.gcode) only")
+        except RuntimeError as exc:
+            raise refuse(exc) from exc
+        return {"sha": file_sha256(gcode), "remote": package.name,
+                "observed_file": observed_norm.get("filename"), "package": package}
+
     # AMS mapping (#308): resolved inside the lease, against the fresh snapshot, BEFORE the
     # bed-clear approval is consumed — a job whose filaments cannot be mapped refuses with the
     # approval intact. A JOB.json ams_mapping is trusted verbatim; anything else is recomputed
     # from the snapshot's reported trays. A single-filament job that matches nothing reported
     # keeps the pre-#308 payload (source "legacy"); a multi-filament one refuses loudly here.
     from ..printers.bambulab import ams_mapping as _ams
-    try:
+
+    def recheck(ctx):
         try:
             live_snapshot, start_baseline = ready_snapshot()  # again inside the lease: the first read may predate another start
         except RuntimeError as exc:
@@ -2419,53 +2580,46 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
                     require_mechanical_limits(gcode, state, adapter)
         except RuntimeError as exc:
             raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(package, remote)
-        # Claim the start (#460): the Bambu listener's sink must not post a second start for this print.
-        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start_print(remote, ams_mapping=ams_map)
-    except BaseException as exc:
-        _submission_failed(lease, remote, "Bambu Lab", exc)
-    # Accepted is not proof of printing. No resubmission on delayed readback: the printer is polled
-    # over the confirmation window (#271) and the lease stays uncertain if it never reports this file.
-    window_s = _bambu_start_confirm_window()
-    confirmed, live, snapshots = _confirm_bambu_start(client, adapter, remote, job_path, window_s,
-                                                      baseline=start_baseline)
-    # Bambu has always reported a confirmed start, PREPARE included, as executing (#271).
-    poll = StartPoll(confirmed, False, live, snapshots, window_s)
-    out = _settle_polled_start(
-        lease, poll, remote, method="bambulab_lan",
-        uncertain_detail=("submitted, awaiting confirmation; printer reported state "
-                          f"{live.get('state') or 'unknown'} ({live.get('gcode_state') or 'no gcode_state'}), "
-                          f"file {live.get('filename') or 'none'!r} on the last of {snapshots} snapshot(s) "
-                          f"over {window_s:g}s"),
-        ams_mapping=ams_map, ams_mapping_source=ams_source,
-        confirmation={"snapshots": snapshots, "window_s": window_s})
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
+        ctx["ams_map"] = ams_map
+        ctx["ams_source"] = ams_source
+        return start_baseline
+
+    def confirm(ctx, remote):
+        # Accepted is not proof of printing. No resubmission on delayed readback: the printer is polled
+        # over the confirmation window (#271) and the lease stays uncertain if it never reports this file.
+        window_s = _bambu_start_confirm_window()
+        confirmed, live, snapshots = _confirm_bambu_start(client, adapter, remote, job_path, window_s,
+                                                          baseline=ctx["baseline"])
+        ctx["confirm_live"] = live
+        ctx["confirm_snapshots"] = snapshots
+        ctx["confirm_window_s"] = window_s
+        # Bambu has always reported a confirmed start, PREPARE included, as executing (#271).
+        return StartPoll(confirmed, False, live, snapshots, window_s)
+
+    def settle(ctx, poll):
+        live, snapshots, window_s = ctx["confirm_live"], ctx["confirm_snapshots"], ctx["confirm_window_s"]
+        return (("submitted, awaiting confirmation; printer reported state "
+                 f"{live.get('state') or 'unknown'} ({live.get('gcode_state') or 'no gcode_state'}), "
+                 f"file {live.get('filename') or 'none'!r} on the last of {snapshots} snapshot(s) "
+                 f"over {window_s:g}s"),
+                {"ams_mapping": ctx["ams_map"], "ams_mapping_source": ctx["ams_source"],
+                 "confirmation": {"snapshots": snapshots, "window_s": window_s}})
+
+    def monitor(ctx, remote):
         # Camera parity (#294): a monitor watches this launched print — it makes
         # the completion post with the final camera image, runs the camera
         # watchdog, and posts this print's pause alerts (#460). The Bambu
-        # listener domain covers prints started outside Print Handy; a
-        # monitor that cannot start never fails the print.
-        try:
-            from print_handy.runtime import bambu_watch
-            _start_family_monitor(bambu_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: camera monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
+        # listener domain covers prints started outside Print Handy.
+        from print_handy.runtime import bambu_watch
+        _start_family_monitor(bambu_watch, adapter, remote, job)
+
+    spec = TransportLaunch(
+        method="bambulab_lan", label="Bambu Lab", preflight=preflight, recheck=recheck,
+        upload=lambda ctx: client.upload(ctx["package"], ctx["remote"]),
+        start=lambda ctx, remote: client.start_print(remote, ams_mapping=ctx["ams_map"]),
+        monitor=monitor, monitor_warning="camera monitor did not start",
+        confirm=confirm, settle=settle)
+    return _run_transport_launch(spec, state=state, gcode=gcode, job=job, job_path=job_path, reprint=reprint)
 
 
 def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
@@ -2497,46 +2651,25 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
             raise RuntimeError("; ".join(dict.fromkeys(problems)))
         return raw, norm
 
-    try:
-        _raw, observed_norm = ready_status()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        _refuse_multicolor(gcode.read_text(errors="ignore"))
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed_norm.get("filename"))
-    try:
+    def preflight():
+        try:
+            _raw, observed_norm = ready_status()
+            _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
+            _refuse_multicolor(gcode.read_text(errors="ignore"))
+        except RuntimeError as exc:
+            raise refuse(exc) from exc
+        sha = file_sha256(gcode)
+        return {"sha": sha, "remote": remote_name(gcode, sha, job),
+                "observed_file": observed_norm.get("filename")}
+
+    def recheck(ctx):
         try:
             _raw, start_baseline = ready_status()  # again inside the lease; also the start-truth baseline
         except RuntimeError as exc:
             raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start_print(remote)
-    except BaseException as exc:
-        _submission_failed(lease, remote, "SDCP", exc)
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
-                                    job_path=job_path, stage="sdcp_start_confirm",
-                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method="elegoo_sdcp")
-    confirmed = out["started"]
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
+        return start_baseline
+
+    def monitor(ctx, remote):
         # Timelapse (#295): a monitor watches this launched print — the
         # print path starts it; it makes the completion post, posts this
         # print's pause alerts (#460), and, once an SDCP camera source is
@@ -2544,15 +2677,19 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
         # (no source is verified today — printers/elegoo_sdcp/camera.py —
         # so for now the monitor is the completion post, with the reason
         # logged). Prints started outside Print Handy belong to the
-        # elegoo_sdcp listener domain (family_event_listener). A monitor
-        # that cannot start never fails the print.
-        try:
-            from print_handy.runtime import elegoo_watch
-            _start_family_monitor(elegoo_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
+        # elegoo_sdcp listener domain (family_event_listener).
+        from print_handy.runtime import elegoo_watch
+        _start_family_monitor(elegoo_watch, adapter, remote, job)
+
+    spec = TransportLaunch(
+        method="elegoo_sdcp", label="SDCP", preflight=preflight, recheck=recheck,
+        upload=lambda ctx: client.upload(gcode, ctx["remote"]),
+        start=lambda ctx, remote: client.start_print(remote),
+        monitor=monitor,
+        read_status=lambda ctx: lambda: adapter.normalize_status(client.status()),
+        stage="sdcp_start_confirm",
+        truth=lambda ctx: lambda live, rem: start_truth.polled(live, rem, ctx["baseline"]))
+    return _run_transport_launch(spec, state=state, gcode=gcode, job=job, job_path=job_path, reprint=reprint)
 
 
 def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
@@ -2584,60 +2721,43 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
             raise RuntimeError("; ".join(dict.fromkeys(problems)))
         return snapshot, norm
 
-    try:
-        _snapshot, observed_norm = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        _refuse_multicolor(gcode.read_text(errors="ignore"))
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed_norm.get("filename"))
-    try:
+    def preflight():
+        try:
+            _snapshot, observed_norm = ready_snapshot()
+            _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
+            _refuse_multicolor(gcode.read_text(errors="ignore"))
+        except RuntimeError as exc:
+            raise refuse(exc) from exc
+        sha = file_sha256(gcode)
+        return {"sha": sha, "remote": remote_name(gcode, sha, job),
+                "observed_file": observed_norm.get("filename")}
+
+    def recheck(ctx):
         try:
             _snapshot, start_baseline = ready_snapshot()  # again inside the lease; also the start-truth baseline
         except RuntimeError as exc:
             raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start_print(remote)
-    except BaseException as exc:
-        _submission_failed(lease, remote, "PrusaLink", exc)
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.snapshot()), remote,
-                                    job_path=job_path, stage="prusalink_start_confirm",
-                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method="prusalink")
-    confirmed = out["started"]
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
+        return start_baseline
+
+    def monitor(ctx, remote):
         # Timelapse (#295): a monitor watches this launched print — the
         # print path starts it; it makes the completion post, posts this
         # print's pause alerts (#460), and, when the printer registers a
         # camera with PrusaLink, captures frames for a timelapse attached
         # to that post. Prints started outside Print Handy belong to the
-        # prusalink listener domain (family_event_listener). A monitor
-        # that cannot start never fails the print.
-        try:
-            from print_handy.runtime import prusa_watch
-            _start_family_monitor(prusa_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
+        # prusalink listener domain (family_event_listener).
+        from print_handy.runtime import prusa_watch
+        _start_family_monitor(prusa_watch, adapter, remote, job)
+
+    spec = TransportLaunch(
+        method="prusalink", label="PrusaLink", preflight=preflight, recheck=recheck,
+        upload=lambda ctx: client.upload(gcode, ctx["remote"]),
+        start=lambda ctx, remote: client.start_print(remote),
+        monitor=monitor,
+        read_status=lambda ctx: lambda: adapter.normalize_status(client.snapshot()),
+        stage="prusalink_start_confirm",
+        truth=lambda ctx: lambda live, rem: start_truth.polled(live, rem, ctx["baseline"]))
+    return _run_transport_launch(spec, state=state, gcode=gcode, job=job, job_path=job_path, reprint=reprint)
 
 
 _FILAMENT_COLOUR_RE = re.compile(r'(?im)^;\s*filament_colou?r\s*=\s*([^\n]*)$')
@@ -2698,7 +2818,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         except StockLanError as exc:
             raise RuntimeError(f"IFS slot {slot} cannot be named in the start request: {exc}") from None
 
-    def ready_snapshot():
+    def ready_snapshot(text):
         detail = client.detail()
         problems = adapter.readiness_problems(state, detail)
         reduced = adapter.normalize_status(detail)
@@ -2717,67 +2837,50 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         bay["mapping"] = bay_mapping(detail, slot, text)
         return reduced
 
-    try:
-        text = gcode.read_text(errors="ignore")
-        problems = adapter.gcode_problems(text)
-        if problems:
-            raise RuntimeError(problems[0])
-        observed = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(_gcode_tools(text) | {0})}, state)
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    if not remote.endswith(".gcode"):
-        remote += ".gcode"
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed.get("filename"))
-    try:
+    def preflight():
         try:
-            # again inside the lease: the first read may predate another start; also the start-truth baseline
-            start_baseline = ready_snapshot()
+            text = gcode.read_text(errors="ignore")
+            problems = adapter.gcode_problems(text)
+            if problems:
+                raise RuntimeError(problems[0])
+            observed = ready_snapshot(text)
+            _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
+            adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(_gcode_tools(text) | {0})}, state)
         except RuntimeError as exc:
             raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.print_gcode(remote, bay=bay["mapping"])
-    except BaseException as exc:
-        _submission_failed(lease, remote, "stock Flashforge", exc)
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.detail()), remote,
-                                    job_path=job_path, stage="flashforge_stock_start_confirm",
-                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method="flashforge_stock")
-    confirmed = out["started"]
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
+        sha = file_sha256(gcode)
+        remote = remote_name(gcode, sha, job)
+        if not remote.endswith(".gcode"):
+            remote += ".gcode"
+        return {"sha": sha, "remote": remote, "observed_file": observed.get("filename"),
+                "text": text, "bay": bay}
+
+    def recheck(ctx):
         try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
-        # Timelapse (#373): a monitor watches this launched print — the
-        # print path starts it; it captures frames from the camera source
-        # the printer advertises, makes the completion post with the
-        # timelapse attached, and posts this print's pause alerts (#460).
-        # Prints started outside Print Handy belong to the
-        # flashforge_stock listener domain (family_event_listener). A
-        # monitor that cannot start never fails the print.
-        try:
-            from print_handy.runtime import stock_watch
-            _start_family_monitor(stock_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
+            # again inside the lease: the first read may predate another start; also the start-truth baseline
+            return ready_snapshot(ctx["text"])
+        except RuntimeError as exc:
+            raise refuse(exc) from exc
+
+    def monitor(ctx, remote):
+        # Timelapse (#373): a monitor watches this launched print — it
+        # captures frames from the camera source the printer advertises,
+        # makes the completion post with the timelapse attached, and
+        # posts this print's pause alerts (#460). Prints started outside
+        # Print Handy belong to the flashforge_stock listener domain
+        # (family_event_listener).
+        from print_handy.runtime import stock_watch
+        _start_family_monitor(stock_watch, adapter, remote, job)
+
+    spec = TransportLaunch(
+        method="flashforge_stock", label="stock Flashforge", preflight=preflight, recheck=recheck,
+        upload=lambda ctx: client.upload(gcode, ctx["remote"]),
+        start=lambda ctx, remote: client.print_gcode(remote, bay=ctx["bay"]["mapping"]),
+        monitor=monitor,
+        read_status=lambda ctx: lambda: adapter.normalize_status(client.detail()),
+        stage="flashforge_stock_start_confirm",
+        truth=lambda ctx: lambda live, rem: start_truth.polled(live, rem, ctx["baseline"]))
+    return _run_transport_launch(spec, state=state, gcode=gcode, job=job, job_path=job_path, reprint=reprint)
 
 
 def _confirm_generic_start(st, remote, wait_s, lease, baseline=None):
@@ -3364,18 +3467,14 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     try:
         _require_idle(st)  # again inside the lease: the first read may predate another job's start
         # Yolo owes no single-use button record, but the operator's bed-clear confirmation is never waived.
-        # #1586: check it without consuming it here. The upload below runs in the leased
-        # phase (nothing started), so a failed upload must not burn the single-use
-        # approval; it is consumed at the end of this block, just before lease.submitting().
-        _claim_bed_clear(job_path, job, g, reprint, consume=False)
-        _timing(job_path, 'upload_begin')
-        r=subprocess.run([str(MOONRAKERCTL),"upload",str(upload_path),remote,upload_sha],text=True,capture_output=True,timeout=300,
-                         env=_moonrakerctl_env(st))
-        if r.returncode: raise SystemExit("The file could not be uploaded to the printer, so nothing started. "
-                                          "Check the printer is on and reachable, then try again."
-                                          + _detail_tail(r.stderr or r.stdout))
+        _check_bed_clear(job_path, job, g, reprint)  # #1586 phase one: check, do not consume yet
+        # The upload runs outside the parse guard: a timeout, a missing
+        # moonrakerctl or a failed exit keeps its own error, and only an
+        # unreadable reply gets the "could not be understood" refusal.
+        upload_out = _upload_via_moonrakerctl(st, upload_path, remote, upload_sha,
+                                              job_path, failure=SystemExit)
         try:
-            up_json=json.loads(r.stdout)
+            up_json=json.loads(upload_out)
         except Exception as e:
             raise SystemExit("The printer's reply to the upload could not be understood, so nothing started. "
                              "Try again; if it keeps happening, check the printer screen."
@@ -3389,8 +3488,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # Moonraker verified the SHA256 sent with the upload (mismatch = HTTP 400 = the upload failure above).
         _timing(job_path, 'upload_verified')
         if delivery: _note_delivery_format(job, job_path, delivery)
-        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
+        _claim_start_quietly(remote, job)
         if not _record_toolhead_charge_plan(st, adapter, job, job_path, text):
             # Moonraker charges its active spool while this print runs, like the
             # mapped one-slot route: record that spool's used weight first so
@@ -3398,14 +3496,9 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
-        # #1586: the upload and every pre-start step above succeeded, so consume the
-        # bed-clear approval now, just before lease.submitting() below (yolo still owes
-        # no single-use record). A failure in this block releases the lease with the
-        # approval still unused, and the retry needs no second confirmation.
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
+        _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
-        lease.release()  # nothing was sent to start
-        release_start_announcement(remote)  # the claim was taken in the block above
+        _abandon_leased_upload(lease, remote)
         raise
     # Baseline for the lost-response reconcile: heater targets seen later prove this start only if every
     # heater was off before it. Read-only; unreadable counts as not proven.

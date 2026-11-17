@@ -58,14 +58,15 @@ START_TRANSITIONAL_STATES = frozenset({"heating", "calibrate_doing", "busy", "pr
 # Every model_job print path that sends a start request (calls ``lease.submitting()``), and the
 # start-truth function its verdict comes from. The call-site test fails when a path is added
 # without an entry here, or when an entry's verdict does not reach that function.
+# Since the one-launch-pipeline consolidation (#1603), the five polled transports
+# (_print_octoprint, _print_bambu, _print_elegoo_sdcp, _print_prusa, _print_flashforge_stock)
+# are TransportLaunch specs dispatched by _run_transport_launch, which is the registered
+# sending site; each adapter's own start-truth function (octoprint, bambu, polled) is
+# pinned by the call-site test's scan of the specs' truth hooks.
 START_CALL_SITES = {
     "print_mapped_native": "moonraker",
     "_print_now_locked": "moonraker",
-    "_print_octoprint": "octoprint",
-    "_print_bambu": "bambu",
-    "_print_elegoo_sdcp": "polled",
-    "_print_prusa": "polled",
-    "_print_flashforge_stock": "polled",
+    "_run_transport_launch": "polled",
 }
 
 

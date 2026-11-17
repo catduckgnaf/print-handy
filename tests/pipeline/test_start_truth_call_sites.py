@@ -135,15 +135,40 @@ def test_every_registered_call_site_reaches_its_start_truth_function():
 def test_every_polled_confirmation_uses_a_baselined_start_truth_function():
     tree = _print_paths()
     functions = _top_functions(tree)
-    polls = [(name, call) for name, fn in functions.items() if name != "_poll_start_confirmation"
-             for call in ast.walk(fn)
-             if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
-             and call.func.id == "_poll_start_confirmation"]
+    # The transports' truth hooks live in two shapes since the one launch
+    # pipeline (#1603): a TransportLaunch spec's truth hook (the adapters
+    # the shared runner polls for) and Bambu's own _poll_start_confirmation
+    # call inside _confirm_bambu_start. The runner's own poll call forwards
+    # the spec's truth, so it is scanned at the spec, not at that call.
+    polls = []
+    for name, fn in functions.items():
+        if name in ("_poll_start_confirmation", "_run_transport_launch"):
+            continue
+        for call in ast.walk(fn):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                    and call.func.id in ("_poll_start_confirmation", "TransportLaunch")):
+                continue
+            truth = [kw.value for kw in call.keywords if kw.arg == "truth"]
+            if truth:
+                polls.append((name, truth[0]))
     assert len(polls) >= 5  # OctoPrint, Bambu Lab, Elegoo SDCP, PrusaLink, stock Flashforge
-    for name, call in polls:
-        truth = [kw.value for kw in call.keywords if kw.arg == "truth"]
-        assert truth and isinstance(truth[0], ast.Lambda), f"{name} polls a start without a start-truth function"
-        body = truth[0].body
+    # Each transport is pinned to its own start-truth function, as the
+    # per-site START_CALL_SITES entries did before the consolidation (#1603):
+    # a hook switched to another adapter's truth must fail here.
+    expected = {"_print_octoprint": "octoprint", "_confirm_bambu_start": "bambu",
+                "_print_elegoo_sdcp": "polled", "_print_prusa": "polled",
+                "_print_flashforge_stock": "polled"}
+    seen = {}
+    for name, truth in polls:
+        body = truth.body.body if isinstance(truth.body, ast.Lambda) else truth.body
+        if isinstance(body, ast.Call) and isinstance(body.func, ast.Attribute):
+            seen.setdefault(name, set()).add(body.func.attr)
+    assert {name: {fn} for name, fn in expected.items()} == {n: seen.get(n) for n in expected}, seen
+    for name, truth in polls:
+        assert isinstance(truth, ast.Lambda), f"{name} polls a start without a start-truth function"
+        body = truth.body
+        if isinstance(body, ast.Lambda):  # a spec hook: lambda ctx: lambda live, rem: ...
+            body = body.body
         assert (isinstance(body, ast.Call) and isinstance(body.func, ast.Attribute)
                 and isinstance(body.func.value, ast.Name) and body.func.value.id == "start_truth"), name
         assert len(body.args) == 3, f"{name} judges its start without the pre-request baseline"
