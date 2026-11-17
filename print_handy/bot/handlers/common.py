@@ -1442,16 +1442,14 @@ def alert_button_handlers(bot, adapter):
             return
         is_done = getattr(interaction.response, 'is_done', None)
         if callable(is_done) and is_done():
-            try:
-                interaction._ph_deferred = True
-            except Exception:
-                pass
             return
         await interaction.response.defer()
+        # A frozen or slotted interaction object cannot carry the mark;
+        # its is_done() still answers for later calls.
         try:
             interaction._ph_deferred = True
-        except Exception:
-            pass
+        except (AttributeError, TypeError):
+            logger.debug('could not mark the interaction as deferred', exc_info=True)
 
     async def claim_and_ack(interaction, aid, kind=None, stale_text='That prompt is old or was already used. Nothing changed.'):
         """Acknowledge first, then claim the alert (#1584).
@@ -2325,9 +2323,17 @@ def alert_button_handlers(bot, adapter):
         """Choosing a plate only prepares one Confirm button; nothing starts here."""
         import discord
         from print_handy.runtime import print_next
-        alert = await claim_and_ack(interaction, aid, 'plate-picker',
-                                    'That plate picker is old or was already used. Nothing started.')
-        if not alert:
+        stale = 'That plate picker is old or was already used. Nothing started.'
+        # Acknowledge first (#1584), but claim only after the resolve
+        # succeeds: a picker whose plan or G-code cannot be resolved is
+        # recoverable, so a failed resolve must not consume the alert —
+        # the operator can pick again once the plan is readable
+        # (duckcatgnaf's review of this PR). Peek, resolve, then take:
+        # two clicks can both resolve, but only one take() succeeds.
+        await _defer_once(interaction)
+        alert = await _store(pab.peek, aid)
+        if not alert or alert.get('kind') != 'plate-picker':
+            await interaction.edit_original_response(content=stale, view=None)
             return
         try:
             selected = str((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
@@ -2338,6 +2344,9 @@ def alert_button_handlers(bot, adapter):
                 lambda: print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=part_id))
         except Exception as exc:
             await interaction.edit_original_response(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
+            return
+        if not await _store(pab.take, aid):  # a parallel pick got there first
+            await interaction.edit_original_response(content=stale, view=None)
             return
         confirm_aid = await _store(pab.record, 'plate-confirm', '', plan_id=alert['plan_id'], part_id=part_id)
         view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
