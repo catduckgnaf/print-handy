@@ -40,14 +40,16 @@ Two checks enforce this. The Issue closure guard reopens an issue closed as comp
 
 ## Run checks
 
-Use Python 3.12 or newer. From the repository root, create an isolated environment, install test dependencies and run the offline suite:
+Use Python 3.12 or newer on Linux. The test suite is Linux only (#1589): it assumes POSIX shell scripts, `fcntl`, symlinks and POSIX path separators, CI runs every job on Ubuntu, and no Windows test run is supported. From the repository root, create an isolated environment, install test dependencies and run the offline suite:
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e ".[test]"
+python -m pip install -c constraints.txt -e ".[test]"
 python -m pytest -q tests
 ```
+
+`constraints.txt` pins the exact dependency versions CI installs (generated from `pyproject.toml` with `uv pip compile pyproject.toml --extra test --python-version 3.12 --output-file constraints.txt`); the ranges in `pyproject.toml` stay the declared floors, and Renovate keeps the pins moving. The lint gate is `python -m ruff check .` with the widened rule set in `pyproject.toml` (all of `F`, plus `B`, `ASYNC` and `PLE`, on top of the original syntax and undefined-name rules; pre-existing findings are recorded per file in that file's `per-file-ignores` baseline). A non-blocking pyright job runs pyright in basic mode over `print_handy/runtime` and reports its findings without failing CI.
 
 Relevant focused checks can be run individually. For example:
 

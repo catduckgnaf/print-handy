@@ -149,9 +149,15 @@ class FamilyControl:
 
     Mirrors ``print_control.resume`` / ``print_stop.cancel``: re-read
     first, one command at most, read back, truthful text. State and
-    filename checks run against the family's normalised status; where a
-    family's status carries no filename, the filename check degrades to
-    the state check alone (the same both-known rule the monitors use).
+    filename checks run against the family's normalised status. Every
+    family adapter reports a filename while a print is running or
+    paused (#1587, checked per adapter: Bambu from ``subtask_name`` /
+    ``gcode_file``, PrusaLink from the job file's ``display_name`` /
+    ``name``, Elegoo SDCP from PrintInfo ``Filename``, OctoPrint from
+    ``job.file.path``, Flashforge stock from /detail ``printFileName``),
+    so when a caller names the file it means to act on and the live
+    status carries no filename, the print cannot be confirmed and the
+    action refuses instead of acting on whatever happens to be running.
     """
 
     def __init__(self, adapter, *, status_fn=None, sleep=time.sleep):
@@ -172,20 +178,15 @@ class FamilyControl:
             return False, "Already paused. Nothing sent."
         if state != "printing":
             return False, f"Nothing to pause: printer is {state}. Nothing sent."
+        if expected_filename and not before.get("filename"):
+            return False, "could not confirm which print is running. Nothing sent."
         if expected_filename and before.get("filename") and before["filename"] != expected_filename:
             return False, "A different print is running now than the one you meant. Nothing sent."
-        self.adapter.control("pause")
-        deadline = time.monotonic() + wait_s
-        after = before
-        while time.monotonic() < deadline:
-            self._sleep(poll_s)
-            try:
-                after = self.status()
-            except Exception:
-                logger.debug("pause readback failed; still waiting", exc_info=True)
-                continue
-            if after.get("state") != "printing":
-                break
+        from .print_stop import send_once_and_read_back
+        _took, after = send_once_and_read_back(
+            lambda: self.adapter.control("pause"), self.status, "paused",
+            wait_s, poll_s, sleep=self._sleep)
+        after = after or before
         if after.get("state") == "paused":
             return True, "Paused. Printer now reports paused."
         # False unless the printer reached paused, as print_control.resume
@@ -204,19 +205,15 @@ class FamilyControl:
             return False, "Nothing to resume: it's already printing. Nothing sent."
         if state != "paused":
             return False, f"Nothing paused to resume (printer is {state}). Nothing sent."
+        if expected_filename and not before.get("filename"):
+            return False, "could not confirm which print is running. Nothing sent."
         if expected_filename and before.get("filename") and before["filename"] != expected_filename:
             return False, "A different print is paused than the one in this alert. Nothing sent."
-        self.adapter.control("resume")
-        deadline = time.monotonic() + wait_s
-        after = before
-        while time.monotonic() < deadline:
-            self._sleep(poll_s)
-            try:
-                after = self.status()
-            except Exception:
-                continue
-            if after.get("state") == "printing":
-                break
+        from .print_stop import send_once_and_read_back
+        _took, after = send_once_and_read_back(
+            lambda: self.adapter.control("resume"), self.status, "printing",
+            wait_s, poll_s, sleep=self._sleep)
+        after = after or before
         if after.get("state") == "printing":
             where = where_text(after)
             return True, f"Resumed. Printer now reports printing{', ' + where if where else ''}."
@@ -232,19 +229,16 @@ class FamilyControl:
         state = str(before.get("state") or "unknown")
         if state not in ACTIVE:
             return False, f"Nothing to stop: printer is {state}. Nothing sent."
+        if expected_filename and not before.get("filename"):
+            return False, "could not confirm which print is running. Nothing sent."
         if expected_filename and before.get("filename") and before["filename"] != expected_filename:
             return False, "A different print is running now than the one in this alert. Nothing sent."
-        self.adapter.control("stop")
-        deadline = time.monotonic() + wait_s
-        after = before
-        while time.monotonic() < deadline:
-            self._sleep(poll_s)
-            try:
-                after = self.status()
-            except Exception:
-                continue
-            if after.get("state") not in ACTIVE:
-                break
+        from .print_stop import send_once_and_read_back
+        _took, after = send_once_and_read_back(
+            lambda: self.adapter.control("stop"), self.status,
+            lambda st: st.get("state") not in ACTIVE,
+            wait_s, poll_s, sleep=self._sleep)
+        after = after or before
         if after.get("state") in ACTIVE:
             return True, (f"Cancel sent, but the printer still reports {after['state']} "
                           f"after {wait_s:.0f}s. Check the printer screen. Not retrying.")

@@ -10,7 +10,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.parse
 from pathlib import Path
@@ -18,6 +17,7 @@ from typing import NamedTuple
 
 from ..core import spoolman_client
 from . import _config
+from . import state_file
 from . import discord_print_summary as print_summary
 from . import plan_timelapse
 
@@ -453,26 +453,15 @@ def get_active_spool():
 
 
 def save_state(state):
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".moonraker-announcements-", dir=STATE_PATH.parent)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            json.dump(state, handle, sort_keys=True)
-            handle.write("\n")
-        os.replace(temporary, STATE_PATH)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    state_file.write_atomic(STATE_PATH, state, indent=None, sort_keys=True)
 
 
 def load_state():
     # Any unreadable or non-object state file reads as empty: a raise here
-    # would drop the listener's websocket on every announcer tick.
-    try:
-        value = json.loads(STATE_PATH.read_text())
-    except (OSError, ValueError):
-        return {}
-    return value if isinstance(value, dict) else {}
+    # would drop the listener's websocket on every announcer tick. The
+    # shared helper quarantines a corrupt file to .corrupt and warns once
+    # (#1585) instead of silently reading it as empty on every tick.
+    return state_file.read_object(STATE_PATH)
 
 
 # ------------------------------------------------------- pending completion
