@@ -42,7 +42,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
         job = load_workflow()["jobs"]["standalone-no-hermes"]
         runs = "\n".join(step.get("run", "") for step in job["steps"])
         self.assertIn('python -m venv "/tmp/clean"', runs)
-        self.assertIn('"/tmp/clean/bin/python" -m pip install .', runs)
+        self.assertIn('"/tmp/clean/bin/python" -m pip install -c "$GITHUB_WORKSPACE/constraints.txt" .', runs)
         self.assertNotIn("[test]", runs)
 
     def test_installed_wheel_is_checked_from_outside_the_checkout_and_the_gap_is_labeled(self):
