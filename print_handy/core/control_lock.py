@@ -29,6 +29,7 @@ the process's own file lock.
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import threading
@@ -126,8 +127,8 @@ class PrinterControlLock:
                     self._fd = fd
                     return True
                 except OSError as exc:
-                    if fcntl is None and exc.errno not in (13, 36):
-                        raise  # not lock contention (EACCES / EDEADLOCK): a real failure
+                    if fcntl is None and exc.errno != errno.EACCES:
+                        raise  # msvcrt contention is EACCES only; anything else is a real failure
                     if not blocking or (deadline is not None and time.monotonic() >= deadline):
                         os.close(fd)
                         return False

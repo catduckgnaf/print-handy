@@ -3127,7 +3127,7 @@ def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, repri
         out = _print_now_locked(target, wait_s=wait_s,
                                 accept_default_z_offset=accept_default_z_offset,
                                 reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num,
-                                launch_target=launch)
+                                launch_target=launch, locked_printer_id=launch.printer_id)
     finally:
         if clear_token is not None:
             _BED_CLEAR.reset(clear_token)
@@ -3148,14 +3148,23 @@ def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, repri
     return out
 
 
+# Sentinel for _print_now_locked's locked_printer_id: the caller holds
+# no LaunchTarget-keyed lock (direct callers), so no lock check applies.
+_NO_LOCKED_PRINTER = object()
+
+
 def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
-                      launch_target=None):
+                      launch_target=None, locked_printer_id=_NO_LOCKED_PRINTER):
     """print_now's body, run under the printer's interprocess control lock.
 
     ``launch_target`` is the LaunchTarget resolved once by the caller
     (#1587): its job is the job launched, not a second read. A slot
     remap rewrites the job first, so a remapped launch re-resolves
-    instead of trusting the pre-remap resolution.
+    instead of trusting the pre-remap resolution — and the re-resolved
+    printer must be the printer the caller locked (``locked_printer_id``,
+    the pre-remap LaunchTarget's printer): a remap that lands on a
+    different printer refuses, because the lock held is that printer's,
+    not this one's.
     """
     if remap_slot_num is not None:
         try:
@@ -3178,6 +3187,12 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             if not job.get("gcode"):
                 raise RuntimeError("stale color artifact: reslice current JOB before launch")
             g=Path(job["gcode"]).expanduser().resolve()
+    if remap_slot_num is not None and locked_printer_id is not _NO_LOCKED_PRINTER:
+        resolved_printer = job.get("printer_id") if isinstance(job, dict) else None
+        if resolved_printer != locked_printer_id:
+            raise SystemExit(f"REFUSED: remapping the slot re-resolved this launch to printer "
+                             f"{resolved_printer!r}, but the control lock is held for printer "
+                             f"{locked_printer_id!r}. Nothing uploaded or started.")
     cur = Path(job["gcode"]).expanduser().resolve() if isinstance(job, dict) and job.get("gcode") else None
     if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
             and not job.get("derived_plates")):

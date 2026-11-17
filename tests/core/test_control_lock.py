@@ -256,6 +256,8 @@ class _FakeMsvcrt:
         # Contention is cross-process; the test models a foreign holder
         # with the foreign_held flag, answered the way msvcrt answers a
         # contended LK_NBLCK: OSError with EACCES.
+        if getattr(self, "raise_errno", None) is not None:
+            raise OSError(self.raise_errno, "modeled failure")
         if getattr(self, "foreign_held", False):
             raise OSError(13, "permission denied")
         self.held.add(fd)
@@ -282,3 +284,44 @@ def test_msvcrt_fallback_refuses_while_another_process_holds_it(tmp_path, monkey
     lock = cl.PrinterControlLock(lambda: tmp_path / "win.lock")
     assert not lock.acquire(blocking=False)
     assert not lock.locked()
+
+
+def test_msvcrt_non_contention_errors_propagate(tmp_path, monkeypatch):
+    # Review fix (#1587): only EACCES is msvcrt contention. Any other
+    # errno (EINVAL here) is a real failure and must propagate, not be
+    # retried and swallowed into a False "busy" answer.
+    fake = _FakeMsvcrt()
+    fake.raise_errno = 22
+    monkeypatch.setattr(cl, "fcntl", None)
+    monkeypatch.setattr(cl, "msvcrt", fake)
+    lock = cl.PrinterControlLock(lambda: tmp_path / "win.lock")
+    with pytest.raises(OSError) as exc:
+        lock.acquire(blocking=False)
+    assert exc.value.errno == 22
+    assert not lock.locked()
+
+
+def test_remap_reresolution_to_a_different_printer_refuses(tmp_path, monkeypatch):
+    # Review fix (#1587): the control lock was taken for the pre-remap
+    # LaunchTarget's printer; a remap whose re-resolution lands on a
+    # different printer must refuse instead of launching under the
+    # wrong printer's lock.
+    from print_handy.launch import print_now as pn
+    gcode = _gcode_job(tmp_path, monkeypatch)  # owning job: printer-b
+    monkeypatch.setattr(pn, "remap_slot", lambda target, num: {
+        "tool": 0, "slot": num, "selection": {"color": "Red", "material": "PLA"}})
+    with pytest.raises(SystemExit) as exc:
+        pn._print_now_locked(str(gcode), remap_slot_num=2, locked_printer_id="printer-a")
+    assert "control lock is held for printer 'printer-a'" in str(exc.value)
+
+
+def test_remap_reresolution_to_the_locked_printer_passes_the_lock_check(tmp_path, monkeypatch):
+    from print_handy.launch import print_now as pn
+    gcode = _gcode_job(tmp_path, monkeypatch)  # owning job: printer-b
+    monkeypatch.setattr(pn, "remap_slot", lambda target, num: {
+        "tool": 0, "slot": num, "selection": {"color": "Red", "material": "PLA"}})
+    with pytest.raises((SystemExit, RuntimeError)) as exc:
+        # The launch goes on to its later gates and refuses there; the
+        # lock check is not the refusal that fires.
+        pn._print_now_locked(str(gcode), remap_slot_num=2, locked_printer_id="printer-b")
+    assert "control lock is held" not in str(exc.value)

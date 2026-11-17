@@ -706,3 +706,29 @@ def test_status_fallback_auth_error_still_reraises():
         with pytest.raises(moonraker.MoonrakerAuthError):
             print_control.status()
     assert len(calls) == 2
+
+
+def test_status_fallback_http_error_is_not_masked_as_unreachable():
+    # Review fix (#1587): Moonraker answered /server/info with an HTTP
+    # error — that answer surfaces; it is not a connection failure.
+    import urllib.error
+
+    def fake_send(path, **_kw):
+        if path.startswith("/printer/objects/query"):
+            raise OSError("connection reset")
+        raise urllib.error.HTTPError("http://printer", 500, "server error", None, None)
+    with patch("print_handy.runtime.print_control._send", side_effect=fake_send):
+        with pytest.raises(urllib.error.HTTPError):
+            print_control.status()
+
+
+def test_status_fallback_other_errors_are_not_masked_as_unreachable():
+    # A malformed /server/info reply (bad JSON) is not a connection
+    # failure either: it propagates instead of reading as "unreachable".
+    def fake_send(path, **_kw):
+        if path.startswith("/printer/objects/query"):
+            raise OSError("connection reset")
+        raise ValueError("bad json")
+    with patch("print_handy.runtime.print_control._send", side_effect=fake_send):
+        with pytest.raises(ValueError):
+            print_control.status()
