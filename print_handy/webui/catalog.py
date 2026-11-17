@@ -462,13 +462,15 @@ CATALOG = (
            "ntfy topic the events are published to. A protected topic's access "
            "token is NTFY_ACCESS_TOKEN in the environment — never a setting.",
            validator="settings notify check"),
-    # Firmware update alerts: one chat alert per new ZMod or HelixScreen
-    # release, with an Update button that runs the confirmed
-    # /print-firmware update path.
+    # Firmware update alerts: one chat alert per new release of a
+    # component an apply-eligible printer's Moonraker reports, with an
+    # Update button that runs the confirmed /print-firmware update path.
     _field("firmware", "update_alerts", "Firmware update alerts", "toggle",
            "Post one chat notice when the firmware a printer runs has a new "
-           "release, and for a ZMod printer one alert per new ZMod or "
-           "HelixScreen release. The alert's Update button asks once more and "
+           "release, and on a printer Print Handy can apply updates on, one "
+           "alert per new component version its Moonraker reports (ZMod, "
+           "HelixScreen, Klipper, Moonraker, Fluidd and the rest). The alert's "
+           "Update button asks once more and "
            "checks the printer is idle before anything is sent; nothing updates "
            "on its own.",
            validator="settings firmware check"),
