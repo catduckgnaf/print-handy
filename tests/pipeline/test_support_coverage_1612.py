@@ -118,3 +118,40 @@ def test_labeled_multi_part_rearranged_plate_still_grades_per_instance():
     assert len(result['regions']) == 2
     assert all(r['coverage'] == 1.0 for r in result['regions'])
     assert all(r['mapping'] == 'object_instance' for r in result['regions'])
+
+
+def _labeled_plate(name, ox):
+    """One labeled plate: a single part at X ox..ox+9, its underside tiled with interface."""
+    lines = ['; support_type = tree(auto)', f'; printing object {name}', ';TYPE:Outer wall',
+             f'G1 X{ox} Y100 E1', f'G1 X{ox + 9} Y109 E1', f'; stop printing object {name}',
+             ';TYPE:Support interface', 'G1 Z4.8']
+    points = _tiles(ox, 100)
+    lines.append(f'G1 X{points[0][0]:.1f} Y{points[0][1]:.1f}')
+    lines += [f'G1 X{x:.1f} Y{y:.1f} E1.0' for x, y in points]
+    return '\n'.join(lines) + '\n'
+
+
+def test_labeled_multi_plate_multi_part_input_still_grades():
+    """#1619 review: a multi-part model split over labeled plates is graded per plate."""
+    regions = [dict(r, bbox_mm=[[0.0, 0.0], [9.0, 9.0]]) for r in REGIONS]
+    plates = [{'gcode': _labeled_plate('Shell', 100), 'source_bounds': (0.0, 0.0, 9.0, 9.0)},
+              {'gcode': _labeled_plate('Plunger', 130), 'source_bounds': (0.0, 0.0, 9.0, 9.0)}]
+    result = support_clearance.verify_coverage_by_plate(regions, plates)
+    assert result['plate_mode'] == 'per_plate'
+    assert result['unverified'] == []
+    assert result['checked'] is True and result['ok'] is True
+    assert sorted(r['part'] for r in result['regions']) == ['Plunger', 'Shell']
+
+
+def test_mixed_plates_grade_the_labeled_plate_and_name_the_unlabeled_one():
+    """#1619 review: a labeled plate is still graded when another plate has no labels."""
+    regions = [dict(r, bbox_mm=[[0.0, 0.0], [9.0, 9.0]]) for r in REGIONS]
+    plates = [{'gcode': _labeled_plate('Shell', 100), 'source_bounds': (0.0, 0.0, 9.0, 9.0)},
+              {'gcode': _rearranged_unlabeled_gcode(), 'source_bounds': SOURCE_BOUNDS}]
+    result = support_clearance.verify_coverage_by_plate(regions, plates)
+    assert result['plate_mode'] == 'per_plate_partial'
+    assert result['checked'] is True and result['ok'] is True
+    assert [r['part'] for r in result['regions']] == ['Shell']
+    reasons = [u['reason'] for u in result['unverified']]
+    assert any('no object labels' in r for r in reasons)
+    assert any('region Plunger matched no object instance' in r for r in reasons)

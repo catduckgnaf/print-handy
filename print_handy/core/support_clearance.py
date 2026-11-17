@@ -1417,10 +1417,34 @@ def verify_coverage_by_plate(regions, plates):
             unverified.append({'plate': None,
                                'reason': f'region {part} matched no object instance on any '
                                          'plate; its coverage is unverified'})
+    elif multi_part:
+        # Mixed plates (#1619 review): a plate with object labels is graded
+        # per instance exactly like the all-labeled path; only the unlabeled
+        # plates are unverified, since the parts on them cannot be matched.
+        mode = 'per_plate_partial'
+        graded_parts = set()
+        unlabeled = []
+        for i, text, kw, _plate in read:
+            if not gcode_object_bounds(text):
+                unlabeled.append(i)
+                continue
+            kw.setdefault('gcode_bounds', gcode_model_bounds(text))
+            result = _run(i, text, kw, matched_only=True)
+            if result is None:
+                continue
+            results.append(result)
+            graded_parts.update(e['part'] for e in result['regions'])
+        for i in unlabeled:
+            _unattributed(i, mode)
+        for part in sorted(region_parts - graded_parts, key=str):
+            unverified.append({'plate': None,
+                               'reason': f'region {part} matched no object instance on a '
+                                         'labeled plate; its coverage is unverified'})
+        if not results:
+            return {'checked': False, 'ok': True, 'regions': [], 'unverified': unverified,
+                    'plate_mode': mode, 'plates': []}
     else:
         mode = 'concatenated_fallback'
-        if multi_part:
-            return _unattributed(None, mode)
         text = '\n'.join(t for _i, t, _kw, _p in read)
         kw = dict(read[0][2])
         kw['gcode_bounds'] = gcode_model_bounds(text)
