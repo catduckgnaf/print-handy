@@ -198,14 +198,14 @@ read (the matrix below).
 ## Component update alerts on eligible printers
 
 The same alert, for the rest of what Moonraker's Update Manager
-reports (#1280 section I). For each printer Print Handy may apply
-updates on — ZMod (above), generic Klipper (`klipper.generic`), the
-Sovol Klipper family (`sovol.*` over Moonraker), and Forge-X when
-`[firmware] forgex_apply` is on — Print Handy checks on the same
-schedule and posts one alert per component with a real available
-version: Klipper, Moonraker, Fluidd, Mainsail, GuppyScreen where the
-printer lists one, and any other component the printer's own
-`moonraker.conf` names.
+reports (#1280 section I). The printers covered are the ones Print
+Handy may apply updates on: ZMod (above), generic Klipper
+(`klipper.generic`), the Sovol Klipper family (`sovol.*` over
+Moonraker), and Forge-X when `[firmware] forgex_apply` is on. Print
+Handy checks them on the same schedule and posts one alert per
+component with a real available version: Klipper, Moonraker, Fluidd,
+Mainsail, GuppyScreen where the printer lists one, and any other
+component the printer's own `moonraker.conf` names.
 
 > **Klipper update available for Shop Klipper:** v0.12.0 -> v0.13.0.
 > Press **Update** to install it. Print Handy asks once more, checks
@@ -234,7 +234,7 @@ printer lists one, and any other component the printer's own
   printer whose base and component versions do not pair.
 - **Forge-X is narrower:** only the `forge-x` component itself, only
   when `[firmware] forgex_apply` is on, and only within the installed
-  version line — a new line is a USB re-flash and gets no alert
+  version line: a new line is a USB re-flash and gets no alert
   button. OpenCreator components never alert with a button (report
   only, #1490); an OpenCreator printer is not apply-eligible.
 - **Same switch, same rules** as the ZMod alerts: `[firmware]
