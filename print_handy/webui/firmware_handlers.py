@@ -20,7 +20,7 @@ its own:
 - ``GET /firmware/update/status?job=<id>`` follows the job: elapsed
   time and the estimate while it runs (the page refreshes itself), and
   the verified outcome — ``send_update``'s own words — when it ends.
-- ``GET /notifications/dismiss?id=<id>&back=<path>`` dismisses one
+- ``POST /notifications/dismiss`` (session+CSRF; fields ``id``, ``back``) dismisses one
   toast and returns to the page it was dismissed from.
 """
 from __future__ import annotations
@@ -195,12 +195,17 @@ def update_status_route(handler):
                       head_extra=head_extra)
 
 
-def dismiss_route(handler):
-    """GET /notifications/dismiss: dismiss one toast, return to the page."""
+def dismiss_route(handler, form):
+    """POST /notifications/dismiss (session+CSRF): dismiss one toast, return to the page.
+
+    A POST behind the form token, never a GET link: a dismissal changes
+    stored state, so a crafted link must not be able to do it (#1614
+    review). The form token is checked by the route policy before this
+    runs.
+    """
     data = handler.server.settings_data
-    query = _query(handler)
-    notif_id = (query.get("id") or [""])[0]
-    back = (query.get("back") or ["/"])[0]
+    notif_id = (form.get("id") or [""])[0]
+    back = (form.get("back") or ["/"])[0]
     if not back.startswith("/") or back.startswith("//"):
         back = "/"
     if notif_id:

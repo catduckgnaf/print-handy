@@ -237,7 +237,8 @@ button:disabled { opacity: 0.55; cursor: default; }
   border-radius: var(--radius-card); padding: 0.75rem 1rem;
 }
 .toast-body { flex: 1 1 16rem; }
-.toast-dismiss { color: var(--color-muted); }
+.toast-dismiss { margin: 0; }
+.toast-dismiss button.link { background: none; border: 0; padding: 0; color: var(--color-muted); text-decoration: underline; cursor: pointer; font: inherit; }
 .overall-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .overall-head h2 { margin: 0; font-size: 1.375rem; }
 .progress {

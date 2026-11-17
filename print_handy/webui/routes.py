@@ -150,7 +150,6 @@ ROUTES = (
     # status page, and toast dismissal.
     _get("/firmware/update", SESSION, "_firmware_update_route"),
     _get("/firmware/update/status", SESSION, "_firmware_update_status_route"),
-    _get("/notifications/dismiss", SESSION, "_notifications_dismiss_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
@@ -202,6 +201,9 @@ ROUTES = (
     # form POST, so session+csrf like the other browser writes; the
     # handler additionally requires [webui] controls_enabled.
     _post("/firmware/update", SESSION_CSRF, "_firmware_update_post", back="/firmware"),
+    # Toast dismissal changes stored state, so it is a session+CSRF POST
+    # like every other state change (#1614 review), never a GET link.
+    _post("/notifications/dismiss", SESSION_CSRF, "_notifications_dismiss_post", back="/"),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),
     _post("/config", SESSION_CSRF, "_config_save", back="/config"),
     _post("/printer-settings", SESSION_CSRF, "_printer_settings_save",

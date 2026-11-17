@@ -78,17 +78,21 @@ def start_job(data, *, printer_id, printer_name, transport, prepared, on_finish=
     runs after the outcome is recorded (the handler uses it to clear
     the applied offer from the notification observations).
     """
-    existing = running_job_for(printer_id, prepared.component.name)
-    if existing is not None:
-        return existing
     component = prepared.component
-    job = UpdateJob(
-        id=secrets.token_urlsafe(9), printer_id=str(printer_id),
-        printer_name=str(printer_name or printer_id),
-        component=component.name, current=component.current,
-        remote=component.remote,
-        estimate_text=fw.update_estimate_text(component.name))
+    # The running-job check and the insert happen under one lock hold
+    # (#1614 review): two concurrent confirmations for the same printer
+    # and component cannot both pass the check and send two updates.
     with _LOCK:
+        for existing in _JOBS.values():
+            if (existing.running and existing.printer_id == str(printer_id)
+                    and existing.component == component.name):
+                return existing
+        job = UpdateJob(
+            id=secrets.token_urlsafe(9), printer_id=str(printer_id),
+            printer_name=str(printer_name or printer_id),
+            component=component.name, current=component.current,
+            remote=component.remote,
+            estimate_text=fw.update_estimate_text(component.name))
         _JOBS[job.id] = job
 
     def run():

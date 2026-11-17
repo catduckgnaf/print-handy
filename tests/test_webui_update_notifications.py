@@ -111,9 +111,12 @@ def test_recorded_observation_becomes_a_toast(tmp_path):
     assert notif.title == "Update available"
     assert "klipper v0.12.0-310 is available for Garage Klipper" in notif.body
     assert notif.action_url == "/firmware?printer=kl1"
-    html = notifications.render_toasts(found, back="/")
+    html = notifications.render_toasts(found, back="/", form_token="tok")
     assert 'class="toasts"' in html and 'class="toast"' in html
-    assert "/notifications/dismiss?id=" in html and "back=/" in html
+    # Dismiss is a CSRF-carrying POST form, never a GET link (#1614 review).
+    assert 'method="post" action="/notifications/dismiss"' in html
+    assert 'name="_csrf" value="tok"' in html and 'name="back" value="/"' in html
+    assert "/notifications/dismiss?id=" not in html
 
 
 def test_dismissal_is_per_offer_and_a_newer_release_notifies_again(tmp_path):
@@ -318,14 +321,66 @@ def test_dismiss_route_records_and_redirects_back(monkeypatch, tmp_path):
         data, "kl1", "Garage Klipper",
         _status(fw.Component("klipper", current="1", remote="2")))
     notif_id = notifications.current_notifications(data)[0].id
-    handler = FakeHandler(
-        data, f"/notifications/dismiss?id={notif_id}&back=/firmware")
-    firmware_handlers.dismiss_route(handler)
+    handler = FakeHandler(data, "/notifications/dismiss")
+    firmware_handlers.dismiss_route(handler, {"id": [notif_id], "back": ["/firmware"]})
     assert handler.redirects == ["/firmware"]
     assert notifications.current_notifications(data) == []
-    evil = FakeHandler(data, "/notifications/dismiss?id=x&back=//evil.example")
-    firmware_handlers.dismiss_route(evil)
+    evil = FakeHandler(data, "/notifications/dismiss")
+    firmware_handlers.dismiss_route(evil, {"id": ["x"], "back": ["//evil.example"]})
     assert evil.redirects == ["/"]
+
+
+def test_dismissal_is_a_csrf_post_never_a_get(monkeypatch, tmp_path):
+    """#1614 review: a crafted GET link cannot dismiss a notification."""
+    from print_handy.webui import routes
+    gets = [r for r in routes.ROUTES if r.method == "GET" and r.pattern == "/notifications/dismiss"]
+    posts = [r for r in routes.ROUTES if r.method == "POST" and r.pattern == "/notifications/dismiss"]
+    assert gets == []
+    assert len(posts) == 1 and posts[0].policy == routes.SESSION_CSRF
+
+
+def test_concurrent_confirmations_start_one_update_job(monkeypatch, tmp_path):
+    """#1614 review: two confirmations racing for one printer and component start one job."""
+    import threading
+    transport = StatefulTransport()
+    prepared = fw.prepare_update(transport, GENERIC, "klipper", None)
+    sent = []
+    gate = threading.Event()
+
+    def slow_send(_transport, _prepared):
+        sent.append(1)
+        gate.wait(2)
+        return "done"
+    monkeypatch.setattr(fw, "send_update", slow_send)
+    real_lock = update_jobs._LOCK
+    barrier = threading.Barrier(2)
+
+    class RacingLock:
+        # Both threads reach the job check together before either inserts.
+        def __enter__(self):
+            try:
+                barrier.wait(0.5)
+            except threading.BrokenBarrierError:
+                pass
+            return real_lock.__enter__()
+
+        def __exit__(self, *exc):
+            return real_lock.__exit__(*exc)
+    monkeypatch.setattr(update_jobs, "_LOCK", RacingLock())
+    jobs = []
+
+    def confirm():
+        jobs.append(update_jobs.start_job({}, printer_id="kl1", printer_name="Garage",
+                                          transport=transport, prepared=prepared))
+    threads = [threading.Thread(target=confirm) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(3)
+    time.sleep(0.2)
+    gate.set()
+    assert len(jobs) == 2 and jobs[0] is jobs[1]
+    assert len(sent) == 1
 
 
 # ------------------------------------------------------------------ injection
@@ -336,11 +391,14 @@ def test_server_injects_toasts_into_shell_pages_only(tmp_path):
         data, "kl1", "Garage Klipper",
         _status(fw.Component("klipper", current="1", remote="2")))
     handler = server_module._Handler.__new__(server_module._Handler)
-    handler.server = SimpleNamespace(settings_data=data)
+    handler.server = SimpleNamespace(settings_data=data, form_token="proc-token",
+                                     access=SimpleNamespace(required=False))
     handler.path = "/"
     page = b"<html><body><header class=\"site\">x</header><main>y</main></body></html>"
     out = handler._inject_toasts(page)
     assert b'class="toasts"' in out and b"Update available" in out
+    # The Dismiss form carries this request's form token (#1614 review).
+    assert b'name="_csrf" value="proc-token"' in out
     assert out.index(b"</header>") < out.index(b'class="toasts"')
     bare = b"<html><body><main>login</main></body></html>"
     assert handler._inject_toasts(bare) == bare

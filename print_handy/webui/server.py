@@ -1103,8 +1103,8 @@ class _Handler(BaseHTTPRequestHandler):
     def _firmware_update_status_route(self):
         return firmware_handlers_module.update_status_route(self)
 
-    def _notifications_dismiss_route(self):
-        return firmware_handlers_module.dismiss_route(self)
+    def _notifications_dismiss_post(self, form):
+        return firmware_handlers_module.dismiss_route(self, form)
 
     def _inject_toasts(self, data):
         """Insert the current toast stack after a shell page's header (#1610).
@@ -1119,8 +1119,13 @@ class _Handler(BaseHTTPRequestHandler):
         settings_data = getattr(self.server, "settings_data", None)
         if not settings_data:
             return data
+        try:
+            form_token = self._form_token()
+        except Exception:  # noqa: BLE001 - no session token: the page goes out without toasts
+            log.debug("no form token for the toast Dismiss form", exc_info=True)
+            return data
         toasts = notifications_module.toasts_for_page(
-            settings_data, back=urlparse(self.path).path or "/")
+            settings_data, back=urlparse(self.path).path or "/", form_token=form_token)
         if not toasts:
             return data
         marker = b"</header>"

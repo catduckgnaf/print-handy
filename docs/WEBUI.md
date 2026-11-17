@@ -60,7 +60,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /firmware/update?printer=<id>&component=<name>` | The update confirmation page (#1610): validates the request against the live printer and shows the exact version change, the duration estimate and the confirm form. Sends nothing |
 | `POST /firmware/update` | Starts one confirmed component update as a background job (#1610): session + CSRF like every browser form POST, plus `[webui] controls_enabled`; re-validates against the live printer, then redirects to the job's status page |
 | `GET /firmware/update/status?job=<id>` | One update job's status page (#1610): elapsed time and the estimate while it runs (self-refreshing), the verified outcome when it finishes |
-| `GET /notifications/dismiss?id=<id>&back=<path>` | Dismisses one toast notification (#1610) and returns to the page it was dismissed from |
+| `POST /notifications/dismiss` | Dismisses one toast notification (#1610) and returns to the page it was dismissed from. A session form post with the form token (fields `id`, `back`), like every other change the Web UI makes |
 | `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
 | `GET /manifest.webmanifest` (and `GET /manifest.json`) | The PWA web app manifest (#450 Phase 1): name, stable `id`, standalone display, theme colors and install icons. Public, like the login form, because a browser fetches it before any sign-in; it carries no state |
 | `GET /sw.js` | The PWA service worker: precaches only the install assets and the offline page, and never caches API responses, upload links, the login page, or any non-GET request |

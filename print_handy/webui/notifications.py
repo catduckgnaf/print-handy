@@ -171,37 +171,43 @@ def current_notifications(data) -> list:
     return out
 
 
-def render_toasts(notifications, *, back="/") -> str:
+def render_toasts(notifications, *, back="/", form_token="") -> str:
     """The toast stack HTML for a page, or "" when there is nothing to say.
 
-    ``back`` is the path the dismiss links return to (the page being
-    served); callers pass a validated local path.
+    ``back`` is the path the Dismiss form returns to (the page being
+    served); callers pass a validated local path. Dismiss is a small POST
+    form carrying the session's ``form_token`` (#1614 review): it changes
+    stored state, so it is never a GET link.
     """
     if not notifications:
         return ""
     cards = []
     for notif in notifications:
-        dismiss_url = (f"/notifications/dismiss?id={quote(notif.id, safe='')}"
-                       f"&back={quote(back, safe='/')}")
+        dismiss_form = (
+            '<form class="toast-dismiss" method="post" action="/notifications/dismiss">'
+            f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+            f'<input type="hidden" name="id" value="{_esc(notif.id)}">'
+            f'<input type="hidden" name="back" value="{_esc(back)}">'
+            '<button type="submit" class="link">Dismiss</button></form>')
         cards.append(
             '<div class="toast">'
             f'<div class="toast-body"><strong>{_esc(notif.title)}</strong><br>'
             f'{_esc(notif.body)}</div>'
             f'<a class="button accent" href="{_esc(notif.action_url)}">'
             f'{_esc(notif.action_label)}</a>'
-            f'<a class="toast-dismiss" href="{_esc(dismiss_url)}">Dismiss</a>'
+            + dismiss_form +
             "</div>")
     return '<div class="toasts">' + "".join(cards) + "</div>"
 
 
-def toasts_for_page(data, *, back="/") -> str:
+def toasts_for_page(data, *, back="/", form_token="") -> str:
     """The current toast stack for one page render; never raises.
 
     Notifications are decoration on a page that must still load: any
     failure here is logged and the page goes out without toasts.
     """
     try:
-        return render_toasts(current_notifications(data), back=back)
+        return render_toasts(current_notifications(data), back=back, form_token=form_token)
     except Exception:
         logger.warning("could not build Web UI notifications", exc_info=True)
         return ""
