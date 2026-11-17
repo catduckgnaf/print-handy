@@ -5760,7 +5760,7 @@ class Listener:
         if not oc.is_opencreator(self._clock_adapter()):
             return
         from .klipper_report import ActionPrompt
-        if self.oc_prompt is None:
+        if getattr(self, "oc_prompt", None) is None:
             self.oc_prompt = ActionPrompt()
         commands = self.oc_prompt.feed(line)
         kind = oc.runout_kind(commands) if commands else None
