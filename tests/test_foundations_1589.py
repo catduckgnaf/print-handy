@@ -83,9 +83,11 @@ class ConstraintsTests(unittest.TestCase):
 class PyrightJobTests(unittest.TestCase):
     def test_pyright_job_is_non_blocking_and_scoped_to_runtime(self):
         job = load_ci()["jobs"]["pyright"]
-        self.assertEqual(job["continue-on-error"], "true")
-        runs = "\n".join(step.get("run", "") for step in job["steps"])
-        self.assertIn("pyright print_handy/runtime", runs)
+        self.assertNotIn("continue-on-error", job)
+        steps = {step.get("name"): step for step in job["steps"]}
+        step = steps["Pyright basic over print_handy/runtime (reporting only)"]
+        self.assertEqual(step["continue-on-error"], "true")
+        self.assertIn("pyright print_handy/runtime", step["run"])
 
     def test_pyright_config_is_basic_over_runtime(self):
         config = load_pyproject()["tool"]["pyright"]

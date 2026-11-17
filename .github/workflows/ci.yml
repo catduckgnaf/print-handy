@@ -277,13 +277,15 @@ jobs:
   pyright:
     # #1589: type check, reporting only. Pyright in basic mode over
     # print_handy/runtime (the [tool.pyright] table in pyproject.toml).
-    # continue-on-error keeps this job from ever blocking a merge while
-    # its pre-existing findings are worked down; promote it by removing
-    # continue-on-error in a later change, not by widening its scope here.
+    # The pyright step carries continue-on-error (step level, the same
+    # shape as the coverage-floors step above: a job-level setting would
+    # still report the job's own check as failed), so its pre-existing
+    # findings are visible in the step log without the job ever blocking
+    # a merge or reddening the rollup; promote it by removing that
+    # setting in a later change, not by widening its scope here.
     name: Pyright (basic, runtime, reporting only)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
@@ -294,6 +296,7 @@ jobs:
       - run: python -m pip install -c constraints.txt ".[test]"
       - run: python -m pip install "pyright==1.1.414"
       - name: Pyright basic over print_handy/runtime (reporting only)
+        continue-on-error: true
         run: python -m pyright print_handy/runtime
 
   bounds-image-stage:
