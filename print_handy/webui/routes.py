@@ -146,6 +146,11 @@ ROUTES = (
     # The real user-facing waits, read back from TIMING.jsonl (#1476).
     # Firmware and updates per printer, from the firmware feed (#1280 I).
     _get("/firmware", SESSION, "_firmware_route"),
+    # Click-to-update (#1610): the confirmation page, the running job's
+    # status page, and toast dismissal.
+    _get("/firmware/update", SESSION, "_firmware_update_route"),
+    _get("/firmware/update/status", SESSION, "_firmware_update_status_route"),
+    _get("/notifications/dismiss", SESSION, "_notifications_dismiss_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
@@ -193,6 +198,10 @@ ROUTES = (
     # other page (#1588), so these take the plain session+csrf rule.
     _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped"),
     _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped"),
+    # The Firmware page's update confirmation form (#1610): a browser
+    # form POST, so session+csrf like the other browser writes; the
+    # handler additionally requires [webui] controls_enabled.
+    _post("/firmware/update", SESSION_CSRF, "_firmware_update_post", back="/firmware"),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),
     _post("/config", SESSION_CSRF, "_config_save", back="/config"),
     _post("/printer-settings", SESSION_CSRF, "_printer_settings_save",
