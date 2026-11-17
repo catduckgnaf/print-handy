@@ -159,7 +159,6 @@ and the loopback posture is otherwise unchanged.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import hmac
 import html
 import ipaddress
@@ -167,47 +166,62 @@ import json
 import shutil
 import logging
 import os
-import re
 import secrets
 import sys
-import tempfile
 import threading
 import time
-from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from .. import __version__, logs, settings
 from ..bot import health as bot_health
 from . import access as access_module
 from . import body as body_module
 from . import camera as camera_module
-from . import chat as chat_module
-from . import config as config_api
 from . import controls as controls_module
-from . import dashboard as dashboard_module
-from . import data as data_module
-from . import designs as designs_module
-from . import firmware_page as firmware_page_module
 from . import pages
-from . import printer_settings as printer_settings_module
-from . import printers_page
-from . import pwa as pwa_module
 from . import routes as routes_module
 from . import screen as screen_module
 from . import shell
-from . import sliced as sliced_module
-from . import settings_report as settings_report_module
-from . import editable_download as editable_download_module
-from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
 from . import upload as upload_module
 from . import walkthrough as walkthrough_module
-from . import workflow as workflow_module
+from . import sessions as sessions_module
+from . import status_handlers as status_handlers_module
+from . import data_handlers as data_handlers_module
+from . import printer_handlers as printer_handlers_module
+from . import design_handlers as design_handlers_module
+from . import config_handlers as config_handlers_module
+from . import chat_handlers as chat_handlers_module
+from . import upload_handlers as upload_handlers_module
+from . import walkthrough_handlers as walkthrough_handlers_module
+from .sessions import (REMEMBER_TTL_S, SESSIONS_FILE, SESSION_COOKIE,
+                       SESSION_TTL_S, SessionStore, _access_stamp,
+                       _load_remembered_sessions, _remember_lock,
+                       _save_remembered_sessions, _session_digest,
+                       _session_store, session_form_token, sessions_path)
+from .sessions import _FINGERPRINT_KEY
+from .chat_handlers import CHAT_COOKIE, _CHAT_COOKIE_VALUE
+from .status_handlers import ICON_FILES, STATIC_DIR, healthz, render_status_html, _overall_job
 
 log = logging.getLogger(__name__)
+
+# Re-export surface (#1603 item 3): names that lived in this module
+# before the handler split and are imported (or patched) as
+# ``server.<name>`` by tests and embedders. The implementations now
+# live in webui/sessions.py, webui/status_handlers.py and
+# webui/chat_handlers.py; listing them here keeps them importable
+# from webui.server exactly as before.
+__all__ = [
+    "CHAT_COOKIE", "ICON_FILES", "REMEMBER_TTL_S", "SESSIONS_FILE",
+    "SESSION_COOKIE", "SESSION_TTL_S", "STATIC_DIR", "SessionStore",
+    "_CHAT_COOKIE_VALUE", "_FINGERPRINT_KEY", "_overall_job",
+    "_remember_lock", "_save_remembered_sessions", "_session_digest",
+    "_session_store", "bot_health",
+    "healthz", "render_status_html", "session_form_token", "sessions_path",
+    "walkthrough_module",
+]
 
 TOKEN_HEADER = "X-WebUI-Token"
 # Sent on every response. No Web UI route is meant to be framed (the
@@ -219,23 +233,6 @@ SECURITY_HEADERS = (
     ("X-Frame-Options", "DENY"),
     ("Content-Security-Policy", "frame-ancestors 'none'"),
 )
-# The favicon and branding icons (#1456), served by the public
-# /favicon.ico and /static/* routes. The files live in webui/static and
-# are byte copies of assets/branding (tests/test_webui_favicon.py pins
-# them equal, so the two sets cannot drift apart). The allowlist is the
-# whole surface: a name that is not a key here is a 404 and is never
-# joined onto a filesystem path.
-STATIC_DIR = Path(__file__).parent / "static"
-ICON_FILES = {
-    "favicon.ico": "image/x-icon",
-    "icon-16.png": "image/png",
-    "icon-32.png": "image/png",
-    "icon-64.png": "image/png",
-    "icon-180.png": "image/png",
-    "icon-192.png": "image/png",
-    "icon-512.png": "image/png",
-    "icon-512-maskable.png": "image/png",
-}
 # Per-connection socket timeout (seconds without progress on a read or
 # write) and the most requests handled at once: a slow or stalled
 # client cannot hold a thread forever, nor spawn threads without bound.
@@ -256,201 +253,13 @@ LOOPBACK_NAMES = frozenset({"localhost"})
 # is persisted and a restart signs everyone out. The Secure flag is
 # off by default for plain HTTP on a trusted LAN (Unraid WebUI link);
 # set [webui] cookie_secure = true when exposed via an HTTPS reverse proxy.
-SESSION_COOKIE = "webui_session"
 # The web chat's per-browser cookie on an install with no login (#1145):
 # a random id that scopes this browser's chat transcript. With a login,
 # the login session scopes it instead and this cookie is not used.
-CHAT_COOKIE = "webui_chat"
-_CHAT_COOKIE_VALUE = re.compile(r"[A-Za-z0-9_-]{32,64}")
-SESSION_TTL_S = 12 * 60 * 60  # 12 hours
 # Remembered sessions ("Keep me signed in on this browser" on the login
 # form): a 30-day session whose id is persisted only as its SHA-256 hash
 # in SESSIONS_FILE in the state folder, so it survives a server restart.
 # The raw id is never written to disk.
-REMEMBER_TTL_S = 30 * 24 * 60 * 60  # 30 days
-SESSIONS_FILE = "webui_sessions.json"
-_REMEMBER_TRUTHY = frozenset({"on", "true", "1", "yes"})
-# The store file's reserved key for the credential fingerprint (see
-# _load_remembered_sessions). Session keys are SHA-256 hex digests, so
-# this name can never collide with one.
-_FINGERPRINT_KEY = "__credential_sha256__"
-
-
-def sessions_path(data):
-    return Path(settings.state_dir(data)) / SESSIONS_FILE
-
-
-def _session_digest(session_id):
-    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
-
-
-def _access_stamp(data):
-    """A change marker for the saved login file, or None when there is none."""
-    try:
-        return access_module.access_path(data).stat().st_mtime_ns
-    except Exception:
-        return None
-
-
-def session_form_token(server, session_id):
-    """The ``_csrf`` value bound to one login session on ``server``: an
-    HMAC-SHA256 of the session id under the server's in-memory secret
-    (rotated with every access-rule change)."""
-    store = getattr(server, "session_store", None)
-    if store is not None:
-        return store.form_token_for(session_id)
-    secret = getattr(server, "csrf_secret", None)
-    if secret is None:
-        secret = server.csrf_secret = secrets.token_bytes(32)
-    return hmac.new(secret, session_id.encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-class SessionStore:
-    """The Web UI's session state, in one place with its own lock (#1588).
-
-    Holds the ephemeral login sessions (raw id -> expiry, memory only),
-    the remembered sessions (SHA-256 of the id -> expiry; persistence to
-    ``webui_sessions.json`` stays with ``_save_remembered_sessions``,
-    which snapshots this store), the per-process form token and the
-    secret session-bound form tokens are derived from. Before #1588
-    these were bare attributes on the server object, created and mutated
-    at a dozen sites with ``getattr`` fallbacks; now ``make_server``
-    builds one store and the server's old attribute names delegate to
-    it, so the state has one owner and one lock (the same shape as
-    ``access.LoginThrottle``).
-    """
-
-    def __init__(self, remembered_sessions=None):
-        self.lock = threading.RLock()
-        self.sessions = {}
-        self.remembered_sessions = dict(remembered_sessions or {})
-        self.form_token = secrets.token_urlsafe(32)
-        self.csrf_secret = secrets.token_bytes(32)
-        self._remembered_pruned = False
-
-    # -- tokens -----------------------------------------------------------
-    def rotate_tokens(self):
-        """A new form token and CSRF secret (an access-rule change)."""
-        with self.lock:
-            self.form_token = secrets.token_urlsafe(32)
-            self.csrf_secret = secrets.token_bytes(32)
-            return self.form_token
-
-    def form_token_for(self, session_id):
-        """The ``_csrf`` value bound to one session (see
-        :func:`session_form_token`)."""
-        with self.lock:
-            secret = self.csrf_secret
-            if secret is None:
-                secret = self.csrf_secret = secrets.token_bytes(32)
-        return hmac.new(secret, session_id.encode("utf-8"),
-                        hashlib.sha256).hexdigest()
-
-    # -- ephemeral sessions -------------------------------------------------
-    def prune(self, *, now=None):
-        """Drop expired ephemeral sessions; returns how many went."""
-        now = time.time() if now is None else now
-        with self.lock:
-            stale = [sid for sid, expiry in list(self.sessions.items())
-                     if expiry <= now]
-            for sid in stale:
-                self.sessions.pop(sid, None)
-            return len(stale)
-
-    def mint(self, session_id=None, *, ttl_s=SESSION_TTL_S, now=None):
-        """Mint (or record) an ephemeral session; returns its id.
-
-        Expired sessions are pruned first, so two logins at once never
-        trip over a stale entry."""
-        now = time.time() if now is None else now
-        with self.lock:
-            self.prune(now=now)
-            session_id = session_id or secrets.token_urlsafe(32)
-            self.sessions[session_id] = now + ttl_s
-            return session_id
-
-    def clear(self):
-        """End every ephemeral session (the credential changed)."""
-        with self.lock:
-            self.sessions.clear()
-
-    # -- remembered sessions --------------------------------------------------
-    def remember(self, session_id, *, ttl_s=REMEMBER_TTL_S, now=None):
-        """Record a remembered session by digest; returns the digest.
-
-        In-memory only: the caller persists the snapshot and rolls this
-        back with :meth:`forget_remembered` when the write fails."""
-        now = time.time() if now is None else now
-        digest = _session_digest(session_id)
-        with self.lock:
-            for stale in [d for d, expiry in list(self.remembered_sessions.items())
-                          if expiry <= now]:
-                del self.remembered_sessions[stale]
-            self.remembered_sessions[digest] = now + ttl_s
-            return digest
-
-    def forget_remembered(self, session_id):
-        """Drop one remembered session; True when one was present."""
-        with self.lock:
-            return self.remembered_sessions.pop(
-                _session_digest(session_id), None) is not None
-
-    def revoke_all_remembered(self):
-        with self.lock:
-            self.remembered_sessions.clear()
-
-    def snapshot_remembered(self):
-        with self.lock:
-            return dict(self.remembered_sessions)
-
-    # -- validation and revocation --------------------------------------------
-    def validate(self, session_id, *, now=None):
-        """``session_id`` when it names a live session, else "".
-
-        Both stores count. An expired id is pruned on sight; when the
-        pruned entry was a remembered one, :meth:`take_remembered_pruned`
-        reports it once so the caller can persist the removal."""
-        now = time.time() if now is None else now
-        if not session_id:
-            return ""
-        with self.lock:
-            expiry = self.sessions.get(session_id)
-            if expiry is not None:
-                if expiry <= now:
-                    self.sessions.pop(session_id, None)
-                    return ""
-                return session_id
-            digest = _session_digest(session_id)
-            expiry = self.remembered_sessions.get(digest)
-            if expiry is None:
-                return ""
-            if expiry <= now:
-                del self.remembered_sessions[digest]
-                self._remembered_pruned = True
-                return ""
-            return session_id
-
-    def take_remembered_pruned(self):
-        """True (once) when :meth:`validate` pruned a remembered entry."""
-        with self.lock:
-            pruned, self._remembered_pruned = self._remembered_pruned, False
-            return pruned
-
-    def revoke(self, session_id):
-        """End one session in both stores; True when a remembered entry
-        went (the caller then persists the removal)."""
-        if not session_id:
-            return False
-        with self.lock:
-            self.sessions.pop(session_id, None)
-            return self.remembered_sessions.pop(
-                _session_digest(session_id), None) is not None
-
-
-def _session_store(server):
-    """The server's :class:`SessionStore`, or None for a server object
-    that predates it (the mutation sites stay safe either way)."""
-    return getattr(server, "session_store", None)
 
 
 _FORWARDED_WARN_LOCK = threading.Lock()
@@ -497,13 +306,6 @@ def _log_broken_access(server):
               access._broken_path)
 
 
-def _remember_lock(server):
-    """The server's remembered-session lock, or a no-op context when the
-    server object predates it (the mutation sites stay safe either way)."""
-    lock = getattr(server, "remembered_lock", None)
-    return lock if lock is not None else contextlib.nullcontext()
-
-
 def _claim_lock(server):
     """The server's walkthrough-write lock (serializes login claims), or a
     no-op context when the server object predates it."""
@@ -517,80 +319,6 @@ def _chat_lock(server):
     lock = getattr(server, "chat_service_lock", None)
     return lock if lock is not None else contextlib.nullcontext()
 
-
-def _load_remembered_sessions(data, fingerprint):
-    """{sha256(session id): expiry epoch} from SESSIONS_FILE.
-
-    A missing or unreadable file reads as no remembered sessions, exactly
-    like access._read_saved; expired entries are pruned on load. The file
-    also carries the fingerprint of the credential its sessions were
-    minted under: when that no longer matches ``fingerprint`` (the token
-    was rotated in the environment, or the saved password changed) the
-    whole store is discarded and deleted — a session minted under an old
-    credential must not survive its rotation just because the rotation
-    happened while the server was stopped."""
-    path = sessions_path(data)
-    try:
-        saved = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(saved, dict):
-        return {}
-    if saved.get(_FINGERPRINT_KEY) != fingerprint:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError as exc:
-            log.warning("webui: could not delete stale remembered sessions file: %s", exc)
-        return {}
-    now = time.time()
-    loaded = {}
-    for digest, expiry in saved.items():
-        if digest == _FINGERPRINT_KEY:
-            continue
-        try:
-            expiry = float(expiry)
-        except (TypeError, ValueError):
-            continue
-        if isinstance(digest, str) and digest and expiry > now:
-            loaded[digest] = expiry
-    return loaded
-
-
-def _save_remembered_sessions(server):
-    """Persist server.remembered_sessions atomically with mode 0600.
-
-    The snapshot and the write happen under the server's remembered
-    lock, so a concurrent logout or revocation cannot be overwritten by
-    a stale snapshot (callers that mutate the store hold the same lock
-    across their mutation-through-save sequence). Returns True when the
-    file was written. A failure is logged and reported, never raised: a
-    read-only state mount must not break sign-in (the caller falls back
-    to an ephemeral session)."""
-    path = sessions_path(server.settings_data)
-    with _remember_lock(server):
-        try:
-            store = _session_store(server)
-            payload = store.snapshot_remembered() if store is not None else \
-                dict(getattr(server, "remembered_sessions", {}) or {})
-            access = getattr(server, "access", None)
-            if access is not None:
-                payload[_FINGERPRINT_KEY] = access.credential_fingerprint()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".webui_sessions.")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    json.dump(payload, handle)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.chmod(tmp, 0o600)
-                os.replace(tmp, path)
-            except BaseException:
-                Path(tmp).unlink(missing_ok=True)
-                raise
-        except OSError as exc:
-            log.warning("webui: could not save remembered sessions to %s: %s", path, exc)
-            return False
-    return True
 
 # The form-token refusal for browser forms (#840): the token is
 # regenerated on every process start, so a tab left open across a
@@ -677,237 +405,6 @@ def check_start(data, environ=None):
         raise WebUIServerError(
             "webui: not started: [webui] port is 0 (unset); set a port above 0 to run it")
     return webui["host"], port, access_token(data, environ)
-
-
-def healthz(data=None, heartbeat=status_module.READ_HEARTBEAT):
-    """(http_code, body_dict) for /healthz: the bot-health evaluation.
-
-    Mirrors print_handy.bot.health.serve: 200 when evaluate() passes,
-    503 otherwise, with the reason and the heartbeat record. The record
-    is whitelisted to the same safe keys the snapshot shows.
-    """
-    data = settings.load() if data is None else data
-    if heartbeat is status_module.READ_HEARTBEAT:
-        try:
-            heartbeat = bot_health.read()
-        except Exception:  # an unreadable heartbeat file reads as no heartbeat
-            heartbeat = None
-    ok, reason = status_module.bot_verdict(data, heartbeat)
-    ok = ok is not False  # an unevaluated (None) verdict is not a failure, as in the snapshot
-    body = {"ok": ok, "reason": reason}
-    if isinstance(heartbeat, dict):
-        body.update({key: heartbeat[key] for key in status_module.HEARTBEAT_KEYS
-                     if key in heartbeat})
-    return (200 if ok else 503), body
-
-
-def _overall_job(data, *, read=None):
-    """The default printer's live job for the status page's overall card
-    (#813, second pass): the normalized live status ``printer_status``
-    already serves the API and the Home Assistant integration, fetched
-    for the one default printer.
-
-    Returns the status dict when the printer is printing or paused, or
-    has a job file at all; None otherwise — idle, unavailable, offline,
-    unconfigured. Never raises and never retries: the read carries its
-    own timeout, and any failure simply leaves the card without a job
-    block. ``snapshot()`` is untouched: this is a page-only extra, the
-    /api/status JSON does not gain a live read.
-    """
-    try:
-        printer_id = settings.default_printer_id(data)
-        _code, body = status_module.printer_status(data, printer_id, read=read)
-        live = body.get("status") or {}
-    except Exception:  # a broken roster or read path is "no job block"
-        return None
-    if live.get("state") in ("printing", "paused") or live.get("filename"):
-        return live
-    return None
-
-
-def _job_block(job):
-    """The overall card's job lines, from a normalized live status dict:
-    the file name, a progress bar with its percent, and a muted line of
-    the parts that exist (state, layers, remaining time)."""
-    esc = html.escape
-    parts = []
-    if job.get("filename"):
-        parts.append(f'<p class="job-line">{esc(str(job["filename"]))}</p>')
-    progress = job.get("progress")
-    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
-        percent = min(100, max(0, round(progress * 100)))
-        parts.append(f'<div class="progress"><i style="width: {percent}%"></i></div>')
-    meta = []
-    state = str(job.get("state") or "")
-    if state:
-        meta.append(state.capitalize())
-    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
-        meta.append(f"{round(progress * 100):.0f}% done")
-    layer, total = job.get("layer"), job.get("total_layers")
-    if layer is not None and total is not None:
-        meta.append(f"Layer {layer} of {total}")
-    remaining = job.get("remaining_min")
-    if remaining is not None:
-        meta.append(f"about {remaining} min left")
-    if meta:
-        parts.append(f'<p class="muted">{" · ".join(esc(bit) for bit in meta)}</p>')
-    return "".join(parts)
-
-
-def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
-                       walkthrough_pending=False, job=None, error=None, nav=None,
-                       unclaimed=False, loopback=False, open_reason="",
-                       credential_ignored=False, dashboard=None):
-    """The / page: the snapshot as escaped HTML in the shared shell (#813).
-
-    The overall card on top is derived from what the snapshot already
-    carries — its ok flag, the doctor rows' warn/fail counts, and the
-    printer's name and connection — plus, when the caller fetched one
-    (``job``, the default printer's normalized live status), the active
-    job's file, progress and layers. ``walkthrough_pending`` adds the
-    slim finish-setup banner under the header. ``error`` (a /debug
-    validation refusal re-rendering this page, #840) shows above the
-    card. ``dashboard`` (#1445, a dashboard.build_dashboard result)
-    renders the Home Assistant sample's screen — health row, printer
-    cards with camera, progress ring, temperatures and history,
-    filament, latest timelapse, recent prints — between the overall
-    card and the detail tables; without one the page is exactly the
-    pre-dashboard readout.
-    """
-    esc = html.escape
-    bot, listener, spoolman = snap["bot"], snap["listener"], snap["spoolman"]
-    heartbeat = bot["heartbeat"] or {}
-    rows = [
-        ("Version", snap["version"]),
-        ("Host", snap["host"]),
-        ("Printer", f"{snap['printer']['name']} ({snap['printer']['model']})"),
-        ("Connection", snap["printer"]["connection"]),
-        ("Bot", f"{bot['platform']} / {bot['mode']} — {bot['reason']}"),
-        ("Bot connected", str(heartbeat.get("connected", "unknown"))),
-        ("Listener", "not required" if not listener["required"]
-         else ("ok" if listener["ok"] else "FAIL") + f" — {listener['reason']}"),
-        ("Spoolman", ("bundled" if spoolman["bundled"] else "external")
-         + f" {spoolman['url'] or '(not configured)'} — "
-         + ("not configured" if spoolman["ok"] is None
-            else "ok" if spoolman["ok"] else "down") + f" ({spoolman['detail']})"),
-    ]
-    services = "".join(
-        f"<tr><th>{esc(key)}</th><td>{esc(str(value))}</td></tr>"
-        for key, value in snap["services"].items())
-    roster = snap.get("printers") or []
-    roster_table = ""
-    if len(roster) > 1:  # the read-only roster appears only when there is a roster (#337)
-        body = "".join(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
-                esc(row["id"]) + (" (default)" if row["default"] else ""),
-                esc(row["name"]), esc(row["model"]), esc(row["connection"]),
-                esc(row["chat_id"] or "main channel"),
-                esc(row.get("moonraker_url") or row.get("octoprint_url")
-                    or row.get("lan_host") or row.get("link_host") or row.get("host") or ""))
-            for row in roster)
-        roster_table = ("<h2>Printers</h2><p>Add a printer or open its spools on the "
-                        '<a href="/printers">Printers page</a>.</p>'
-                        '<div class="table-scroll"><table><tr><th>id</th><th>name</th>'
-                        "<th>model</th><th>connection</th>"
-                        f"<th>channel</th><th>endpoint</th></tr>{body}</table></div>")
-    doctor = "".join(
-        f"<tr><td>{esc(row['label'])}</td><td>{esc(row['status'])}</td>"
-        f"<td>{esc(row['detail'])}</td></tr>" for row in snap["doctor"])
-    # Debug log mode control (#478): the same form-token guard as the
-    # config POSTs. Without a form token (programmatic renders) the
-    # doctor table's debug mode row above is the whole surface.
-    debug_section = ""
-    if form_token:
-        debug_row = next((row for row in snap["doctor"] if row["label"] == "debug mode"), None)
-        state = esc(debug_row["detail"]) if debug_row else "off"
-        debug_section = (
-            "<h2>Debug log mode</h2>"
-            f"<p>State: {state}. Logging only — printing is unaffected. "
-            "Turning it off ends the session; the sanitized export is "
-            "delivered by the bot (`/print-handy debug off`) or the CLI "
-            "(`python3 -m print_handy.debug_mode off`).</p>"
-            '<form method="post" action="/debug">'
-            f'<input type="hidden" name="{pages.CSRF_FIELD}" value="{esc(form_token)}">'
-            '<label>Minutes <input name="minutes" size="4" placeholder="30"></label> '
-            '<button name="action" value="on" type="submit">Turn on</button> '
-            '<button name="action" value="off" type="submit" '
-            'data-confirm="Turn off debug mode? This ends the debug session.">Turn off</button>'
-            "</form>")
-    failures = snap.get("slice_failures") or []
-    failures_table = ""
-    if failures:
-        failures_table = (
-            "<h2>Recent model failures</h2><p>The raw slicer logs of a failed model are kept in these "
-            "folders on the host; a chat failure post names the stage and cause, and these hold the "
-            "detail to attach to a bug report.</p><table><tr><th>folder</th><th>modified</th></tr>"
-            + "".join(f"<tr><td>{esc(row['path'])}</td><td>"
-                      f"{esc(time.strftime('%Y-%m-%d %H:%M', time.localtime(row['modified'])))}</td></tr>"
-                      for row in failures)
-            + "</table>")
-    main_rows = "".join(
-        f"<tr><th>{esc(label)}</th><td>{esc(str(value))}</td></tr>" for label, value in rows)
-    warns = sum(1 for row in snap["doctor"] if row["status"] == "warn")
-    fails = sum(1 for row in snap["doctor"] if row["status"] == "fail")
-    pills = []
-    if fails:
-        pills.append(f'<span class="badge bad">{fails} failing</span>')
-    if warns:
-        pills.append(f'<span class="badge warn">{warns} warning{"s" if warns != 1 else ""}</span>')
-    if not pills:
-        pills.append('<span class="badge ok">all checks ok</span>')
-    headline = "All good" if snap["ok"] else "Attention needed"
-    overall = ('<section class="card"><div class="overall-head">'
-               f"<h2>{headline}</h2><span>{' '.join(pills)}</span></div>"
-               f'<p class="muted">{esc(snap["printer"]["name"])} · '
-               f'{esc(snap["printer"]["connection"])}</p>'
-               f'{_job_block(job) if job else ""}</section>')
-    banner = ""
-    if walkthrough_pending:
-        banner = ('<div class="banner"><span>Finish setting up Print Handy — '
-                  'the first-run walkthrough is still open.</span>'
-                  '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
-    if unclaimed:
-        open_reason = access_module.OPEN_UNCLAIMED
-    if open_reason == access_module.OPEN_UNCLAIMED:
-        reach = ('It listens only on this machine, so only someone using this '
-                 'machine can reach it. Set a login in the walkthrough if you '
-                 'want one.' if loopback else
-                 'anyone who can reach it can use it. Set a login in the '
-                 'walkthrough, or leave it open on a network you trust.')
-        banner += (f'<div class="banner"><span>No login is set for this Web UI — {reach}</span>'
-                   '<a class="button accent" href="/walkthrough">Open the walkthrough</a></div>')
-    elif open_reason:
-        # Open for a reason other than "nothing set yet": say which, so
-        # an open Web UI is never mistaken for a protected one.
-        reach = ("only someone using this machine can reach it" if loopback
-                 else "anyone who can reach it can use it")
-        if open_reason == access_module.OPEN_AUTH_OFF:
-            why = ("This Web UI is open: login is turned off by "
-                   "<code>[webui] require_auth = false</code>, so " + reach + ".")
-            if credential_ignored:
-                why += (" A saved login or access token exists but is ignored until "
-                        "that setting is back on.")
-        else:
-            why = ("This Web UI is open: a login was removed in the walkthrough "
-                   "(the leave-it-open choice), so " + reach + ".")
-        banner += (f'<div class="banner"><span>{why}</span>'
-                   '<a class="button" href="/config?section=webui">Web UI settings</a></div>')
-    body = ((f'<p class="error">{esc(error)}</p>' if error else "")
-            + overall
-            + (dashboard_module.render_dashboard(dashboard, snap, form_token=form_token) if dashboard else "")
-            + roster_table
-            + failures_table
-            # The connection readout and doctor table are system detail,
-            # folded at the bottom so the dashboard reads as status (#1515).
-            # A failing or warning check opens the fold.
-            + f'<details class="card sys-details"{" open" if (fails or warns or not dashboard) else ""}>'
-            + "<summary>System details</summary>"
-            + f'<table class="rows">{main_rows}</table>'
-            + (f"<h2>Services</h2><table>{services}</table>" if services else "")
-            + f"<h2>Doctor checks</h2><table>{doctor}</table>"
-            + "</details>"
-            + debug_section)
-    return shell.page("status", body, path="/", theme=theme, banner=banner, nav=nav)
 
 
 class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
@@ -1282,24 +779,10 @@ class _Handler(BaseHTTPRequestHandler):
         return shell.theme_from_cookies(self.headers.get("Cookie"))
 
     def _session_id(self):
-        """The session id from the Cookie header, or "" (garbage = none)."""
-        raw = self.headers.get("Cookie") or ""
-        if not raw:
-            return ""
-        jar = SimpleCookie()
-        try:
-            jar.load(raw)
-        except Exception:  # a malformed Cookie header carries no session
-            return ""
-        morsel = jar.get(SESSION_COOKIE)
-        return morsel.value if morsel is not None else ""
+        return sessions_module.session_id(self)
 
     def _session_authorized(self):
-        """A valid, unexpired login-session cookie. Expired ids are
-        pruned on sight; unknown or expired cookies are simply
-        unauthenticated. Both stores count: the ephemeral in-memory
-        map (raw id) and the remembered map (SHA-256 of the id)."""
-        return bool(self._valid_session_id())
+        return sessions_module.session_authorized(self)
 
     def _note_forwarded_for(self):
         """Item 1 of #1588: warn once when a forwarded-for header arrives
@@ -1310,57 +793,13 @@ class _Handler(BaseHTTPRequestHandler):
             _warn_untrusted_forwarded_for(self.server)
 
     def _valid_session_id(self):
-        """The caller's session id when it names a live session, else ""."""
-        session_id = self._session_id()
-        if not session_id:
-            return ""
-        store = _session_store(self.server)
-        if store is not None:
-            valid = store.validate(session_id)
-            if store.take_remembered_pruned():
-                # An expired remembered entry was pruned in memory;
-                # persist the removal, as the bare-dict code did.
-                with _remember_lock(self.server):
-                    _save_remembered_sessions(self.server)
-            return valid
-        now = time.time()
-        expiry = self.server.sessions.get(session_id)
-        if expiry is not None:
-            if expiry <= now:
-                self.server.sessions.pop(session_id, None)
-                return ""
-            return session_id
-        remembered = getattr(self.server, "remembered_sessions", None) or {}
-        digest = _session_digest(session_id)
-        expiry = remembered.get(digest)
-        if expiry is None:
-            return ""
-        if expiry <= now:
-            with _remember_lock(self.server):
-                if remembered.pop(digest, None) is not None:
-                    _save_remembered_sessions(self.server)
-            return ""
-        return session_id
+        return sessions_module.valid_session_id(self)
 
     def _session_form_token(self, session_id):
-        """The form token bound to one session: an HMAC of its id under a
-        per-process secret, so a token copied from one signed-in browser
-        is worthless with another session or none."""
-        return session_form_token(self.server, session_id)
+        return sessions_module.bound_form_token(self, session_id)
 
     def _form_token(self):
-        """The ``_csrf`` value to embed in a page served to this request.
-
-        While access is open (unclaimed, or deliberately left open) it
-        is the per-process form token, as before. On a claimed install a
-        signed-in browser gets the token bound to its session; a header
-        client (which posts with its header, not a form) gets the
-        process token, which authorizes nothing there on its own."""
-        if self.server.access.required:
-            session_id = self._valid_session_id()
-            if session_id:
-                return self._session_form_token(session_id)
-        return self.server.form_token
+        return sessions_module.current_form_token(self)
 
     def _browser_navigation(self, path):
         """True for a browser page navigation: a GET for a non-API page
@@ -1378,12 +817,10 @@ class _Handler(BaseHTTPRequestHandler):
         return self._header_authorized() or self._session_authorized()
 
     def _field_values(self):
-        return config_api.read_fields(environ=self.server.webui_environ)
+        return config_handlers_module.field_values(self)
 
     def _config_html(self, field_values, **kwargs):
-        return pages.render_config_page(
-            field_values, data=self.server.settings_data,
-            form_token=self._form_token(), **kwargs)
+        return config_handlers_module.config_html(self, field_values, **kwargs)
 
     # -- routes and the policy middleware (#1319) --------------------------
     def do_GET(self):
@@ -1584,1233 +1021,210 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- small routes -------------------------------------------------------
     def _healthz(self):
-        code, body = healthz(self.server.settings_data)
-        self._json(code, body)
+        return status_handlers_module.healthz_route(self)
 
     def _favicon_route(self):
-        self._icon_file("favicon.ico")
+        return status_handlers_module.favicon_route(self)
 
     def _static_route(self, name):
-        self._icon_file(name)
+        return status_handlers_module.static_route(self, name)
 
     def _icon_file(self, name):
-        """One branding icon (#1456), from the ICON_FILES allowlist.
-
-        Public by design (see routes.py): the bytes are the project's
-        own logo, nothing about the install. Icons change only with a
-        release, so a browser may keep one for a day."""
-        content_type = ICON_FILES.get(name)
-        if content_type is None:
-            self._json(404, {"ok": False,
-                             "reason": "no icon by that name. "
-                                       "try /favicon.ico or /static/icon-32.png"})
-            return
-        try:
-            data = (STATIC_DIR / name).read_bytes()
-        except OSError:
-            self._json(404, {"ok": False,
-                             "reason": "that icon could not be read."})
-            return
-        self._send(200, data, content_type,
-                   headers=[("Cache-Control", "public, max-age=86400")])
+        return status_handlers_module.icon_file(self, name)
 
     def _setup_redirect(self):
-        self._redirect("/")
+        return status_handlers_module.setup_redirect(self)
 
     # -- PWA routes (#450 Phase 1, declared public in routes.py) ----------
     def _pwa_manifest(self):
-        self._send(200, pwa_module.manifest_json(),
-                   "application/manifest+json; charset=utf-8",
-                   headers=[("Cache-Control", "public, max-age=86400")])
+        return status_handlers_module.pwa_manifest(self)
 
     def _pwa_service_worker(self):
-        # no-cache: a stale worker script would keep an old caching
-        # policy alive; Service-Worker-Allowed grants the root scope
-        # even though the script itself lives at the root already.
-        self._send(200, pwa_module.SW_SCRIPT,
-                   "application/javascript; charset=utf-8",
-                   headers=[("Service-Worker-Allowed", "/"),
-                            ("Cache-Control", "no-cache")])
+        return status_handlers_module.pwa_service_worker(self)
 
     def _pwa_offline(self):
-        self._send(200, pwa_module.render_offline_page(),
-                   "text/html; charset=utf-8",
-                   headers=[("Cache-Control", "public, max-age=86400")])
+        return status_handlers_module.pwa_offline(self)
 
     def _status_page(self):
-        if (self._browser_navigation("/")
-                and walkthrough_module.offer_once(self.server.settings_data)):
-            # First run (#813): a browser landing on the status page goes
-            # to the walkthrough until it is done; the setup gate's
-            # discipline, one step later. API callers and every other
-            # route are unaffected.
-            self._redirect("/walkthrough")
-            return
-        snap = self.server.snapshot_func()
-        self._send(200, render_status_html(
-            snap, form_token=self._form_token(), theme=self._theme(),
-            walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
-            unclaimed=self.server.access.unclaimed,
-            open_reason=getattr(self.server.access, "open_reason", ""),
-            credential_ignored=getattr(self.server.access, "credential_ignored", False),
-            loopback=is_loopback(self.server.bind_host),
-            job=_overall_job(self.server.settings_data),
-            dashboard=dashboard_module.build_dashboard(
-                self.server.settings_data,
-                status_for=self.server.printer_status_func,
-                spools_for=self.server.spools_view_func),
-            nav=data_module.nav_for(self.server.settings_data)
-            if (data_module.data_enabled(self.server.settings_data)
-                or data_module.wrapped_enabled(self.server.settings_data))
-            else None),
-            "text/html; charset=utf-8")
+        return status_handlers_module.status_page(self)
 
     def _api_status(self):
-        self._json(200, self.server.api_snapshot_func())
+        return status_handlers_module.api_status(self)
 
     def _api_printers(self):
-        # The cheap roster (#1400): no doctor run, no probe, no printer read.
-        self._json(200, self.server.roster_func())
+        return status_handlers_module.api_printers(self)
 
     def _readyz(self):
-        # Readiness per component (Spoolman, slicer, each printer), behind
-        # the same auth as /api/status; /healthz stays the
-        # unauthenticated liveness probe.
-        ready = self.server.readiness_func() or {}
-        self._json(200 if ready.get("ready", False) else 503, ready)
+        return status_handlers_module.readyz_route(self)
 
     def _spools_index(self):
-        entries = settings.printers(self.server.settings_data)
-        if len(entries) == 1:
-            # One printer: no picker step in the way (#875).
-            self._redirect("/spools/" + quote(str(entries[0]["id"]), safe=""))
-            return
-        self._send(200, spools_module.render_spools_index(entries, theme=self._theme()),
-                   "text/html; charset=utf-8")
+        return printer_handlers_module.spools_index(self)
 
     def _config_page(self):
-        query = parse_qs(urlparse(self.path).query)
-        section = (query.get("section") or [None])[0]
-        reveal = (query.get("setup") or [None])[0]
-        self._send(200, self._config_html(self._field_values(), theme=self._theme(),
-                                          section=section, reveal=reveal),
-                   "text/html; charset=utf-8")
+        return config_handlers_module.config_page(self)
 
     def _printer_settings_page(self):
-        """GET /printer-settings (?printer=<id>): one printer's settings (#1448)."""
-        query = parse_qs(urlparse(self.path).query)
-        data = self.server.settings_data
-        printer_id = (query.get("printer") or [None])[0] \
-            or settings.default_printer_id(data)
-        try:
-            settings.by_id(printer_id, data)
-        except settings.SettingsError:
-            self._json(404, {"ok": False, "reason": "no such printer"})
-            return
-        model = printer_settings_module.build_model(
-            data, printer_id, environ=self.server.webui_environ)
-        self._send(200, printer_settings_module.render_page(
-            model, form_token=self._form_token(), theme=self._theme(),
-            nav=data_module.nav_for(data)), "text/html; charset=utf-8")
+        return config_handlers_module.printer_settings_page(self)
 
     def _printer_settings_save(self, form):
-        """POST /printer-settings: validate and save one printer's settings (#1448).
-
-        All validation and writing live in
-        :mod:`print_handy.webui.printer_settings`; a refusal re-renders
-        the page with the submitted values and the refusal in place.
-        """
-        data = self.server.settings_data
-        printer_id = (form.get("printer") or [""])[0]
-        try:
-            settings.by_id(printer_id, data)
-        except settings.SettingsError:
-            self._json(404, {"ok": False, "reason": "no such printer"})
-            return
-        outcome = printer_settings_module.save(
-            data, printer_id, form, environ=self.server.webui_environ,
-            confirmed=tuple(form.get(pages.REBIND_FIELD) or ()))
-        if outcome[0] == "result":
-            _kind, changed, warnings = outcome
-            self._send(200, printer_settings_module.render_result(
-                changed, printer_id=printer_id, warnings=warnings,
-                theme=self._theme(), nav=data_module.nav_for(data)),
-                "text/html; charset=utf-8")
-            return
-        _kind, model, submitted, errors, moves = outcome
-        self._send(400 if errors else 200, printer_settings_module.render_page(
-            model, form_token=self._form_token(), theme=self._theme(),
-            nav=data_module.nav_for(data), errors=errors,
-            submitted=submitted, rebinds=moves), "text/html; charset=utf-8")
+        return config_handlers_module.printer_settings_save(self, form)
 
     def _chat_state(self):
-        self._json(200, chat_module.chat_state(
-            self._chat_view(issue=False) if self._web_chat_enabled() else None))
+        return chat_handlers_module.chat_state(self)
 
     def _upload_page(self):
-        self._send(200, self._upload_page_html(), "text/html; charset=utf-8")
+        return upload_handlers_module.upload_page(self)
 
     def _sources_page(self):
-        self._send(200, sources_module.render_sources_page(
-            theme=self._theme(), nav=data_module.nav_for(self.server.settings_data),
-            form_token=self._form_token(),
-            chat_enabled=self._web_chat_enabled()),
-            "text/html; charset=utf-8")
+        return design_handlers_module.sources_page(self)
 
     def _designs_page(self, notice=None, error=None):
-        data = self.server.settings_data
-        rows = designs_module.catalog_rows(data)
-        # The workshop submits through this browser's web chat view, so
-        # it exists only while web chat is on; with it off the page
-        # renders the reason instead of a form (designs_module).
-        view = self._chat_view() if self._web_chat_enabled() else None
-        workshop = designs_module.workshop_model(data, view)
-        self._send(200, designs_module.render_designs_page(
-            rows, theme=self._theme(), nav=data_module.nav_for(data),
-            workshop=workshop, form_token=self._form_token(),
-            notice=notice, error=error),
-            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+        return design_handlers_module.designs_page(self, notice, error)
 
     def _designs_post(self, form):
-        """POST /designs: the workshop's start and follow-up forms (#1449).
-
-        Both submit one message to this browser's web chat view: a start
-        submits the /print-design command for the description, a follow-up
-        submits its text as-is (the design dispatch routes it: the answer
-        to the open question, or the revision the session waits for).
-        The page itself designs, slices and prints nothing.
-        """
-        if not self._web_chat_enabled():
-            self._designs_page()
-            return
-        text = (form.get("text") or [""])[0].strip()
-        if not text:
-            self._redirect("/designs")
-            return
-        mode = (form.get("mode") or ["start"])[0]
-        message = designs_module.start_message(text) if mode == "start" else text
-        if not self._chat_view().submit(message):
-            self._designs_page(error="Too many messages in the last minute; "
-                                     "give the bot a moment to catch up.")
-            return
-        self._redirect("/designs", headers=self._chat_cookie_headers())
+        return design_handlers_module.designs_post(self, form)
 
     def _designs_choice_post(self, form):
-        """POST /designs/choice: one button of the design's open question.
-
-        The same press as /chat/choice (the prompt's own button, resolved
-        through the adapter with the prompt's own approval rules), only
-        landing back on the designs page.
-        """
-        if not self._web_chat_enabled():
-            self._designs_page()
-            return
-        clarify_id = (form.get("clarify_id") or [""])[0]
-        try:
-            index = int((form.get("index") or ["-1"])[0])
-        except ValueError:
-            index = -1
-        if clarify_id and index >= 0:
-            try:
-                label = self._chat_view().answer(clarify_id, index)
-            except Exception:
-                log.warning("design page answer for %s did not reach the bot",
-                            clarify_id, exc_info=True)
-                self._designs_page(error="That answer didn't reach the bot "
-                                         "in time. The question is still "
-                                         "open — try again.")
-                return
-            if label is None:
-                self._designs_page(error="That answer wasn't accepted — "
-                                         "the question may have closed, or "
-                                         "the answer belongs to another step.")
-                return
-        self._redirect("/designs")
+        return design_handlers_module.designs_choice_post(self, form)
 
     def _firmware_route(self):
-        # Firmware and updates per printer (#1280 section I), read-only.
-        # ?printer=<id> reads that one printer's installed versions.
-        checked = (parse_qs(urlparse(self.path).query).get("printer") or [None])[0]
-        self._send(200, firmware_page_module.render_firmware_page(
-            self.server.settings_data, theme=self._theme(), checked=checked,
-            nav=data_module.nav_for(self.server.settings_data)),
-            "text/html; charset=utf-8")
+        return design_handlers_module.firmware_route(self)
 
     def _settings_report_route(self, rest=""):
-        """Download the evidence-backed conversion decisions for an archived job."""
-        segments = [segment for segment in rest.split("/") if segment]
-        archive = data_module.archive_root(self.server.settings_data)
-        payload = (settings_report_module.report_payload(archive, segments[0])
-                   if len(segments) == 1 else None)
-        if payload is None:
-            self._json(404, {"ok": False, "reason": "no recorded settings-decision report for this job"})
-            return
-        name = f"{segments[0]}-settings-decisions.json"
-        self._send(200, settings_report_module.render_json(payload), "application/json; charset=utf-8",
-                   headers=[("Content-Disposition", f'attachment; filename="{name}"'),
-                            ("Cache-Control", "no-store")])
+        return design_handlers_module.settings_report_route(self, rest)
 
     def _conversion_report_route(self, rest=""):
-        """The readable conversion report for an archived job (#1525).
-
-        Rendered from the same conversion provenance as the JSON
-        settings report; ?format=text serves the chat form.
-        """
-        segments = [segment for segment in rest.split("/") if segment]
-        archive = data_module.archive_root(self.server.settings_data)
-        rendered = (settings_report_module.conversion_report(archive, segments[0])
-                    if len(segments) == 1 else None)
-        if rendered is None:
-            self._json(404, {"ok": False, "reason": "no recorded conversion provenance for this job"})
-            return
-        html_body, text_body = rendered
-        if "text" in (parse_qs(urlparse(self.path).query).get("format") or []):
-            self._send(200, text_body.encode("utf-8"), "text/plain; charset=utf-8",
-                       headers=[("Cache-Control", "no-store")])
-            return
-        self._send(200, html_body.encode("utf-8"), "text/html; charset=utf-8",
-                   headers=[("Cache-Control", "no-store")])
+        return design_handlers_module.conversion_report_route(self, rest)
 
     def _editable_export_route(self, rest=""):
-        """Download an editable destination 3MF export for an archived job (#1525).
-
-        The export is built from the job's own named source by
-        core.editable_export: it starts no print and touches no spool.
-        A refusal (for example a sliced-only source) is the answer, in
-        the export's own words.
-        """
-        segments = [segment for segment in rest.split("/") if segment]
-        archive = data_module.archive_root(self.server.settings_data)
-        path, report = (editable_download_module.export_for_job(archive, segments[0])
-                        if len(segments) == 1 else (None, "no such job"))
-        if path is None:
-            self._json(404, {"ok": False, "reason": report})
-            return
-        self._send_file(path, "model/3mf",
-                        headers=[("Content-Disposition",
-                                  f'attachment; filename="{path.name}"'),
-                                 ("Cache-Control", "no-store")])
+        return design_handlers_module.editable_export_route(self, rest)
 
     def _sliced_route(self, rest=""):
-        """GET /sliced (the downloads page) and /sliced/<job>/<n> (one plate file, #1443).
-
-        The file itself is resolved by :mod:`print_handy.webui.sliced` from
-        the job's own JOB.json inside the archive — the request names a job
-        and a plate position, never a path — and is sent as an attachment,
-        the way the designs route sends a session's files.
-        """
-        data = self.server.settings_data
-        archive = data_module.archive_root(data)
-        if not rest:
-            self._send(200, sliced_module.render_sliced_page(
-                sliced_module.list_sliced(archive), theme=self._theme(),
-                nav=data_module.nav_for(data)), "text/html; charset=utf-8")
-            return
-        segments = [segment for segment in rest.split("/") if segment != ""]
-        path = (sliced_module.resolve_download(archive, segments[0], segments[1])
-                if len(segments) == 2 else None)
-        if path is None:
-            self._json(404, {"ok": False, "reason": "no such sliced file"})
-            return
-        self._send_file(path, sliced_module.content_type(path),
-                        headers=[("Content-Disposition",
-                                  f'attachment; filename="{path.name}"'),
-                                 ("Cache-Control", "no-store")])
+        return design_handlers_module.sliced_route(self, rest)
 
     def _not_found(self, path):
-        if self._browser_navigation(path):
-            # A browser navigation to a path that does not exist gets the
-            # themed refusal, not a JSON dump (#840).
-            self._html_refusal(404, "No page lives at this address.", "/")
-            return
-        self._json(404, {"ok": False,
-                         "reason": "try /, /api/status, /api/printers/<id>/status, "
-                                   "/api/printers/<id>/camera/snapshot, "
-                                   "/api/printers/<id>/spools, "
-                                   "/healthz, /readyz, /config, /designs, /spools, "
-                                   "/walkthrough or /login"})
+        return status_handlers_module.not_found(self, path)
 
     # -- Data tab and Wrapped (#956) ---------------------------------------
     def _year_param(self):
-        raw = (parse_qs(urlparse(self.path).query).get("year") or [None])[0]
-        if raw is None or raw == "":
-            return None, None
-        try:
-            return int(raw), None
-        except ValueError:
-            return None, (400, {"ok": False,
-                                "reason": "year must be a whole number. Nothing shown."})
+        return data_handlers_module.year_param(self)
 
     def _data_route(self, path):
-        """GET /data, /wrapped, /api/data and /api/wrapped (#956).
-
-        Served under the Web UI's own access rules, like every other
-        page: open on an install with no login set, behind the login
-        when one is set. While a route's own switch is off ([timelapse]
-        data_enabled for the Data routes, wrapped_enabled for the
-        Wrapped routes), it answers the named 403 refusal from
-        data.py, for pages and APIs alike.
-        """
-        year, error = self._year_param()
-        if error:
-            self._json(error[0], error[1])
-            return
-        data = self.server.settings_data
-        if path == "/api/data":
-            code, payload = data_module.data_view(data, year=year)
-            self._json(code, payload)
-            return
-        if path == "/api/wrapped":
-            code, payload = data_module.wrapped_view(data, year=year)
-            self._json(code, payload)
-            return
-        if path == "/data":
-            code, payload = data_module.data_view(data, year=year)
-            if code != 200:
-                self._json(code, payload)
-                return
-            self._send(200, data_module.render_data_page(data, payload, theme=self._theme()),
-                       "text/html; charset=utf-8")
-            return
-        code, payload = data_module.wrapped_view(data, year=year)
-        if code != 200:
-            self._json(code, payload)
-            return
-        done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
-        self._send(200, data_module.render_wrapped_page(
-            data, payload, form_token=self._form_token(), theme=self._theme(),
-            notice=done or None), "text/html; charset=utf-8")
+        return data_handlers_module.data_route(self, path)
 
     def _wrapped_video_file_route(self):
-        """GET /wrapped/video-file?year=<year> (#981 step 4).
-
-        Serves the compiled Wrapped video so the Wrapped page can
-        embed it. Behind the same login as every other route here
-        (do_GET has already authorized), plus the wrapped_enabled
-        gate. Only the one file data.py constructs for a whole-number
-        year inside the wrapped outputs can be served — the request
-        never supplies a file name, so traversal has no input.
-        """
-        data = self.server.settings_data
-        if not data_module.wrapped_enabled(data):
-            self._json(403, {"ok": False, "reason": data_module.WRAPPED_OFF_REASON})
-            return
-        year, error = self._year_param()
-        if error:
-            self._json(error[0], error[1])
-            return
-        if year is None:
-            self._json(400, {"ok": False,
-                             "reason": "year must be a whole number. Nothing shown."})
-            return
-        target = data_module.wrapped_video_path(data, year)
-        if target is None:
-            self._json(404, {"ok": False,
-                             "reason": "no compiled Wrapped video for that year. "
-                                       "Compile it from the Wrapped page first."})
-            return
-        self._stream_file(target, "video/mp4")
+        return data_handlers_module.wrapped_video_file_route(self)
 
     VIDEO_CHUNK = 256 * 1024
 
     def _stream_file(self, target, content_type):
-        """Send a file in chunks, honoring one ``Range`` (206) so a browser
-        can seek; the whole file is never held in memory."""
-        try:
-            handle = open(target, "rb")
-        except OSError:
-            self._json(404, {"ok": False, "reason": "the Wrapped video could not be read."})
-            return
-        with handle:
-            size = os.fstat(handle.fileno()).st_size
-            wanted = data_module.parse_byte_range(self.headers.get("Range"), size)
-            if wanted == "unsatisfiable":
-                self.send_response(416)
-                self.send_header("Content-Range", f"bytes */{size}")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            start, end = wanted if wanted else (0, size - 1)
-            length = max(0, end - start + 1)
-            self.send_response(206 if wanted else 200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Content-Length", str(length))
-            if wanted:
-                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-            self.end_headers()
-            handle.seek(start)
-            remaining = length
-            while remaining > 0:
-                chunk = handle.read(min(self.VIDEO_CHUNK, remaining))
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
-                remaining -= len(chunk)
+        return data_handlers_module.stream_file(self, target, content_type)
 
     def _wrapped_video_status_route(self):
-        """GET /api/wrapped/video-status?year=<year>: the compile's state
-        (idle, queued, running with a step count, done, failed with a
-        short reason), polled by the Wrapped page while a video compiles."""
-        year, error = self._year_param()
-        if error or year is None:
-            self._json(*(error or (400, {"ok": False, "reason":
-                                         "year must be a whole number. Nothing shown."})))
-            return
-        code, payload = data_module.video_status(self.server.settings_data, year)
-        self._json(code, payload)
+        return data_handlers_module.wrapped_video_status_route(self)
 
     def _wrapped_video_post(self, form):
-        """POST /wrapped/video (#956): the Wrapped page's video form.
-
-        Policy ``session+csrf`` (routes.py): a login session alone never
-        authorizes it; the page embeds the session-bound form token
-        like every other page (#1588 item 3). The compile itself, its
-        two toggles and every named refusal live in data.py /
-        wrapped_video.py.
-        """
-        raw_year = (form.get("year") or [""])[0]
-        try:
-            year = int(raw_year)
-        except (TypeError, ValueError):
-            self._html_refusal(400, "year must be a whole number. Nothing was compiled.",
-                               "/wrapped")
-            return
-        # The compile runs as a background job: this starts it (or joins the
-        # one already running for the year) and goes back to the page, which
-        # shows the progress and then the finished video.
-        code, payload = data_module.make_video(
-            self.server.settings_data, year,
-            export_silent=bool((form.get("export_silent") or [""])[0]))
-        if code not in (200, 202):
-            self._html_refusal(code, payload.get("reason", "the video compile failed"),
-                               "/wrapped")
-            return
-        self._redirect(f"/wrapped?year={year}")
+        return data_handlers_module.wrapped_video_post(self, form)
 
     def _wrapped_share_post(self, form):
-        """POST /wrapped/share (#981): the Wrapped page's share form.
-
-        Authorized exactly like the video form (routes.py: the page's
-        session-bound form token; a login session alone never
-        authorizes it). The
-        export itself, its wrapped_enabled gate and every named
-        refusal live in data.py / share_export.py. The export is a
-        local file write only — nothing is uploaded anywhere.
-        """
-        raw_year = (form.get("year") or [""])[0]
-        try:
-            year = int(raw_year)
-        except (TypeError, ValueError):
-            self._html_refusal(400, "year must be a whole number. Nothing was exported.",
-                               "/wrapped")
-            return
-        # The share form posts what to include as checkboxes (an unticked
-        # box is simply absent); a post without the options marker keeps
-        # the safe defaults (#1321): titles, printer names and footage out.
-        # Only a ticked box on the explicit form opts one back in.
-        explicit = (form.get("options") or [""])[0] == "explicit"
-
-        def ticked(name, default):
-            return bool((form.get(name) or [""])[0]) if explicit else default
-
-        code, payload = data_module.export_share(
-            self.server.settings_data, year,
-            (form.get("visibility") or ["link-only"])[0],
-            destination_note=(form.get("destination") or [""])[0],
-            passphrase=(form.get("passphrase") or [None])[0],
-            include_titles=ticked("include_titles", False),
-            include_printers=ticked("include_printers", False),
-            include_video=ticked("include_video", False))
-        if code != 200:
-            self._html_refusal(code, payload.get("reason", "the export failed"),
-                               "/wrapped")
-            return
-        self._send(200, data_module.render_share_result(
-            self.server.settings_data, payload, theme=self._theme()),
-            "text/html; charset=utf-8")
+        return data_handlers_module.wrapped_share_post(self, form)
 
     # -- per-printer live status (#664) -------------------------------------
     def _printer_status_route(self, rest):
-        """GET /api/printers/<id>/status and /api/printers/<id>/camera/snapshot
-        (#708): exactly one id segment plus a known tail; anything else
-        under /api/printers/ is a 404 naming the routes that exist there."""
-        segments = rest.split("/")
-        if len(segments) == 2 and segments[0] and segments[1] == "status":
-            code, payload = self.server.printer_status_func(unquote(segments[0]))
-            self._json(code, payload)
-            return
-        if len(segments) == 2 and segments[0] and segments[1] == "spools":
-            code, payload = self.server.spools_view_func(unquote(segments[0]))
-            self._json(code, payload)
-            return
-        if len(segments) == 3 and segments[0] and segments[1:] == ["camera", "snapshot"]:
-            code, body, content_type = self.server.camera_snapshot_func(unquote(segments[0]))
-            if code != 200:
-                self._json(code, body)
-                return
-            self._send(200, body, content_type, headers=[("Cache-Control", "no-store")])
-            return
-        if len(segments) == 3 and segments[0] and segments[1:] == ["screen", "snapshot"]:
-            code, body, content_type = self.server.screen_snapshot_func(unquote(segments[0]))
-            if code != 200:
-                self._json(code, body)
-                return
-            self._send(200, body, content_type, headers=[("Cache-Control", "no-store")])
-            return
-        self._json(404, {"ok": False,
-                         "reason": "try /api/printers/<id>/status, "
-                                   "/api/printers/<id>/spools, "
-                                   "/api/printers/<id>/camera/snapshot or "
-                                   "/api/printers/<id>/screen/snapshot"})
+        return printer_handlers_module.printer_status_route(self, rest)
 
     def _printer_post_route(self, rest):
-        """POST /api/printers/<id>/...: a spool action or a control verb,
-        both behind the ``header`` policy (routes.py)."""
-        segments = rest.split("/")
-        if len(segments) >= 2 and segments[1] == "spools":
-            self._printer_spools_route(rest)
-        else:
-            self._printer_control_route(rest)
+        return printer_handlers_module.printer_post_route(self, rest)
 
     # -- per-printer controls (#708, control endpoints phase) ----------------
     def _printer_control_route(self, rest):
-        """POST /api/printers/<id>/pause|resume|cancel|temperature|target.
-
-        Also the ha-print-handy #1 verbs: emergency_stop,
-        firmware_restart, server_restart, gcode and exclude.
-
-        Authorization is the ``header`` policy (routes.py): the
-        access-token header only (or no token configured); a
-        login-session cookie never authorizes a control POST. The body must be JSON,
-        so a cross-site HTML form cannot post here. The off-by-default
-        switch, cancel's confirm field and the temperature limits live
-        in controls.py; a 404 for an unknown printer keeps the status
-        route's shape.
-        """
-        segments = rest.split("/")
-        verbs = (*controls_module.ACTIONS, "temperature", "target",
-                 *controls_module.POWER_ACTIONS, "gcode", "exclude", "nozzle")
-        if len(segments) != 2 or not segments[0] or segments[1] not in verbs:
-            self._json(404, {"ok": False, "reason": "try /api/printers/<id>/pause, resume, "
-                                                    "cancel, temperature, target, emergency_stop, "
-                                                    "firmware_restart, server_restart, gcode, "
-                                                    "exclude or nozzle"})
-            return
-        body, error = body_module.read_json(
-            self, limit=4096, noun="control", tail="Nothing sent.")
-        if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
-            return
-        printer_id, verb = unquote(segments[0]), segments[1]
-        code, payload = self.server.printer_control_func(printer_id, verb, body)
-        self._json(code, payload)
+        return printer_handlers_module.printer_control_route(self, rest)
 
     def _dashboard_estop_post(self, printer_id, form):
-        """POST /dashboard/estop/<id>: the Status page's E-stop button.
-
-        A browser cannot send the ``X-WebUI-Token`` header the
-        ``/api/printers/<id>/emergency_stop`` route requires, so on a
-        claimed install that route refused every press from the page
-        with a 401. This route is ``session+csrf`` like every other
-        browser form: a live login session plus the session-bound
-        ``_csrf`` value the page embeds. The stop itself is the API's
-        own (``printer_control_func``, ``emergency_stop``, confirmed),
-        so the controls_enabled switch and every refusal are unchanged.
-        """
-        code, payload = self.server.printer_control_func(
-            printer_id, "emergency_stop", {"confirm": True})
-        self._json(code, payload)
+        return printer_handlers_module.dashboard_estop_post(self, printer_id, form)
 
     # -- per-printer spools (#789) -------------------------------------------
     def _printer_spools_route(self, rest):
-        """POST /api/printers/<id>/spools/<action> (and purchase/<step>).
-
-        Authorization and body rules mirror the control route exactly:
-        the access-token header only (a login-session cookie never
-        authorizes a spool POST), a JSON body only, so a cross-site
-        HTML form cannot post here. The controls_enabled guard, the
-        named-printer rule and every refusal live in spools.py.
-        """
-        segments = rest.split("/")
-        actions = (*spools_module.ACTIONS, "purchase/propose", "purchase/create")
-        action = None
-        if len(segments) == 3 and segments[0] and segments[1] == "spools" \
-                and segments[2] in spools_module.ACTIONS:
-            action = segments[2]
-        elif len(segments) == 4 and segments[0] and segments[1] == "spools" \
-                and segments[2] == "purchase" and segments[3] in ("propose", "create"):
-            action = f"purchase/{segments[3]}"
-        if action is None:
-            self._json(404, {"ok": False, "reason": "try /api/printers/<id>/spools/"
-                                                    + ", ".join(actions)})
-            return
-        body, error = body_module.read_json(
-            self, limit=65536, noun="spool", tail="Nothing changed.")
-        if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
-            return
-        code, payload = self.server.spools_action_func(unquote(segments[0]), action, body)
-        self._json(code, payload)
+        return printer_handlers_module.printer_spools_route(self, rest)
 
     def _spools_error_page(self, printer_id, code, reason):
-        self._send(code, spools_module.render_spools_error(
-            printer_id, code, reason, theme=self._theme()),
-            "text/html; charset=utf-8")
+        return printer_handlers_module.spools_error_page(self, printer_id, code, reason)
 
     def _printers_page(self, notice=None, error=None, code=200):
-        """GET /printers: the roster with actions and Add a printer (#875)."""
-        done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
-        self._send(code, printers_page.render(
-            settings.printers(self._walkthrough_data()), form_token=self._form_token(),
-            notice=notice or done or None, error=error, theme=self._theme()),
-            "text/html; charset=utf-8")
+        return printer_handlers_module.printers_page(self, notice, error, code)
 
     def _printers_post(self, form):
-        """POST /printers: append one printer through the roster writer."""
-        ok, message = printers_page.add(
-            form, settings.printers(self._walkthrough_data()),
-            environ=self.server.webui_environ)
-        if ok:
-            self._redirect("/printers?done=" + quote(message, safe=""))
-        else:
-            self._printers_page(error=message, code=400)
+        return printer_handlers_module.printers_post(self, form)
 
     def _screen_page(self, printer_id):
-        """GET /printers/<id>/screen: the printer screen view (#1303).
-
-        Availability is probed (discovery only, no frame is pulled);
-        the page renders the labeled read-only view when a screen is
-        published and the reason when it is not, so an unsupported or
-        unavailable screen is an explanation, never a broken image.
-        An unknown id is a 404 in the same shape.
-        """
-        if not printer_id or "/" in printer_id:
-            self._json(404, {"ok": False,
-                             "reason": "that printer id does not name a "
-                                       "printer screen page"})
-            return
-        try:
-            entry = settings.by_id(printer_id, self.server.settings_data)
-        except settings.SettingsError:
-            self._json(404, {"ok": False,
-                             "reason": f"no printer with id {printer_id!r} "
-                                       f"is configured"})
-            return
-        ok, reason = self.server.screen_probe_func(printer_id)
-        self._send(200, screen_module.render_page(
-            entry.get("name") or printer_id, printer_id,
-            ok=ok, reason=reason, theme=self._theme()),
-            "text/html; charset=utf-8")
+        return printer_handlers_module.screen_page(self, printer_id)
 
     def _spools_page(self, printer_id):
-        """GET /spools/<id>: the per-printer Spools page (#789).
-
-        A failed view (Spoolman down, unknown id) renders the themed
-        error page at the same status code (#840); the JSON shape is
-        kept for ``/api/printers/<id>/spools`` only. A ``?done=`` from
-        a form post's redirect (#840's Post/Redirect/Get) reads back
-        as the page notice.
-        """
-        if not printer_id or "/" in printer_id:
-            self._spools_error_page(printer_id, 404,
-                                    "That printer id does not name a spools page.")
-            return
-        code, view = self.server.spools_view_func(printer_id)
-        if code != 200:
-            self._spools_error_page(printer_id, code, view.get("reason", ""))
-            return
-        query = parse_qs(urlparse(self.path).query)
-        done = (query.get("done") or [""])[0]
-        self._send(200, spools_module.render_spools_page(
-            view, form_token=self._form_token(), theme=self._theme(),
-            notice=done or None,
-            show_archived=(query.get("archived") or [""])[0] == "1",
-            purchase_ready=spools_module.purchase_available(),
-            controls_enabled=controls_module.controls_enabled(self.server.settings_data),
-            printers=settings.printers(self.server.settings_data)),
-            "text/html; charset=utf-8")
+        return printer_handlers_module.spools_page(self, printer_id)
 
     def _spools_page_post(self, printer_id, form):
-        """POST /spools/<id>: one picker form from the Spools page.
-
-        Same ``session+csrf`` policy as a config POST (routes.py; a
-        login session alone never authorizes it). The form converts to the same action the JSON API takes,
-        so the page and the API can never diverge. Success answers
-        with Post/Redirect/Get (#840): a 303 to the page with the
-        action's detail in ``?done=``, so a reload never repeats the
-        action. Refusals keep the direct render, so the error and the
-        submitted values stay on screen, and ``purchase/propose`` keeps
-        its direct render too — its proposed lines belong on this page
-        and resubmitting it creates nothing.
-        """
-        back = f"/spools/{quote(printer_id, safe='')}"
-        if not printer_id or "/" in printer_id:
-            self._spools_error_page(printer_id, 404,
-                                    "That printer id does not name a spools page.")
-            return
-        action_name = (form.get("spool_action") or [""])[0]
-        action = None
-        proposed = None
-        try:
-            action, body = spools_module.form_body(action_name, form)
-        except spools_module.SpoolsError as refusal:
-            code, payload = refusal.code, {"ok": False, "reason": refusal.reason}
-        else:
-            code, payload = self.server.spools_action_func(printer_id, action, body)
-            if code == 200 and action == "purchase/propose":
-                proposed = payload.get("lines")
-        if code == 200 and action != "purchase/propose":
-            self._redirect(f"{back}?done=" + quote(payload.get("detail", ""), safe=""))
-            return
-        view_code, view = self.server.spools_view_func(printer_id)
-        if view_code != 200:
-            self._spools_error_page(printer_id, view_code, view.get("reason", ""))
-            return
-        self._send(code if code != 200 else 200,
-                   spools_module.render_spools_page(
-                       view, form_token=self._form_token(), theme=self._theme(),
-                       notice=payload.get("detail") if code == 200 else None,
-                       error=payload.get("reason") if code != 200 else None,
-                       proposed=proposed,
-                       purchase_ready=spools_module.purchase_available()),
-                   "text/html; charset=utf-8")
+        return printer_handlers_module.spools_page_post(self, printer_id, form)
 
     # -- designs catalog and files (#388 stage 3) ----------------------------
     def _design_route(self, rest):
-        """GET /designs/<id> (detail) and /designs/<id>/<kind> (a file).
-
-        ``rest`` is the path after ``/designs/``: exactly one segment is
-        a session id, exactly two is that session's ``scad`` / ``stl`` /
-        ``preview`` / ``base`` file. Anything else — extra segments, ``..``, unknown
-        ids or kinds — is a 404; the file itself is resolved by
-        :func:`print_handy.core.design.session_file` from the session
-        record, so nothing outside the session's own folder can be named.
-        """
-        segments = rest.split("/")
-        data = self.server.settings_data
-        if len(segments) == 1 and segments[0]:
-            detail = designs_module.load_detail(data, segments[0])
-            if detail is None:
-                self._json(404, {"ok": False, "reason": "no such design session"})
-                return
-            session, scad_text, has_stl, has_preview, has_base = detail
-            self._send(200, designs_module.render_design_detail(
-                session, scad_text, has_stl=has_stl, has_preview=has_preview,
-                has_base=has_base, theme=self._theme()),
-                "text/html; charset=utf-8")
-            return
-        if len(segments) == 2 and segments[0] and segments[1] in designs_module.FILE_KINDS:
-            found = designs_module.file_for(data, segments[0], segments[1])
-            if found is None:
-                self._json(404, {"ok": False, "reason": "no such design file"})
-                return
-            path, content_type, inline = found
-            disposition = "inline" if inline else "attachment"
-            self._send_file(path, content_type,
-                            headers=[("Content-Disposition",
-                                      f'{disposition}; filename="{path.name}"')])
-            return
-        self._json(404, {"ok": False, "reason": "no such design session"})
+        return design_handlers_module.design_route(self, rest)
 
     # -- theme toggle (#813) --------------------------------------------------
     def _theme_route(self):
-        """GET /theme?set=dark|light&back=<path>: remember the theme in
-        the ph-theme cookie and go back. Behind the same authorization
-        as every other page (and unreachable pre-setup, like them). The
-        ``back`` target must be a local path — anything else lands on
-        the status page, so the toggle is never an open redirect."""
-        query = parse_qs(urlparse(self.path).query)
-        theme = (query.get("set") or [""])[0]
-        if theme not in shell.THEMES:
-            self._json(400, {"ok": False, "reason": "set must be dark or light"})
-            return
-        back = (query.get("back") or ["/"])[0]
-        if not back.startswith("/") or back.startswith("//") \
-                or any(ord(char) < 0x20 or ord(char) == 0x7F for char in back):
-            # Not a local path, or it carries control characters: a decoded
-            # CR/LF would otherwise land in the Location header verbatim
-            # and inject response headers of the caller's choosing.
-            back = "/"
-        self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme, secure=self._cookie_secure()))])
+        return status_handlers_module.theme_route(self)
 
     def _sync_access(self):
-        """Apply a login another process saved (chat setup, the CLI wizard).
-
-        The bot and the Web UI are separate processes, so a login set from
-        chat is only visible here as a change to the saved file. Old
-        sessions and form tokens must not outlive the credential they
-        were issued under."""
-        server = self.server
-        if not hasattr(server, "access_stamp"):
-            return
-        # A broken login file is re-read on every request: fixing its
-        # ownership or mode changes no mtime, and the fix must apply
-        # without a restart.
-        broken = getattr(server.access, "broken", False)
-        if not broken and _access_stamp(server.settings_data) == server.access_stamp:
-            return
-        with server.access_sync_lock:
-            stamp = _access_stamp(server.settings_data)
-            if stamp == server.access_stamp and not server.access.broken:
-                return
-            server.access_stamp = stamp
-            new_access = access_module.resolve(
-                server.settings_data, server.bind_host, server.webui_environ)
-            if new_access.credential_fingerprint() == \
-                    server.access.credential_fingerprint():
-                # The stamp is only the file's mtime: a rewrite carrying
-                # the credential this server already enforces (a byte-for-
-                # byte re-save, or a login this process resolved from the
-                # file itself) changed no rule, so nothing issued under it
-                # is stale — sessions and the form token stay valid.
-                server.access = new_access
-                return
-            server.access = new_access
-            server.sessions.clear()
-            self._rotate_form_token()
-            self._revoke_remembered_sessions()
-            self._revoke_upload_links()
+        return walkthrough_handlers_module.sync_access(self)
 
     def _rotate_form_token(self):
-        """Replace the config form token after an access-rule change.
-
-        Pages served under the old rule handed this token to anyone who
-        could reach the Web UI then, and _post_authorized accepts it on
-        its own — if it survived the change, a retained copy would keep
-        authorizing protected writes under the new rule, including
-        replacing or removing the login that was just set. The browser
-        that made the change is signed in with a session, and every
-        page it loads next carries the new token."""
-        store = _session_store(self.server)
-        if store is not None:
-            store.rotate_tokens()
-            return
-        self.server.form_token = secrets.token_urlsafe(32)
-        self.server.csrf_secret = secrets.token_bytes(32)
+        return sessions_module.rotate_form_token(self)
 
     def _revoke_remembered_sessions(self):
-        """Revoke every remembered session and delete its store file.
-
-        Called only where the login rule itself was just set, changed or
-        removed (the walkthrough Login step, beside its
-        _rotate_form_token call): a session minted under the old
-        credential must not outlive it. Ephemeral sessions are untouched
-        — they die with the process, as before."""
-        with _remember_lock(self.server):
-            store = _session_store(self.server)
-            if store is not None:
-                store.revoke_all_remembered()
-            else:
-                remembered = getattr(self.server, "remembered_sessions", None)
-                if remembered is not None:
-                    remembered.clear()
-            try:
-                sessions_path(self.server.settings_data).unlink(missing_ok=True)
-            except OSError as exc:
-                log.warning("webui: could not delete remembered sessions file: %s", exc)
-                _save_remembered_sessions(self.server)
+        return sessions_module.revoke_remembered_sessions(self)
 
     def _revoke_upload_links(self):
-        """Revoke every no-login upload link: the login was set or changed.
-
-        A link minted while the install was open (or under the old
-        password) must not keep working once the owner sets a login.
-        The link store is rebound to the new credential's fingerprint,
-        so even a link the rewrite missed fails the fingerprint check.
-        A failure is logged, never raised: the login change stands."""
-        try:
-            upload_module.revoke_all_links(
-                self.server.settings_data, self.server.access.credential_fingerprint())
-        except OSError as exc:
-            log.warning("webui: could not revoke the upload links: %s", exc)
+        return sessions_module.revoke_upload_links(self)
 
     # -- first-run walkthrough (#813) -----------------------------------------
     def _walkthrough_data(self):
-        """The current effective settings for a walkthrough render or
-        POST: reloaded rather than the server's startup snapshot, so a
-        step that just saved a new printer model renders the new model's
-        fields when the operator comes Back to it — field visibility is
-        model-driven, and the startup data still names the old model."""
-        return settings.load(environ=self.server.webui_environ)
+        return walkthrough_handlers_module.walkthrough_data(self)
 
     def _walkthrough_page(self):
-        """GET /walkthrough: the current step, or / when this install
-        has no walkthrough pending (finished or skipped). Every install
-        owes it until then, however its access was resolved. An unclaimed
-        install is the exception: the status page's "No login is set"
-        banner links here, so a closed walkthrough reopens at Login
-        instead of bouncing the banner's link back to the status page."""
-        data = self._walkthrough_data()
-        if not walkthrough_module.pending(data):
-            if not self.server.access.unclaimed:
-                self._redirect("/")
-                return
-            walkthrough_module.reopen_at_login(data)
-        self._send(200, walkthrough_module.render_page(
-            data, self._field_values(),
-            form_token=self._form_token(), theme=self._theme(),
-            environ=self.server.webui_environ,
-            loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
+        return walkthrough_handlers_module.walkthrough_page(self)
 
     def _walkthrough_post(self, form):
-        """POST /walkthrough: one step's action, authorized exactly like
-        a config POST. The policy (routes.py, ``claim_lock``) authorizes
-        it inside the claim lock and holds the lock until this returns,
-        so two browsers racing to claim an unclaimed install cannot both
-        win."""
-        if self._login_change_refused(form):
-            return
-        self._walkthrough_apply(form)
+        return walkthrough_handlers_module.walkthrough_post(self, form)
 
     def _login_change_refused(self, form):
-        """True (the step re-rendered with the reason) when a claimed
-        install's login would change without the current credential.
-
-        Changing or removing the password needs the password (or the
-        access token) in force now, typed into the Login step: a signed-
-        in session that was left open, or a stolen page, is not enough to
-        lock the owner out. Wrong entries count toward the login form's
-        per-address backoff. An open install has no current credential,
-        so nothing is asked there (the unclaimed design)."""
-        access = self.server.access
-        data = self._walkthrough_data()
-        if not access.required or not walkthrough_module.login_change_requested(data, form):
-            return False
-        address = self._client_ip()
-        throttle = self.server.login_throttle
-        wait = throttle.retry_after(address)
-        current = (form.get(walkthrough_module.CURRENT_PASSWORD_FIELD) or [""])[0]
-        if not wait and current and access.matches(current):
-            throttle.record_success(address)
-            return False
-        if wait:
-            message = f"Too many failed attempts. Try again in {wait} seconds."
-        elif current:
-            throttle.record_failure(address)
-            message = "The current password was not accepted, so the login was not changed."
-        else:
-            message = "Enter the current password to change or remove the login."
-        self._send(403, walkthrough_module.render_page(
-            data, self._field_values(), form_token=self._form_token(), theme=self._theme(),
-            environ=self.server.webui_environ,
-            submitted={"username": (form.get(pages.SETUP_USER_FIELD) or [""])[0]},
-            general_error=message, step_index=walkthrough_module._LOGIN_INDEX,
-            loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
-        return True
+        return walkthrough_handlers_module.login_change_refused(self, form)
 
     def _walkthrough_apply(self, form):
-        kind, payload = walkthrough_module.apply_post(
-            self._walkthrough_data(), self.server.webui_environ, form,
-            self._field_values(), form_token=self._form_token(),
-            theme=self._theme(), loopback=is_loopback(self.server.bind_host))
-        if kind == "access":
-            # The Login step saved a new rule: apply it now, and keep the
-            # person who chose it signed in on this browser. A password
-            # saved under require_auth = false turned that setting back on
-            # in the settings file; tightening applies at once (loosening
-            # still waits for a restart), so the password is enforced now.
-            webui = self.server.settings_data.get("webui")
-            if isinstance(webui, dict) and not webui.get("require_auth", True) and \
-                    self._walkthrough_data()["webui"].get("require_auth", True):
-                webui["require_auth"] = True
-            self.server.access = access_module.resolve(
-                self.server.settings_data, self.server.bind_host, self.server.webui_environ)
-            self.server.access_stamp = _access_stamp(self.server.settings_data)
-            # Every session issued under the old rule ends — an intruder's
-            # live session must not survive the owner changing the
-            # password. The browser that made the change gets a fresh one.
-            self.server.sessions.clear()
-            self._rotate_form_token()
-            self._revoke_remembered_sessions()
-            self._revoke_upload_links()
-            self._redirect(payload, headers=[self._start_session()]
-                           if self.server.access.required else [])
-        elif kind == "redirect":
-            self._redirect(payload)
-        else:
-            self._send(200, payload, "text/html; charset=utf-8")
+        return walkthrough_handlers_module.walkthrough_apply(self, form)
 
     # -- browser login ------------------------------------------------------
     def _login_page(self):
-        if not self.server.access.required:
-            # Access is open: nothing to log in to (loopback posture).
-            self._redirect("/")
-            return
-        self._send(200, pages.render_login_page(password=self._password_mode(),
-                                                username=self._username_mode(),
-                                                theme=self._theme()),
-                   "text/html; charset=utf-8")
+        return sessions_module.login_page(self)
 
     def _password_mode(self):
-        return self.server.access.mode == access_module.PASSWORD
+        return sessions_module.password_mode(self)
 
     def _username_mode(self):
-        return self._password_mode() and bool(self.server.access.username)
+        return sessions_module.username_mode(self)
 
     def _cookie_secure(self):
-        secure = getattr(self.server, "cookie_secure", None)
-        if secure is not None:
-            return bool(secure)
-        data = getattr(self.server, "settings_data", None) or {}
-        return bool(data.get("webui", {}).get("cookie_secure", False))
+        return sessions_module.cookie_secure(self)
 
     def _start_session(self, remember=False):
-        """A new login-session cookie header for this browser.
-
-        With ``remember`` the session lasts REMEMBER_TTL_S, the cookie
-        gains a matching Max-Age, and only the id's SHA-256 hash is
-        persisted, so the session survives a server restart. When that
-        write fails (a read-only state mount, say) the login still
-        succeeds with a plain ephemeral session, as before."""
-        store = _session_store(self.server)
-        if store is not None:
-            session_id = secrets.token_urlsafe(32)
-            flags = "; Secure" if self._cookie_secure() else ""
-            if remember:
-                # Mutation through persistence under the store's lock,
-                # so a concurrent logout or revocation is never
-                # overwritten by this mint's snapshot (and this mint is
-                # never lost to one).
-                with _remember_lock(self.server):
-                    store.remember(session_id)
-                    if _save_remembered_sessions(self.server):
-                        return ("Set-Cookie",
-                                f"{SESSION_COOKIE}={session_id}; HttpOnly; "
-                                f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
-                    # Fail open to the current behavior: ephemeral, no Max-Age.
-                    store.forget_remembered(session_id)
-            store.mint(session_id)
-            return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
-                    f"SameSite=Strict; Path=/{flags}")
-        now = time.time()
-        sessions = self.server.sessions
-        # list() snapshots the map and pop() tolerates a concurrent prune:
-        # two logins at once must not turn into a 500.
-        for stale in [sid for sid, expiry in list(sessions.items()) if expiry <= now]:
-            sessions.pop(stale, None)
-        session_id = secrets.token_urlsafe(32)
-        flags = "; Secure" if self._cookie_secure() else ""
-        if remember:
-            remembered = getattr(self.server, "remembered_sessions", None)
-            if remembered is None:
-                remembered = self.server.remembered_sessions = {}
-            # Mutation through persistence under the shared lock, so a
-            # concurrent logout or revocation is never overwritten by
-            # this mint's snapshot (and this mint is never lost to one).
-            with _remember_lock(self.server):
-                for stale in [d for d, expiry in remembered.items() if expiry <= now]:
-                    del remembered[stale]
-                remembered[_session_digest(session_id)] = now + REMEMBER_TTL_S
-                if _save_remembered_sessions(self.server):
-                    return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
-                            f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
-                # Fail open to the current behavior: ephemeral, no Max-Age.
-                del remembered[_session_digest(session_id)]
-        sessions[session_id] = now + SESSION_TTL_S
-        return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/{flags}")
+        return sessions_module.start_session(self, remember)
 
     def _login_submit(self):
-        form, error = self._read_form()
-        if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
-            return
-        if not self.server.access.required:
-            self._redirect("/")
-            return
-        provided = (form.get(pages.LOGIN_TOKEN_FIELD) or [""])[0]
-        username = (form.get(pages.LOGIN_USER_FIELD) or [""])[0]
-        # Failed-login backoff: a locked-out address is refused before any
-        # hashing, so a flood costs the server nothing and guessing stalls.
-        address = self._client_ip()
-        throttle = self.server.login_throttle
-        wait = throttle.retry_after(address)
-        if wait:
-            self._send(429, pages.render_login_page(
-                error=f"Too many failed attempts. Try again in {wait} seconds.",
-                password=self._password_mode(), username=self._username_mode(),
-                theme=self._theme()),
-                "text/html; charset=utf-8", headers=[("Retry-After", str(wait))])
-            return
-        # The submitted credentials are compared, never logged or reflected.
-        if not self.server.access.matches_login(username, provided):
-            throttle.record_failure(address)
-            what = ("username or password" if self._username_mode()
-                    else "password" if self._password_mode() else "token")
-            self._send(401, pages.render_login_page(
-                error=f"That {what} was not accepted. Try again.",
-                password=self._password_mode(), username=self._username_mode(),
-                theme=self._theme()),
-                "text/html; charset=utf-8")
-            return
-        throttle.record_success(address)
-        self._rehash_after_login(provided)
-        remember = (form.get(pages.LOGIN_REMEMBER_FIELD) or [""])[0].strip().lower() \
-            in _REMEMBER_TRUTHY
-        self._redirect("/", headers=[self._start_session(remember=remember)])
+        return sessions_module.login_submit(self)
 
     def _rehash_after_login(self, password):
-        """Upgrade a password saved at an older PBKDF2 cost, once.
-
-        Runs after a successful sign-in, on the login form or with the
-        ``X-WebUI-Token`` header (#1243): either way the password was
-        just verified, and rehash_password writes only the saved
-        password, never the environment token. Once the new Access is
-        adopted ``needs_rehash`` is false, so later requests pay one
-        attribute check. The re-hashed file is the same
-        login, so nothing issued under it is revoked: the server adopts
-        the new Access, and the remembered-session store and the upload
-        links are rebound to its fingerprint (which names the stored
-        hash). A failed write is logged and the sign-in stands; the
-        next sign-in tries again."""
-        server = self.server
-        access = server.access
-        if not access.needs_rehash:
-            return
-        lock = getattr(server, "access_sync_lock", None) or contextlib.nullcontext()
-        with lock:
-            if server.access is not access:
-                return
-            data = server.settings_data
-            old_fingerprint = access.credential_fingerprint()
-            try:
-                if not access_module.rehash_password(data, access, password):
-                    return
-            except OSError as exc:
-                log.warning("webui: could not re-hash the saved password: %s", exc)
-                return
-            server.access = access_module.resolve(
-                data, server.bind_host, server.webui_environ)
-            server.access_stamp = _access_stamp(data)
-            new_fingerprint = server.access.credential_fingerprint()
-            if getattr(server, "remembered_sessions", None):
-                _save_remembered_sessions(server)
-            try:
-                upload_module.rebind_links(data, old_fingerprint, new_fingerprint)
-            except OSError as exc:
-                log.warning("webui: could not rebind the upload links: %s", exc)
-            log.info("webui: the saved password was re-hashed at the current cost")
+        return sessions_module.rehash_after_login(self, password)
 
     def _logout(self):
-        # Ends only the caller's own session, so no form token is needed:
-        # the worst a cross-origin post can do is sign the operator out.
-        session_id = self._session_id()
-        if session_id:
-            store = _session_store(self.server)
-            if store is not None:
-                if store.revoke(session_id):
-                    with _remember_lock(self.server):
-                        _save_remembered_sessions(self.server)
-            else:
-                self.server.sessions.pop(session_id, None)
-                remembered = getattr(self.server, "remembered_sessions", None) or {}
-                with _remember_lock(self.server):
-                    if remembered.pop(_session_digest(session_id), None) is not None:
-                        _save_remembered_sessions(self.server)
-        flags = "; Secure" if self._cookie_secure() else ""
-        cookie = (f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
-                  f"Path=/; Max-Age=0{flags}")
-        self._redirect("/login", headers=[("Set-Cookie", cookie)])
+        return sessions_module.logout(self)
 
     # -- config writes (stage 3) -------------------------------------------
     def _read_form(self):
@@ -2851,305 +1265,51 @@ class _Handler(BaseHTTPRequestHandler):
         return chat_service_for(self.server)
 
     def _web_chat_enabled(self):
-        """[webui] chat_enabled, the chat page's own switch (PR #1106).
-
-        Read from the server's settings mapping on every request, so
-        the page a request gets always matches the saved configuration.
-        """
-        from ..bot.web import chat_enabled
-        return chat_enabled(self.server.settings_data)
+        return chat_handlers_module.web_chat_enabled(self)
 
     def _chat_page(self, notice=None, error=None):
-        if not self._web_chat_enabled():
-            # Off is a page, not an error: it says the state and the way
-            # back on, and the chat service is never built behind it.
-            self._send(200, chat_module.render_chat_disabled_page(
-                theme=self._theme(),
-                nav=data_module.nav_for(self.server.settings_data)),
-                "text/html; charset=utf-8")
-            return
-        ft = self._form_token()
-        view = self._chat_view()
-        prefill = (parse_qs(urlparse(self.path).query).get("text") or [""])[0]
-        self._send(200, chat_module.render_chat_page(
-            view, form_token=ft, notice=notice, error=error,
-            theme=self._theme(), prefill=prefill,
-            nav=data_module.nav_for(self.server.settings_data)),
-            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+        return chat_handlers_module.chat_page(self, notice, error)
 
     def _cookie_value(self, name):
-        raw = self.headers.get("Cookie") or ""
-        if not raw:
-            return ""
-        jar = SimpleCookie()
-        try:
-            jar.load(raw)
-        except Exception:  # a malformed Cookie header carries nothing
-            return ""
-        morsel = jar.get(name)
-        return morsel.value if morsel is not None else ""
+        return chat_handlers_module.cookie_value(self, name)
 
     def _chat_view(self, issue=True):
-        """This browser's view of the web chat: its own transcript only.
-
-        Web chat is one conversation per Web UI session (#1145), never a
-        shared outbox. The scope is the login session when the browser
-        has one; on an install with no login it is the browser's own
-        chat cookie, issued here on first use (``issue``). A request
-        with neither (and ``issue`` off, as for the state poll) gets a
-        fresh scope that holds nothing."""
-        from ..bot.web import scope_for
-        secret = self._valid_session_id()
-        if not secret and self.server.access.required and self.headers.get(TOKEN_HEADER):
-            # A header client (no cookies) signed in with the access
-            # token: one conversation for the token holder. The request
-            # was already authorized by that header to get here.
-            secret = "\x00access-token-client"
-        if not secret:
-            secret = self._cookie_value(CHAT_COOKIE)
-            if not _CHAT_COOKIE_VALUE.fullmatch(secret or ""):
-                secret = secrets.token_urlsafe(32)
-                if issue:
-                    self._new_chat_cookie = secret
-        return self._chat_service().view(scope_for(secret))
+        return chat_handlers_module.chat_view(self, issue)
 
     def _chat_cookie_headers(self):
-        """The Set-Cookie header for a chat cookie issued on this request."""
-        value = getattr(self, "_new_chat_cookie", None)
-        if not value:
-            return []
-        flags = "; Secure" if self._cookie_secure() else ""
-        return [("Set-Cookie", f"{CHAT_COOKIE}={value}; HttpOnly; SameSite=Strict; "
-                               f"Path=/; Max-Age={REMEMBER_TTL_S}{flags}")]
+        return chat_handlers_module.chat_cookie_headers(self)
 
     def _chat_post(self, form):
-        if not self._web_chat_enabled():
-            self._chat_page()  # the disabled page, with the explanation
-            return
-        text = (form.get("text") or [""])[0].strip()
-        if not text:
-            self._redirect("/chat")
-            return
-        # The Ask AI checkbox is read here, on the authenticated POST,
-        # and passed as a server-side flag — never parsed out of the
-        # message text (#1524).
-        ask_ai = (form.get("ask_ai") or [""])[0] in ("1", "true", "on")
-        if not self._chat_view().submit(text, ask_ai=ask_ai):
-            self._chat_page(error="Too many messages in the last minute; "
-                                  "give the bot a moment to catch up.")
-            return
-        self._redirect("/chat", headers=self._chat_cookie_headers())
+        return chat_handlers_module.chat_post(self, form)
 
     def _chat_choice_post(self, form):
-        if not self._web_chat_enabled():
-            self._chat_page()  # the disabled page, with the explanation
-            return
-        clarify_id = (form.get("clarify_id") or [""])[0]
-        try:
-            index = int((form.get("index") or ["-1"])[0])
-        except ValueError:
-            index = -1
-        if clarify_id and index >= 0:
-            # A press can fail two ways, and neither may look like
-            # success: the answer wait can time out (which used to
-            # surface as a raw 500 from the outer POST guard), and the
-            # press can resolve nothing — the question already closed,
-            # or the press was refused — which used to redirect in
-            # silence. Both come back as the page with an explanation.
-            try:
-                label = self._chat_view().answer(clarify_id, index)
-            except Exception:
-                self._chat_page(error="That answer didn't reach the bot "
-                                      "in time. The question is still "
-                                      "open — try again.")
-                return
-            if label is None:
-                self._chat_page(error="That answer wasn't accepted — "
-                                      "the question may have closed, or "
-                                      "the answer belongs to another step.")
-                return
-        self._redirect("/chat")
+        return chat_handlers_module.chat_choice_post(self, form)
 
     # -- workflow (#1450) ---------------------------------------------------
 
     def _workflow_page(self, notice=None, error=None):
-        if not self._web_chat_enabled():
-            # The workflow runs on the web chat service, which is never
-            # built while the switch is off: a page that says so, like
-            # the chat page's disabled state.
-            self._send(200, workflow_module.render_workflow_disabled_page(
-                theme=self._theme(),
-                nav=data_module.nav_for(self.server.settings_data)),
-                "text/html; charset=utf-8")
-            return
-        view = self._chat_view()
-        receipt = workflow_module.latest_receipt(self.server.settings_data,
-                                                 view.scope)
-        self._send(200, workflow_module.render_workflow_page(
-            view, receipt, form_token=self._form_token(),
-            notice=notice, error=error, theme=self._theme(),
-            nav=data_module.nav_for(self.server.settings_data)),
-            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+        return chat_handlers_module.workflow_page(self, notice, error)
 
     def _workflow_state(self):
-        self._json(200, chat_module.chat_state(
-            self._chat_view(issue=False) if self._web_chat_enabled() else None))
+        return chat_handlers_module.workflow_state(self)
 
     def _workflow_busy(self, view):
-        """True while this session's workflow is mid-flight: a turn
-        running or a question open. A second start would queue a second
-        intake behind it in the same conversation, so the start routes
-        refuse and point at the running one."""
-        return bool(view.busy() or view.open_prompt())
+        return chat_handlers_module.workflow_busy(self, view)
 
     def _workflow_link_post(self, form):
-        if not self._web_chat_enabled():
-            self._workflow_page()
-            return
-        url = (form.get("url") or [""])[0].strip()
-        if not url:
-            self._redirect("/workflow")
-            return
-        view = self._chat_view()
-        if self._workflow_busy(view):
-            self._workflow_page(error="A workflow is already running. "
-                                      "Finish it, or wait for it to end, "
-                                      "before starting another.")
-            return
-        if not view.submit(url):
-            self._workflow_page(error="Too many messages in the last "
-                                      "minute; give the bot a moment to "
-                                      "catch up.")
-            return
-        self._redirect("/workflow", headers=self._chat_cookie_headers())
+        return chat_handlers_module.workflow_link_post(self, form)
 
     def _workflow_choice_post(self, form):
-        if not self._web_chat_enabled():
-            self._workflow_page()
-            return
-        clarify_id = (form.get("clarify_id") or [""])[0]
-        try:
-            index = int((form.get("index") or ["-1"])[0])
-        except ValueError:
-            index = -1
-        if clarify_id and index >= 0:
-            # The chat page's press rules, verbatim: a timed-out or
-            # refused press comes back as the page with an explanation,
-            # never a silent redirect that looks like success.
-            try:
-                label = self._chat_view().answer(clarify_id, index)
-            except Exception:
-                log.warning("workflow page answer for %s did not reach the bot",
-                            clarify_id, exc_info=True)
-                self._workflow_page(error="That answer didn't reach the "
-                                          "bot in time. The question is "
-                                          "still open, try again.")
-                return
-            if label is None:
-                self._workflow_page(error="That answer wasn't accepted, "
-                                          "the question may have closed, "
-                                          "or the answer belongs to "
-                                          "another step.")
-                return
-        self._redirect("/workflow")
+        return chat_handlers_module.workflow_choice_post(self, form)
 
     def _workflow_start_post(self, form):
-        """POST /workflow/start: begin the workflow for one inbox file.
-
-        The name is checked against the inbox listing the Upload page
-        shows (upload.list_inbox), so only a file that is really in the
-        inbox can be named; the file stays in the inbox and is submitted
-        to the intake as the upload it is."""
-        if not self._web_chat_enabled():
-            self._workflow_page()
-            return
-        name = (form.get("name") or [""])[0]
-        data = self.server.settings_data
-        if name not in {row[0] for row in upload_module.list_inbox(data)}:
-            self._workflow_page(error="That file is no longer in the "
-                                      "inbox, so no workflow was started.")
-            return
-        view = self._chat_view()
-        if self._workflow_busy(view):
-            self._workflow_page(error="A workflow is already running. "
-                                      "Finish it, or wait for it to end, "
-                                      "before starting another.")
-            return
-        path = upload_module.inbox_dir(data) / name
-        if not view.submit("", media_urls=[str(path)]):
-            self._workflow_page(error="Too many messages in the last "
-                                      "minute; give the bot a moment to "
-                                      "catch up.")
-            return
-        self._redirect("/workflow", headers=self._chat_cookie_headers())
+        return chat_handlers_module.workflow_start_post(self, form)
 
     def _workflow_upload_post(self, form):
-        """POST /workflow/upload: receive a file and start its workflow.
-
-        The receive is the Upload page's own (_receive_upload: streamed
-        to a spool file, size and quota checked before a byte lands);
-        the save is save_upload into the inbox; then the saved file is
-        submitted to the intake at once, which is the difference from
-        the Upload page: there the file waits for a chat pickup."""
-        if not self._web_chat_enabled():
-            self._workflow_page()
-            return
-        view = self._chat_view()
-        if self._workflow_busy(view):
-            self._workflow_page(error="A workflow is already running. "
-                                      "Finish it, or wait for it to end, "
-                                      "before starting another.")
-            return
-
-        def handle(fields, files):
-            if not files:
-                self._html_refusal(400, "no file was attached", "/workflow")
-                return
-            saved, reason = upload_module.save_upload(
-                self.server.settings_data, files[0][0], files[0][1])
-            if saved is None:
-                self._html_refusal(507 if reason.startswith(upload_module.INBOX_FULL)
-                                   else 400, reason, "/workflow")
-                return
-            if not view.submit("", media_urls=[str(saved)]):
-                self._workflow_page(
-                    notice=f"{saved.name} is in the inbox, but the "
-                           "workflow could not be started (too many "
-                           "messages in the last minute). Start it from "
-                           "the Upload page in a moment.")
-                return
-            self._redirect("/workflow",
-                           headers=self._chat_cookie_headers())
-
-        refused = self._receive_upload(handle)
-        if refused:
-            headers = [("Retry-After", "30")] if refused[0] == 503 else []
-            self._send(refused[0], shell.page(
-                "error", f'<p class="error">{html.escape(refused[1])}</p>'
-                         '<p><a href="/workflow">Back</a></p>',
-                path="/workflow", theme=self._theme()),
-                "text/html; charset=utf-8", headers=headers)
+        return chat_handlers_module.workflow_upload_post(self, form)
 
     def _workflow_download_route(self, rest):
-        """GET /workflow/download/<intake id>/<n>: one sliced file.
-
-        ``rest`` is exactly an intake id and a plate position. The file
-        is resolved by print_handy.webui.workflow from this session's
-        own receipt: only a file that receipt names can be served, and
-        an intake id from another session resolves nothing here."""
-        segments = [segment for segment in rest.split("/") if segment != ""]
-        path = None
-        if len(segments) == 2 and self._web_chat_enabled():
-            view = self._chat_view(issue=False)
-            path = workflow_module.download_target(
-                self.server.settings_data, view.scope, segments[0], segments[1])
-        if path is None:
-            self._json(404, {"ok": False, "reason": "no such sliced file"})
-            return
-        self._send_file(path, workflow_module.content_type(path),
-                        headers=[("Content-Disposition",
-                                  f'attachment; filename="{path.name}"'),
-                                 ("Cache-Control", "no-store")])
+        return chat_handlers_module.workflow_download_route(self, rest)
 
     # -- uploads ------------------------------------------------------------
 
@@ -3158,357 +1318,44 @@ class _Handler(BaseHTTPRequestHandler):
         return self.server.access.credential_fingerprint()
 
     def _upload_page_html(self, notice=None, error=None):
-        return upload_module.render_upload_page(
-            self.server.settings_data, form_token=self._form_token(),
-            notice=notice, error=error, theme=self._theme(),
-            nav=data_module.nav_for(self.server.settings_data),
-            fingerprint=self._credential_fingerprint())
+        return upload_handlers_module.upload_page_html(self, notice, error)
 
     def _receive_upload(self, handle):
-        """Receive one multipart upload body and hand it to ``handle``.
-
-        The body is streamed to a spool file in the inbox, never read
-        into memory whole (upload.parse_multipart_stream). Before a
-        byte is read: at most MAX_CONCURRENT_UPLOADS uploads are
-        received at once (503 with Retry-After otherwise), the
-        Content-Length must fit the size cap (413), and the inbox
-        quota must have room for it (507 with the plain reason).
-        ``handle(fields, files)`` gets the parsed text fields and
-        ``[(filename, spool path)]``; whatever spool file it does not
-        move into the inbox is removed afterwards. Returns None, or
-        ``(code, reason)`` when the body was refused. A refused body is
-        not read; the connection closes after the answer, with a
-        bounded drain of the unread rest first (_refuse_body), so a
-        browser shows the answer rather than a reset."""
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self.close_connection = True  # no length to drain by
-            return 400, "bad Content-Length"
-        content_type = self.headers.get("Content-Type") or ""
-        if not content_type.startswith("multipart/form-data"):
-            self._refuse_body(length)
-            return 415, "uploads must be multipart/form-data"
-        if length < 0 or length > (upload_module.MAX_UPLOAD_BYTES
-                                   + upload_module.MULTIPART_OVERHEAD_BYTES):
-            self._refuse_body(length)
-            return 413, "upload too large"
-        data = self.server.settings_data
-        # The whole Content-Length counts toward the pre-read check: the
-        # multipart framing is usually far smaller than its allowance, so
-        # subtracting the allowance would let a file that cannot fit be
-        # received before the save-time check refused it.
-        upload_module.prune_stale_spool(data)
-        full = upload_module.quota_refusal(data, max(0, length))
-        if full is not None:
-            self._refuse_body(length)
-            return 507, full
-        if not upload_module.UPLOAD_SLOTS.try_acquire():
-            self._refuse_body(length)
-            return 503, upload_module.BUSY_MESSAGE
-        files = []
-        body = _CountingReader(self.rfile)
-        try:
-            try:
-                fields, files = upload_module.parse_multipart_stream(
-                    body, length, content_type, upload_module.spool_dir(data))
-            except upload_module.UploadError as exc:
-                self._refuse_body(length - body.count)
-                return exc.status, str(exc)
-            except OSError:
-                rid = _request_id()
-                log.exception("webui: could not receive an upload (request id %s)", rid)
-                self._refuse_body(length - body.count)
-                return 500, ("the upload could not be received; nothing was saved "
-                             f"(request id {rid})")
-            fields = {name: [value] for name, value in fields.items()}
-            if self._policy_recheck(fields):
-                handle(fields, files)
-            return None
-        finally:
-            upload_module.discard_spooled(files)
-            upload_module.UPLOAD_SLOTS.release()
+        return upload_handlers_module.receive_upload(self, handle)
 
     def _upload_post(self, form):
-        """POST /upload: a multipart file (``form`` is None; the policy
-        gated it before the body and checks its form token once the
-        fields are parsed) or a link and inbox action form."""
-        if form is None:
-            def handle(fields, files):
-                if not files:
-                    self._html_refusal(400, "no file was attached", "/upload")
-                    return
-                saved, reason = upload_module.save_upload(
-                    self.server.settings_data, files[0][0], files[0][1])
-                if saved is None:
-                    self._html_refusal(507 if reason.startswith(upload_module.INBOX_FULL)
-                                       else 400, reason, "/upload")
-                    return
-                self._send(200, self._upload_page_html(
-                    notice=f"{saved.name} is in the inbox. Pick it up in chat "
-                           "to slice and print it."), "text/html; charset=utf-8")
-
-            refused = self._receive_upload(handle)
-            if refused:
-                headers = [("Retry-After", "30")] if refused[0] == 503 else []
-                self._send(refused[0], shell.page(
-                    "error", f'<p class="error">{html.escape(refused[1])}</p>'
-                             '<p><a href="/upload">Back</a></p>',
-                    path="/upload", theme=self._theme()),
-                    "text/html; charset=utf-8", headers=headers)
-            return
-        action = (form.get("action") or [""])[0]
-        notice = error_text = None
-        data = self.server.settings_data
-        if action == "create_link":
-            token = upload_module.create_link(data, self._credential_fingerprint())
-            days = upload_module.LINK_TTL_S // 86400
-            notice = (f"Upload link created: /u/{token} — copy it now; "
-                      "only a digest of it is kept, so it cannot be shown again. "
-                      f"It works for {days} days, or until you revoke it or the "
-                      "Web UI login changes.")
-        elif action == "revoke_link":
-            if upload_module.revoke_link(data, (form.get("digest") or [""])[0]):
-                notice = "Upload link revoked."
-            else:
-                error_text = "that upload link is already gone"
-        elif action == "delete_file":
-            name = (form.get("name") or [""])[0]
-            if upload_module.delete_inbox_file(data, name):
-                notice = f"{name} was deleted from the inbox."
-            else:
-                error_text = "that file is no longer in the inbox"
-        else:
-            error_text = "unknown upload action"
-        self._send(200, self._upload_page_html(notice=notice, error=error_text),
-                   "text/html; charset=utf-8")
+        return upload_handlers_module.upload_post(self, form)
 
     def _api_upload_post(self):
-        """POST /api/upload (#1548): the header-token upload.
-
-        Policy ``header`` (routes.py): the access-token header only
-        (or no token configured); a login session never authorizes
-        it, and there is no form token to check — the header is the
-        whole credential, which is the point for the Home Assistant
-        integration. The receive is the upload page's own
-        (_receive_upload: streamed to a spool file, the shared size
-        budget, the STL intake limit and the inbox quota checked
-        before a byte lands, the same filename cleaning in
-        save_upload), so the file lands in the same inbox under the
-        same rules and stays an inbox file, never a print. Answers
-        are the API JSON shape: ``{ok: true, filename}`` on success,
-        ``{ok: false, reason}`` with the refusal's own code (400 for
-        a refused file, 413 too large, 503 busy, 507 inbox full).
-        """
-
-        def handle(fields, files):
-            if not files:
-                self._json(400, {"ok": False, "reason": "no file was attached"})
-                return
-            saved, reason = upload_module.save_upload(
-                self.server.settings_data, files[0][0], files[0][1])
-            if saved is None:
-                self._json(507 if reason.startswith(upload_module.INBOX_FULL)
-                           else 400, {"ok": False, "reason": reason})
-                return
-            self._json(200, {"ok": True, "filename": saved.name})
-
-        refused = self._receive_upload(handle)
-        if refused:
-            code, reason = refused
-            payload = {"ok": False, "reason": reason}
-            if code == 503:
-                self._send(code, json.dumps(payload, indent=1, sort_keys=True),
-                           "application/json", headers=[("Retry-After", "30")])
-            else:
-                self._json(code, payload)
+        return upload_handlers_module.api_upload_post(self)
 
     def _link_valid(self, token):
         return upload_module.link_valid(self.server.settings_data, token,
                                         self._credential_fingerprint())
 
     def _token_upload_page(self, _token):
-        # The link-token policy (routes.py) already checked the token.
-        self._send(200, upload_module.render_token_page(),
-                   "text/html; charset=utf-8")
+        return upload_handlers_module.token_upload_page(self, _token)
 
     def _token_upload_submit(self, token):
-        # The link-token policy (routes.py) checked the token before the
-        # body and checks it again once the body is received; the
-        # guarantee is in save_upload_for_link, which makes the final
-        # validity decision and the write one atomic step against
-        # revocation.
-        invalid = INVALID_LINK_MESSAGE
-
-        def handle(fields, files):
-            if not files:
-                self._send(400, upload_module.render_token_page(
-                    error="No file was attached."), "text/html; charset=utf-8")
-                return
-            saved, reason = upload_module.save_upload_for_link(
-                self.server.settings_data, token, files[0][0], files[0][1],
-                self._credential_fingerprint())
-            if saved is None and reason is None:
-                # Revoked after the re-check above but before the write;
-                # the atomic check-and-save refused the delivery.
-                self._send(404, upload_module.render_token_page(error=invalid),
-                           "text/html; charset=utf-8")
-                return
-            if saved is None:
-                self._send(507 if reason.startswith(upload_module.INBOX_FULL) else 400,
-                           upload_module.render_token_page(error=reason),
-                           "text/html; charset=utf-8")
-                return
-            self._send(200, upload_module.render_token_page(
-                notice=f"{saved.name} is in the inbox. It will be picked up "
-                       "and confirmed there before anything prints."),
-                "text/html; charset=utf-8")
-
-        refused = self._receive_upload(handle)
-        if refused:
-            headers = [("Retry-After", "30")] if refused[0] == 503 else []
-            self._send(refused[0], upload_module.render_token_page(error=refused[1]),
-                       "text/html; charset=utf-8", headers=headers)
+        return upload_handlers_module.token_upload_submit(self, token)
 
     def _config_preview(self, form):
-        field_values = self._field_values()
-        changes, submitted, errors = pages.parse_form(form, field_values)
-        if not errors and changes:
-            field_errors, general = pages.validate_change_set(
-                changes, environ=self.server.webui_environ)
-            errors.update(field_errors)
-            if general:
-                errors["_general"] = general
-        if errors:
-            self._send(400, self._config_html(
-                field_values, errors=errors, submitted=submitted,
-                theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0],
-                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
-                       "text/html; charset=utf-8")
-            return
-        if not changes:
-            self._send(200, self._config_html(
-                field_values, submitted=submitted, theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0],
-                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0],
-                notice="No changes: every submitted value already matches "
-                       "the effective settings."), "text/html; charset=utf-8")
-            return
-        effective = {fv.field: fv.value for fv in field_values}
-        entries = [(field, effective[field], value) for field, value in changes.items()]
-        self._send(200, pages.render_preview_page(
-            entries, submitted, form_token=self._form_token(), theme=self._theme(),
-            warnings=self._preview_warnings(changes),
-            section=(form.get(pages.SECTION_FIELD) or [None])[0],
-            reveal=(form.get(pages.REVEAL_FIELD) or [None])[0],
-            rebinds=config_api.pending_rebinds(
-                {field.id: value for field, value in changes.items()},
-                environ=self.server.webui_environ)),
-            "text/html; charset=utf-8")
+        return config_handlers_module.config_preview(self, form)
 
     def _request_is_https(self):
-        """Whether this request reached the Web UI over HTTPS. The server
-        itself speaks plain HTTP; HTTPS arrives through a reverse proxy,
-        which reports the original scheme as X-Forwarded-Proto."""
-        forwarded = self.headers.get("X-Forwarded-Proto") or ""
-        return forwarded.split(",")[0].strip().lower() == "https"
+        return config_handlers_module.request_is_https(self)
 
     def _preview_warnings(self, changes):
-        """Plain-language warnings about a previewed change set. Turning
-        the Secure session cookie on over plain HTTP strands browser
-        sign-ins: browsers drop Secure cookies there, so the session
-        cookie never comes back and there is no UI way back in — the
-        preview is the place to say so before the save is confirmed."""
-        warnings = []
-        for field, value in changes.items():
-            if field.id == "webui.cookie_secure" and value and not self._request_is_https():
-                warnings.append(
-                    "The Secure session cookie is being turned on, but this "
-                    "request arrived over plain HTTP. Browsers drop Secure "
-                    "cookies on plain HTTP, so browser sign-ins will not "
-                    "stick once this takes effect. Turn it on only when the "
-                    "Web UI is reached over HTTPS, for example behind an "
-                    "HTTPS reverse proxy.")
-        return warnings
+        return config_handlers_module.preview_warnings(self, changes)
 
     def _config_save(self, form):
-        field_values = self._field_values()
-        if (form.get(pages.CONFIRM_FIELD) or [""])[0] != "yes":
-            self._html_refusal(400, "saving needs the preview step: POST to "
-                                    "/config/preview first, then confirm", "/config")
-            return
-        # The confirm form names the fields the preview parsed; re-parse
-        # exactly those, so hidden-input absence keeps its preview meaning.
-        named = (form.get(pages.FIELDS_FIELD) or [""])[0]
-        only = {part for part in named.split(",") if part} or None
-        changes, submitted, errors = pages.parse_form(form, field_values, only=only)
-        if errors:
-            self._send(400, self._config_html(
-                field_values, errors=errors, submitted=submitted,
-                theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0],
-                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
-                       "text/html; charset=utf-8")
-            return
-        try:
-            changed, warnings = config_api.write_changes_reporting(
-                {field.id: value for field, value in changes.items()},
-                environ=self.server.webui_environ,
-                rebind=form.get(pages.REBIND_FIELD) or ())
-        except config_api.WebUIConfigError as exc:
-            field_errors, general = pages.attribute_error(
-                str(exc), changes, environ=self.server.webui_environ)
-            errors = dict(field_errors)
-            if general:
-                errors["_general"] = general
-            self._send(400, self._config_html(
-                field_values, errors=errors, submitted=submitted,
-                theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0],
-                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
-                       "text/html; charset=utf-8")
-            return
-        self._send(200, pages.render_result_page(
-            changed, warnings=warnings,
-            theme=self._theme()), "text/html; charset=utf-8")
+        return config_handlers_module.config_save(self, form)
 
     def _debug_post(self, form):
-        """POST /debug (#478): turn debug log mode on or off.
-
-        Same ``session+csrf`` policy as a config POST (routes.py). The
-        mode is shared state in the state folder, so this one write
-        reaches the bot and every listener process; nothing about
-        printing changes.
-        """
-        from .. import debug_mode
-        action = (form.get("action") or [""])[0]
-        data = self.server.settings_data
-        if action == "on":
-            raw = (form.get("minutes") or [""])[0].strip()
-            try:
-                minutes = int(raw) if raw else None
-            except ValueError:
-                self._debug_error("minutes must be a whole number")
-                return
-            debug_mode.start(data, minutes=minutes)
-        elif action == "off":
-            debug_mode.end(data)
-        else:
-            self._debug_error("action must be on or off")
-            return
-        self._redirect("/")
+        return config_handlers_module.debug_post(self, form)
 
     def _debug_error(self, message):
-        """A /debug validation refusal (#840): the status page itself
-        re-rendered at 400 with the error on it, so the debug form and
-        its current state stay on screen instead of a JSON dump."""
-        snap = self.server.snapshot_func()
-        self._send(400, render_status_html(
-            snap, form_token=self._form_token(), theme=self._theme(),
-            walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
-            job=_overall_job(self.server.settings_data), error=message),
-            "text/html; charset=utf-8")
+        return config_handlers_module.debug_error(self, message)
 
     def _read_only(self, *_ignored):
         self._json(405, {"ok": False,
