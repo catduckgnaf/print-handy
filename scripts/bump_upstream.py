@@ -182,6 +182,7 @@ BAMBULAB_FACTS = "print_handy/printers/bambulab/facts.py"
 BAMBULAB_P1S_TEST = "tests/printers/test_bambulab_p1s.py"
 DOC_BAMBU_A1 = "docs/BAMBU-A1-DOCKER.md"
 DOC_ENV_EXAMPLE = ".env.example"
+DOC_INSTALL = "docs/INSTALL.md"
 ORCA_VENDOR_DOCS = (
     "docs/ANYCUBIC.md",
     "docs/CREALITY.md",
@@ -1892,7 +1893,27 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
         f"pinned OrcaSlicer v{new_pin.version} AppImage",
         "docs/BAMBU-A1-DOCKER.md pinned AppImage record",
     )
+    # The template generator's example output line names the slicer
+    # that wrote the templates: the pinned one (missed by hand in the
+    # 2.5.1 bump, so it is a recorded surface now).
+    a1_doc = replace_exact(
+        a1_doc, f"templates from OrcaSlicer {pin.version} (",
+        f"templates from OrcaSlicer {new_pin.version} (",
+        "docs/BAMBU-A1-DOCKER.md generator output record",
+    )
     edits.append((DOC_BAMBU_A1, a1_doc))
+    install_doc = (root / DOC_INSTALL).read_text()
+    install_doc = replace_exact(
+        install_doc, f"Install the {pin.version} build that the Docker image ships.",
+        f"Install the {new_pin.version} build that the Docker image ships.",
+        "docs/INSTALL.md bundled build record",
+    )
+    install_doc = replace_exact(
+        install_doc, f"from the OrcaSlicer {pin.version} release page",
+        f"from the OrcaSlicer {new_pin.version} release page",
+        "docs/INSTALL.md release page record",
+    )
+    edits.append((DOC_INSTALL, install_doc))
     return edits
 
 
@@ -1995,7 +2016,7 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
         f"ORCA_BUNDLE_SHA256 (ci.yml, the flatpak bundle the slicer legs run): {ci_sha} -> {sha_flatpak}",
         "guard tests (tests/test_docker_release.py, tests/test_docker_release_contract.py, "
         "tests/test_ci_bambu_workflow.py), the BBL ORCA_RELEASE provenance record and its "
-        "assertion, and the COMPONENTS/DOCKER/SETTINGS/.env.example/"
+        "assertion, and the COMPONENTS/DOCKER/SETTINGS/INSTALL/.env.example/"
         "vendor-guide records updated to the same values",
         sweep_lines[-1],
         "narrative records that tell the release line's story (the pin comment in "

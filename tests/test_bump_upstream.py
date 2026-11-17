@@ -814,6 +814,10 @@ class OrcaPlanning(unittest.TestCase):
         a1 = (self.root / "docs" / "BAMBU-A1-DOCKER.md").read_text()
         self.assertIn("bundled OrcaSlicer v2.5.0", a1)
         self.assertIn("pinned OrcaSlicer v2.5.0 AppImage", a1)
+        self.assertIn("templates from OrcaSlicer 2.5.0 (BBL", a1)
+        install = (self.root / "docs" / "INSTALL.md").read_text()
+        self.assertIn("Install the 2.5.0 build that the Docker image ships.", install)
+        self.assertIn("from the OrcaSlicer 2.5.0 release page", install)
         self.assertEqual(
             set(plan.files),
             {"docker/orca-prebuilt.sh", ".github/workflows/ci.yml",
@@ -824,7 +828,8 @@ class OrcaPlanning(unittest.TestCase):
              "docs/COMPONENTS.md", "docs/DOCKER.md", "docs/SETTINGS.md",
              ".env.example",
              "docs/ANYCUBIC.md", "docs/CREALITY.md", "docs/ELEGOO.md",
-             "docs/PRUSA.md", "docs/QIDI.md", "docs/BAMBU-A1-DOCKER.md"},
+             "docs/PRUSA.md", "docs/QIDI.md", "docs/BAMBU-A1-DOCKER.md",
+             "docs/INSTALL.md"},
         )
         self.assertTrue(any("digest field" in line for line in plan.provenance))
         self.assertTrue(any("identity sweep: all 6 identity-checked models" in line

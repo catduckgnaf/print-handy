@@ -13,7 +13,7 @@ in ``statistics_source``:
 1. Orca's optional statistics JSON (``plate_N.statistics.json`` from
    ``--export-statistics``) — used only when the caller supplies a
    record that parses and names per-filament weights. Whether the
-   pinned Orca 2.5.0 binary actually emits it is proven by the
+   pinned Orca binary actually emits it is proven by the
    slicer-tier test, not assumed here.
 2. Verified G-code comments, through `spool_lifecycle.parse_slicer_metadata`.
 
