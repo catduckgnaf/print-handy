@@ -5778,8 +5778,16 @@ class Listener:
 
     async def _handle_message(self, ws, raw):
         """Act on one websocket message. Raises only what the caller sorts:
-        a lost connection reconnects, anything else is logged and skipped."""
+        a lost connection or an undecodable frame reconnects (the session
+        resubscribes and re-reads state), anything else is logged and
+        skipped."""
         msg = json.loads(raw)
+        if not isinstance(msg, dict):
+            # A well-formed JSON frame that is not an object is just as
+            # undecodable as garbage: drop the session so forever()
+            # reconnects and resubscribes instead of guessing.
+            raise json.JSONDecodeError(
+                "websocket frame is not a JSON object", str(raw)[:80], 0)
         method = msg.get("method")
         if msg.get("id") == 1:
             if "error" in msg:  # klippy not ready yet; notify_klippy_ready resubscribes
@@ -5834,10 +5842,13 @@ class Listener:
                 if raw:
                     try:
                         await self._handle_message(ws, raw)
-                    except (OSError, websockets.ConnectionClosed):
-                        raise  # the connection is gone: forever() reconnects
+                    except (OSError, websockets.ConnectionClosed, json.JSONDecodeError):
+                        # The connection is gone, or the frame cannot be
+                        # decoded at all: forever() reconnects, resubscribes
+                        # and re-reads state, which is the only resync.
+                        raise
                     except Exception:
-                        # One bad message or one failing handler must not
+                        # One failing handler for a decoded message must not
                         # drop the websocket and miss every event until the
                         # reconnect (and then loop on the same failure).
                         logger.exception("listener message handling failed; staying connected")
