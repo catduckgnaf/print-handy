@@ -1,7 +1,6 @@
 name: CI
 
-# Test suite platform (#1589, proposed decision for the maintainer to
-# confirm on review): the test suite is Linux only. Every job below runs
+# Test suite platform (#1589): the test suite is Linux only. Every job below runs
 # on Ubuntu, and the suite assumes POSIX shell scripts, fcntl, symlinks
 # and POSIX path separators; a Windows checkout currently fails hundreds
 # of tests before any change. No Windows job is added until that work is
