@@ -152,6 +152,18 @@ def test_every_polled_confirmation_uses_a_baselined_start_truth_function():
             if truth:
                 polls.append((name, truth[0]))
     assert len(polls) >= 5  # OctoPrint, Bambu Lab, Elegoo SDCP, PrusaLink, stock Flashforge
+    # Each transport is pinned to its own start-truth function, as the
+    # per-site START_CALL_SITES entries did before the consolidation (#1603):
+    # a hook switched to another adapter's truth must fail here.
+    expected = {"_print_octoprint": "octoprint", "_confirm_bambu_start": "bambu",
+                "_print_elegoo_sdcp": "polled", "_print_prusa": "polled",
+                "_print_flashforge_stock": "polled"}
+    seen = {}
+    for name, truth in polls:
+        body = truth.body.body if isinstance(truth.body, ast.Lambda) else truth.body
+        if isinstance(body, ast.Call) and isinstance(body.func, ast.Attribute):
+            seen.setdefault(name, set()).add(body.func.attr)
+    assert {name: {fn} for name, fn in expected.items()} == {n: seen.get(n) for n in expected}, seen
     for name, truth in polls:
         assert isinstance(truth, ast.Lambda), f"{name} polls a start without a start-truth function"
         body = truth.body

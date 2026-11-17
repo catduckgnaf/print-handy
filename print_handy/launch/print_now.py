@@ -3468,9 +3468,13 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         _require_idle(st)  # again inside the lease: the first read may predate another job's start
         # Yolo owes no single-use button record, but the operator's bed-clear confirmation is never waived.
         _check_bed_clear(job_path, job, g, reprint)  # #1586 phase one: check, do not consume yet
+        # The upload runs outside the parse guard: a timeout, a missing
+        # moonrakerctl or a failed exit keeps its own error, and only an
+        # unreadable reply gets the "could not be understood" refusal.
+        upload_out = _upload_via_moonrakerctl(st, upload_path, remote, upload_sha,
+                                              job_path, failure=SystemExit)
         try:
-            up_json=json.loads(_upload_via_moonrakerctl(st, upload_path, remote, upload_sha,
-                                                        job_path, failure=SystemExit))
+            up_json=json.loads(upload_out)
         except Exception as e:
             raise SystemExit("The printer's reply to the upload could not be understood, so nothing started. "
                              "Try again; if it keeps happening, check the printer screen."

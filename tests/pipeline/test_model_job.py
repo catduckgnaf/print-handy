@@ -1194,6 +1194,23 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             cmd = mock_run.call_args[0][0]
             self.assertEqual(cmd[-1], sha)
 
+    def test_print_now_upload_timeout_keeps_its_own_error(self):
+        """#1603 review: a timed-out upload is not reported as an unreadable reply."""
+        with tempfile.TemporaryDirectory() as d, \
+             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+             mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
+             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             mock.patch.object(model_job, "verify_gcode"), \
+             mock.patch.object(model_job, "_verify_filament_readiness"), \
+             mock.patch.object(model_job, "_zmod_version", return_value=None), \
+             mock.patch.object(model_job, "_mr") as mock_mr:
+            g = self._gcode(d)
+            timeout = model_job.subprocess.TimeoutExpired(cmd="moonrakerctl", timeout=300)
+            with mock.patch.object(model_job.subprocess, "run", side_effect=timeout):
+                with self.assertRaises(model_job.subprocess.TimeoutExpired):
+                    model_job.print_now(g)
+            mock_mr.assert_not_called()
+
     def test_check_filament_readiness_requires_explicit_matching_loaded_slot(self):
         status = {
             "filament_switch_sensor head_switch_sensor": {"filament_detected": True, "enabled": True},
