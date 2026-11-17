@@ -452,7 +452,37 @@ def _preaccepted_shortage(choice, shown_shortages, job_json):
     return [key]
 
 
-PRINT_ANYWAY_RISK_LABEL = 'Print anyway, accept the risk (bed is clear)'
+PRINT_ANYWAY_RISK_LABEL = 'Print anyway, accept the risk'
+
+
+def support_coverage_text(cov_failure, resliced=False):
+    """The support coverage warning in plain words.
+
+    Says what was checked and what was not found, and names the part, so
+    the operator can look at it. The measurement itself stays in the
+    receipt (``support_coverage``) for anyone who needs the numbers.
+    """
+    regions = cov_failure.get('regions') or []
+    worst = min(regions, key=lambda r: r['coverage']) if regions else {}
+    part = worst.get('part') or worst.get('object_instance')
+    where = f' on {part}' if part else ''
+    z = (worst.get('z_mm') or {}).get('min')
+    height = f' at about {z:.0f} mm up' if isinstance(z, (int, float)) else ''
+    found = round(float(worst.get('coverage', 0)) * 100)
+    amount = 'no support' if found == 0 else f'support under only about {found}%'
+    return (('Re-sliced' if resliced else 'Sliced') + ' with supports, but Print Handy checked the sliced '
+            f'file and found {amount} of an overhang{where}{height}. '
+            'That overhang may print poorly or sag. The check can be wrong for some shapes; '
+            'look at the preview if you are unsure.')
+# The Ready question's print buttons no longer each say "(bed is clear)":
+# the question says it once, so the buttons have room for the
+# recommendation. Pressing a print button is still the bed-clear
+# confirmation, exactly as before.
+BED_CLEAR_NOTE = 'Pressing a Slice and print button confirms the bed is clear.'
+SUPPORTS_RECOMMENDED_LABEL = 'Slice and print with supports (recommended)'
+NO_SUPPORTS_LABEL = 'Slice and print without supports'
+SUPPORTS_NOT_RECOMMENDED_LABEL = 'Slice and print with supports (not recommended)'
+PRINT_NOW_LABEL = 'Slice and print now'
 SLICE_ANYWAY_RISK_LABEL = 'Slice anyway (accept the risk)'
 START_PROGRESS = (
     ('upload_verified', 5.0, 'Uploaded to the printer. Sending the start now; '
@@ -3387,7 +3417,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         else:
             names = _choice_summary(manifest, questions, validated.get('choices', {}), _color_of)
         # Never promise "together" before slicing: the planner may still split with a stated reason.
-        print_label = 'Slice and print now (bed is clear)'
+        print_label = PRINT_NOW_LABEL
         cancel_label = 'Cancel print request'
         caveat = (' Parts go on one multicolor bed when they fit; if they must split I will say why and '
                   'let you choose which plate prints first.' if multi and decisions['mode'] == 'per_part' else '')
@@ -3545,12 +3575,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     flag_lines.append(turned)
                 summary_extra = '\n' + '\n'.join(flag_lines)
 
-                sup_label = 'Slice and print with supports (bed is clear)' if can_print else 'Slice with supports'
-                nosup_label = 'Slice and print without supports (bed is clear)' if can_print else 'Slice without supports'
+                # The recommendation is on the button, not only in the text
+                # above it: the button says what its menu line says (#1373
+                # item 2).
+                sup_label = SUPPORTS_RECOMMENDED_LABEL if can_print else 'Slice with supports (recommended)'
+                nosup_label = NO_SUPPORTS_LABEL if can_print else 'Slice without supports'
                 if not sup_recommended:
-                    # The button says what its menu line says (#1373 item 2).
-                    sup_label = ('Slice and print with supports, not recommended (bed is clear)'
-                                 if can_print else 'Slice with supports, not recommended')
+                    sup_label = (SUPPORTS_NOT_RECOMMENDED_LABEL
+                                 if can_print else 'Slice with supports (not recommended)')
 
                 fix_actions = []
                 # Extend and sink rewrite the authored mesh along its own Z: on a
@@ -3646,7 +3678,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
                 + summary_extra
                 + ('\n' + spool_text if spool_text else '')
-                + ('\n' + scale_note if scale_note else '') + caveat,
+                + ('\n' + scale_note if scale_note else '') + caveat
+                + ('\n' + BED_CLEAR_NOTE if can_print else ''),
                 first_labels, timeout,
                 on_shown=early.release.set, approval=True)
 
@@ -4701,10 +4734,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 unverified = (unverified_result or {}).get('unverified') or []
                 lines = []
                 if cov_failure is not None:
-                    worst = min(cov_failure['regions'], key=lambda r: r['coverage'])
-                    lines.append(('Re-sliced' if resliced else 'Sliced') + ' with supports, but the support '
-                                 'toolpaths do not cover every flagged region (worst region: '
-                                 f"{worst['coverage'] * 100:.0f}% of its 3 mm cells covered).")
+                    lines.append(support_coverage_text(cov_failure, resliced))
                 if unverified:
                     reasons = '; '.join(str(entry.get('reason') or entry) if isinstance(entry, dict)
                                         else str(entry) for entry in unverified)
@@ -4712,8 +4742,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 if low_clearance:
                     lines.append('This print has a low-clearance underside (under 1.0 mm) that slicer '
                                  'supports cannot fix.')
-                lines.append('Nothing is uploaded yet. Print anyway to accept the risk, or cancel and '
-                             'repair the geometry (extend or sink).')
+                lines.append('Nothing has been sent to the printer yet.')
+                lines.append('- Print anyway: print this slice as it is.')
+                lines.append('- Cancel: stop here.'
+                             + (' To fix the low gap, post the model again and choose Extend '
+                                'underside to plate or Flatten (sink) to plate.' if low_clearance else ''))
                 if heavy and not fix_ready and multi_note:
                     lines.append(multi_note)
                 elif heavy and not fix_ready and _fix_budget_left() <= 0:

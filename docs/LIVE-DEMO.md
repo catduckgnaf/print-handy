@@ -32,8 +32,8 @@ no build step and no backend.
 
 Scenario wording tracks the real bot's wording where the corpus
 flows pin it (for example the color and copies questions, the
-"Ready to slice" confirmation with its "Slice and print now (bed
-is clear)" button, the fit refusal, and the loaded-filament
+"Ready to slice" confirmation with its "Slice and print now"
+button, the fit refusal, and the loaded-filament
 command). The command list, the help heading and the unmatched
 reply are the production bot's own text. Some lines are shortened
 or adapted for the demo; the demo is a simulation, not a recording

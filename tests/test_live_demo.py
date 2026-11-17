@@ -122,14 +122,14 @@ class LiveDemoProductionContract(unittest.TestCase):
 
     def test_confirm_buttons_match_production_labels(self):
         # prepared_intake's ready question: print_label is
-        # "Slice and print now (bed is clear)" and cancel_label is
+        # "Slice and print now" and cancel_label is
         # "Cancel print request"; its question opens "Ready to slice".
         steps = load_scenarios()["journeys"]["happy"]["steps"]
         confirm = next(s for s in steps if s.get("kind") == "confirm")
         self.assertTrue(confirm["text"].startswith("Ready to slice"))
         self.assertEqual(
             [b["label"] for b in confirm["buttons"]],
-            ["Slice and print now (bed is clear)", "Cancel print request"],
+            ["Slice and print now", "Cancel print request"],
         )
 
     def test_too_big_refusal_matches_production_fit_wording(self):

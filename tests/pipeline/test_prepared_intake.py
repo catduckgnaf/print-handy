@@ -1,4 +1,4 @@
-"""A: one-click 'slice and print (bed is clear)' through the real prepare_link flow.
+"""A: one-click 'slice and print' (the bed-clear confirmation) through the real prepare_link flow.
 
 Buttons are answered via the real clarify gateway. Slicing is stubbed (offline, no Orca); the start goes
 through the real print_next.start gates with a stub print-now executable and a temp claim dir.
@@ -217,10 +217,12 @@ def test_fit_choice_rows_are_four_or_fewer_and_never_offer_preview():
 
 
 def test_one_click_slice_and_print_needs_no_typed_approval(env):
-    # picks: one color for everything, slot 1, then choice 1 "Slice and print ... (bed is clear)"
+    # picks: one color for everything, slot 1, then choice 1 "Slice and print now"
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     last = adapter.questions[-1]['choices']
-    assert last[0].startswith('Slice and print') and 'bed is clear' in last[0]
+    assert last[0] == 'Slice and print now'
+    # The question says once that a print button is the bed-clear confirmation.
+    assert prepared_intake.BED_CLEAR_NOTE in adapter.questions[-1]['question']
     assert last[1:] == ['Slice and Download', 'Scale the model', 'Export editable 3MF',
                         'Cancel print request']
     assert 'does not authorize printing' not in adapter.questions[-1]['question']
@@ -1855,9 +1857,11 @@ def test_split_print_now_picker_choice_honored_and_bed_asked_once(env, monkeypat
     assert picker[0]['choices'][2] == 'Cancel'
     assert len(env.starts) == 1 and env.starts[0]['part_id'] == 'plate2'
     assert Path(env.starts[0]['gcode']).name == 'plate_2.gcode'
-    # The only bed-clear wording is the single "Slice and print now (bed is clear)" choice.
+    # The only bed-clear confirmation is the single "Slice and print now" choice,
+    # on the one question that says pressing it confirms the bed is clear.
     assert not any(print_next.START_LABEL in q['choices'] for q in adapter.questions)
-    assert sum('bed is clear' in c for q in adapter.questions for c in q['choices']) == 1
+    assert sum('Slice and print now' in q['choices'] for q in adapter.questions) == 1
+    assert sum(prepared_intake.BED_CLEAR_NOTE in q['question'] for q in adapter.questions) == 1
     assert not any('/print-next' in m for m in adapter.sent)
 
 

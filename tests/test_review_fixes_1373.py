@@ -11,7 +11,7 @@ from print_handy.runtime import klipper_report
 
 
 def test_print_anyway_is_labeled_by_whether_printing_is_on():
-    assert "(bed is clear)" in prepared_intake.PRINT_ANYWAY_RISK_LABEL
+    assert prepared_intake.PRINT_ANYWAY_RISK_LABEL.startswith("Print anyway")
     assert prepared_intake.SLICE_ANYWAY_RISK_LABEL.startswith("Slice anyway")
 
 
