@@ -18,14 +18,14 @@ Bed sizes are the pinned Orca profiles' printable areas; the values slicing enfo
 
 ## Set up the profiles
 
-Print Handy ships no Elegoo slicer profiles (OrcaSlicer's Elegoo profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0 installation (the shipped slicer; the 2.5 line; its Elegoo profiles are unchanged from v2.5.0-beta, so the recorded beta identities cover it):
+Print Handy ships no Elegoo slicer profiles (OrcaSlicer's Elegoo profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.1 installation (the shipped slicer; the 2.5 line; its Elegoo profiles flatten to the v2.5.0-beta hashes, and v2.5.1 records its own identities at vendor profiles 02.04.00.14):
 
 ```bash
 python3 scripts/elegoo-templates.py --printer neptune4 --resources <OrcaSlicer resources folder>
 python3 scripts/elegoo-templates.py --vendor elegoo_sdcp --printer centauricarbon --resources <OrcaSlicer resources folder>
 ```
 
-The resources folder holds `profiles/Elegoo.json` and `profiles/Elegoo/`, or, OrcaSlicer 2.5 and later, the packed preset cache `profiles/Elegoo.opc` on its own; the command reads either. It resolves the profiles' `inherits`/`include` chains and refuses unless they hash to a checked identity recorded in the model's facts (OrcaSlicer 2.4.2, Elegoo vendor profiles `02.04.00.06`; OrcaSlicer v2.5.0-alpha, `02.04.00.11`, and OrcaSlicer v2.5.0-beta, `02.04.00.13`, each from its tree or its packed cache, each packaging has its own identity), then writes them into `<state>/orca-profiles/<model folder>`, never into the checkout. No Elegoo profile was renamed or removed in 2.5.0-alpha or 2.5.0-beta. Missing, edited or unrecognised profiles fail closed, exactly as for Bambu Lab and Prusa.
+The resources folder holds `profiles/Elegoo.json` and `profiles/Elegoo/`, or, OrcaSlicer 2.5 and later, the packed preset cache `profiles/Elegoo.opc` on its own; the command reads either. It resolves the profiles' `inherits`/`include` chains and refuses unless they hash to a checked identity recorded in the model's facts (OrcaSlicer 2.4.2, Elegoo vendor profiles `02.04.00.06`; OrcaSlicer v2.5.0-alpha, `02.04.00.11`, and OrcaSlicer v2.5.0-beta, `02.04.00.13`, and OrcaSlicer v2.5.1, `02.04.00.14`, each from its tree or its packed cache, each packaging has its own identity), then writes them into `<state>/orca-profiles/<model folder>`, never into the checkout. No Elegoo profile was renamed or removed in 2.5.0-alpha or 2.5.0-beta. Missing, edited or unrecognised profiles fail closed, exactly as for Bambu Lab and Prusa.
 
 ## Neptune 4 family (Moonraker)
 

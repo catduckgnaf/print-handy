@@ -14,6 +14,8 @@ _IDENTITY_LABEL_25A = "OrcaSlicer 2.5.0-alpha (Elegoo vendor profiles 02.04.00.1
 _IDENTITY_LABEL_25A_PACKED = "OrcaSlicer 2.5.0-alpha (Elegoo vendor profiles 02.04.00.11, packed cache)"
 _IDENTITY_LABEL_25B = "OrcaSlicer 2.5.0-beta (Elegoo vendor profiles 02.04.00.13)"
 _IDENTITY_LABEL_25B_PACKED = "OrcaSlicer 2.5.0-beta (Elegoo vendor profiles 02.04.00.13, packed cache)"
+_IDENTITY_LABEL_251 = "OrcaSlicer 2.5.1 (Elegoo vendor profiles 02.04.00.14)"
+_IDENTITY_LABEL_251_PACKED = "OrcaSlicer 2.5.1 (Elegoo vendor profiles 02.04.00.14, packed cache)"
 
 CENTAURI_CARBON = {
     "printer_model": Fact("Elegoo Centauri Carbon", "ORCA", True),
@@ -42,6 +44,20 @@ CENTAURI_CARBON = {
                             {
                                 "label": _IDENTITY_LABEL_25B_PACKED,
                                 "vendor_version": "02.04.00.13",
+                                "sha256": {"machine": "7eac4681e9e8312e8c1681979073f9e951c169584bae356764530fec385bc830",
+                                           "process": "6ad176ea030c37cec8f0a520a49b1a242a7a5ae3f92dd277d08663cdfc31989d",
+                                           "filament": "de18dd7ee58713720ccf27b186d06b222a2723b1224188cf9e1483017efa8097"}
+                            },
+                            {
+                                "label": _IDENTITY_LABEL_251,
+                                "vendor_version": "02.04.00.14",
+                                "sha256": {"machine": "70f1b4d4377b6f92d42302c628170456defa4d1693c14329c67f2601571ca883",
+                                           "process": "d99f691eb9794c990f98ca73a1d0458e831295e0053cb82fe4aea9096aab0fdc",
+                                           "filament": "f2fdeb168e039edf7369f1f73b77d5af5ceb5bec42d6b53089ff87402300df7e"}
+                            },
+                            {
+                                "label": _IDENTITY_LABEL_251_PACKED,
+                                "vendor_version": "02.04.00.14",
                                 "sha256": {"machine": "7eac4681e9e8312e8c1681979073f9e951c169584bae356764530fec385bc830",
                                            "process": "6ad176ea030c37cec8f0a520a49b1a242a7a5ae3f92dd277d08663cdfc31989d",
                                            "filament": "de18dd7ee58713720ccf27b186d06b222a2723b1224188cf9e1483017efa8097"}

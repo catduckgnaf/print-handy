@@ -395,11 +395,11 @@ class OrcaPrebuiltTests(unittest.TestCase):
         # The one bundled build pins OrcaSlicer v2.5.0-rc (the successor of
         # the v2.5.0-beta pinned before the single-Orca change; the beta pin
         # and the preview block are gone).
-        for pin in ("version=2.5.0", "revision=40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19",
-                    "sha256_amd64=d13eb0a9cd618ed080ab6b82c64c0a60c4501aac91e88d5ac2c3b526fb141a7c",
-                    "asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage",
-                    "sha256_arm64=00a4fa0a2f9c1649abb8c438b0537ed1e58fed5206faa560c1c0fb4ab225f9cf",
-                    "asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0.AppImage"):
+        for pin in ("version=2.5.1", "revision=eef7710cb102fdb51a9bcdbd9efd61047f44774a",
+                    "sha256_amd64=073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb",
+                    "asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage",
+                    "sha256_arm64=1336bbae0359466632066697780f314a8564542f8278e9ea4cdf18ec61383fc0",
+                    "asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.1.AppImage"):
             with self.subTest(channel="stable", pin=pin):
                 self.assertIn(pin, blocks["stable"])
         self.assertNotIn("2.5.0-beta", helper)
@@ -422,11 +422,11 @@ class OrcaPrebuiltTests(unittest.TestCase):
         blocks = dict(re.findall(r"(stable)\)\n(.*?)\n        ;;", helper, re.S))
         self.assertEqual(set(blocks), {"stable"})
         expected = {
-            "stable": ("2.5.0", "40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19", {
-                "amd64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage",
-                          "d13eb0a9cd618ed080ab6b82c64c0a60c4501aac91e88d5ac2c3b526fb141a7c"),
-                "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0.AppImage",
-                          "00a4fa0a2f9c1649abb8c438b0537ed1e58fed5206faa560c1c0fb4ab225f9cf"),
+            "stable": ("2.5.1", "eef7710cb102fdb51a9bcdbd9efd61047f44774a", {
+                "amd64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage",
+                          "073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb"),
+                "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.1.AppImage",
+                          "1336bbae0359466632066697780f314a8564542f8278e9ea4cdf18ec61383fc0"),
             }),
         }
         for channel, (version, revision, arches) in expected.items():

@@ -18,7 +18,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
-ORCA_BUNDLE_SHA256 = "58c10feaa2df81f6385db628185ee6c5c656391de57974646a5f4dd40e7947b3"
+ORCA_BUNDLE_SHA256 = "4ec8ab1d833526c2090c319c6bd1a9eecf9e1823cb4b7452d445c866ca717000"
 
 spec = importlib.util.spec_from_file_location(
     "bump_upstream", ROOT / "scripts" / "bump_upstream.py")
