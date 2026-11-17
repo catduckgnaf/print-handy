@@ -2,9 +2,11 @@
 
 1. A first X-Forwarded-For request with empty trusted_proxies logs one
    warning (the shared-lockout trap behind a reverse proxy).
-2. A Transfer-Encoding (chunked) request is answered 411 and the
-   connection closes, instead of the body being read as length 0 and
-   left on the keep-alive connection.
+2. A request with an unsupported Transfer-Encoding (chunked, gzip)
+   is answered 411 and the connection closes, instead of the body
+   being read as length 0 and left on the keep-alive connection; the
+   identity coding applies no coding, so a request carrying it beside
+   a valid Content-Length is served normally.
 3. One CSRF token kind: the Wrapped routes no longer accept the
    per-process form token beside a session; the page embeds the
    session-bound token like every other page.
@@ -138,6 +140,46 @@ def test_chunked_post_is_411_and_the_connection_closes(tmp_path):
         # A fresh connection still serves normally afterwards.
         code, _headers, _body = call(port, "GET", "/healthz")
         assert code in (200, 503)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_gzip_transfer_encoding_is_411_and_the_connection_closes(tmp_path):
+    data = load_settings(tmp_path)
+    httpd, port = start(data)
+    try:
+        response = _raw_request(port, (
+            b"POST /login HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            b"Content-Type: application/x-www-form-urlencoded\r\n"
+            b"Content-Length: 5\r\n"
+            b"Transfer-Encoding: gzip\r\n\r\n"
+            b"hello"))
+        status_line = response.split(b"\r\n", 1)[0]
+        assert b" 411 " in status_line
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_identity_transfer_encoding_with_a_content_length_is_served(tmp_path):
+    """duckcatgnaf review, PR #1594: the identity coding applies no coding,
+    so a request carrying the header beside a valid Content-Length is an
+    otherwise valid request and must not be refused with 411."""
+    data = load_settings(tmp_path)
+    httpd, port = start(data)
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            conn.putrequest("GET", "/healthz")
+            conn.putheader("Content-Length", "0")
+            conn.putheader("Transfer-Encoding", "identity")
+            conn.endheaders()
+            response = conn.getresponse()
+            response.read()
+            assert response.status in (200, 503)
+        finally:
+            conn.close()
     finally:
         httpd.shutdown()
         httpd.server_close()

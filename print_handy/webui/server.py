@@ -1417,16 +1417,26 @@ class _Handler(BaseHTTPRequestHandler):
         method without its own routes gets the read-only refusal with no
         screens, as it always has."""
         self._note_forwarded_for()
-        if self.headers.get("Transfer-Encoding") is not None:
-            # Chunked bodies are not decoded anywhere in the Web UI
-            # (#1588 item 2): the body would be read as length 0 and its
-            # bytes left on the keep-alive connection to be parsed as
-            # the next request. Refuse it and close the connection.
+        transfer_codings = [coding.strip().lower()
+                            for header in self.headers.get_all(
+                                "Transfer-Encoding", [])
+                            for coding in header.split(",")]
+        if transfer_codings and transfer_codings != ["identity"]:
+            # No transfer coding is decoded anywhere in the Web UI
+            # (#1588 item 2): a chunked or otherwise coded body would be
+            # read as length 0 and its bytes left on the keep-alive
+            # connection to be parsed as the next request. Refuse the
+            # unsupported codings and close the connection. The identity
+            # coding applies no coding at all, so a request carrying it
+            # beside a valid Content-Length is framed exactly by that
+            # length and is served normally (duckcatgnaf review,
+            # PR #1594).
             self.close_connection = True
             self._json(411, {"ok": False,
-                             "reason": "chunked request bodies are not "
-                                       "supported: resend the body with a "
-                                       "Content-Length"})
+                             "reason": "chunked or otherwise "
+                                       "transfer-encoded request bodies "
+                                       "are not supported: resend the body "
+                                       "unencoded with a Content-Length"})
             return
         path = urlparse(self.path).path
         route, capture = routes_module.resolve(method, path)
