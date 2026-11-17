@@ -858,7 +858,7 @@ def _charge_missed_multislot(history_job, filename):
         from . import multislot_usage
         context = load_context(filename) if filename else {}
         active = None
-        if multislot_usage.slot_plan(context) is None:
+        if multislot_usage.charge_plan(context) is None:
             # The single-slot check corrects only the spool still active.
             try:
                 result = (get_json("/server/spoolman/spool_id") or {}).get("result")

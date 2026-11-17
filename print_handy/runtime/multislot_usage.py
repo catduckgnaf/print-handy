@@ -47,6 +47,14 @@ A Spoolman charge whose request went out but whose reply never came back
 (a read timeout) may have landed: it is recorded as unconfirmed and never
 retried, so one charge can never land twice.
 
+A single-slot print on a printer whose Moonraker has no Spoolman link
+(Forge-X ships the component without a ``[spoolman]`` section, #1570) is
+charged by nothing on the printer. When Print Handy is the accounting
+authority, the launch records the loaded spool in ``spool_charge_at_end``
+and this module charges it once at the end, as a one-row plan
+(``single_spool_plan``) through the same ledger and the same stopped-print
+scaling as a multi-slot print.
+
 Every charge first checks the print context is this print's: its start
 falls inside the Moonraker history entry's window (``context_in_window``),
 so a context left by an earlier launch of the same file is never charged.
@@ -197,6 +205,35 @@ def slot_plan(context: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     return rows
 
 
+def single_spool_plan(context: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """One row (the launch-recorded spool, the print's grams) for a charge-at-end print, else None.
+
+    A one-spool print on a printer whose Moonraker has no Spoolman link
+    (#1570) is charged by nothing on the printer; the launch records the
+    spool in ``spool_charge_at_end`` and Print Handy charges it here, through
+    the same ledger as a multi-slot print. The planned grams are the
+    G-code's per-tool list when every entry is a number, else its total.
+    """
+    context = context or {}
+    if slot_plan(context) is not None:
+        return None
+    charge = context.get("spool_charge_at_end")
+    sid = _spool_id(charge.get("spool_id")) if isinstance(charge, dict) else None
+    if sid is None:
+        return None
+    listed = [_number(g) for g in (context.get("slicer_settings") or {}).get("filament_used_g_list") or []]
+    if listed and all(g is not None for g in listed):
+        planned = float(sum(listed))
+    else:
+        planned = _number(context.get("estimated_filament_g"))
+    return [{"tool": "0", "slot": None, "spool_id": sid, "planned_g": planned}]
+
+
+def charge_plan(context: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """What Print Handy charges at the end of this print: a multi-slot plan, a charge-at-end spool, or None."""
+    return slot_plan(context) or single_spool_plan(context)
+
+
 def _load(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -308,9 +345,13 @@ def charge_finished_print(context: dict[str, Any] | None, outcome: str, *, actua
     Returns the ledger entry, or None for a job this does not apply to.
     Idempotent per print: a second call returns the recorded entry and
     only retries slots still pending on a Spoolman outage.
+
+    A one-spool print the launch marked for a charge at the end (no
+    Moonraker Spoolman link, #1570) is charged the same way, as a plan of
+    one row (single_spool_plan).
     """
     context = context or {}
-    plan = slot_plan(context)
+    plan = charge_plan(context)
     key = charge_key(context)
     if plan is None or key is None:
         return None
@@ -515,7 +556,7 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
     context = context or {}
     key = charge_key(context)
     baseline = _baseline_for(context)
-    if key is None or baseline is None or slot_plan(context) is not None:
+    if key is None or baseline is None or charge_plan(context) is not None:
         return None
     path = path or ledger_path()
     sid = int(baseline["spool_id"])
@@ -613,7 +654,7 @@ def charge_history_job(job: dict[str, Any] | None, context: dict[str, Any] | Non
         return None
     if not context_in_window(context, job.get("start_time"), job.get("end_time")):
         return None
-    if slot_plan(context) is None:
+    if charge_plan(context) is None:
         return guard_single_slot(
             context, "complete" if status == "completed" else "stopped",
             actual_mm=job.get("filament_used"), active_spool_id=active_spool_id,
@@ -689,7 +730,8 @@ def summary_line(entry: dict[str, Any] | None) -> str:
     parts = []
     for slot in entry.get("slots") or []:
         status = slot.get("status")
-        where = f"slot {slot.get('slot')}"
+        # A charge-at-end one-spool print (#1570) has a spool but no slot.
+        where = f"slot {slot.get('slot')}" if slot.get("slot") is not None else "the print's"
         if status == "charged":
             parts.append(f"{where} spool #{slot['spool_id']} {_grams_text(slot['grams'])}")
         elif status == "pending":
