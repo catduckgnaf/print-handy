@@ -7,10 +7,8 @@ Every action re-reads the printer first and refuses when the state no longer mat
 from __future__ import annotations
 
 import json
-import os
 import re
 import secrets
-import threading
 import logging
 import time
 import urllib.request
