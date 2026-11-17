@@ -7,6 +7,7 @@ a print start on the same printer. These tests pin the shared file lock:
 processes serialize, a dead holder releases, re-entry refuses instead of
 deadlocking, and print_now refuses while a control action holds the lock.
 """
+import dataclasses
 import json
 import os
 import subprocess
@@ -198,3 +199,130 @@ def test_print_now_gcode_start_ignores_the_default_printers_control_action(tmp_p
         assert "control action" not in str(exc.value)
     finally:
         held.release()
+
+
+# -- LaunchTarget lock keying (#1587) ----------------------------------------------
+
+def test_launch_target_resolves_the_job_once(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    launch = model_job._resolve_launch_target(str(gcode))
+    assert launch.gcode == gcode.resolve()
+    assert launch.job_path == (tmp_path / "job" / "JOB.json")
+    assert launch.printer_id == "printer-b"
+    assert launch.job["printer_id"] == "printer-b"
+    assert isinstance(launch.sha, str) and len(launch.sha) == 64
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        launch.printer_id = "other"  # frozen: one resolution, never re-keyed
+
+
+def test_launch_target_for_a_job_json_target_names_its_gcode(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    launch = model_job._resolve_launch_target(str(tmp_path / "job" / "JOB.json"))
+    assert launch.gcode == gcode.resolve()
+    assert launch.printer_id == "printer-b"
+
+
+def test_print_now_refuses_when_the_owning_job_cannot_be_read(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    (tmp_path / "job" / "JOB.json").write_text("{ not json")
+    with pytest.raises(SystemExit) as exc:
+        model_job._print_now_control_lock(str(gcode))
+    assert "could not read the job" in str(exc.value)
+    with pytest.raises(SystemExit) as exc:
+        model_job.print_now(gcode)
+    assert "could not read the job" in str(exc.value)
+
+
+def test_control_lock_accepts_a_launch_target(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    launch = model_job._resolve_launch_target(str(gcode))
+    assert model_job._print_now_control_lock(launch) is cl.control_lock("printer-b")
+
+
+# -- msvcrt fallback (#1587) --------------------------------------------------------
+
+class _FakeMsvcrt:
+    """The msvcrt.locking surface control_lock uses, backed by a held-set."""
+
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(self):
+        self.held = set()
+
+    def locking(self, fd, mode, nbytes):
+        if mode == self.LK_UNLCK:
+            self.held.discard(fd)
+            return
+        # Contention is cross-process; the test models a foreign holder
+        # with the foreign_held flag, answered the way msvcrt answers a
+        # contended LK_NBLCK: OSError with EACCES.
+        if getattr(self, "raise_errno", None) is not None:
+            raise OSError(self.raise_errno, "modeled failure")
+        if getattr(self, "foreign_held", False):
+            raise OSError(13, "permission denied")
+        self.held.add(fd)
+
+
+def test_msvcrt_fallback_locks_and_releases(tmp_path, monkeypatch):
+    fake = _FakeMsvcrt()
+    monkeypatch.setattr(cl, "fcntl", None)
+    monkeypatch.setattr(cl, "msvcrt", fake)
+    lock = cl.PrinterControlLock(lambda: tmp_path / "win.lock")
+    assert lock.acquire(blocking=False)
+    assert lock._fd is not None and lock._fd in fake.held
+    lock.release()
+    assert not fake.held
+    assert lock.acquire(blocking=False)
+    lock.release()
+
+
+def test_msvcrt_fallback_refuses_while_another_process_holds_it(tmp_path, monkeypatch):
+    fake = _FakeMsvcrt()
+    fake.foreign_held = True
+    monkeypatch.setattr(cl, "fcntl", None)
+    monkeypatch.setattr(cl, "msvcrt", fake)
+    lock = cl.PrinterControlLock(lambda: tmp_path / "win.lock")
+    assert not lock.acquire(blocking=False)
+    assert not lock.locked()
+
+
+def test_msvcrt_non_contention_errors_propagate(tmp_path, monkeypatch):
+    # Review fix (#1587): only EACCES is msvcrt contention. Any other
+    # errno (EINVAL here) is a real failure and must propagate, not be
+    # retried and swallowed into a False "busy" answer.
+    fake = _FakeMsvcrt()
+    fake.raise_errno = 22
+    monkeypatch.setattr(cl, "fcntl", None)
+    monkeypatch.setattr(cl, "msvcrt", fake)
+    lock = cl.PrinterControlLock(lambda: tmp_path / "win.lock")
+    with pytest.raises(OSError) as exc:
+        lock.acquire(blocking=False)
+    assert exc.value.errno == 22
+    assert not lock.locked()
+
+
+def test_remap_reresolution_to_a_different_printer_refuses(tmp_path, monkeypatch):
+    # Review fix (#1587): the control lock was taken for the pre-remap
+    # LaunchTarget's printer; a remap whose re-resolution lands on a
+    # different printer must refuse instead of launching under the
+    # wrong printer's lock.
+    from print_handy.launch import print_now as pn
+    gcode = _gcode_job(tmp_path, monkeypatch)  # owning job: printer-b
+    monkeypatch.setattr(pn, "remap_slot", lambda target, num: {
+        "tool": 0, "slot": num, "selection": {"color": "Red", "material": "PLA"}})
+    with pytest.raises(SystemExit) as exc:
+        pn._print_now_locked(str(gcode), remap_slot_num=2, locked_printer_id="printer-a")
+    assert "control lock is held for printer 'printer-a'" in str(exc.value)
+
+
+def test_remap_reresolution_to_the_locked_printer_passes_the_lock_check(tmp_path, monkeypatch):
+    from print_handy.launch import print_now as pn
+    gcode = _gcode_job(tmp_path, monkeypatch)  # owning job: printer-b
+    monkeypatch.setattr(pn, "remap_slot", lambda target, num: {
+        "tool": 0, "slot": num, "selection": {"color": "Red", "material": "PLA"}})
+    with pytest.raises((SystemExit, RuntimeError)) as exc:
+        # The launch goes on to its later gates and refuses there; the
+        # lock check is not the refusal that fires.
+        pn._print_now_locked(str(gcode), remap_slot_num=2, locked_printer_id="printer-b")
+    assert "control lock is held" not in str(exc.value)

@@ -67,15 +67,17 @@ def post_print_command(send, path: str, **kw) -> bool:
     return True
 
 
-def read_back(read, done, wait_s: float, poll_s: float = 1.0):
+def read_back(read, done, wait_s: float, poll_s: float = 1.0, sleep=None):
     """Re-read until ``done(reading)`` or ``wait_s`` passes. The last good reading; None when none.
 
     The read-back after one print command: a read that raises is skipped, never retried as a send.
+    ``sleep`` is injectable for callers with their own clock (FamilyControl);
+    the default looks ``time.sleep`` up at call time, as before.
     """
     deadline = time.monotonic() + wait_s
     last = None
     while time.monotonic() < deadline:
-        time.sleep(poll_s)
+        (sleep if sleep is not None else time.sleep)(poll_s)
         try:
             last = read()
         except Exception:
@@ -83,6 +85,50 @@ def read_back(read, done, wait_s: float, poll_s: float = 1.0):
         if done(last):
             break
     return last
+
+
+def _state_of(reading):
+    """The state name of one status reading, or None when it carries none."""
+    if isinstance(reading, dict):
+        return reading.get("state")
+    return getattr(reading, "state", None)
+
+
+def _reached(reading, want_state) -> bool:
+    """Whether ``reading`` shows the wanted state.
+
+    ``want_state`` is a state name, a collection of state names, or a
+    predicate on the whole reading (for wants like "no longer active").
+    """
+    if reading is None:
+        return False
+    if callable(want_state):
+        return bool(want_state(reading))
+    if isinstance(want_state, (tuple, list, set, frozenset)):
+        return _state_of(reading) in want_state
+    return _state_of(reading) == want_state
+
+
+def send_once_and_read_back(send, read, want_state, wait_s: float, poll_s: float = 1.0,
+                            *, sleep=None):
+    """Send one print command, then read back until the printer reaches the wanted state.
+
+    The one pause/resume/cancel contract (#1590 item 2): ``send`` runs
+    exactly once and is never retried; the returned boolean is defined
+    once, here, as "the printer reached the wanted state" — ``took`` is
+    True exactly when the final reading shows ``want_state``. Returns
+    ``(took, after)``, where ``after`` is the last good reading or None
+    when every read failed.
+
+    A ``send`` that returns False means the request went out but its reply
+    timed out (``post_print_command``), so the read-back window extends
+    to ``NO_REPLY_WAIT_S``, exactly as the callers did by hand.
+    """
+    replied = send()
+    if replied is False:
+        wait_s = max(wait_s, NO_REPLY_WAIT_S)
+    after = read_back(read, lambda st: _reached(st, want_state), wait_s, poll_s, sleep=sleep)
+    return _reached(after, want_state), after
 
 def _lan_adapter(printer_id: str | None = None):
     """A printer's adapter when it talks Bambu Lab LAN MQTT; None for Moonraker printers (#276).
@@ -363,10 +409,12 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
     if expected_filename and before["filename"] != expected_filename:
         return False, "A different print is running now than the one you confirmed. Nothing sent."
     adapter = _lan_adapter() if printer_id is None else _lan_adapter(printer_id)
-    replied = True
-    if adapter is not None:
-        adapter.control("stop")  # one LAN MQTT stop; the printer answers on the next snapshot
-    else:
+    replied = [True]
+
+    def _send_cancel():
+        if adapter is not None:
+            adapter.control("stop")  # one LAN MQTT stop; the printer answers on the next snapshot
+            return True
         try:
             from . import klipper_report
             klipper_report.mark_bot_cancel(printer_id=printer_id)
@@ -374,14 +422,19 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
             __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         # Moonraker holds the reply until the cancel macro finishes; a reply that times out
         # after the request went out means "sent, waiting for the printer", not failure.
-        try:
-            replied = post_print_command(_send, "/printer/print/cancel", printer_id=printer_id)
-        except moonraker.MoonrakerAuthError as exc:
-            return False, f"{exc} The cancel was not sent."
-        if not replied:
-            wait_s = max(wait_s, NO_REPLY_WAIT_S)
-    after = read_back(lambda: status(printer_id), lambda st: st["state"] not in ACTIVE,
-                      wait_s, poll_s) or before
+        replied[0] = post_print_command(_send, "/printer/print/cancel", printer_id=printer_id)
+        return replied[0]
+
+    try:
+        _took, after = send_once_and_read_back(
+            _send_cancel, lambda: status(printer_id),
+            lambda st: st["state"] not in ACTIVE, wait_s, poll_s)
+    except moonraker.MoonrakerAuthError as exc:
+        return False, f"{exc} The cancel was not sent."
+    replied = replied[0]
+    if not replied:
+        wait_s = max(wait_s, NO_REPLY_WAIT_S)
+    after = after or before
     if after["state"] in ACTIVE:
         if not replied:
             return True, (f"Cancel sent. The printer has not answered and still reports {after['state']} "
@@ -431,20 +484,17 @@ def pause(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
         return False, f"Nothing to pause: printer is {before['state']}. Nothing sent."
     if expected_filename and before["filename"] != expected_filename:
         return False, "A different print is running now than the one in this alert. Nothing sent."
-    adapter.control("pause")  # one LAN MQTT pause; the printer answers on the next snapshot
-    deadline = time.monotonic() + wait_s
-    after = before
-    while time.monotonic() < deadline:
-        time.sleep(poll_s)
-        try:
-            after = status(printer_id, camera=False)
-        except Exception:
-            continue
-        if after["state"] != "printing":
-            break
+    # One LAN MQTT pause; the printer answers on the next snapshot. The
+    # read-back polls for the wanted state (paused) through the shared
+    # helper (#1590 item 2) instead of a hand-rolled loop.
+    _took, after = send_once_and_read_back(
+        lambda: adapter.control("pause"), lambda: status(printer_id, camera=False),
+        "paused", wait_s, poll_s)
+    after = after or before
     if after["state"] == "paused":
         return True, "Paused. Check the printer screen for the current state."
+    # False unless the printer reached paused (#837, as resume answers).
     if after["state"] == "printing":
-        return True, (f"Pause sent, but the printer still reports printing after {wait_s:.0f}s. "
-                      "Check the printer screen. Not retrying.")
-    return True, f"Pause sent. Printer now reports {after['state']}."
+        return False, (f"Pause sent, but the printer still reports printing after {wait_s:.0f}s. "
+                       "Check the printer screen. Not retrying.")
+    return False, f"Pause sent. Printer now reports {after['state']}."

@@ -8,6 +8,7 @@ import logging
 import hashlib, json, os, re, subprocess, time, zipfile
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -1704,7 +1705,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     try:
         # Again inside the lease: the first read may predate another job's start.
         require_idle()
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
+        # #1586: check the bed-clear confirmation without consuming it here. The upload
+        # below runs in the leased phase (nothing started), so a failed upload must not
+        # burn the single-use approval; it is consumed at the end of this block, just
+        # before lease.submitting().
+        _claim_bed_clear(job_path, job, g, reprint, consume=False)
         _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
         _timing(job_path, 'upload_begin')
@@ -1809,6 +1814,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _record_usage_baseline(st, job, job_path, sync.get('spool_id'))
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
+        # #1586: the upload and every pre-start step above succeeded, so consume the
+        # bed-clear approval now, just before lease.submitting() below. A failure in
+        # this block releases the lease with the approval still unused, and the retry
+        # needs no second confirmation.
+        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above
@@ -2821,27 +2831,121 @@ def _owning_job(g):
     return None, None
 
 
+class LaunchTargetError(RuntimeError):
+    """A print target's owning JOB.json exists but cannot be read (#1587)."""
+
+
+@dataclass(frozen=True)
+class LaunchTarget:
+    """One print target resolved once: G-code, owning job, printer, hash.
+
+    ``print_now`` resolves this before taking the control lock and passes
+    it down, so the lock is keyed by the printer the launch will actually
+    use (#1587). ``gcode`` is the final G-code path (a JOB.json target is
+    dereferenced to the G-code it names), ``job``/``job_path`` its owning
+    job record, ``printer_id`` the job's recorded printer (or None for
+    the configured single printer) and ``sha`` the G-code file's SHA-256,
+    or None when the file does not exist yet (the launch body refuses
+    that case). A loose G-code with no owning job keeps ``job``/``job_path``
+    None and the default printer, exactly as before.
+    """
+
+    gcode: Path
+    job: dict | None
+    job_path: Path | None
+    printer_id: str | None
+    sha: str | None
+
+
+def _owning_job_strict(g):
+    """_owning_job, raising LaunchTargetError when a JOB.json cannot be read.
+
+    Only a job that exists but fails to read or parse is an error; a
+    target with no owning JOB.json still returns (None, None).
+    """
+    try:
+        return _owning_job(g)
+    except Exception as exc:
+        raise LaunchTargetError(f"could not read the job owning {g}: {exc}") from exc
+
+
+def _resolve_launch_target(target) -> LaunchTarget:
+    """Resolve ``target`` once into a LaunchTarget; see its docstring."""
+    if isinstance(target, LaunchTarget):
+        return target
+    g = Path(resolve_print_target(target)).expanduser().resolve()
+    job, job_path = _owning_job_strict(g)
+    if g.name == "JOB.json" and isinstance(job, dict) and job.get("gcode"):
+        g = Path(job["gcode"]).expanduser().resolve()
+    sha = None
+    try:
+        sha = file_sha256(g) if g.is_file() else None
+    except OSError:
+        sha = None
+    return LaunchTarget(gcode=g, job=job if isinstance(job, dict) else None,
+                        job_path=job_path,
+                        printer_id=(job.get("printer_id") if isinstance(job, dict) else None),
+                        sha=sha)
+
+
+def build_launch_target(target) -> LaunchTarget:
+    """Resolve ``target`` into a LaunchTarget, once.
+
+    The resolution is exactly the one ``_print_now_locked`` used to do
+    inline: resolve the target path, find its owning job, and dereference
+    a JOB.json target to the G-code it names (refusing a stale color
+    artifact with no G-code named).
+    """
+    g = Path(resolve_print_target(target)).expanduser().resolve()
+    job, job_path = _owning_job(g)
+    if g.name == "JOB.json":
+        if not job.get("gcode"):
+            raise RuntimeError("stale color artifact: reslice current JOB before launch")
+        g = Path(job["gcode"]).expanduser().resolve()
+    printer_id = job.get("printer_id") if isinstance(job, dict) else None
+    sha = file_sha256(g) if g.is_file() else None
+    return LaunchTarget(gcode=g, job=job, job_path=job_path, printer_id=printer_id, sha=sha)
+
+
+def _refuse_delivery_not_enabled(adapter, st, g, printer_id, job, *, via, status_note, handoff):
+    """The "delivery not enabled" refusal, in one place (#1590 item 1).
+
+    Verifies the file for manual handoff, then refuses with the exact
+    wording each transport used inline: the transport name (``via``), its
+    status note and its handoff wording are the only differences.
+    """
+    try:
+        _verify_routed(g, adapter, st, printer_id, job=job)
+    except RuntimeError as exc:
+        raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
+    raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
+                     f"'printer' to [delivery] methods to print over {via}; {status_note} "
+                     f"read-only). {g} passed offline checks; {handoff} (not yet tested on "
+                     "a printer). Nothing uploaded or started.")
+
+
 def _print_now_control_lock(target):
     """The shared interprocess control lock for this print's printer (P1-33).
 
-    Keyed by the owning job's recorded printer_id, resolved the same way
-    _print_now_locked resolves the job it launches — from a JOB.json
-    target, or from the ancestor JOB.json of a G-code target (the chat
-    flow's print_next.start passes the G-code path, not JOB.json) — else
-    the default printer: the same identity _printer_key leases by.
-    Resolution is read-only and defensive: any failure falls back to the
-    default printer and the print body raises its own error.
+    Keyed by the owning job's recorded printer_id, from the LaunchTarget
+    resolved once for this launch — from a JOB.json target, or from the
+    ancestor JOB.json of a G-code target (the chat flow's
+    print_next.start passes the G-code path, not JOB.json) — else the
+    default printer: the same identity _printer_key leases by. A job
+    that exists but cannot be read refuses (#1587): keying the default
+    printer's lock and launching on the job's printer anyway would take
+    the wrong lock.
     """
     from ..core import control_lock as _cl
-    key = None
+    if isinstance(target, LaunchTarget):
+        return _cl.control_lock(target.printer_id)
     try:
-        g = Path(resolve_print_target(target)).expanduser().resolve()
-        job, _job_path = _owning_job(g)
-        if isinstance(job, dict):
-            key = job.get("printer_id")
+        launch = _resolve_launch_target(target)
+    except LaunchTargetError as exc:
+        raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
     except Exception:
-        key = None
-    return _cl.control_lock(key)
+        return _cl.control_lock(None)
+    return _cl.control_lock(launch.printer_id)
 
 
 # Receipt statuses a print-now start may settle: the intake sliced the job
@@ -3050,7 +3154,14 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
 def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
                          yolo=False, bed_clear=None):
     """print_now inside the run's material acceptance (if any)."""
-    lock = _print_now_control_lock(target)
+    # Resolve the target once (#1587): the lock is keyed from this same
+    # resolution the launch body uses, and an unreadable owning job
+    # refuses here instead of falling back to the default printer's lock.
+    try:
+        launch = _resolve_launch_target(target)
+    except LaunchTargetError as exc:
+        raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
+    lock = _print_now_control_lock(launch)
     if not lock.acquire(blocking=False):
         raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
                          "is in flight for this printer. Nothing uploaded or started.")
@@ -3062,7 +3173,8 @@ def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, repri
                   "not enforced, except the axis limits and heater maximums.", flush=True)
         out = _print_now_locked(target, wait_s=wait_s,
                                 accept_default_z_offset=accept_default_z_offset,
-                                reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
+                                reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num,
+                                launch_target=launch, locked_printer_id=launch.printer_id)
     finally:
         if clear_token is not None:
             _BED_CLEAR.reset(clear_token)
@@ -3083,20 +3195,48 @@ def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, repri
     return out
 
 
-def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
-    """print_now's body, run under the printer's interprocess control lock."""
+# Sentinel for _print_now_locked's locked_printer_id: the caller holds
+# no LaunchTarget-keyed lock (direct callers), so no lock check applies.
+_NO_LOCKED_PRINTER = object()
+
+
+def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
+                      launch_target=None, locked_printer_id=_NO_LOCKED_PRINTER):
+    """print_now's body, run under the printer's interprocess control lock.
+
+    ``launch_target`` is the LaunchTarget resolved once by the caller
+    (#1587): its job is the job launched, not a second read. A slot
+    remap rewrites the job first, so a remapped launch re-resolves
+    instead of trusting the pre-remap resolution — and the re-resolved
+    printer must be the printer the caller locked (``locked_printer_id``,
+    the pre-remap LaunchTarget's printer): a remap that lands on a
+    different printer refuses, because the lock held is that printer's,
+    not this one's.
+    """
     if remap_slot_num is not None:
         try:
             remap_res = remap_slot(target, remap_slot_num)
         except ToolRemapRefused as exc:
             raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
         print(f"SLOT REMAPPED: T{remap_res['tool']} -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
-    g=Path(resolve_print_target(target)).expanduser().resolve()
-    job, job_path = _owning_job(g)
-    if g.name=="JOB.json":
-        if not job.get("gcode"):
+        launch_target = None
+    if launch_target is not None:
+        launch = launch_target
+        g = launch_target.gcode
+        job, job_path = launch_target.job, launch_target.job_path
+        # The target named JOB.json itself (the resolved G-code is still
+        # the JOB.json path) and the job names no G-code: the stale check.
+        if job_path is not None and g == job_path and isinstance(job, dict) and not job.get("gcode"):
             raise RuntimeError("stale color artifact: reslice current JOB before launch")
-        g=Path(job["gcode"]).expanduser().resolve()
+    else:
+        launch = build_launch_target(target)
+        g, job, job_path = launch.gcode, launch.job, launch.job_path
+    if remap_slot_num is not None and locked_printer_id is not _NO_LOCKED_PRINTER:
+        resolved_printer = job.get("printer_id") if isinstance(job, dict) else None
+        if resolved_printer != locked_printer_id:
+            raise SystemExit(f"REFUSED: remapping the slot re-resolved this launch to printer "
+                             f"{resolved_printer!r}, but the control lock is held for printer "
+                             f"{locked_printer_id!r}. Nothing uploaded or started.")
     cur = Path(job["gcode"]).expanduser().resolve() if isinstance(job, dict) and job.get("gcode") else None
     if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
             and not job.get("derived_plates")):
@@ -3111,7 +3251,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     # The job's printer (#334): a recorded printer_id resolves the roster entry, its adapter
     # and its hardware record; a record written before the upgrade has no id and prints on
     # the configured single printer, exactly as it always has.
-    printer_id = job.get("printer_id") if isinstance(job, dict) else None
+    printer_id = launch.printer_id
     if printer_id:
         from print_handy import settings as _pb_settings  # this function shadows `settings` locally below
         try:
@@ -3133,48 +3273,30 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     # accept_default_z_offset is kept for CLI compatibility only. With display_off=0 ZMod applies the
     # native screen zProbeOffset, which is the correct calibrated value; no Z_OFFSET in START_PRINT is fine.
     st=printer_state.load(printer_id) if printer_id else printer_state.load()
-    if getattr(adapter, 'transport', None) == 'octoprint':
-        return _print_octoprint(adapter, st, g, job, job_path, wait_s, reprint)
-    if getattr(adapter, 'transport', None) == 'flashforge_stock':
-        return _print_flashforge_stock(adapter, st, g, job, job_path, wait_s, reprint)
-    if getattr(adapter, 'transport', None) == 'prusalink':
+    # Transport dispatch (#1590 item 1): direct launchers run at once;
+    # delivery-gated launchers run only when 'printer' delivery is enabled,
+    # and otherwise share the one "delivery not enabled" refusal.
+    direct_launchers = {'octoprint': _print_octoprint,
+                        'flashforge_stock': _print_flashforge_stock}
+    # transport -> (launcher, via, status note, handoff wording)
+    gated_launchers = {'prusalink': (_print_prusa, "PrusaLink", "the link status alone is",
+                                     "move the file yourself"),
+                       'elegoo_sdcp': (_print_elegoo_sdcp, "SDCP", "status alone is",
+                                       "move the file yourself"),
+                       'bambulab_lan': (_print_bambu, "LAN", "LAN status alone is",
+                                        "use the Bambu package delivery and move the file yourself")}
+    transport = getattr(adapter, 'transport', None)
+    if transport in direct_launchers:
+        return direct_launchers[transport](adapter, st, g, job, job_path, wait_s, reprint)
+    if transport in gated_launchers:
+        launcher, via, status_note, handoff = gated_launchers[transport]
         from ..core import delivery as _delivery
         if 'printer' in _delivery.methods():
-            return _print_prusa(adapter, st, g, job, job_path, wait_s, reprint)
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over PrusaLink; the link status alone is "
-                         f"read-only). {g} passed offline checks; move the file yourself (not yet tested on "
-                         "a printer). Nothing uploaded or started.")
-    if getattr(adapter, 'transport', None) == 'elegoo_sdcp':
-        from ..core import delivery as _delivery
-        if 'printer' in _delivery.methods():
-            return _print_elegoo_sdcp(adapter, st, g, job, job_path, wait_s, reprint)
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over SDCP; status alone is "
-                         f"read-only). {g} passed offline checks; move the file yourself (not yet tested on "
-                        "a printer). Nothing uploaded or started.")
-    if getattr(adapter, 'transport', None) == 'bambulab_lan':
-        from ..core import delivery as _delivery
-        if 'printer' in _delivery.methods():
-            return _print_bambu(adapter, st, g, job, job_path, wait_s, reprint)
+            return launcher(adapter, st, g, job, job_path, wait_s, reprint)
         # Print delivery is not enabled for this printer: verify the file for manual handoff;
         # the bed-clear approval is left unused, exactly as for the offline path below.
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over LAN; LAN status alone is "
-                         f"read-only). {g} passed offline checks; use the Bambu package delivery and "
-                         "move the file yourself (not yet tested on a printer). Nothing uploaded or started.")
+        _refuse_delivery_not_enabled(adapter, st, g, printer_id, job,
+                                     via=via, status_note=status_note, handoff=handoff)
     if adapter.connection == 'offline':
         # No connection exists. Verify the file for manual handoff; the bed-clear approval is left unused.
         try:
@@ -3242,7 +3364,10 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     try:
         _require_idle(st)  # again inside the lease: the first read may predate another job's start
         # Yolo owes no single-use button record, but the operator's bed-clear confirmation is never waived.
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
+        # #1586: check it without consuming it here. The upload below runs in the leased
+        # phase (nothing started), so a failed upload must not burn the single-use
+        # approval; it is consumed at the end of this block, just before lease.submitting().
+        _claim_bed_clear(job_path, job, g, reprint, consume=False)
         _timing(job_path, 'upload_begin')
         r=subprocess.run([str(MOONRAKERCTL),"upload",str(upload_path),remote,upload_sha],text=True,capture_output=True,timeout=300,
                          env=_moonrakerctl_env(st))
@@ -3273,6 +3398,11 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
+        # #1586: the upload and every pre-start step above succeeded, so consume the
+        # bed-clear approval now, just before lease.submitting() below (yolo still owes
+        # no single-use record). A failure in this block releases the lease with the
+        # approval still unused, and the retry needs no second confirmation.
+        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above

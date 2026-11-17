@@ -251,6 +251,27 @@ def _question_timeout():
     return cfg.question_timeout_s() if cfg is not None else 1800
 
 
+def _safety_timeout():
+    cfg = globals().get('_config')
+    return cfg.safety_confirm_timeout_s() if cfg is not None else 600
+
+
+def _cold_pull_timeout():
+    cfg = globals().get('_config')
+    return cfg.cold_pull_outcome_s() if cfg is not None else 1800
+
+
+def _question_view():
+    """A Discord view carrying the question timeout (#1590 item 6).
+
+    The one place the ``globals().get('_config').question_timeout_s()``
+    pattern survives for views: every question view in this module is
+    built here, so the timeout policy is read in exactly one way.
+    """
+    import discord
+    return discord.ui.View(timeout=_question_timeout())
+
+
 async def _ask_which_printer(source, gateway, adapter, candidates, *, question=None, label_for=None,
                              metadata=None):
     """Ask which printer, in a shared channel (#536). Returns the chosen roster id, or None.
@@ -605,7 +626,7 @@ async def _design_conversation(event, gateway, adapter, engine, result, *, note=
     async def say(content):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
 
-    timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
+    timeout = _question_timeout()
     while True:
         session = result['session']
         lines = design.reply_lines(result)
@@ -764,7 +785,7 @@ async def _coldpull_workflow(adapter, source, metadata, *, source_tag, initial_c
     if answer is None:
         answer = await _confirm(adapter, source, metadata, f'{source_tag}-material',
             'Choose material for this cold pull.',
-            [f'PLA (trial) {pla_hot}/{pla_cold}', f'PETG {petg_hot}/{petg_cold}'], (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
+            [f'PLA (trial) {pla_hot}/{pla_cold}', f'PETG {petg_hot}/{petg_cold}'], _question_timeout(),
             live_key=live_key)
     if not answer:
         return None, 'Cancelled or expired. Nothing sent.'
@@ -780,7 +801,7 @@ async def _coldpull_workflow(adapter, source, metadata, *, source_tag, initial_c
         if initial_cold != retry_cold:
             retry_answer = await _confirm(adapter, source, metadata, f'{source_tag}-temp',
                 f'Previous PLA tip snapped or did not release. Try COLD={retry_cold} once?',
-                [f'Use COLD={retry_cold}', f'Keep COLD={pla_cold}'], (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
+                [f'Use COLD={retry_cold}', f'Keep COLD={pla_cold}'], _question_timeout(),
                 live_key=live_key)
             if retry_answer != f'Use COLD={retry_cold}':
                 cold = pla_cold
@@ -791,14 +812,14 @@ async def _coldpull_workflow(adapter, source, metadata, *, source_tag, initial_c
         dirty_count += 1
     if dirty_count:
         repeat = await _confirm(adapter, source, metadata, f'{source_tag}-repeat',
-            'A prior pull was dirty. Repeat once?', ['Run one repeat', 'Cancel'], (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
+            'A prior pull was dirty. Repeat once?', ['Run one repeat', 'Cancel'], _question_timeout(),
             live_key=live_key)
         if repeat != 'Run one repeat':
             return None, 'Cancelled. Nothing sent.'
     await adapter.send(chat_id=source.chat_id, metadata=metadata,
         content='Bed must be clear; it homes. Screen may look frozen for a few minutes. Confirm only at the printer.')
     confirmed = await _confirm(adapter, source, metadata, f'{source_tag}-actuate',
-        'I am present, the bed is clear, and authorize one cold pull.', ['Confirm cold pull', 'Cancel'], (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600),
+        'I am present, the bed is clear, and authorize one cold pull.', ['Confirm cold pull', 'Cancel'], _safety_timeout(),
         live_key=live_key)
     if confirmed != 'Confirm cold pull':
         return None, 'Cancelled or expired. Nothing sent.'
@@ -813,7 +834,7 @@ async def _coldpull_workflow(adapter, source, metadata, *, source_tag, initial_c
         maintenance.append_run(record, **_pkw(printer_id))
         return record, detail
     tip = await _confirm(adapter, source, metadata, f'{source_tag}-tip', 'How did the pulled tip look?',
-                         ['Clean', 'Dirty', 'Snapped', "Didn't release"], (globals().get('_config').cold_pull_outcome_s() if globals().get('_config') else 1800),
+                         ['Clean', 'Dirty', 'Snapped', "Didn't release"], _cold_pull_timeout(),
                          live_key=live_key)
     result = {'Clean': 'clean', 'Dirty': 'dirty', 'Snapped': 'snapped', "Didn't release": 'didnt_release'}.get(tip)
     if not result:
@@ -1052,7 +1073,7 @@ def _answer_spool_question(listener, spool_sync, context, choice):
 
 
 def _spool_timeout():
-    return (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
+    return _question_timeout()
 
 
 def _prompt_brand():
@@ -1334,7 +1355,7 @@ async def _offer_force_restart(adapter, source, metadata, pc, reason, printer_id
     """Offer the existing confirmation flow after a safe-to-restart start refusal."""
     answer = await _confirm(adapter, source, metadata, 'print-reboot',
         f"{reason} Force restart clears a stuck screen or heaters and wipes any Resume the printer screen is offering. Retry the print manually afterward.",
-        [pc.REBOOT_LABEL, pc.CANCEL_REBOOT_LABEL], (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600),
+        [pc.REBOOT_LABEL, pc.CANCEL_REBOOT_LABEL], _safety_timeout(),
         live_key=live_key)
     if answer != pc.REBOOT_LABEL:
         return 'Not restarted. Nothing sent; retry the print only after checking the printer.'
@@ -1390,6 +1411,13 @@ def alert_button_handlers(bot, adapter):
     from print_handy.runtime import print_alert_buttons as pab
 
     def allowed(interaction):
+        # The one press check (#1590 item 5): adapters that provide
+        # authorize_press (bot/platform.py) answer here and in
+        # adapter.handle_click; the fallback below is for adapter-shaped
+        # test doubles that predate it.
+        authorize = getattr(adapter, 'authorize_press', None)
+        if callable(authorize):
+            return bool(authorize(interaction, 'allowed'))
         user = getattr(interaction, 'user', None)
         uid = str(getattr(user, 'id', ''))
         checker = getattr(adapter, '_is_allowed_user', None)
@@ -1402,6 +1430,25 @@ def alert_button_handlers(bot, adapter):
             except Exception:
                 return False
         return True
+
+    def may_start(interaction):
+        """Buttons that start, pause, resume or cancel a print need an
+        approver when approvers are configured (P1-93), exactly as the
+        prompt buttons in adapter.handle_click do. With none configured
+        this is the same answer as ``allowed``."""
+        authorize = getattr(adapter, 'authorize_press', None)
+        if callable(authorize):
+            return bool(authorize(interaction, 'approver'))
+        if not allowed(interaction):
+            return False
+        approve = getattr(adapter, 'may_approve_id', None)
+        if not callable(approve):
+            return True
+        try:
+            return bool(approve(str(getattr(getattr(interaction, 'user', None), 'id', ''))))
+        except Exception:
+            logger.exception('approver check failed; refusing the button')
+            return False
 
     async def reject(interaction):
         await interaction.response.send_message('Not allowed. Nothing changed.', ephemeral=True)
@@ -1432,7 +1479,7 @@ def alert_button_handlers(bot, adapter):
         if not re.fullmatch(r'[a-f0-9]{32}', receipt_id):
             await message.edit(content=text, view=None)
             return False
-        view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = _question_view()
         view.add_item(discord.ui.Button(label='Retry', style=discord.ButtonStyle.primary,
                                         custom_id=pab.retry_custom_id(receipt_id)))
         await message.edit(content=text, view=view)
@@ -1443,10 +1490,15 @@ def alert_button_handlers(bot, adapter):
     async def handle_stop(interaction, clarify_id):
         from print_handy.core.prompts import gateway as _prompts
         cm = _prompts()
+        # Acknowledge first: resolving wakes the waiting flow, which can
+        # hold the loop past Discord's 3 s window (see adapter.handle_click).
+        try:
+            await interaction.response.edit_message(view=None)
+        except Exception:
+            logger.debug('could not acknowledge Stop', exc_info=True)
         resolved = cm.resolve_gateway_clarify(clarify_id, _pi.STOP_LABEL)
         note = 'Stopping.' if resolved else 'That step already finished. Nothing to stop.'
         try:
-            await interaction.response.edit_message(view=None)
             await interaction.followup.send(note)
         except Exception:
             logger.debug('could not acknowledge Stop', exc_info=True)
@@ -1478,13 +1530,13 @@ def alert_button_handlers(bot, adapter):
         select = discord.ui.Select(placeholder='Choose a shelf spool', min_values=1, max_values=1,
                                    options=[discord.SelectOption(**option) for option in options],
                                    custom_id=f'pbinsertselect:{select_aid}')
-        view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = _question_view()
         view.add_item(select)
         await interaction.edit_original_response(content='Choose the shelf spool to map to this IFS slot. Nothing changes until you confirm the bind.', view=view)
 
     def intake_view(components):
         import discord
-        view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = _question_view()
         for row in components:
             for item in row.get('components', []):
                 if item.get('type') == 3:
@@ -1597,7 +1649,7 @@ def alert_button_handlers(bot, adapter):
                 return False
             return any(is_image(a) for a in (getattr(message, 'attachments', None) or []))
 
-        timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
+        timeout = _question_timeout()
         try:
             message = await bot.wait_for('message', check=check, timeout=timeout)
         except Exception:
@@ -1894,7 +1946,7 @@ def alert_button_handlers(bot, adapter):
         select = discord.ui.Select(placeholder='Choose the replacement shelf spool', min_values=1, max_values=1,
                                    options=[discord.SelectOption(**option) for option in options],
                                    custom_id=f'pbspoolselect:{select_aid}')
-        view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = _question_view()
         view.add_item(select)
         await interaction.edit_original_response(content='Choose the shelf spool to charge for the rest of this print. Nothing changes until you confirm the bind.', view=view)
 
@@ -2118,7 +2170,7 @@ def alert_button_handlers(bot, adapter):
                                    options=[discord.SelectOption(**option)
                                             for option in pab.new_spool_slot_options(state)],
                                    custom_id=f'{pab.NEW_SPOOL_SELECT_PREFIX}:{select_aid}')
-        view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = _question_view()
         view.add_item(select)
         await interaction.response.edit_message(
             content=f'Which slot should spool {label} go into? Nothing changes until you confirm the load.',
@@ -2131,7 +2183,7 @@ def alert_button_handlers(bot, adapter):
                                               spool_id=int(spool_id), label=label, slot=int(slot),
                                               disposition=disposition,
                                               old_spool_id=int(old_spool_id) if old_spool_id else None)
-        view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = _question_view()
         view.add_item(discord.ui.Button(label='Confirm load', style=discord.ButtonStyle.success,
                                         custom_id=f'{pab.NEW_SPOOL_PREFIX}:confirm:{confirm_aid}'))
         view.add_item(discord.ui.Button(label='Cancel', style=discord.ButtonStyle.secondary,
@@ -2217,7 +2269,7 @@ def alert_button_handlers(bot, adapter):
             disp_aid = await asyncio.to_thread(pab.record, 'spoolman-new-disposition', '',
                                                spool_id=int(spool_id), label=label, slot=slot,
                                                old_spool_id=int(old_id))
-            view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+            view = _question_view()
             for text, key in (('Back on the shelf', 'shelf'), ('Archive it', 'archive'),
                               ('Mark it as depleted', 'depleted'), ('Delete it', 'delete'),
                               ('Cancel', 'cancel')):
@@ -2247,7 +2299,7 @@ def alert_button_handlers(bot, adapter):
             await interaction.response.send_message('That plate picker is old or was already used. Nothing started.', ephemeral=True)
             return
         confirm_aid = await asyncio.to_thread(pab.record, 'plate-confirm', '', plan_id=alert['plan_id'], part_id=part_id)
-        view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = _question_view()
         view.add_item(discord.ui.Button(label=pab.CONFIRM_LABEL, style=discord.ButtonStyle.success,
                                         custom_id=f'{pab.PLATE_PREFIX}:go:{confirm_aid}'))
         await interaction.response.edit_message(content=print_next.question_text(target), view=view)
@@ -2273,7 +2325,9 @@ def alert_button_handlers(bot, adapter):
             await interaction.response.send_message('That confirmation is old or was already used. Nothing started.', ephemeral=True)
             return
         try:
-            target = print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=alert['part_id'])
+            # Off the loop: resolve_next hashes the whole G-code file.
+            target = await asyncio.to_thread(
+                lambda: print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=alert['part_id']))
         except Exception as exc:
             await interaction.response.edit_message(content=f'Cannot start that plate: {exc}. Nothing started.', view=None)
             return
@@ -2294,7 +2348,7 @@ def alert_button_handlers(bot, adapter):
             if not ok and not accept_spool_change and SPOOL_CHANGED in str(detail):
                 spool_aid = await asyncio.to_thread(pab.record, 'plate-spool', '',
                                                     plan_id=alert['plan_id'], part_id=alert['part_id'])
-                view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+                view = _question_view()
                 view.add_item(discord.ui.Button(label=USE_LOADED_SPOOL, style=discord.ButtonStyle.success,
                                                 custom_id=f'{pab.PLATE_PREFIX}:spool:{spool_aid}'))
                 message = f"Did not start {target['label']}.\n{_spool_change_text(target, detail)}"
@@ -2322,7 +2376,7 @@ def alert_button_handlers(bot, adapter):
         keys = sorted(set(target.get('accept_material') or ()) | {w['key'] for w in warnings})
         stored = json.loads(json.dumps({k: v for k, v in target.items() if k != 'accept_material'}, default=str))
         material_aid = await asyncio.to_thread(pab.record, 'start-material', '', target=stored, keys=keys)
-        view = view or discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view = view or _question_view()
         view.add_item(discord.ui.Button(label=material_accept.print_label(warnings), style=discord.ButtonStyle.danger,
                                         custom_id=f'{pab.PLATE_PREFIX}:material:{material_aid}'))
         return view, (f"{lead}\n{material_accept.question(warnings)}\n"
@@ -2378,13 +2432,17 @@ def alert_button_handlers(bot, adapter):
         receipt_path = _state_dir() / 'model-link-intakes' / f'{receipt_id}.json'
 
         def retry_view():
-            view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+            view = _question_view()
             view.add_item(discord.ui.Button(label='Retry', style=discord.ButtonStyle.primary,
                                             custom_id=pab.retry_custom_id(receipt_id)))
             return view
 
         try:
             receipt = json.loads(receipt_path.read_text())
+            if receipt.get('status') == 'RETRYING':
+                await interaction.response.send_message(
+                    'That retry is already running. Nothing more started.', ephemeral=True)
+                return
             target = receipt.get('retry_target')
             if (receipt.get('intake_id') != receipt_id or receipt.get('status') != 'START_REFUSED'
                     or receipt.get('uploaded') is True or receipt.get('started') is True
@@ -2394,6 +2452,10 @@ def alert_button_handlers(bot, adapter):
                 raise ValueError('this is not a confirmed pre-upload refusal')
             if str(receipt.get('start_prompt_message_id') or '') != str(getattr(interaction.message, 'id', '') or ''):
                 raise ValueError('this Retry button no longer matches the saved prompt')
+            # Single use: claimed on disk before the first await, so a second
+            # click cannot run beside this one and rewrite its receipt.
+            receipt['status'] = 'RETRYING'
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         except Exception as exc:
             await interaction.response.edit_message(content=f'Retry unavailable: {exc}. Nothing started.', view=None)
             return
@@ -2436,7 +2498,7 @@ def alert_button_handlers(bot, adapter):
         import discord
         from print_handy.runtime import exclude_chat, print_stop
         from print_handy.runtime import print_control as pc
-        timeout = (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600)
+        timeout = _safety_timeout()
         if action == 'pick':
             alert = await asyncio.to_thread(pab.peek, aid)
             if not isinstance(alert, dict):
@@ -2508,93 +2570,102 @@ def alert_button_handlers(bot, adapter):
         await interaction.edit_original_response(content=result['text'], view=None)
 
     async def on_interaction(interaction):
+        """One error policy for every listener button: a handler that
+        raises after claiming its alert must still answer the user."""
+        try:
+            await route(interaction)
+        except Exception:
+            logger.exception('listener button failed: %s',
+                             (getattr(interaction, 'data', None) or {}).get('custom_id', ''))
+            note = 'Something failed handling that button. Check the printer screen before pressing again.'
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(note, ephemeral=True)
+                else:
+                    await interaction.response.send_message(note, ephemeral=True)
+            except Exception:
+                logger.debug('could not report the button failure', exc_info=True)
+
+    # -- button router table (#1590 item 4) --------------------------------
+    # Each row is (parser, handler, needs_approver): the parser turns a
+    # custom_id into the handler's arguments or None when the id is not
+    # its row's; needs_approver is True when the press needs an approver
+    # (may_start), False when any allowed user may press, or a callable
+    # of the parsed value deciding per row (the plate "go" press).
+    # route() below does parse, authorize and dispatch once for every
+    # row, so the approver check and the on_interaction error guard live
+    # in one place instead of being repeated per parser.
+    async def _handle_retry(interaction, receipt_id):
+        if not receipt_id:
+            await interaction.response.send_message('That Retry button is invalid. Nothing started.', ephemeral=True)
+            return
+        await handle_intake_retry(interaction, receipt_id)
+
+    async def _handle_plate(interaction, action, aid):
+        await {'pick': handle_plate_pick, 'go': handle_plate_go,
+               'spool': handle_plate_spool, 'drop': handle_plate_drop,
+               'material': handle_plate_material}[action](interaction, aid)
+
+    def _parse_retry(custom_id):
+        if not str(custom_id).startswith(_pi.RETRY_CUSTOM_ID):
+            return None
+        return (pab.parse_retry_custom_id(custom_id) or '',)
+
+    def _parse_stop(custom_id):
+        if not str(custom_id).startswith(STOP_PREFIX):
+            return None
+        return (str(custom_id)[len(STOP_PREFIX):],)
+
+    def _parse_select(prefix):
+        def parse(custom_id):
+            if not str(custom_id).startswith(prefix):
+                return None
+            return (str(custom_id).split(':', 1)[1],)
+        return parse
+
+    from print_handy.runtime import exclude_chat
+    _BUTTON_ROUTES = (
+        (_parse_retry, _handle_retry, True),
+        (_parse_stop, handle_stop, False),
+        (exclude_chat.parse_custom_id, handle_exclude, False),
+        (pab.parse_plate_custom_id, _handle_plate, lambda parsed: parsed[0] == 'go'),
+        (pab.parse_bind_confirm_custom_id, handle_bind_confirm, False),
+        (pab.parse_intake_custom_id, handle_intake, False),
+        (_parse_select(f'{pab.INTAKE_SELECT_PREFIX}:'), handle_intake_select, False),
+        (pab.parse_insertion_custom_id, handle_insertion, False),
+        (pab.parse_spool_question_custom_id, handle_spool_question, False),
+        (pab.parse_new_spool_custom_id, handle_new_spool, False),
+        (_parse_select('pbinsertselect:'), handle_insertion_select, False),
+        (_parse_select('pbspoolselect:'), handle_spool_question_select, False),
+        (_parse_select(f'{pab.NEW_SPOOL_SELECT_PREFIX}:'), handle_new_spool_select, False),
+    )
+
+    async def route(interaction):
         data = getattr(interaction, 'data', None) or {}
         custom_id = data.get('custom_id', '')
-        if str(custom_id).startswith(_pi.RETRY_CUSTOM_ID):
-            if not allowed(interaction):
+        for parser, handler, needs_approver in _BUTTON_ROUTES:
+            parsed_row = parser(custom_id)
+            if parsed_row is None:
+                continue
+            needs = needs_approver(parsed_row) if callable(needs_approver) else needs_approver
+            if not (may_start(interaction) if needs else allowed(interaction)):
                 await reject(interaction)
                 return
-            receipt_id = pab.parse_retry_custom_id(custom_id)
-            if not receipt_id:
-                await interaction.response.send_message('That Retry button is invalid. Nothing started.', ephemeral=True)
-                return
-            await handle_intake_retry(interaction, receipt_id)
+            await handler(interaction, *parsed_row)
             return
-        if str(custom_id).startswith(STOP_PREFIX):
-            if not allowed(interaction):
-                await reject(interaction)
-                return
-            await handle_stop(interaction, str(custom_id)[len(STOP_PREFIX):])
-            return
-        from print_handy.runtime import exclude_chat
-        parsed_exclude = exclude_chat.parse_custom_id(custom_id)
-        if parsed_exclude:
-            if not allowed(interaction):
-                await reject(interaction)
-                return
-            await handle_exclude(interaction, *parsed_exclude)
-            return
-        plate = pab.parse_plate_custom_id(custom_id)
-        if plate:
-            if not allowed(interaction):
-                await reject(interaction)
-                return
-            await {'pick': handle_plate_pick, 'go': handle_plate_go,
-                   'spool': handle_plate_spool, 'drop': handle_plate_drop,
-                   'material': handle_plate_material}[plate[0]](interaction, plate[1])
-            return
-        bind_confirm = pab.parse_bind_confirm_custom_id(custom_id)
-        if bind_confirm:
-            if not allowed(interaction):
-                await reject(interaction)
-                return
-            await handle_bind_confirm(interaction, *bind_confirm)
-            return
+        # The alert action buttons are the remaining row: their approver
+        # rule depends on the action itself, so they keep their own check
+        # after the same allowed check every row above got.
         parsed = pab.parse_custom_id(custom_id)
-        insertion = pab.parse_insertion_custom_id(custom_id)
-        spool_question = pab.parse_spool_question_custom_id(custom_id)
-        new_spool = pab.parse_new_spool_custom_id(custom_id)
-        intake = pab.parse_intake_custom_id(custom_id)
-        is_select = str(custom_id).startswith('pbinsertselect:')
-        is_spool_select = str(custom_id).startswith('pbspoolselect:')
-        is_new_spool_select = str(custom_id).startswith(f'{pab.NEW_SPOOL_SELECT_PREFIX}:')
-        is_intake_select = str(custom_id).startswith(f'{pab.INTAKE_SELECT_PREFIX}:')
-        if not parsed and not insertion and not spool_question and not new_spool and not intake \
-                and not is_select and not is_spool_select and not is_new_spool_select \
-                and not is_intake_select:
+        if not parsed:
             return
         if not allowed(interaction):
             await reject(interaction)
             return
-        if intake:
-            await handle_intake(interaction, *intake)
-            return
-        if is_intake_select:
-            _, aid = str(custom_id).split(':', 1)
-            await handle_intake_select(interaction, aid)
-            return
-        if insertion:
-            await handle_insertion(interaction, *insertion)
-            return
-        if spool_question:
-            await handle_spool_question(interaction, *spool_question)
-            return
-        if new_spool:
-            await handle_new_spool(interaction, *new_spool)
-            return
-        if is_select:
-            _, aid = str(custom_id).split(':', 1)
-            await handle_insertion_select(interaction, aid)
-            return
-        if is_spool_select:
-            _, aid = str(custom_id).split(':', 1)
-            await handle_spool_question_select(interaction, aid)
-            return
-        if is_new_spool_select:
-            _, aid = str(custom_id).split(':', 1)
-            await handle_new_spool_select(interaction, aid)
-            return
         action, aid = parsed
+        if action not in ('acknowledge', 'mute') and not may_start(interaction):
+            await reject(interaction)
+            return
         alert = await asyncio.to_thread(pab.take, aid)
         label = {'resume': 'Resume', 'pause': 'Pause', 'acknowledge': "It's fine",
                  'mute': "Stop asking for this print",

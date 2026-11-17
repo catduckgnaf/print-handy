@@ -7,10 +7,8 @@ Every action re-reads the printer first and refuses when the state no longer mat
 from __future__ import annotations
 
 import json
-import os
 import re
 import secrets
-import threading
 import logging
 import time
 import urllib.request
@@ -20,6 +18,7 @@ from typing import Any
 from print_handy.bot import rest
 
 from . import _config
+from . import state_file
 
 STATE = _config.state_file("PRINT_ALERT_STATE", "print_alert_buttons.json")
 BASE = _config.moonraker_url()
@@ -38,7 +37,46 @@ MAINTENANCE_FOLLOW_UP = ("The stopped print is cleared. Check the filament path 
                          "free the part, use `/print-bed-down` (Prepare to clean: separate bed and "
                          "nozzle). It asks first and never homes or heats.")
 TTL = 24 * 3600
-_LOCK = threading.Lock()
+
+logger = logging.getLogger(__name__)
+
+
+class _StoreLock:
+    """Serialize every read-modify-write of the alert store.
+
+    The listener process records alerts and the gateway process claims
+    them, both by load, modify, replace of one file: a thread lock alone
+    lets one process save an older snapshot over the other's row (a lost
+    alert, or a claimed row coming back for a second click). The shared
+    state-file lock (#1585, ``state_file.locked``) covers processes and
+    threads. If the lock cannot be had in ``wait_s`` the write proceeds
+    unlocked, which is the behavior before this lock. ``STATE`` is read
+    at entry time so tests that repoint the store get the lock beside
+    the store they repointed.
+    """
+
+    wait_s, stale_s = 5.0, 30.0
+
+    def __init__(self) -> None:
+        self._stack: list = []
+
+    def __enter__(self) -> "_StoreLock":
+        cm = state_file.locked(STATE, lock_path=STATE.with_suffix(".lock"),
+                               wait_s=self.wait_s, stale_s=self.stale_s)
+        try:
+            cm.__enter__()
+        except OSError:
+            logger.debug("alert store lock unavailable; writing without it", exc_info=True)
+            return self
+        self._stack.append(cm)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if self._stack:
+            self._stack.pop().__exit__(*exc)
+
+
+_LOCK = _StoreLock()
 
 
 def _base_for(printer_id: str | None) -> str:
@@ -89,18 +127,14 @@ def explain(state_message: str) -> str:
 
 
 def _load() -> dict[str, Any]:
-    try:
-        data = json.loads(STATE.read_text())
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return state_file.read_object(STATE)
 
 
 def _save(data: dict[str, Any]) -> None:
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=1))
-    os.replace(tmp, STATE)
+    # A temp name of its own per write, with fsync: two processes share
+    # this store. The shared helper writes indent=1 like this module
+    # always has, plus its trailing newline.
+    state_file.write_atomic(STATE, data, indent=1)
 
 
 def _timestamp(value: Any) -> float | None:

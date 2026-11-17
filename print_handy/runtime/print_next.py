@@ -542,7 +542,8 @@ async def start(target: Mapping[str, Any], model_job: Path | None = None,
                 claims_dir: Path | None = None) -> tuple[bool, str]:
     """Run print-now once for the exact artifact. Never retried, never replayed."""
     gcode = Path(target["gcode"])
-    if not gcode.is_file() or _sha256(gcode) != target["gcode_sha256"]:
+    # The hash reads the whole file: off the event loop.
+    if not gcode.is_file() or await asyncio.to_thread(_sha256, gcode) != target["gcode_sha256"]:
         return False, "REFUSED: the next plate's G-code changed after the prompt. Nothing uploaded or started."
     if idle_check is not None:
         check = idle_check

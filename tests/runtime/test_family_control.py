@@ -352,3 +352,36 @@ def test_default_printer_pause_alerts_post_and_retire_under_its_real_id(monkeypa
     fc.retire_pause_alerts(REMOTE, "Print ended.", None)
     assert posted == ["printer-a"]
     assert retired == ["printer-a"]
+
+
+# -- pause + the empty-filename guard (#1587) -----------------------------------
+
+def test_pause_reaches_the_familys_own_control_once():
+    adapter, control = control_for([st("printing"), st("paused")])
+    ok, text = control.pause(REMOTE)
+    assert ok and "Paused" in text
+    assert adapter.calls == ["pause"]
+
+
+@pytest.mark.parametrize("action,state", [("pause", "printing"), ("resume", "paused"),
+                                          ("cancel", "printing")])
+def test_control_refuses_when_the_live_filename_is_empty(action, state):
+    # #1587: the caller named a file but the adapter's status carries no
+    # filename, so the print cannot be confirmed — nothing is sent. Every
+    # family adapter reports a filename for a running print (Bambu
+    # subtask_name/gcode_file, PrusaLink display_name, SDCP PrintInfo
+    # Filename, OctoPrint job.file.path, stock printFileName), so an
+    # empty one is a failed confirmation, not a normal pause.
+    adapter, control = control_for([st(state, "")])
+    ok, text = getattr(control, action)(REMOTE)
+    assert not ok and text == "could not confirm which print is running. Nothing sent."
+    assert adapter.calls == []
+
+
+def test_pause_without_an_expected_filename_still_acts_when_live_filename_is_empty():
+    # The guard only arms when the caller names the file it means to act
+    # on; an unnamed pause keeps working on state alone.
+    adapter, control = control_for([st("printing", ""), st("paused", "")])
+    ok, _text = control.pause()
+    assert ok
+    assert adapter.calls == ["pause"]
