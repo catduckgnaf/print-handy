@@ -3734,6 +3734,7 @@ class Listener:
         self.oc_prompt = None  # OpenCreator ActionPrompt for the live session, if any
         self.moonraker_connected = False  # whether the Moonraker websocket session is live
         self.print_seen_started_at = None  # when this print was first seen live, if seen
+        self._job_last_run = {}  # receive-loop job table clock, seeded by _receive_loop (#1603)
         self._failover_failures_posted = None  # lazily built by the failover_failures_posted property
 
     def note_slot_presence(self, slots):
@@ -4078,9 +4079,8 @@ class Listener:
         self.presence_failure = failure
 
     def failover_retry(self, change):
-        watch = getattr(self, "failover_watch", None)
-        if watch is not None:
-            watch.retry(change)
+        if self.failover_watch is not None:
+            self.failover_watch.retry(change)
 
     @property
     def failover_failures_posted(self):
@@ -4342,7 +4342,7 @@ class Listener:
         try:
             await asyncio.wait_for(self._visual_check_once(reason, layer), VISUAL_CHECK_DEADLINE_S)
         except asyncio.TimeoutError:
-            self.visual_timeouts = getattr(self, "visual_timeouts", 0) + 1
+            self.visual_timeouts += 1
             warn(f"visual check timed out file={self.filename!r} reason={reason} after "
                 f"{VISUAL_CHECK_DEADLINE_S:.0f}s (timeouts so far: {self.visual_timeouts}); "
                 "the camera or the vision endpoint did not answer")
@@ -4734,23 +4734,7 @@ class Listener:
             # absent; only the archive scan can still raise (OSError). The
             # whole lookup is guarded on its own (#1583): a failure here
             # must not lose the start's capture, light or alert side effects.
-            try:
-                from . import print_records
-                correlation_id = job_correlation.from_context(print_records.load_context(self.filename))
-                if not correlation_id:
-                    from ..jobs.store import _job_for_gcode
-                    try:
-                        correlation_id = job_correlation.from_context(_job_for_gcode(Path(self.filename)))
-                    except OSError:
-                        logger.warning("print start: job lookup for the correlation id failed", exc_info=True)
-                # Process-wide: one listener process follows one printer, and its
-                # worker threads (camera, timelapse) must carry the id too, which a
-                # task-level ContextVar never reaches (P2-161).
-                logs.unbind_process("job_correlation_id")
-                if correlation_id:
-                    logs.bind_process(job_correlation_id=correlation_id)
-            except Exception as exc:
-                warn(f"print start: correlation id binding failed file={self.filename!r}: {exc!r}")
+            self._bind_start_correlation()
             # When this print started, as seen live (None after a reconnect
             # mid-print): the end charge's window when history is unavailable.
             self.print_seen_started_at = time.time() if old is not None else None
@@ -4784,40 +4768,87 @@ class Listener:
             and old in ("printing", "paused"))
         log(f"state {old} -> {new_state} file={self.filename!r} ({reason})")
         _record_transition_markers(old, new_state, self.filename, self.last_stats)
+        await self._apply_launch_lease_settle(new_state)
+        if fresh_start:
+            await self._apply_fresh_start(old, identity)
+        await self._apply_reconnect_effects(old, new_state, identity)
+        await self._apply_visual_due_check(new_state)
+        if old is not None and old != "printing" and new_state == "printing":
+            await self._apply_resume_or_start(old, new_state, duplicate_start)
+        elif old == "printing" and new_state == "paused":
+            await self._apply_pause_transition(old, new_state)
+        elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
+            await self._apply_terminal_notice(new_state, gone, identity)
+        ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
+        await self._apply_ended_bookkeeping(old, new_state, ended)
+        await self._run_announcer_guarded(old, new_state)
+        if ended:
+            # Marked before the call: if the cleanup itself raises,
+            # _on_status must not run it a second time in its finally.
+            self._print_ended_done = True
+            await self._print_ended(new_state)
+
+    def _bind_start_correlation(self):
+        """Bind this print's job correlation id process-wide, guarded on its own (#1583)."""
+        try:
+            from . import print_records
+            correlation_id = job_correlation.from_context(print_records.load_context(self.filename))
+            if not correlation_id:
+                from ..jobs.store import _job_for_gcode
+                try:
+                    correlation_id = job_correlation.from_context(_job_for_gcode(Path(self.filename)))
+                except OSError:
+                    logger.warning("print start: job lookup for the correlation id failed", exc_info=True)
+            # Process-wide: one listener process follows one printer, and its
+            # worker threads (camera, timelapse) must carry the id too, which a
+            # task-level ContextVar never reaches (P2-161).
+            logs.unbind_process("job_correlation_id")
+            if correlation_id:
+                logs.bind_process(job_correlation_id=correlation_id)
+        except Exception as exc:
+            warn(f"print start: correlation id binding failed file={self.filename!r}: {exc!r}")
+
+    async def _apply_launch_lease_settle(self, new_state):
+        """Transition side effect: settle the launch lease when the printer is printing."""
         if new_state == "printing":
             try:
                 await asyncio.to_thread(self._settle_launch_lease)
             except Exception as exc:
                 warn(f"launch lease settle failed file={self.filename!r}: {exc!r}")
-        if fresh_start:
-            # A fresh start (or a print already running when the listener
-            # (re)connected): open the #246 stage 2 capture session,
-            # replacing any session a missed end left open. A resume keeps
-            # the session the pause left open.
-            # Off the event loop with a deadline (#1020): this touches disk
-            # and the camera, and a stall here once froze the heartbeat and
-            # every alert. A capture that cannot start in time is skipped.
-            # Guarded on its own (#1583): a capture failure must not lose
-            # the start's light, self-check or post side effects.
-            try:
-                await self._begin_capture(identity, resume=old is None)
-            except Exception as exc:
-                warn(f"capture begin at print start failed file={self.filename!r}: {exc!r}")
-            # #913: pick this print's watch schedule before the first check.
-            self.visual_watch.reset()
-            self.local_streak.reset()
-            self.inconclusive_streak.reset()
-            self._apply_watch_mode()
-            try:
-                self._note_watch_not_running()
-            except Exception as exc:
-                warn(f"camera watch coverage note failed file={self.filename!r}: {exc!r}")
-            # #516: auto light-on at a fresh print start (a resume is not
-            # a start; the light never went off during a pause).
-            await self.light_print_started()
-            # #1020 D3: the print-start slot self-check — one warning
-            # post, only when the slot sources disagree after conversion.
-            await self._slot_self_check()
+
+    async def _apply_fresh_start(self, old, identity):
+        """Transition side effect: a fresh start's capture, watch, light and self-check."""
+        # A fresh start (or a print already running when the listener
+        # (re)connected): open the #246 stage 2 capture session,
+        # replacing any session a missed end left open. A resume keeps
+        # the session the pause left open.
+        # Off the event loop with a deadline (#1020): this touches disk
+        # and the camera, and a stall here once froze the heartbeat and
+        # every alert. A capture that cannot start in time is skipped.
+        # Guarded on its own (#1583): a capture failure must not lose
+        # the start's light, self-check or post side effects.
+        try:
+            await self._begin_capture(identity, resume=old is None)
+        except Exception as exc:
+            warn(f"capture begin at print start failed file={self.filename!r}: {exc!r}")
+        # #913: pick this print's watch schedule before the first check.
+        self.visual_watch.reset()
+        self.local_streak.reset()
+        self.inconclusive_streak.reset()
+        self._apply_watch_mode()
+        try:
+            self._note_watch_not_running()
+        except Exception as exc:
+            warn(f"camera watch coverage note failed file={self.filename!r}: {exc!r}")
+        # #516: auto light-on at a fresh print start (a resume is not
+        # a start; the light never went off during a pause).
+        await self.light_print_started()
+        # #1020 D3: the print-start slot self-check — one warning
+        # post, only when the slot sources disagree after conversion.
+        await self._slot_self_check()
+
+    async def _apply_reconnect_effects(self, old, new_state, identity):
+        """Transition side effect: the listener (re)connected mid-print or after its end."""
         if old is None and new_state == "paused":
             # The listener (re)connected to a paused print: continue the
             # capture the earlier process left open, so the resume that
@@ -4839,214 +4870,229 @@ class Listener:
                 await self._charge_missed_end()
             except Exception as exc:
                 warn(f"missed end charge at reconnect failed file={self.filename!r}: {exc!r}")
+
+    async def _apply_visual_due_check(self, new_state):
+        """Transition side effect: run a due visual check while printing."""
         if new_state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
             layer = _visual_layer(self.last_stats)
             reason_due = self.visual_watch.due(layer, time.time(), snapshot_changed=None)
             if reason_due and self._watch_ready():
                 self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
-        if old is not None and old != "printing" and new_state == "printing":
-            # Claimed starts already have the intake's one post; unclaimed starts (printer screen,
-            # other tools) get exactly one canonical post here.
-            if old == "paused":
-                log(f"resume, no start post: {self.filename!r}")
-                if self.last_pause_was_runout and self.runout_episode is not None:
-                    self.runout_episode["resumed_at"] = time.time()
-                self.last_pause_was_runout = False
-                self.last_pause_episode = None
-                # The pause is over: its starter-ping episodes stop
-                # suppressing, so a later pause of the same print is a
-                # new problem that can ping (#1095).
-                starter_pings.clear_pause_episodes(job_key=self.filename)
+
+    async def _apply_resume_or_start(self, old, new_state, duplicate_start):
+        """Transition side effect: a resume, or a start's posts and checks."""
+        # Claimed starts already have the intake's one post; unclaimed starts (printer screen,
+        # other tools) get exactly one canonical post here.
+        if old == "paused":
+            log(f"resume, no start post: {self.filename!r}")
+            if self.last_pause_was_runout and self.runout_episode is not None:
+                self.runout_episode["resumed_at"] = time.time()
+            self.last_pause_was_runout = False
+            self.last_pause_episode = None
+            # The pause is over: its starter-ping episodes stop
+            # suppressing, so a later pause of the same print is a
+            # new problem that can ping (#1095).
+            starter_pings.clear_pause_episodes(job_key=self.filename)
+        else:
+            self.runout_episode = None
+            self.slot_tracker.reset()
+            self.failover_watch.reset()
+            self.visual_watch.reset()
+            self.local_streak.reset()
+            self.inconclusive_streak.reset()
+            self._apply_watch_mode()
+            # Each start post is guarded on its own (#1583): one
+            # failing post must not lose the other or the announcer.
+            if duplicate_start:
+                log(f"start already announced; no second start post: {self.filename!r}")
+            elif start_claimed(self.filename):
+                log(f"start claimed by print-now; updating its message, no second start post: {self.filename!r}")
+                try:
+                    await asyncio.to_thread(announce_warmup_done, self.filename)
+                except Exception as exc:
+                    warn(f"warmup post at print start failed: {exc!r}")
+                try:
+                    await asyncio.to_thread(post_exclude_objects, self.filename)
+                except Exception as exc:
+                    warn(f"exclude objects post at print start failed: {exc!r}")
             else:
-                self.runout_episode = None
-                self.slot_tracker.reset()
-                self.failover_watch.reset()
-                self.visual_watch.reset()
-                self.local_streak.reset()
-                self.inconclusive_streak.reset()
-                self._apply_watch_mode()
-                # Each start post is guarded on its own (#1583): one
-                # failing post must not lose the other or the announcer.
-                if duplicate_start:
-                    log(f"start already announced; no second start post: {self.filename!r}")
-                elif start_claimed(self.filename):
-                    log(f"start claimed by print-now; updating its message, no second start post: {self.filename!r}")
-                    try:
-                        await asyncio.to_thread(announce_warmup_done, self.filename)
-                    except Exception as exc:
-                        warn(f"warmup post at print start failed: {exc!r}")
-                    try:
-                        await asyncio.to_thread(post_exclude_objects, self.filename)
-                    except Exception as exc:
-                        warn(f"exclude objects post at print start failed: {exc!r}")
-                else:
-                    try:
-                        await asyncio.to_thread(post, start_message(self.filename))
-                    except Exception as exc:
-                        warn(f"start post failed file={self.filename!r}: {exc!r}")
-                    try:
-                        await asyncio.to_thread(post_exclude_objects, self.filename)
-                    except Exception as exc:
-                        warn(f"exclude objects post at print start failed: {exc!r}")
-                if not duplicate_start:
-                    # A new print while an older spool question is open: settle it as a
-                    # refeed when the same spool is back, else one warn-only notice.
-                    try:
-                        await self.settle_spool_question(
-                            state=new_state, filename=self.filename, new_print=True,
-                            printing=True, start_notice=True)
-                    except Exception as exc:
-                        warn(f"spool question check at print start failed: {exc!r}")
-                # The live view's auto-start trigger (#311 stage 4):
-                # fail-soft, and a no-op unless auto_start_on_print is on.
                 try:
-                    await asyncio.to_thread(_live_auto_on_print_start)
+                    await asyncio.to_thread(post, start_message(self.filename))
                 except Exception as exc:
-                    warn(f"live auto-start at print start failed: {exc!r}")
-        elif old == "printing" and new_state == "paused":
-            if pause_is_jam(self.pause_message):
-                # #1020 E1: an IFS jam gets its own post with the measured
-                # facts and only safe actions; it is never auto-resumed
-                # and never folded into the runout question flow.
-                self.last_pause_was_runout = False
-                self.last_pause_episode = "paused:jam"
-                self.pause_context = None
+                    warn(f"start post failed file={self.filename!r}: {exc!r}")
                 try:
-                    facts = await asyncio.to_thread(self._jam_facts)
+                    await asyncio.to_thread(post_exclude_objects, self.filename)
                 except Exception as exc:
-                    warn(f"jam facts failed file={self.filename!r}: {exc!r}")
-                    facts = {}
-                await self._post_pause_alert_or_fallback(
-                    jam_message(self.filename, facts), "paused:jam")
-            else:
-                # Guarded on its own (#1583): a classification failure
-                # must not lose the pause alert — the pause is posted as
-                # a generic one instead.
+                    warn(f"exclude objects post at print start failed: {exc!r}")
+            if not duplicate_start:
+                # A new print while an older spool question is open: settle it as a
+                # refeed when the same spool is back, else one warn-only notice.
                 try:
-                    self.last_pause_was_runout, slot = await self.classify_runout()
+                    await self.settle_spool_question(
+                        state=new_state, filename=self.filename, new_print=True,
+                        printing=True, start_notice=True)
                 except Exception as exc:
-                    warn(f"pause classification failed file={self.filename!r}: {exc!r}; "
-                         "posting a plain paused alert")
-                    self.last_pause_was_runout, slot = False, None
-                if self.last_pause_was_runout and self._runout_repause(slot):
-                    # The same runout pausing again: rewrite its alert, never
-                    # a new episode, a new usage suspend or a new question.
-                    self.last_pause_episode = "paused:runout"
-                    try:
-                        await asyncio.to_thread(self._post_runout_repause)
-                    except Exception as exc:
-                        warn(f"runout repause alert failed file={self.filename!r}: {exc!r}")
-                        spool_id = _mapped_spool(slot) if slot else None
-                        await self._post_pause_alert_or_fallback(
-                            paused_message(self.filename, runout=True,
-                                           slot=slot, spool_id=spool_id),
-                            "paused:runout")
-                elif self.last_pause_was_runout:
-                    self.last_pause_episode = "paused:runout"
+                    warn(f"spool question check at print start failed: {exc!r}")
+            # The live view's auto-start trigger (#311 stage 4):
+            # fail-soft, and a no-op unless auto_start_on_print is on.
+            try:
+                await asyncio.to_thread(_live_auto_on_print_start)
+            except Exception as exc:
+                warn(f"live auto-start at print start failed: {exc!r}")
+
+    async def _apply_pause_transition(self, old, new_state):
+        """Transition side effect: a pause's jam, runout or plain alert."""
+        if pause_is_jam(self.pause_message):
+            # #1020 E1: an IFS jam gets its own post with the measured
+            # facts and only safe actions; it is never auto-resumed
+            # and never folded into the runout question flow.
+            self.last_pause_was_runout = False
+            self.last_pause_episode = "paused:jam"
+            self.pause_context = None
+            try:
+                facts = await asyncio.to_thread(self._jam_facts)
+            except Exception as exc:
+                warn(f"jam facts failed file={self.filename!r}: {exc!r}")
+                facts = {}
+            await self._post_pause_alert_or_fallback(
+                jam_message(self.filename, facts), "paused:jam")
+        else:
+            # Guarded on its own (#1583): a classification failure
+            # must not lose the pause alert — the pause is posted as
+            # a generic one instead.
+            try:
+                self.last_pause_was_runout, slot = await self.classify_runout()
+            except Exception as exc:
+                warn(f"pause classification failed file={self.filename!r}: {exc!r}; "
+                     "posting a plain paused alert")
+                self.last_pause_was_runout, slot = False, None
+            if self.last_pause_was_runout and self._runout_repause(slot):
+                # The same runout pausing again: rewrite its alert, never
+                # a new episode, a new usage suspend or a new question.
+                self.last_pause_episode = "paused:runout"
+                try:
+                    await asyncio.to_thread(self._post_runout_repause)
+                except Exception as exc:
+                    warn(f"runout repause alert failed file={self.filename!r}: {exc!r}")
                     spool_id = _mapped_spool(slot) if slot else None
                     await self._post_pause_alert_or_fallback(
                         paused_message(self.filename, runout=True,
                                        slot=slot, spool_id=spool_id),
                         "paused:runout")
-                    # The spool question is its own side effect (#1583):
-                    # its failure must not lose the alert above or the
-                    # announcer and cleanup below.
-                    try:
-                        self.pause_context = await self.open_question(slot, "runout")
-                    except Exception as exc:
-                        warn(f"runout spool question failed file={self.filename!r}: {exc!r}")
-                        self.pause_context = None
-                    self.runout_episode = {"slot": slot, "resumed_at": None, "repauses": 0,
-                                           "message": self._alert_message("paused")}
-                else:
-                    self.last_pause_episode = "paused:other"
+            elif self.last_pause_was_runout:
+                self.last_pause_episode = "paused:runout"
+                spool_id = _mapped_spool(slot) if slot else None
+                await self._post_pause_alert_or_fallback(
+                    paused_message(self.filename, runout=True,
+                                   slot=slot, spool_id=spool_id),
+                    "paused:runout")
+                # The spool question is its own side effect (#1583):
+                # its failure must not lose the alert above or the
+                # announcer and cleanup below.
+                try:
+                    self.pause_context = await self.open_question(slot, "runout")
+                except Exception as exc:
+                    warn(f"runout spool question failed file={self.filename!r}: {exc!r}")
                     self.pause_context = None
-                    await self._post_pause_alert_or_fallback(
-                        paused_message(self.filename), "paused:other")
-        elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
-            self.last_pause_was_runout = False
-            # Ended into standby gets the cancelled notice: the print stopped
-            # at the printer without completing, which is what the operator
-            # needs to hear (#370). The Bambu listener maps the same
-            # transition to "cancelled" ("a stop returns the printer to idle").
-            effective = "cancelled" if gone else new_state
-            if effective == "cancelled":
-                # Guarded on its own (#1583): a reminder failure must not
-                # lose the cancelled post or the end-of-print cleanup.
-                try:
-                    await maintenance_cancel_reminder()
-                except Exception as exc:
-                    warn(f"maintenance cancel reminder failed file={self.filename!r}: {exc!r}")
-            # Completion, records, snapshot, and session reset stay in the announcer.
-            # The announcer also owns the sole completion Discord post.
-            if effective == "cancelled":
-                # One post: post_cancel_report leads with the cancelled summary and
-                # falls back to it alone, so a separate ack read as a duplicate.
-                # Finish stop capture before starting the screen-cancel reboot so Moonraker
-                # state and log tails are read before Klipper restarts.
-                # The capture is guarded on its own (#1583): its failure
-                # must not lose the cancel report post below.
-                try:
-                    reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
-                except Exception as exc:
-                    warn(f"stop capture at cancel failed file={self.filename!r}: {exc!r}")
-                    reason = None
-                task = asyncio.create_task(asyncio.to_thread(
-                    post_cancel_report, self.filename, reason,
-                    operator_cancel=(new_state == "cancelled" and not gone)))
-                self.background_tasks.add(task)
-                task.add_done_callback(self.background_tasks.discard)
-                from . import klipper_report
-                if new_state == "cancelled" and not klipper_report.cancelled_by_bot():
-                    self.start_screen_cancel_reboot("moonraker cancelled")
-            elif new_state != "complete":
-                if new_state == "error":
-                    # Guarded on its own (#1583): a failed stop capture
-                    # must not lose the error post below.
-                    try:
-                        await asyncio.to_thread(capture_stop, self.filename, "error")
-                    except Exception as exc:
-                        warn(f"stop capture at error failed file={self.filename!r}: {exc!r}")
-                    facts = {}
-                    try:
-                        duration = announcer.elapsed_print_seconds(self.last_stats)
-                        if duration is not None:
-                            facts["duration_s"] = duration
-                        mention = starter_pings.ping_for("error", job_key=self.filename) or None
-                    except Exception as exc:
-                        warn(f"error post facts failed file={self.filename!r}: {exc!r}")
-                        mention = None
-                    await asyncio.to_thread(
-                        post, _with_status_roast(
-                            print_summary.format_event(new_state, self.filename),
-                            self.filename, "failed",
-                            f"failed:{identity or self.filename}", facts),
-                        **({"mention_user_id": mention} if mention else {}))
-                else:
-                    await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
-        ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
-        if ended:
-            # The print an open spool question was asked for is over: the
-            # question stays open, but its reminders back off from here.
+                self.runout_episode = {"slot": slot, "resumed_at": None, "repauses": 0,
+                                       "message": self._alert_message("paused")}
+            else:
+                self.last_pause_episode = "paused:other"
+                self.pause_context = None
+                await self._post_pause_alert_or_fallback(
+                    paused_message(self.filename), "paused:other")
+
+    async def _apply_terminal_notice(self, new_state, gone, identity):
+        """Transition side effect: a terminal transition's cancel or error notice."""
+        self.last_pause_was_runout = False
+        # Ended into standby gets the cancelled notice: the print stopped
+        # at the printer without completing, which is what the operator
+        # needs to hear (#370). The Bambu listener maps the same
+        # transition to "cancelled" ("a stop returns the printer to idle").
+        effective = "cancelled" if gone else new_state
+        if effective == "cancelled":
+            # Guarded on its own (#1583): a reminder failure must not
+            # lose the cancelled post or the end-of-print cleanup.
             try:
-                record = load_runout_pause()
-                if (record and record.get("usage_suspended") and not record.get("print_over")
-                        and spool_question_print_is_current(record, old, self.filename)):
-                    record["print_over"] = True
-                    atomic_write_json(RUNOUT_PAUSE_STATE, record)
+                await maintenance_cancel_reminder()
             except Exception as exc:
-                warn(f"spool question print-over mark failed: {exc!r}")
-            # A multi-slot print charged no spool while it ran: charge each
-            # slot's spool now, before the announcer builds the finish post
-            # that names the charge.
+                warn(f"maintenance cancel reminder failed file={self.filename!r}: {exc!r}")
+        # Completion, records, snapshot, and session reset stay in the announcer.
+        # The announcer also owns the sole completion Discord post.
+        if effective == "cancelled":
+            # One post: post_cancel_report leads with the cancelled summary and
+            # falls back to it alone, so a separate ack read as a duplicate.
+            # Finish stop capture before starting the screen-cancel reboot so Moonraker
+            # state and log tails are read before Klipper restarts.
+            # The capture is guarded on its own (#1583): its failure
+            # must not lose the cancel report post below.
             try:
-                await self._charge_multislot_usage(new_state)
+                reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
             except Exception as exc:
-                warn(f"multi-slot usage charge failed file={self.filename!r}: {exc!r}")
-            # Close the capture before the announcer: its timelapse
-            # postprocess only finds a capture whose manifest is no longer
-            # "capturing", and would otherwise attach the previous job's.
-            self._capture_end(new_state)
+                warn(f"stop capture at cancel failed file={self.filename!r}: {exc!r}")
+                reason = None
+            task = asyncio.create_task(asyncio.to_thread(
+                post_cancel_report, self.filename, reason,
+                operator_cancel=(new_state == "cancelled" and not gone)))
+            self.background_tasks.add(task)
+            task.add_done_callback(self.background_tasks.discard)
+            from . import klipper_report
+            if new_state == "cancelled" and not klipper_report.cancelled_by_bot():
+                self.start_screen_cancel_reboot("moonraker cancelled")
+        elif new_state != "complete":
+            if new_state == "error":
+                # Guarded on its own (#1583): a failed stop capture
+                # must not lose the error post below.
+                try:
+                    await asyncio.to_thread(capture_stop, self.filename, "error")
+                except Exception as exc:
+                    warn(f"stop capture at error failed file={self.filename!r}: {exc!r}")
+                facts = {}
+                try:
+                    duration = announcer.elapsed_print_seconds(self.last_stats)
+                    if duration is not None:
+                        facts["duration_s"] = duration
+                    mention = starter_pings.ping_for("error", job_key=self.filename) or None
+                except Exception as exc:
+                    warn(f"error post facts failed file={self.filename!r}: {exc!r}")
+                    mention = None
+                await asyncio.to_thread(
+                    post, _with_status_roast(
+                        print_summary.format_event(new_state, self.filename),
+                        self.filename, "failed",
+                        f"failed:{identity or self.filename}", facts),
+                    **({"mention_user_id": mention} if mention else {}))
+            else:
+                await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
+
+    async def _apply_ended_bookkeeping(self, old, new_state, ended):
+        """Transition side effect: an ended print's question mark, charge and capture close."""
+        if not ended:
+            return
+        # The print an open spool question was asked for is over: the
+        # question stays open, but its reminders back off from here.
+        try:
+            record = load_runout_pause()
+            if (record and record.get("usage_suspended") and not record.get("print_over")
+                    and spool_question_print_is_current(record, old, self.filename)):
+                record["print_over"] = True
+                atomic_write_json(RUNOUT_PAUSE_STATE, record)
+        except Exception as exc:
+            warn(f"spool question print-over mark failed: {exc!r}")
+        # A multi-slot print charged no spool while it ran: charge each
+        # slot's spool now, before the announcer builds the finish post
+        # that names the charge.
+        try:
+            await self._charge_multislot_usage(new_state)
+        except Exception as exc:
+            warn(f"multi-slot usage charge failed file={self.filename!r}: {exc!r}")
+        # Close the capture before the announcer: its timelapse
+        # postprocess only finds a capture whose manifest is no longer
+        # "capturing", and would otherwise attach the previous job's.
+        self._capture_end(new_state)
+
+    async def _run_announcer_guarded(self, old, new_state):
+        """Transition side effect: run the announcer for this transition."""
         # Guarded on its own (#1583): an announcer failure must not lose
         # the end-of-print cleanup below (and _on_status would run that
         # cleanup in its finally if anything here still raised).
@@ -5054,11 +5100,6 @@ class Listener:
             await asyncio.to_thread(run_announcer, f"{old}->{new_state}")
         except Exception as exc:
             warn(f"announcer after {old}->{new_state} failed file={self.filename!r}: {exc!r}")
-        if ended:
-            # Marked before the call: if the cleanup itself raises,
-            # _on_status must not run it a second time in its finally.
-            self._print_ended_done = True
-            await self._print_ended(new_state)
 
     async def _charge_multislot_usage(self, new_state):
         """Charge a finished multi-slot print's usage to each slot's spool. Fail-soft.
@@ -5085,7 +5126,7 @@ class Listener:
             # The print's own window: its history entry, else (a Moonraker
             # without [history]) the start this listener saw live.
             job_start = ((history or {}).get("start_time")
-                         or self.__dict__.get("print_seen_started_at"))
+                         or self.print_seen_started_at)
             job_end = (history or {}).get("end_time") or time.time()
             if not multislot_usage.context_in_window(context, job_start, job_end):
                 log(f"spool usage not checked file={filename!r}: the print context is not this "
@@ -5460,7 +5501,7 @@ class Listener:
         the idle light check; the look revalidates the printer state before
         it acts, so a print that started meanwhile voids it.
         """
-        task = getattr(self, "_next_plate_task", None)
+        task = self._next_plate_task
         if task is not None and not task.done():
             return
         self._next_plate_task = asyncio.create_task(self._next_plate_offer_task())
@@ -5734,7 +5775,7 @@ class Listener:
         if task is not None and not task.done():
             return None
         if (self.visual_watch.mode != _visual_watch.WATCH_MODE_EARLY
-                and not getattr(self, "_watch_context_seen", False)):
+                and not self._watch_context_seen):
             # The start context had not landed when the mode was first
             # picked; retry until it exists, so a risky print upgrades to
             # the early-layer schedule instead of staying on normal cadence.
@@ -6008,7 +6049,7 @@ class Listener:
             self.ifs_monitor.reset_baseline(warmup=True)
             log(f"{method} while state={self.state}")
             if self.state in ("printing", "paused"):
-                if getattr(self, "shutdown_alerted", None) != self.filename:
+                if self.shutdown_alerted != self.filename:
                     self.shutdown_alerted = self.filename  # one firmware-stopped alert per job
                     await asyncio.to_thread(post_shutdown_alert, self.filename)
                 else:
@@ -6037,7 +6078,7 @@ class Listener:
         """
         import inspect
         now = time.monotonic() if now is None else now
-        last_run = getattr(self, "_job_last_run", None)
+        last_run = self._job_last_run
         if last_run is None:
             last_run = self._job_last_run = {}
         for name, interval_s, job in jobs:
@@ -6134,7 +6175,7 @@ class Listener:
             time.sleep(healthcheck.HEARTBEAT_S)
 
     def _start_heartbeat_writer(self):
-        if getattr(self, "_heartbeat_thread", None) is None:
+        if self._heartbeat_thread is None:
             self._heartbeat_thread = threading.Thread(
                 target=self._heartbeat_writer, name="listener-heartbeat", daemon=True)
             self._heartbeat_thread.start()
