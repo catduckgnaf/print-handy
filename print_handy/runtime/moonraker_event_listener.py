@@ -3917,9 +3917,9 @@ class Listener:
         # The paused print itself keeps the short reminder. Once the print the
         # question was opened for is over, reminders back off (2026-11-12).
         interval = SPOOL_NAG_SECONDS
-        stats = getattr(self, "last_stats", None) or {}
+        stats = self.last_stats or {}
         if record.get("print_over") or not spool_question_print_is_current(
-                record, getattr(self, "state", None), getattr(self, "filename", ""),
+                record, self.state, self.filename,
                 stats.get("total_duration")):
             interval = max(SPOOL_NAG_SECONDS, SPOOL_NAG_ENDED_SECONDS)
         if time.time() - float(record.get("last_nag_at") or 0) < interval:
@@ -5969,7 +5969,7 @@ class Listener:
                 self.oc_recovery_identity = None
                 return
             identity, text = found
-            if identity != getattr(self, "oc_recovery_identity", None):
+            if identity != self.oc_recovery_identity:
                 filename = (status.get("power_loss_recovery") or {}).get("filename") or ""
                 if await asyncio.to_thread(post_alert, text, oc.RECOVERY_KIND, filename):
                     self.oc_recovery_identity = identity
@@ -5981,7 +5981,7 @@ class Listener:
         if not oc.is_opencreator(self._clock_adapter()):
             return
         from .klipper_report import ActionPrompt
-        if getattr(self, "oc_prompt", None) is None:
+        if self.oc_prompt is None:
             self.oc_prompt = ActionPrompt()
         commands = self.oc_prompt.feed(line)
         kind = oc.runout_kind(commands) if commands else None
@@ -6156,7 +6156,7 @@ class Listener:
 
     def _beat_once(self):
         """One heartbeat write, from the writer thread (#1020 A3)."""
-        tick = getattr(self, "_loop_tick", None)
+        tick = self._loop_tick
         lag_ms = int(max(0.0, time.time() - tick) * 1000) if tick else 0
         details = {}
         coverage = _WATCH_COVERAGE.current()

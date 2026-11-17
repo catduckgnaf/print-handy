@@ -183,6 +183,9 @@ def test_reminders_stop_once_cancel_clears_the_question(tmp_path, monkeypatch):
     record["last_nag_at"] = 0  # a reminder is due
     mel.atomic_write_json(state, record)
     listener = object.__new__(mel.Listener)
+    listener.last_stats = {}
+    listener.state = None
+    listener.filename = ""
     asyncio.run(listener.nag_if_due())
     assert posted.call_count == 1
     mel.clear_runout_pause(path=state)

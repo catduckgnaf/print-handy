@@ -309,6 +309,7 @@ def test_moonraker_heartbeat_reports_its_coverage(monkeypatch):
     listener = mel.Listener.__new__(mel.Listener)
     listener.state = "standby"
     listener.moonraker_connected = True
+    listener._loop_tick = 0.0
     captured = {}
     with mock.patch.object(mel.healthcheck, "beat", side_effect=lambda **kw: captured.update(kw)):
         listener._beat_once()

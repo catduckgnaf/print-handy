@@ -288,23 +288,6 @@ def _save_remembered_sessions(server):
     return True
 
 
-def _save_via_server(server):
-    """Persist remembered sessions, honoring a patched
-    ``server._save_remembered_sessions`` (tests patch that name on the
-    server module to simulate a failed write).
-
-    The server module is looked up in ``sys.modules`` rather than
-    imported, so this helper introduces no exception handler of its
-    own: when the server module is not loaded yet (it always is, by
-    the time a login handler runs) the local saver is used directly."""
-    import sys
-    server_module = sys.modules.get(f"{__package__}.server")
-    saver = getattr(server_module, "_save_remembered_sessions", None) \
-        if server_module is not None else None
-    if saver is not None and saver is not _save_remembered_sessions:
-        return saver(server)
-    return _save_remembered_sessions(server)
-
 # -- browser login handlers (moved from _Handler) ---------------------
 
 def session_id(handler):
@@ -339,7 +322,7 @@ def valid_session_id(handler):
             # An expired remembered entry was pruned in memory;
             # persist the removal, as the bare-dict code did.
             with _remember_lock(handler.server):
-                _save_via_server(handler.server)
+                _save_remembered_sessions(handler.server)
         return valid
     now = time.time()
     expiry = handler.server.sessions.get(session_id)
@@ -356,7 +339,7 @@ def valid_session_id(handler):
     if expiry <= now:
         with _remember_lock(handler.server):
             if remembered.pop(digest, None) is not None:
-                _save_via_server(handler.server)
+                _save_remembered_sessions(handler.server)
         return ""
     return session_id
 
@@ -422,7 +405,7 @@ def start_session(handler, remember=False):
             # never lost to one).
             with _remember_lock(handler.server):
                 store.remember(session_id)
-                if _save_via_server(handler.server):
+                if _save_remembered_sessions(handler.server):
                     return ("Set-Cookie",
                             f"{SESSION_COOKIE}={session_id}; HttpOnly; "
                             f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
@@ -450,7 +433,7 @@ def start_session(handler, remember=False):
             for stale in [d for d, expiry in remembered.items() if expiry <= now]:
                 del remembered[stale]
             remembered[_session_digest(session_id)] = now + REMEMBER_TTL_S
-            if _save_via_server(handler.server):
+            if _save_remembered_sessions(handler.server):
                 return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
                         f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
             # Fail open to the current behavior: ephemeral, no Max-Age.
@@ -532,7 +515,7 @@ def rehash_after_login(handler, password):
         server.access_stamp = _access_stamp(data)
         new_fingerprint = server.access.credential_fingerprint()
         if getattr(server, "remembered_sessions", None):
-            _save_via_server(server)
+            _save_remembered_sessions(server)
         try:
             upload_module.rebind_links(data, old_fingerprint, new_fingerprint)
         except OSError as exc:
@@ -548,13 +531,13 @@ def logout(handler):
         if store is not None:
             if store.revoke(session_id):
                 with _remember_lock(handler.server):
-                    _save_via_server(handler.server)
+                    _save_remembered_sessions(handler.server)
         else:
             handler.server.sessions.pop(session_id, None)
             remembered = getattr(handler.server, "remembered_sessions", None) or {}
             with _remember_lock(handler.server):
                 if remembered.pop(_session_digest(session_id), None) is not None:
-                    _save_via_server(handler.server)
+                    _save_remembered_sessions(handler.server)
     flags = "; Secure" if handler._cookie_secure() else ""
     cookie = (f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
               f"Path=/; Max-Age=0{flags}")
@@ -597,7 +580,7 @@ def revoke_remembered_sessions(handler):
             sessions_path(handler.server.settings_data).unlink(missing_ok=True)
         except OSError as exc:
             log.warning("webui: could not delete remembered sessions file: %s", exc)
-            _save_via_server(handler.server)
+            _save_remembered_sessions(handler.server)
 
 def revoke_upload_links(handler):
     """Revoke every no-login upload link: the login was set or changed.

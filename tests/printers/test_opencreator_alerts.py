@@ -51,6 +51,8 @@ def test_listener_prompt_and_recovery_dedupe(monkeypatch):
     from print_handy.runtime import moonraker_event_listener as mel
     listener = object.__new__(mel.Listener)
     listener.filename = 'part.gcode'
+    listener.oc_prompt = None
+    listener.oc_recovery_identity = None
     monkeypatch.setattr(listener, '_clock_adapter', lambda: adapter())
     posts = []
     monkeypatch.setattr(mel, 'post_alert', lambda *a: posts.append(a) or True)
