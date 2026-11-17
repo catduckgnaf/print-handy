@@ -7,12 +7,15 @@ translation, the editable export must reopen and slice in the real
 Orca, and the statistics path (Orca statistics JSON vs verified G-code
 comments) must prove one of its two paths on the real binary.
 
-Fixture honesty: the Cura fixture is spec-synthetic (see
-tests/corpus/producer-fixtures/PROVENANCE.json) and this module says so;
-it never calls it a genuine Cura export. The Prusa case slices the
-genuine fixture when the provenance manifest records one, and otherwise
-asserts the manifest honestly records that no genuine Prusa fixture is
-present yet — an executed assertion, not a silent skip.
+Fixture honesty: two Cura fixtures exist (see
+tests/corpus/producer-fixtures/PROVENANCE.json). cura-spec-synthetic.3mf
+is built to the Cura workspace-writer layout and this module says so;
+cura-genuine.3mf was saved by the real UltiMaker Cura 5.8.1 application
+through its own GUI under Xvfb, and its own Cura/version.ini is the
+producer proof. The Prusa case slices the genuine fixture when the
+provenance manifest records one, and otherwise asserts the manifest
+honestly records that no genuine Prusa fixture is present yet — an
+executed assertion, not a silent skip.
 """
 import json
 import os
@@ -89,6 +92,32 @@ def test_cura_spec_synthetic_source_slices_with_translated_settings(work):
     # The fixture's own start G-code is a marker that must never leak.
     assert "SPEC SYNTHETIC START" not in gcode
     assert "SPEC SYNTHETIC END" not in gcode
+
+
+def test_cura_genuine_source_is_proven_and_slices(work):
+    """The genuine Cura fixture: saved by the real Cura 5.8.1 GUI.
+
+    Its own Cura/version.ini is the producer proof; Print Handy's
+    descriptor and author-settings readers must see the real stacks,
+    and real Orca must slice its geometry.
+    """
+    import zipfile
+    fixture = FIXTURES / "cura-genuine.3mf"
+    provenance = json.loads((FIXTURES / "PROVENANCE.json").read_text())
+    rows = {row["file"]: row for row in provenance["fixtures"]}
+    assert rows["cura-genuine.3mf"]["class"] == "genuine"
+    with zipfile.ZipFile(fixture) as archive:
+        version = archive.read("Cura/version.ini").decode("utf-8", "replace")
+    assert "cura_version = 5.8.1" in version
+    described = source_descriptor.describe(fixture)
+    assert described["kind"] == "cura"
+    assert described["format"] == "cura_project"
+    assert described["application"] == "UltiMaker Cura"
+    record = author_settings.read_project(fixture)
+    assert record["format"] == "cura_project"
+    assert record["author"]["layer_height"] == "0.2"
+    result, out = _slice(fixture, work / "cura-genuine-out")
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
 
 
 def test_editable_export_reopens_and_slices_in_real_orca(work):

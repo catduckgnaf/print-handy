@@ -717,6 +717,15 @@ jobs:
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
         run: xvfb-run -a python -m pytest -v -s tests/slicer tests/corpus tests/pipeline/test_first_layer_workflow.py
+      # The cross-slicer contract smoke (#1525) runs as its own named,
+      # unsharded step so every shard leg of this required job executes
+      # it in full and the run log names it: the sharded step above
+      # collects the same module, but shard assignment alone never
+      # proved a given test ran. The module's real-Orca gate
+      # (PRINT_HANDY_REAL_SLICER) is this job's env, so a missing Orca
+      # binary fails the step instead of skipping silently.
+      - name: Cross-slicer contract smoke with real Orca (#1525)
+        run: xvfb-run -a python -m pytest -v -s tests/slicer/test_cross_slicer_real.py
 
   slicer-test-stable-result:
     if: always()

@@ -169,6 +169,9 @@ ROUTES = (
     _get("/settings-report/*", SESSION, "_settings_report_route", decode=False),
     _get("/editable-export/*", SESSION, "_editable_export_route", decode=False),
     _get("/conversion-report/*", SESSION, "_conversion_report_route", decode=False),
+    _get("/slice-result/*", SESSION, "_slice_result_route", decode=False),
+    _get("/u1-feasibility/*", SESSION, "_u1_feasibility_route", decode=False),
+    _get("/external-intake", SESSION, "_external_intake_route"),
     # Anything else: the themed 404 for a browser, JSON otherwise, behind
     # the read rule like every page.
     _get("*", SESSION, "_not_found", decode=False),
@@ -179,6 +182,7 @@ ROUTES = (
     _post("/chat/choice", SESSION_CSRF, "_chat_choice_post", back="/chat"),
     _post("/designs", SESSION_CSRF, "_designs_post", back="/designs"),
     _post("/designs/choice", SESSION_CSRF, "_designs_choice_post", back="/designs"),
+    _post("/external-intake/confirm", SESSION_CSRF, "_external_intake_confirm_post", back="/external-intake"),
     _post("/workflow/link", SESSION_CSRF, "_workflow_link_post", back="/workflow"),
     _post("/workflow/choice", SESSION_CSRF, "_workflow_choice_post", back="/workflow"),
     _post("/workflow/start", SESSION_CSRF, "_workflow_start_post", back="/workflow"),

@@ -130,6 +130,9 @@ GROUP_OF = {
     "notify.ntfy_enabled": "notifications",
     "notify.ntfy_url": "notifications",
     "notify.ntfy_topic": "notifications",
+    "external_intake.enabled": "slicing",
+    "external_intake.directory": "slicing",
+    "external_intake.max_bytes": "slicing",
     "firmware.update_alerts": "notifications",
     "firmware.update_check_hours": "notifications",
     "firmware.notice_firmwares": "notifications",
@@ -490,6 +493,23 @@ CATALOG = (
                     "prusa-buddy-xl", "prusa-buddy-mini", "qidi-q1pro", "qidi-xplus3",
                     "qidi-xplus4", "qidi-xmax3", "qidi-xsmart3"),
            validator="settings firmware check"),
+    # External sliced-job intake (#1525): the opt-in watched folder. The
+    # directory is the one allowlisted folder; a draft card never prints
+    # or charges on its own.
+    _field("external_intake", "enabled", "External intake (watched folder)", "toggle",
+           "Off by default. On lets the External intake page watch the one "
+           "folder named below for jobs sliced outside Print Handy and show "
+           "them as draft cards. A card never prints or charges a spool; "
+           "recording a print takes the page's Mark as printed confirmation.",
+           validator="settings external intake check"),
+    _field("external_intake", "directory", "External intake folder", "text",
+           "The one folder the external intake may look in. Empty scans "
+           "nothing. Files elsewhere are never intake, and links out of "
+           "this folder are refused.",
+           validator="settings external intake check"),
+    _field("external_intake", "max_bytes", "External intake max file size (bytes)", "number",
+           "Largest single file the intake accepts, in bytes.",
+           validator="settings external intake check", minimum=1, maximum=2147483648),
     # AI and models: every OpenAI-compatible endpoint in one group. Only
     # URLs and model names are fields — an endpoint's API key stays in
     # the environment, like every other secret. The inheritance chain is

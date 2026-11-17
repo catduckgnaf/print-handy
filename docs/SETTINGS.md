@@ -648,6 +648,10 @@ The second #622 channel, alongside MQTT: off unless `notify.ntfy_enabled` is tru
 
 `public_text.denylist` is a list of the operator's own machine names (a NAS, a server, a workstation) that must never appear in a public issue, pull request or exported log. It can also be set from the environment as a comma- or space-separated value (`PRINT_HANDY__PUBLIC_TEXT__DENYLIST`). Two consumers use it: the public-text CI check reads the names from the `PUBLIC_TEXT_DENYLIST` repository secret, and the export sanitizer reads this settings list; diagnostics bundles and debug exports replace each listed name with a consistent pseudonym (`machine-1`, `machine-2`, …) before the file leaves the machine. Matching is whole-word and case-insensitive. The list is file-only by design (there is no Web UI field): the names are exactly what should not be typed into other surfaces. Example: `denylist = ["myserver", "nas-box"]` in the `[public_text]` section.
 
+## External intake (watched folder)
+
+`external_intake` is the opt-in watched folder for jobs sliced outside Print Handy (#1525). It is off unless `external_intake.enabled` is true and `external_intake.directory` names the one folder to watch; while it is off, or no directory is set, nothing is scanned. The Web UI's External intake page shows a draft card for each stable file in that folder (`.3mf`, `.gcode`, `.gco`, up to `external_intake.max_bytes` per file, default 512 MiB). A card is a draft: it never prints, never sends a printer command and never charges a spool. Recording a print takes the page's Mark as printed confirmation, which records the print exactly once: a repeat confirmation, a print id already in the print accounting ledger, and an unconfirmed spool charge are all refused rather than charged twice. Links out of the configured folder are not intake.
+
 ## Legacy environment names
 
 The names below predate `PRINT_HANDY__SECTION__KEY` and still work; new installs should use the long form. The full map is `LEGACY_ENV` in `print_handy/settings.py`, for example `MOONRAKER_URL` → `services.moonraker_url`, `SPOOLMAN_URL` → `services.spoolman_url`, `PRINT_DISCORD_CHAT_ID` → `discord.chat_id`.
