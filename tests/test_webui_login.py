@@ -23,7 +23,7 @@ from urllib.parse import urlencode
 
 from print_handy import settings
 from print_handy.webui import config as config_api
-from print_handy.webui import server
+from print_handy.webui import server, sessions
 
 TOKEN = "test-webui-token-12345"
 WRONG = "wrong-token-attempt-999"
@@ -390,7 +390,7 @@ class LoginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _httpd, port, _local, _environ = self.start(
                 tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
-            with mock.patch.object(server, "_save_remembered_sessions",
+            with mock.patch.object(sessions, "_save_remembered_sessions",
                                    return_value=False):
                 code, headers, _body = self.login_remember(port)
             self.assertEqual(code, 303)

@@ -155,6 +155,86 @@ def test_every_polled_adapter_delegates_to_the_shared_runner():
         assert "lease.submitting" not in source, name  # only the runner submits now
 
 
+# -- the SDCP and PrusaLink entry points, driven for real ---------------------
+
+class _FakePolledClient:
+    """One fake client for the two transports whose real entry points had
+    no start-a-print test: always idle, records uploads and starts."""
+
+    def __init__(self, events):
+        self.events = events
+        self.uploads = []
+        self.starts = []
+
+    def status(self):
+        return {"state": "standby", "filename": ""}
+
+    snapshot = status
+
+    def upload(self, gcode, remote):
+        self.uploads.append(remote)
+        self.events.append(f"upload:{remote}")
+        return remote
+
+    def start_print(self, remote):
+        self.starts.append(remote)
+        self.events.append(f"start:{remote}")
+
+
+class _FakePolledAdapter:
+    def __init__(self, client):
+        self._client = client
+
+    def client(self):
+        return self._client
+
+    def readiness_problems(self, state, raw):
+        return []
+
+    def normalize_status(self, raw):
+        return raw
+
+    def normalize_tool_mapping(self, mapping, state):
+        return mapping
+
+
+@pytest.mark.parametrize("entry,method,watch", [
+    pytest.param(print_now._print_elegoo_sdcp, "elegoo_sdcp", "elegoo_watch",
+                 id="elegoo_sdcp"),
+    pytest.param(print_now._print_prusa, "prusalink", "prusa_watch",
+                 id="prusalink"),
+])
+def test_sdcp_and_prusalink_entry_points_start_a_print(
+        monkeypatch, tmp_path, entry, method, watch):
+    events = []
+    _rig(monkeypatch, events)
+    monkeypatch.setattr(print_now, "_verify_routed", lambda *a, **k: None)
+    client = _FakePolledClient(events)
+    adapter = _FakePolledAdapter(client)
+    # The entry points judge the file's tools through the configured
+    # printer's mapping contract (_refuse_multicolor with no adapter):
+    # point that at this test's adapter, as the pipeline rig does.
+    from print_handy.gcode import verify as _verify_module
+    monkeypatch.setattr(_verify_module.printers, "current",
+                        lambda *a, **k: adapter)
+    monitors = []
+    monkeypatch.setattr(
+        print_now, "_start_family_monitor",
+        lambda watch_module, adapter, remote, job:
+            monitors.append((watch_module.__name__, remote)))
+    gcode = tmp_path / "plate.gcode"
+    gcode.write_text("G1 X1\n")
+    out = entry(adapter, {}, gcode, {}, "JOB.json", 25, False)
+    assert out["started"] is True and out["method"] == method
+    # Exactly one upload and one start, for the same remote name, inside
+    # the shared sequence's lease, and the family's monitor was asked for.
+    assert len(client.uploads) == 1 and client.starts == client.uploads
+    remote = client.uploads[0]
+    assert events.index("acquire") < events.index(f"upload:{remote}") \
+        < events.index(f"start:{remote}")
+    assert monitors == [(f"print_handy.runtime.{watch}", remote)]
+
+
 # -- the Moonraker routes' shared leased-upload steps -------------------------
 
 def test_bed_clear_phases_check_then_consume(monkeypatch):
