@@ -88,14 +88,29 @@ def scan_cards(data) -> list[dict]:
 
 
 def _multislot_ledger_keys() -> set:
+    """Every print id the multislot accounting ledger already holds.
+
+    Fails closed (#1621 review): a ledger that exists but cannot be read
+    or parsed raises `ei.IntakeRefused` instead of returning an empty
+    set, because an empty set would let a print already charged there be
+    confirmed and charged again. Only a ledger that does not exist yet
+    (a fresh install) counts as empty.
+    """
     try:
         from print_handy.runtime import multislot_usage
-        ledger = _read_json(multislot_usage.ledger_path(), {})
-    except Exception:
+        path = Path(multislot_usage.ledger_path())
+        if not path.exists():
+            return set()
+        ledger = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(ledger, dict):
+            raise ValueError(f"expected a JSON object, found {type(ledger).__name__}")
+    except Exception as exc:
         logger.warning("external intake: the print accounting ledger is "
-                       "unreadable; the already-recorded check cannot run",
-                       exc_info=True)
-        return set()
+                       "unreadable; refusing the confirmation", exc_info=True)
+        raise ei.IntakeRefused(
+            "the print accounting ledger could not be read, so Print Handy cannot "
+            "check whether this print was already charged; nothing was recorded "
+            f"or charged. Fix or restore the ledger and try again ({exc}).") from exc
     keys = set()
     for key in ledger:
         keys.add(str(key))

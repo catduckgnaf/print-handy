@@ -401,3 +401,40 @@ def test_external_intake_fields_are_in_the_settings_catalog():
         assert row.validator == "settings external intake check"
         assert row.group == "slicing"
         assert catalog.GROUP_OF[f"external_intake.{row.key}"] == "slicing"
+
+
+@pytest.mark.parametrize("content", ["{not json", "[1, 2]"])
+def test_intake_refuses_when_the_multislot_ledger_is_unreadable(tmp_path, monkeypatch, content):
+    # #1621 review: an unreadable ledger must not let a print already
+    # charged there be confirmed and charged again. It fails closed.
+    from print_handy.runtime import multislot_usage
+    data, _watched = intake_settings(tmp_path)
+    external_intake_page.scan_cards(data)
+    (card,) = external_intake_page.scan_cards(data)
+    ledger = Path(tmp_path) / "multislot-ledger.json"
+    ledger.write_text(content)
+    monkeypatch.setattr(multislot_usage, "ledger_path", lambda: ledger)
+    calls = []
+    monkeypatch.setattr(spoolman_client, "request",
+                        lambda *a, **k: calls.append((a, k)) or {})
+    with pytest.raises(ei.IntakeRefused, match="could not be read"):
+        external_intake_page.confirm_card(
+            data, sha256=card["sha256"], path=card["path"], printer_id="ad5x",
+            print_id="job-77", spool_id=7, grams=5.0)
+    assert calls == []
+    store_ledger = external_intake_page._read_json(
+        external_intake_page._store_dir(data) / "ledger.json", [])
+    assert store_ledger == []
+
+
+def test_intake_confirms_when_the_multislot_ledger_does_not_exist_yet(tmp_path, monkeypatch):
+    from print_handy.runtime import multislot_usage
+    data, _watched = intake_settings(tmp_path)
+    external_intake_page.scan_cards(data)
+    (card,) = external_intake_page.scan_cards(data)
+    monkeypatch.setattr(multislot_usage, "ledger_path",
+                        lambda: Path(tmp_path) / "no-ledger-yet.json")
+    result = external_intake_page.confirm_card(
+        data, sha256=card["sha256"], path=card["path"], printer_id="ad5x",
+        print_id="ext-fresh")
+    assert result["identity"].endswith(":ad5x:ext-fresh")
