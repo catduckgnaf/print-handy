@@ -498,11 +498,49 @@ def _require_bed_clear(gcode):
     raise SystemExit(BED_CLEAR_REFUSAL)
 
 
+def _used_approvals(con, job_path, current, sha):
+    """Every recorded consumption of this G-code's approval: the JOB.json list plus the
+    launch-state database copy, which survives another writer saving an older JOB.json."""
+    used=[a for a in current.get("approvals",[]) if a.get("gcode_sha256")==sha and a.get("consumed_at")]
+    return used+launch_state.consumed(con, str(Path(job_path).resolve()), sha)
+
+
+def _already_used_refusal(used):
+    return SystemExit(f"REFUSED: the bed-clear approval for this G-code was already used at {used[-1]['consumed_at']}. "
+                      "Ask the operator for a new bed-clear confirmation, then rerun with --reprint. Nothing uploaded or started.")
+
+
+def _check_bed_clear_unused(job_path, job, gcode, reprint=False):
+    """Refuse when this G-code's approval was already consumed, without recording anything.
+
+    The read-only half of _consume_approval (#1586): a launch checks it before the
+    upload, so an already-used approval still refuses before anything is uploaded,
+    while the upload itself runs with the approval unconsumed — a failed upload
+    burns nothing and the retry consumes it at _consume_approval, just before
+    submission, where the same check runs again inside the write transaction.
+    """
+    if reprint or job_path is None:
+        return
+    sha=file_sha256(gcode)
+    with launch_state.transaction(_job_printer_id(job)) as con:
+        current=json.loads(Path(job_path).read_text())
+        used=_used_approvals(con, job_path, current, sha)
+    if used:
+        raise _already_used_refusal(used)
+
+
 def _claim_bed_clear(job_path, job, gcode, reprint=False, *, consume=True):
-    """The approval step of every transport: the operator's confirmation, then the single-use record."""
+    """The approval step of every transport: the operator's confirmation, then the single-use record.
+
+    With consume=False only the checks run (the confirmation covers this G-code and
+    its approval is still unused); nothing is recorded (#1586)."""
     _require_bed_clear(gcode)
-    if job_path is not None and consume:
+    if job_path is None:
+        return
+    if consume:
         _consume_approval(job_path, job, gcode, reprint=reprint)
+    else:
+        _check_bed_clear_unused(job_path, job, gcode, reprint=reprint)
 
 
 def _consume_approval(job_path, job, gcode, reprint=False):
@@ -514,11 +552,9 @@ def _consume_approval(job_path, job, gcode, reprint=False):
         current=json.loads(Path(job_path).read_text())
         require_current_artifact(current, gcode)
         now=time.strftime("%Y-%m-%dT%H:%M:%S%z")
-        used=[a for a in current.get("approvals",[]) if a.get("gcode_sha256")==sha and a.get("consumed_at")]
-        used+=launch_state.consumed(con, key, sha)
+        used=_used_approvals(con, job_path, current, sha)
         if used and not reprint:
-            raise SystemExit(f"REFUSED: the bed-clear approval for this G-code was already used at {used[-1]['consumed_at']}. "
-                             "Ask the operator for a new bed-clear confirmation, then rerun with --reprint. Nothing uploaded or started.")
+            raise _already_used_refusal(used)
         kind="reprint" if used else "bed_clear"
         launch_state.record_consumed(con, key, sha, kind, now)
         current.setdefault("approvals",[]).append({"gcode_sha256":sha,"granted_at":now,"consumed_at":now,"kind":kind})

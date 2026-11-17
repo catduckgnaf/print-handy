@@ -1704,7 +1704,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     try:
         # Again inside the lease: the first read may predate another job's start.
         require_idle()
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
+        # #1586: check the bed-clear confirmation without consuming it here. The upload
+        # below runs in the leased phase (nothing started), so a failed upload must not
+        # burn the single-use approval; it is consumed at the end of this block, just
+        # before lease.submitting().
+        _claim_bed_clear(job_path, job, g, reprint, consume=False)
         _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
         _timing(job_path, 'upload_begin')
@@ -1809,6 +1813,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _record_usage_baseline(st, job, job_path, sync.get('spool_id'))
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
+        # #1586: the upload and every pre-start step above succeeded, so consume the
+        # bed-clear approval now, just before lease.submitting() below. A failure in
+        # this block releases the lease with the approval still unused, and the retry
+        # needs no second confirmation.
+        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above
@@ -3242,7 +3251,10 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     try:
         _require_idle(st)  # again inside the lease: the first read may predate another job's start
         # Yolo owes no single-use button record, but the operator's bed-clear confirmation is never waived.
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
+        # #1586: check it without consuming it here. The upload below runs in the leased
+        # phase (nothing started), so a failed upload must not burn the single-use
+        # approval; it is consumed at the end of this block, just before lease.submitting().
+        _claim_bed_clear(job_path, job, g, reprint, consume=False)
         _timing(job_path, 'upload_begin')
         r=subprocess.run([str(MOONRAKERCTL),"upload",str(upload_path),remote,upload_sha],text=True,capture_output=True,timeout=300,
                          env=_moonrakerctl_env(st))
@@ -3273,6 +3285,11 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
+        # #1586: the upload and every pre-start step above succeeded, so consume the
+        # bed-clear approval now, just before lease.submitting() below (yolo still owes
+        # no single-use record). A failure in this block releases the lease with the
+        # approval still unused, and the retry needs no second confirmation.
+        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above

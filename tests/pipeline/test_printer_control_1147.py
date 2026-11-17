@@ -17,7 +17,7 @@ from print_handy.core import heater_ceiling, launch_state, model_job
 from print_handy.runtime import family_event_listener as fel
 from print_handy.runtime import print_next, spool_sync
 
-from .test_launch_state import leases, make_job, uploads
+from .test_launch_state import leases, make_job, upload_ok, uploads
 from .test_launch_state import mapped, printer  # noqa: F401  (fixtures shared with the lease tests)
 
 
@@ -151,6 +151,52 @@ def test_item4_the_approval_for_this_exact_gcode_starts_it_once(printer):
     assert len(uploads(printer.run)) == 1
     with pytest.raises(SystemExit, match="already used"):  # still single-use
         model_job.print_now(jp, bed_clear=sha(g))
+
+
+@pytest.mark.bed_clear_unconfirmed
+def test_1586_a_failed_upload_does_not_burn_the_bed_clear_approval(printer):
+    """#1586: the generic Moonraker upload runs before submission, so its failure is a
+    clean failure: the retry starts on the same confirmation, no reprint flag needed."""
+    jp, g = make_job(printer.root, "a")
+    attempts = {"n": 0}
+
+    def fail_once(cmd, *args, **kwargs):
+        if len(cmd) >= 4 and cmd[1] == "upload":
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return mock.Mock(returncode=1, stdout="", stderr="wifi blip")
+        return upload_ok(cmd, *args, **kwargs)
+    printer.run.side_effect = fail_once
+    with pytest.raises(SystemExit, match="could not be uploaded"):
+        model_job.print_now(jp, bed_clear=sha(g))
+    assert "approvals" not in json.loads(jp.read_text()) and leases() == []
+    assert model_job.print_now(jp, bed_clear=sha(g))["started"] is True
+    assert attempts["n"] == 2 and len(json.loads(jp.read_text())["approvals"]) == 1
+
+
+def test_1586_a_failed_mapped_upload_does_not_burn_the_bed_clear_approval(mapped):
+    """#1586: the mapped native route orders its upload the same way, so it gets the
+    same fix: check without consuming before the upload, consume before submitting.
+    The bed-clear grant is the conftest fixture's confirmed default, as in the other
+    mapped launch tests."""
+    jp, g = make_job(mapped.root, "a")
+    job = json.loads(jp.read_text())
+    attempts = {"n": 0}
+
+    def fail_once(cmd, *args, **kwargs):
+        if len(cmd) >= 4 and cmd[1] == "upload":
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return mock.Mock(returncode=1, stdout="", stderr="wifi blip")
+        return upload_ok(cmd, *args, **kwargs)
+    mapped.run.side_effect = fail_once
+    with pytest.raises(RuntimeError, match="could not be uploaded"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    assert "approvals" not in json.loads(jp.read_text()) and leases() == []
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+                                        json.loads(jp.read_text()), jp, 0, False)
+    assert out["submission_count"] == 1 and attempts["n"] == 2
+    assert len(json.loads(jp.read_text())["approvals"]) == 1
 
 
 @pytest.mark.bed_clear_unconfirmed
