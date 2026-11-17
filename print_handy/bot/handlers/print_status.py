@@ -148,10 +148,10 @@ def _pause(control, pid, filename):
     """One pause for the confirmed file, through the path its family uses.
 
     Every send goes through the printer_control service or an existing
-    entry point (the alert buttons), never around them: Bambu pauses
-    through the service, Moonraker through the camera alert's Pause path
-    (which re-reads, sends once and reads back), and the other families
-    have no pause surface anywhere in Print Handy, so they say so.
+    entry point (the alert buttons), never around them: Bambu LAN and the
+    adapter-control families (OctoPrint, PrusaLink, Elegoo SDCP, stock
+    Flashforge) pause through the service, Moonraker through the camera
+    alert's Pause path (which re-reads, sends once and reads back).
     """
     if control.is_bambu_lan():
         return control.pause(filename)[1]
@@ -159,14 +159,33 @@ def _pause(control, pid, filename):
         from print_handy.runtime import family_control
         adapter = family_control.adapter_for(pid)
         if family_control.connection_of(adapter) in family_control.FAMILY_CONNECTIONS:
-            return "Pause is not available for this printer here. Nothing sent."
+            return control.pause(filename)[1]
     except Exception:
         logger.debug("status pause family check failed", exc_info=True)
     from print_handy.runtime import print_alert_buttons as pab
-    alert = {"kind": "visual", "filename": filename}
-    if pid:
-        alert["printer_id"] = pid
+    # The alert names its printer always, the default included: an alert
+    # with no printer_id reads as a legacy one, refused on a multi-printer
+    # roster (#1524 review). ``command`` marks a chat-typed pause, whose
+    # failure reply says how to retry instead of reposting a camera alert.
+    alert = {"kind": "visual", "filename": filename, "command": True}
+    owner = _real_printer_id(pid)
+    if owner:
+        alert["printer_id"] = owner
     return pab.handle_click("pause", alert)
+
+
+def _real_printer_id(pid):
+    """The roster id for a routed-form pid: the default printer's own id for None."""
+    if pid:
+        return str(pid)
+    try:
+        from print_handy import settings
+        from print_handy.runtime import _config
+        default = settings.default_printer_id(_config.cfg())
+        return str(default) if default else None
+    except Exception:
+        logger.debug("default printer id unavailable", exc_info=True)
+        return None
 
 
 def _resume(control, filename):

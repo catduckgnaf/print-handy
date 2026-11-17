@@ -240,7 +240,7 @@ def _mismatch_own_temperatures(state, text, materials):
     return {'nozzle': float(nozzle[0]) - offset, 'bed': float(bed[0])}
 
 
-def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
+def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None, slot=None):
     """Check startup, checksum, and bed bounds without contacting the printer.
 
     The live sibling reads display mode from Moonraker. This one validates the
@@ -248,6 +248,10 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     native heater prefix, nozzle, material, start and end, and motion bounds.
     """
     adapter = adapter or printers.current()
+    if slot is not None:
+        # The job's selected slot fills an empty active-spool record (#1524
+        # review: a stock-firmware artifact carries no hermes_tool_slots map).
+        state = printer_state.with_artifact_spool(state, None, slot=slot)
     if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
         return _verify_offline(gcode_path, state, adapter, **kw)
@@ -340,7 +344,10 @@ def _verify_offline(gcode_path, state, adapter=None, recorded_temps=None):
     adapter = adapter or printers.current()
     from ..core.printer_state import _material_temperature_contract
     text = GcodeArtifact.of(gcode_path).read_text(errors='ignore')
-    state = printer_state.with_artifact_spool(state, text)
+    if not (state.get('spool') or {}).get('material') and 'hermes_tool_slots' in text:
+        # Only a mapped artifact can fill an empty record here; the cheap
+        # substring check spares the anchored scan on every other file.
+        state = printer_state.with_artifact_spool(state, text)
     try:
         _material_temperature_contract(state)
     except RuntimeError as exc:
@@ -362,7 +369,8 @@ def _print_check_warnings(facts):
 
 
 @GcodeArtifact.read_once
-def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded_temps=None):
+def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded_temps=None,
+                 slot=None):
     """Check a G-code artifact against live nozzle, spool and temperature state.
 
     Spoolman is never a gate here (#235): printer_state.check reports its
@@ -395,6 +403,8 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         ok, probs, facts = printer_state.check(st, **live_kw)
     _print_check_warnings(facts)
     if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
+    if slot is not None:
+        st = printer_state.with_artifact_spool(st, None, slot=slot)  # see verify_gcode_offline
     if offline_verify:
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
         return _verify_offline(gcode_path, st, adapter, **kw)
@@ -759,6 +769,13 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
         return {'offline': True, 'connection': connection, 'skipped_reparse': True}
     recorded = _recorded_temperatures(job, gcode_path)
     kw = {'recorded_temps': recorded} if recorded else {}
+    selection = job.get('filament_selection') if isinstance(job, dict) else None
+    if (isinstance(selection, dict) and selection.get('slot') is not None and isinstance(state, dict)
+            and printer_state.with_artifact_spool(state, None, slot=selection['slot']) is not state):
+        # An empty active-spool record is filled from the job's slot (#1524
+        # review). Passed only when it fills, so every other call keeps its
+        # exact legacy shape.
+        kw['slot'] = selection['slot']
     if printer_id:
         result = verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
     else:

@@ -7,9 +7,8 @@ import logging
 import asyncio, time
 
 from .common import (
-    _ask_which_printer, _busy_label, _candidate_statuses, _confirm, _control_preamble,
-    _failure_post, _live_key_for, _pkw, _printer_label, _routed_form, _routed_printer_id, _seen,
-    _undecided_printer_ids,
+    _confirm, _control_preamble, _failure_post, _live_key_for, _pick_by_status, _pkw,
+    _routed_form, _routed_printer_id, _seen, _undecided_printer_ids,
 )
 from ...runtime import _config
 
@@ -36,32 +35,28 @@ async def print_resume_dispatch(event, gateway, **kwargs):
     _seen[key] = time.monotonic()
     live_key = gateway._session_key_for_source(source)
     decided_status = None
-    if not pid:
-        candidates = _undecided_printer_ids(source, gateway)
-        if candidates:
-            # "Resume the current print" in a shared channel (#536): the
-            # printer with a resumable print is the target; two resumable
-            # prints is a question; none refuses, naming the printers.
-            statuses = await _candidate_statuses(candidates, pc.status)
-            resumable = {cid: st for cid, st in statuses.items()
-                         if isinstance(st, dict) and pc.resumable(st)}
-            chosen = None
-            if len(resumable) == 1:
-                chosen = next(iter(resumable))
-            elif len(resumable) > 1:
-                chosen = await _ask_which_printer(
-                    source, gateway, adapter, list(resumable),
-                    question='More than one printer has a paused print. Resume which one?',
-                    label_for=lambda cid: _busy_label(resumable.get(cid)), metadata=metadata)
-            if chosen is None:
+    candidates = _undecided_printer_ids(source, gateway)
+    if candidates:
+        # "Resume the current print" in a shared channel (#536): the
+        # printer with a resumable print is the target; two resumable
+        # prints (or one plus an unreadable printer) is a question; none
+        # refuses, naming the printers.
+        picked = None
+        try:
+            picked = await _pick_by_status(
+                source, gateway, adapter, metadata, candidates, pc.status, pc.resumable,
+                question='Resume which printer?',
+                nothing_text=lambda names: f'Nothing to resume: no paused print on {names}. Nothing sent.')
+        finally:
+            # The prompt lock is released if the picker fails or decides
+            # nothing (#1524 review: an exception here used to leave it held).
+            if picked is None:
                 _seen.pop(key, None)
-                names = ' or '.join(_printer_label(c) for c in candidates)
-                await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                   content=('No printer chosen. Nothing sent.' if resumable else
-                                            f'Nothing to resume: no paused print on {names}. Nothing sent.'))
-                return {'action': 'skip', 'reason': 'shared channel: no resume target decided'}
-            pid, decided_status = _routed_form(chosen), resumable[chosen]
-            live_key = _live_key_for(source, gateway, chosen)
+        if picked is None:
+            return {'action': 'skip', 'reason': 'shared channel: no resume target decided'}
+        chosen, decided_status = picked
+        pid = _routed_form(chosen)
+        live_key = _live_key_for(source, gateway, chosen)
     try:
         st = decided_status if decided_status is not None else await asyncio.to_thread(pc.status, **_pkw(pid))
         if not pc.resumable(st):

@@ -600,13 +600,15 @@ def _job_map_spool_ids(state, text, lines=None):
     The map is the artifact's own record of what it was sliced for: dict
     values carry the spool id directly; the older plain form names physical
     slots, whose bound spool the slot record supplies. Unparseable or
-    absent maps name nothing.
+    absent maps name nothing, except on a state with_artifact_spool filled
+    from the job's selected slot: a stock-firmware artifact carries no map,
+    and ``job_spool_ids`` names that slot's spool in its place.
     """
     pattern = r"^;\s*hermes_tool_slots\s*=\s*(.+)$"
     match = (lines.search(pattern, TOOL_SLOTS_ANCHOR) if lines is not None
              else re.search(pattern, text or "", re.M))
     if not match:
-        return []
+        return list(state.get("job_spool_ids") or [])
     try:
         parsed = json.loads(match.group(1).strip())
     except ValueError:
@@ -674,28 +676,60 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=N
     return resolved[0]
 
 
-def with_artifact_spool(state, text, lines=None):
-    """state whose empty active-spool record is filled from the one slot spool this artifact names.
+# The temperature_resolution a verification fill carries: it names no material
+# family, so _material_temperature_contract checks only that the material is a
+# known one, and the stored printer-wide temperatures attest nothing for it.
+ARTIFACT_SPOOL_RESOLUTION = {"source": "active spool empty; verified on the job's slot spool, resolved per slice"}
+
+
+def with_artifact_spool(state, text, lines=None, slot=None):
+    """state whose empty active-spool record is filled from the slot spool(s) this job was sliced on.
 
     The active-spool record is legitimately empty after an unassign or on a
     fresh install; launch sync (print_now._sync_active_spool) fills it only
-    after verification. An artifact whose `hermes_tool_slots` map names exactly
-    one spool was sliced on that slot's record, so verification reads the
-    material from the same record instead of refusing with "selected spool has
-    no material" (2.3.4, 2026-11-15). A record that already names a material is
-    returned untouched: a real mismatch is still reported.
+    after verification. The spools come from the artifact's own
+    `hermes_tool_slots` map, else from ``slot`` (the job's selected physical
+    slot: a stock-firmware artifact carries no map). Every named spool must
+    have a slot record with a material; the first in tool order fills the
+    record's name and material, so verification reads the material the slice
+    used instead of refusing with "selected spool has no material"
+    (2.3.4, 2026-11-15).
+
+    The fill deliberately leaves out ``spoolman_id`` and replaces the
+    temperature resolution (#1524 review): the stored temps_c is the
+    printer-wide record, not this spool's, so gcode_temperatures must resolve
+    the slot spool afresh, exactly as slice_model did. A record that already
+    names a material is returned untouched: a real mismatch is still reported.
     """
     spool = state.get("spool") or {}
     if spool.get("material"):
         return state
+    slots = state.get("filament_slots") or {}
+    records = []
     mapped = _job_map_spool_ids(state, text, lines)
-    if len(mapped) != 1:
+    if mapped:
+        for sid in mapped:
+            record = next((r for r in slots.values()
+                           if isinstance(r, dict) and r.get("spoolman_id") == sid and r.get("material")), None)
+            if record is None:
+                return state
+            records.append(record)
+    elif slot is not None:
+        record = slots.get(str(slot)) or slots.get(slot)
+        if not isinstance(record, dict) or not record.get("material"):
+            return state
+        records.append(record)
+    if not records:
         return state
-    for record in (state.get("filament_slots") or {}).values():
-        if isinstance(record, dict) and record.get("spoolman_id") == mapped[0] and record.get("material"):
-            return {**state, "spool": {**spool, "spoolman_id": mapped[0], "name": record.get("name"),
-                                       "material": record["material"]}}
-    return state
+    first = records[0]
+    filled = {**state, "spool": {**spool, "name": first.get("name"), "material": first["material"]},
+              "temperature_resolution": dict(ARTIFACT_SPOOL_RESOLUTION)}
+    if not mapped and first.get("spoolman_id") is not None:
+        # No map: name the slot's spool for gcode_temperatures, so four PLA
+        # slots with different Spoolman temperatures resolve this one exactly
+        # instead of refusing as ambiguous (#1524 review).
+        filled["job_spool_ids"] = [first["spoolman_id"]]
+    return filled
 
 
 def _material_temperature_contract(state):

@@ -333,6 +333,39 @@ async def _candidate_statuses(candidates, status_fn):
     return out
 
 
+async def _pick_by_status(source, gateway, adapter, metadata, candidates, status_fn, eligible, *,
+                          question, nothing_text):
+    """The shared-channel target for a printer control (#536, #1524 review).
+
+    Reads every candidate's status; the printers ``eligible(status)``
+    accepts are the targets. One eligible printer is the target only when
+    every other read succeeded: a printer whose status could not be read
+    may be the one meant, so it joins a picker labelled "status unknown"
+    instead of counting as idle. Returns ``(roster id, status or None)``;
+    None after posting why nothing was chosen (``nothing_text(names)`` when
+    no printer qualified and none was unreadable).
+    """
+    statuses = await _candidate_statuses(candidates, status_fn)
+    wanted = {cid: st for cid, st in statuses.items() if isinstance(st, dict) and eligible(st)}
+    unread = [cid for cid, st in statuses.items() if not isinstance(st, dict)]
+    chosen = None
+    if len(wanted) == 1 and not unread:
+        chosen = next(iter(wanted))
+    elif wanted or unread:
+        choices = list(wanted) + unread
+        chosen = await _ask_which_printer(
+            source, gateway, adapter, choices, question=question,
+            label_for=lambda cid: _busy_label(wanted[cid]) if cid in wanted else 'status unknown',
+            metadata=metadata)
+    if chosen is None:
+        names = ' or '.join(_printer_label(c) for c in candidates)
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content=('No printer chosen. Nothing sent.' if wanted or unread
+                                    else nothing_text(names)))
+        return None
+    return chosen, wanted.get(chosen)
+
+
 def _adapter_for(gateway, source):
     """The adapter a dispatch handler renders through: the host adapter."""
     return gateway._delivery_adapter_for(source)

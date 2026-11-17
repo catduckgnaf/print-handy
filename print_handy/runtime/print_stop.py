@@ -132,8 +132,12 @@ def _unconnected_text(adapter) -> str:
             "Stop it on the printer itself. Nothing sent.")
 
 
-def status(printer_id: str | None = None) -> dict[str, Any]:
-    """state, filename, layer, total_layer, progress (0..1), print_duration."""
+def status(printer_id: str | None = None, *, camera: bool = True) -> dict[str, Any]:
+    """state, filename, layer, total_layer, progress (0..1), print_duration.
+
+    ``camera=False`` skips the Bambu camera grab: a pause reads state on a
+    time-critical path and never uses the frame (#1524 review).
+    """
     adapter = _lan_adapter() if printer_id is None else _lan_adapter(printer_id)
     if adapter is None:
         control, family_adapter = _family(printer_id)
@@ -155,6 +159,8 @@ def status(printer_id: str | None = None) -> dict[str, Any]:
         # Camera parity (#294): a status read also tries the printer's camera.
         # Best-effort — the outcome rides along as a saved frame path or a plain
         # note, and a camera problem never fails the status read itself.
+        if not camera:
+            return st
         try:
             from . import bambu_watch
             path, note = bambu_watch.status_camera(adapter)
@@ -409,8 +415,18 @@ def pause(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
     """
     adapter = _lan_adapter() if printer_id is None else _lan_adapter(printer_id)
     if adapter is None:
+        # OctoPrint, PrusaLink, Elegoo SDCP and stock Flashforge pause through
+        # their own adapter control, as cancel does (#1524 review: the Web UI
+        # already paused them while chat said there was no pause surface).
+        control, family_adapter = _family(printer_id)
+        if control is not None:
+            return control.pause(expected_filename, wait_s=wait_s, poll_s=poll_s)
+        if family_adapter is not None:
+            label = getattr(family_adapter, "label", None) or "This printer"
+            return False, (f"{label} has no live connection in Print Handy, so it cannot be paused "
+                           "from here. Pause it on the printer itself. Nothing sent.")
         return False, "Pause is not available for this printer here. Nothing sent."
-    before = status(printer_id)
+    before = status(printer_id, camera=False)
     if before["state"] != "printing":
         return False, f"Nothing to pause: printer is {before['state']}. Nothing sent."
     if expected_filename and before["filename"] != expected_filename:
@@ -421,7 +437,7 @@ def pause(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
     while time.monotonic() < deadline:
         time.sleep(poll_s)
         try:
-            after = status(printer_id)
+            after = status(printer_id, camera=False)
         except Exception:
             continue
         if after["state"] != "printing":

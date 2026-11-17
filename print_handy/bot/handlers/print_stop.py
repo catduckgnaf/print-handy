@@ -54,7 +54,11 @@ async def print_stop_dispatch(event, gateway, **kwargs):
             # printer with a print running is the target. Two running
             # prints is a question, never a guess; none running refuses,
             # naming the printers it checked.
-            statuses = await _candidate_statuses(candidates, print_stop.status)
+            try:
+                statuses = await _candidate_statuses(candidates, print_stop.status)
+            except BaseException:
+                _seen.pop(key, None)  # never leave the prompt lock held (#1524 review)
+                raise
             active = {cid: st for cid, st in statuses.items()
                       if isinstance(st, dict) and st.get('state') in print_stop.ACTIVE}
             chosen = None
@@ -72,10 +76,14 @@ async def print_stop_dispatch(event, gateway, **kwargs):
             if len(active) == 1:
                 chosen = next(iter(active))
             elif len(active) > 1:
-                chosen = await _ask_which_printer(
-                    source, gateway, adapter, list(active),
-                    question='More than one printer has a print running. Stop which one?',
-                    label_for=lambda cid: _busy_label(active.get(cid)), metadata=metadata)
+                try:
+                    chosen = await _ask_which_printer(
+                        source, gateway, adapter, list(active),
+                        question='More than one printer has a print running. Stop which one?',
+                        label_for=lambda cid: _busy_label(active.get(cid)), metadata=metadata)
+                except BaseException:
+                    _seen.pop(key, None)  # a failed picker delivery releases the lock
+                    raise
             if chosen is None:
                 _seen.pop(key, None)
                 names = ' or '.join(_printer_label(c) for c in candidates)

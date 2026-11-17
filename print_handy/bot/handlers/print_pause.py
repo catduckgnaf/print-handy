@@ -8,19 +8,20 @@ Pause is the one deliberate act the alert and status buttons already take
 without a second question: it is reversible and it is time-critical (the
 print is going wrong now). Typing the command is that act, so there is no
 confirm prompt here. The send itself is the status handler's own pause
-path (``print_status._pause``): Bambu through the control service,
-Moonraker through the camera alert's Pause, which re-reads, sends once and
-reads back, and a family with no pause surface says so and sends nothing.
+path (``print_status._pause``): Bambu LAN and the adapter families through
+the control service, Moonraker through the camera alert's Pause, which
+re-reads, sends once and reads back; a printer with no live connection says
+so and sends nothing.
 """
 import asyncio
 import logging
 import time
 
 from .common import (
-    _ask_which_printer, _busy_label, _candidate_statuses, _control_preamble, _failure_post,
-    _pkw, _printer_label, _routed_form, _routed_printer_id, _seen, _undecided_printer_ids,
+    _control_preamble, _failure_post, _pick_by_status, _pkw, _routed_form, _routed_printer_id,
+    _seen, _undecided_printer_ids,
 )
-from .print_status import _pause
+from .print_status import _pause, _real_printer_id
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,16 @@ RESUME_HINT = "Say /print-resume to carry on."
 
 def not_pausable_text(st):
     """Why there is nothing to pause, in the state's own words."""
-    state = str((st or {}).get('state') or 'unknown')
+    state = str(st.get('state') or 'unknown')
     if state == 'paused':
         return f'Already paused. Nothing sent. {RESUME_HINT}'
     return f'Nothing to pause: the printer is {state}. Nothing sent.'
+
+
+def _job_status(**kw):
+    """The pause pre-read: job state only, no Bambu camera grab (time-critical path)."""
+    from print_handy.runtime import print_stop
+    return print_stop.status(camera=False, **kw)
 
 
 async def print_pause_dispatch(event, gateway, **kwargs):
@@ -42,43 +49,41 @@ async def print_pause_dispatch(event, gateway, **kwargs):
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'print pause UI delivery unavailable'}
-    from print_handy.runtime import print_stop
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     pid = _routed_printer_id(source, gateway)
-    key = ('print-pause', source.chat_id, source.thread_id)
+    decided_status = None
+    candidates = _undecided_printer_ids(source, gateway)
+    if candidates:
+        # A shared channel: the printer that is printing is the target; two
+        # printing (or one printing and one unreadable) is a question; none
+        # refuses by name.
+        try:
+            picked = await _pick_by_status(
+                source, gateway, adapter, metadata, candidates, _job_status,
+                lambda st: st.get('state') == 'printing',
+                question='Pause which printer?',
+                nothing_text=lambda names: f'Nothing to pause: no print running on {names}. Nothing sent.')
+        except Exception as exc:
+            logger.exception('print-pause could not choose a printer')
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content=_failure_post('Pause', exc, 'Check the printer screen.',
+                                                     subsystem='printer'))
+            return {'action': 'skip', 'reason': 'print pause target failed'}
+        if picked is None:
+            return {'action': 'skip', 'reason': 'shared channel: no pause target decided'}
+        chosen, decided_status = picked
+        pid = _routed_form(chosen)
+    # One pause per printer at a time, taken once the printer is decided:
+    # an open picker never blocks a pause for another printer (#1524 review).
+    key = ('print-pause', _real_printer_id(pid) or '')
     if key in _seen:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content='A pause is already in progress. Nothing sent.')
+                           content='A pause for this printer is already in progress. Nothing sent.')
         return {'action': 'skip', 'reason': 'pause already active'}
     _seen[key] = time.monotonic()
     try:
-        decided_status = None
-        if not pid:
-            candidates = _undecided_printer_ids(source, gateway)
-            if candidates:
-                # A shared channel: the printer that is printing is the
-                # target; two printing is a question; none refuses by name.
-                statuses = await _candidate_statuses(candidates, print_stop.status)
-                printing = {cid: st for cid, st in statuses.items()
-                            if isinstance(st, dict) and st.get('state') == 'printing'}
-                chosen = None
-                if len(printing) == 1:
-                    chosen = next(iter(printing))
-                elif len(printing) > 1:
-                    chosen = await _ask_which_printer(
-                        source, gateway, adapter, list(printing),
-                        question='More than one printer is printing. Pause which one?',
-                        label_for=lambda cid: _busy_label(printing.get(cid)), metadata=metadata)
-                if chosen is None:
-                    names = ' or '.join(_printer_label(c) for c in candidates)
-                    await adapter.send(
-                        chat_id=source.chat_id, metadata=metadata,
-                        content=('No printer chosen. Nothing sent.' if printing else
-                                 f'Nothing to pause: no print running on {names}. Nothing sent.'))
-                    return {'action': 'skip', 'reason': 'shared channel: no pause target decided'}
-                pid, decided_status = _routed_form(chosen), printing[chosen]
         st = decided_status if decided_status is not None else await asyncio.to_thread(
-            print_stop.status, **_pkw(pid))
+            _job_status, **_pkw(pid))
         if st.get('state') != 'printing':
             message = not_pausable_text(st)
         else:

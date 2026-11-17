@@ -67,8 +67,12 @@ MAPPED = '; hermes_tool_slots = {"0":{"physical_slot":4,"spoolman_id":12}}\nG90\
 def test_verify_state_takes_the_material_from_the_artifacts_one_slot_spool():
     state = {**json.loads(STATE.read_text()), 'spool': {}}
     filled = printer_state.with_artifact_spool(state, MAPPED)
-    assert filled['spool']['spoolman_id'] == 12
     assert filled['spool']['material'] == 'PLA'
+    # The printer-wide temps_c attests nothing for the slot spool (#1524 review):
+    # no spoolman_id link and a material-neutral resolution, so verification
+    # resolves the slot spool's own temperatures as slicing did.
+    assert 'spoolman_id' not in filled['spool']
+    assert filled['temperature_resolution'] == printer_state.ARTIFACT_SPOOL_RESOLUTION
     printer_state._material_temperature_contract(filled)  # no longer refuses
     assert state['spool'] == {}  # the hardware record itself is not rewritten
 
@@ -83,3 +87,54 @@ def test_an_artifact_naming_no_single_spool_leaves_the_empty_record_to_refuse():
     assert printer_state.with_artifact_spool(state, 'G90\n') is state
     with pytest.raises(RuntimeError, match='no material'):
         printer_state._material_temperature_contract(state)
+
+
+def _petg_slot_4():
+    state = {**json.loads(STATE.read_text()), 'spool': {}, 'temperature_resolution': None}
+    state['filament_slots'] = {**state['filament_slots'],
+                               '4': {**state['filament_slots']['4'], 'material': 'PETG'}}
+    return state
+
+
+def test_verification_expects_the_slot_spools_own_temperatures_not_the_stored_record():
+    """#1524 review: a PETG slot job sliced at PETG temps was refused against the PLA seed 210/60."""
+    state = _petg_slot_4()
+    sliced, _res = printer_state.slice_temperatures(
+        {**state, 'spool': {'spoolman_id': 12, 'material': 'PETG'}}, None, lambda sid: None, stored_ok=False)
+    filled = printer_state.with_artifact_spool(state, MAPPED)
+    expected = printer_state.gcode_temperatures(filled, ['PETG'], lambda sid: None, text=MAPPED)
+    assert expected == sliced and expected != {'nozzle': 210, 'bed': 60}
+    printer_state._material_temperature_contract(filled)
+
+
+def test_a_leftover_resolution_for_another_family_does_not_refuse_the_slot_spool():
+    state = {**_petg_slot_4(), 'temperature_resolution': {'material_family': 'PLA', 'material': 'PLA',
+                                                          'spoolman_id': 10}}
+    printer_state._material_temperature_contract(printer_state.with_artifact_spool(state, MAPPED))
+
+
+def test_a_stock_firmware_artifact_fills_from_the_jobs_selected_slot():
+    """No hermes_tool_slots map (stock AD5X): the job's slot names the spool."""
+    state = {**json.loads(STATE.read_text()), 'spool': {}}
+    filled = printer_state.with_artifact_spool(state, 'G90\n', slot=4)
+    assert filled['spool']['material'] == 'PLA'
+    assert printer_state.with_artifact_spool(state, 'G90\n', slot=9) is state  # unknown slot: refuse later
+
+
+def test_a_multi_spool_artifact_fills_from_its_first_tool():
+    mapped = ('; hermes_tool_slots = {"0":{"physical_slot":4,"spoolman_id":12},'
+              '"1":{"physical_slot":1,"spoolman_id":10}}\n')
+    state = {**_petg_slot_4(), 'temperature_resolution': None}
+    filled = printer_state.with_artifact_spool(state, mapped)
+    assert filled['spool']['material'] == 'PETG'
+
+
+def test_four_pla_slots_with_their_own_spoolman_temps_resolve_the_jobs_slot():
+    """Stock AD5X, four PLA colors, one with its own Spoolman temps: the job's slot decides, not ambiguity."""
+    temps = {10: (200, 55), 11: (205, 60), 12: (220, 65), 13: (215, 60)}
+
+    def fetch(sid):
+        return {'material': 'PLA', 'settings_extruder_temp': temps[sid][0], 'settings_bed_temp': temps[sid][1]}
+    state = {**json.loads(STATE.read_text()), 'spool': {}, 'temperature_resolution': None}
+    filled = printer_state.with_artifact_spool(state, 'G90\n', slot=4)
+    assert printer_state.gcode_temperatures(filled, ['PLA'], fetch, text='G90\n') == {'nozzle': 220, 'bed': 65}

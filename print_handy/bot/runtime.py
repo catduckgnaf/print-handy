@@ -148,8 +148,9 @@ async def await_prompt(registry, clarify_id, timeout, poll=None):
 
 
 # Commands a "yes" runs at once: they have no confirmation of their own, so
-# the suggestion prompt must not promise one (#1524).
-_RUNS_AT_ONCE = frozenset({"/print-pause"})
+# the suggestion prompt must not promise one (#1524). Derived from the
+# registry's at_once flag, never a hand-kept list.
+_RUNS_AT_ONCE = commands.at_once_names()
 
 
 def _runs_at_once(command):
