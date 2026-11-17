@@ -37,6 +37,7 @@ import websockets
 from .. import __version__, ai_routes, camera_url, debug_mode, go2rtc, healthcheck, logs, printers, settings
 from ..core import delivery, filament_color, job_correlation, launch_state, printer_clock, spool_canon, spoolman_client
 from . import _config
+from . import state_file
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
 from . import listener_common as _listener_common
@@ -2304,15 +2305,19 @@ def _claim_notification(identity, phase, path=None):
     if not identity:
         return True
     target = Path(path or NOTIFICATION_STATE)
-    state = read_json_object(target)
-    key = f"{identity}|{phase}"
-    if key in state.get("sent", []):
-        return False
-    sent = list(state.get("sent", []))
-    sent.append(key)
-    state["sent"] = sent[-500:]
-    atomic_write_json(target, state)
-    return True
+    # The whole read-modify-write takes the shared state-file lock (#1585):
+    # two listener processes claiming at once could otherwise both read the
+    # pre-claim state, both return True, and post duplicate notices.
+    with state_file.locked(target):
+        state = read_json_object(target)
+        key = f"{identity}|{phase}"
+        if key in state.get("sent", []):
+            return False
+        sent = list(state.get("sent", []))
+        sent.append(key)
+        state["sent"] = sent[-500:]
+        atomic_write_json(target, state)
+        return True
 
 def _record_transition_markers(old, new_state, filename, stats):
     """Record #317 event markers for one print state transition.
@@ -2386,27 +2391,11 @@ def _hardware_file():
 
 
 def read_json_object(path):
-    try:
-        value = json.loads(path.read_text())
-        return value if isinstance(value, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return state_file.read_object(Path(path))
 
 
 def atomic_write_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # A unique temp name per write: two writers of the same file (threads
-    # or processes) must never share, truncate or replace each other's
-    # half-written temp file.
-    import tempfile
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}-", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(json.dumps(value, indent=2) + "\n")
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    state_file.write_atomic(Path(path), value)
 
 
 def insertion_prompt(slot):

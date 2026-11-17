@@ -41,7 +41,11 @@ def test_announcer_state_that_is_not_an_object_reads_as_empty(tmp_path, monkeypa
         assert announcer.load_state() == {}
     state.write_bytes(b"\xff\xfe\x00bad")           # undecodable bytes used to raise
     assert announcer.load_state() == {}
-    state.unlink()
+    # #1585: an unreadable state file is quarantined to .corrupt (and a
+    # warning logged once) instead of being silently read as empty, so
+    # the original path may already be gone here.
+    assert (tmp_path / "announcements.json.corrupt").read_bytes() == b"\xff\xfe\x00bad"
+    state.unlink(missing_ok=True)
     state.mkdir()                                   # an OSError other than "not found"
     assert announcer.load_state() == {}
 
