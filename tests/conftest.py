@@ -314,3 +314,22 @@ def pytest_collection_modifyitems(config, items):
     if drop:
         config.hook.pytest_deselected(items=drop)
     items[:] = keep
+
+
+@pytest.fixture(autouse=True)
+def _wrapped_season_is_open(monkeypatch):
+    """Pin the Wrapped clock to mid-December of the real current year.
+
+    Pasta Wrapped seals the current year until December 1 and shows its tab
+    only in December and January. The Wrapped suites build records dated
+    "now" and expect an open Wrapped, so without this they would pass in
+    December and fail the other ten months. The reveal rules themselves are
+    tested with an explicit ``now`` in tests/webui/test_wrapped_reveal.py,
+    which this pin does not touch.
+    """
+    from datetime import datetime
+
+    from print_handy.webui import data as data_module
+
+    monkeypatch.setattr(data_module, "_now",
+                        lambda tz: datetime.now(tz).replace(month=12, day=15))

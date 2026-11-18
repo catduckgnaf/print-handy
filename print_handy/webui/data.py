@@ -39,6 +39,7 @@ import os
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from ..core import print_stats, wrapped_joins
@@ -80,17 +81,58 @@ def data_enabled(data) -> bool:
     return bool(value)
 
 
+# Pasta Wrapped is a surprise, Spotify style: the records keep counting all
+# year, and the year's recap opens on December 1. Until then the current
+# year is sealed on every Wrapped surface (page, API, video, share), and
+# the Wrapped tab is in the navigation only in December and January, the
+# weeks people actually look at it. Past years stay open by URL.
+REVEAL_MONTH, REVEAL_DAY = 12, 1
+SEASON_MONTHS = (12, 1)
+
+
+def _now(tz):
+    return datetime.now(tz)
+
+
+def _today(data, now=None):
+    tz = _display_tz(data)
+    return (now.astimezone(tz) if now is not None else _now(tz)).date()
+
+
+def reveal_text(year) -> str:
+    return f"December 1, {int(year)}"
+
+
+def wrapped_revealed(data, year, now=None) -> bool:
+    """Whether ``year``'s Wrapped has opened: any past year, or the current
+    year from December 1 on."""
+    today = _today(data, now)
+    year = int(year)
+    return year < today.year or (year == today.year
+                                 and (today.month, today.day) >= (REVEAL_MONTH, REVEAL_DAY))
+
+
+def wrapped_in_season(data, now=None) -> bool:
+    """Whether the Wrapped tab belongs in the navigation right now."""
+    return _today(data, now).month in SEASON_MONTHS
+
+
+def _sealed_reason(year, what="Nothing shown."):
+    return (f"Pasta Wrapped {int(year)} is still under wraps: it opens on "
+            f"{reveal_text(year)}. Keep printing; it is all being counted. {what}")
+
+
 def ai_video_enabled(data) -> bool:
     return bool(((data or {}).get("timelapse") or {}).get("wrapped_video", False))
 
 
-def nav_for(data):
-    """The shell nav for a settings mapping: a Data and/or Wrapped link
-    appears only while its own switch is on."""
+def nav_for(data, now=None):
+    """The shell nav for a settings mapping: the Data link while its switch
+    is on, the Wrapped link while its switch is on and it is in season."""
     entries = list(shell.NAV[:-1])
     if data_enabled(data):
         entries.append(("/data", "Data"))
-    if wrapped_enabled(data):
+    if wrapped_enabled(data) and wrapped_in_season(data, now):
         entries.append(("/wrapped", "Wrapped"))
     entries.append(shell.NAV[-1])
     return tuple(entries)
@@ -389,21 +431,32 @@ def data_view(data, year=None, *, records_vault=None):
                  "spoolman_lifetime": _spoolman_lifetime(data)}
 
 
-def wrapped_view(data, year=None, *, records_vault=None):
-    """(code, body) for GET /api/wrapped. The default year is the latest recorded."""
+def wrapped_view(data, year=None, *, records_vault=None, now=None):
+    """(code, body) for GET /api/wrapped.
+
+    The default year is the latest one that has opened. A year that has
+    not opened yet answers ``{"ok": true, "sealed": true, "year": ...}``
+    and nothing else: no numbers to peek at.
+    """
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     records, skipped = _load(data, records_vault)
     tz = _display_tz(data)
-    years = print_stats.years_available(records, tz)
+    years = [y for y in print_stats.years_available(records, tz)
+             if wrapped_revealed(data, y, now)]
     if year is None:
-        year = years[-1] if years else _current_year(tz)
+        year = years[-1] if years else _today(data, now).year
     try:
         year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    if not wrapped_revealed(data, year, now):
+        return 200, {"ok": True, "sealed": True, "year": year,
+                     "opens_on": reveal_text(year), "years_available": years}
     summary = _summary(data, year, records_vault, "wrapped")
-    payload = summary["wrapped"]
+    payload = dict(summary["wrapped"])
+    payload["years_available"] = [y for y in payload.get("years_available") or years
+                                  if wrapped_revealed(data, y, now)] or [year]
     # #981: clip counts are a finder result, not a record fact, so they
     # live here at the Web UI layer (where the finder runs) under their
     # own name, not inside the record aggregate. V2: the detailed
@@ -493,7 +546,7 @@ def _current_year(tz=None):
 
 
 def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=False,
-               wait=False, jobs=None, **video_kwargs):
+               wait=False, jobs=None, now=None, **video_kwargs):
     """(code, body) for POST /wrapped/video: start the compile, or join it.
 
     The compile is one background job per year (see
@@ -511,6 +564,8 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
         year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
+    if not wrapped_revealed(data, year, now):
+        return 403, {"ok": False, "reason": _sealed_reason(year, "Nothing was compiled.")}
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
 
     def work(progress):
@@ -553,7 +608,7 @@ def video_status(data, year, *, records_vault=None, jobs=None):
 
 def export_share(data, year, visibility="link-only", *, records_vault=None, out_dir=None,
                  destination_note="", passphrase=None, include_titles=False,
-                 include_printers=False, include_video=False):
+                 include_printers=False, include_video=False, now=None):
     """(code, body) for POST /wrapped/share: one explicit export.
 
     Behind the same ``wrapped_enabled`` gate as every other Wrapped
@@ -565,9 +620,12 @@ def export_share(data, year, visibility="link-only", *, records_vault=None, out_
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     try:
-        wrapped = _summary(data, int(year), records_vault, "wrapped")["wrapped"]
+        year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was exported."}
+    if not wrapped_revealed(data, year, now):
+        return 403, {"ok": False, "reason": _sealed_reason(year, "Nothing was exported.")}
+    wrapped = _summary(data, year, records_vault, "wrapped")["wrapped"]
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
     result = share_export.export_bundle(
         wrapped, target_dir, visibility=str(visibility or "link-only"),
@@ -1073,6 +1131,23 @@ def _wrapped_screen(label, value, caption="", *, heading=None, extra="",
             f"{extra}</section>")
 
 
+def render_wrapped_sealed_page(data, payload, *, theme=shell.DEFAULT_THEME):
+    """GET /wrapped for a year that has not opened: a wrapped present, no numbers."""
+    year = payload["year"]
+    past = [y for y in payload.get("years_available") or [] if y < year]
+    parts = ['<div class="wrapped"><section class="wrapped-hero wrapped-screen">'
+             '<p class="eyebrow">Pasta Wrapped</p>'
+             f"<h1>Your {year} is still wrapped</h1>"
+             f"<p>It opens on {_esc(payload.get('opens_on') or reveal_text(year))}. "
+             "Every print, every success and every glorious pile of spaghetti is being "
+             "counted. No peeking.</p>"]
+    if past:
+        links = " · ".join(f'<a href="/wrapped?year={y}">{y}</a>' for y in reversed(past))
+        parts.append(f"<p>Already unwrapped: {links}</p>")
+    parts.append("</section></div>")
+    return _page(data, "wrapped", "".join(parts), path="/wrapped", theme=theme)
+
+
 def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None,
                         theme=shell.DEFAULT_THEME):
     """GET /wrapped as HTML, from a :func:`wrapped_view` success payload.
@@ -1374,6 +1449,7 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
 
 __all__ = ["DATA_OFF_REASON", "VIDEO_OFF_REASON",
            "WRAPPED_OFF_REASON", "ai_video_enabled", "archive_root", "data_enabled", "data_view",
-           "export_share", "make_video", "nav_for", "parse_byte_range", "render_data_page",
+           "export_share", "make_video", "nav_for", "render_wrapped_sealed_page",
+           "reveal_text", "wrapped_in_season", "wrapped_revealed", "parse_byte_range", "render_data_page",
            "render_share_result", "render_wrapped_page", "video_status",
            "wrapped_enabled", "wrapped_video_path", "wrapped_view"]
