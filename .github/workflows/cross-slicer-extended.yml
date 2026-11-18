@@ -43,6 +43,34 @@ jobs:
         run: |
           xvfb-run -a python3 scripts/generate_producer_fixtures.py --prusa "$PRUSA_BIN"
           cat tests/corpus/producer-fixtures/PROVENANCE.json
+      - name: Download pinned OrcaSlicer AppImage (genuine producer)
+        env:
+          ORCA_URL: https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.1/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage
+          ORCA_SHA256: 073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb
+        run: |
+          curl -L -o orca.AppImage "$ORCA_URL"
+          echo "$ORCA_SHA256  orca.AppImage" | sha256sum -c -
+          chmod +x orca.AppImage
+          mkdir -p orca-app && (cd orca-app && ../orca.AppImage --appimage-extract > /dev/null)
+          echo "ORCA_BIN=$PWD/orca-app/squashfs-root/AppRun" >> "$GITHUB_ENV"
+      - name: Regenerate genuine OrcaSlicer fixture
+        run: |
+          xvfb-run -a python3 scripts/generate_producer_fixtures.py --orca "$ORCA_BIN"
+          cat tests/corpus/producer-fixtures/PROVENANCE.json
+      - name: Download pinned Bambu Studio AppImage (genuine producer)
+        env:
+          BAMBU_URL: https://github.com/BambuLab/BambuStudio/releases/download/v02.08.02.61/BambuStudio_ubuntu24.04-v02.08.02.61
+          BAMBU_SHA256: d501b103fac5424513ec0e8d6bc145fb30719de2c7d94d7320d723740c81a7fd
+        run: |
+          curl -L -o bambu.AppImage "$BAMBU_URL"
+          echo "$BAMBU_SHA256  bambu.AppImage" | sha256sum -c -
+          chmod +x bambu.AppImage
+          mkdir -p bambu-app && (cd bambu-app && ../bambu.AppImage --appimage-extract > /dev/null)
+          echo "BAMBU_BIN=$PWD/bambu-app/squashfs-root/AppRun" >> "$GITHUB_ENV"
+      - name: Regenerate genuine Bambu Studio fixture
+        run: |
+          xvfb-run -a python3 scripts/generate_producer_fixtures.py --bambu "$BAMBU_BIN"
+          cat tests/corpus/producer-fixtures/PROVENANCE.json
       - name: Attempt genuine Cura production (recorded, never faked)
         continue-on-error: true
         env:
