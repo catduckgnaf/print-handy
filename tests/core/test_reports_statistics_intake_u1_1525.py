@@ -144,6 +144,38 @@ class TestExternalIntake:
         cards, state = ei.scan(watched, enabled=True, state=state)
         assert cards == []  # deduped by hash + path
 
+    def test_concurrent_confirmations_charge_once_per_identity(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier, Lock
+        import time
+
+        card = {"sha256": "concurrent", "status": "planned", "path": "x"}
+        ledger = set()
+        start = Barrier(8)
+        charge_lock = Lock()
+        calls = []
+
+        def charge(**kw):
+            with charge_lock:
+                calls.append(kw)
+                time.sleep(0.05)
+            return "charged"
+
+        def confirm():
+            start.wait()
+            try:
+                return ei.confirm_mark_printed(
+                    card, printer_id="ad5x", print_id="p1", ledger=ledger,
+                    charge=lambda **kw: charge(**kw))
+            except ei.IntakeRefused:
+                return None
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: confirm(), range(8)))
+        assert sum(result is not None for result in results) == 1
+        assert len(calls) == 1
+        assert len(ledger) == 1
+
     def test_confirm_charges_once_and_never_twice(self, tmp_path):
         card = {"sha256": "abc", "status": "planned", "path": "x"}
         ledger = set()

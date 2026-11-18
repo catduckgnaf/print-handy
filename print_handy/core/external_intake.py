@@ -24,11 +24,14 @@ never be charged twice.
 from __future__ import annotations
 
 import hashlib
+from threading import Lock
 from pathlib import Path
 
 from . import source_descriptor
 
 DEFAULT_MAX_BYTES = 512 * 1024 * 1024
+_CONFIRM_LOCKS: dict[str, Lock] = {}
+_CONFIRM_LOCKS_GUARD = Lock()
 ACCEPTED_SUFFIXES = (".3mf", ".gcode", ".gco")
 
 
@@ -116,15 +119,18 @@ def confirm_mark_printed(card: dict, *, printer_id: str, print_id: str,
     printer under this print id.
     """
     identity = print_identity(card, printer_id, print_id)
-    if identity in ledger:
-        raise IntakeRefused(
-            f"print {print_id} of this file on {printer_id} is already "
-            "recorded; refusing to charge the same physical print twice.")
-    if card.get("status") == "printed":
-        raise IntakeRefused(
-            "this draft card was already confirmed as printed; a reprint "
-            "needs its own print id.")
-    result = charge(identity=identity, card=card, printer_id=printer_id)
-    ledger.add(identity)
-    return {"identity": identity, "status": "printed",
-            "accounting": result}
+    with _CONFIRM_LOCKS_GUARD:
+        identity_lock = _CONFIRM_LOCKS.setdefault(identity, Lock())
+    with identity_lock:
+        if identity in ledger:
+            raise IntakeRefused(
+                f"print {print_id} of this file on {printer_id} is already "
+                "recorded; refusing to charge the same physical print twice.")
+        if card.get("status") == "printed":
+            raise IntakeRefused(
+                "this draft card was already confirmed as printed; a reprint "
+                "needs its own print id.")
+        result = charge(identity=identity, card=card, printer_id=printer_id)
+        ledger.add(identity)
+        return {"identity": identity, "status": "printed",
+                "accounting": result}
