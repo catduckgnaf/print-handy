@@ -309,13 +309,16 @@ def build(filename: str, status: dict[str, Any], store: list[dict[str, Any]], lo
     if refusal and not stop_reason:
         lines.insert(1, "**Stop reason:** " + refusal)
         stop_reason = refusal
-    console = console_lines(store, since)
-    if console:
-        lines.append("Last console messages:\n```\n" + "\n".join(console) + "\n```")
+    # The raw console tail is macro noise in a cancel post (#1648: SET_LED,
+    # HYPERLAPSE, "Work completed"). Only console lines that read as errors
+    # are shown; start-refusal detection above still reads the whole store.
+    console_errors = [line for line in console_lines(store, since, limit=50) if ALARM.search(line)][-6:]
+    if console_errors:
+        lines.append("Printer errors before the stop (console):\n```\n" + "\n".join(console_errors) + "\n```")
     alarms = log_alarms(log_tail)
     if alarms:
         lines.append("Printer warnings before the stop (klippy.log):\n```\n" + "\n".join(alarms) + "\n```")
-    elif not console and klippy == "ready" and not stop_reason:
+    elif klippy == "ready" and not stop_reason and not console_errors:
         lines.append("No errors in the console or klippy.log. Looks like a plain manual cancel.")
     else:
         lines.append(NO_WARNINGS)

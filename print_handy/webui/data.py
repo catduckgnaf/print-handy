@@ -349,7 +349,7 @@ def _display_tz(data):
 
     The name comes from the settings mapping the handlers already
     carry (``discord.timezone``, the same setting
-    ``hermes._config.tz()`` reads); when the mapping names none, the
+    ``runtime._config.tz()`` reads); when the mapping names none, the
     ``_config.tz()`` value itself is used. Any failure falls back to
     UTC, which is the pure functions' own default bucketing.
     """

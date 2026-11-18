@@ -337,7 +337,7 @@ def prune_local_timelapses(now=None):
 def materialize_archived_timelapse(remote_path):
     """Download a successfully archived MP4 into the local media cache for Discord.
 
-    A remote archive path is not a local file. hermes send only sees this copy.
+    A remote archive path is not a local file. The Discord post only sees this copy.
     """
     remote = Path(str(remote_path))
     archive_root = Path(TIMELAPSE_ARCHIVE_DIR)

@@ -201,9 +201,8 @@ design:
   # chat_url/model/api_key_env inherit the [llm] values, so a
   # single-endpoint setup only sets design.model (a stronger model
   # for design, e.g. sol at medium while chat stays luna at medium).
-  # The endpoint fields win in every mode, Hermes included: the
-  # profile's auxiliary.print_design block is only the fallback for a
-  # Hermes install with no endpoint configured.
+  # The endpoint fields are the whole story: design resolves only this
+  # endpoint (inheriting [llm]); there is no fallback lane.
   chat_url: ''
   model: ''
   api_key_env: ''

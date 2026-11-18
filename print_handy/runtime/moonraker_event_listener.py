@@ -4621,7 +4621,7 @@ class Listener:
                             f"Auto-pause: {clean(filename)}\n{reply}"))
             if not event_discarded:
                 # #981: always-on watchdog event recording — best-effort
-                # and append-only (hermes/watchdog_events carries the
+                # and append-only (runtime/watchdog_events carries the
                 # rule); a recording failure never reaches this loop.
                 await asyncio.to_thread(
                     _record_watchdog_event, filename, verdict,
@@ -5337,7 +5337,7 @@ class Listener:
             # A listener instance (#336) flushes only its own printer's
             # deferred-screen queue (#335 keyed the queues per printer, so
             # an update can never reach another printer's screen); with no
-            # instance identity (direct/Hermes runs) the legacy queue is
+            # instance identity (a direct run) the legacy queue is
             # flushed exactly as before.
             from .. import listeners as _listeners
             instance_id = _listeners.instance_printer_id()

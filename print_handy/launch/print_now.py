@@ -455,7 +455,7 @@ def _clear_active_spool(st):
 def _start_family_monitor(watch, adapter, remote, job):
     """Start a family's launched-print monitor for a just-started print.
 
-    The monitor runs in a detached worker process (hermes.monitor_worker),
+    The monitor runs in a detached worker process (runtime.monitor_worker),
     never on a thread here: print-now is a short-lived subprocess, so an
     in-process daemon thread dies with the submission and the print loses
     its completion post and timelapse (P1-85, P1-98). The worker rebuilds
