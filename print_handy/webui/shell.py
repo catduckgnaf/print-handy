@@ -37,6 +37,7 @@ the login page is the first page a network user reaches.
 """
 from __future__ import annotations
 
+import contextvars
 import html
 from http.cookies import SimpleCookie
 from urllib.parse import quote
@@ -110,6 +111,9 @@ html[data-theme="light"] {
   color-scheme: light;
 }
 * { box-sizing: border-box; }
+/* Reserve the scrollbar's width on every page, so moving between a short
+   page and a long one never shifts the layout sideways. */
+html { scrollbar-gutter: stable; }
 body {
   margin: 0;
   background: var(--color-bg);
@@ -145,7 +149,7 @@ nav.pills a {
   color: var(--color-ink); text-decoration: none; font-size: 0.875rem; font-weight: 500;
 }
 nav.pills a:hover { background: var(--color-bg); }
-nav.pills a.active { background: var(--color-ink); color: var(--color-bg); }
+nav.pills a.active, .config-tabs a[aria-current="page"] { background: var(--color-ink); color: var(--color-bg); }
 .theme-toggle {
   position: absolute; top: 0.75rem; right: 1rem;
   display: flex; gap: 0.125rem; padding: 0.125rem;
@@ -227,6 +231,25 @@ button.secondary, .button.secondary {
 button.accent, .button.accent { background: var(--color-accent); color: var(--color-accent-ink); }
 button:disabled { opacity: 0.55; cursor: default; }
 .error { color: var(--color-bad); }
+.chat-log { list-style: none; margin: 1rem 0; padding: 0; display: grid; gap: 0.75rem; }
+.chat-msg { max-width: 46rem; border: 1px solid var(--color-line); border-radius: var(--radius-card);
+  padding: 0.625rem 0.875rem; background: var(--color-surface); }
+.chat-msg.chat-op { justify-self: end; background: var(--color-bg); border-color: var(--color-accent); }
+.chat-who { display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-muted); margin-bottom: 0.25rem; }
+.chat-body > :first-child { margin-top: 0; }
+.chat-body > :last-child { margin-bottom: 0; }
+.chat-body ul, .chat-body ol { padding-left: 1.25rem; margin: 0.5rem 0; }
+.chat-body img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+.chat-body figure { margin: 0; }
+.chat-note { color: var(--color-muted); font-size: 0.875rem; text-align: center; }
+.chat-working .chat-body { color: var(--color-muted); font-style: italic; }
+.chat-prompt { border: 1px solid var(--color-accent); border-radius: var(--radius-card);
+  padding: 0.75rem 1rem; margin: 1rem 0; background: var(--color-surface); }
+.chat-choices { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.chat-choices form.inline { display: inline; margin: 0; }
+.save-state { display: inline-block; margin-left: 0.5rem; font-size: 0.875rem; color: var(--color-muted); }
+.save-state[data-kind="ok"] { color: var(--color-ok); }
+.save-state[data-kind="error"] { color: var(--color-bad); }
 .help, .note { color: var(--color-muted); font-size: 0.875rem; }
 .notice, .banner {
   background: var(--color-surface); border: 1px solid var(--color-line);
@@ -327,7 +350,7 @@ img { max-width: 100%; }
   table.rows th { width: auto; }
   th, td { padding: 0.45rem 0.5rem; }
 }
-/* Pasta Wrapped (#1446): the Wrapped page is a scrolling story of
+/* Pasta Wrapped: the Wrapped page is a scrolling story of
    full-screen sections. Every rule is scoped to .wrapped (or, for
    the scroll behavior, to a document containing one, via :has), so
    no other page's layout or scrolling changes. */
@@ -480,8 +503,18 @@ def theme_cookie_header(theme, secure=False):
     return f"{THEME_COOKIE}={theme}; SameSite=Lax; Path=/; Max-Age=31536000{flags}"
 
 
+# The navigation for the request being served. The server sets it once per
+# request from the live settings (data.nav_for), so every page shows the
+# same tabs, Data and Wrapped included while they are on, without each page
+# having to pass it. Each request runs on its own thread, so one request's
+# nav never leaks into another's.
+REQUEST_NAV: contextvars.ContextVar = contextvars.ContextVar("print_handy_request_nav", default=None)
+
+
 def _header(path, theme, nav=None):
     items = []
+    if nav is None:
+        nav = REQUEST_NAV.get()
     for target, label in (NAV if nav is None else nav):
         active = path == target or (target != "/" and path.startswith(target + "/"))
         items.append(f'<a href="{target}"{" class=\"active\"" if active else ""}>'

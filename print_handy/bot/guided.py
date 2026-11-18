@@ -63,7 +63,7 @@ HELP = """**Print Handy setup and debugging** — neither flow prints, moves, or
 - `/print-handy add-printer`: guided onboarding of another printer onto this install — name, connection, a live test of the printer, then your approval. Secrets are never collected in chat. `/print-handy add-printer restart` discards a saved onboarding checklist and starts over.
 - `/print-handy debugging`: read-only checks (configuration, bot login, permissions, connectivity, executables, state and logs). Secrets and private paths are redacted.
 - `/print-handy bundle`: write a redacted diagnostics bundle (versions, configuration summary, doctor output, recent log tail) into the state folder, ready to attach to a bug report. Nothing is uploaded.
-- `/print-handy debug on [minutes]` / `off` / `status`: debug log mode (#478) — temporary DEBUG capture (30 minutes by default, then it turns itself off). Turning it off delivers the sanitized log export for the session here in chat, with its sanitization report. Logging only; printing is unaffected.
+- `/print-handy debug on [minutes]` / `off` / `status`: debug log mode: a temporary DEBUG capture (30 minutes by default, then it turns itself off). Turning it off delivers the sanitized log export for the session here in chat, with its sanitization report. Logging only; printing is unaffected.
 - `/print-handy status`: show the saved setup checklist.
 - `/print-handy cancel`: pause setup; the saved checklist is kept for resuming.
 While setup is waiting for an answer, reply with the answer as a plain message."""

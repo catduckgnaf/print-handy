@@ -62,14 +62,15 @@ def test_printers_page_renders_cards_and_the_add_form():
     assert 'action="/printers"' in html and 'name="model"' in html
 
 
-def test_config_page_has_tabs_search_and_restart_setup(tmp_path):
+def test_config_page_has_tabs_autosave_and_restart_setup(tmp_path):
     path = _write(tmp_path)
     data = settings.load(local=path, environ={"PRINT_HANDY_CONFIG": str(path)})
     from print_handy.webui import config as config_api
     fields = config_api.read_fields(environ={"PRINT_HANDY_CONFIG": str(path)})
     html = pages.render_config_page(fields, data=data, form_token="t")
     assert 'class="pills config-tabs"' in html and 'href="/config?section=' in html
-    assert 'id="field-search"' in html
+    assert "/config/field" in html  # changes save as they are made
+    assert 'id="field-search"' not in html and "Preview changes" not in html
     assert 'name="action" value="restart"' in html
 
 

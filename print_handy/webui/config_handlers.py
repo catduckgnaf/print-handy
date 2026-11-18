@@ -188,6 +188,73 @@ def config_save(handler, form):
         changed, warnings=warnings,
         theme=handler._theme()), "text/html; charset=utf-8")
 
+FIELD_ID_FIELD = "_field"
+CONFIRMED_FIELD = "_confirmed"
+
+
+def config_field_save(handler, form):
+    """POST /config/field: save one setting as soon as it changes (autosave).
+
+    The Settings page posts one field at a time, form-encoded, with the
+    page's CSRF token: ``_field`` names it and the field's own inputs carry
+    its value, exactly as the whole form would. It goes through the same
+    path as the preview and confirm steps: parse against the catalog,
+    validate the change through the real settings loader, then write only
+    that key to the settings file layer. A change that needs the operator's
+    say-so first (a stored service key moving to a new host, the Secure
+    cookie over plain HTTP) is answered 409 with the question; the page asks
+    it and posts again with ``_confirmed=yes``. Always answers JSON:
+    ``{"ok": true, "changed": bool, "saved": [...], "warnings": [...]}`` or
+    ``{"ok": false, "error": "..."}``.
+    """
+    field_id = (form.get(FIELD_ID_FIELD) or [""])[0]
+    field_values = handler._field_values()
+    current = next((fv for fv in field_values if fv.field.id == field_id), None)
+    if current is None:
+        handler._json(404, {"ok": False, "error": "That setting does not exist here. Nothing saved."})
+        return
+    if current.overridden:
+        handler._json(409, {"ok": False, "error": "This setting comes from the environment, "
+                                                  "so it cannot be changed here. Nothing saved."})
+        return
+    changes, _submitted, errors = pages.parse_form(form, field_values, only={field_id})
+    if errors:
+        handler._json(400, {"ok": False, "error": errors.get(field_id) or "That value is not valid."})
+        return
+    if not changes:
+        handler._json(200, {"ok": True, "changed": False, "saved": [], "warnings": []})
+        return
+    environ = handler.server.webui_environ
+    field_errors, general = pages.validate_change_set(changes, environ=environ)
+    if field_errors or general:
+        handler._json(400, {"ok": False,
+                            "error": field_errors.get(field_id) or general
+                            or next(iter(field_errors.values()))})
+        return
+    by_id = {field.id: value for field, value in changes.items()}
+    rebinds = config_api.pending_rebinds(by_id, environ=environ)
+    questions = handler._preview_warnings(changes) + [
+        f"This moves the {move.service} address from {move.old_host} to {move.new_host}. "
+        f"Your stored {move.service} key will be sent to {move.new_host}." for move in rebinds]
+    confirmed = (form.get(CONFIRMED_FIELD) or [""])[0] == "yes"
+    if questions and not confirmed:
+        handler._json(409, {"ok": False, "confirm": " ".join(questions) + " Save anyway?"})
+        return
+    try:
+        changed, warnings = config_api.write_changes_reporting(
+            by_id, environ=environ, rebind=[move.setting for move in rebinds])
+    except config_api.WebUIConfigError as exc:
+        field_errors, general = pages.attribute_error(str(exc), changes, environ=environ)
+        handler._json(400, {"ok": False,
+                            "error": field_errors.get(field_id) or general or str(exc)})
+        return
+    handler._json(200, {"ok": True, "changed": bool(changed),
+                        "saved": [f"{section}.{key}" for section, key in changed],
+                        "warnings": [f"{name} is kept in the file but the next restart will "
+                                     "refuse it; remove it from the settings file."
+                                     for name in (warnings or ())]})
+
+
 def debug_post(handler, form):
     """POST /debug (#478): turn debug log mode on or off.
 

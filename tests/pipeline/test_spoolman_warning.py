@@ -38,7 +38,7 @@ def test_live_check_spoolman_offline_is_warning_not_fatal(monkeypatch):
     assert ok, problems
     assert problems == []
     assert facts["warnings"] == ["Spoolman could not be reached, so the recorded spool was used instead; "
-                                 "printing can continue (#235)"]
+                                 "printing can continue"]
     assert "connection refused" not in facts["warnings"][0]  # raw detail demoted (#467)
     assert any(url.startswith("http://configured-spoolman/") for url in urls)
 

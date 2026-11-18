@@ -316,14 +316,59 @@ def login_rows(submitted_username="", *, required):
         f'<p class="hint">{_esc(access_module.PASSWORD_HINT)}</p>')
 
 
-_FIELD_SEARCH = (
-    "<script>(function(){var box=document.getElementById('field-search');if(!box)return;"
-    "box.addEventListener('input',function(){var q=box.value.trim().toLowerCase();"
-    "document.querySelectorAll('.config-group').forEach(function(group){var hits=0;"
-    "group.querySelectorAll('.field').forEach(function(row){"
-    "var show=!q||row.textContent.toLowerCase().indexOf(q)>=0;row.hidden=!show;if(show)hits++;});"
-    "group.hidden=q&&!hits;if(q&&hits)group.open=true;});});})();</script>"
-)
+_CONFIG_SCRIPT = """<script>(function(){
+var form=document.querySelector('form.config-form');if(!form)return;
+var token=(form.querySelector('input[name="_csrf"]')||{}).value||'';
+var sectionInput=form.querySelector('input[name="_section"]');
+var tabs=document.querySelectorAll('.config-tabs a[data-section]');
+function show(name){
+  form.querySelectorAll('.config-group[data-section]').forEach(function(g){g.hidden=g.dataset.section!==name;});
+  tabs.forEach(function(t){if(t.dataset.section===name)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current');});
+  if(sectionInput)sectionInput.value=name;
+}
+tabs.forEach(function(tab){tab.addEventListener('click',function(event){
+  if(event.metaKey||event.ctrlKey||event.shiftKey||event.button)return;
+  event.preventDefault();show(tab.dataset.section);
+  history.replaceState(null,'','/config?section='+encodeURIComponent(tab.dataset.section));
+});});
+var banner=document.querySelector('.restart-needed');
+function rowOf(el){return el.closest('.field')||el.parentNode;}
+function status(row,text,kind){
+  var s=row.querySelector(':scope > .save-state');
+  if(!s){s=document.createElement('span');s.className='save-state';s.setAttribute('role','status');row.appendChild(s);}
+  s.textContent=text;s.dataset.kind=kind||'';
+}
+function valuesOf(name,body){
+  form.querySelectorAll('[name]').forEach(function(i){
+    if(i.name!==name||i.disabled)return;
+    if((i.type==='checkbox'||i.type==='radio')&&!i.checked)return;
+    if(i.tagName==='SELECT'&&i.multiple){Array.prototype.forEach.call(i.selectedOptions,function(o){body.append(name,o.value);});return;}
+    body.append(name,i.value);
+  });
+}
+function save(name,row,confirmed){
+  var body=new URLSearchParams();body.append('_csrf',token);body.append('_field',name);
+  valuesOf(name,body);if(confirmed)body.append('_confirmed','yes');
+  status(row,'Saving…','busy');
+  fetch('/config/field',{method:'POST',body:body,credentials:'same-origin'})
+  .then(function(r){return r.json().then(function(j){return [r.status,j];});})
+  .then(function(x){var code=x[0],j=x[1];
+    if(code===409&&j.confirm){if(window.confirm(j.confirm))return save(name,row,true);status(row,'Not saved','error');return;}
+    if(!j.ok){status(row,j.error||'Not saved','error');return;}
+    if(!j.changed){status(row,'','');return;}
+    status(row,(j.warnings&&j.warnings.length)?'Saved. '+j.warnings.join(' '):'Saved','ok');
+    if(banner)banner.hidden=false;
+  })
+  .catch(function(){status(row,'Not saved: the Web UI did not answer. Try again.','error');});
+}
+form.addEventListener('change',function(event){
+  var t=event.target;if(!t.name||t.name.charAt(0)==='_')return;save(t.name,rowOf(t),false);
+});
+form.addEventListener('submit',function(event){
+  event.preventDefault();var a=document.activeElement;
+  if(a&&a.form===form&&a.name&&a.name.charAt(0)!=='_')save(a.name,rowOf(a),false);
+});
+})();</script>"""
 
 
 def _section_key(name):
@@ -333,18 +378,6 @@ def _section_key(name):
     its link points at ?section=other while the raw name never matches.
     """
     return name or "other"
-
-
-_TAB_GUARD = (
-    "<script>(function(){var form=document.querySelector('form[action=\"/config/preview\"]');"
-    "if(!form)return;var dirty=false;"
-    "form.addEventListener('input',function(){dirty=true;});"
-    "form.addEventListener('change',function(){dirty=true;});"
-    "document.querySelectorAll('.config-tabs a, .setup-reveal a').forEach(function(link){"
-    "link.addEventListener('click',function(event){"
-    "if(dirty&&!confirm('Unsaved changes on this tab will be lost. Switch tabs anyway?'))"
-    "event.preventDefault();});});})();</script>"
-)
 
 
 def render_config_page(field_values, *, data, form_token, errors=None,
@@ -368,13 +401,13 @@ def render_config_page(field_values, *, data, form_token, errors=None,
         by_group.setdefault(_section_key(field_value.field.group),
                             []).append(field_value)
     parts = [
-        '<p>These settings live in the YAML settings file; this page is an '
-        'editor for that file, not a second source of truth. Saving writes '
-        'only the settings file layer, after validation by the real '
-        'settings loader. Comments in a hand-edited file are not '
-        'guaranteed to survive a save. <strong>Every change needs a '
-        'restart</strong> of Print Handy (or the container) to take '
-        'effect: settings are read once at process start.</p>',
+        '<p class="config-intro">Changes save as you make them, after the same '
+        'checks Print Handy runs at startup. They take effect after a '
+        '<strong>restart</strong> of Print Handy (or the container). Settings '
+        'live in the settings file; comments in a hand-edited file may not '
+        'survive a save.</p>',
+        '<p class="notice restart-needed" hidden>Saved. Restart Print Handy to '
+        'apply your changes.</p>',
     ]
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
@@ -415,28 +448,28 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     # target; the shown section also keeps its group-<name> anchor id.
     parts.insert(0, '<nav class="pills config-tabs" aria-label="Settings sections">'
                  + "".join(
-                     f'<a href="/config?section={quote(name, safe="")}"'
+                     f'<a href="/config?section={quote(name, safe="")}" '
+                     f'data-section="{_esc(name)}"'
                      + (' aria-current="page"' if name == selected else "")
                      + f'>{_esc(heading)}</a>'
                      for name, heading, _rows in sections)
-                 + '</nav><p><label>Find a setting <input type="search" id="field-search" '
-                 'placeholder="Type to filter this section"></label></p>')
-    parts.append(f'<form method="post" action="/config/preview">'
+                 + '</nav>')
+    parts.append(f'<form method="post" action="/config/preview" class="config-form">'
                  f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
                  f'<input type="hidden" name="{SECTION_FIELD}" '
                  f'value="{_esc(selected or "")}">'
                  + (f'<input type="hidden" name="{REVEAL_FIELD}" '
                     f'value="{_esc(reveal)}">' if reveal else ""))
     for name, heading, rows in sections:
-        if name != selected:
-            # Unshown sections: hidden inputs only, so the one-form save
-            # cannot clear them (the hidden-field discipline).
-            for fv in rows:
-                parts.append(_hidden_inputs(
-                    fv.field, _current(fv.field, fv, submitted)))
-            continue
-        parts.append(f'<section class="config-group" id="group-{_esc(name)}">'
-                     f"<h2>{_esc(heading)}</h2>")
+        # Every section renders as real controls; the inactive ones are
+        # hidden and the tabs switch them in the browser, so changing
+        # section is instant and never reloads or scrolls the page. Hidden
+        # controls are still form controls: the no-script whole-form save
+        # resubmits their current values, which are no change.
+        parts.append(f'<section class="config-group" id="group-{_esc(name)}" '
+                     f'data-section="{_esc(name)}"'
+                     + ("" if name == selected else " hidden")
+                     + f"><h2>{_esc(heading)}</h2>")
         parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted,
                                 reveal=reveal)
                      for fv in rows)
@@ -455,7 +488,10 @@ def render_config_page(field_values, *, data, form_token, errors=None,
         if note:
             parts.append(f'<p class="file-only-note">{_esc(note)}</p>')
         parts.append("</section>")
-    parts.append('<p><button type="submit">Preview changes</button></p></form>')
+    # Without scripts the page cannot autosave, so it keeps the reviewed
+    # whole-form save: preview, then confirm.
+    parts.append('<noscript><p><button type="submit">Review and save changes</button>'
+                 '</p></noscript></form>')
     parts.append(
         '<h2 id="restart-setup">Setup</h2><form method="post" action="/walkthrough">'
         f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
@@ -463,8 +499,7 @@ def render_config_page(field_values, *, data, form_token, errors=None,
         '<p>Run the guided setup again from the first step. Nothing is reset: '
         'every step starts from the current settings.</p>'
         '<button type="submit">Restart setup</button></form>')
-    parts.append(_FIELD_SEARCH)
-    parts.append(_TAB_GUARD)
+    parts.append(_CONFIG_SCRIPT)
     return _page("configuration", "".join(parts), theme=theme, path="/config")
 
 
@@ -620,6 +655,10 @@ def parse_form(form, field_values, *, only=None):
             value = bool(raw) and any(str(v).strip().lower() in _TRUTHY for v in raw)
         elif isinstance(field_value.value, (list, tuple)):
             value = [str(v).strip() for v in raw or [] if str(v).strip()]
+            # A multi-select posts its ticks in the page's order, not the
+            # stored one: the same set is no change.
+            if sorted(value) == sorted(str(v) for v in field_value.value):
+                continue
         elif field.kind == "number":
             value, error = _parse_number(field, (raw[0] if raw else "").strip())
             if error:

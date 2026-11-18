@@ -1129,7 +1129,7 @@ class BotCore(_RoutedAdapter):
         else:
             module = platform.platform_module(self.platform_name)
             if module is None:
-                raise ValueError(f"platform {self.platform_name!r} is not implemented yet (#164)")
+                raise ValueError(f"platform {self.platform_name!r} is not implemented yet")
             access_section = self.platform_name if section else "discord"
             # The adapter gets the raw list and the approver separately:
             # the access mode latches on the list alone, so setting only

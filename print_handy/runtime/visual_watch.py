@@ -566,7 +566,7 @@ _vision_missing_logged = False
 
 
 # The off state's plain words (#1376), shared by the watch reason and bot check.
-VISION_AI_OFF = "AI camera checks are off (vision.ai_enabled is false)"
+VISION_AI_OFF = "Vision endpoint camera checks are off (vision.ai_enabled is false)"
 
 
 def vision_ai_enabled(cfg=None) -> bool:
@@ -652,7 +652,8 @@ def watch_unavailable_reason(api_key, *, prefetch=True):
         return ""
     if source == "endpoint":
         if not ai_on:
-            return (f"vision.watch_source is endpoint but {VISION_AI_OFF}; set "
+            return ("vision.watch_source is endpoint but vision endpoint camera checks are off "
+                    "(vision.ai_enabled is false); set "
                     "vision.ai_enabled to true to use the vision endpoint")
         return ("vision.watch_source is endpoint but no vision endpoint is configured "
                 "(set services.vision_chat_url with CLIPROXY_API_KEY, which a local or "

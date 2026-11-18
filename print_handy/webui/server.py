@@ -861,6 +861,12 @@ class _Handler(BaseHTTPRequestHandler):
         method without its own routes gets the read-only refusal with no
         screens, as it always has."""
         self._note_forwarded_for()
+        try:
+            # One nav for the whole Web UI, from the live settings (shell.REQUEST_NAV).
+            from . import data as _data
+            shell.REQUEST_NAV.set(_data.nav_for(self.server.settings_data))
+        except Exception:
+            log.debug("request nav unavailable; the shell uses its default tabs", exc_info=True)
         transfer_codings = [coding.strip().lower()
                             for header in self.headers.get_all(
                                 "Transfer-Encoding", [])
@@ -1426,6 +1432,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _config_save(self, form):
         return config_handlers_module.config_save(self, form)
+
+    def _config_field_save(self, form):
+        return config_handlers_module.config_field_save(self, form)
 
     def _debug_post(self, form):
         return config_handlers_module.debug_post(self, form)
