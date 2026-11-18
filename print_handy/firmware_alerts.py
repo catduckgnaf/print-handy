@@ -7,9 +7,13 @@ printer: the only printer requests are GETs, and the Update button runs
 the existing confirmed apply (firmware_update.confirmed_update: prepare,
 the same confirmation, both idle checks, the verified re-read).
 
-Scope (2.3.0): ZMod printers only (AD5X, AD5M, AD5M Pro, Creator 5,
-Creator 5 Pro), the ``zmod`` component only. Other components and other
-families are #1294. A source is one function that returns offers from an
+Scope: the ZMod source below came first (2.3.0, ZMod printers only);
+#1280 section I adds the HelixScreen source (#1572) and a generic
+component source for every other Moonraker Update Manager component
+with a real available version, on every apply-eligible printer (ZMod,
+vanilla Klipper — generic Klipper and the Sovol Klipper family — and
+Forge-X's ``forge-x`` component when ``[firmware] forgex_apply`` is
+on). A source is one function that returns offers from an
 :class:`Observation`; :func:`offers` is where a later source plugs in.
 
 Where the versions come from, and what decides "can it be applied":
@@ -72,6 +76,7 @@ BLOCK_UNREPORTED = "unreported"
 BLOCK_USB = "usb"
 BLOCK_PAIRING = "pairing"
 BLOCK_HELIXSCREEN_INVALID = "helixscreen_invalid"
+BLOCK_COMPONENT_INVALID = "component_invalid"
 
 _BLOCK_TEXT = {
     BLOCK_INVALID: ("Moonraker marks this Z-Mod install as not valid (usually files "
@@ -87,6 +92,10 @@ _BLOCK_TEXT = {
     BLOCK_HELIXSCREEN_INVALID: ("Moonraker marks this HelixScreen component as not valid "
                                "and refuses to update it. Fix it, then update from "
                                "Fluidd or Mainsail: Settings, Software Update."),
+    BLOCK_COMPONENT_INVALID: ("Moonraker marks this component as not valid "
+                              "and refuses to update it. `/print-firmware` shows what "
+                              "Moonraker reports; fix the component, then update from "
+                              "Fluidd or Mainsail: Settings, Software Update."),
 }
 
 
@@ -141,7 +150,7 @@ def _same_base(version, base) -> bool:
 
 @dataclass(frozen=True)
 class Observation:
-    """What one check read from a ZMod printer and from ZMod's releases."""
+    """What one check read from a printer and from ZMod's releases."""
 
     current: str | None = None         # installed zmod version
     remote: str | None = None          # Moonraker's remote_version, None for "?"
@@ -151,6 +160,12 @@ class Observation:
     helixscreen_current: str | None = None
     helixscreen_remote: str | None = None
     helixscreen_valid: bool = True
+    # Every component the printer's Update Manager listed, as parsed by
+    # firmware_update.parse_update_status (the generic source's input).
+    components: tuple = ()
+    # The registry vendor of the printer read ("" when the caller does
+    # not say): the generic source's per-vendor exclusions read it.
+    vendor: str = ""
 
 
 def zmod_base_from_system_info(payload):
@@ -169,21 +184,25 @@ def _raw_component(payload, name):
     return {}
 
 
-def observe(transport, latest_release=None) -> Observation:
-    """Read one ZMod printer's zmod state through ``transport``: GETs only.
+def observe(transport, latest_release=None, *, vendor="") -> Observation:
+    """Read one printer's update state through ``transport``: GETs only.
 
     The update status read is required (its failure raises
     FirmwareError); the system info read is best-effort. Moonraker is
     never asked to refresh here: a background check stays a plain read,
-    and ZMod's Moonraker refreshes on its own schedule.
+    and ZMod's Moonraker refreshes on its own schedule. ``vendor`` is
+    the printer's registry vendor, carried for the generic source's
+    per-vendor exclusions; the reads themselves are the same for every
+    Moonraker printer.
     """
     try:
         payload = transport("GET", fw.UPDATE_STATUS_PATH)
     except Exception as exc:
         raise fw.FirmwareError(f"the update-status request failed: {exc}") from exc
-    component = fw.parse_update_status(payload).component(COMPONENT)
+    status = fw.parse_update_status(payload)
+    component = status.component(COMPONENT)
     raw = _raw_component(payload, COMPONENT)
-    helixscreen_component = fw.parse_update_status(payload).component("helixscreen")
+    helixscreen_component = status.component("helixscreen")
     helixscreen_raw = _raw_component(payload, "helixscreen")
     helixscreen_valid = (helixscreen_raw.get("is_valid", True) is not False
                          and not helixscreen_raw.get("corrupt"))
@@ -204,7 +223,9 @@ def observe(transport, latest_release=None) -> Observation:
                                             if helixscreen_component is not None else None),
                        helixscreen_remote=(helixscreen_component.remote
                                            if helixscreen_component is not None else None),
-                       helixscreen_valid=helixscreen_valid)
+                       helixscreen_valid=helixscreen_valid,
+                       components=status.components,
+                       vendor=vendor)
 
 
 def latest_release(opener=None, timeout=GITHUB_TIMEOUT_S):
@@ -334,9 +355,80 @@ def helixscreen_offers(obs: Observation) -> list:
                   f"helixscreen:{available}", block, "HelixScreen")]
 
 
-# Sources: each turns an observation into offers. #1294 adds the others
-# (klipper, moonraker, web clients, plugins, other families) here.
-SOURCES = (zmod_offers, helixscreen_offers)
+_DISPLAY_NAMES = {"klipper": "Klipper", "moonraker": "Moonraker",
+                  "fluidd": "Fluidd", "mainsail": "Mainsail",
+                  "guppyscreen": "GuppyScreen", "forgex": "Forge-X"}
+
+
+def component_offers(obs: Observation) -> list:
+    """Offers for the Moonraker components the named sources do not own.
+
+    #1280 section I: every other Update Manager component with a real
+    available version — Klipper, Moonraker, the web clients (Fluidd,
+    Mainsail), GuppyScreen where a printer lists one, any other
+    component the printer's own Update Manager configuration names —
+    on an apply-eligible printer (the alerter only checks those). The
+    button runs the same confirmed apply as `/print-firmware update
+    <component>`; the offer's component is the canonical token that
+    path resolves against the live status.
+
+    Never offered:
+
+    - ``zmod`` and ``helixscreen`` (their own sources above), and the
+      OpenCreator components (report-only by decision, #1490 — and an
+      OpenCreator printer is never apply-eligible anyway);
+    - the ``system`` component: it reports a package count, not a
+      version, so there is no version to alert once per version (the
+      `/print-firmware` report still shows its packages);
+    - a component whose remote is unknown (``?``), is not a real
+      version, or is not newer than the installed one — a prerelease
+      of the installed release included;
+    - on Forge-X, anything but ``forge-x`` itself, and ``forge-x``
+      only within the installed version line (the apply gate's own
+      rule: a new line is a USB re-flash, never an alert button).
+
+    A component Moonraker marks invalid, and any component on a ZMod
+    printer whose base and component versions do not pair, is
+    announced without a button, with the reason — the same blocks the
+    confirmed apply would refuse with.
+    """
+    if obs.vendor == fw.OPENCREATOR_VENDOR:
+        return []
+    pairing = (fw.pairing_state(obs.base, obs.current)
+               if obs.current else "unknown")
+    out, seen = [], set()
+    for comp in obs.components:
+        canonical = fw.canonical_component(comp.name)
+        if canonical in (COMPONENT, "helixscreen", "system") or canonical in seen:
+            continue
+        if canonical in fw.OPENCREATOR_COMPONENTS:
+            continue
+        if obs.vendor == fw.FORGEX_VENDOR:
+            if canonical != fw.FORGEX_COMPONENT:
+                continue
+            have = fw.version_parts(comp.current)
+            offered = fw.version_parts(comp.remote)
+            if len(have) < 2 or len(offered) < 2 or have[:2] != offered[:2]:
+                continue
+        if not comp.current or not comp.remote \
+                or not fw.version_parts(comp.remote):
+            continue
+        if version_key(comp.remote) <= version_key(comp.current):
+            continue
+        seen.add(canonical)
+        block = None
+        if comp.invalid:
+            block = BLOCK_COMPONENT_INVALID
+        elif pairing == "mismatch":
+            block = BLOCK_PAIRING
+        out.append(Offer(canonical, comp.current, comp.remote,
+                         f"{canonical}:{release_of(comp.remote)}", block,
+                         _DISPLAY_NAMES.get(canonical, comp.name)))
+    return out
+
+
+# Sources: each turns an observation into offers.
+SOURCES = (zmod_offers, helixscreen_offers, component_offers)
 
 
 def offers(obs: Observation) -> list:

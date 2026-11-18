@@ -72,6 +72,33 @@ READ_ONLY_NOTE = ("Read-only: Print Handy sent nothing to the printer but read r
 UPDATE_LABEL = "Update now"
 CANCEL_LABEL = "Cancel"
 
+# Roughly how long one component update takes, in seconds, as a
+# (short, long) range (#1610). Display only: the operator deciding
+# whether to start an update wants to know if it is a two-minute job or
+# a fifteen-minute one — a ZMod update (download, install, service
+# restarts, a possible reboot) runs much longer than a HelixScreen one.
+# The outcome is always the verified re-read in send_update, never the
+# clock; these ranges never gate anything.
+UPDATE_ESTIMATES_S = {
+    "zmod": (300, 900),
+    "klipper": (300, 600),
+    "system": (300, 900),
+    "moonraker": (120, 300),
+    "helixscreen": (120, 300),
+}
+DEFAULT_UPDATE_ESTIMATE_S = (120, 600)
+
+
+def update_estimate(name) -> tuple:
+    """The (short, long) rough duration range in seconds for a component."""
+    return UPDATE_ESTIMATES_S.get(_component_key(name), DEFAULT_UPDATE_ESTIMATE_S)
+
+
+def update_estimate_text(name) -> str:
+    """The estimate as the operator reads it: "roughly 5-15 minutes"."""
+    low, high = update_estimate(name)
+    return f"roughly {low // 60}-{high // 60} minutes"
+
 # Klipper print_stats states in which no job is on the printer — the same
 # set the macro run guard uses. Anything else — printing, paused, or a
 # state Print Handy does not recognise — refuses the update (fail closed).
@@ -90,6 +117,10 @@ ELIGIBLE_FAMILIES = frozenset({"zmod", "klipper"})
 # OpenCreator (#1490): never applied, whatever its Update Manager offers.
 OPENCREATOR_VENDOR = "flashforge_opencreator"
 OPENCREATOR_COMPONENTS = frozenset({"opencreator", "opencreatorupdater"})   # the second is the SBC edition
+# Reforge: never applied. Its updates are a package flashed from a USB
+# stick through the stock updater, and its Moonraker config carries no
+# update_manager section (Reforge docs/upgrading.md, moonraker.conf).
+REFORGE_VENDOR = "flashforge_reforge"
 FORGEX_VENDOR = "flashforge_forgex"
 FORGEX_COMPONENT = "forgex"   # _component_key("forge-x")
 
@@ -152,6 +183,11 @@ def apply_block_reason(entry, cfg=None) -> str | None:
                 "updates can flash the printer's boards. Update from Software "
                 "Update in Fluidd or Mainsail while the printer is idle, and expect "
                 "a Klipper restart afterwards. See docs/OPENCREATOR.md.")
+    if entry.vendor == REFORGE_VENDOR:
+        return ("Print Handy never applies Reforge updates. A Reforge update is a "
+                "release package installed from a USB stick at the printer, like the "
+                "first flash, and Reforge configures no Moonraker Update Manager "
+                "entries. See docs/REFORGE.md.")
     if entry.vendor == FORGEX_VENDOR:
         if forgex_apply_enabled(cfg):
             return None
@@ -762,6 +798,16 @@ def firmware_report(transport, entry, *, refresh=False) -> str:
     report always states it, as unknown when Moonraker does not report
     the `zmod` component.
     """
+    text, _status = firmware_report_with_status(transport, entry, refresh=refresh)
+    return text
+
+
+def firmware_report_with_status(transport, entry, *, refresh=False):
+    """firmware_report, plus the UpdateStatus it was built from.
+
+    The Web UI's update offers and notifications (#1610) work from the
+    same single read — a checked printer is read once, never twice.
+    """
     status = fetch_status(transport, refresh=refresh)
     pairing, os_version = "unknown", None
     mcu_state, mcu_versions = "unknown", None
@@ -777,8 +823,8 @@ def firmware_report(transport, entry, *, refresh=False) -> str:
         mcu_state = mcu_currency(klipper.current, mcu_version)
         if mcu_state == "mismatch":
             mcu_versions = (klipper.current, mcu_version)
-    return report_text(status, entry, pairing=pairing, os_version=os_version,
-                       mcu_state=mcu_state, mcu_versions=mcu_versions)
+    return (report_text(status, entry, pairing=pairing, os_version=os_version,
+                        mcu_state=mcu_state, mcu_versions=mcu_versions), status)
 
 
 def not_moonraker_text(connection) -> str:
@@ -1307,6 +1353,19 @@ GUIDANCE = {
                       "its updates can flash the printer's boards. Print Handy "
                       "reports its update state and tells you when a release is "
                       "out, and leaves installing it to you (#1490).")),
+    "flashforge_reforge": FamilyGuidance(
+        title="Reforge firmware (Flashforge Creator 5, Creator 5 Pro)",
+        can_report=("whatever its Moonraker Update Manager lists, which on a stock "
+                    "Reforge install is nothing: Reforge ships no update_manager "
+                    "entries, so its own version is not reported over Moonraker"),
+        manual_steps=("Download the Reforge release package for your exact model "
+                      "(Creator 5 or Creator 5 Pro), put it on a FAT32 USB stick, and "
+                      "install it at the printer the same way as the first flash. "
+                      "Your printer.cfg and moonraker-custom.conf are kept. See "
+                      "docs/REFORGE.md."),
+        why_no_apply=("A Reforge update is a USB package installed through the "
+                      "printer's own updater, not a Moonraker update, so there is "
+                      "nothing for Print Handy to apply.")),
     "flashforge_forgex": FamilyGuidance(
         title="Forge-X firmware (Flashforge AD5M, AD5M Pro)",
         can_report=("the versions its Moonraker update manager reports for its "
@@ -1408,6 +1467,8 @@ def guidance_for(entry) -> FamilyGuidance | None:
         return GUIDANCE["flashforge_stock"]
     if entry.vendor == OPENCREATOR_VENDOR:
         return GUIDANCE["flashforge_opencreator"]
+    if entry.vendor == REFORGE_VENDOR:
+        return GUIDANCE["flashforge_reforge"]
     if entry.vendor == "flashforge_forgex":
         return GUIDANCE["flashforge_forgex"]
     if entry.vendor == "bambulab":

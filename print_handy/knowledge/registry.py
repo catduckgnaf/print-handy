@@ -40,6 +40,9 @@ from .flows import Flow, Node, Option
 # data/printers-registry/), in the checkout and in an installed wheel alike.
 ROOT = Path(__file__).resolve().parents[1]
 FIRMWARES = ("zmod", "klipper", "marlin", "prusa")
+# Firmware-command files whose entries are Klipper-family entries kept in
+# their own file, loaded right after klipper.toml in this order.
+KLIPPER_DERIVED_FILES = ("opencreator", "reforge")
 # Mirrors print_handy.printers.base.COLOR_SYSTEMS (kept local so this read-only
 # loader imports no printer code); the registry drift test asserts the two agree.
 COLOR_SYSTEMS = ("single", "multi_slot", "multi_tool", "shared_tool")
@@ -377,23 +380,25 @@ def _load_firmware_entries(root, problems):
     if not commands_dir.is_dir():
         raise RegistryError(f"registry file missing: {commands_dir}")
     by_name = {path.stem: path for path in commands_dir.glob("*.toml")}
-    # OpenCreator is a separately maintained Klipper-derived firmware
-    # registry, but its entries remain in the shared `klipper` namespace.
-    # Load it adjacent to Klipper while validating its entries as Klipper.
+    # OpenCreator and Reforge are separately maintained Klipper-derived
+    # firmware registries, but their entries remain in the shared `klipper`
+    # namespace. Load them adjacent to Klipper while validating their
+    # entries as Klipper.
     paths = [by_name.pop(family) for family in FIRMWARES if family in by_name]
-    opencreator = by_name.pop("opencreator", None)
-    if opencreator is not None:
-        klipper_index = next((i for i, path in enumerate(paths) if path.stem == "klipper"), len(paths))
-        paths.insert(klipper_index + (klipper_index < len(paths)), opencreator)
+    for stem in reversed(KLIPPER_DERIVED_FILES):
+        derived = by_name.pop(stem, None)
+        if derived is not None:
+            klipper_index = next((i for i, path in enumerate(paths) if path.stem == "klipper"), len(paths))
+            paths.insert(klipper_index + (klipper_index < len(paths)), derived)
     paths += [by_name[name] for name in sorted(by_name)]
     if not paths:
         raise RegistryError(f"registry file missing: no *.toml files in {commands_dir}")
     entries: list[FirmwareEntry] = []
     for path in paths:
         doc = _load(path)
-        # OpenCreator uses the shared Klipper schema/family while retaining
-        # its own source file for provenance and maintenance.
-        file_firmware = "klipper" if path.stem == "opencreator" else path.stem
+        # OpenCreator and Reforge use the shared Klipper schema/family while
+        # retaining their own source files for provenance and maintenance.
+        file_firmware = "klipper" if path.stem in KLIPPER_DERIVED_FILES else path.stem
         for raw in doc.get("entry", []):
             entries.append(_firmware_entry(raw, file_firmware, problems))
     return entries

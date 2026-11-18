@@ -530,8 +530,10 @@ def test_page_lists_each_printer_with_its_firmware_and_contacts_no_printer(monke
 
 def test_checking_one_printer_reads_only_that_printer(monkeypatch):
     asked = []
-    monkeypatch.setattr(firmware_page.fw, "firmware_report",
-                        lambda transport, entry, refresh: f"REPORT for {transport} refresh={refresh}")
+    monkeypatch.setattr(firmware_page.fw, "firmware_report_with_status",
+                        lambda transport, entry, refresh:
+                        (f"REPORT for {transport} refresh={refresh}",
+                         firmware_page.fw.UpdateStatus(())))
     page = _page(monkeypatch, checked="creator",
                  transport_for=lambda pid: asked.append(pid) or pid)
     assert asked == ["creator"]
@@ -547,7 +549,7 @@ def test_an_unknown_printer_id_and_an_unreadable_printer_are_harmless(monkeypatc
     def broken(transport, entry, refresh):
         raise firmware_page.fw.FirmwareError("connection refused")
 
-    monkeypatch.setattr(firmware_page.fw, "firmware_report", broken)
+    monkeypatch.setattr(firmware_page.fw, "firmware_report_with_status", broken)
     page = _page(monkeypatch, checked="ad5x", transport_for=lambda pid: pid)
     assert "Could not read the printer" in page and "connection refused" in page
 
@@ -703,7 +705,9 @@ def test_shipped_stock_flashforge_covers_every_flashforge_model():
     flashforge = {key for key in printers.MODELS
                   if key.split(".")[0].startswith("flashforge")}
     assert flashforge - covered <= {"flashforge_opencreator.creator5",
-                                    "flashforge_opencreator.creator5_pro"}
+                                    "flashforge_opencreator.creator5_pro",
+                                    "flashforge_reforge.creator5",
+                                    "flashforge_reforge.creator5_pro"}
     assert covered <= set(printers.MODELS)
     # The update line never claims Print Handy installs it.
     assert all("never installs" in s["update"] for s in stock)

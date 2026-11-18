@@ -358,11 +358,13 @@ def test_bot_setup_flow_and_debugging_over_messages(cfg, monkeypatch, tmp_path):
     assert out == {"action": "skip", "reason": "guided setup/debugging handled"}
     assert "Setup step 1 of 10" in sent[-1]
     _, sent = send("discord")
-    assert "Setup step 2 of 10" in sent[-1]
+    # The model list grows with every registered printer and may split across
+    # Discord's 2000-character messages: step 2 is reached if any part says so.
+    assert "Setup step 2 of 10" in " ".join(sent)
     _, sent = send("/print-handy cancel")
     assert "paused" in sent[-1]
     _, sent = send("/print-handy setup")
-    assert "resuming" in sent[-1] and "Setup step 2 of 10" in sent[-1]
+    assert "resuming" in " ".join(sent) and "Setup step 2 of 10" in " ".join(sent)
     _, sent = send("/print-handy debugging")
     assert "Print Handy debugging" in sent[-1] and "read-only" in sent[-1]
     assert not (tmp_path / "local.yaml").exists(), "debugging must not write configuration"

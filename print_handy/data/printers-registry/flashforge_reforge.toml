@@ -1,0 +1,78 @@
+# Printer registry: flashforge_reforge. See printers/README.md for the schema.
+#
+# One [[printer]] per registered model whose key starts with
+# "flashforge_reforge." The loader (print_handy/knowledge/registry.py)
+# merges every file in this directory in sorted filename order, and tests pin
+# each entry against the code profile in
+# print_handy/printers/flashforge_reforge/ so this file cannot silently
+# drift from the code. Thermal facts are from Reforge's shipped Klipper config
+# (Klipper4FlashForge/firmware master eda86c1, read 2026-11-17) and
+# FlashForge's specifications: source verified, not hardware verified.
+
+[[printer]]
+key = "flashforge_reforge.creator5"
+label = "Flashforge Creator 5 (Reforge)"
+vendor = "flashforge_reforge"
+firmware = "Reforge Klipper"
+firmware_family = "klipper"
+connection = "moonraker"
+kinematics = "CoreXY"
+bed_mm = [256.0, 256.0]
+max_height_mm = 256.0
+tools = 4
+color_system = "multi_tool"
+profile = "print_handy/printers/flashforge_reforge/creator5.py"
+notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. The same hardware as flashforge.creator5 and flashforge_opencreator.creator5 on a third custom firmware (Reforge); the firmwares are not interchangeable. Needs a Reforge build with AFC (master since 2026-11-04). No active chamber heating on the base model. Print start is not verified on a live printer."
+[printer.thermal]
+enclosure = "open"
+enclosure_provenance = "vendor documentation"
+door_lid_state_knowable = "unknown"
+chamber_heater_present = "absent"
+chamber_heater_control = "not_supported"
+chamber_heater_evidence = ""
+chamber_provenance = "vendor documentation"
+chamber_sensor_present = "present"
+chamber_sensor_fresh_reading = "unknown"
+fan_part_cooling_present = "present"
+fan_part_cooling_mapping = "M106"
+fan_auxiliary_present = "unknown"
+fan_auxiliary_mapping = "unknown"
+fan_exhaust_present = "unknown"
+fan_exhaust_mapping = "unknown"
+fan_filtration_present = "absent"
+fan_filtration_mapping = "unknown"
+fan_provenance = "vendor documentation"
+
+[[printer]]
+key = "flashforge_reforge.creator5_pro"
+label = "Flashforge Creator 5 Pro (Reforge)"
+vendor = "flashforge_reforge"
+firmware = "Reforge Klipper"
+firmware_family = "klipper"
+connection = "moonraker"
+kinematics = "CoreXY"
+bed_mm = [256.0, 256.0]
+max_height_mm = 256.0
+tools = 4
+color_system = "multi_tool"
+profile = "print_handy/printers/flashforge_reforge/creator5_pro.py"
+notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. The Pro adds the enclosed frame and active chamber heating over the Creator 5; print geometry is identical. Reforge's config sets the chamber heater max_temp to 80 C; Print Handy holds chamber targets to FlashForge's 65 C rating. Needs a Reforge build with AFC (master since 2026-11-04). Print start is not verified on a live printer."
+[printer.thermal]
+enclosure = "enclosed"
+enclosure_provenance = "vendor documentation"
+door_lid_state_knowable = "unknown"
+chamber_heater_present = "present"
+chamber_heater_control = "supported"
+chamber_heater_evidence = "[heater_generic chamber_heater] in Reforge's chamber/Creator5Pro.cfg, set by the M141/M191 macros in ff-chamber.cfg (Klipper4FlashForge/firmware master eda86c1, read 2026-11-17)"
+chamber_provenance = "vendor documentation"
+chamber_sensor_present = "present"
+chamber_sensor_fresh_reading = "unknown"
+fan_part_cooling_present = "present"
+fan_part_cooling_mapping = "M106"
+fan_auxiliary_present = "present"
+fan_auxiliary_mapping = "M106 P2 (chamber loop and cool fans)"
+fan_exhaust_present = "present"
+fan_exhaust_mapping = "M106 P3 (chamber fan)"
+fan_filtration_present = "unknown"
+fan_filtration_mapping = "unknown"
+fan_provenance = "vendor documentation"

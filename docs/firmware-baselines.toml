@@ -63,15 +63,15 @@ basis = "v0.11.0 (tagged 2026-08-25) has been the newest Moonraker tag for all o
 name = "OctoPrint"
 repo = "OctoPrint/OctoPrint"
 feed = "releases"
-baseline = "1.11.8"
-basis = "1.11.8 (2026-06-23) was the newest final OctoPrint release when the OctoPrint adapter and its REST contract tests were written (#129, merged 2026-10-22); the 2.0.0 line was still in release candidates"
+baseline = "2.0.0"
+basis = "2.0.0 (2026-11-16) audited feature by feature against the OctoPrint adapter and its REST contract tests (#1615); the 1.11.8 baseline it replaces dated from when that adapter was written (#129, merged 2026-10-22)"
 
 [[firmware]]
 name = "Marlin"
 repo = "MarlinFirmware/Marlin"
 feed = "releases"
-baseline = "2.1.2.9"
-basis = "2.1.2.9 (tag commit 2026-10-12) was the newest Marlin release when the OctoPrint/Marlin presets and their Marlin G-code contracts were written (#129, merged 2026-10-22)"
+baseline = "2.1.2.10"
+basis = "2.1.2.10 (2026-11-13) audited against the Marlin G-code contracts (#1616): the 2.1.2.9 to 2.1.2.10 diff is an STM32H7 build-framework update plus the version bump, with no G-code change; the 2.1.2.9 baseline it replaces dated from #129 (merged 2026-10-22)"
 
 # Prusa Buddy: one entry per printer line Print Handy supports (MK4S,
 # CORE One, XL, MINI+). Prusa ships divergent version lines from one
@@ -88,8 +88,8 @@ group = "Prusa Buddy"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
 line = ["MK4S"]
-baseline = "6.5.7"
-basis = "6.5.7 (2026-06-18) was the newest final Buddy release for the MK4S when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+baseline = "8.0.2"
+basis = "8.0.2 (2026-11-16) audited feature by feature against the PrusaLink contracts (#1617); the release covers the MK4S, and the 6.5.7 baseline it replaces dated from when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
 
 [[firmware]]
 name = "Prusa Buddy (CORE One)"
@@ -97,8 +97,8 @@ group = "Prusa Buddy"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
 line = ["CORE One"]
-baseline = "6.8.1"
-basis = "6.8.1 (2026-08-14) was the newest final Buddy release for the CORE One when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+baseline = "8.0.2"
+basis = "8.0.2 (2026-11-16) audited feature by feature against the PrusaLink contracts (#1617); the release covers the CORE One, and the 6.8.1 baseline it replaces dated from when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
 
 [[firmware]]
 name = "Prusa Buddy (XL)"
@@ -106,8 +106,8 @@ group = "Prusa Buddy"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
 line = ["XL"]
-baseline = "6.10.3"
-basis = "6.10.3 (2026-09-25) was the newest final Buddy release for the XL when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+baseline = "8.0.2"
+basis = "8.0.2 (2026-11-16) audited feature by feature against the PrusaLink contracts (#1617); the release covers the XL, and the 6.10.3 baseline it replaces dated from when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
 
 [[firmware]]
 name = "Prusa Buddy (MINI+)"
@@ -115,8 +115,8 @@ group = "Prusa Buddy"
 repo = "prusa3d/Prusa-Firmware-Buddy"
 feed = "releases"
 line = ["MINI+", "MINI"]
-baseline = "6.4.2"
-basis = "6.4.2 (2026-06-03) was the newest final Buddy release for the MINI and MINI+ (one firmware) when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+baseline = "8.0.2"
+basis = "8.0.2 (2026-11-16) audited feature by feature against the PrusaLink contracts (#1617); the release covers the MINI and MINI+ (one firmware), and the 6.4.2 baseline it replaces dated from when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
 
 # QIDI: one repository per model, each with its own tag shape
 # (Q1_Pro_V4.4.24, Plus4_v1.7.1, Max3_V4.3.15). The watch reads the

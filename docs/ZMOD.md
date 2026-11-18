@@ -97,11 +97,14 @@ print-bed camera, and Print Handy shows it on the Web UI: the
 Printers page opens `/printers/<id>/screen`, a labeled view that
 refreshes a still of the display while it is open, served by
 `GET /api/printers/<id>/screen/snapshot` behind the Web UI's own
-authorization. It exists so an operator can read a prompt on the
-printer (a filament change, a dialog) without walking to it. While
-printer controls are off the view is read-only, as it shipped;
-while `[webui] controls_enabled` is on, the same page can also press
-the screen (see the touch bullet below).
+authorization. The same still also appears in a labeled Printer
+screen panel on the Status page dashboard (#1622) for a printer that
+publishes a screen, linked to that dedicated view. It exists so an
+operator can read a prompt on the printer (a filament change, a
+dialog) without walking to it. While printer controls are off the
+view is read-only, as it shipped; while
+`[webui] controls_enabled` is on, the same page can also press the
+screen (see the touch bullet below).
 
 How it works, verified against the ZMod 1.7.6 release payloads and
 the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)):

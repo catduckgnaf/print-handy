@@ -31,6 +31,7 @@ def without_added(data):
     data.pop("zmod", None)  # #832's ZMod plugin settings, added after capture
     data.pop("firmware", None)  # the ZMod update-alert settings (#1297), added after capture
     data.pop("natural_language", None)  # #1524's plain-language layer settings, added after capture
+    data.pop("external_intake", None)  # #1525's watched-folder settings, added after capture
     for key in ("lan_host", "lan_serial", "lan_access_code_env"):  # added by #187, after capture
         data.get("bambu", {}).pop(key, None)
     data.get("discord", {}).pop("approval_all_users", None)  # added with multiple approval users, after capture
@@ -98,7 +99,7 @@ def load(environ=None, local=False):
 # ----------------------------------------------------------------------------- layout
 
 def test_every_printer_sits_under_its_vendor_package():
-    assert set(printers.VENDORS) == {"anycubic", "bambulab", "creality", "elegoo", "elegoo_sdcp", "flashforge", "flashforge_forgex", "flashforge_opencreator", "flashforge_stock", "klipper", "octoprint", "prusa", "qidi", "snapmaker", "sovol", "sovol_marlin"}
+    assert set(printers.VENDORS) == {"anycubic", "bambulab", "creality", "elegoo", "elegoo_sdcp", "flashforge", "flashforge_forgex", "flashforge_opencreator", "flashforge_reforge", "flashforge_stock", "klipper", "octoprint", "prusa", "qidi", "snapmaker", "sovol", "sovol_marlin"}
     for key, model in printers.MODELS.items():
         assert model.vendor is printers.VENDORS[model.vendor_key]
         assert key == f"{model.vendor.key}.{model.printer_key}"

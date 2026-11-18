@@ -295,3 +295,51 @@ in this change proves the higher level:
 | Cura validated-subset settings translation | Spec-synthetic fixture through the production reader; destination slice in the slicer tier | `tests/core/test_source_descriptor_1525.py`, `tests/slicer/test_cross_slicer_real.py` |
 | Editable destination 3MF export | Real Orca reopen/slice in the slicer tier; offline package contract | `tests/core/test_editable_export_1525.py`, `tests/slicer/test_cross_slicer_real.py` |
 | Genuine PrusaSlicer / Cura producer fixtures | Recorded per fixture in `PROVENANCE.json`; a fixture is genuine only when a real producer binary made it | `scripts/generate_producer_fixtures.py`, extended workflow |
+
+## Completion addendum (#1525 completion)
+
+Four rows move with the completion change, each on executed evidence:
+
+- **Genuine Cura producer fixture: produced.** UltiMaker Cura 5.8.1 (the
+  official AppImage, SHA-256 pinned in the extended workflow) was driven
+  through its own GUI under Xvfb — first-run wizard, a local UltiMaker
+  S5, the cube opened, the infill pattern changed to Gyroid, File > Save
+  Project. The saved `cura-genuine.3mf` records `cura_version = 5.8.1`
+  in its own `Cura/version.ini`, and both extruder user stacks carry
+  the changed `infill_pattern = gyroid`. It is recorded as genuine in
+  `PROVENANCE.json` beside the retained spec-synthetic layout fixture.
+  The earlier "no headless project save" finding stands — the GUI is
+  the save path — and `scripts/generate_producer_fixtures.py
+  --cura-genuine` records a GUI-saved file only after checking its
+  version member.
+- **Prusa fidelity: proven through the production entry points.** The
+  genuine PrusaSlicer CLI export stays geometry-only (a CLI run with a
+  full multi-extruder config still writes no `Slic3r_PE.config`
+  snapshot; re-verified for this change). The fidelity claim therefore
+  runs through the production readers on `prusa-rich-spec-synthetic.3mf`
+  — labeled spec-synthetic in `PROVENANCE.json` — whose volumes
+  partition the mesh as ModelPart, ParameterModifier, NegativeVolume,
+  SupportBlocker and SupportEnforcer, with MMU segmentation paint and a
+  support-only filament named by `support_material_extruder`:
+  `tests/core/test_cross_slicer_contract_1525.py` proves the roles,
+  paint and designation through `source_descriptor`, `source_colors`
+  and `remap_integrity`, not through test-only helpers.
+- **The cross-slicer contract is in a required check.** The required
+  Slicer test (stable) job runs `tests/slicer/test_cross_slicer_real.py`
+  as a named, unsharded step ("Cross-slicer contract smoke with real
+  Orca (#1525)") in addition to its sharded collection, so the run log
+  names the execution; the pure contract tier lives in
+  `tests/core/test_cross_slicer_contract_1525.py`, collected by the
+  required offline-tests job. `tests/test_ci_cross_slicer_required.py`
+  pins both halves of that wiring. No job identity changed and no
+  branch-protection setting was touched.
+- **Bambu destination smoke: stays in its own job, by shape.** The
+  Bambu destination smoke needs the Bambu Studio Flatpak job
+  (`slicer-test-bambu`), which is a standalone job whose check is not
+  branch-protection-required. Folding that Flatpak leg into the stable
+  job would change the required job's shape and runtime, and making
+  the Bambu check itself required is a branch-protection change, which
+  is the repository owner's call, not a code change. What the required
+  tier does pin is the destination descriptor/author contract every
+  Bambu conversion starts from
+  (`test_bambu_orca_destination_descriptor_contract`).

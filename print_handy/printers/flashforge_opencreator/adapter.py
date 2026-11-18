@@ -89,6 +89,8 @@ class OpenCreatorAdapter(KlipperAdapter):
     # Not a Bondtech INDX host (#1198): the INDX code inherited from
     # KlipperAdapter never runs here, as on the Snapmaker adapter.
     supported_accessories = frozenset()
+    # The firmware's name in operator-facing text.
+    firmware_name = "OpenCreator"
     # Print end is firmware-owned (the dispatcher runs C5_PRINT_STOP at
     # end of file): verification must not demand an end macro line.
     firmware_owned_end = True
@@ -105,6 +107,9 @@ class OpenCreatorAdapter(KlipperAdapter):
         "and Print Handy has not verified which publisher owns it, so spool "
         "assignments are not written there (#1490)")
     facts = facts.CREATOR5
+    # The firmware's AFC naming (afc.AfcLayout): Reforge shares this
+    # adapter's AFC readers with its own layout.
+    afc_layout = afc.OPENCREATOR
 
     @property
     def _model_facts(self):
@@ -132,9 +137,8 @@ class OpenCreatorAdapter(KlipperAdapter):
     def _extruder_name(tool):
         return "extruder" if tool == 0 else f"extruder{tool}"
 
-    @staticmethod
-    def _afc_extruder_name(tool):
-        return f"AFC_extruder extruder{tool}"
+    def _afc_extruder_name(self, tool):
+        return self.afc_layout.extruder_name(tool)
 
     def start_lines(self):
         return DOCUMENTED_START_LINES if self.has_chamber else BASE_START_LINES
@@ -239,7 +243,7 @@ class OpenCreatorAdapter(KlipperAdapter):
 
     def tool_head_map(self, status):
         """File tool -> toolhead index from the printer's own AFC map, or None when unresolved."""
-        resolved, _ = afc.resolve_tool_map(status, self.tool_count)
+        resolved, _ = afc.resolve_tool_map(status, self.tool_count, self.afc_layout)
         if resolved is None:
             return None
         return {tool: row["head"] for tool, row in resolved.items()}
@@ -264,7 +268,7 @@ class OpenCreatorAdapter(KlipperAdapter):
             problems.append(
                 f"an ACE unit is attached ({', '.join(units)}); printing through an ACE unit "
                 "on OpenCreator is not supported by Print Handy yet")
-        _, map_problems = afc.resolve_tool_map(status, self.tool_count)
+        _, map_problems = afc.resolve_tool_map(status, self.tool_count, self.afc_layout)
         return problems + map_problems
 
     def _recovery_problems(self, status):
@@ -351,18 +355,22 @@ class OpenCreatorAdapter(KlipperAdapter):
         problems += self._recovery_problems(status)
         problems += self._chamber_problems(status)
         problems += self._used_tool_filament_problems(status, selection)
-        mismatch = firmware_check.zmod_mismatch_problem(status)
-        if mismatch:
-            problems.append(mismatch)
+        problems += self._firmware_mismatch_problems(status)
         return problems
+
+    def _firmware_mismatch_problems(self, status):
+        """A printer that reports another Creator firmware's objects (firmware_check)."""
+        mismatch = (firmware_check.zmod_mismatch_problem(status)
+                    or firmware_check.reforge_mismatch_problem(status, "OpenCreator"))
+        return [mismatch] if mismatch else []
 
     def backup_lane_summary(self, status, selection=None):
         """Advisory text only; never a readiness refusal or mapping write."""
         from .backup import summarize_backup_lanes
         mapping = selection.get("tool_mapping") if isinstance(selection, dict) else None
         tools = list(mapping) if isinstance(mapping, dict) and mapping else range(self.tool_count)
-        result = summarize_backup_lanes(status, tools)
-        lines = ["OpenCreator backup lanes (display only; not hardware verified):"]
+        result = summarize_backup_lanes(status, tools, layout=self.afc_layout)
+        lines = [f"{self.firmware_name} backup lanes (display only; not hardware verified):"]
         for row in result["rows"]:
             lines.append(f"T{row['tool']}: {row['lane'] or 'unknown lane'} runout_lane="
                          f"{row['runout_lane'] or 'not configured'}")
@@ -419,7 +427,7 @@ class OpenCreatorAdapter(KlipperAdapter):
             active = None
         out["active_tool"] = active if type(active) is int and 0 <= active < self.tool_count else None
         from .backup import summarize_backup_lanes
-        out["backup_lanes"] = summarize_backup_lanes(raw, range(self.tool_count))
+        out["backup_lanes"] = summarize_backup_lanes(raw, range(self.tool_count), layout=self.afc_layout)
         return out
 
     def tool_lane_data(self, value):

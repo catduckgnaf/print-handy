@@ -197,12 +197,15 @@ class CatalogTests(unittest.TestCase):
     def test_catalog_groups_cover_every_field_and_pin_the_slicing_group(self):
         # Stage 3 renders the catalog by group: every field has exactly one,
         # and the slicing group is exactly the vendor-choice pair plus the
-        # layout spacing preset (2.2.2 settings-surface fix).
+        # layout spacing preset (2.2.2 settings-surface fix) plus the
+        # external-intake watched-folder fields (#1525).
         for field in CATALOG:
             with self.subTest(field=field.id):
                 self.assertTrue(field.group)
         slicing = {field.id for field in CATALOG if field.group == "slicing"}
-        self.assertEqual(slicing, {"printer.slicer", "delivery.methods", "layout.spacing"})
+        self.assertEqual(slicing, {"printer.slicer", "delivery.methods", "layout.spacing",
+                                   "external_intake.enabled", "external_intake.directory",
+                                   "external_intake.max_bytes"})
         self.assertEqual(field_by_id("timelapse.mode").group, "camera")
         self.assertEqual(field_by_id("services.camera_source").group, "camera")
         self.assertEqual(field_by_id("printer.model").group, "printers")

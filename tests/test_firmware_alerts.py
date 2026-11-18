@@ -505,14 +505,28 @@ def test_next_check_is_the_interval_with_jitter(cfg):
         assert hours * 0.9 <= gap <= hours * 1.1
 
 
-def test_only_zmod_printers_get_alerts(cfg):
+def test_alert_printers_are_exactly_the_apply_eligible_ones(cfg):
+    """#1280 section I: alerts follow apply eligibility, nothing else.
+
+    The chosen set is the registry's apply-eligible entries (ZMod,
+    vanilla Klipper incl. generic Klipper and the Sovol Klipper family);
+    the spot checks pin the exclusions the eligibility rule exists for.
+    """
     registry = knowledge.default_registry()
     rows = [dict(cfg["printers"][0], id=f"p{n}", model=e.key)
             for n, e in enumerate(registry.printers)]
     cfg["printers"] = rows
     chosen = {entry.key for _pid, entry in fal.alert_printers(cfg)}
-    assert chosen == {"flashforge.ad5x", "flashforge.ad5m", "flashforge.ad5m_pro",
-                      "flashforge.creator5", "flashforge.creator5_pro"}
+    assert chosen == {e.key for e in registry.printers if fw.is_apply_eligible(e)}
+    assert {"flashforge.ad5x", "flashforge.creator5_pro",
+            "klipper.generic", "sovol.sv06", "sovol.sv08"} <= chosen
+    assert not chosen & {"elegoo.neptune4", "creality.k1", "qidi.q1pro",
+                         "anycubic.kobra2", "snapmaker.u1",
+                         "flashforge_opencreator.creator5",
+                         "flashforge_forgex.ad5m", "prusa.mk4s",
+                         "bambulab.a1", "octoprint.ender3",
+                         "sovol_marlin.sv06", "flashforge_stock.ad5x",
+                         "elegoo_sdcp.centauricarbon"}
 
 
 # ------------------------------------------------------------------ settings

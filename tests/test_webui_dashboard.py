@@ -326,3 +326,98 @@ def test_estop_button_works_for_a_signed_in_browser_on_a_claimed_install():
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+
+# ------------------------------------------------------- printer screen (#1622)
+
+SCREEN_WEBCAMS = [
+    {"name": "video", "service": "mjpegstreamer-adaptive",
+     "stream_url": "/webcam/?action=stream",
+     "snapshot_url": "/webcam/?action=snapshot"},
+    {"name": "screen", "service": "iframe",
+     "stream_url": "/screen/stream", "snapshot_url": "/screen/snapshot"},
+]
+
+
+def test_dashboard_shows_screen_panel_when_a_screen_is_published():
+    with tempfile.TemporaryDirectory() as tmp:
+        data = load(tmp)
+        dash = dashboard.build_dashboard(
+            data, status_for=status_fake(IDLE), spools_for=spools_fake(),
+            screen_for=lambda printer_id: True)
+        page = server.render_status_html(SNAP, dashboard=dash)
+    assert 'src="/api/printers/flashforge-ad5x/screen/snapshot"' in page
+    assert "data-dash-screen src=" in page
+    assert "<h3>Printer screen</h3>" in page
+    # Labeled as the printer's own display, never as a camera, and
+    # linked to the dedicated screen page.
+    assert "not the bed camera" in page
+    assert 'href="/printers/flashforge-ad5x/screen"' in page
+    # The refresh script covers the screen still beside the camera's.
+    assert "img[data-dash-cam],img[data-dash-screen]" in page
+
+
+def test_dashboard_omits_screen_panel_when_no_screen_is_published():
+    with tempfile.TemporaryDirectory() as tmp:
+        data = load(tmp)
+        dash = dashboard.build_dashboard(
+            data, status_for=status_fake(IDLE), spools_for=spools_fake(),
+            screen_for=lambda printer_id: False)
+        page = server.render_status_html(SNAP, dashboard=dash)
+    assert "/screen/snapshot" not in page
+    assert "data-dash-screen src=" not in page
+    assert "<h3>Printer screen</h3>" not in page
+    # The rest of the card renders exactly as before.
+    assert "Garage AD5X" in page
+    assert "Ready for the next print" in page
+
+
+def test_dashboard_screen_check_failure_renders_the_card_without_a_panel():
+    def broken_screen_for(printer_id):
+        raise RuntimeError("discovery exploded")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data = load(tmp)
+        dash = dashboard.build_dashboard(
+            data, status_for=status_fake(IDLE), spools_for=spools_fake(),
+            screen_for=broken_screen_for)
+        page = server.render_status_html(SNAP, dashboard=dash)
+    assert dash["cards"][0]["screen"] is False
+    assert "data-dash-screen src=" not in page
+    assert "Garage AD5X" in page
+
+
+def test_screen_availability_uses_the_cached_discovery(monkeypatch):
+    from print_handy.webui import screen as screen_module
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data = load(tmp, "services:\n  moonraker_url: http://192.0.2.10:7125\n")
+        printer_id = settings.default_printer_id(data)
+        seen = []
+
+        def fake_cached_discover(url):
+            seen.append(url)
+            return SCREEN_WEBCAMS
+
+        monkeypatch.setattr(screen_module, "_cached_discover", fake_cached_discover)
+        assert dashboard._screen_available(data, printer_id) is True
+        assert seen == ["http://192.0.2.10:7125"]
+
+        monkeypatch.setattr(
+            screen_module, "_cached_discover",
+            lambda url: [entry for entry in SCREEN_WEBCAMS
+                         if entry["name"] != "screen"])
+        assert dashboard._screen_available(data, printer_id) is False
+
+        def exploding_discover(url):
+            raise OSError("printer unreachable")
+
+        monkeypatch.setattr(screen_module, "_cached_discover", exploding_discover)
+        assert dashboard._screen_available(data, printer_id) is False
+
+
+def test_screen_availability_is_false_without_a_moonraker_connection():
+    with tempfile.TemporaryDirectory() as tmp:
+        data = load(tmp)
+        printer_id = settings.default_printer_id(data)
+        assert dashboard._screen_available(data, printer_id) is False
