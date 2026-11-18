@@ -4869,19 +4869,20 @@ class Listener:
         _record_transition_markers(old, new_state, self.filename, self.last_stats)
         await self._apply_launch_lease_settle(new_state)
         start_transition = old is not None and old != "printing" and new_state == "printing"
-        if start_transition:
-            # #1648 defect 2: the start post goes out before the
+        if start_transition and old != "paused":
+            # #1648 defect 2: a fresh start's post goes out before the
             # fresh-start side effects. Capture begin alone can take
             # seconds (CAPTURE_BEGIN_TIMEOUT_S) and the slot self-check
             # reads the printer; print #120's announcement landed after
-            # the filament swap it was supposed to precede.
+            # the filament swap it was supposed to precede. A resume
+            # posts nothing and keeps its established place below.
             await self._apply_resume_or_start(old, new_state, duplicate_start)
         if fresh_start:
             await self._apply_fresh_start(old, identity)
         await self._apply_reconnect_effects(old, new_state, identity)
         await self._apply_visual_due_check(new_state)
-        if start_transition:
-            pass  # announced above, ahead of the fresh-start side effects
+        if start_transition and old == "paused":
+            await self._apply_resume_or_start(old, new_state, duplicate_start)
         elif old == "printing" and new_state == "paused":
             await self._apply_pause_transition(old, new_state)
         elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
