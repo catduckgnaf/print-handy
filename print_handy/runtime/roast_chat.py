@@ -329,7 +329,7 @@ def facts_for(row: dict[str, Any], tz=None) -> tuple[dict[str, Any], str]:
     if printer:
         facts["printer"] = str(printer)
     if job:
-        copies = summary._copies(job)
+        copies = summary._sliced_copies(job)
         if copies >= 2:
             facts["copies"] = copies
     try:

@@ -458,3 +458,15 @@ def test_new_title_keywords_react():
     for title, key in (("Tree Frog", "frog"), ("Robot Cat", "cat"), ("Ghost Ship", "ghost"),
                        ("Rocket Whale", "whale"), ("Castle Owl", "owl")):
         assert f"title:{key}" in _pool_names(ctx(title)), title
+
+
+def test_new_title_keywords_stay_off_one_edit_english_words():
+    # Each title word is a real word one edit from a new keyword (#1651);
+    # the new keywords match as written or plural, never by typo correction.
+    for title, key in (("Socket Organizer", "rocket"), ("Pocket Clip", "rocket"),
+                       ("Rocker Switch Cover", "rocket"), ("Horse Statue", "house"),
+                       ("Host Adapter", "ghost"), ("Whole Wheat", "whale"),
+                       ("Rabbet Jig", "rabbit"), ("Castile Soap Dish", "castle")):
+        assert f"title:{key}" not in _pool_names(ctx(title)), title
+    assert "title:rocket" in _pool_names(ctx("Rocket Stove"))
+    assert "title:rabbit" in _pool_names(ctx("Two Rabbits"))

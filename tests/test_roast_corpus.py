@@ -265,3 +265,25 @@ def test_spaghetti_contains_pasta_jokes():
     spaghetti_lines = [text for _id, text in corpus["banks"]["spaghetti"]]
     pasta_hits = [t for t in spaghetti_lines if pasta_terms.search(t)]
     assert len(pasta_hits) >= 15, f"expected at least 15 pasta-themed jokes, got {len(pasta_hits)}"
+
+
+def test_no_number_slot_carries_an_ordinal_suffix():
+    # "{times}th" renders "2th" and "3th" (#1651): no slot takes a suffix.
+    suffixed = re.compile(r"\{\w+\}(?:st|nd|rd|th)\b")
+    bad = [text for _bank, text in _all_entries() if suffixed.search(text)]
+    assert not bad, bad
+
+
+@pytest.mark.parametrize("number", [1, 10, 25, 50, 75, 100, 250, 1000, 3000])
+def test_milestone_lines_read_right_for_every_milestone_number(number):
+    # {print_number} renders "#N", so "#100 prints in" reads wrong, and a
+    # line naming one magnitude ("hundred") lies on #25 or #1000 (#1651).
+    corpus = roast.load_corpus()
+    pool = "first" if number == 1 else "milestone"
+    c = roast.build_context("Widget", print_number=number)
+    for _id, text in corpus["milestone"][pool]:
+        line = roast.render(text, c)
+        if line is None:
+            continue
+        assert not re.search(r"#\d+ prints\b", line), line
+        assert not re.search(r"\b(?:hundred|thousand)", line, re.IGNORECASE), line

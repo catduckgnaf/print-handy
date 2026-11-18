@@ -52,7 +52,8 @@ def test_roast_facts_carry_copies_and_print_number_when_the_job_has_them():
     """#1651: the multi-copy and milestone roast banks gate on copies and
     print_number, so the completion fact builder supplies both from the
     job record — and omits them when the record does not have them."""
-    facts = announcer.roast_facts({"copies": 4, "print_number": 100}, PLATE, ISSUE_STATS)
+    sliced = {"gcode": "/jobs/tiny.gcode", "sliced_copies": {"gcode": "/jobs/tiny.gcode", "copies": 4}}
+    facts = announcer.roast_facts({"copies": 4, "print_number": 100, **sliced}, PLATE, ISSUE_STATS)
     assert facts["copies"] == 4
     assert facts["print_number"] == 100
     bare = announcer.roast_facts({}, PLATE, ISSUE_STATS)
@@ -60,3 +61,11 @@ def test_roast_facts_carry_copies_and_print_number_when_the_job_has_them():
     assert "print_number" not in bare
     single = announcer.roast_facts({"copies": 1}, PLATE, ISSUE_STATS)
     assert "copies" not in single  # one copy is not a batch fact
+    # Copies the G-code really holds, not the copies requested: a merged,
+    # per-plate or split slice records nothing and printed one (#1651).
+    merged = announcer.roast_facts({"copies": 4, "gcode": "/jobs/tiny.gcode"}, PLATE, ISSUE_STATS)
+    assert "copies" not in merged
+    stale = announcer.roast_facts({"copies": 4, "gcode": "/jobs/new.gcode",
+                                   "sliced_copies": {"gcode": "/jobs/old.gcode", "copies": 4}},
+                                  PLATE, ISSUE_STATS)
+    assert "copies" not in stale

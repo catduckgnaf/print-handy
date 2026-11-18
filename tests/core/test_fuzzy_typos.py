@@ -725,7 +725,7 @@ COMMAND_COVERAGE_TYPOS = {
     "heliscreen": "helixscreen", "helixcreen": "helixscreen",
     "helixsceen": "helixscreen", "helixscren": "helixscreen",
 }
-# Expansion phase (#1651): 360 generated pairs over target words the
+# Expansion phase (#1651): 351 generated pairs over target words the
 # earlier phases had not reached (at most three per target), screened
 # by the Phase 3 rules — not a real word per pyspellchecker, not an
 # existing table key or vocabulary word, exactly one edit from the
@@ -739,7 +739,7 @@ EXPANSION_PAIRS = {
     'badning': 'banding',  'bandiing': 'banding',  'bewden': 'bowden',
     'bidrs': 'birds',  'bimbu': 'bambu',  'bodden': 'bowden',
     'bonor': 'honor',  'bowcen': 'bowden',  'brids': 'birds',
-    'buzzy': 'fuzzy',  'bwmbu': 'bambu',  'caegorize': 'categorize',
+    'bwmbu': 'bambu',  'caegorize': 'categorize',
     'caralog': 'catalog',  'carner': 'corner',  'carrridge': 'cartridge',
     'cartgrapher': 'cartographer',  'cartographee': 'cartographer',  'cartograppher': 'cartographer',
     'cartrodge': 'cartridge',  'carttidge': 'cartridge',  'categorizw': 'categorize',
@@ -749,16 +749,16 @@ EXPANSION_PAIRS = {
     'centter': 'center',  'cerner': 'corner',  'chaain': 'chain',
     'chambef': 'chamber',  'chambeg': 'chamber',  'changur': 'changer',
     'chaun': 'chain',  'cklored': 'colored',  'clnnect': 'connect',
-    'clofged': 'clogged',  'clored': 'colored',  'clou': 'cloud',
+    'clofged': 'clogged',  'clored': 'colored',
     'clouv': 'cloud',  'cloyged': 'clogged',  'cnotrol': 'control',
-    'colar': 'color',  'cologing': 'coloring',  'colorigg': 'coloring',
+    'cologing': 'coloring',  'colorigg': 'coloring',
     'colorlng': 'coloring',  'colorsd': 'colored',  'contdol': 'control',
     'conteol': 'control',  'cooor': 'color',  'corger': 'corner',
     'cplor': 'color',  'credp': 'creep',  'creeo': 'creep',
-    'crep': 'creep',  'crrality': 'creality',  'crreality': 'creality',
+    'crrality': 'creality',  'crreality': 'creality',
     'csnter': 'center',  'cugic': 'cubic',  'custemize': 'customize',
     'customiez': 'customize',  'cutura': 'futura',  'cuvic': 'cubic',
-    'cuzzy': 'fuzzy',  'dargonfly': 'dragonfly',  'datalog': 'catalog',
+    'cuzzy': 'fuzzy',  'dargonfly': 'dragonfly',
     'daughted': 'daughter',  'dcotor': 'doctor',  'ddeviation': 'deviation',
     'ddriver': 'driver',  'ddvil': 'devil',  'debsity': 'density',
     'decign': 'design',  'denzity': 'density',  'desigj': 'design',
@@ -775,12 +775,12 @@ EXPANSION_PAIRS = {
     'draagonfly': 'dragonfly',  'dragoncly': 'dragonfly',  'drige': 'drive',
     'drkve': 'drive',  'drriver': 'driver',  'drror': 'error',
     'drydr': 'dryer',  'dryor': 'dryer',  'eavor': 'favor',
-    'eevil': 'devil',  'elephaants': 'elephants',  'elephanfs': 'elephants',
+    'elephaants': 'elephants',  'elephanfs': 'elephants',
     'elephanrs': 'elephants',  'elephnat': 'elephant',  'elephqnt': 'elephant',
     'engneering': 'engineering',  'enput': 'input',  'errog': 'error',
     'exfra': 'extra',  'extrruderjam': 'extruderjam',  'faavored': 'favored',
     'facoring': 'favoring',  'fador': 'favor',  'fagor': 'favor',
-    'falsh': 'flash',  'favoriite': 'favorite',  'favorinng': 'favoring',
+    'favoriite': 'favorite',  'favorinng': 'favoring',
     'favoted': 'favored',  'fhanger': 'changer',  'fibdr': 'fiber',
     'fibur': 'fiber',  'finityy': 'finity',  'firds': 'birds',
     'fjnity': 'finity',  'flaah': 'flash',  'flasm': 'flash',
@@ -817,7 +817,7 @@ EXPANSION_PAIRS = {
     'jummed': 'jammed',  'junciton': 'junction',  'juncteon': 'junction',
     'kotor': 'motor',  'lalse': 'lapse',  'lapsf': 'lapse',
     'lcoud': 'cloud',  'lebgth': 'length',  'leevel': 'level',
-    'lengtn': 'length',  'levvel': 'level',  'lexi': 'flexi',
+    'lengtn': 'length',  'levvel': 'level',
     'libting': 'lifting',  'licting': 'lifting',  'liftnig': 'lifting',
     'lighhtning': 'lightning',  'limiit': 'limit',  'linaer': 'linear',
     'lineqr': 'linear',  'linfs': 'lines',  'linuar': 'linear',
@@ -848,7 +848,7 @@ EXPANSION_PAIRS = {
     'rdive': 'drive',  'rdyer': 'dryer',  'rlephant': 'elephant',
     'rxtruderjam': 'extruderjam',  'sngineering': 'engineering',  'soctor': 'doctor',
     'sonnect': 'connect',  'sreality': 'creality',  'srror': 'error',
-    'sxtruderjam': 'extruderjam',  'tinity': 'finity',  'ueated': 'heated',
+    'sxtruderjam': 'extruderjam',  'ueated': 'heated',
     'unitialize': 'initialize',  'ustomize': 'customize',  'vriver': 'driver',
     'vuzzy': 'fuzzy',  'wiameter': 'diameter',  'wisconnect': 'disconnect',
     'wistance': 'distance',  'wxtra': 'extra',  'xaughter': 'daughter',
@@ -949,8 +949,17 @@ def test_expansion_phrases_are_in_the_table_and_repair(typo_pair, want):
 
 def test_expansion_vocabulary_scale():
     from print_handy.core import fuzzy_vocabulary
-    assert len(fuzzy_vocabulary.TYPO_FORMS) >= 2345  # 2,045 before #1651, 2,405 after
+    assert len(fuzzy_vocabulary.TYPO_FORMS) >= 2345  # 2,045 before #1651, 2,396 after
     assert len(fuzzy_vocabulary.TYPO_PHRASES) >= 10
+
+
+@pytest.mark.parametrize("form", ["datalog", "buzzy", "colar", "eevil", "crep", "clou",
+                                  "falsh", "tinity", "lexi"])
+def test_expansion_keeps_real_words_and_ambiguous_forms_out_of_the_table(form):
+    # Real words ("datalog", "buzzy", "crep", "clou", "lexi") or a likelier
+    # typo of another word ("colar" for collar, "falsh" for false) (#1651).
+    from print_handy.core.fuzzy_vocabulary import TYPO_FORMS
+    assert form not in TYPO_FORMS
 
 
 def test_two_word_split_is_repaired():

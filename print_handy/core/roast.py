@@ -163,6 +163,17 @@ _COMMON_NON_KEYWORDS = frozenset({
     "piece", "pieces", "test", "tests", "sample", "samples"
 })
 
+# Title keywords that match only as written (or plural), never through a
+# typo correction (#1651). Each is one edit from a common English word that
+# names an unrelated print ("socket"/"pocket"/"rocker" -> rocket, "horse" ->
+# house, "host" -> ghost, "whole" -> whale, "rabbet" -> rabbit, "castile" ->
+# castle), so a fuzzy hit would roast a soap dish as a castle.
+_EXACT_TITLE_KEYWORDS = frozenset({
+    "bear", "boat", "butterfly", "castle", "cat", "dog", "elephant", "fox", "frog",
+    "ghost", "guitar", "house", "mushroom", "owl", "penguin", "rabbit", "robot",
+    "rocket", "tree", "whale",
+})
+
 
 
 class CorpusError(RuntimeError):
@@ -766,11 +777,13 @@ def _title_keywords(ctx: Mapping[str, Any], corpus: Mapping[str, Any]) -> list[s
     hits = []
     for keyword in corpus["title_reactions"]:
         key = fuzzy.norm(keyword)
-        if key in folded or (corrected and key in corrected):
+        exact_only = key in _EXACT_TITLE_KEYWORDS
+        typo_fixed = "" if exact_only else corrected
+        if key in folded or (typo_fixed and key in typo_fixed):
             pattern = rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])"
-            if re.search(pattern, folded) or (corrected and re.search(pattern, corrected)):
+            if re.search(pattern, folded) or (typo_fixed and re.search(pattern, typo_fixed)):
                 hits.append(keyword)
-        elif fuzzy_target and " " not in key and len(key) >= 5 and fuzzy.token_match(fuzzy_target, [key])[1] == key:
+        elif fuzzy_target and not exact_only and " " not in key and len(key) >= 5                 and fuzzy.token_match(fuzzy_target, [key])[1] == key:
             hits.append(keyword)
     dict_lookup = corpus.get("dictionary_lookup") or {}
     for term_key, target in dict_lookup.items():

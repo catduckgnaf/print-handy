@@ -94,7 +94,7 @@
    {
     "id": "milestone-round-printnumber-prints-in-and-title",
     "family": "milestone-round",
-    "text": "{print_number} prints in, and {title} proves the habit is thoroughly load-bearing now."
+    "text": "Print {print_number} is in the log, and {title} proves the habit is thoroughly load-bearing now."
    },
    {
     "id": "milestone-round-title-is-print-printnumber-which",
@@ -139,12 +139,12 @@
    {
     "id": "milestone-round-printnumber-prints-deep-title-keeps",
     "family": "milestone-round",
-    "text": "{print_number} prints deep, {title} keeps the streak looking completely intentional."
+    "text": "Print {print_number} on the counter, and {title} keeps the streak looking completely intentional."
    },
    {
     "id": "milestone-round-another-hundredpage-chapter-ends-with",
     "family": "milestone-round",
-    "text": "Another hundred-page chapter ends with {title}, formally known as print {print_number}."
+    "text": "Another chapter of the print log ends with {title}, formally known as print {print_number}."
    },
    {
     "id": "milestone-round-title-is-printnumber-a-nice",

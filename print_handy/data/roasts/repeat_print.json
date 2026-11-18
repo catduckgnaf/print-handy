@@ -351,7 +351,7 @@
   {
    "id": "repeat-print-back-by-popular-demand-title",
    "family": "repeat-print-back-by-popular-demand-title",
-   "text": "Back by popular demand: {title}, printing for the {times}th time overall."
+   "text": "Back by popular demand: {title}, printing again for a total of {times} times overall."
   },
   {
    "id": "repeat-print-times-runs-of-title-means",

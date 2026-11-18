@@ -71,7 +71,7 @@
    {
     "id": "material-tpu-title-in-tpu-bends-squishes",
     "family": "material-tpu",
-    "text": "{title} in TPU bends, squishes, and refuses to hold a grudge or a shape."
+    "text": "{title} in TPU bends, squishes, and springs back, unlike anyone who tuned its retraction."
    },
    {
     "id": "material-tpu-flexible-filament-flexible-standards-title",
@@ -123,7 +123,7 @@
    {
     "id": "material-abs-abs-layer-adhesion-on-title",
     "family": "material-abs",
-    "text": "ABS layer adhesion on {title} is strong, unlike the ventilation in this paragraph."
+    "text": "ABS layer adhesion on {title} is strong, and so are the fumes, so crack a window."
    },
    {
     "id": "material-abs-classic-abs-behavior-from-title",

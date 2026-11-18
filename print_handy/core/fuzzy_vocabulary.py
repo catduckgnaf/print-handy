@@ -4382,7 +4382,7 @@ TYPO_FORMS: dict[str, str] = {
     'zts': 'zits',
 }
 
-# Expansion phase (#1651): 360 more generated pairs over target words
+# Expansion phase (#1651): 351 more generated pairs over target words
 # the earlier phases had not reached, screened by the same rules as
 # Phase 3 — not a real English word (spellchecker), not an existing
 # table key or vocabulary word, exactly one Damerau-Levenshtein edit
@@ -4395,7 +4395,7 @@ TYPO_FORMS.update({
     'afvoring': 'favoring',  'amgnetic': 'magnetic',  'auhomatic': 'automatic',  'automahic': 'automatic',
     'automatoc': 'automatic',  'badning': 'banding',  'bandiing': 'banding',  'bewden': 'bowden',
     'bidrs': 'birds',  'bimbu': 'bambu',  'bodden': 'bowden',  'bonor': 'honor',
-    'bowcen': 'bowden',  'brids': 'birds',  'buzzy': 'fuzzy',  'bwmbu': 'bambu',
+    'bowcen': 'bowden',  'brids': 'birds',  'bwmbu': 'bambu',
     'caegorize': 'categorize',  'caralog': 'catalog',  'carner': 'corner',  'carrridge': 'cartridge',
     'cartgrapher': 'cartographer',  'cartographee': 'cartographer',  'cartograppher': 'cartographer',  'cartrodge': 'cartridge',
     'carttidge': 'cartridge',  'categorizw': 'categorize',  'catfgorize': 'categorize',  'catqlog': 'catalog',
@@ -4403,14 +4403,14 @@ TYPO_FORMS.update({
     'centerec': 'centered',  'centerigg': 'centering',  'centeringg': 'centering',  'centter': 'center',
     'cerner': 'corner',  'chaain': 'chain',  'chambef': 'chamber',  'chambeg': 'chamber',
     'changur': 'changer',  'chaun': 'chain',  'cklored': 'colored',  'clnnect': 'connect',
-    'clofged': 'clogged',  'clored': 'colored',  'clou': 'cloud',  'clouv': 'cloud',
-    'cloyged': 'clogged',  'cnotrol': 'control',  'colar': 'color',  'cologing': 'coloring',
+    'clofged': 'clogged',  'clored': 'colored',  'clouv': 'cloud',
+    'cloyged': 'clogged',  'cnotrol': 'control',  'cologing': 'coloring',
     'colorigg': 'coloring',  'colorlng': 'coloring',  'colorsd': 'colored',  'contdol': 'control',
     'conteol': 'control',  'cooor': 'color',  'corger': 'corner',  'cplor': 'color',
-    'credp': 'creep',  'creeo': 'creep',  'crep': 'creep',  'crrality': 'creality',
+    'credp': 'creep',  'creeo': 'creep',  'crrality': 'creality',
     'crreality': 'creality',  'csnter': 'center',  'cugic': 'cubic',  'custemize': 'customize',
     'customiez': 'customize',  'cutura': 'futura',  'cuvic': 'cubic',  'cuzzy': 'fuzzy',
-    'dargonfly': 'dragonfly',  'datalog': 'catalog',  'daughted': 'daughter',  'dcotor': 'doctor',
+    'dargonfly': 'dragonfly',  'daughted': 'daughter',  'dcotor': 'doctor',
     'ddeviation': 'deviation',  'ddriver': 'driver',  'ddvil': 'devil',  'debsity': 'density',
     'decign': 'design',  'denzity': 'density',  'desigj': 'design',  'designn': 'design',
     'deviatiun': 'deviation',  'devll': 'devil',  'dfviation': 'deviation',  'diagnosgic': 'diagnostic',
@@ -4422,11 +4422,11 @@ TYPO_FORMS.update({
     'dngineering': 'engineering',  'doctof': 'doctor',  'documentatkon': 'documentation',  'docummentation': 'documentation',
     'doxumentation': 'documentation',  'draagonfly': 'dragonfly',  'dragoncly': 'dragonfly',  'drige': 'drive',
     'drkve': 'drive',  'drriver': 'driver',  'drror': 'error',  'drydr': 'dryer',
-    'dryor': 'dryer',  'eavor': 'favor',  'eevil': 'devil',  'elephaants': 'elephants',
+    'dryor': 'dryer',  'eavor': 'favor',  'elephaants': 'elephants',
     'elephanfs': 'elephants',  'elephanrs': 'elephants',  'elephnat': 'elephant',  'elephqnt': 'elephant',
     'engneering': 'engineering',  'enput': 'input',  'errog': 'error',  'exfra': 'extra',
     'extrruderjam': 'extruderjam',  'faavored': 'favored',  'facoring': 'favoring',  'fador': 'favor',
-    'fagor': 'favor',  'falsh': 'flash',  'favoriite': 'favorite',  'favorinng': 'favoring',
+    'fagor': 'favor',  'favoriite': 'favorite',  'favorinng': 'favoring',
     'favoted': 'favored',  'fhanger': 'changer',  'fibdr': 'fiber',  'fibur': 'fiber',
     'finityy': 'finity',  'firds': 'birds',  'fjnity': 'finity',  'flaah': 'flash',
     'flasm': 'flash',  'fleci': 'flexi',  'fljing': 'flying',  'flrxi': 'flexi',
@@ -4454,7 +4454,7 @@ TYPO_FORMS.update({
     'joijt': 'joint',  'joinf': 'joint',  'jont': 'joint',  'jummed': 'jammed',
     'junciton': 'junction',  'juncteon': 'junction',  'kotor': 'motor',  'lalse': 'lapse',
     'lapsf': 'lapse',  'lcoud': 'cloud',  'lebgth': 'length',  'leevel': 'level',
-    'lengtn': 'length',  'levvel': 'level',  'lexi': 'flexi',  'libting': 'lifting',
+    'lengtn': 'length',  'levvel': 'level',  'libting': 'lifting',
     'licting': 'lifting',  'liftnig': 'lifting',  'lighhtning': 'lightning',  'limiit': 'limit',
     'linaer': 'linear',  'lineqr': 'linear',  'linfs': 'lines',  'linuar': 'linear',
     'linws': 'lines',  'lipse': 'lapse',  'lithu': 'litho',  'lityo': 'litho',
@@ -4477,7 +4477,7 @@ TYPO_FORMS.update({
     'ocnnect': 'connect',  'oightning': 'lightning',  'onformation': 'information',  'onland': 'inland',
     'rdive': 'drive',  'rdyer': 'dryer',  'rlephant': 'elephant',  'rxtruderjam': 'extruderjam',
     'sngineering': 'engineering',  'soctor': 'doctor',  'sonnect': 'connect',  'sreality': 'creality',
-    'srror': 'error',  'sxtruderjam': 'extruderjam',  'tinity': 'finity',  'ueated': 'heated',
+    'srror': 'error',  'sxtruderjam': 'extruderjam',  'ueated': 'heated',
     'unitialize': 'initialize',  'ustomize': 'customize',  'vriver': 'driver',  'vuzzy': 'fuzzy',
     'wiameter': 'diameter',  'wisconnect': 'disconnect',  'wistance': 'distance',  'wxtra': 'extra',
     'xaughter': 'daughter',  'xentered': 'centered',  'xhanger': 'changer',  'xiameter': 'diameter',

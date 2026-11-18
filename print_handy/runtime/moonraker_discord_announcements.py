@@ -617,7 +617,7 @@ def roast_facts(job, plate, stats=None, now=None):
         # milestone banks gate on these, and both are already read from
         # the job record by the summary code. Best-effort like every
         # fact here — a missing source means the fact stays absent.
-        copies = print_summary._copies(job or {})
+        copies = print_summary._sliced_copies(job or {})
         if copies >= 2:
             facts["copies"] = copies
         number = print_summary._print_number(job or {})
