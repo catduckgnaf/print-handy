@@ -347,7 +347,7 @@ img { max-width: 100%; }
   table.rows th { width: auto; }
   th, td { padding: 0.45rem 0.5rem; }
 }
-/* Pasta Wrapped (#1446): the Wrapped page is a scrolling story of
+/* Pasta Wrapped: the Wrapped page is a scrolling story of
    full-screen sections. Every rule is scoped to .wrapped (or, for
    the scroll behavior, to a document containing one, via :has), so
    no other page's layout or scrolling changes. */

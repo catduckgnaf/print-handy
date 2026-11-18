@@ -654,6 +654,10 @@ def parse_form(form, field_values, *, only=None):
             value = bool(raw) and any(str(v).strip().lower() in _TRUTHY for v in raw)
         elif isinstance(field_value.value, (list, tuple)):
             value = [str(v).strip() for v in raw or [] if str(v).strip()]
+            # A multi-select posts its ticks in the page's order, not the
+            # stored one: the same set is no change.
+            if sorted(value) == sorted(str(v) for v in field_value.value):
+                continue
         elif field.kind == "number":
             value, error = _parse_number(field, (raw[0] if raw else "").strip())
             if error:
