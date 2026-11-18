@@ -421,6 +421,19 @@ live_stream:
   empty_timeout_s: 300
   activity_origin: ''
   port: 0
+external_intake:
+  # External sliced-job intake (#1525): an opt-in watched folder for jobs
+  # sliced outside Print Handy. Off by default, and while directory is
+  # empty nothing is scanned. The folder named here is the only one the
+  # intake ever looks in. A file appearing there becomes a draft job card
+  # on the Web UI's External intake page — it never prints, never sends a
+  # printer command and never charges a spool. Recording a print takes
+  # the operator's explicit Mark as printed confirmation on that page,
+  # charged exactly once through the existing accounting ledger.
+  enabled: false
+  directory: ''
+  # Largest single file the intake accepts, in bytes (512 MiB default).
+  max_bytes: 536870912
 notify:
   # Print events out of chat (#622): MQTT and ntfy, either or both, off by
   # default. A failed publish never blocks chat or a print. Neither

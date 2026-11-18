@@ -222,6 +222,9 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("firmware", "update_alerts"): bool,
                  ("firmware", "update_check_hours"): int,
                  ("firmware", "forgex_apply"): bool,
+                 ("external_intake", "enabled"): bool,
+                 ("external_intake", "directory"): str,
+                 ("external_intake", "max_bytes"): int,
                  ("prusa", "link_host"): str, ("prusa", "api_key_env"): str,
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
@@ -1868,6 +1871,37 @@ def _validate_firmware(data):
     firmware["notice_firmwares"] = [n.strip().lower() for n in names if n.strip()]
 
 
+EXTERNAL_INTAKE_MAX_BYTES_CAP = 2 * 1024 * 1024 * 1024
+
+
+def _validate_external_intake(data):
+    """The [external_intake] section (#1525): the opt-in watched folder.
+
+    Off by default. While ``enabled`` is false or ``directory`` is empty,
+    nothing is scanned: the Web UI's External intake page shows the
+    disabled state and no draft cards are made. The directory is the one
+    allowlisted folder the intake may look in — the watcher never scans
+    anywhere else, and a draft card never prints or charges a spool on
+    its own (see core.external_intake). ``max_bytes`` bounds one intake
+    file (default 512 MiB, the library's own default).
+    """
+    intake = data.setdefault("external_intake", {})
+    enabled = intake.setdefault("enabled", False)
+    if not isinstance(enabled, bool):
+        raise SettingsError(f"[external_intake] enabled must be true or false, got {enabled!r}")
+    directory = intake.setdefault("directory", "")
+    if directory is None:
+        directory = ""
+    if not isinstance(directory, str):
+        raise SettingsError(f"[external_intake] directory must be a folder path, got {directory!r}")
+    intake["directory"] = directory.strip()
+    max_bytes = intake.setdefault("max_bytes", 512 * 1024 * 1024)
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) \
+            or not 1 <= max_bytes <= EXTERNAL_INTAKE_MAX_BYTES_CAP:
+        raise SettingsError(f"[external_intake] max_bytes must be a whole number of bytes "
+                            f"from 1 to {EXTERNAL_INTAKE_MAX_BYTES_CAP}, got {max_bytes!r}")
+
+
 def _validate_notify(data):
     """The [notify] section (#622): print events out to MQTT and ntfy.
 
@@ -2397,6 +2431,7 @@ def validate(data):
     _validate_vision(data)
     _validate_spool(data)
     _validate_notify(data)
+    _validate_external_intake(data)
     _validate_firmware(data)
     _validate_logging(data)
     _validate_public_text(data)

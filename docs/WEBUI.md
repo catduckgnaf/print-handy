@@ -42,6 +42,9 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
 | `GET /sliced` | Read-only list of sliced jobs in the archive, with a download per plate file |
 | `GET /sliced/<job>/<n>` | Download of plate number `n` of that job (`.gcode` or `.gcode.3mf`), as an attachment |
+| `GET /slice-result/<job>` | Read-only slice-result card for a job: the plate's thumbnail, layers, estimated time and estimated grams per filament and mapped slot, with spool-match suggestions (#1525) |
+| `GET /u1-feasibility/<job>` | Read-only Snapmaker U1 feasibility report for a job's source (U1 printing is unverified; not a print plan) (#1525) |
+| `GET /external-intake` | Draft cards for the `[external_intake]` watched folder, with the Mark as printed confirmation (records a print exactly once) (#1525) |
 | `GET /settings-report/<job>` | Download of that job's settings report as JSON: which recorded settings were kept and which were replaced, and by what |
 | `GET /workflow` | The print workflow page: start from a link or a file, answer the intake's questions as on-page buttons, end in a download or a print start |
 | `GET /workflow/state` | The workflow page's poll: the newest transcript position and whether a reply is pending, as JSON |

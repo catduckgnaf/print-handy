@@ -17,6 +17,8 @@ from . import controls as controls_module
 from . import data as data_module
 from . import designs as designs_module
 from . import editable_download as editable_download_module
+from . import external_intake_page as external_intake_module
+from . import slice_result as slice_result_module
 from . import firmware_page as firmware_page_module
 from . import notifications as notifications_module
 from . import settings_report as settings_report_module
@@ -207,6 +209,112 @@ def editable_export_route(handler, rest=""):
                     headers=[("Content-Disposition",
                               f'attachment; filename="{path.name}"'),
                              ("Cache-Control", "no-store")])
+
+def slice_result_route(handler, rest=""):
+    """The slice-result card for an archived job (#1525, tranche G wiring).
+
+    Read-only: built by core.slice_result from the job's own plate files.
+    """
+    segments = [segment for segment in rest.split("/") if segment]
+    if len(segments) == 3 and segments[1] == "thumbnail":
+        slice_result_thumbnail_route(handler, segments[0], segments[2])
+        return
+    archive = data_module.archive_root(handler.server.settings_data)
+    artifacts = (slice_result_module.result_artifacts(
+        handler.server.settings_data, archive, segments[0])
+        if len(segments) == 1 else None)
+    if artifacts is None:
+        handler._json(404, {"ok": False, "reason": "no sliced plate files recorded for this job"})
+        return
+    from print_handy.core import slice_result as _core
+    loaded = _core.load_job(archive, segments[0])
+    has_source = bool(loaded and _core.source_path(loaded[0], loaded[1]))
+    handler._send(200, slice_result_module.render_result_page(
+        artifacts, segments[0], theme=handler._theme(),
+        nav=data_module.nav_for(handler.server.settings_data),
+        has_source=has_source), "text/html; charset=utf-8")
+
+
+def slice_result_thumbnail_route(handler, job_id, index_raw):
+    """The plate's own thumbnail, inside the /slice-result/* route.
+
+    The PNG bytes the slicer embedded in the plate file, served as an
+    image; a plate without one is a plain 404, never a rendered stand-in.
+    """
+    try:
+        index = int(index_raw)
+    except (TypeError, ValueError):
+        handler._json(404, {"ok": False, "reason": "no such thumbnail"})
+        return
+    archive = data_module.archive_root(handler.server.settings_data)
+    from print_handy.core import slice_result as _core
+    png = _core.thumbnail_png(archive, job_id, index)
+    if png is None:
+        handler._json(404, {"ok": False, "reason": "this plate carries no thumbnail"})
+        return
+    handler._send(200, png, "image/png")
+
+
+def u1_feasibility_route(handler, rest=""):
+    """The U1 feasibility report for an archived job's source (#1525).
+
+    Read-only; the report keeps its unverified-hardware wording.
+    """
+    segments = [segment for segment in rest.split("/") if segment]
+    archive = data_module.archive_root(handler.server.settings_data)
+    from print_handy.core import slice_result as _core
+    report = (_core.u1_report_for_job(archive, segments[0])
+              if len(segments) == 1 else None)
+    if report is None:
+        handler._json(404, {"ok": False, "reason": "no source 3MF recorded for this job"})
+        return
+    handler._send(200, slice_result_module.render_u1_page(
+        report, segments[0], theme=handler._theme(),
+        nav=data_module.nav_for(handler.server.settings_data)),
+        "text/html; charset=utf-8")
+
+
+def external_intake_route(handler, notice=None, error=None):
+    """GET /external-intake: draft cards from the watched folder (#1525)."""
+    data = handler.server.settings_data
+    cards = external_intake_module.scan_cards(data)
+    handler._send(200, external_intake_module.render_page(
+        data, cards, theme=handler._theme(), nav=data_module.nav_for(data),
+        form_token=handler._form_token(), notice=notice, error=error),
+        "text/html; charset=utf-8")
+
+
+def external_intake_confirm_post(handler, form):
+    """POST /external-intake/confirm: the Mark-as-printed confirmation."""
+    data = handler.server.settings_data
+
+    def field(name):
+        return (form.get(name) or [""])[0].strip()
+
+    spool_raw, grams_raw = field("spool_id"), field("grams")
+    try:
+        spool_id = int(spool_raw) if spool_raw else None
+        grams = float(grams_raw) if grams_raw else None
+    except ValueError:
+        external_intake_route(handler, error="Spool id and grams must be numbers.")
+        return
+    if (spool_id is None) != (grams is None):
+        external_intake_route(handler, error="Give both a spool id and its grams, "
+                              "or neither — a print with no declared spool usage is "
+                              "recorded without a spool charge.")
+        return
+    from print_handy.core import external_intake as _intake
+    try:
+        result = external_intake_module.confirm_card(
+            data, sha256=field("sha256"), path=field("path"),
+            printer_id=field("printer_id"), print_id=field("print_id"),
+            spool_id=spool_id, grams=grams)
+    except _intake.IntakeRefused as exc:
+        external_intake_route(handler, error=str(exc))
+        return
+    external_intake_route(handler, notice=f"Recorded as printed ({result['identity']}): "
+                          f"{result['accounting'].get('spool_charge', 'recorded')}.")
+
 
 def sliced_route(handler, rest=""):
     """GET /sliced (the downloads page) and /sliced/<job>/<n> (one plate file, #1443).

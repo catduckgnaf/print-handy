@@ -1146,6 +1146,18 @@ class _Handler(BaseHTTPRequestHandler):
     def _sliced_route(self, rest=""):
         return design_handlers_module.sliced_route(self, rest)
 
+    def _slice_result_route(self, rest=""):
+        return design_handlers_module.slice_result_route(self, rest)
+
+    def _u1_feasibility_route(self, rest=""):
+        return design_handlers_module.u1_feasibility_route(self, rest)
+
+    def _external_intake_route(self, notice=None, error=None):
+        return design_handlers_module.external_intake_route(self, notice, error)
+
+    def _external_intake_confirm_post(self, form):
+        return design_handlers_module.external_intake_confirm_post(self, form)
+
     def _not_found(self, path):
         return status_handlers_module.not_found(self, path)
 

@@ -138,6 +138,7 @@ _DISPATCH_HOOKS = (
     bed_down_dispatch,
     live_dispatch,
     plate_calibrate_dispatch,
+    slice_result_dispatch,
     nozzle_dispatch,
 )
 
@@ -153,6 +154,7 @@ _COMMAND_GATES = {
     maintenance_dispatch: ('/print-maintenance', True),
     coldpull_dispatch: ('/print-coldpull', False),
     lookup_dispatch: ('/print-lookup', True),
+    slice_result_dispatch: ('/print-slice-result', True),
     source_dispatch: ('/print-source', False),
     troubleshoot_dispatch: ('/print-troubleshoot', True),
     macros_dispatch: ('/print-macros', True),
