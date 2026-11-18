@@ -4664,13 +4664,20 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             source_bounds = None
             source_height = None
             bounds_note = None
+            source_part_count = None
             try:
                 import numpy as _np
+                _leaves = support_clearance.leaves(path)
                 _tris = _np.concatenate([p['tris'].reshape(-1, 3)
-                                         for p in support_clearance.leaves(path)])
+                                         for p in _leaves])
                 source_bounds = (float(_tris[:, 0].min()), float(_tris[:, 1].min()),
                                  float(_tris[:, 0].max()), float(_tris[:, 1].max()))
                 source_height = float(_tris[:, 2].max()) or None
+                # Distinct placed parts in the source (#1612): an
+                # unlabeled multi-part plate cannot be attributed.
+                # Modeled-support leaves are not parts to attribute.
+                source_part_count = len({p.get('item', i) for i, p in enumerate(_leaves)
+                                         if not p.get('support')}) or None
             except Exception as exc:  # noqa: BLE001 - named below, not silent
                 bounds_note = (f'source bounds unreadable ({exc}); coverage compared '
                                'without a source-to-slice mapping')
@@ -4678,6 +4685,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             for g in gcode_list:
                 plate = {'gcode': str(g), 'source_bounds': source_bounds,
                          'source_height': source_height}
+                if source_part_count:
+                    plate['source_part_count'] = source_part_count
                 if recorded:
                     plate['recorded_scale'] = float(recorded)
                 if placement:
