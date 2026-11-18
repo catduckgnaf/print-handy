@@ -1,0 +1,327 @@
+{
+ "_about": "Roasts keyed by normalized material family (#1651); the engine matches the print's material string to one family, most specific first.",
+ "_phase": "expansion (#1651)",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+ "entries": {
+  "pla": [
+   {
+    "id": "material-pla-title-in-pla-the-gateway",
+    "family": "material-pla",
+    "text": "{title} in PLA: the gateway filament, and the gateway is wide open again."
+   },
+   {
+    "id": "material-pla-pla-again-for-title-because",
+    "family": "material-pla",
+    "text": "PLA again for {title}, because the classics never ask for an enclosure or forgiveness."
+   },
+   {
+    "id": "material-pla-title-chose-the-easygoing-filament",
+    "family": "material-pla",
+    "text": "{title} chose the easygoing filament and still found a way to take {duration}."
+   },
+   {
+    "id": "material-pla-nothing-says-confidence-like-printing",
+    "family": "material-pla",
+    "text": "Nothing says confidence like printing {title} in the filament everyone learned on."
+   },
+   {
+    "id": "material-pla-printer-and-pla-go-together",
+    "family": "material-pla",
+    "text": "{printer} and PLA go together like deadlines and suddenly urgent test prints."
+   },
+   {
+    "id": "material-pla-title-is-pla-proof-that",
+    "family": "material-pla",
+    "text": "{title} is PLA proof that simple materials still produce complicated shelf arrangements."
+   }
+  ],
+  "petg": [
+   {
+    "id": "material-petg-title-in-petg-stringing-was",
+    "family": "material-petg",
+    "text": "{title} in PETG: stringing was invited, and it brought friends and a plus one."
+   },
+   {
+    "id": "material-petg-petg-gave-title-toughness-shine",
+    "family": "material-petg",
+    "text": "PETG gave {title} toughness, shine, and a decorative fringe nobody sliced for."
+   },
+   {
+    "id": "material-petg-title-survived-petg-the-filament",
+    "family": "material-petg",
+    "text": "{title} survived PETG, the filament that treats retraction as a polite suggestion."
+   },
+   {
+    "id": "material-petg-with-petg-title-is-basically",
+    "family": "material-petg",
+    "text": "With PETG, {title} is basically weatherproof, which the desk appreciates deeply."
+   },
+   {
+    "id": "material-petg-printer-printed-title-in-petg",
+    "family": "material-petg",
+    "text": "{printer} printed {title} in PETG and only mildly resembled a candy floss machine."
+   },
+   {
+    "id": "material-petg-petg-layers-bond-like-family",
+    "family": "material-petg",
+    "text": "PETG layers bond like family at holidays: strongly, permanently, and with some string attached."
+   }
+  ],
+  "tpu": [
+   {
+    "id": "material-tpu-title-in-tpu-bends-squishes",
+    "family": "material-tpu",
+    "text": "{title} in TPU bends, squishes, and springs back, unlike anyone who tuned its retraction."
+   },
+   {
+    "id": "material-tpu-flexible-filament-flexible-standards-title",
+    "family": "material-tpu",
+    "text": "Flexible filament, flexible standards: {title} wobbles so nobody else has to."
+   },
+   {
+    "id": "material-tpu-title-came-out-of-tpu",
+    "family": "material-tpu",
+    "text": "{title} came out of TPU with the posture of a relaxed noodle at rest."
+   },
+   {
+    "id": "material-tpu-printing-tpu-taught-printer-patience",
+    "family": "material-tpu",
+    "text": "Printing TPU taught {printer} patience, humility, and the true meaning of slow extrusion."
+   },
+   {
+    "id": "material-tpu-title-is-tpu-so-dropping",
+    "family": "material-tpu",
+    "text": "{title} is TPU, so dropping it is now a feature demonstration, not an accident."
+   },
+   {
+    "id": "material-tpu-tpu-gave-title-a-bounce",
+    "family": "material-tpu",
+    "text": "TPU gave {title} a bounce that its dignity will need time to recover from."
+   }
+  ],
+  "abs": [
+   {
+    "id": "material-abs-title-in-abs-the-fumes",
+    "family": "material-abs",
+    "text": "{title} in ABS: the fumes were vintage, the warping was traditional, the finish is earned."
+   },
+   {
+    "id": "material-abs-abs-made-title-the-old",
+    "family": "material-abs",
+    "text": "ABS made {title} the old way, with heat, attitude, and a closed door policy."
+   },
+   {
+    "id": "material-abs-printer-printed-abs-for-title",
+    "family": "material-abs",
+    "text": "{printer} printed ABS for {title}, and the enclosure finally feels professionally needed."
+   },
+   {
+    "id": "material-abs-title-in-abs-is-tough",
+    "family": "material-abs",
+    "text": "{title} in ABS is tough enough to outlast the debate about printing ABS indoors."
+   },
+   {
+    "id": "material-abs-abs-layer-adhesion-on-title",
+    "family": "material-abs",
+    "text": "ABS layer adhesion on {title} is strong, and so are the fumes, so crack a window."
+   },
+   {
+    "id": "material-abs-classic-abs-behavior-from-title",
+    "family": "material-abs",
+    "text": "Classic ABS behavior from {title}: stubborn during printing, dependable forever after."
+   }
+  ],
+  "asa": [
+   {
+    "id": "material-asa-title-in-asa-is-ready",
+    "family": "material-asa",
+    "text": "{title} in ASA is ready for sunshine, rain, and being left outside confidently."
+   },
+   {
+    "id": "material-asa-asa-gave-title-a-tanproof",
+    "family": "material-asa",
+    "text": "ASA gave {title} a tan-proof future and a very outdoorsy sense of purpose."
+   },
+   {
+    "id": "material-asa-title-chose-asa-the-filament",
+    "family": "material-asa",
+    "text": "{title} chose ASA, the filament that treats weather as a minor scheduling detail."
+   },
+   {
+    "id": "material-asa-with-asa-title-can-live",
+    "family": "material-asa",
+    "text": "With ASA, {title} can live outside now, which frees up premium indoor shelf space."
+   },
+   {
+    "id": "material-asa-printer-made-title-in-asa",
+    "family": "material-asa",
+    "text": "{printer} made {title} in ASA, officially sun-rated and picnic-adjacent."
+   },
+   {
+    "id": "material-asa-asa-on-title-ultraviolet-resistance",
+    "family": "material-asa",
+    "text": "ASA on {title}: ultraviolet resistance outside, quiet smugness inside."
+   }
+  ],
+  "nylon": [
+   {
+    "id": "material-nylon-title-in-nylon-is-stronger",
+    "family": "material-nylon",
+    "text": "{title} in nylon is stronger than the excuses made for printing it this late."
+   },
+   {
+    "id": "material-nylon-nylon-kept-title-tough-and",
+    "family": "material-nylon",
+    "text": "Nylon kept {title} tough and the filament dryer gainfully employed all week."
+   },
+   {
+    "id": "material-nylon-printer-printed-nylon-for-title",
+    "family": "material-nylon",
+    "text": "{printer} printed nylon for {title}, a material that drinks moisture like gossip."
+   },
+   {
+    "id": "material-nylon-title-in-nylon-could-survive",
+    "family": "material-nylon",
+    "text": "{title} in nylon could survive the toolbox, the truck, and a determined toddler."
+   },
+   {
+    "id": "material-nylon-dry-box-hours-were-logged",
+    "family": "material-nylon",
+    "text": "Dry box hours were logged, tears were avoided, and nylon delivered {title} beautifully."
+   },
+   {
+    "id": "material-nylon-nylon-gave-title-engineeringgrade-confidence",
+    "family": "material-nylon",
+    "text": "Nylon gave {title} engineering-grade confidence and hobby-grade drying requirements."
+   }
+  ],
+  "pc": [
+   {
+    "id": "material-pc-title-in-polycarbonate-temperatures-were",
+    "family": "material-pc",
+    "text": "{title} in polycarbonate: temperatures were high and so were everyone's expectations."
+   },
+   {
+    "id": "material-pc-pc-pushed-printer-to-its",
+    "family": "material-pc",
+    "text": "PC pushed {printer} to its thermal limits so {title} could shrug off almost anything."
+   },
+   {
+    "id": "material-pc-title-chose-polycarbonate-the-filament",
+    "family": "material-pc",
+    "text": "{title} chose polycarbonate, the filament equivalent of bringing safety goggles to brunch."
+   },
+   {
+    "id": "material-pc-with-pc-title-is-heatresistant",
+    "family": "material-pc",
+    "text": "With PC, {title} is heat-resistant, impact-resistant, and casually resistant to being replaced."
+   },
+   {
+    "id": "material-pc-printing-pc-for-title-turned",
+    "family": "material-pc",
+    "text": "Printing PC for {title} turned the hotend into the hardest-working appliance here."
+   },
+   {
+    "id": "material-pc-title-in-pc-is-overqualified",
+    "family": "material-pc",
+    "text": "{title} in PC is overqualified for its job and intends to mention it often."
+   }
+  ],
+  "hips": [
+   {
+    "id": "material-hips-title-in-hips-a-material",
+    "family": "material-hips",
+    "text": "{title} in HIPS, a material famous for supporting others, finally gets the lead role."
+   },
+   {
+    "id": "material-hips-hips-stepped-out-of-the",
+    "family": "material-hips",
+    "text": "HIPS stepped out of the support act and into the spotlight with {title}."
+   },
+   {
+    "id": "material-hips-title-chose-hips-proof-that",
+    "family": "material-hips",
+    "text": "{title} chose HIPS, proof that the understudy filament can carry a whole print."
+   },
+   {
+    "id": "material-hips-printer-gave-hips-top-billing",
+    "family": "material-hips",
+    "text": "{printer} gave HIPS top billing for {title}, and it dissolved nobody's expectations."
+   },
+   {
+    "id": "material-hips-hips-on-title-smooth-finish",
+    "family": "material-hips",
+    "text": "HIPS on {title}: smooth finish, hidden talents, and a faint citrus-based secret."
+   },
+   {
+    "id": "material-hips-title-in-hips-is-the",
+    "family": "material-hips",
+    "text": "{title} in HIPS is the support material's solo album, and it holds up well."
+   }
+  ],
+  "wood": [
+   {
+    "id": "material-wood-title-in-woodfill-smells-like",
+    "family": "material-wood",
+    "text": "{title} in wood-fill smells like a workshop and sands like a tiny lumber project."
+   },
+   {
+    "id": "material-wood-wood-filament-gave-title-grain",
+    "family": "material-wood",
+    "text": "Wood filament gave {title} grain, warmth, and a legitimate reason to sand something."
+   },
+   {
+    "id": "material-wood-title-is-part-print-part",
+    "family": "material-wood",
+    "text": "{title} is part print, part carpentry, and entirely committed to the bit."
+   },
+   {
+    "id": "material-wood-printer-printed-title-with-woodfill",
+    "family": "material-wood",
+    "text": "{printer} printed {title} with wood-fill, the closest thing to whittling by robot."
+   },
+   {
+    "id": "material-wood-woodfill-made-title-look-handcarved",
+    "family": "material-wood",
+    "text": "Wood-fill made {title} look hand-carved, assuming the hand owned excellent layer lines."
+   },
+   {
+    "id": "material-wood-title-in-wood-filament-now",
+    "family": "material-wood",
+    "text": "{title} in wood filament: now eligible for both shelf display and lumber jokes."
+   }
+  ],
+  "carbon": [
+   {
+    "id": "material-carbon-title-in-carbonfiber-filament-looks",
+    "family": "material-carbon",
+    "text": "{title} in carbon-fiber filament looks fast even while sitting perfectly still."
+   },
+   {
+    "id": "material-carbon-carbon-fill-gave-title-racing",
+    "family": "material-carbon",
+    "text": "Carbon fill gave {title} racing stripes in its soul and abrasiveness in its nozzle history."
+   },
+   {
+    "id": "material-carbon-title-chose-carbon-composite-because",
+    "family": "material-carbon",
+    "text": "{title} chose carbon composite, because regular plastic lacked sufficient motorsport energy."
+   },
+   {
+    "id": "material-carbon-printer-survived-carbon-filament-for",
+    "family": "material-carbon",
+    "text": "{printer} survived carbon filament for {title}, and the brass nozzle sends its regards."
+   },
+   {
+    "id": "material-carbon-carbonfiber-title-stiffer-darker-and",
+    "family": "material-carbon",
+    "text": "Carbon-fiber {title}: stiffer, darker, and legally required to look slightly tactical."
+   },
+   {
+    "id": "material-carbon-with-carbon-fill-title-weighs",
+    "family": "material-carbon",
+    "text": "With carbon fill, {title} weighs less and implies considerably more lap time."
+   }
+  ]
+ }
+}

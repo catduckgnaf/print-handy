@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints that used 150 grams or more.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -292,6 +292,31 @@
    "id": "heavy_filament-at-grams-grams-title-is-3",
    "family": "heavy_filament-at-grams-grams-title-is-3",
    "text": "At {grams} grams, {title} is officially the heaviest regret on the workbench."
+  },
+  {
+   "id": "heavy-filament-title-at-grams-grams-could",
+   "family": "heavy-filament-title-at-grams-grams-could",
+   "text": "{title} at {grams} grams could anchor a small boat or a large opinion."
+  },
+  {
+   "id": "heavy-filament-grams-grams-of-material-gave",
+   "family": "heavy-filament-grams-grams-of-material-gave",
+   "text": "{grams} grams of {material} gave {title} permanent-resident energy."
+  },
+  {
+   "id": "heavy-filament-the-scale-respects-title-and",
+   "family": "heavy-filament-the-scale-respects-title-and",
+   "text": "The scale respects {title} and its {grams} grams of pure commitment."
+  },
+  {
+   "id": "heavy-filament-title-is-grams-grams-of",
+   "family": "heavy-filament-title-is-grams-grams-of",
+   "text": "{title} is {grams} grams of not going anywhere, ever, for anyone."
+  },
+  {
+   "id": "heavy-filament-heavyweight-paperwork-filed-title-grams",
+   "family": "heavy-filament-heavyweight-paperwork-filed-title-grams",
+   "text": "Heavyweight paperwork filed: {title}, {grams} grams, no appeals expected."
   }
  ]
 }

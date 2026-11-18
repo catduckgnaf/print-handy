@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints of a job printed at least twice ({times} is how many).",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -342,6 +342,31 @@
    "id": "repeat_print-times-runs-of-title-later",
    "family": "repeat_print-times-runs-of-title-later",
    "text": "{times} runs of {title} later, your plastic hoard reaches critical mass."
+  },
+  {
+   "id": "repeat-print-title-returns-for-time-number",
+   "family": "repeat-print-title-returns-for-time-number",
+   "text": "{title} returns for time number {times}, a sequel with proven demand."
+  },
+  {
+   "id": "repeat-print-back-by-popular-demand-title",
+   "family": "repeat-print-back-by-popular-demand-title",
+   "text": "Back by popular demand: {title}, printing again for a total of {times} times overall."
+  },
+  {
+   "id": "repeat-print-times-runs-of-title-means",
+   "family": "repeat-print-times-runs-of-title-means",
+   "text": "{times} runs of {title} means the design has officially passed review."
+  },
+  {
+   "id": "repeat-print-title-again-because-times-copies",
+   "family": "repeat-print-title-again-because-times-copies",
+   "text": "{title} again, because {times} copies of joy is just good planning."
+  },
+  {
+   "id": "repeat-print-the-encore-continues-title-at",
+   "family": "repeat-print-the-encore-continues-title-at",
+   "text": "The encore continues: {title} at {times} performances and counting."
   }
  ]
 }

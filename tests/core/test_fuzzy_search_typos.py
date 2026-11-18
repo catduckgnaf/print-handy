@@ -61,7 +61,13 @@ CORPUS = {**ALL_PAIRS, **PHASE3_MINED_TYPOS}
 # routes as the table's word, verified pair by pair below.
 ROUTED_FORM = {"spaghettis": "spaghetti", "separately": "separate",
                "errors": "error", "currently": "current",
-               "effects": "effect"}
+               "effects": "effect",
+               # The #1651 expansion round: the intent patterns' own forms
+               # for these four words (the patterns speak of corners and
+               # noodles in the plural, of change as the verb, and of the
+               # elephant in the singular).
+               "corner": "corners", "changer": "change",
+               "elephants": "elephant", "noodle": "noodles"}
 
 
 def routed(word):

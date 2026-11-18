@@ -1,6 +1,6 @@
 {
  "_about": "Completed-print lines that need no facts at all: the last resort that always fits.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -632,6 +632,81 @@
    "id": "one_liners-the-cooling-duct-blew-bravely",
    "family": "one_liners-the-cooling-duct-blew-bravely",
    "text": "The cooling duct blew bravely against the tide of sheer aesthetic failure."
+  },
+  {
+   "id": "one-liners-somewhere-a-store-shelf-feels",
+   "family": "one-liners-somewhere-a-store-shelf-feels",
+   "text": "Somewhere, a store shelf feels quietly threatened by this operation."
+  },
+  {
+   "id": "one-liners-the-printer-did-the-work",
+   "family": "one-liners-the-printer-did-the-work",
+   "text": "The printer did the work and the human took the bow, as tradition demands."
+  },
+  {
+   "id": "one-liners-another-object-exists-because-a",
+   "family": "one-liners-another-object-exists-because-a",
+   "text": "Another object exists because a rectangle of plastic believed in itself."
+  },
+  {
+   "id": "one-liners-this-hobby-started-as-one",
+   "family": "one-liners-this-hobby-started-as-one",
+   "text": "This hobby started as one print and nobody can locate the exit anymore."
+  },
+  {
+   "id": "one-liners-layers-were-stacked-time-was",
+   "family": "one-liners-layers-were-stacked-time-was",
+   "text": "Layers were stacked, time was spent, and dignity remains mostly intact."
+  },
+  {
+   "id": "one-liners-a-finished-print-is-just",
+   "family": "one-liners-a-finished-print-is-just",
+   "text": "A finished print is just a download that committed to real estate."
+  },
+  {
+   "id": "one-liners-the-build-plate-giveth-and",
+   "family": "one-liners-the-build-plate-giveth-and",
+   "text": "The build plate giveth, and the build plate occasionally stringeth."
+  },
+  {
+   "id": "one-liners-every-great-shelf-begins-with",
+   "family": "one-liners-every-great-shelf-begins-with",
+   "text": "Every great shelf begins with a single questionable download."
+  },
+  {
+   "id": "one-liners-plastic-was-warmed-moved-precisely",
+   "family": "one-liners-plastic-was-warmed-moved-precisely",
+   "text": "Plastic was warmed, moved precisely, and promoted to object status."
+  },
+  {
+   "id": "one-liners-the-most-reliable-narrator-in",
+   "family": "one-liners-the-most-reliable-narrator-in",
+   "text": "The most reliable narrator in this house is a finished print."
+  },
+  {
+   "id": "one-liners-nobody-is-saying-it-is",
+   "family": "one-liners-nobody-is-saying-it-is",
+   "text": "Nobody is saying it is a problem; the shelf is saying it, silently."
+  },
+  {
+   "id": "one-liners-from-spool-to-showpiece-with",
+   "family": "one-liners-from-spool-to-showpiece-with",
+   "text": "From spool to showpiece, with only minor supervising from the couch."
+  },
+  {
+   "id": "one-liners-a-printers-favorite-sentence-is",
+   "family": "one-liners-a-printers-favorite-sentence-is",
+   "text": "A printer's favorite sentence is the one that ends with cooldown."
+  },
+  {
+   "id": "one-liners-the-object-is-done-and",
+   "family": "one-liners-the-object-is-done-and",
+   "text": "The object is done and the next object is already being considered."
+  },
+  {
+   "id": "one-liners-proof-that-patience-heat-and",
+   "family": "one-liners-proof-that-patience-heat-and",
+   "text": "Proof that patience, heat, and software can agree on something."
   }
  ]
 }
