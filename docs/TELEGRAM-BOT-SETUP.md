@@ -103,7 +103,7 @@ from the spaghetti bank.
 Every printer family is roasted the same way: Moonraker, PrusaLink,
 OctoPrint, Elegoo SDCP, stock Flashforge and Bambu terminal posts all carry
 the print's roast, drawn by one shared helper, and a post that carries a
-roast carries no status quip — one voice per post. A post with no roast
+roast carries no status quip: one voice per post. A post with no roast
 line (roasts off, or a draw that found no line) keeps the status quip it
 has always had, so turning roasts off changes nothing. Spaghetti stays
 Moonraker-only: only its camera watch raises a spaghetti post.
