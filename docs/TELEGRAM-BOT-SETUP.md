@@ -100,6 +100,13 @@ Prints that do not finish get one too, from the bank that matches how they
 ended: the failure post draws from the failed bank, the cancel post from the
 cancelled bank, and a camera alert that confirms spaghetti carries a line
 from the spaghetti bank.
+Every printer family is roasted the same way: Moonraker, PrusaLink,
+OctoPrint, Elegoo SDCP, stock Flashforge and Bambu terminal posts all carry
+the print's roast, drawn by one shared helper, and a post that carries a
+roast carries no status quip — one voice per post. A post with no roast
+line (roasts off, or a draw that found no line) keeps the status quip it
+has always had, so turning roasts off changes nothing. Spaghetti stays
+Moonraker-only: only its camera watch raises a spaghetti post.
 You can also ask for one in plain words: "roast my last print", "roast print
 84", "roast the dragon" (typos are fine; the print is found the same way
 `print 84` and `/print-again <name>` find it).
