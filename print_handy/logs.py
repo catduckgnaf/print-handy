@@ -1,8 +1,8 @@
 """Shared logging setup for the Print Handy processes (#150).
 
 ``configure()`` is called once by each process entrypoint (the standalone bot and the printer listener).
-It is never called on import, so Print Handy running as a plugin inside another program (the Hermes
-gateway) leaves that program's logging alone. Modules just use ``logging.getLogger(__name__)``.
+It is never called on import, so a host program that imports the package
+keeps its own logging setup. Modules just use ``logging.getLogger(__name__)``.
 
 What it gives every log line:
 

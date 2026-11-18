@@ -1805,7 +1805,7 @@ def _validate_vision(data):
     # Local empty-plate producer (#455 item 4, Stage 1): off by default,
     # and a separate switch from the failure detector — a different
     # mechanism (difference against a calibrated plate reference,
-    # hermes.local_empty) with a different failure mode. When on, idle
+    # runtime.local_empty) with a different failure mode. When on, idle
     # plate checks (auto light-off, the next-plate offer) can be answered
     # locally when no vision endpoint route is configured; it respects
     # vision.watch_source's routing rule and never feeds the in-print
@@ -1824,7 +1824,7 @@ def _validate_vision(data):
     # when the printer lists exactly one light object); on Bambu Lab
     # the target is the chamber light and on Elegoo SDCP its Cmd 403
     # light — light_object does not apply to either. The strict
-    # Moonraker name validation lives in hermes.light_control (the
+    # Moonraker name validation lives in runtime.light_control (the
     # listener refuses an unusable name there); here the shape is just
     # int / string.
     minutes = vision.setdefault("auto_light_off_minutes", 0)
@@ -1998,19 +1998,14 @@ def _validate_design(data):
     """The [design] section (#388 Stage 1; auto-on posture from the close-out ruling).
 
     ``enabled`` is tri-state. Absent (None here) means AUTO: design turns
-    on whenever a design/LLM endpoint is resolvable — every mode resolves
-    [design] inheriting [llm] first; Hermes mode additionally counts the
-    plugin's ``print_design`` auxiliary-task lane as available — the same
+    on whenever a design/LLM endpoint is resolvable — [design] inheriting
+    [llm] is the only lane there is — the same
     posture the camera checks have (on whenever an endpoint is available).
     ``enabled = true`` forces it on (an unconfigured endpoint is then a
     visible failure, not a silent off), and ``enabled = false`` turns it
     off in all cases. ``chat_url``, ``model`` and ``api_key_env`` are empty
     to inherit the [llm] values, so the common single-endpoint setup only
-    sets ``design.model`` (a stronger model for design turns). The Hermes
-    host's own LLM lane (with its registered ``print_design`` auxiliary
-    task, pinned in the profile's ``auxiliary.print_design`` block) is
-    only the fallback for a Hermes install with no endpoint configured
-    (#524 Stage 3; see docs/DESIGN.md). The shipped
+    sets ``design.model`` (a stronger model for design turns). The shipped
     config files deliberately carry no ``enabled`` line, so a config that
     never mentions it gets the auto posture; the effective state is
     resolved by ``print_handy.core.design.effective_enabled``.
@@ -2687,8 +2682,8 @@ def set_override(data):
     A listener instance process (#336) serves exactly one roster printer:
     the registry launcher resolves that printer's view (view_for) and
     installs it here, so every settings consumer in the process — adapters,
-    the Hermes _config fallback, the healthcheck — reads the printer it
-    serves. Tests use it the same way hermes._config.set_override is used.
+    the runtime _config fallback, the healthcheck — reads the printer it
+    serves. Tests use it the same way runtime._config.set_override is used.
     Pass None to clear.
     """
     global _override

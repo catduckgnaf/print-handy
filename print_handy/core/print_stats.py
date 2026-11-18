@@ -21,7 +21,7 @@ with the same value for existing payload consumers.
 
 Pasta (spaghetti) is a different source entirely: the watchdog events
 file (``<records vault>/Watchdog/events.jsonl``, written always-on by
-``hermes.watchdog_events``). Callers load it with
+``runtime.watchdog_events``). Callers load it with
 :func:`load_watchdog_events` and pass the events to :func:`aggregate`;
 when no events file exists the aggregate keeps the honest
 ``not_recorded`` pasta state, and risk flags are never read as pasta.
@@ -514,7 +514,7 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     preserves the historical UTC bucketing for direct callers, a
     string is an IANA timezone name, and a tzinfo is used as given.
     The Web UI passes the configured display timezone
-    (``hermes._config.tz()``) so the recap matches the operator's local
+    (``runtime._config.tz()``) so the recap matches the operator's local
     year (#981). ``started_at`` instants themselves stay UTC in the
     records and in every payload field that echoes them.
 

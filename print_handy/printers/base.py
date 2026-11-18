@@ -119,7 +119,7 @@ and its slots are printer-reported rather than record-bound — see PrinterAdapt
   - core/orca_adapter: the START_PRINT/MESH start G-code goes through the adapter; FILAMENT_SLOTS guard bounds
     and the tool-mapped prime tower retry remain
   - core/spool_lifecycle, core/clear_job: IFS slot reconciliation, native idle cancel handling
-  - hermes/spool_sync (Spoolman binding), moonraker_event_listener (IFS presence poll, runout pause),
+  - runtime/spool_sync (Spoolman binding), runtime/moonraker_event_listener (IFS presence poll, runout pause),
     print_control (native /detail cancel), print_next and the Discord IFS prompts: "AD5X" wording
 """
 from __future__ import annotations
