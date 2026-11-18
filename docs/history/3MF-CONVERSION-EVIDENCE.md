@@ -308,6 +308,14 @@ Four rows move with the completion change, each on executed evidence:
   in its own `Cura/version.ini`, and both extruder user stacks carry
   the changed `infill_pattern = gyroid`. It is recorded as genuine in
   `PROVENANCE.json` beside the retained spec-synthetic layout fixture.
+  Addendum 2026-11-18: Print Handy now resolves that value. Each Cura
+  stack is read in its own `[containers]` order and only literal values
+  from the user and quality_changes layers are candidates, so the
+  production reader carries `sparse_infill_pattern = gyroid` and none of
+  the material quality profile's or nozzle variant's defaults
+  (`tests/core/test_source_descriptor_1525.py`, and through
+  `orca_adapter.slice_model` into real G-code in
+  `tests/slicer/test_cross_slicer_real.py`).
   The earlier "no headless project save" finding stands — the GUI is
   the save path — and `scripts/generate_producer_fixtures.py
   --cura-genuine` records a GUI-saved file only after checking its
