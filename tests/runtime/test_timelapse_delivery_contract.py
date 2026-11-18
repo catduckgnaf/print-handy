@@ -32,6 +32,7 @@ import io
 import os
 import shutil
 import subprocess
+import threading
 import time
 
 import pytest
@@ -84,6 +85,22 @@ def _tiny_mp4(path):
         capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     return path.read_bytes()
+
+
+def _drain_postprocess_claims(timeout=10.0):
+    """Wait until no timelapse postprocess delivery is still running.
+
+    The working-path test runs the real postprocess on a real thread and
+    returns as soon as the video post lands, but the thread still owes
+    the roast follow-up, which it posts through the module-global
+    mel.post — the NEXT test's world replaces that attribute, so a late
+    follow-up lands in the next test's capture and breaks its exact
+    post count (#1638). The world fixture drains in teardown, while
+    mel.post still points at the finishing test's capture.
+    """
+    deadline = time.monotonic() + timeout
+    while mel._POSTPROCESS_ACTIVE and time.monotonic() < deadline:
+        time.sleep(0.05)
 
 
 @pytest.fixture
@@ -151,18 +168,10 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(mel, "post", lambda message: sent.append(message) or True)
     monkeypatch.setattr(mel, "log", lambda line: logs.append(line)); monkeypatch.setattr(mel, "warn", lambda line: logs.append(line))
     yield state, sent, logs
-    # A postprocess thread this test started must not outlive the test.
-    # The working-path test runs the real postprocess on a real thread and
-    # returns as soon as the video post lands, but the thread still owes
-    # the roast follow-up, which it posts through the module-global
-    # mel.post — the NEXT test's world replaces that attribute, so a late
-    # follow-up lands in the next test's capture and breaks its exact
-    # post count (#1638). Drain the claim here, while mel.post still
-    # points at this test's capture: fixture teardown runs before the
-    # monkeypatch restore, so a drained thread has nowhere stray to post.
-    deadline = time.monotonic() + 10
-    while mel._POSTPROCESS_ACTIVE and time.monotonic() < deadline:
-        time.sleep(0.05)
+    # A postprocess thread this test started must not outlive the test:
+    # drain it here, while mel.post still points at this test's capture
+    # (fixture teardown runs before the monkeypatch restore).
+    _drain_postprocess_claims()
 
 
 def _complete(monkeypatch, thread_cls):
@@ -264,3 +273,22 @@ def test_mismatched_marker_posts_the_reason(world, monkeypatch):
     assert len(sent) == 1
     assert "Print complete" in sent[0]
     assert "Timelapse not attached" in sent[0]
+
+
+def test_drain_waits_for_a_late_postprocess_post(world):
+    """The teardown drain's contract (#1638): it does not return while a
+    claimed postprocess is still running, so the thread's late follow-up
+    post lands in the capture of the test that started it — the leak
+    that intermittently reddened this module's exact-count tests."""
+    state, sent, logs = world
+    mel._POSTPROCESS_ACTIVE.add("drain-test-job")
+
+    def late_delivery():
+        time.sleep(0.2)
+        mel.post("late follow-up")
+        mel._POSTPROCESS_ACTIVE.discard("drain-test-job")
+
+    threading.Thread(target=late_delivery, daemon=True).start()
+    _drain_postprocess_claims()
+    assert sent == ["late follow-up"]
+    assert not mel._POSTPROCESS_ACTIVE
