@@ -183,12 +183,12 @@ def screen_page(handler, printer_id):
                          "reason": f"no printer with id {printer_id!r} "
                                    f"is configured"})
         return
-    ok, reason = handler.server.screen_probe_func(printer_id)
+    ok, reason, source = handler.server.screen_probe_func(printer_id)
     handler._send(200, screen_module.render_page(
         entry.get("name") or printer_id, printer_id,
         ok=ok, reason=reason, theme=handler._theme(),
         touch=controls_module.controls_enabled(handler.server.settings_data),
-        form_token=handler._form_token()),
+        form_token=handler._form_token(), source=source),
         "text/html; charset=utf-8")
 
 def screen_touch_post(handler, printer_id, form):

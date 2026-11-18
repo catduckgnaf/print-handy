@@ -149,6 +149,29 @@ the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)
   address. The screen is also never a camera source: the bed camera
   keeps its own `video` registration and snapshot address, and the
   two are not interchangeable.
+- A second screen source is recognized beside ZMod's (#1626):
+  HelixScreen 1.1's screen sharing (Settings, Connection, Screen
+  Sharing on the printer, off by default) registers a webcam named
+  `HelixScreen Screen` and stamps it with a `helixscreen_screen`
+  marker in the entry's extra data. Discovery accepts that marker
+  or that name (with the host name appended, as HelixScreen writes
+  it when the entry lives on another host's Moonraker), and the
+  still is fetched from `/helixscreen/screen/snapshot.jpg` on the
+  printer's web port, the address its Moonraker-proxied setup
+  registers, built from the configured host like every other screen
+  address. When both registrations are present the ZMod `screen`
+  entry wins; the HelixScreen entry is the fallback. HelixScreen's
+  pairing-code setup instead registers an absolute address on the
+  screen device's own port; that address is refused by name and
+  never followed, the same rule as any other unexpected shape. A
+  HelixScreen screen is shown but never pressed from Print Handy,
+  at either controls setting: its remote control is HelixScreen's
+  own screen sharing page, behind its pairing code or Moonraker
+  authorization, and Print Handy neither proxies nor embeds that
+  page nor links the printer's address. This support is built
+  against HelixScreen 1.1's registration, a beta line Print Handy
+  is not on yet; live verification on a real printer is still to
+  come.
 
 Verified support per model:
 

@@ -1458,7 +1458,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.screen_snapshot_func = screen_snapshot_func or (
         lambda printer_id: screen_module.snapshot(data, printer_id))
     server.screen_probe_func = screen_probe_func or (
-        lambda printer_id: screen_module.probe(data, printer_id))
+        lambda printer_id: screen_module.probe_source(data, printer_id))
     server.screen_touch_func = screen_touch_func or (
         lambda printer_id, x, y: screen_module.touch(data, printer_id, x, y))
     server.spools_view_func = spools_view_func or (

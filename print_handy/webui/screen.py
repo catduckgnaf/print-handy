@@ -7,28 +7,48 @@ on the printer without walking to it. The page at
 ``GET /printers/<id>/screen`` shows that still, labeled as the printer
 screen and refreshed while it is open.
 
-The source is ZMod's web screen service (audited against ZMod 1.7.6,
-see docs/ZMOD.md): the printer serves its framebuffer over HTTP and
-registers it with Moonraker as a webcam named ``screen``, next to the
-bed camera's ``video`` entry. Discovery is that registration:
+The first source is ZMod's web screen service (audited against
+ZMod 1.7.6, see docs/ZMOD.md): the printer serves its framebuffer
+over HTTP and registers it with Moonraker as a webcam named
+``screen``, next to the bed camera's ``video`` entry. The second is
+HelixScreen 1.1's screen sharing: it registers a webcam named
+``HelixScreen Screen`` (with the host name appended in parentheses
+when it registers on another host's Moonraker), stamped with a
+``helixscreen_screen`` marker in its ``extra_data`` — the marker is
+HelixScreen's own recognizer, and it survives an operator renaming
+the entry, so discovery accepts the marker or the name. Discovery
+is those registrations:
 
 - Moonraker's ``GET /server/webcams/list`` is read for the printer's
-  configured Moonraker address; the entry named ``screen`` — and only
-  that entry — marks the screen as published;
-- the still is fetched from the address ZMod 1.7.6 registers for it,
-  ``/screen/snapshot`` on the printer's web port, the same derivation
-  the bed camera's snapshot uses one path over. A registration naming
-  any other snapshot address is refused, never followed.
+  configured Moonraker address; a ``screen`` entry marks the ZMod
+  screen as published, a ``HelixScreen Screen`` entry or marker
+  marks the HelixScreen one. When both are present the ZMod entry
+  wins: it is the source this view was built on, and HelixScreen is
+  the fallback when it is absent;
+- the still is fetched from the one address the winning source
+  registers for it, built on the printer's web port from the
+  printer's configured host: ``/screen/snapshot`` for ZMod,
+  ``/helixscreen/screen/snapshot.jpg`` for HelixScreen's
+  Moonraker-proxied setup. A registration naming any other snapshot
+  address is refused, never followed. HelixScreen's pairing-code
+  setup registers an absolute address on the screen device's own
+  port instead; that address is refused by name, because an address
+  taken from a registration could steer the fetch anywhere.
 
 Read-only while printer controls are off. With ``[webui]
 controls_enabled`` on (#708), the dedicated page can also press the
 screen (#1626): ``POST /printers/<id>/screen/touch`` sends exactly
 one request to the service's click path (``/screen/click``), with
 coordinates in the native 800 by 480 frame, through the same
-discovery and address building as the still. That is the only other
-address this module ever requests, it never embeds the service's
-own page (that page wires clicks to touch, outside every Web UI
-gate), and it never treats the screen as a camera: the bed camera
+discovery and address building as the still. The tap applies only
+when the screen source is the ZMod service: a HelixScreen screen is
+pressed through HelixScreen's own screen sharing (its pairing code
+or Moonraker authorization), never from here, and this module
+neither proxies that page nor embeds it nor links its address.
+That click path is the only other address this module ever
+requests, it never embeds the service's own page (that page wires
+clicks to touch, outside every Web UI gate), and it never treats
+the screen as a camera: the bed camera
 keeps its own source, and the screen is not one. The printer-side
 service answers without authentication, so the still and the tap
 are served only through these Web UI routes, behind the Web UI's
@@ -51,6 +71,16 @@ from . import shell
 SCREEN_WEBCAM_NAME = "screen"
 SCREEN_SNAPSHOT_PATH = "/screen/snapshot"
 SCREEN_CLICK_PATH = "/screen/click"
+#: The two screen sources discovery can resolve, in precedence order.
+SOURCE_ZMOD = "zmod"
+SOURCE_HELIXSCREEN = "helixscreen"
+#: HelixScreen 1.1 screen sharing (prestonbrown/helixscreen,
+#: release/1.1): the registered webcam name, the marker it stamps in
+#: the entry's extra_data, and the snapshot address of its
+#: Moonraker-proxied setup (the installer's nginx route).
+HELIXSCREEN_SCREEN_NAME = "HelixScreen Screen"
+HELIXSCREEN_MARKER = "helixscreen_screen"
+HELIXSCREEN_SNAPSHOT_PATH = "/helixscreen/screen/snapshot.jpg"
 #: The frame every screen coordinate lives in: the snapshot JPEG's
 #: own size, and the space the service's click path takes (#1624).
 SCREEN_FRAME_WIDTH = 800
@@ -173,6 +203,27 @@ def _registered_screen(webcams):
     return None
 
 
+def _registered_helixscreen(webcams):
+    """The HelixScreen screen entry, or None.
+
+    Recognized the way HelixScreen itself recognizes its entry
+    (``is_own_screen_webcam`` in its webcam_selection.cpp): the
+    ``helixscreen_screen`` marker in ``extra_data`` (which survives
+    an operator renaming the entry in Moonraker), or the registered
+    name, plain or with the host suffix it adds when the entry lives
+    on another host's Moonraker.
+    """
+    for entry in webcams:
+        extra = entry.get("extra_data")
+        if isinstance(extra, dict) and extra.get(HELIXSCREEN_MARKER):
+            return entry
+        name = str(entry.get("name") or "").strip()
+        if name == HELIXSCREEN_SCREEN_NAME \
+                or name.startswith(HELIXSCREEN_SCREEN_NAME + " ("):
+            return entry
+    return None
+
+
 def _web_host(moonraker_url):
     """The printer's web host from its Moonraker address: the same
     derivation settings applies to the bed camera's snapshot address
@@ -181,20 +232,14 @@ def _web_host(moonraker_url):
     return base.split("://", 1)[1].split("/", 1)[0].rsplit(":", 1)[0]
 
 
-def _screen_still_url(view, *, discover):
-    """The one snapshot address the view will fetch, or a ScreenError."""
-    return _screen_service_url(view, discover=discover,
-                                path=SCREEN_SNAPSHOT_PATH)
-
-
-def _screen_service_url(view, *, discover, path):
-    """One screen service address (``path``) for this printer, or a
+def _discover_screen(view, *, discover):
+    """(source, entry, moonraker_url) for the published screen, or a
     ScreenError.
 
-    Discovery decides whether a screen is published and which shape it
-    registered; the address itself is built from the printer's own
-    configured host, never taken from the registration, so a hostile
-    or drifted registration cannot steer the request elsewhere.
+    Discovery decides whether a screen is published and which source
+    registered it; the ZMod ``screen`` entry wins when both sources
+    are present (the source this view was built on), and the
+    HelixScreen entry is the fallback.
     """
     moonraker_url = (view.get("services", {}).get("moonraker_url") or "").strip()
     if not moonraker_url:
@@ -206,18 +251,78 @@ def _screen_service_url(view, *, discover, path):
         raise ScreenError(502, f"the printer did not answer the screen "
                                f"check ({type(exc).__name__})") from None
     entry = _registered_screen(webcams)
-    if entry is None:
-        raise ScreenError(404, "no printer screen is registered on this "
-                               "printer (on a ZMod printer the screen is "
-                               "published by ZMod 1.7.4 or newer with the "
-                               "WEB_SCREEN parameter on; screenless installs "
-                               "have no screen to show)")
+    if entry is not None:
+        return SOURCE_ZMOD, entry, moonraker_url
+    entry = _registered_helixscreen(webcams)
+    if entry is not None:
+        return SOURCE_HELIXSCREEN, entry, moonraker_url
+    raise ScreenError(404, "no printer screen is registered on this "
+                           "printer (on a ZMod printer the screen is "
+                           "published by ZMod 1.7.4 or newer with the "
+                           "WEB_SCREEN parameter on; a HelixScreen screen "
+                           "is published by its Screen Sharing setting; "
+                           "screenless installs have no screen to show)")
+
+
+def _screen_still_url(view, *, discover):
+    """The one snapshot address the view will fetch, or a ScreenError."""
+    url, _source = _still_url_and_source(view, discover=discover)
+    return url
+
+
+def _still_url_and_source(view, *, discover):
+    """(snapshot address, source) for this printer, or a ScreenError.
+
+    The address is built from the printer's own configured host,
+    never taken from the registration, so a hostile or drifted
+    registration cannot steer the fetch elsewhere; a registration
+    naming any other snapshot address is refused, never followed.
+    """
+    source, entry, moonraker_url = _discover_screen(view, discover=discover)
+    registered = str(entry.get("snapshot_url") or "").strip()
+    if source == SOURCE_ZMOD:
+        if registered != SCREEN_SNAPSHOT_PATH:
+            raise ScreenError(502, "the registered printer screen snapshot "
+                                   "address has an unexpected shape; nothing "
+                                   "was fetched")
+        return f"http://{_web_host(moonraker_url)}{SCREEN_SNAPSHOT_PATH}", source
+    if registered != HELIXSCREEN_SNAPSHOT_PATH:
+        if registered.startswith(("http://", "https://")):
+            raise ScreenError(404, "the HelixScreen screen on this printer "
+                                   "is registered at its own network "
+                                   "address (its pairing-code setup); Print "
+                                   "Handy does not follow a registered "
+                                   "address, so it cannot show that screen. "
+                                   "The Moonraker-proxied HelixScreen setup "
+                                   "is the one it shows")
+        raise ScreenError(502, "the registered HelixScreen screen snapshot "
+                               "address has an unexpected shape; nothing "
+                               "was fetched")
+    return f"http://{_web_host(moonraker_url)}{HELIXSCREEN_SNAPSHOT_PATH}", source
+
+
+def _screen_click_url(view, *, discover):
+    """The one click address a tap will request, or a ScreenError.
+
+    ZMod screens only: the tap is proxied to the ZMod service's click
+    path, built and validated exactly like the snapshot address. A
+    HelixScreen screen refuses by name: its remote control is
+    HelixScreen's own screen sharing, and Print Handy does not press
+    it from here.
+    """
+    source, entry, moonraker_url = _discover_screen(view, discover=discover)
+    if source == SOURCE_HELIXSCREEN:
+        raise ScreenError(501, "this printer's screen is a HelixScreen "
+                               "screen, and Print Handy does not press "
+                               "HelixScreen screens: press it through "
+                               "HelixScreen's own screen sharing. "
+                               "Nothing was sent")
     registered = str(entry.get("snapshot_url") or "").strip()
     if registered != SCREEN_SNAPSHOT_PATH:
         raise ScreenError(502, "the registered printer screen snapshot "
                                "address has an unexpected shape; nothing "
                                "was fetched")
-    return f"http://{_web_host(moonraker_url)}{path}"
+    return f"http://{_web_host(moonraker_url)}{SCREEN_CLICK_PATH}"
 
 
 def snapshot(data, printer_id, *, discover=None, fetch=None):
@@ -302,8 +407,7 @@ def touch(data, printer_id, x, y, *, discover=None, send=None):
         tap_x = _coordinate(x, "x", SCREEN_FRAME_WIDTH)
         tap_y = _coordinate(y, "y", SCREEN_FRAME_HEIGHT)
         view = settings.view_for(printer_id, data)
-        url = _screen_service_url(view, discover=discover,
-                                   path=SCREEN_CLICK_PATH) \
+        url = _screen_click_url(view, discover=discover) \
             + f"?x={tap_x}&y={tap_y}"
         try:
             answer = send(url)
@@ -323,21 +427,33 @@ def touch(data, printer_id, x, y, *, discover=None, send=None):
 def probe(data, printer_id, *, discover=None):
     """(available, reason) for the screen page: discovery only, no still
     is fetched, so opening the page never pulls a frame."""
+    available, reason, _source = probe_source(data, printer_id,
+                                              discover=discover)
+    return available, reason
+
+
+def probe_source(data, printer_id, *, discover=None):
+    """(available, reason, source) for the screen page: discovery only,
+    no still is fetched, so opening the page never pulls a frame.
+    ``source`` is SOURCE_ZMOD or SOURCE_HELIXSCREEN for an available
+    screen (the page labels it and offers taps only for ZMod), and an
+    empty string when no screen is available."""
     discover = discover_webcams if discover is None else discover
     try:
         settings.by_id(printer_id, data)
     except settings.SettingsError:
-        return False, f"no printer with id {printer_id!r} is configured"
+        return False, f"no printer with id {printer_id!r} is configured", ""
     view = settings.view_for(printer_id, data)
     try:
-        _screen_still_url(view, discover=discover)
+        _url, source = _still_url_and_source(view, discover=discover)
     except ScreenError as refusal:
-        return False, refusal.reason
-    return True, ""
+        return False, refusal.reason, ""
+    return True, "", source
 
 
 def render_page(printer_name, printer_id, *, ok, reason,
-                theme=shell.DEFAULT_THEME, touch=False, form_token=""):
+                theme=shell.DEFAULT_THEME, touch=False, form_token="",
+                source=SOURCE_ZMOD):
     """The dedicated screen page: a clearly labeled view of the screen.
 
     The still comes from this Web UI's own snapshot route, never from
@@ -345,17 +461,19 @@ def render_page(printer_name, printer_id, *, ok, reason,
     off) the page is read-only exactly as #1303 shipped it: the image
     is not a link and nothing on the page posts anywhere. While
     ``touch`` is true (the handler passes it only when
-    ``[webui] controls_enabled`` is on), clicking the still posts one
-    tap to this Web UI's own touch route with the page's form token;
-    the image is still never a link to the printer and the service's
-    own page is never embedded.
+    ``[webui] controls_enabled`` is on) and the source is ZMod,
+    clicking the still posts one tap to this Web UI's own touch route
+    with the page's form token; the image is still never a link to
+    the printer and the service's own page is never embedded. A
+    HelixScreen screen is never tappable here, at either setting: the
+    page says it is pressed through HelixScreen's own screen sharing.
     """
     esc = html.escape
     name = esc(str(printer_name or printer_id))
     if ok:
         src = "/api/printers/" + quote(str(printer_id), safe="") \
             + "/screen/snapshot"
-        if touch:
+        if touch and source != SOURCE_HELIXSCREEN:
             intro = (
                 "<p>This is the printer's own display. It is not the "
                 "print-bed camera. Printer controls are on, so you can "
@@ -399,6 +517,26 @@ def render_page(printer_name, printer_id, *, ok, reason,
             csrf_input = (
                 f'<input type="hidden" id="printer-screen-csrf" '
                 f'value="{esc(form_token)}">')
+        elif source == SOURCE_HELIXSCREEN:
+            if touch:
+                intro = (
+                    "<p>This is the printer's own display, shown through "
+                    "HelixScreen's screen sharing. It is not the print-bed "
+                    "camera. Printer controls are on, but this screen is "
+                    "not pressed from here: a HelixScreen screen is pressed "
+                    "through HelixScreen's own screen sharing, with its "
+                    "pairing code or Moonraker sign-in. This page only "
+                    "shows the picture.</p>")
+            else:
+                intro = (
+                    "<p>This is the printer's own display, shown read-only "
+                    "through HelixScreen's screen sharing. It is not the "
+                    "print-bed camera, and nothing on this page can press "
+                    "the screen: to answer a prompt, use the printer itself "
+                    "or HelixScreen's own screen sharing.</p>")
+            img_style = "max-width:100%"
+            touch_script = "  var keepNote = false;"
+            csrf_input = ""
         else:
             intro = (
                 "<p>This is the printer's own display, shown read-only. It is "

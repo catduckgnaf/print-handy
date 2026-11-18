@@ -464,7 +464,7 @@ class ScreenRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(
                 tmp, screen_snapshot_func=fake_screen,
-                screen_probe_func=lambda printer_id: (True, ""))
+                screen_probe_func=lambda printer_id: (True, "", screen.SOURCE_ZMOD))
             pid = settings.default_printer_id(httpd.settings_data)
             code, _, raw = self.request(port, f"/printers/{pid}/screen",
                                         headers=self.auth())
@@ -512,7 +512,7 @@ class ScreenTouchRouteTests(unittest.TestCase):
             httpd = server.make_server(
                 data, environ={"WEBUI_ACCESS_TOKEN": TOKEN}, port=0,
                 snapshot_func=lambda: {},
-                screen_probe_func=lambda printer_id: (True, ""),
+                screen_probe_func=lambda printer_id: (True, "", screen.SOURCE_ZMOD),
                 screen_touch_func=fake_touch)
             thread = threading.Thread(target=httpd.serve_forever,
                                       daemon=True)
@@ -557,6 +557,155 @@ class ScreenTouchRouteTests(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertTrue(json.loads(raw)["ok"])
             self.assertEqual(taps, [(pid, "400", "240")])
+
+
+def helix_entry(**overrides):
+    """The registration HelixScreen 1.1 creates for its Moonraker-proxied
+    screen sharing (view-only shape): the name, the extra_data marker,
+    and the nginx route's snapshot address."""
+    entry = {"name": "HelixScreen Screen", "service": "mjpegstreamer",
+             "stream_url": "/helixscreen/screen/stream.mjpg",
+             "snapshot_url": "/helixscreen/screen/snapshot.jpg",
+             "extra_data": {"helixscreen_screen": True}}
+    entry.update(overrides)
+    return entry
+
+
+class ScreenHelixScreenTests(unittest.TestCase):
+    """HelixScreen Screen as a second screen source (#1626 addition).
+
+    Viewing accepts only the Moonraker-proxied registration shape,
+    built from the printer's configured host; the pairing-code
+    registration (an absolute address on the screen device) is
+    refused by name and never followed. The ZMod registration keeps
+    precedence when both are present. Touch is ZMod-only: a
+    HelixScreen screen refuses by name and sends nothing.
+    """
+
+    def setUp(self):
+        self.data = moonraker_data()
+        self.printer_id = settings.default_printer_id(self.data)
+
+    def snapshot(self, webcams):
+        fetched = []
+        code, body, ctype = screen.snapshot(
+            self.data, self.printer_id,
+            discover=lambda url: webcams,
+            fetch=lambda url: fetched.append(url) or JPEG)
+        self.assertEqual(code, 200)
+        return body, ctype, fetched
+
+    def test_route_mode_registration_serves_the_still(self):
+        body, ctype, fetched = self.snapshot([helix_entry()])
+        self.assertEqual(body, JPEG)
+        self.assertEqual(ctype, "image/jpeg")
+        self.assertEqual(
+            fetched, [f"http://{HOST}/helixscreen/screen/snapshot.jpg"])
+
+    def test_marker_recognizes_a_renamed_entry(self):
+        body, _ctype, fetched = self.snapshot(
+            [helix_entry(name="Workshop display")])
+        self.assertEqual(body, JPEG)
+        self.assertEqual(
+            fetched, [f"http://{HOST}/helixscreen/screen/snapshot.jpg"])
+
+    def test_host_suffixed_name_is_recognized(self):
+        _body, _ctype, fetched = self.snapshot(
+            [helix_entry(name="HelixScreen Screen (printpi)",
+                         extra_data={})])
+        self.assertEqual(
+            fetched, [f"http://{HOST}/helixscreen/screen/snapshot.jpg"])
+
+    def test_pairing_code_registration_is_refused_by_name(self):
+        fetched = []
+        code, body, _ctype = screen.snapshot(
+            self.data, self.printer_id,
+            discover=lambda url: [helix_entry(
+                snapshot_url="http://192.0.2.77:7130/snapshot.jpg",
+                stream_url="http://192.0.2.77:7130/")],
+            fetch=lambda url: fetched.append(url) or JPEG)
+        self.assertEqual(code, 404)
+        self.assertIn("pairing-code", body["reason"])
+        self.assertNotIn("192.0.2.77", body["reason"])
+        self.assertEqual(fetched, [])
+
+    def test_drifted_helixscreen_shape_is_refused(self):
+        fetched = []
+        code, body, _ctype = screen.snapshot(
+            self.data, self.printer_id,
+            discover=lambda url: [helix_entry(
+                snapshot_url="/helixscreen/screen/snap.jpg")],
+            fetch=lambda url: fetched.append(url) or JPEG)
+        self.assertEqual(code, 502)
+        self.assertIn("unexpected shape", body["reason"])
+        self.assertEqual(fetched, [])
+
+    def test_zmod_registration_wins_when_both_are_present(self):
+        _body, _ctype, fetched = self.snapshot(
+            [helix_entry(), WEBCAMS[1]])
+        self.assertEqual(fetched, [f"http://{HOST}/screen/snapshot"])
+        available, reason, source = screen.probe_source(
+            self.data, self.printer_id,
+            discover=lambda url: [helix_entry(), WEBCAMS[1]])
+        self.assertTrue(available)
+        self.assertEqual(source, screen.SOURCE_ZMOD)
+
+    def test_probe_source_names_the_helixscreen_source(self):
+        available, reason, source = screen.probe_source(
+            self.data, self.printer_id,
+            discover=lambda url: [helix_entry()])
+        self.assertTrue(available)
+        self.assertEqual(reason, "")
+        self.assertEqual(source, screen.SOURCE_HELIXSCREEN)
+
+    def test_touch_refuses_a_helixscreen_screen_by_name(self):
+        sent = []
+        code, body = screen.touch(
+            touch_data(), self.printer_id, 400, 240,
+            discover=lambda url: [helix_entry()],
+            send=lambda url: sent.append(url))
+        self.assertEqual(code, 501)
+        self.assertIn("HelixScreen", body["reason"])
+        self.assertEqual(sent, [])
+
+    def test_touch_still_uses_zmod_when_both_are_present(self):
+        sent = []
+        code, body = screen.touch(
+            touch_data(), self.printer_id, 400, 240,
+            discover=lambda url: [helix_entry(), WEBCAMS[1]],
+            send=lambda url: sent.append(url))
+        self.assertEqual(code, 200)
+        self.assertEqual(
+            sent, [f"http://{HOST}/screen/click?x=400&y=240"])
+
+    def test_helixscreen_page_with_controls_on_is_not_tappable(self):
+        page = screen.render_page(
+            "AD5X", self.printer_id, ok=True, reason="",
+            touch=True, form_token="tok",
+            source=screen.SOURCE_HELIXSCREEN)
+        self.assertIn("HelixScreen's own screen sharing", page)
+        self.assertIn("not pressed from here", page)
+        self.assertIn(f"/api/printers/{self.printer_id}/screen/snapshot", page)
+        self.assertNotIn("click", page.split("<main>", 1)[1].split("</main>")[0])
+        self.assertNotIn(HOST, page)
+        self.assertNotIn("7130", page)
+
+    def test_helixscreen_page_with_controls_off_is_read_only(self):
+        page = screen.render_page(
+            "AD5X", self.printer_id, ok=True, reason="",
+            source=screen.SOURCE_HELIXSCREEN)
+        self.assertIn("shown read-only", page)
+        self.assertIn("HelixScreen's screen sharing", page)
+        self.assertNotIn("click", page.split("<main>", 1)[1].split("</main>")[0])
+
+    def test_helixscreen_names_stay_screen_feeds_not_cameras(self):
+        # The #1306 separation: these names classify as screen feeds,
+        # so no camera path can select them.
+        from print_handy import live_stream
+        self.assertTrue(
+            live_stream.is_screen_feed_name("HelixScreen Screen"))
+        self.assertTrue(
+            live_stream.is_screen_feed_name("HelixScreen Screen (printpi)"))
 
 
 if __name__ == "__main__":
