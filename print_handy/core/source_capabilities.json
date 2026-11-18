@@ -89,6 +89,36 @@
       "id": "u1-multicolor-feasibility",
       "owner": "print_handy/core/u1_feasibility.py",
       "source": "any"
+    },
+    {
+      "destination": "bambu_studio",
+      "evidence": "real-destination-slice",
+      "feature": "genuine Cura 5.8.1 project sliced by the real Bambu Studio through the production entry point",
+      "fixture": "tests/slicer/test_cross_slicer_bambu_real.py",
+      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "id": "cura-source-bambu-slice",
+      "owner": "print_handy/core/orca_adapter.py",
+      "source": "cura"
+    },
+    {
+      "destination": "bambu_studio",
+      "evidence": "real-destination-slice",
+      "feature": "genuine PrusaSlicer 2.8.1 project sliced by the real Bambu Studio through the production entry point",
+      "fixture": "tests/slicer/test_cross_slicer_bambu_real.py",
+      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "id": "prusa-source-bambu-slice",
+      "owner": "print_handy/core/orca_adapter.py",
+      "source": "prusa"
+    },
+    {
+      "destination": "bambu_studio",
+      "evidence": "real-destination-slice",
+      "feature": "genuine OrcaSlicer 2.5.1 project sliced by the real Bambu Studio through the production entry point",
+      "fixture": "tests/slicer/test_cross_slicer_bambu_real.py",
+      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "id": "orca-source-bambu-slice",
+      "owner": "print_handy/core/orca_adapter.py",
+      "source": "orca"
     }
   ],
   "gaps": [
