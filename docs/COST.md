@@ -155,7 +155,8 @@ what it actually used, with its prep labor but no post-processing and
 no failure allowance: it is the failure, so it is not charged for one
 twice. Later price edits never rewrite history.
 
-The Data tab's Print costs section and Pasta Wrapped aggregate the
+The Data tab (its Filament and cost section, with the full Print costs
+section under All the numbers) and Pasta Wrapped aggregate the
 frozen records only: out-of-pocket and full spend, spend by printer,
 material and color, cost per gram and per print hour, the most
 expensive and cheapest print, and what the failed and cancelled prints
