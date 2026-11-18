@@ -247,7 +247,7 @@ class Rebind:
         return (f"{self.setting}: the stored {self.service} key is bound to {self.old_host}. "
                 f"Saving {self.new_host} would send that key to a new host (or over plain "
                 f"http instead of https), so nothing was "
-                f"written. To save it, tick \"{self.confirmation}\" on the Settings page review step, or "
+                f"written. To save it, confirm \"{self.confirmation}\" when the Settings page asks, or "
                 f"leave the address on {self.old_host}.")
 
 
