@@ -705,7 +705,9 @@ def test_shipped_stock_flashforge_covers_every_flashforge_model():
     flashforge = {key for key in printers.MODELS
                   if key.split(".")[0].startswith("flashforge")}
     assert flashforge - covered <= {"flashforge_opencreator.creator5",
-                                    "flashforge_opencreator.creator5_pro"}
+                                    "flashforge_opencreator.creator5_pro",
+                                    "flashforge_reforge.creator5",
+                                    "flashforge_reforge.creator5_pro"}
     assert covered <= set(printers.MODELS)
     # The update line never claims Print Handy installs it.
     assert all("never installs" in s["update"] for s in stock)

@@ -129,15 +129,15 @@ Start with the printer you own: its **brand**, then the **model**, then the **fi
 
 ### FlashForge
 
-One brand, four firmware routes. A printer can appear under more than one route; pick the firmware yours actually runs.
+One brand, five firmware routes. A printer can appear under more than one route; pick the firmware yours actually runs.
 
 - **AD5X**: stock factory firmware (the printer's own LAN HTTP API) with the [stock FlashForge guide](docs/FLASHFORGE-STOCK.md), or [ZMod](docs/ZMOD.md) (Moonraker through ZMod).
 - **AD5M, AD5M Pro**: [ZMod](docs/ZMOD.md) (Moonraker), or [Forge-X](docs/FORGEX.md) 1.4.2 beta (Moonraker on Forge-X's patched stock Klipper; not ZMod, never both).
-- **Creator 5, Creator 5 Pro**: [ZMod](docs/ZMOD.md) (Moonraker), or [OpenCreator](docs/OPENCREATOR.md) (Kalico and Moonraker; separate firmware and profiles from ZMod).
+- **Creator 5, Creator 5 Pro**: [ZMod](docs/ZMOD.md) (Moonraker), [OpenCreator](docs/OPENCREATOR.md) (Kalico and Moonraker), or [Reforge](docs/REFORGE.md) (Klipper and Moonraker, builds with AFC). Three firmwares, three separate sets of profiles.
 
-A Creator 5 running OpenCreator is not running ZMod, and a stock AD5X is not secretly a Moonraker printer. **Reforge**, an independent Creator 5 / 5 Pro custom firmware, has **no dedicated Print Handy profile yet**: it is acknowledged here, not supported. See [Reforge upstream](https://github.com/Klipper4FlashForge/firmware), and [request printer support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) if you run it.
+A Creator 5 running OpenCreator is not running ZMod, a Creator 5 running Reforge is running neither, and a stock AD5X is not secretly a Moonraker printer. Same shell, different brains: pick the firmware yours actually runs, and Print Handy will say so if you guessed wrong.
 
-**What has actually been checked?** The ZMod AD5X has limited on-hardware checks, but its [ZMod guide](docs/ZMOD.md) does not claim a verified Print Handy-started print. The stock AD5X LAN upload/start path is implemented but [not yet hardware-confirmed](docs/FLASHFORGE-STOCK.md). OpenCreator's Creator profiles are [tested against documentation and offline contracts, not a real printer](docs/OPENCREATOR.md). Reforge has no integration to verify yet. That's the useful difference between *profile exists* and *go on, bet your printer on it*. The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) covers specific checks; it does not imply every FlashForge combination has been printed successfully.
+**What has actually been checked?** The ZMod AD5X has limited on-hardware checks, but its [ZMod guide](docs/ZMOD.md) does not claim a verified Print Handy-started print. The stock AD5X LAN upload/start path is implemented but [not yet hardware-confirmed](docs/FLASHFORGE-STOCK.md). OpenCreator's Creator profiles are [tested against documentation and offline contracts, not a real printer](docs/OPENCREATOR.md), and so are [Reforge's](docs/REFORGE.md), which are built from Reforge's published config and have not met a real printer yet. That's the useful difference between *profile exists* and *go on, bet your printer on it*. The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) covers specific checks; it does not imply every FlashForge combination has been printed successfully.
 
 ### Creality
 
@@ -192,7 +192,7 @@ The FlashForge community has done a remarkable amount of work convincing these p
 
 - **[ZMod](https://zmod.link)** for opening up the Adventurer and Creator printers through Klipper and Moonraker.
 - **[OpenCreator](https://github.com/FlashForge-C5-Modding-Group/OpenCreator)** and the [FlashForge Creator 5 Modding Group](https://github.com/FlashForge-C5-Modding-Group) for their alternative Creator 5 firmware and documentation.
-- **[Reforge / Klipper4FlashForge](https://github.com/Klipper4FlashForge/firmware)** for another independent Creator 5 custom firmware path. It's acknowledged here, **not** advertised as a tested Print Handy integration.
+- **[Reforge / Klipper4FlashForge](https://github.com/Klipper4FlashForge/firmware)** for another independent Creator 5 custom firmware, and for documenting its print pipeline well enough that a [Print Handy profile](docs/REFORGE.md) could be built from it. Built from their docs, **not** yet tested on a real printer.
 - **[OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)**, **[Spoolman](https://github.com/Donkie/Spoolman)**, **[Klipper](https://github.com/Klipper3d/klipper)**, **[Moonraker](https://github.com/Arksine/moonraker)**, **[OpenSCAD](https://github.com/openscad/openscad)** and **[go2rtc](https://github.com/AlexxIT/go2rtc)** for the tools that make slicing, spools, printer control, design and cameras possible.
 
 Thanks also to everyone filing hardware reports, testing strange combinations, fixing bugs and contributing code. If your printer works because somebody spent a weekend deciphering a protocol, they deserve a credit and probably a nap. Third-party licenses and component details are in [Component provenance](docs/COMPONENTS.md).

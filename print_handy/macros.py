@@ -312,6 +312,11 @@ def prepare_run(transport, name_token, arg_tokens=(), registry=None, printer=Non
     if printer and str(printer).casefold().startswith("flashforge_opencreator."):
         raise MacroRefusal("OpenCreator macro execution is not enabled: command behavior "
                            "has not been verified on hardware. Nothing was sent.")
+    # Reforge, the same posture: its macros drive a tool changer whose
+    # behavior Print Handy has not verified on hardware.
+    if printer and str(printer).casefold().startswith("flashforge_reforge."):
+        raise MacroRefusal("Reforge macro execution is not enabled: command behavior "
+                           "has not been verified on hardware. Nothing was sent.")
     wanted = name_token.casefold()
     entry = None
     canonical = None
