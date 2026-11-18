@@ -981,7 +981,12 @@ def test_monitor_without_a_camera_source_never_captures():
     assert len(posts) == 1 and posts[0].count("MEDIA:") == 1
 
 
-def test_start_monitor_wires_the_adapters_frame_source():
+def test_start_monitor_wires_the_adapters_frame_source(monkeypatch):
+    # This pins the frame source wiring, not the vision state: with no
+    # vision route ready the launch posts its one notice, then the final
+    # snapshot comes from the adapter's frame source.
+    from print_handy.runtime import moonraker_event_listener as mel
+    monkeypatch.setattr(mel, "_vision_ready", lambda: False)
     ran = []
     adapter = FakeAdapter([st("printing"), st("complete")])
     adapter.camera_frame_source = lambda: (SOURCE_URL, lambda _url: JPEG)
