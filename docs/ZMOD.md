@@ -97,8 +97,11 @@ screen** link on a Moonraker printer's card on the Web UI Printers
 page opens `/printers/<id>/screen`, a labeled view that refreshes a
 still of the display while it is open, served by
 `GET /api/printers/<id>/screen/snapshot` behind the Web UI's own
-authorization. It exists so an operator can read a prompt on the
-printer (a filament change, a dialog) without walking to it.
+authorization. The same still also appears in a labeled Printer
+screen panel on the Status page dashboard (#1622) for a printer that
+publishes a screen, linked to that dedicated view. It exists so an
+operator can read a prompt on the printer (a filament change, a
+dialog) without walking to it.
 
 How it works, verified against the ZMod 1.7.6 release payloads and
 the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)):
