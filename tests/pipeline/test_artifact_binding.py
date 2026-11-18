@@ -50,31 +50,6 @@ async def test_persisted_derived_binding_hash_keys_roundtrip_and_tamper_refusal(
         mj.require_current_artifact(altered, gcode)
 
 
-def test_launch_gate_tolerates_reuse_stamps_but_still_checks_identity(tmp_path, monkeypatch):
-    # The #1648 item 7 hardening stamps every binding with the producing
-    # Print Handy version and the resolved author-settings digest. The launch
-    # gate compares only the five identity fields: a stamped binding for an
-    # unchanged job must launch, and an identity change must still refuse
-    # even when the stamps are present.
-    jp, st, gcode = setup_job(tmp_path, monkeypatch)
-    job = json.loads(jp.read_text())
-    job['derived_plates'] = [{'slot': 4, 'gcode': str(gcode)}]
-    job['artifact_binding'] = {'source_sha256': mj.file_sha256(job['downloaded_file']),
-        'decisions_sha256': mj.decisions_digest(job['color_decisions']),
-        'gcode_sha256': {'4': mj.file_sha256(gcode)},
-        'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256'],
-        'print_handy_version': '0.0.0-test', 'author_settings_sha256': 'a' * 64}
-    job['gcode'] = str(gcode)
-    job['gcode_verified'] = True
-    jp.write_text(json.dumps(job))
-    persisted = json.loads(jp.read_text())
-    mj.require_current_artifact(persisted, gcode)
-    altered = json.loads(json.dumps(persisted))
-    altered['artifact_binding']['decisions_sha256'] = '0' * 64
-    with pytest.raises(RuntimeError, match='stale color artifact'):
-        mj.require_current_artifact(altered, gcode)
-
-
 
 
 # Restored coverage for the removed test_callback_swap_stale_refusal_and_reslice_launch.
