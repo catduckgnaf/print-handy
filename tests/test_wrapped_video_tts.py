@@ -12,6 +12,7 @@ import unittest
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from print_handy import settings
 from print_handy.webui import catalog, data as data_module, wrapped_video
@@ -149,11 +150,13 @@ class BackgroundTests(unittest.TestCase):
 
 class MusicTests(unittest.TestCase):
     def test_synthesized_bed_and_sad_beat_levels(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        # The synthesized pad is the last resort: only without the bundled track.
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+                wrapped_video, "BUNDLED_MUSIC", Path(tmp) / "no-track.mp3"):
             result, runner = _build(tmp)
             self.assertTrue(result["ok"], result)
         flat = runner.flat()
-        self.assertIn("aevalsrc", flat)                     # synthesized, no assets
+        self.assertIn(f"aevalsrc={wrapped_video.UPBEAT_EXPR}", flat)
         audio = [cmd for cmd in runner.commands if "-c:a" in cmd]
         self.assertEqual(len(audio), 1)
         mix = " ".join(audio[0])
@@ -177,7 +180,7 @@ class MusicTests(unittest.TestCase):
             self.assertTrue(result2["ok"], result2)
             self.assertTrue(any("music: operator file not found" in n
                                 for n in result2["notes"]))
-            self.assertIn("aevalsrc", runner2.flat())       # synthesized fallback
+            self.assertIn(str(wrapped_video.BUNDLED_MUSIC), runner2.flat())  # bundled fallback
 
     def test_export_silent_has_no_audio_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:

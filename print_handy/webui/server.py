@@ -1192,6 +1192,15 @@ class _Handler(BaseHTTPRequestHandler):
     def _wrapped_video_post(self, form):
         return data_handlers_module.wrapped_video_post(self, form)
 
+    def _wrapped_reel_file_route(self):
+        return data_handlers_module.wrapped_video_file_route(self, kind="reel")
+
+    def _wrapped_reel_status_route(self):
+        return data_handlers_module.wrapped_video_status_route(self, kind="reel")
+
+    def _wrapped_reel_post(self, form):
+        return data_handlers_module.wrapped_video_post(self, form, kind="reel")
+
     def _wrapped_share_post(self, form):
         return data_handlers_module.wrapped_share_post(self, form)
 

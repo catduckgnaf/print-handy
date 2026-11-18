@@ -800,10 +800,11 @@ CATALOG = (
            choices=tuple(settings.WRAPPED_TTS_ENGINES),
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_music_file", "Wrapped music file", "text",
-           "An audio file you supply, used as the Wrapped video music bed "
-           "instead of the synthesized bed. Empty keeps the synthesized bed; "
-           "a missing file is named in the video result and the synthesized "
-           "bed is used.",
+           "An audio file you supply, used as the music bed of the Wrapped "
+           "video and the pasta reel instead of the bundled track (Pole "
+           "Position Nights). Empty keeps the bundled track; a file that "
+           "cannot be read is named in the video result and the bundled "
+           "track is used.",
            validator="settings timelapse check"),
     # Logging.
     _field("logging", "level", "Log level", "picker",
