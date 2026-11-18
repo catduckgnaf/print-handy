@@ -28,7 +28,8 @@ LONG = roast.build_context("Articulated Crystal Dragon Large", duration_s=14 * 3
 MIN_BANK_SIZES = {
     "generic": 220, "one_liners": 120, "long_print": 55, "overnight": 45,
     "short_print": 45, "heavy_filament": 45, "repeat_print": 55,
-    "failed": 80, "cancelled": 60, "spaghetti": 95, "dark_humor": 100
+    "failed": 80, "cancelled": 60, "spaghetti": 95, "dark_humor": 100,
+    "marathon": 25, "light_filament": 25, "multi_copy": 25
 }
 
 
@@ -39,6 +40,8 @@ def _all_entries():
     out += [(f"color:{k}", text) for k, rows in corpus.get("color_roasts", {}).items() for _id, text in rows]
     out += [(f"reprint_failed:{k}", text) for k, rows in corpus.get("reprint_failed", {}).items() for _id, text in rows]
     out += [(f"history:{k}", text) for k, rows in corpus.get("history_callbacks", {}).items() for _id, text in rows]
+    out += [(f"material:{k}", text) for k, rows in corpus.get("material_roasts", {}).items() for _id, text in rows]
+    out += [(f"milestone:{k}", text) for k, rows in corpus.get("milestone", {}).items() for _id, text in rows]
     return out
 
 
@@ -55,7 +58,9 @@ def test_every_bank_file_is_valid_json_with_provenance():
     shipped = {"blocklist.json", "cancelled.json", "color_roasts.json",
                "dark_humor.json", "dictionary.json", "failed.json",
                "fragments.json", "generic.json", "heavy_filament.json",
-               "history_callbacks.json", "long_print.json", "one_liners.json",
+               "history_callbacks.json", "light_filament.json", "long_print.json",
+               "marathon.json", "material_roasts.json", "milestone.json",
+               "multi_copy.json", "one_liners.json",
                "overnight.json", "repeat_print.json", "reprint_failed.json",
                "short_print.json", "spaghetti.json", "title_reactions.json"}
     assert shipped <= set(names), shipped - set(names)
@@ -72,9 +77,9 @@ def test_banks_never_shrink_below_the_seed(bank, minimum):
 
 def test_title_reactions_and_fragments_keep_the_seed():
     corpus = roast.load_corpus()
-    assert len(corpus["title_reactions"]) >= 108
+    assert len(corpus["title_reactions"]) >= 140  # 127 at the seed's last phase, 147 after #1651
     assert all(len(rows) >= 3 for rows in corpus["title_reactions"].values())
-    assert sum(len(rows) for rows in corpus["title_reactions"].values()) >= 430
+    assert sum(len(rows) for rows in corpus["title_reactions"].values()) >= 600
     assert len(corpus.get("color_roasts", {})) >= 20
     assert all(len(rows) >= 5 for rows in corpus["color_roasts"].values())
     assert sum(len(rows) for rows in corpus["color_roasts"].values()) >= 120
@@ -82,6 +87,11 @@ def test_title_reactions_and_fragments_keep_the_seed():
     assert len(corpus.get("reprint_failed", {}).get("failed", [])) >= 40
     assert len(corpus.get("history_callbacks", {}).get("previous_print", [])) >= 40
     assert len(corpus.get("history_callbacks", {}).get("fail_streak", [])) >= 30
+    # Expansion banks (#1651): material families and milestone pools.
+    assert set(corpus.get("material_roasts", {})) == set(roast.MATERIAL_FAMILIES)
+    assert all(len(rows) >= 5 for rows in corpus["material_roasts"].values())
+    assert len(corpus.get("milestone", {}).get("first", [])) >= 12
+    assert len(corpus.get("milestone", {}).get("milestone", [])) >= 14
     assert {k: len(v) for k, v in corpus["fragments"].items()} == {
         "comparisons": 62, "compliments": 62, "openers": 62, "verdicts": 62}
     assert all(len(v) >= 60 for v in corpus["fragments"].values())

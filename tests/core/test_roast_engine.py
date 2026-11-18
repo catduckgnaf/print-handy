@@ -396,3 +396,65 @@ def test_framed_draws_still_count_as_the_base_entry(tmp_path):
     assert lines <= allowed
     assert any(line not in {roast.render(t, ctx("Widget")) for t in texts} for line in lines), \
         "framing actually happens over 300 seeded draws"
+
+
+# ------------------------------------------------------- expansion (#1651)
+
+def test_material_family_matching_and_specificity():
+    assert roast.material_family_keys("PLA") == ["pla"]
+    assert roast.material_family_keys("PLA Plus") == ["pla"]
+    assert roast.material_family_keys("PETG") == ["petg"]
+    assert roast.material_family_keys("TPU 95A") == ["tpu"]
+    assert roast.material_family_keys("PLA CF") == ["carbon"]       # filler outranks base
+    assert roast.material_family_keys("Carbon Fiber PETG") == ["carbon"]
+    assert roast.material_family_keys("Wood PLA") == ["wood"]
+    assert roast.material_family_keys("Polycarbonate") == ["pc"]
+    assert roast.material_family_keys("") == []
+    assert roast.material_family_keys("Unobtainium") == []
+
+
+def test_expansion_pools_are_reachable_under_their_gates():
+    # Material bank: a known material with no other facts draws material lines.
+    assert _pool_names(ctx("Widget", material="PETG")) == ["material:petg", "generic"]
+    # Milestone banks: print #1, a round number, and a plain number.
+    assert _pool_names(ctx("Widget", print_number=1)) == ["milestone:first", "generic"]
+    assert _pool_names(ctx("Widget", print_number=100)) == ["milestone:milestone", "generic"]
+    assert _pool_names(ctx("Widget", print_number=2000)) == ["milestone:milestone", "generic"]
+    assert _pool_names(ctx("Widget", print_number=57)) == ["generic"]
+    # Multi-copy bank needs three or more copies; the slot alone exists from two.
+    assert _pool_names(ctx("Widget", copies=4)) == ["multi_copy", "generic"]
+    assert _pool_names(ctx("Widget", copies=2)) == ["generic"]
+    # Light bank at and under 25 g; heavy still owns the top.
+    assert _pool_names(ctx("Widget", grams=9)) == ["light_filament", "generic"]
+    assert _pool_names(ctx("Widget", grams=25)) == ["light_filament", "generic"]
+    assert _pool_names(ctx("Widget", grams=26)) == ["generic"]
+    # Marathon at 24 h or more, ahead of long_print.
+    assert _pool_names(ctx("Widget", duration_s=26 * 3600)) == ["marathon", "long_print", "generic"]
+    assert _pool_names(ctx("Widget", duration_s=23 * 3600)) == ["long_print", "generic"]
+    # Status posts never see the new completed-print pools.
+    assert _pool_names(ctx("Widget", material="PETG", print_number=1, copies=4), "failed") == ["failed"]
+
+
+def test_expansion_draws_come_from_the_new_banks():
+    corpus = roast.load_corpus()
+    cases = [
+        (ctx("Widget", material="PETG"), {roast.render(t, ctx("Widget", material="PETG"))
+                                          for _i, t in corpus["material_roasts"]["petg"]}),
+        (ctx("Widget", print_number=1), {roast.render(t, ctx("Widget", print_number=1))
+                                         for _i, t in corpus["milestone"]["first"]}),
+        (ctx("Widget", grams=9), {roast.render(t, ctx("Widget", grams=9))
+                                  for _i, t in corpus["banks"]["light_filament"]}),
+        (ctx("Widget", copies=4), {roast.render(t, ctx("Widget", copies=4))
+                                   for _i, t in corpus["banks"]["multi_copy"]}),
+    ]
+    for c, lines in cases:
+        lines.discard(None)
+        assert lines
+        for seed in range(20):
+            assert roast.roast(c, rng=random.Random(seed)) in lines
+
+
+def test_new_title_keywords_react():
+    for title, key in (("Tree Frog", "frog"), ("Robot Cat", "cat"), ("Ghost Ship", "ghost"),
+                       ("Rocket Whale", "whale"), ("Castle Owl", "owl")):
+        assert f"title:{key}" in _pool_names(ctx(title)), title

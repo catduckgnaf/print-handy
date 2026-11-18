@@ -46,3 +46,17 @@ def test_issue_1282_no_short_print_line_claims_it_beat_an_expectation():
     for _id, text in corpus["banks"]["short_print"]:
         line = roast.render(text, ctx)
         assert line is None or "notification" not in line, line
+
+
+def test_roast_facts_carry_copies_and_print_number_when_the_job_has_them():
+    """#1651: the multi-copy and milestone roast banks gate on copies and
+    print_number, so the completion fact builder supplies both from the
+    job record — and omits them when the record does not have them."""
+    facts = announcer.roast_facts({"copies": 4, "print_number": 100}, PLATE, ISSUE_STATS)
+    assert facts["copies"] == 4
+    assert facts["print_number"] == 100
+    bare = announcer.roast_facts({}, PLATE, ISSUE_STATS)
+    assert "copies" not in bare
+    assert "print_number" not in bare
+    single = announcer.roast_facts({"copies": 1}, PLATE, ISSUE_STATS)
+    assert "copies" not in single  # one copy is not a batch fact
