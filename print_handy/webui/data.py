@@ -649,7 +649,8 @@ def make_reel(data, year, *, records_vault=None, out_dir=None, export_silent=Fal
     try:
         clips = (finder(year) if finder is not None
                  else _clips(data, year, records_vault, records, tz)) or []
-    except Exception:
+    except Exception as exc:
+        logger.warning("pasta reel clip search failed; treating the year as clip-free [PH_WRAPPED_REEL]: %s", exc)
         clips = []
     if not pasta_reel.reel_entries(clips, wrapped, records, events=events):
         return 409, {"ok": False, "reason": pasta_reel.EMPTY_REASON}

@@ -788,7 +788,8 @@ def runner_probe(runner, ffmpeg_bin, cwd):
                             capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
                             cwd=str(cwd))
             seconds = float(str(getattr(result, "stdout", "") or "").strip().splitlines()[0])
-        except Exception:
+        except Exception as exc:
+            logger.debug("ffprobe could not read a duration [PH_WRAPPED_PROBE]: %s", exc)
             return None
         if getattr(result, "returncode", 0) or seconds <= 0:
             return None

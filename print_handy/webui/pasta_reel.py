@@ -356,7 +356,8 @@ def build_pasta_reel(year, wrapped, out_dir, *, data=None, ffmpeg=None, runner=N
         data, y, records=records, tz=tz))
     try:
         found = finder(year) or []
-    except Exception:
+    except Exception as exc:
+        logger.warning("pasta reel clip search failed; no clips [PH_WRAPPED_REEL]: %s", exc)
         found = []
     entries = reel_entries(found, wrapped, records, events=events)
     if not entries:
@@ -417,7 +418,8 @@ def _compile(year, wrapped, out_dir, work, entries, records, resolved, runner, d
             clip_seconds = probe(entry["path"])
             try:
                 markers = markers_for(entry["record"])
-            except Exception:
+            except Exception as exc:
+                logger.debug("print markers unreadable; cutting at the clip end [PH_WRAPPED_REEL]: %s", exc)
                 markers = []
             start = cut_start(clip_seconds, cut,
                               failure_moment(entry["record"], markers, clip_seconds))
