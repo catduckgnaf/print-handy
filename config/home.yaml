@@ -455,6 +455,12 @@ firmware:
   # asks once more and applies only through the confirmed path; nothing
   # updates without that press. false turns the alerts off.
   update_alerts: true
+  # The least stable prerelease track to hear about: stable (finals
+  # only), rc (finals and release candidates), beta (adds betas) or
+  # alpha (adds every other prerelease a firmware publishes). Only
+  # firmware that publishes prereleases is affected, and a subscribed
+  # prerelease is still installed only through the confirmed path.
+  update_channel: stable
   # Hours between checks for each printer, 1 to 168.
   update_check_hours: 24
   # Firmware feed lines announced in chat (ids from docs/firmware-feed.toml).

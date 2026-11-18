@@ -209,7 +209,8 @@ def test_the_feed_carries_nothing_but_public_release_facts():
     assert set(feed) == {"schema", "generated_at", "source", "firmware"}
     assert set(feed["firmware"][0]) == {
         "id", "name", "repo", "feed", "channel", "models", "update",
-        "latest", "latest_stable", "audited", "stale", "kind", "stock_models"}
+        "latest", "latest_stable", "latest_prerelease", "audited", "stale",
+        "kind", "stock_models"}
     assert all(method == "GET" for method, _ in github.calls)
 
 

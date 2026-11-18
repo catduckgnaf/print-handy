@@ -66,6 +66,18 @@ def notice_firmwares(cfg) -> frozenset:
     return frozenset(str(n).lower() for n in names)
 
 
+def update_channel(cfg) -> str:
+    """The prerelease track the owner subscribes to ([firmware] update_channel).
+
+    Settings validation guarantees one of settings.FIRMWARE_UPDATE_CHANNELS;
+    anything else read here (a configuration built by hand in a test, say)
+    falls back to "stable", the default that hears about finals only.
+    """
+    value = str((cfg.get("firmware") or {}).get("update_channel") or "stable")
+    value = value.strip().lower()
+    return value if value in settings.FIRMWARE_UPDATE_CHANNELS else "stable"
+
+
 def interval_s(cfg) -> float:
     hours = (cfg.get("firmware") or {}).get("update_check_hours", 24)
     try:
@@ -273,8 +285,8 @@ class FirmwareAlerter:
             self._failing.discard(printer_id)
             mem = self._announced_mem.setdefault(printer_id, set())
             fresh = [offer for offer in fa.to_announce(
-                         fa.offers(observation), state,
-                         skipped=fa.skipped_everywhere(state_dir))
+                         fa.offers(observation, channel=update_channel(self.core.cfg)),
+                         state, skipped=fa.skipped_everywhere(state_dir))
                      if (offer.key, offer.applicable) not in mem]
             announced = {}
             for offer in fresh:
@@ -324,7 +336,8 @@ class FirmwareAlerter:
             rows = [row for row in feed.for_model(model) if row.id.lower() in wanted]
             notices, seen = fa.feed_notices(
                 rows, state,
-                skip_ids=(fa.COMPONENT,) if owns_zmod else ())
+                skip_ids=(fa.COMPONENT,) if owns_zmod else (),
+                channel=update_channel(self.core.cfg))
             label = self._feed_label(printer_id, entry)
             delivered = []
             for notice in notices:
@@ -333,11 +346,11 @@ class FirmwareAlerter:
                 else:
                     # Not delivered: keep the previous record so the next
                     # check announces it again.
-                    before = (state.get(fa.FEED_SEEN) or {}).get(notice.firmware_id)
+                    before = (state.get(fa.FEED_SEEN) or {}).get(notice.seen_key)
                     if before is None:
-                        seen.pop(notice.firmware_id, None)
+                        seen.pop(notice.seen_key, None)
                     else:
-                        seen[notice.firmware_id] = before
+                        seen[notice.seen_key] = before
             self._feed_store(printer_id, state_dir, self._next(now), seen)
             return delivered
         except Exception as exc:
