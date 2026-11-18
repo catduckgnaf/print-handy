@@ -5,8 +5,9 @@ name: cross-slicer-extended
 # uploaded as artifacts with their provenance manifest. This workflow is
 # scheduled and manual only — never a required check — because genuine
 # producer production is heavy and, for Cura, headless project saving is
-# not a supported CLI operation: the Cura step records the attempt and
-# its outcome in the job summary instead of pretending success.
+# not a supported CLI operation: the Cura step probes the pinned binary
+# and says in the job summary that the committed genuine Cura fixture was
+# GUI-saved, instead of pretending to regenerate it.
 on:
   schedule:
     - cron: "23 5 * * 1"
@@ -81,12 +82,13 @@ jobs:
           echo "$CURA_SHA256  cura.AppImage" | sha256sum -c -
           chmod +x cura.AppImage
           ./cura.AppImage --appimage-extract > /dev/null
-          # Cura has no supported headless "save project" CLI operation.
-          # The attempt runs the real binary's version probe and records
-          # the outcome; a genuine Cura fixture is added only if a real
-          # project file comes out of a real Cura run.
+          # Cura has no supported headless "save project" CLI operation,
+          # so this step only probes the pinned binary. The committed
+          # genuine fixture (tests/corpus/producer-fixtures/cura-genuine.3mf)
+          # was saved through the real Cura 5.8.1 GUI under Xvfb and is
+          # recorded with --cura-genuine; see PROVENANCE.json.
           xvfb-run -a ./squashfs-root/AppRun --version || true
-          echo "Cura genuine project production remains an open gap unless a .3mf was produced above." >> "$GITHUB_STEP_SUMMARY"
+          echo "Cura 5.8.1 binary probed; the genuine Cura fixture is the GUI-saved cura-genuine.3mf recorded in PROVENANCE.json, not regenerated here." >> "$GITHUB_STEP_SUMMARY"
       - name: Upload producer fixtures and provenance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
