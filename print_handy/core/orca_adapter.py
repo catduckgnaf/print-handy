@@ -1466,7 +1466,7 @@ def start_mesh_profile(state):
 
 
 @painted_geometry.decode_scoped
-def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None):
+def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None, towerless=False):
     _slice_started = time.monotonic()
     _slicer_runs = []  # elapsed seconds of each slicer subprocess, for the provenance timing split (#952)
     source, folder = Path(source), Path(folder)
@@ -1558,6 +1558,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if purge_plan.refusal:
             raise RuntimeError(purge_plan.refusal)
         tower_mm = purge.tower_mm(nozzle_dia, purge_plan)
+    if towerless:
+        # The caller measured this slice as one that never changes tools (a
+        # one-slot painted plate, #1648) and fit it to the bed with no tower.
+        tower_mm = 0.0
     # A multi_tool printer slices per-part colours as true multi-extruder
     # output: tools are toolheads (identity mapping), the model's templates
     # already describe every extruder, and no native IFS finalize applies (#346).
@@ -1583,6 +1587,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                             object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
                                             identity_tools=multi_tool, tower_mm=tower_mm, slicer=route_slicer,
                                             **({'rotation': rotation} if rotation is not None else {}))
+        if towerless and len(set((mapping or {}).values())) > 1:
+            raise RuntimeError('a slice fit without a prime tower changes tools; refit it with a tower')
         author = project['author']
     elif identity_single:
         # Expand the one pick to a per-part view in memory (the persisted

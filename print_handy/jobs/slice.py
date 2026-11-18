@@ -1280,9 +1280,14 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
             continue
         slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
         yaw = float((fit.get('yaw_by_plate') or {}).get(str(plate['id'])) or 0.0)
+        # A plate the fit measured with no tower (one slot) is sliced with none,
+        # so the slice places exactly what the fit accepted.
+        layout = (fit.get('layouts') or {}).get(str(plate['id'])) or {}
+        towerless = layout.get('tower_mm') == 0.0
         out, provenance, configs = slice_model(src, slice_dir, st, brim_override, color_decisions=view,
                                                object_ids=ids, scale=None if scale == 1.0 else scale,
                                                rotation=_yaw(yaw) if yaw else None,
+                                               **({'towerless': True} if towerless else {}),
                                                **_support_kw(job), **_edit_kw(job))
         geometry = provenance.get('geometry') or {}
         if sorted(r['part_key'] for r in geometry.get('parts', [])) != sorted(keys):

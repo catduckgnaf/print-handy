@@ -374,3 +374,47 @@ def test_1648_one_tool_painted_plate_reserves_no_tower(tmp_path):
     fit = model_job.painted_fit(path, view, _plates(path, manifest), 1.0, None)
     (row,) = fit['layouts'].values()
     assert fit['scale'] == 1.0 and row['tower_mm'] == 0.0
+
+
+def test_1648_slice_places_no_tower_on_a_plate_fit_without_one(tmp_path, monkeypatch):
+    """The slice reserves exactly what the fit accepted: a one-slot plate fit towerless is sliced towerless.
+
+    Otherwise a plate turned to fill the bed with no tower room is sliced with
+    the printer's tower and the export finds no place for it.
+    """
+    import json
+
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as slice_mod
+
+    plates = [{'id': 1, 'object_ids': ['1']}, {'id': 2, 'object_ids': ['2']}]
+    manifest = {'parts': [{'key': 'a', 'object_id': '1'}, {'key': 'b', 'object_id': '2'}]}
+    fit = {'scale': 1.0, 'blocking_plate': None, 'plates': 2, 'yaw_by_plate': {'1': 45.0, '2': 0.0},
+           'layouts': {'1': {'scale': 1.0, 'yaw': 45.0, 'extent_mm': [216.4, 216.4, 80.0], 'tower_mm': 0.0},
+                       '2': {'scale': 1.0, 'yaw': 0.0, 'extent_mm': [120.0, 80.0, 3.0], 'tower_mm': 35.0}}}
+    calls = []
+
+    def fake_slice(src, folder, st, brim=None, object_ids=None, **kw):
+        calls.append((sorted(object_ids), kw.get('towerless', False)))
+        folder.mkdir(parents=True, exist_ok=True)
+        out = folder / 'plate.gcode'
+        out.write_text('G1 X0\n')
+        key = 'a' if object_ids == {'1'} else 'b'
+        return out, {'geometry': {'parts': [{'part_key': key}]}, 'tool_mapping': {}}, []
+
+    monkeypatch.setattr(slice_mod, 'painted_fit', lambda *a, **k: fit)
+    monkeypatch.setattr(slice_mod, '_painted_tower_mm', lambda st: None)
+    monkeypatch.setattr(orca_adapter, 'slice_model', fake_slice)
+    monkeypatch.setattr(slice_mod, 'verify_gcode_offline', lambda *a, **k: {'ok': True})
+    monkeypatch.setattr(slice_mod, '_job_adapter', lambda job: None)
+    monkeypatch.setattr(slice_mod, '_recipe_changed', lambda *a, **k: False)
+    monkeypatch.setattr(slice_mod, '_recipe_binding', lambda job: {})
+    monkeypatch.setattr(slice_mod, 'write_job', lambda work, job: None)
+    src = tmp_path / 'model.3mf'
+    src.write_bytes(b'source')
+    job_path = tmp_path / 'JOB.json'
+    job = {'color_decisions': {'mode': 'per_part'}}
+    job_path.write_text(json.dumps(job))
+    slice_mod._slice_painted_plates(job, job_path, src, manifest, job['color_decisions'], {}, plates,
+                                    {'bed_mm': [220, 220]}, None, tmp_path)
+    assert calls == [(['1'], True), (['2'], False)]
