@@ -39,6 +39,7 @@ import re
 from urllib.parse import parse_qs, quote, urlparse
 
 from .. import firmware_update as fw
+from .. import printer_control
 from .. import settings
 from . import channel_jobs as channel_jobs_module
 from . import controls as controls_module
@@ -339,10 +340,13 @@ def channel_apply_route(handler, form):
     running = channel_jobs_module.running_job_for(printer_id, prepared.component.name)
     if running is not None:
         return handler._redirect(f"/firmware/channel/status?job={running.id}")
+    # The Moonraker restart routes through the printer-control service
+    # (#1317), like every control command.
+    restart = printer_control.for_printer(str(printer_id)).server_restart
     job = channel_jobs_module.start_job(
         printer_id=str(printer_id),
         printer_name=str(row.get("name") or printer_id),
-        transport=transport, files=files, prepared=prepared)
+        transport=transport, files=files, prepared=prepared, restart=restart)
     return handler._redirect(f"/firmware/channel/status?job={job.id}")
 
 

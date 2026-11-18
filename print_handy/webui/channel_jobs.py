@@ -69,12 +69,15 @@ def running_job_for(printer_id, component_name):
     return None
 
 
-def start_job(*, printer_id, printer_name, transport, files, prepared, on_finish=None):
+def start_job(*, printer_id, printer_name, transport, files, prepared, restart,
+              on_finish=None):
     """Start ``prepared`` (a PreparedChannelSwitch) in the background; return the job.
 
-    If a job for the same printer and component is already running it
-    is returned unchanged and nothing new is sent. ``on_finish(job)``
-    runs after the outcome is recorded.
+    ``restart`` is the printer's Moonraker restart, routed through
+    print_handy.printer_control by the caller (#1317). If a job for the
+    same printer and component is already running it is returned
+    unchanged and nothing new is sent. ``on_finish(job)`` runs after
+    the outcome is recorded.
     """
     with _LOCK:
         for existing in _JOBS.values():
@@ -91,7 +94,8 @@ def start_job(*, printer_id, printer_name, transport, files, prepared, on_finish
 
     def run():
         try:
-            job.outcome = fw.send_channel_switch(transport, files, prepared)
+            job.outcome = fw.send_channel_switch(transport, files, prepared,
+                                                 restart=restart)
         except (fw.FirmwareRefusal, fw.FirmwareError) as exc:
             job.outcome = str(exc)
         except Exception:

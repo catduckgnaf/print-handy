@@ -19,6 +19,7 @@ from unittest import mock
 import pytest
 
 from print_handy import firmware_update as fw
+from print_handy import printer_control
 from print_handy import printers
 from print_handy.bot import llm
 from print_handy.runtime import spool_sync
@@ -117,18 +118,21 @@ class ChannelTransport:
         self.channel_after = channel_after
         self.restart_error = restart_error
         self.restarted = False
+        self.restarts = 0
         self.calls = []
         self.posts = []
+
+    def restart(self):
+        """The service-routed Moonraker restart the surfaces hand to the flow."""
+        self.restarts += 1
+        self.restarted = True
+        if self.restart_error is not None:
+            raise self.restart_error
 
     def __call__(self, method, path, body=None):
         self.calls.append((method, path, body))
         if method == "POST":
             self.posts.append((path, body))
-        if path == fw.SERVER_RESTART_PATH:
-            self.restarted = True
-            if self.restart_error is not None:
-                raise self.restart_error
-            return {}
         if path == fw.UPDATE_STATUS_PATH:
             if self.restarted and self.channel_after is not None:
                 return status(self.channel_after)
@@ -347,14 +351,14 @@ def test_send_backs_up_first_writes_restarts_and_verifies():
     transport = ChannelTransport(channel_after={"helixscreen": "beta"})
     files = FakeFiles()
     prepared = _prepared(transport, files)
-    message = fw.send_channel_switch(transport, files, prepared,
+    message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
                                      verify_delay_s=0, sleep=_no_sleep)
     assert message.startswith("Switched **helixscreen** to the beta channel")
     assert "verified" in message
     assert [name for name, _text in files.uploads] == [BACKUP_FILE, USER_FILE]
     assert files.uploads[0][1] == USER_CONF          # the backup is the original
     assert files.files[USER_FILE] == USER_CONF_BETA  # only the one line changed
-    assert transport.posts == [(fw.SERVER_RESTART_PATH, None)]
+    assert transport.restarts == 1
 
 
 def test_send_rechecks_idle_and_writes_nothing_when_the_printer_started():
@@ -362,7 +366,7 @@ def test_send_rechecks_idle_and_writes_nothing_when_the_printer_started():
     files = FakeFiles()
     prepared = _prepared(transport, files)
     with pytest.raises(fw.FirmwareRefusal, match="printing"):
-        fw.send_channel_switch(transport, files, prepared,
+        fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
                                verify_delay_s=0, sleep=_no_sleep)
     assert files.uploads == []
     assert transport.posts == []
@@ -373,7 +377,7 @@ def test_send_writes_nothing_when_the_backup_cannot_be_saved():
     files = FakeFiles(fail_counts={BACKUP_FILE: 1})
     prepared = _prepared(transport, files)
     with pytest.raises(fw.FirmwareError, match="backup"):
-        fw.send_channel_switch(transport, files, prepared,
+        fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
                                verify_delay_s=0, sleep=_no_sleep)
     assert [name for name, _text in files.uploads] == [BACKUP_FILE]
     assert files.files[USER_FILE] == USER_CONF
@@ -384,7 +388,7 @@ def test_send_restores_the_backup_when_the_write_fails():
     transport = ChannelTransport(channel_after={"helixscreen": "beta"})
     files = FakeFiles(fail_counts={USER_FILE: 1})
     prepared = _prepared(transport, files)
-    message = fw.send_channel_switch(transport, files, prepared,
+    message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
                                      verify_delay_s=0, sleep=_no_sleep)
     assert "failed while writing" in message and "backup was restored" in message
     assert [name for name, _text in files.uploads] == [BACKUP_FILE, USER_FILE, USER_FILE]
@@ -396,7 +400,7 @@ def test_send_names_a_failed_restore_honestly():
     transport = ChannelTransport()
     files = FakeFiles(fail_counts={USER_FILE: 99})
     prepared = _prepared(transport, files)
-    message = fw.send_channel_switch(transport, files, prepared,
+    message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
                                      verify_delay_s=0, sleep=_no_sleep)
     assert "restoring the backup failed too" in message
     assert BACKUP_FILE in message
@@ -406,14 +410,13 @@ def test_send_restores_the_backup_when_the_new_channel_never_shows():
     transport = ChannelTransport()  # the status keeps reporting stable
     files = FakeFiles()
     prepared = _prepared(transport, files)
-    message = fw.send_channel_switch(transport, files, prepared, verify_attempts=2,
+    message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart, verify_attempts=2,
                                      verify_delay_s=0, sleep=_no_sleep)
     assert "did not take effect" in message and "backup was restored" in message
     assert "still on the stable channel" in message
     assert files.files[USER_FILE] == USER_CONF
     # One restart for the switch, one more after the restore.
-    assert transport.posts == [(fw.SERVER_RESTART_PATH, None),
-                               (fw.SERVER_RESTART_PATH, None)]
+    assert transport.restarts == 2
 
 
 def test_send_verifies_even_when_the_restart_drops_the_connection():
@@ -421,7 +424,7 @@ def test_send_verifies_even_when_the_restart_drops_the_connection():
                                  restart_error=OSError("connection reset"))
     files = FakeFiles()
     prepared = _prepared(transport, files)
-    message = fw.send_channel_switch(transport, files, prepared,
+    message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
                                      verify_delay_s=0, sleep=_no_sleep)
     assert message.startswith("Switched **helixscreen**")
 
@@ -432,7 +435,7 @@ def test_send_switching_back_to_stable_says_it_does_not_downgrade():
         channel_after={"helixscreen": "stable"})
     files = FakeFiles({USER_FILE: USER_CONF_BETA})
     prepared = _prepared(transport, files, channel="stable")
-    message = fw.send_channel_switch(transport, files, prepared,
+    message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
                                      verify_delay_s=0, sleep=_no_sleep)
     assert message.startswith("Switched **helixscreen** to the stable channel")
     assert "does not downgrade" in message
@@ -452,15 +455,27 @@ def test_confirmed_switch_asks_first_and_sends_only_on_the_switch_label():
     transport = ChannelTransport(channel_after={"helixscreen": "beta"})
     files = FakeFiles()
     message = asyncio.run(fw.confirmed_channel_switch(
-        transport, files, AD5X, "helixscreen", "beta", ask_yes, None))
+        transport, files, AD5X, "helixscreen", "beta", ask_yes, None,
+        restart=transport.restart))
     assert message.startswith("Switched **helixscreen**")
 
     transport = ChannelTransport(channel_after={"helixscreen": "beta"})
     files = FakeFiles()
     message = asyncio.run(fw.confirmed_channel_switch(
-        transport, files, AD5X, "helixscreen", "beta", ask_no, None))
+        transport, files, AD5X, "helixscreen", "beta", ask_no, None,
+        restart=transport.restart))
     assert message == fw.NOT_SWITCHED_TEXT
     assert files.uploads == [] and transport.posts == []
+
+
+def test_driver_server_restart_posts_the_restart():
+    from print_handy.runtime import print_control
+    sent = []
+    with mock.patch.object(print_control, "_send",
+                           lambda path, **kw: sent.append((path, kw))):
+        print_control.server_restart(printer_id="kl1")
+    assert sent == [("/server/restart",
+                     {"method": "POST", "timeout": 15, "printer_id": "kl1"})]
 
 
 def test_the_chat_model_may_never_name_the_channel_form():
@@ -555,6 +570,12 @@ async def _confirm_cancel(*args, **kwargs):
     return fw.CANCEL_LABEL
 
 
+def _fake_service(transport):
+    """The printer-control service with this transport's restart."""
+    return mock.patch.object(printer_control, "for_printer",
+                             lambda pid=None: S(server_restart=transport.restart))
+
+
 def test_dispatch_channel_switches_after_confirmation():
     adapter = FakeAdapter()
     transport = ChannelTransport(channel_after={"helixscreen": "beta"})
@@ -562,6 +583,7 @@ def test_dispatch_channel_switches_after_confirmation():
     with _configured("flashforge.ad5x", "moonraker"), \
             mock.patch.object(spool_sync, "moonraker", transport), \
             mock.patch.object(fw, "config_files_for", lambda pid, cfg=None: files), \
+            _fake_service(transport), \
             mock.patch.object(plugin, "_confirm", _confirm_switch):
         out = asyncio.run(plugin.firmware_dispatch(
             _event("/print-firmware channel helixscreen beta"), _gateway(adapter)))
@@ -577,6 +599,7 @@ def test_dispatch_channel_sends_nothing_when_the_operator_cancels():
     with _configured("flashforge.ad5x", "moonraker"), \
             mock.patch.object(spool_sync, "moonraker", transport), \
             mock.patch.object(fw, "config_files_for", lambda pid, cfg=None: files), \
+            _fake_service(transport), \
             mock.patch.object(plugin, "_confirm", _confirm_cancel):
         asyncio.run(plugin.firmware_dispatch(
             _event("/print-firmware channel helixscreen beta"), _gateway(adapter)))
@@ -645,6 +668,8 @@ def _wire(monkeypatch, transport, files):
                         lambda data, pid: transport)
     monkeypatch.setattr(firmware_handlers, "_channel_files",
                         lambda data, pid: files)
+    monkeypatch.setattr(printer_control, "for_printer",
+                        lambda pid=None: S(server_restart=transport.restart))
 
 
 def test_firmware_page_lists_channels_and_the_switch_link(monkeypatch, tmp_path):

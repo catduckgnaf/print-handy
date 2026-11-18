@@ -70,7 +70,6 @@ UPDATE_UPGRADE_PATH = "/machine/update/upgrade"
 UPGRADE_TIMEOUT_S = 900.0
 SYSTEM_INFO_PATH = "/machine/system_info"
 CONFIG_PATH = "/server/config"
-SERVER_RESTART_PATH = "/server/restart"
 CONFIG_DOWNLOAD_PATH = "/server/files/config/"
 CONFIG_UPLOAD_PATH = "/server/files/upload"
 PRINT_STATE_PATH = "/printer/objects/query?print_stats=state"
@@ -1519,32 +1518,38 @@ def _restore_config(files, prepared) -> bool:
     return True
 
 
-def _restart_moonraker(transport):
-    """POST /server/restart; the error, or None when Moonraker answered.
+def _run_restart(restart):
+    """Run the caller's Moonraker restart; the error, or None when it answered.
 
-    A dropped connection is an expected shape here (Moonraker goes down
-    to restart), so callers treat any failure as unproven and let the
-    verification re-read decide.
+    The restart is the caller's to send: printer-control commands route
+    through print_handy.printer_control (#1317), so each surface hands
+    in its own printer's service restart and this module never names
+    the endpoint. A dropped connection is an expected shape here
+    (Moonraker goes down to restart), so any failure is treated as
+    unproven and the verification re-read decides.
     """
     try:
-        transport("POST", SERVER_RESTART_PATH)
+        restart()
     except Exception as exc:  # noqa: BLE001 - verification decides, see docstring
         return exc
     return None
 
 
 def send_channel_switch(transport, files, prepared: PreparedChannelSwitch, *,
-                        verify_attempts=8, verify_delay_s=5.0,
+                        restart, verify_attempts=8, verify_delay_s=5.0,
                         sleep=time.sleep) -> str:
     """Back up, write the one line, restart Moonraker, verify; restore on failure.
 
-    The idle check is repeated first — the state can change while the
-    operator decides. The backup copy is uploaded before the config
-    file itself is touched; if the backup cannot be saved, nothing is
-    written. Any later failure (the write itself, or the new channel
-    not showing in /machine/update/status after the restart) restores
-    the original text and restarts Moonraker again, and the outcome
-    says whether that restore went through.
+    ``restart`` is the surface's Moonraker restart for this printer
+    (its print_handy.printer_control service method), called once after
+    the write and once more after a restore. The idle check is repeated
+    first — the state can change while the operator decides. The backup
+    copy is uploaded before the config file itself is touched; if the
+    backup cannot be saved, nothing is written. Any later failure (the
+    write itself, or the new channel not showing in
+    /machine/update/status after the restart) restores the original
+    text and restarts Moonraker again, and the outcome says whether
+    that restore went through.
     """
     try:
         state = print_state(transport)
@@ -1573,7 +1578,7 @@ def send_channel_switch(transport, files, prepared: PreparedChannelSwitch, *,
                 f"too. Fix it by hand: copy `{prepared.backup_filename}` over "
                 f"`{prepared.filename}` in the printer's config folder (Fluidd or "
                 "Mainsail's config editor can do it) and restart Moonraker.")
-    _restart_moonraker(transport)
+    _run_restart(restart)
     last_status = None
     for attempt in range(max(1, verify_attempts)):
         if attempt:
@@ -1595,7 +1600,7 @@ def send_channel_switch(transport, files, prepared: PreparedChannelSwitch, *,
                          "stable release passes it.")
             return text
     if _restore_config(files, prepared):
-        _restart_moonraker(transport)
+        _run_restart(restart)
         seen = ""
         if last_status is not None:
             component = last_status.component(name)
@@ -1613,7 +1618,7 @@ def send_channel_switch(transport, files, prepared: PreparedChannelSwitch, *,
 
 
 async def confirmed_channel_switch(transport, files, entry, component_token,
-                                   channel_token, ask, cfg=None) -> str:
+                                   channel_token, ask, cfg=None, *, restart) -> str:
     """The channel switch end to end: prepare, ask, then send (#1634).
 
     The one flow every surface uses: chat's ``/print-firmware channel``
@@ -1621,6 +1626,8 @@ async def confirmed_channel_switch(transport, files, entry, component_token,
     ``ask(question, choices)`` is the surface's confirmation prompt and
     returns the chosen label (or None). Only an explicit SWITCH_LABEL
     sends; any other answer, a timeout included, sends nothing.
+    ``restart`` is the surface's Moonraker restart for this printer
+    (its print_handy.printer_control service method, #1317).
     prepare_channel_switch and send_channel_switch keep every gate
     (profile eligibility, the live component, the channel values
     Moonraker accepts for the type, the read-only file refusal, both
@@ -1637,7 +1644,8 @@ async def confirmed_channel_switch(transport, files, entry, component_token,
     if answer != SWITCH_LABEL:
         return NOT_SWITCHED_TEXT
     try:
-        return await asyncio.to_thread(send_channel_switch, transport, files, prepared)
+        return await asyncio.to_thread(send_channel_switch, transport, files, prepared,
+                                       restart=restart)
     except (FirmwareRefusal, FirmwareError) as exc:
         return str(exc)
 

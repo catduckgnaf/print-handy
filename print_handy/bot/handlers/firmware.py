@@ -120,10 +120,15 @@ async def firmware_dispatch(event, gateway, **kwargs):
 
         try:
             # The one confirmed channel-switch flow, shared with the Web
-            # UI Firmware page (print_handy.firmware_update).
+            # UI Firmware page (print_handy.firmware_update). The
+            # Moonraker restart routes through the printer-control
+            # service (#1317), like every control command.
+            from print_handy import printer_control
             files = firmware_update.config_files_for(pid, cfg)
+            restart = printer_control.for_printer(pid).server_restart
             message = await firmware_update.confirmed_channel_switch(
-                mr, files, entry, component_token, channel_token, ask, cfg)
+                mr, files, entry, component_token, channel_token, ask, cfg,
+                restart=restart)
         except Exception:
             logger.exception('/print-firmware channel failed')
             message = ('The firmware channel switch stopped on an error. No confirmation '
