@@ -109,11 +109,12 @@ def test_print_stats_payload_carries_costs():
     assert payload["costs"]["total_spend"] == 5.00
     wrapped = print_stats.build_wrapped(records, 2026)
     script = "\n".join(wrapped["script"])
-    assert "recorded print costs" in script
+    # #1632 review: the line leads with out-of-pocket spend.
+    assert "You spent USD" in script and "frozen cost on each record" in script
 
 
 def test_print_stats_no_cost_line_without_priced_jobs():
     wrapped = print_stats.build_wrapped([{"title": "x", "status": "completed",
                                           "started_at": "2026-03-01T10:00:00Z"}], 2026)
-    assert "recorded print costs" not in "\n".join(wrapped["script"])
+    assert "You spent" not in "\n".join(wrapped["script"])
     assert wrapped["stats"]["costs"]["has_priced"] is False

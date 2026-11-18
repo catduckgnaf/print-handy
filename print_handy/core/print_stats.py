@@ -29,6 +29,7 @@ when no events file exists the aggregate keeps the honest
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
@@ -809,6 +810,9 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         # A period with no priced jobs says so plainly in the block's
         # note; nothing is estimated here and currencies never mix.
         "costs": _cost_aggregates(rows),
+        # A separately labeled estimate for older unpriced prints; never
+        # part of "costs" (#1632 review).
+        "cost_backfill": _cost_backfill(rows),
         # No "timelapse_known" (#981): it keyed on a `timelapse` record
         # field no record ever carries, so it was structurally always 0.
         # Clip counts are a finder result, not a record fact; the Web UI
@@ -821,6 +825,18 @@ def _cost_aggregates(rows):
     """Frozen-cost aggregates for the Data tab and Pasta Wrapped (#1625)."""
     from . import cost as _cost
     return _cost.aggregate_costs(rows)
+
+
+def _cost_backfill(rows):
+    """The labeled estimate for unpriced records; empty when settings cannot be read."""
+    from . import cost as _cost
+    try:
+        from .. import settings as _settings
+        data = _settings.current()
+    except Exception:  # noqa: BLE001 - no settings means no estimate, never a failed page
+        logging.getLogger(__name__).warning("cost backfill estimate skipped", exc_info=True)
+        return {}
+    return _cost.backfill_estimate(rows, data)
 
 
 def _top_label(table):

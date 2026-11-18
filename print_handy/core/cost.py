@@ -696,6 +696,45 @@ def should_decrement_spoolman(accounting: str, moonraker_already_reported: bool)
     return str(accounting or "auto").lower() not in ("printer",)
 
 
+def backfill_estimate(records, data):
+    """A labeled estimate for finished records that have no frozen cost (#1632 review).
+
+    Prices each unpriced finished record from its own recorded grams
+    and hours at today's workspace defaults and printer preset. It is a
+    separate figure, never added to the frozen totals, and every surface
+    labels it an estimate. Records with neither grams nor hours are
+    counted as unestimated.
+    """
+    workspace = WorkspaceCost.from_settings(data)
+    total = pocket = 0.0
+    estimated = skipped = 0
+    for record in records or []:
+        if not isinstance(record, dict) or isinstance(record.get("cost"), dict):
+            continue
+        status = str(record.get("status") or "")
+        if status in ("", "printing"):
+            continue
+        grams = _num(record.get("filament_used_g")) or _num(record.get("estimated_filament_g")) or 0.0
+        seconds = _num(record.get("print_duration_seconds")) or 0.0
+        if not grams and not seconds:
+            skipped += 1
+            continue
+        profile, _ = printer_profile_for(data, printer_id=record.get("printer_id"),
+                                         printer_name=record.get("printer"))
+        outcome = status if status in ("failed", "cancelled") else "completed"
+        result = compute(JobCostInput(
+            lines=[MaterialLine(material=str(record.get("filament_material") or ""), grams=grams)],
+            print_hours=seconds / 3600.0, grams_source="recorded history (backfill estimate)",
+            outcome=outcome), profile, workspace)
+        total += result.cost_per_build
+        pocket += result.out_of_pocket
+        estimated += 1
+    return {"estimated_count": estimated, "unestimated_count": skipped,
+            "out_of_pocket_estimate": _round2(pocket), "total_estimate": _round2(total),
+            "currency_code": workspace.currency_code,
+            "label": "Estimate for older prints with no recorded cost, at today's prices"}
+
+
 def _record_failed(record, cost):
     outcome = str((cost or {}).get("outcome") or "")
     if outcome in ("failed", "cancelled"):

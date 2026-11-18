@@ -10,27 +10,56 @@ Cost is information only. It never blocks, delays or refuses a print.
 A missing price or profile produces a labeled estimate or a plain
 "cannot estimate yet" naming what is missing.
 
+## Hobby and seller
+
+Every cost carries two figures:
+
+- **Out of pocket**: what the print actually cost you. Filament (with
+  the waste allowance), electricity and consumables, grossed up by the
+  failure allowance, plus any hardware, packaging and flat fee.
+- **Full cost**: out of pocket plus labor, depreciation and maintenance.
+  This is what a quote has to recover.
+
+`[cost] cost_mode` picks which one leads. `hobby` (the default) leads
+chat answers, the Ready card line and Pasta Wrapped with out of pocket.
+`seller` leads with the full cost and shows selling price tiers. Both
+figures are always recorded, so switching modes later changes how
+history reads, never what was recorded.
+
 ## Asking in chat
 
-- `/print-cost` asks about the last completed print, answered from its
-  frozen completion record.
-- `/print-cost 50 g, 3 h, in PETG` (or just asking "how much will this
-  cost, 50 g, 3 h") answers an estimate for those amounts.
-- Plain phrases work too: "how much did that print cost", "price this
-  print", "what did filament cost this month".
-- An ask with no job and no amounts asks which print is meant instead
-  of guessing.
+- "How much will this cost" and "price this print" price the file in
+  hand: the newest sliced job that has not printed yet, per slot at each
+  assigned spool's price. With nothing sliced, the answer says so
+  instead of falling back to an old print.
+- "How much did that print cost" and a bare `/print-cost` answer from
+  the last finished print's frozen record.
+- "What did filament cost this month" and "what did I spend this month"
+  answer the month's recorded spend, out of pocket first, with what
+  failed prints cost named.
+- `/print-cost 50 g, 3 h, in PETG` (or "how much will this cost, 50 g,
+  3 h") answers an estimate for those amounts.
 
-The chat answer is compact: cost per part and per build, the top cost
-lines, the failure allowance and the provenance line. The full
-breakdown is on the Web UI cost page.
+The chat answer is compact: the leading figure for the cost mode, the
+top cost lines, the failure allowance and the provenance line. The
+full breakdown is on the Web UI cost page.
+
+## On the Ready card
+
+When a job is sliced, the Ready card carries one line such as
+"Estimated cost: about USD 0.31 in filament and power", priced from the
+sliced file and its assigned spools (the larger variant when both
+support choices are shown). It is information only: it adds no button,
+asks nothing, and a problem working it out only leaves the line off.
 
 The command also appears in the live demo's command list
 (`demo/scenarios.json`), which tracks the production command table.
 
 ## The Web UI calculator
 
-The Cost page (in the header) has a simple mode (material amount and
+The Cost page (in the header, where the Printer settings tab used to
+be: printer settings now open from each printer's card on the Printers
+page) has a simple mode (material amount and
 print time plus the technology picker) and an advanced mode with every
 input the engine reads. Dropping a G-code or sliced 3MF file on the
 page auto-fills amount and time. An unsliced 3MF, and a PrusaSlicer
@@ -39,7 +68,15 @@ not-sliced state instead of a zero cost.
 
 Workspace defaults live on the Settings page in the Print cost group.
 Per-printer profiles live in the settings file's `[cost_printers]`
-table (file only, because it is a table of tables).
+table (file only, because it is a table of tables), keyed by roster id
+or printer name. A printer with no entry is costed on its model's
+shipped wattage preset (for example the AD5X preset for a
+`flashforge.ad5x`), and an entry layers over that preset, so setting
+only `purchase_price` keeps the preset's watts. Without a purchase
+price, depreciation is 0.00 and the result says so.
+
+Below the calculator, the page lists the 20 most recent finished prints
+with their outcome, out-of-pocket and full cost.
 
 ## The formula
 
@@ -109,22 +146,38 @@ Print Handy does not write it again.
 
 ## Frozen records, Data and Pasta Wrapped
 
-At completion, the cost is resolved once (measured duration and
-filament use win over slicer estimates) and frozen on the job record.
-Later price edits never rewrite history. The Data tab and Pasta
-Wrapped aggregate the frozen records only: total spend, spend by
-printer, by material and by spool, cost per gram and per print hour,
-the most expensive print, and the failure cost share. A period with
-no priced jobs says so plainly. No model is involved in cost figures,
-and currencies are never mixed silently: totals are reported per
-currency.
+At completion, the cost is resolved once and frozen on the job record.
+Measured duration and filament use win over slicer estimates. A
+multicolor print is priced per slot at each slot's own spool rate,
+from the same slot plan the spool accounting charges, with measured
+filament scaling the plan. A failed or cancelled print is frozen at
+what it actually used, with its prep labor but no post-processing and
+no failure allowance: it is the failure, so it is not charged for one
+twice. Later price edits never rewrite history.
+
+The Data tab's Print costs section and Pasta Wrapped aggregate the
+frozen records only: out-of-pocket and full spend, spend by printer,
+material and color, cost per gram and per print hour, the most
+expensive and cheapest print, and what the failed and cancelled prints
+cost. Wrapped adds a "What it cost" screen and a video slide.
+
+- A period with no priced jobs says so plainly. A period where only
+  some prints were priced says "Priced N of M prints"; prints finished
+  before costs were recorded carry no cost.
+- Those older prints get a separate, labeled estimate from their own
+  recorded grams and hours at today's prices. It is shown under the
+  totals and is never added to them.
+- Currencies are never mixed: totals and counts are for the main
+  currency, and any other currency is named with its count.
+- No model is involved in any cost figure.
 
 ## Defaults and presets
 
 Workspace defaults: currency USD, electricity 0.19 per kWh, labor 20
 per hour, failure 5 percent FDM and 10 percent resin, pricing mode
 margin at 40 percent, tax 0, no marketplace fee, no overhead, no flat
-fee, default filament 22 per kilogram.
+fee, default filament 22 per kilogram, cost mode hobby, resin IPA 0.23
+and cleanup/PPE 0.12 per print.
 
 Shipped average-watt presets, labeled by basis in the UI: Bambu A1
 mini 80 W, A1 95 W, P1S 105 W, X1C 105 W (manufacturer); Prusa MK4S,

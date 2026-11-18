@@ -59,3 +59,21 @@ def test_the_cost_page_lists_recorded_costs_newest_first():
     assert "USD 0.50" in rows[0] and "USD 6.00" in rows[0]
     html = cost_page.render_cost_page({}, history="<h2>Recorded print costs</h2>")
     assert "<h2>Recorded print costs</h2>" in html
+
+
+def test_older_unpriced_prints_get_a_separate_labeled_estimate():
+    old = [{"title": "Old", "status": "completed", "filament_used_g": 40.0,
+            "print_duration_seconds": 7200},
+           {"title": "Older", "status": "failed", "filament_used_g": 10.0,
+            "print_duration_seconds": 600},
+           {"title": "Nothing", "status": "completed"}]
+    est = cost.backfill_estimate(old + RECORDS, {})
+    # RECORDS carries one more unpriced finished record with no grams
+    # or hours ("Old print"), so two are unestimated.
+    assert est["estimated_count"] == 2 and est["unestimated_count"] == 2
+    assert est["out_of_pocket_estimate"] > 0
+    agg = cost.aggregate_costs(old + RECORDS)
+    html = data_module._cost_section(agg, est)
+    assert "Estimated, not recorded" in html and "Not included in the totals" in html
+    # The frozen totals never absorb the estimate.
+    assert agg["out_of_pocket_total"] == cost.aggregate_costs(RECORDS)["out_of_pocket_total"]

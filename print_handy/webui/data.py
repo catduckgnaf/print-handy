@@ -666,14 +666,24 @@ def _money(costs, value):
     return f"{_esc(costs.get('currency_code') or '')} {float(value or 0):.2f}"
 
 
-def _cost_section(costs):
+def _backfill_line(backfill):
+    backfill = backfill or {}
+    if not backfill.get("estimated_count"):
+        return ""
+    return (f'<p class="note">Estimated, not recorded: about '
+            f'{_esc(backfill["currency_code"])} {backfill["out_of_pocket_estimate"]:.2f} out of pocket '
+            f'for {backfill["estimated_count"]} older print(s) with no recorded cost, priced from '
+            "their recorded grams and hours at today's prices. Not included in the totals.</p>")
+
+
+def _cost_section(costs, backfill=None):
     """The Data tab's recorded print costs (#1625, #1632 review), from frozen records only."""
     costs = costs or {}
     if not costs.get("has_priced"):
         return ("<h2>Print costs</h2><p>" + _esc(costs.get("note") or
                 "No priced jobs in this period: no completed print has a recorded cost yet.")
                 + " Costs are recorded when a print finishes; open the "
-                '<a href="/cost">Cost</a> page to price a file now.</p>')
+                '<a href="/cost">Cost</a> page to price a file now.</p>' + _backfill_line(backfill))
     rows = [
         ("Out of pocket", _money(costs, costs["out_of_pocket_total"])),
         ("Full cost (labor and machine wear)", _money(costs, costs["total_spend"])),
@@ -702,7 +712,8 @@ def _cost_section(costs):
         note += ('<p class="note">Not included (another currency): '
                  + _esc(", ".join(f"{n} in {code}" for code, n in others.items())) + ".</p>")
     return (f"<h2>Print costs</h2><table class=\"rows\">{body}</table>{tables}{note}"
-            "<p>Frozen when each print finished: later price edits never change these.</p>")
+            "<p>Frozen when each print finished: later price edits never change these.</p>"
+            + _backfill_line(backfill))
 
 
 def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
@@ -737,7 +748,7 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
                      f"({(longest.get('seconds') or 0) / 3600:.2f} h). "
                      f"Average print: "
                      f"{(stats['average_print_seconds'] or 0) / 60:.0f} min.</p>")
-    parts.append(_cost_section(stats.get("costs")))
+    parts.append(_cost_section(stats.get("costs"), stats.get("cost_backfill")))
     failures = stats["failures"]
     stop = ", ".join(f"{_esc(k)}: {v}" for k, v in failures["stop_reasons"].items()) or "none recorded"
     parts.append(f"<h2>Failures and risk flags</h2><p>Failed: {failures['failed']}. "
