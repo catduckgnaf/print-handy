@@ -254,8 +254,8 @@ def _attachment_decides(text):
     """
     if _MONTH.search(text):
         return False
-    grams, _hours, _material = _parse_ask(text)
-    return grams is None
+    grams, hours, _material = _parse_ask(text)
+    return grams is None and hours is None
 
 
 def _dispatch_answer(text, event):
