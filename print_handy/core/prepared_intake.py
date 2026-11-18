@@ -1005,6 +1005,170 @@ def resume_job(saved):
     return job
 
 
+# The decisions a chat edit carries when it re-enters the intake (#903).
+EDIT_CARRIED_FIELDS = ('scale', 'copies', 'orientation', 'fit_brim_policy', 'edit_settings',
+                       'edits', 'printer_id', 'unit_decision', 'support_decision')
+# The decisions "Print it like last time" carries into a new intake of the
+# same file (#1648 item 7): colors, size, turn, supports, copies, edits and
+# the plate layout. The printer is the new intake's own, never the old job's.
+REUSED_DECISION_FIELDS = ('color_decisions', 'filament_selection', 'plate_mode', 'selected_plates') + tuple(
+    field for field in EDIT_CARRIED_FIELDS if field != 'printer_id')
+
+
+def carry_decisions(job, saved, fields=EDIT_CARRIED_FIELDS):
+    """Copy ``saved``'s recorded decisions in ``fields`` onto ``job``; returns ``job``.
+
+    A speculative supports decision (the background slice's own, #922) is not
+    an operator decision and is never carried.
+    """
+    for field in fields:
+        value = saved.get(field)
+        if value is None:
+            continue
+        if field == 'support_decision' and isinstance(value, dict) and value.get('by') == 'speculative_intake':
+            continue
+        job[field] = json.loads(json.dumps(value))
+    return job
+
+
+def _carries_decisions(job):
+    """True when the intake's job arrived with its decisions already made (resume, edit or reuse)."""
+    return bool(job.get('resumed_from') or job.get('reused_decisions'))
+
+
+REUSE_DECISIONS_LABEL = 'Print it like last time'
+START_OVER_LABEL = 'Start over'
+
+
+def previous_sliced_job(source_sha256, printer_id, archive=None, exclude=None):
+    """(JOB.json path, job) of the newest earlier job for these source bytes and printer, else None.
+
+    #1648 item 7: only a job whose color decisions are recorded and whose
+    verified G-code is still intact qualifies; a job that failed
+    verification, was never sliced or lost a file is skipped (and logged).
+    ``exclude`` is the new intake's own folder. Local files only.
+    """
+    from . import model_job as mj
+    from ..jobs.store import artifact_gcodes, unverified_artifact
+    skip = Path(exclude).resolve() if exclude else None
+    best = None
+    for jp in Path(archive or mj.ARCHIVE).glob('*/JOB.json'):
+        if skip is not None and jp.parent.resolve() == skip:
+            continue
+        try:
+            job = json.loads(jp.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if (not isinstance(job, dict) or not job.get('color_decisions')
+                or (job.get('color_manifest') or {}).get('source_sha256') != source_sha256
+                or str(mj._job_printer_id(job)) != str(printer_id)):
+            continue
+        problem = unverified_artifact(job)
+        if problem:
+            logger.info('not offering the decisions of %s again: %s', jp.parent.name, problem)
+            continue
+        when = max(path.stat().st_mtime for path in artifact_gcodes(job))
+        if best is None or when > best[0]:
+            best = (when, jp, job)
+    return (best[1], best[2]) if best else None
+
+
+def _decision_selections(decisions):
+    if (decisions or {}).get('mode') == 'single_color':
+        return [decisions.get('selection')]
+    return list(((decisions or {}).get('choices') or {}).values())
+
+
+def loaded_slot_change(decisions, state):
+    """How a slot the decisions use changed since they were made, as text, else None.
+
+    The decisions are offered again only while every slot they name still
+    holds the recorded material and color (#1648 item 7).
+    """
+    from . import model_job as mj
+    slots = mj.configured_slots(state)
+    for selection in _decision_selections(decisions):
+        if not isinstance(selection, dict) or selection.get('slot') is None:
+            return 'a color decision names no slot'
+        loaded = slots.get(str(selection['slot'])) or {}
+        for field in ('material', 'color'):
+            if str(loaded.get(field) or '').strip().casefold() != str(selection.get(field) or '').strip().casefold():
+                return (f"slot {selection['slot']} held {selection.get('color')} {selection.get('material')} "
+                        f"and now holds {loaded.get('color') or 'nothing'} {loaded.get('material') or ''}".strip())
+    return None
+
+
+def decisions_summary(job):
+    """'colors Black PLA (slot 3), scale 95%, no supports': what "like last time" means for ``job``."""
+    from . import model_job as mj
+    from .background_slice import _sliced_with_supports
+    from .printer_state import display_material
+    from ..jobs.store import artifact_gcodes
+    noun = 'toolhead' if mj._job_adapter(job).tool_based else 'slot'
+    labels = {}
+    for selection in _decision_selections(job.get('color_decisions')):
+        if isinstance(selection, dict) and selection.get('slot') is not None:
+            color = str(selection.get('color') or '').strip()
+            name = ' '.join(v for v in (color[:1].upper() + color[1:], display_material(selection.get('material'))) if v)
+            labels[int(selection['slot'])] = f"{name} ({noun} {selection['slot']})" if name else f"{noun} {selection['slot']}"
+    colors = ', '.join(labels[slot] for slot in sorted(labels)) or 'as recorded'
+    scale = job.get('scale')
+    size = _pct(float(scale)) if scale is not None else '100%'
+    supports = 'supports' if _sliced_with_supports([str(p) for p in artifact_gcodes(job)]) else 'no supports'
+    parts = [f'colors {colors}', f'scale {size}', supports]
+    plates = len(job.get('derived_plates') or [])
+    if plates > 1:
+        parts.append(f'{plates} plates')
+    if int(job.get('copies') or 1) > 1:
+        parts.append(f"{int(job['copies'])} copies")
+    return ', '.join(parts)
+
+
+async def _offer_previous_decisions(adapter, source, key, timeout, job, state, folder):
+    """Offer the decisions of an earlier slice of these exact bytes; returns what was reused, or None.
+
+    #1648 item 7. Asked once per intake, only when an earlier job for the
+    same printer has the same source SHA256, an intact verified slice, and
+    every slot it used still loaded with the same filament. Choosing it
+    copies the decisions onto ``job`` (colors, scale, turn, supports, copies,
+    edits, plate layout) and names the earlier job, whose G-code slice_job
+    reuses when the recipe still matches; otherwise the job slices again with
+    those decisions. "Start over" changes nothing.
+    """
+    from . import model_job as mj
+    sha = (job.get('color_manifest') or {}).get('source_sha256')
+    if not sha:
+        return None
+    found = await asyncio.to_thread(previous_sliced_job, sha, mj._job_printer_id(job), exclude=folder)
+    if found is None:
+        return None
+    earlier_path, earlier = found
+    change = loaded_slot_change(earlier['color_decisions'], state)
+    if change:
+        logger.info('not offering the decisions of %s again: %s', earlier_path.parent.name, change)
+        return None
+    try:
+        changed = await asyncio.to_thread(mj._recipe_changed, earlier, earlier)
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        logger.warning('could not compare the earlier slice recipe (%s); it will be sliced again', exc)
+        changed = True
+    when = str(earlier.get('sliced_at') or '')[:10]
+    then = f' on {when}' if when else ''
+    how = ('The printer setup changed since then, so I will slice it again with those choices.' if changed
+           else 'Its verified G-code still matches this printer, so no new slice is needed.')
+    pick = await _ask(adapter, source, key,
+                      f'You sliced this exact file before{then}: {decisions_summary(earlier)}. '
+                      f'Print it like last time, or start over and choose again? {how} '
+                      'The bed-clear and printer checks still run before it starts.',
+                      [REUSE_DECISIONS_LABEL, START_OVER_LABEL], timeout)
+    if pick != 0:
+        return None
+    carry_decisions(job, earlier, REUSED_DECISION_FIELDS)
+    job['reused_decisions'] = {'intake_id': earlier.get('intake_id'), 'job_json': str(earlier_path),
+                               'reuse_slice': not changed}
+    return job['reused_decisions']
+
+
 def _saved_folder(saved):
     """The intake folder of an archived job: the nearest parent of its source that holds JOB.json."""
     source = (saved or {}).get('downloaded_file')
@@ -2559,6 +2723,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         fit_state = _fit_state(state, job)
         receipt.update(job_json=str(jp), source_sha256=manifest['source_sha256'], status='AWAITING_COLOR')
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        if not reuse:
+            # The same bytes sliced before for this printer (#1648 item 7): one
+            # choice between last time's decisions and asking them all again.
+            reused = await _offer_previous_decisions(adapter, source, key, timeout, job, state, folder)
+            if reused is not None:
+                mj.write_job(folder, job)
+                receipt.update(reused_decisions=reused)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata, content=(
+                    'Using the choices from last time. ' + (
+                        'Reusing its verified G-code if nothing changed by the time it slices.'
+                        if reused['reuse_slice'] else 'Slicing it again with them.')))
         # The author-layout fit probe needs only the file and the printer state, never the unit or
         # color answers, so start it now and let it run while the operator answers (#734). It is
         # awaited at the fit check below, which then usually has nothing left to wait for.
@@ -2567,7 +2743,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # to the authored size.
         from . import orca_adapter
         fit_kw = {}
-        if job.get('resumed_from'):
+        if _carries_decisions(job):
             if job.get('scale') is not None:
                 try:
                     fit_kw['scale'] = float(job['scale'])
@@ -2809,7 +2985,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             label = re.sub(r'\.(stl|3mf|obj|step|stp)$', '', p['name'], flags=re.I)
             tally[label] = tally.get(label, 0) + 1
         names = ', '.join(f'{n}× {k}' if n > 1 else k for k, n in tally.items()) or Path(path).name
-        saved_decisions = job.get('color_decisions') if job.get('resumed_from') else None
+        saved_decisions = job.get('color_decisions') if _carries_decisions(job) else None
         # Height-based color changes (#870): colors that arrive by layer, not
         # by part or paint. On a single-extruder printer they can only print
         # as pauses for a manual swap, or not at all — the operator chooses,
@@ -3020,8 +3196,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     prompt = (f"{title} is too big to print at 100% even split into its plates and turned on the "
                               f"bed. The largest size that fits{tower} is {_pct(scale)}, as {where}, every part at "
                               'the same size so they still fit together.' + detail)
-            row = picked[await _ask(adapter, source, key, prompt, [r['label'] for r in picked], timeout,
-                                    parser=lambda text: _fit_choice_reply(text, picked))]
+            saved_scale = (latest.get('scale') if latest.get('reused_decisions')
+                           and latest.get('plate_mode') == 'separate' else None)
+            if scale is not None and saved_scale is not None and abs(float(saved_scale) - scale) < 1e-9:
+                # "Print it like last time" (#1648 item 7): the fit still lands
+                # on the size chosen last time, so that answer stands.
+                row = picked[0]
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=f'Same size as last time: {label}.')
+            else:
+                row = picked[await _ask(adapter, source, key, prompt, [r['label'] for r in picked], timeout,
+                                        parser=lambda text: _fit_choice_reply(text, picked))]
             if row['kind'] == 'cancel':
                 receipt['status'] = 'CANCELLED_OVERSIZED'
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -3368,7 +3553,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # A resumed job that already carries a count — a chat edit or undo
         # re-entering the flow (#903) — keeps it (bounded by what fits)
         # instead of being asked again and silently reset to 1.
-        preset_copies = bool(latest.get('resumed_from') and latest.get('copies'))
+        preset_copies = bool(_carries_decisions(latest) and latest.get('copies'))
         if preset_copies:
             chosen_quantity = max(1, min(int(latest['copies']), capacity))
         if len(quantities) > 1 and not preset_copies:
@@ -3552,6 +3737,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 break
             is_flagged, sup_reason, sup_inputs = supports_decision(
                 early.flagged, early.finding, clearance)
+            reused_supports = (latest.get('support_decision') or {}) if latest.get('reused_decisions') else {}
+            if is_flagged and reused_supports.get('by') == 'operator':
+                # "Print it like last time" (#1648 item 7) carried the
+                # operator's own supports answer; it is not asked again.
+                is_flagged = False
+                sup_reason = (f"{sup_reason}; answered last time: "
+                              f"{'with' if reused_supports.get('supports') else 'without'} supports")
             # #1020 F1/F3: the decision is logged with its inputs either
             # way, and the audit record (reason, inputs, clearance report,
             # slicer finding) rides on the job so it lands in JOB.json.
