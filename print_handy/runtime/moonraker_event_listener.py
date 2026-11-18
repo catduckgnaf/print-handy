@@ -551,11 +551,32 @@ def generate_roast(title, summary="", facts=None, key=None, status="completed"):
         from ..core import roast as roast_engine
         known = {k: v for k, v in dict(facts or {}).items() if k in _ROAST_FACTS}
         ctx = roast_engine.build_context(title, **known)
-        return roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE,
+        line = roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE,
                                   custom_path=roast_custom_bank() or None)
     except Exception as exc:
         log(f"roast skipped: {exc!r}")
         return ""
+    _roast_on_screen(line, title, status, key, known)
+    return line
+
+
+def _roast_on_screen(line, title, status, key, facts):
+    """Put the roast this post carries on the printer's own screen. Best effort.
+
+    HelixScreen's tips widget shows it in place of its tips. The line is the
+    one the post carries; ``key`` keeps a retried delivery to one screen
+    record. The printer is this listener's, so each printer's screen roasts
+    its own last print.
+    """
+    if not line:
+        return
+    try:
+        from .. import listeners as _listeners
+        from . import screen_tip
+        screen_tip.publish_roast(line, title=title, status=status, key=key, facts=facts,
+                                 printer_id=_listeners.instance_printer_id())
+    except Exception as exc:
+        log(f"roast not shared on screen: {exc!r}")
 
 
 def _with_status_roast(text, filename, status, key, facts=None):
