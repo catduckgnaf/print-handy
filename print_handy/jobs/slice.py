@@ -1118,7 +1118,8 @@ def _plate_hull_yaws(src, ids, usable):
     try:
         with zipfile.ZipFile(src) as archive:
             points = [p for hull, _ in color_geometry._world_hull_xy(archive, set(ids)) for p in hull]
-    except Exception:
+    except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile) as exc:
+        logger.info('painted fit: footprint unreadable for objects %s, measuring every turn: %s', sorted(ids), exc)
         return None
     if not points:
         return None
