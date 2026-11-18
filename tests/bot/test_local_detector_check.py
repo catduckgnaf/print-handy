@@ -22,7 +22,11 @@ def rows(cfg, monkeypatch):
 
 
 def test_local_detector_row_on_by_default_and_off_when_turned_off(cfg, monkeypatch):
-    assert cfg["vision"]["local_detector_enabled"] is True
+    # The shipped default (the suite's own runtime config pins it off).
+    import os
+    from pathlib import Path
+    from print_handy import settings
+    assert settings.load(local=Path(os.devnull), environ={})["vision"]["local_detector_enabled"] is True
     cfg["vision"]["local_detector_enabled"] = False
     ok, detail = rows(cfg, monkeypatch)["local detector"]
     assert ok is True

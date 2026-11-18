@@ -69,6 +69,12 @@ def _test_settings():
     # rendered_active), so the fixture carries the mode its own services
     # imply, exactly as a real load of the same config would resolve.
     data["timelapse"]["mode"] = "rendered"
+    # The shipped default turns the local failure detector on. The suites'
+    # watch and listener fixtures were written for a camera watch with no
+    # judge (one "not running" notice, then the posts under test), and a CI
+    # host with onnxruntime installed would otherwise count the watch as
+    # ready. Tests of the detector turn it on themselves.
+    data["vision"]["local_detector_enabled"] = False
     return data
 
 
