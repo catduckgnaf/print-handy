@@ -68,6 +68,11 @@ def inventory():
         for section, values in settings._merge(model.defaults(), home).items():
             for key, value in values.items():
                 found[(section, None if section in settings.OPEN_SECTIONS else key)] = value
+    # An open section that ships empty (cost_printers, #1625) has no key to
+    # iterate above; it is still a real setting with a reference row.
+    for section, values in home.items():
+        if section in settings.OPEN_SECTIONS:
+            found.setdefault((section, None), values)
     for (section, key), kind in settings.OPTIONAL_KEYS.items():
         found[(section, key)] = kind()
     return found
