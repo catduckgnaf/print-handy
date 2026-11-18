@@ -29,6 +29,18 @@ def test_report_plain_manual_cancel():
     assert "print bot" in out and "plain manual cancel" in out and "Why it stopped" not in out
 
 
+def test_report_omits_console_block_but_keeps_start_refusal():
+    store = [{"message": "T0 -> 1: PLA/white", "time": NOW - 10}]
+    out = kr.build("f.gcode", STATUS, store, "", by_bot=False, now=NOW)
+    assert "Last console messages" not in out
+    assert "T0 -> 1" not in out
+
+    store.append({"message": "Cancelling print: no filament detected in selected tool", "time": NOW - 10})
+    out = kr.build("f.gcode", STATUS, store, "", by_bot=False, now=NOW)
+    assert "refused the start" in out
+    assert "Last console messages" not in out
+
+
 def test_bot_marker_window(tmp_path):
     with patch.object(kr, "BOT_CANCEL", tmp_path / "m.json"):
         assert not kr.cancelled_by_bot(NOW)

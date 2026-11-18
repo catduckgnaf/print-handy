@@ -309,14 +309,13 @@ def build(filename: str, status: dict[str, Any], store: list[dict[str, Any]], lo
     if refusal and not stop_reason:
         lines.insert(1, "**Stop reason:** " + refusal)
         stop_reason = refusal
-    console = console_lines(store, since)
-    if console:
-        lines.append("Last console messages:\n```\n" + "\n".join(console) + "\n```")
+    # Keep console history available to start-refusal detection and diagnostics,
+    # but omit noisy macro output from Discord cancel reports.
     alarms = log_alarms(log_tail)
     if alarms:
         lines.append("Printer warnings before the stop (klippy.log):\n```\n" + "\n".join(alarms) + "\n```")
-    elif not console and klippy == "ready" and not stop_reason:
-        lines.append("No errors in the console or klippy.log. Looks like a plain manual cancel.")
+    elif klippy == "ready" and not stop_reason:
+        lines.append("No klippy.log warnings or start refusal found. Looks like a plain manual cancel.")
     else:
         lines.append(NO_WARNINGS)
     text = "\n".join(lines)
