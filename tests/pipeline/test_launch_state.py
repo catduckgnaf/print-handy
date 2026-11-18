@@ -10,6 +10,7 @@ import sys
 import threading
 import urllib.error
 from pathlib import Path
+import zipfile
 from unittest import mock
 
 import pytest
@@ -1129,3 +1130,74 @@ def test_a_multi_slot_start_leaves_the_active_spool_alone_when_the_printer_count
     clear, job = _launch_two_slots(mapped, "printer")
     assert clear.call_count == 0
     assert job["spool_accounting_authority"] == "printer"
+
+
+def _launch_on_slot3(mapped, monkeypatch, name, gcode_bytes):
+    """Launch ``gcode_bytes`` as a 3MF mapped T0 -> slot 3; (result, archived path, inner G-code, slice_info)."""
+    adapter = model_job.printers.current()
+    adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
+    adapter.model.vendor_key = "flashforge"
+    adapter.slot_count = 4
+    mapped.native.used_tools.side_effect = flashforge.zmod.used_tools
+    mapped.native.normalize_mapping.side_effect = lambda m, st: {"0": 3}
+    mapped.st["filament_slots"]["3"] = {"material": "PLA", "hex": "#000000"}
+    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 6))
+    # zmod_color in the fixture reports slot ID 1; name it 3 for this launch.
+    original = model_job._mr.side_effect
+
+    def slot3(st, path, data=None, timeout=30):
+        out = original(st, path, data, timeout)
+        for item in (((out.get("result") or {}).get("status") or {}).get("zmod_color") or {}).get("slots", []):
+            item["ID"] = 3
+        return out
+    model_job._mr.side_effect = slot3
+    jp, g = make_job(mapped.root, name)
+    g.write_bytes(gcode_bytes)
+    job = json.loads(jp.read_text())
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 3}, job, jp, 0, False)
+    assert g.read_bytes() == gcode_bytes  # the archived G-code is untouched
+    upload = next(c.args[0] for c in mapped.run.call_args_list
+                  if len(c.args[0]) >= 4 and c.args[0][1] == "upload")
+    with zipfile.ZipFile(upload[2]) as archive:
+        return (out, g, archive.read("Metadata/plate_1.gcode").decode(),
+                archive.read("Metadata/slice_info.config").decode())
+
+
+def test_1648_mapped_3mf_package_is_slot_labeled_for_screen_reprints(mapped, monkeypatch):
+    """#1648: a HelixScreen reprint of the uploaded file sends no slot map, and
+    ZMod's default map is T0 -> slot 1. The packaged G-code must select the
+    chosen slot by tool number (T0 on slot 3 becomes T2), and SET_ZCOLOR then
+    carries the identity map. The archived G-code and its hash stay as sliced.
+    The heater's T0 names the one heater, so it is never relabeled."""
+    out, _, inner, _ = _launch_on_slot3(
+        mapped, monkeypatch, "slot3",
+        b'; hermes_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
+        b"; filament_colour = #161616\nM104 S215 T0\nSTART_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nG1 X1\n")
+    assert "M104 S215 T0" in inner and "M104 S215 T2" not in inner
+    assert '; hermes_tool_slots = {"2":{"physical_slot":3}}' in inner
+    assert "; zmod_color_data = 2|#161616|PLA" in inner
+    assert "; filament_colour = #161616;#161616;#161616" in inner  # slot 3 is the third entry
+    assert mapped.scripts[0].endswith(" T2=3"), mapped.scripts[0]
+    assert out["delivery_format"]["slot_labeled"] == {"from": {"0": 3}, "to": {"2": 3}}
+
+
+AD5X_SLICE = Path(__file__).resolve().parents[1] / "fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.gcode.txt"
+
+
+def test_1648_slot_labeled_single_tool_slice_keeps_the_zmod_native_startup(mapped, monkeypatch):
+    """#1648 review: the recorded AD5X single-tool slice (CRLF, no T line, heater M104 ... T0)
+    mapped to slot 3. The packaged G-code must still pass ZMod's native startup contract,
+    so its heater stays T0, and the package must name filament 3 (tool T2) for ZMod's scan."""
+    from print_handy.printers.flashforge.zmod import native_startup
+    text = AD5X_SLICE.read_bytes().decode().replace("\r\n", "\n").replace("@BED@", "60").replace("@NOZZLE@", "210")
+    assert not any(line.startswith("T") for line in text.splitlines())  # a single-tool slice selects no tool
+    sliced = text.replace("\n", "\r\n").encode()
+    assert native_startup.valid(sliced.decode(), 60, 210)
+    out, _, inner, slice_info = _launch_on_slot3(mapped, monkeypatch, "fixture-slot3", sliced)
+    assert native_startup.valid(inner, 60, 210)
+    assert "\r\nM104 S210 T0\r\nSTART_PRINT " in inner  # heater untouched, CRLF kept
+    assert '; hermes_tool_slots = {"2":{"physical_slot":2,"spoolman_id":17}}\r\n' in inner
+    assert "; zmod_color_data = 2|#0C6283|Silk PLA\r\n" in inner
+    assert '<filament id="3" ' in slice_info and '<filament id="1" ' not in slice_info
+    assert mapped.scripts[0].endswith(" T2=3"), mapped.scripts[0]
+    assert out["delivery_format"]["slot_labeled"] == {"from": {"0": 3}, "to": {"2": 3}}

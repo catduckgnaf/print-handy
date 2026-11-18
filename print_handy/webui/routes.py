@@ -145,7 +145,6 @@ ROUTES = (
     _get("/api/wrapped/video-status", SESSION, "_wrapped_video_status_route"),
     _get("/wrapped/reel-file", SESSION, "_wrapped_reel_file_route"),
     _get("/api/wrapped/reel-status", SESSION, "_wrapped_reel_status_route"),
-    # The real user-facing waits, read back from TIMING.jsonl (#1476).
     # Firmware and updates per printer, from the firmware feed (#1280 I).
     _get("/firmware", SESSION, "_firmware_route"),
     _get("/cost", SESSION, "_cost_page"),

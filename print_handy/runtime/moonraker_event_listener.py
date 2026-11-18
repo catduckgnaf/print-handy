@@ -531,7 +531,7 @@ _ROAST_FACTS = ("duration_s", "material", "color", "grams", "printer", "copies",
                 "prev_fails", "fail_streak", "color_streak", "top_color")
 
 
-def generate_roast(title, summary="", facts=None, key=None, status="completed"):
+def generate_roast(title, summary="", facts=None, key=None, status="completed", printer_id=None):
     """One short roast line for a print, from the local corpus. Best-effort.
 
     No LLM at all (#1002): no model call, no model fallback, no endpoint.
@@ -551,11 +551,35 @@ def generate_roast(title, summary="", facts=None, key=None, status="completed"):
         from ..core import roast as roast_engine
         known = {k: v for k, v in dict(facts or {}).items() if k in _ROAST_FACTS}
         ctx = roast_engine.build_context(title, **known)
-        return roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE,
+        line = roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE,
                                   custom_path=roast_custom_bank() or None)
     except Exception as exc:
         log(f"roast skipped: {exc!r}")
         return ""
+    _roast_on_screen(line, title, status, key, known, printer_id=printer_id)
+    return line
+
+
+def _roast_on_screen(line, title, status, key, facts, printer_id=None):
+    """Put the roast this post carries on the printer's own screen. Best effort.
+
+    HelixScreen's tips widget shows it in place of its tips. The line is the
+    one the post carries; ``key`` keeps a retried delivery to one screen
+    record. ``printer_id`` is the posting printer's roster id, passed down
+    explicitly by the family-neutral helper (#1672); None is this
+    listener's own printer, so each printer's screen roasts its own last
+    print.
+    """
+    if not line:
+        return
+    try:
+        from .. import listeners as _listeners
+        from . import screen_tip
+        screen_tip.publish_roast(line, title=title, status=status, key=key, facts=facts,
+                                 printer_id=printer_id if printer_id is not None
+                                 else _listeners.instance_printer_id())
+    except Exception as exc:
+        log(f"roast not shared on screen: {exc!r}")
 
 
 def _with_status_roast(text, filename, status, key, facts=None):
@@ -569,25 +593,17 @@ def _with_status_roast(text, filename, status, key, facts=None):
     per-print, so a reposted notice repeats its line instead of drawing
     a second roast for the same print. No LLM anywhere in this path.
     """
-    try:
-        # The job's own facts (#1002 Phase 2): title, material, color and the
-        # print-history slots (prev_fails, fail_streak, ...) that unlock the
-        # reprint-failed and fail-streak pools. Caller facts (the measured
-        # duration) win; a cancelled print's sliced grams were never used.
-        title, known = print_summary.safe_label(filename), {}
-        try:
-            job, plate = print_summary.find_job(filename)
-            title = (job or {}).get("title") or title
-            known = dict(announcer.roast_facts(job, plate, {}) or {})
-        except Exception as exc:
-            log(f"{status} roast facts unavailable: {exc!r}")
-        if status == "cancelled":
-            known.pop("grams", None)
-        known.update(facts or {})
-        line = generate_roast(title, facts=known, key=key, status=status)
-    except Exception as exc:
-        log(f"{status} roast skipped: {exc!r}")
-        return text
+    # The roast step itself is the family-neutral helper (#1672): it
+    # resolves the job's own facts (#1002 Phase 2 — title, material, color
+    # and the print-history slots that unlock the reprint-failed and
+    # fail-streak pools; caller facts win; a cancelled print's sliced
+    # grams are dropped), draws the line and mirrors it to the screen
+    # sinks. This listener passes printer_id=None: the roast generator's
+    # fallback is this listener process's own printer, which is the
+    # posting printer here by construction.
+    from . import roast_post
+    line = roast_post.roast_for_print(filename, status, printer_id=None,
+                                      key=key, facts=facts)
     return f"{text}\n\n{line}" if line else text
 
 
@@ -613,6 +629,16 @@ def start_message(filename, archive=None, context_path=None):
     if line:
         message += "\n" + line
     return message
+
+
+def _slot_record(slot):
+    """The hardware record for one IFS slot, or None. No printer call."""
+    try:
+        state = filament_color.adopt_renamed_slots_key(json.loads(_hardware_file().read_text()))
+    except (OSError, ValueError):
+        return None
+    record = (state.get("filament_slots") or {}).get(str(slot))
+    return record if isinstance(record, dict) else None
 
 
 def post_exclude_objects(filename, archive=None, context_path=None):
@@ -1918,6 +1944,92 @@ def _timelapse_postprocess(job_key, completion_message, plan_id=None, tl_plan=No
         if plan_id:
             post_plate_picker(plan_id)
         _release_postprocess(job_key)
+
+
+def _captured_partial_timelapse(job_key, capture_dir):
+    """The encoded video of one specific finished capture directory, or None.
+
+    The partial timelapse's lookup (#1648). Unlike _captured_timelapse it
+    never searches by filename: a stopped print posts only the capture
+    session it opened itself, never an older print's capture of the same
+    file. Never raises.
+    """
+    try:
+        return timelapse_encode.captured_video(
+            job_key, data=_config.cfg(), max_bytes=_media_upload_limit(), log=log,
+            directory=capture_dir)
+    except Exception as exc:
+        warn(f"partial timelapse lookup failed for {job_key!r}: {exc!r}")
+        return None
+
+
+def _post_partial_timelapse(job_key, stats, outcome="cancelled", capture_dir=None):
+    """Post the captured partial timelapse for a print that stopped early (#1648).
+
+    ``capture_dir`` is the capture session this print opened; without one
+    nothing posts, so a print whose capture never began cannot borrow an
+    earlier print's footage. The caller runs this after _print_ended has
+    closed that session, in a worker thread: the encode can take minutes.
+    _captured_partial_timelapse is the whole gate: capture or mode off, an
+    unusable capture, no frames, or every encoder failed all read as None,
+    and a stop with nothing usable posts nothing extra. There is no
+    frame-count floor beyond the encoder's own: print #120's reprint kept
+    only 18 frames and still had a clip worth posting. Never raises.
+    """
+    if not job_key or not capture_dir:
+        return False
+    try:
+        video = _captured_partial_timelapse(job_key, capture_dir)
+        if video is None:
+            return False
+        layer = _visual_layer(stats or {})
+        word = "cancelled" if outcome == "cancelled" else "stopped"
+        caption = (f"Partial timelapse ({word} at layer {layer})" if layer is not None
+                   else f"Partial timelapse ({word})")
+        post(f"{caption}\nMEDIA:{video}")
+        return True
+    except Exception as exc:
+        warn(f"partial timelapse unavailable for {job_key!r}: {exc!r}")
+        return False
+
+
+def _start_partial_timelapse(job_key, stats, outcome, capture_dir):
+    """Run the partial timelapse post on a daemon thread; return the thread (#1648).
+
+    The same shape as the completion path's _start_postprocess: an
+    encode can take minutes, and the websocket loop awaits each status
+    update in turn, so awaiting it would hold every later message,
+    the next print's start included.
+    """
+    thread = threading.Thread(target=_post_partial_timelapse,
+                              args=(job_key, dict(stats or {}), outcome, capture_dir),
+                              daemon=True, name="timelapse-partial-stop")
+    thread.start()
+    return thread
+
+
+def _plan_partial_covers(filename):
+    """True when the announcer's multi-plate partial video covers this stop (#1648).
+
+    A stopped plate of a multi-plate plan with plate clips already stored
+    gets the announcer's partial_timelapse_notice, one combined video of
+    the plates so far. The plan id is derived the way the completion
+    record derives it (print_records.update_multipart_plan). Read before
+    the announcer runs: its partial post clears the plan's clips. Any
+    failure reads as not covered, and the per-print partial posts.
+    """
+    try:
+        context = print_records.load_context(filename) if filename else {}
+        plan_id = context.get("multipart_plan_id")
+        if not plan_id and context.get("required_parts"):
+            plan_id = filename
+        if not plan_id:
+            return False
+        plan_id = print_records._safe_slug(str(plan_id), "print-plan")
+        return bool(plan_timelapse.clips(plan_id))
+    except Exception as exc:
+        warn(f"plan partial timelapse check failed for {filename!r}: {exc!r}")
+        return False
 
 
 def _plan_timelapse_post(job_key, completion_message, tl_plan):
@@ -4187,14 +4299,24 @@ class Listener:
             warn(f"jam facts sensor read failed: {exc!r}")
         return facts
 
-    def _slot_agreement(self):
-        """The four slot sources at print start (#1020 D3). Read-only."""
+    def _slot_sources(self):
+        """The four slot sources at print start (#1020 D3). Read-only.
+
+        Returns (job_slot, ffm_channel, ifs_chan, helix_slot); a source
+        that cannot be read is None. The job's slot is this file's own
+        launch record when it names exactly one slot. The hardware map's
+        active slot is printer-wide (the slot the last Print Handy start
+        used, whatever file that was), so it is only the fallback for a
+        file with no single-slot launch record (#1648).
+        """
         from . import lane_data_sync, spool_sync
 
-        job_slot, spool_id = recovery_slot(self.filename)
-        if job_slot is None:
-            mapped = sorted(launch_mapped_slots(self.filename))
-            job_slot = mapped[0] if len(mapped) == 1 else None
+        mapped = sorted(launch_mapped_slots(self.filename))
+        if len(mapped) == 1:
+            job_slot = mapped[0]
+            spool_id = (_slot_record(job_slot) or {}).get("spoolman_id")
+        else:
+            job_slot, spool_id = recovery_slot(self.filename)
         ffm_channel = ifs_chan = None
         try:
             reply = print_control._call("/printer/objects/query?FFMInfo&zmod_ifs")
@@ -4211,6 +4333,13 @@ class Listener:
             helix_slot = lane_data_sync.helix_seated_slot(lanes, spool_id)
         except Exception as exc:
             warn(f"slot self-check lane read failed: {exc!r}")
+        return job_slot, ffm_channel, ifs_chan, helix_slot
+
+    def _slot_agreement(self):
+        """The slot self-check warning text, or None when the sources agree (#1020 D3)."""
+        from . import lane_data_sync
+
+        job_slot, ffm_channel, ifs_chan, helix_slot = self._slot_sources()
         return lane_data_sync.slot_agreement_warning(
             job_slot=job_slot, ffm_channel=ffm_channel, ifs_chan=ifs_chan,
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
@@ -4598,7 +4727,7 @@ class Listener:
                             f"Auto-pause: {clean(filename)}\n{reply}"))
             if not event_discarded:
                 # #981: always-on watchdog event recording — best-effort
-                # and append-only (hermes/watchdog_events carries the
+                # and append-only (runtime/watchdog_events carries the
                 # rule); a recording failure never reaches this loop.
                 await asyncio.to_thread(
                     _record_watchdog_event, filename, verdict,
@@ -4769,17 +4898,29 @@ class Listener:
         log(f"state {old} -> {new_state} file={self.filename!r} ({reason})")
         _record_transition_markers(old, new_state, self.filename, self.last_stats)
         await self._apply_launch_lease_settle(new_state)
+        start_transition = old is not None and old != "printing" and new_state == "printing"
+        if start_transition and old != "paused":
+            # #1648 defect 2: a fresh start's post goes out before the
+            # fresh-start side effects. Capture begin alone can take
+            # seconds (CAPTURE_BEGIN_TIMEOUT_S) and the slot self-check
+            # reads the printer; print #120's announcement landed after
+            # the filament swap it was supposed to precede. A resume
+            # posts nothing and keeps its established place below.
+            await self._apply_resume_or_start(old, new_state, duplicate_start)
         if fresh_start:
             await self._apply_fresh_start(old, identity)
         await self._apply_reconnect_effects(old, new_state, identity)
         await self._apply_visual_due_check(new_state)
-        if old is not None and old != "printing" and new_state == "printing":
+        if start_transition and old == "paused":
             await self._apply_resume_or_start(old, new_state, duplicate_start)
         elif old == "printing" and new_state == "paused":
             await self._apply_pause_transition(old, new_state)
         elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
             await self._apply_terminal_notice(new_state, gone, identity)
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
+        # #1648: read before the bookkeeping closes the session and the
+        # announcer runs (its plan partial clears the plan's clips).
+        partial_capture = self._stopped_partial_capture(new_state) if ended else None
         await self._apply_ended_bookkeeping(old, new_state, ended)
         await self._run_announcer_guarded(old, new_state)
         if ended:
@@ -4787,6 +4928,37 @@ class Listener:
             # _on_status must not run it a second time in its finally.
             self._print_ended_done = True
             await self._print_ended(new_state)
+            if partial_capture is not None:
+                # #1648: a stopped print's partial timelapse posts as its
+                # own follow-up once its capture session is closed, on a
+                # daemon thread so the encode never blocks this loop.
+                try:
+                    _start_partial_timelapse(self.filename, self.last_stats, new_state,
+                                             partial_capture)
+                except Exception as exc:
+                    warn(f"partial timelapse post failed file={self.filename!r}: {exc!r}")
+
+    def _stopped_partial_capture(self, new_state):
+        """The capture directory a stopped print's partial timelapse may use, or None (#1648).
+
+        Only a print that really ended cancelled or error gets one. A job
+        that ended into standby may have finished normally (the announcer
+        then posts the completion video), so it never does. The directory
+        is that of the session this print opened: with none open (capture
+        off, or its begin timed out or failed) there is nothing of its own
+        to post. A stop the announcer's multi-plate partial video already
+        covers gets no second post.
+        """
+        if new_state not in ("cancelled", "error"):
+            return None
+        session = self.capture_session
+        directory = getattr(session, "directory", None) if session is not None else None
+        if directory is None:
+            return None
+        if _plan_partial_covers(self.filename):
+            log(f"partial timelapse left to the plan's combined video: {self.filename!r}")
+            return None
+        return directory
 
     def _bind_start_correlation(self):
         """Bind this print's job correlation id process-wide, guarded on its own (#1583)."""
@@ -4917,6 +5089,12 @@ class Listener:
                     warn(f"exclude objects post at print start failed: {exc!r}")
             else:
                 try:
+                    # #1648: the start post names no printer-mapped slot. At
+                    # this edge ZMod has not swapped filament yet, so
+                    # FFMInfo.channel / zmod_ifs Chan still report the
+                    # previous print's channel, and no source readable here
+                    # describes this job's own mapping. The slot self-check
+                    # in _apply_fresh_start is the one mismatch reporter.
                     await asyncio.to_thread(post, start_message(self.filename))
                 except Exception as exc:
                     warn(f"start post failed file={self.filename!r}: {exc!r}")
@@ -5120,7 +5298,7 @@ class Listener:
         try:
             context = print_records.load_context(filename) if filename else {}
             plan = multislot_usage.charge_plan(context)
-            if plan is None and not context.get("spool_usage_baseline"):
+            if multislot_usage.charge_key(context) is None:
                 return
             history = await asyncio.to_thread(self._history_entry, filename)
             # The print's own window: its history entry, else (a Moonraker
@@ -5134,8 +5312,9 @@ class Listener:
                     f"{'unavailable' if history is None else history.get('start_time')})")
                 return
             finished = history if (history or {}).get("status") not in (None, "in_progress") else None
+            job_id = (history or {}).get("job_id")
             if plan is None:
-                await self._guard_single_slot_usage(context, new_state, finished)
+                await self._guard_single_slot_usage(context, new_state, finished, job_id=job_id)
                 return
             outcome = "complete" if new_state == "complete" else "stopped"
             actual = planned = None
@@ -5155,7 +5334,7 @@ class Listener:
             entry = await asyncio.to_thread(
                 multislot_usage.charge_finished_print, context, outcome,
                 actual_mm=actual, planned_mm=planned, suspended=suspended,
-                base_url=_config.service_url("spoolman_url") or None)
+                base_url=_config.service_url("spoolman_url") or None, job_id=job_id)
         except Exception as exc:
             warn(f"multi-slot usage charge failed file={filename!r}: {exc!r}")
             return
@@ -5175,7 +5354,7 @@ class Listener:
         filename = self.filename
         try:
             context = print_records.load_context(filename) if filename else {}
-            if multislot_usage.charge_plan(context) is None and not context.get("spool_usage_baseline"):
+            if multislot_usage.charge_key(context) is None:
                 return
             history = await asyncio.to_thread(self._history_entry, filename)
             if history is None or history.get("status") in (None, "in_progress"):
@@ -5214,7 +5393,7 @@ class Listener:
             return None
         return result.get("spool_id") if isinstance(result, dict) else None
 
-    async def _guard_single_slot_usage(self, context, new_state, history=None):
+    async def _guard_single_slot_usage(self, context, new_state, history=None, job_id=None):
         """Undo a runaway Moonraker charge on a finished single-slot print (#1374).
 
         Moonraker charged the active spool while the print ran. After a
@@ -5223,21 +5402,30 @@ class Listener:
         spool's growth since launch with what this print extruded and
         writes the used weight back when it is far over. Moonraker's active
         spool at the end goes with it: a spool no longer active is left alone.
+
+        A print with no usable launch baseline has nothing to check, but
+        Moonraker still charged it live: multislot_usage.record_printer_charged
+        records it in the ledger, so an External intake confirmation can never
+        charge the same print again (#1525).
         """
         from . import multislot_usage
         filename = self.filename
-        if not (context or {}).get("spool_usage_baseline"):
-            return
-        actual = (self.last_stats or {}).get("filament_used")
-        if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
-            actual = (history or {}).get("filament_used")
-        record = load_runout_pause()
+        outcome = "complete" if new_state == "complete" else "stopped"
         active = await asyncio.to_thread(self._active_spool_id)
-        entry = await asyncio.to_thread(
-            multislot_usage.guard_single_slot, context,
-            "complete" if new_state == "complete" else "stopped", actual_mm=actual,
-            active_spool_id=active, suspended=bool(record and record.get("usage_suspended")),
-            base_url=_config.service_url("spoolman_url") or None)
+        entry = None
+        if (context or {}).get("spool_usage_baseline"):
+            actual = (self.last_stats or {}).get("filament_used")
+            if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
+                actual = (history or {}).get("filament_used")
+            record = load_runout_pause()
+            entry = await asyncio.to_thread(
+                multislot_usage.guard_single_slot, context, outcome, actual_mm=actual,
+                active_spool_id=active, suspended=bool(record and record.get("usage_suspended")),
+                base_url=_config.service_url("spoolman_url") or None, job_id=job_id)
+        if entry is None:
+            entry = await asyncio.to_thread(
+                multislot_usage.record_printer_charged, context, outcome,
+                active_spool_id=active, job_id=job_id)
         _log_usage_entry(filename, entry)
 
     async def _print_ended(self, new_state):
@@ -5309,7 +5497,7 @@ class Listener:
             # A listener instance (#336) flushes only its own printer's
             # deferred-screen queue (#335 keyed the queues per printer, so
             # an update can never reach another printer's screen); with no
-            # instance identity (direct/Hermes runs) the legacy queue is
+            # instance identity (a direct run) the legacy queue is
             # flushed exactly as before.
             from .. import listeners as _listeners
             instance_id = _listeners.instance_printer_id()

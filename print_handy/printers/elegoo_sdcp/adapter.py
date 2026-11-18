@@ -82,7 +82,7 @@ class ElegooSdcpAdapter(PrinterAdapter):
 
         The light is the one accessory the auto light-off feature may
         touch; this is a plain transport call — the automation policy
-        and its gates live in hermes (light_control / family_control).
+        and its gates live in runtime (light_control / family_control).
         """
         return self.client().set_light(on)
 

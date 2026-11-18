@@ -39,6 +39,12 @@ history reads, never what was recorded.
   failed prints cost named.
 - `/print-cost 50 g, 3 h, in PETG` (or "how much will this cost, 50 g,
   3 h") answers an estimate for those amounts.
+- Dropping a sliced G-code or 3MF file in chat with a cost ask
+  (`/print-cost`, or "how much will this file cost") prices that file,
+  with the same numbers the Web UI calculator gives for it. An
+  unsliced 3MF gets the explicit not-sliced answer instead of a zero
+  cost. The ask is read-only: it creates no job and asks nothing;
+  printing the file stays a separate ask to the intake flow.
 
 The chat answer is compact: the leading figure for the cost mode, the
 top cost lines, the failure allowance and the provenance line. The
@@ -155,7 +161,8 @@ what it actually used, with its prep labor but no post-processing and
 no failure allowance: it is the failure, so it is not charged for one
 twice. Later price edits never rewrite history.
 
-The Data tab's Print costs section and Pasta Wrapped aggregate the
+The Data tab (its Filament and cost section, with the full Print costs
+section under All the numbers) and Pasta Wrapped aggregate the
 frozen records only: out-of-pocket and full spend, spend by printer,
 material and color, cost per gram and per print hour, the most
 expensive and cheapest print, and what the failed and cancelled prints
@@ -298,7 +305,12 @@ standard resin 1.10 g/mL.
 ## Resin file support
 
 ChiTuBox and Lychee textual metadata carrying volume and time is
-parsed. The binary ChiTuBox project format (.cxdlpv4) and the Lychee
-.lys container are not parsed in this version; a resin job in those
-formats is costed from its Spoolman bottle and entered volume, and
-the calculator says what is missing rather than guessing.
+parsed. The binary ChiTuBox container (.cxdlpv4) is parsed too: the
+resin volume and print time come from the container's header and
+print parameters block, and the result names the container as its
+source. A Lychee .lys file is a saved scene (models and preparation
+work), not a slice: it carries no resin volume or print time, which
+Lychee computes only when a slice is exported, so a .lys job gets
+the explicit cannot-estimate state with that reason. An unrecognized
+or truncated binary container likewise says what is missing rather
+than guessing, and such jobs are costed from entered values.

@@ -1,6 +1,6 @@
 {
  "_about": "Keyword (matched through core.fuzzy, typo tolerant) -> lines about that kind of object.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": {
   "benchy": [
@@ -2955,6 +2955,446 @@
     "id": "title-token-behold-title-the-replacement-counter",
     "family": "title-token",
     "text": "Behold {title}, the replacement counter keeping the tabletop game playable for another evening."
+   }
+  ],
+  "frog": [
+   {
+    "id": "title-frog-title-has-hopped-off-the",
+    "family": "title-frog",
+    "text": "{title} has hopped off the plate and straight into pond royalty status."
+   },
+   {
+    "id": "title-frog-ribbit-certified-title-is-small",
+    "family": "title-frog",
+    "text": "Ribbit certified: {title} is small, green at heart, and entirely unbothered."
+   },
+   {
+    "id": "title-frog-title-waited-patiently-like-a",
+    "family": "title-frog",
+    "text": "{title} waited patiently like a frog on a lily pad of warm plastic."
+   },
+   {
+    "id": "title-frog-official-pond-delegate-title-accepts",
+    "family": "title-frog",
+    "text": "Official pond delegate {title} accepts flies, compliments, and shelf space."
+   }
+  ],
+  "cat": [
+   {
+    "id": "title-cat-title-has-knocked-nothing-off",
+    "family": "title-cat",
+    "text": "{title} has knocked nothing off the desk yet, but the intent is visible."
+   },
+   {
+    "id": "title-cat-feline-approved-title-will-sit",
+    "family": "title-cat",
+    "text": "Feline approved: {title} will sit in the sunbeam and judge quietly."
+   },
+   {
+    "id": "title-cat-title-arrived-with-nine-lives",
+    "family": "title-cat",
+    "text": "{title} arrived with nine lives and absolutely no interest in being moved."
+   },
+   {
+    "id": "title-cat-the-cat-distribution-system-delivered",
+    "family": "title-cat",
+    "text": "The cat distribution system delivered {title} directly to the build plate."
+   }
+  ],
+  "dog": [
+   {
+    "id": "title-dog-title-is-a-good-print",
+    "family": "title-dog",
+    "text": "{title} is a good print, yes it is, and it knows it is."
+   },
+   {
+    "id": "title-dog-loyal-sturdy-and-slightly-goofy",
+    "family": "title-dog",
+    "text": "Loyal, sturdy, and slightly goofy: {title} is the dog of prints."
+   },
+   {
+    "id": "title-dog-title-waited-by-the-plate",
+    "family": "title-dog",
+    "text": "{title} waited by the plate with the patience of a dog near dinner."
+   },
+   {
+    "id": "title-dog-certified-good-boy-energy-radiates",
+    "family": "title-dog",
+    "text": "Certified good boy energy radiates from {title} at all hours."
+   }
+  ],
+  "owl": [
+   {
+    "id": "title-owl-title-sees-everything-judges-silently",
+    "family": "title-owl",
+    "text": "{title} sees everything, judges silently, and looks wise doing it."
+   },
+   {
+    "id": "title-owl-night-shift-supervisor-title-has",
+    "family": "title-owl",
+    "text": "Night shift supervisor {title} has completed its watch over the printer."
+   },
+   {
+    "id": "title-owl-title-brings-big-wisdom-energy",
+    "family": "title-owl",
+    "text": "{title} brings big wisdom energy to a very small shelf footprint."
+   },
+   {
+    "id": "title-owl-who-printed-title-everyone-asks",
+    "family": "title-owl",
+    "text": "{title} knows exactly who printed it and is keeping the secret wisely."
+   }
+  ],
+  "butterfly": [
+   {
+    "id": "title-butterfly-title-emerged-from-its-cocoon",
+    "family": "title-butterfly",
+    "text": "{title} emerged from its cocoon phase looking dramatically more decorative."
+   },
+   {
+    "id": "title-butterfly-wings-out-worries-gone-title",
+    "family": "title-butterfly",
+    "text": "Wings out, worries gone: {title} completed the full metamorphosis arc."
+   },
+   {
+    "id": "title-butterfly-title-is-proof-that-a",
+    "family": "title-butterfly",
+    "text": "{title} is proof that a warm nozzle is just a plastic chrysalis."
+   },
+   {
+    "id": "title-butterfly-delicate-symmetrical-and-smug-about",
+    "family": "title-butterfly",
+    "text": "Delicate, symmetrical, and smug about it: {title} has landed."
+   }
+  ],
+  "rocket": [
+   {
+    "id": "title-rocket-title-has-cleared-the-launch",
+    "family": "title-rocket",
+    "text": "{title} has cleared the launch plate and achieved low shelf orbit."
+   },
+   {
+    "id": "title-rocket-houston-confirms-title-is-go",
+    "family": "title-rocket",
+    "text": "Houston confirms {title} is go for display, snacks, and bragging."
+   },
+   {
+    "id": "title-rocket-title-printed-upward-onward-and",
+    "family": "title-rocket",
+    "text": "{title} printed upward, onward, and directly into space-program cosplay."
+   },
+   {
+    "id": "title-rocket-countdown-complete-title-is-the",
+    "family": "title-rocket",
+    "text": "Countdown complete: {title} is the most aerodynamic resident of the desk."
+   }
+  ],
+  "boat": [
+   {
+    "id": "title-boat-title-is-seaworthy-in-spirit",
+    "family": "title-boat",
+    "text": "{title} is seaworthy in spirit and bathtub-certified in practice."
+   },
+   {
+    "id": "title-boat-all-aboard-title-the-smallest",
+    "family": "title-boat",
+    "text": "All aboard {title}, the smallest vessel with the largest captain energy."
+   },
+   {
+    "id": "title-boat-title-has-docked-successfully-and",
+    "family": "title-boat",
+    "text": "{title} has docked successfully and requests a tiny christening ceremony."
+   },
+   {
+    "id": "title-boat-the-maiden-voyage-of-title",
+    "family": "title-boat",
+    "text": "The maiden voyage of {title} begins at the sink and ends in glory."
+   }
+  ],
+  "castle": [
+   {
+    "id": "title-castle-title-stands-fortified-against-dust",
+    "family": "title-castle",
+    "text": "{title} stands fortified against dust, drafts, and casual shelf rearrangement."
+   },
+   {
+    "id": "title-castle-a-stronghold-is-complete-title",
+    "family": "title-castle",
+    "text": "A stronghold is complete: {title} now governs the desk from its towers."
+   },
+   {
+    "id": "title-castle-title-has-walls-presence-and",
+    "family": "title-castle",
+    "text": "{title} has walls, presence, and absolutely no working drawbridge regrets."
+   },
+   {
+    "id": "title-castle-the-kingdom-of-the-shelf",
+    "family": "title-castle",
+    "text": "The kingdom of the shelf recognizes {title} as its newest landmark."
+   }
+  ],
+  "house": [
+   {
+    "id": "title-house-title-is-movein-ready-with",
+    "family": "title-house",
+    "text": "{title} is move-in ready, with excellent layer lines and no mortgage."
+   },
+   {
+    "id": "title-house-open-house-at-title-tiny",
+    "family": "title-house",
+    "text": "Open house at {title}: tiny, charming, and permanently draft-free inside."
+   },
+   {
+    "id": "title-house-title-brings-curb-appeal-to",
+    "family": "title-house",
+    "text": "{title} brings curb appeal to any surface it is placed upon."
+   },
+   {
+    "id": "title-house-the-smallest-property-on-the",
+    "family": "title-house",
+    "text": "The smallest property on the shelf, {title}, is officially complete."
+   }
+  ],
+  "tree": [
+   {
+    "id": "title-tree-title-grew-layer-by-layer",
+    "family": "title-tree",
+    "text": "{title} grew layer by layer, which is exactly how trees prefer it."
+   },
+   {
+    "id": "title-tree-arborist-report-title-is-healthy",
+    "family": "title-tree",
+    "text": "Arborist report: {title} is healthy, upright, and pleasantly branchy."
+   },
+   {
+    "id": "title-tree-title-puts-down-roots-on",
+    "family": "title-tree",
+    "text": "{title} puts down roots on the shelf and refuses all pruning."
+   },
+   {
+    "id": "title-tree-from-a-tiny-filament-seed",
+    "family": "title-tree",
+    "text": "From a tiny filament seed, {title} has become a full canopy situation."
+   }
+  ],
+  "guitar": [
+   {
+    "id": "title-guitar-title-is-tuned-for-display",
+    "family": "title-guitar",
+    "text": "{title} is tuned for display and ready for its tiny acoustic era."
+   },
+   {
+    "id": "title-guitar-encore-energy-title-finished-its",
+    "family": "title-guitar",
+    "text": "Encore energy: {title} finished its set without breaking a single string."
+   },
+   {
+    "id": "title-guitar-title-strums-nothing-says-everything",
+    "family": "title-guitar",
+    "text": "{title} strums nothing, says everything, and looks great under light."
+   },
+   {
+    "id": "title-guitar-the-quietest-guitar-ever-made",
+    "family": "title-guitar",
+    "text": "The quietest guitar ever made, {title}, still draws a crowd."
+   }
+  ],
+  "elephant": [
+   {
+    "id": "title-elephant-title-never-forgets-mostly-because",
+    "family": "title-elephant",
+    "text": "{title} never forgets, mostly because it is permanently on the shelf."
+   },
+   {
+    "id": "title-elephant-big-ears-bigger-presence-title",
+    "family": "title-elephant",
+    "text": "Big ears, bigger presence: {title} has joined the household herd."
+   },
+   {
+    "id": "title-elephant-title-stomped-gently-off-the",
+    "family": "title-elephant",
+    "text": "{title} stomped gently off the plate and into everyone's heart."
+   },
+   {
+    "id": "title-elephant-the-elephant-in-the-room",
+    "family": "title-elephant",
+    "text": "The elephant in the room is {title}, and everyone is delighted."
+   }
+  ],
+  "bear": [
+   {
+    "id": "title-bear-title-is-ready-to-hibernate",
+    "family": "title-bear",
+    "text": "{title} is ready to hibernate on the coziest corner of the shelf."
+   },
+   {
+    "id": "title-bear-bear-necessities-delivered-title-is",
+    "family": "title-bear",
+    "text": "Bear necessities delivered: {title} is sturdy, round, and unbothered."
+   },
+   {
+    "id": "title-bear-title-growls-softly-at-anyone",
+    "family": "title-bear",
+    "text": "{title} growls softly at anyone who calls it merely decorative."
+   },
+   {
+    "id": "title-bear-fresh-from-the-plastic-forest",
+    "family": "title-bear",
+    "text": "Fresh from the plastic forest, {title} requests honey and admiration."
+   }
+  ],
+  "fox": [
+   {
+    "id": "title-fox-title-looks-clever-enough-to",
+    "family": "title-fox",
+    "text": "{title} looks clever enough to have planned the whole print itself."
+   },
+   {
+    "id": "title-fox-sly-sleek-and-shelfready-title",
+    "family": "title-fox",
+    "text": "Sly, sleek, and shelf-ready: {title} has outsmarted the build plate."
+   },
+   {
+    "id": "title-fox-title-slipped-off-the-printer",
+    "family": "title-fox",
+    "text": "{title} slipped off the printer with woodland confidence and style."
+   },
+   {
+    "id": "title-fox-what-does-the-fox-print",
+    "family": "title-fox",
+    "text": "{title} says plenty without making a sound, which is very fox of it."
+   }
+  ],
+  "rabbit": [
+   {
+    "id": "title-rabbit-title-multiplied-the-cuteness-in",
+    "family": "title-rabbit",
+    "text": "{title} multiplied the cuteness in the room by a factor of several."
+   },
+   {
+    "id": "title-rabbit-fresh-from-the-warren-title",
+    "family": "title-rabbit",
+    "text": "Fresh from the warren: {title} is soft-edged and quick to charm."
+   },
+   {
+    "id": "title-rabbit-title-hopped-through-production-and",
+    "family": "title-rabbit",
+    "text": "{title} hopped through production and landed ears-first into display duty."
+   },
+   {
+    "id": "title-rabbit-lucky-feet-not-included-but",
+    "family": "title-rabbit",
+    "text": "Lucky feet not included, but {title} brings its own good fortune."
+   }
+  ],
+  "penguin": [
+   {
+    "id": "title-penguin-title-is-formally-dressed-for",
+    "family": "title-penguin",
+    "text": "{title} is formally dressed for every occasion the shelf can offer."
+   },
+   {
+    "id": "title-penguin-waddle-complete-title-arrives-in",
+    "family": "title-penguin",
+    "text": "Waddle complete: {title} arrives in permanent tuxedo and zero hurry."
+   },
+   {
+    "id": "title-penguin-title-brings-polar-professionalism-to",
+    "family": "title-penguin",
+    "text": "{title} brings polar professionalism to a distinctly room-temperature desk."
+   },
+   {
+    "id": "title-penguin-the-colony-grows-title-stands",
+    "family": "title-penguin",
+    "text": "The colony grows: {title} stands proudly with the other cold-weather prints."
+   }
+  ],
+  "whale": [
+   {
+    "id": "title-whale-title-is-a-big-deal",
+    "family": "title-whale",
+    "text": "{title} is a big deal in every sense the build volume allowed."
+   },
+   {
+    "id": "title-whale-whale-hello-there-title-has",
+    "family": "title-whale",
+    "text": "Whale hello there: {title} has surfaced from the deep blue plate."
+   },
+   {
+    "id": "title-whale-title-sings-its-silent-song",
+    "family": "title-whale",
+    "text": "{title} sings its silent song from the shelf, majestic and unbothered."
+   },
+   {
+    "id": "title-whale-a-whale-of-a-print",
+    "family": "title-whale",
+    "text": "A whale of a print, {title}, in the most literal available size."
+   }
+  ],
+  "ghost": [
+   {
+    "id": "title-ghost-title-haunts-the-shelf-now",
+    "family": "title-ghost",
+    "text": "{title} haunts the shelf now, politely and with excellent posture."
+   },
+   {
+    "id": "title-ghost-spooky-season-is-permanent-since",
+    "family": "title-ghost",
+    "text": "Spooky season is permanent since {title} floated off the build plate."
+   },
+   {
+    "id": "title-ghost-title-is-transparent-about-one",
+    "family": "title-ghost",
+    "text": "{title} is transparent about one thing: it demands to be displayed."
+   },
+   {
+    "id": "title-ghost-boo-but-make-it-decorative",
+    "family": "title-ghost",
+    "text": "Boo, but make it decorative: {title} has joined the household haunting."
+   }
+  ],
+  "robot": [
+   {
+    "id": "title-robot-title-booted-up-beeped-approvingly",
+    "family": "title-robot",
+    "text": "{title} booted up, beeped approvingly, and accepted shelf assignment."
+   },
+   {
+    "id": "title-robot-beep-boop-title-is-online",
+    "family": "title-robot",
+    "text": "Beep boop: {title} is online and already more reliable than the Wi-Fi."
+   },
+   {
+    "id": "title-robot-title-was-printed-by-a",
+    "family": "title-robot",
+    "text": "{title} was printed by a robot, about a robot, for the robots."
+   },
+   {
+    "id": "title-robot-unit-title-reporting-for-duty",
+    "family": "title-robot",
+    "text": "Unit {title} reporting for duty, charm subroutines fully engaged."
+   }
+  ],
+  "mushroom": [
+   {
+    "id": "title-mushroom-title-sprouted-on-the-plate",
+    "family": "title-mushroom",
+    "text": "{title} sprouted on the plate like the forest floor after rain."
+   },
+   {
+    "id": "title-mushroom-a-fun-guy-in-every",
+    "family": "title-mushroom",
+    "text": "A fun guy in every sense: {title} has joined the shelf ecosystem."
+   },
+   {
+    "id": "title-mushroom-title-grew-overnight-energy-into",
+    "family": "title-mushroom",
+    "text": "{title} grew overnight energy into a permanent daylight display role."
+   },
+   {
+    "id": "title-mushroom-sporeadjacent-and-shelfapproved-title-completes",
+    "family": "title-mushroom",
+    "text": "Spore-adjacent and shelf-approved, {title} completes the woodland collection."
    }
   ]
  }

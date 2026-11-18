@@ -8,6 +8,9 @@ the one ``<@id>`` at the front), and is pinned here through the listener.
 #1017's failed, cancelled and spaghetti roast banks are wired into the
 Moonraker listener's posts (#1023); #1326 gave the family listeners'
 plain terminal posts one status quip instead, so no post carries both.
+#1672 supersedes the family half: family terminal posts now draw the
+same bank roast through the shared helper, and the quip remains only
+on a family post with no roast line — still never both.
 """
 import json
 
@@ -113,9 +116,10 @@ def test_1332_no_terminal_post_carries_both_a_roast_and_a_status_quip(monkeypatc
     assert roasts and not quips
     assert "ROAST" in posts[-1] and "QUIP" not in posts[-1]
     roasts.clear()
-    # A family listener's error post: one quip, no roast.
+    # A family listener's error post (#1672): the failed bank's roast,
+    # no quip — the same one-voice rule as the Moonraker posts.
     monkeypatch.setattr(family_control, "_mel", lambda: mel)
     family_control.post_family_event("error", FILE)
-    assert quips and not roasts
-    assert "QUIP" in posts[-1] and "ROAST" not in posts[-1]
+    assert roasts and not quips
+    assert "ROAST" in posts[-1] and "QUIP" not in posts[-1]
     json.dumps(posts)  # plain text only

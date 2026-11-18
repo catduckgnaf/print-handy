@@ -394,6 +394,8 @@ def run():
         print(f"FAIL  settings: {exc}", file=sys.stderr)
         print("Not starting: fix the FAIL lines above.", file=sys.stderr)
         return 2
+    from ..runtime import screen_tip as _screen_tip
+    _screen_tip.clear_retained_roasts_in_background()  # a switched-off last-roast sensor leaves no stale entity (#1674)
     rows = checks(cfg)
     failed = False
     for label, ok, detail in rows:

@@ -35,6 +35,16 @@ def year_param(handler):
         return None, (400, {"ok": False,
                             "reason": "year must be a whole number. Nothing shown."})
 
+
+def selection_params(handler):
+    """The user / printer filter query params (#1647): ``user`` is a
+    starter key or ``unattributed``, ``printer`` a printer name; an
+    absent or empty param is no filter."""
+    query = parse_qs(urlparse(handler.path).query)
+    user = (query.get("user") or [None])[0] or None
+    printer = (query.get("printer") or [None])[0] or None
+    return user, printer
+
 def data_route(handler, path):
     """GET /data, /wrapped, /api/data and /api/wrapped (#956).
 
@@ -49,24 +59,25 @@ def data_route(handler, path):
     if error:
         handler._json(error[0], error[1])
         return
+    user, printer = selection_params(handler)
     data = handler.server.settings_data
     if path == "/api/data":
-        code, payload = data_module.data_view(data, year=year)
+        code, payload = data_module.data_view(data, year=year, user=user, printer=printer)
         handler._json(code, payload)
         return
     if path == "/api/wrapped":
-        code, payload = data_module.wrapped_view(data, year=year)
+        code, payload = data_module.wrapped_view(data, year=year, user=user, printer=printer)
         handler._json(code, payload)
         return
     if path == "/data":
-        code, payload = data_module.data_view(data, year=year)
+        code, payload = data_module.data_view(data, year=year, user=user, printer=printer)
         if code != 200:
             handler._json(code, payload)
             return
         handler._send(200, data_module.render_data_page(data, payload, theme=handler._theme()),
                    "text/html; charset=utf-8")
         return
-    code, payload = data_module.wrapped_view(data, year=year)
+    code, payload = data_module.wrapped_view(data, year=year, user=user, printer=printer)
     if code != 200:
         handler._json(code, payload)
         return
@@ -218,7 +229,12 @@ def wrapped_share_post(handler, form):
         passphrase=(form.get("passphrase") or [None])[0],
         include_titles=ticked("include_titles", False),
         include_printers=ticked("include_printers", False),
-        include_video=ticked("include_video", False))
+        include_video=ticked("include_video", False),
+        # The filtered view's selection (#1647), posted as hidden
+        # fields by the share panel, so the bundle is the Wrapped the
+        # page is showing.
+        user=(form.get("user") or [None])[0] or None,
+        printer=(form.get("printer") or [None])[0] or None)
     if code != 200:
         handler._html_refusal(code, payload.get("reason", "the export failed"),
                            "/wrapped")

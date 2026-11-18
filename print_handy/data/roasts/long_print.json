@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints of 6 hours or more.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -347,6 +347,31 @@
    "id": "long_print-title-took-duration-the-filament",
    "family": "long_print-title-took-duration-the-filament",
    "text": "{title} took {duration}; the filament spool now resembles an empty hollow shell."
+  },
+  {
+   "id": "long-print-title-took-duration-which-is",
+   "family": "long-print-title-took-duration-which-is",
+   "text": "{title} took {duration}, which is a relationship, not a print duration."
+  },
+  {
+   "id": "long-print-a-duration-commitment-from-printer",
+   "family": "long-print-a-duration-commitment-from-printer",
+   "text": "A {duration} commitment from {printer} produced one very patient {title}."
+  },
+  {
+   "id": "long-print-title-earned-its-duration-runtime",
+   "family": "long-print-title-earned-its-duration-runtime",
+   "text": "{title} earned its {duration} runtime like a limited series finale."
+  },
+  {
+   "id": "long-print-duration-later-title-has-seniority",
+   "family": "long-print-duration-later-title-has-seniority",
+   "text": "{duration} later, {title} has seniority over several household routines."
+  },
+  {
+   "id": "long-print-the-long-game-paid-off",
+   "family": "long-print-the-long-game-paid-off",
+   "text": "The long game paid off: {title} after {duration} of steady work."
   }
  ]
 }

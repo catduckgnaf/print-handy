@@ -4,7 +4,7 @@ the fit and painted-scale searches, the filament fallbacks and warnings the slic
 Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
 importable from there for one release.
 """
-import json, logging, math, re, time, zipfile
+import json, logging, math, os, re, time, zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -20,8 +20,9 @@ from .filament import (
 )
 from ..printers.base import MultiColorUnsupported
 from .store import (
-    _job_adapter, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing, decisions_digest,
-    gcode_estimate_s, human_dur, stamp_job_printer, write_job,
+    _job_adapter, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing, artifact_gcodes,
+    decisions_digest, gcode_estimate_s, human_dur, stale_build_refusal, stamp_job_printer,
+    unverified_artifact, write_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -1104,20 +1105,131 @@ def painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
         return _painted_fit(src, view, plates, ceiling, tower_mm)
 
 
+def _plate_hull_yaws(src, ids, usable):
+    """Bed-plane turns for one plate, best first, with the full-size footprint ratio (#1648).
+
+    Reuses split_fit's mesh-hull yaw sweep (#221/#76). Returns
+    [(ratio, degrees)] where ratio is the worst footprint/usable ratio at
+    100%: the hull's extent equals the mesh's, so a turn whose ratio times
+    the scale exceeds 1 cannot fit and is never measured. None when the
+    footprint cannot be read (every turn is then measured as before).
+    """
+    from ..core import color_geometry
+    from ..core.split_fit import mesh_yaw_candidates
+    try:
+        with zipfile.ZipFile(src) as archive:
+            points = [p for hull, _ in color_geometry._world_hull_xy(archive, set(ids)) for p in hull]
+    except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile) as exc:
+        logger.info('painted fit: footprint unreadable for objects %s, measuring every turn: %s', sorted(ids), exc)
+        return None
+    if not points:
+        return None
+    return [(ratio, deg) for ratio, deg, _ in mesh_yaw_candidates(points, usable, usable)]
+
+
+def _turns_for(candidates, scale):
+    """Turns to measure at ``scale``, in offer order: authored, quarter turn, then diagonals by margin."""
+    if candidates is None:
+        return [0.0, 90.0]
+    fits = {deg: ratio for ratio, deg in candidates if ratio * scale <= 1.0 + 1e-9}
+    order = [deg for deg in (0.0, 90.0) if deg in fits]
+    order += [deg for ratio, deg in candidates if deg in fits and deg not in (0.0, 90.0)][:2]
+    return order
+
+
+def _plate_fit(src, view, ids, ceiling, tower_mm, usable=None):
+    """Largest scale <= ceiling, and its turn, at which one painted plate fits (#1648).
+
+    Every turn is tried at the ceiling before any shrinking, and the ladder
+    then runs at the turn with the most margin. A plate that uses one tool
+    needs no prime tower, whatever the printer's purge mode. Returns
+    {'scale', 'yaw', 'extent_mm', 'tower_mm'} or None.
+    """
+    from ..core import painted_geometry
+    from ..core.color_geometry import effective_tower_mm, export_color_geometry
+    from ..core.orca_adapter import _yaw
+    usable = float(usable or BED_LIMIT_MM)
+    candidates = _plate_hull_yaws(src, ids, usable)
+    tower = tower_mm
+
+    def measure(scale, yaw, tower):
+        try:
+            mapping, geometry = export_color_geometry(src, None, view, object_ids=ids, scale=scale, tower_mm=tower,
+                                                      rotation=None if not yaw else _yaw(yaw))
+        except RuntimeError:
+            return None, None
+        bounds = [ax for row in geometry['parts'] for ax in row['bounds_mm'][:2]]
+        fits = all(0 <= ax[0] and ax[1] <= usable for ax in bounds)
+        return mapping, (geometry if fits else None)
+
+    def found(scale, yaw, geometry):
+        bounds = geometry.get('build_bounds_mm') or []
+        extent = [round(float(b[1]) - float(b[0]), 1) for b in bounds[:3]]
+        reserved = float(effective_tower_mm()) if tower is None else float(tower)
+        return {'scale': scale, 'yaw': float(yaw), 'extent_mm': extent, 'tower_mm': reserved or 0.0}
+
+    with painted_geometry.decode_scope():
+        # The as-authored measurement at the ceiling comes first. Its tool map
+        # also says whether the plate changes tools: a one-tool plate needs no
+        # prime tower whatever the purge mode, so it is measured towerless.
+        mapping, geometry = measure(ceiling, 0.0, tower)
+        if mapping is None and tower != 0.0:
+            mapping, _ = measure(ceiling, 0.0, 0.0)  # a tower refusal hides the map
+        if mapping is not None and len(set(mapping.values())) <= 1 and tower != 0.0:
+            tower, geometry = 0.0, None
+        if geometry is not None:
+            return found(ceiling, 0.0, geometry)
+        steps = [ceiling] + [s for s in PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
+        for scale_index, scale in enumerate(steps):
+            # Every turn that can fit is tried at the ceiling; shrinking then
+            # keeps the turn with the most margin. A step no turn can fit at
+            # (by footprint) is skipped without a measurement.
+            if scale_index == 0:
+                turns = _turns_for(candidates, scale)
+            elif candidates is None:
+                turns = [0.0]
+            else:
+                ratio, best = candidates[0]
+                turns = [best] if ratio * scale <= 1.0 + 1e-9 else []
+            for yaw in turns:
+                if scale_index == 0 and yaw == 0.0 and tower == tower_mm and mapping is not None:
+                    continue  # measured above
+                _, geometry = measure(scale, yaw, tower)
+                if geometry is not None:
+                    return found(scale, yaw, geometry)
+    return None
+
+
 def _painted_fit(src, view, plates, ceiling, tower_mm):
-    scale, blocking = ceiling, None
+    """Shared scale for every authored plate, with a per-plate bed turn (#1648).
+
+    Parts of a multi-plate project usually assemble, so the plates keep one
+    scale (the smallest any plate needs); each plate may turn on the bed
+    plane independently, and turning is always tried before shrinking.
+    """
+    scale, blocking, layouts = ceiling, None, {}
     for plate in plates:
         ids = {str(o) for o in plate['object_ids']}
-        fitted = painted_plate_scale(src, view, ids, scale, tower_mm)
+        fitted = _plate_fit(src, view, ids, scale, tower_mm)
         if fitted is None:
             result = {'scale': None, 'blocking_plate': plate['id'], 'plates': len(plates)}
             layout = painted_plate_layout(src, view, ids, PAINTED_SCALE_STEPS[-1], tower_mm)
             if layout is not None:
                 result['blocking_layout'] = layout
             return result
-        if fitted < scale:
-            scale, blocking = fitted, plate['id']
-    return {'scale': scale, 'blocking_plate': blocking, 'plates': len(plates)}
+        layouts[str(plate['id'])] = fitted
+        if fitted['scale'] < scale:
+            scale, blocking = fitted['scale'], plate['id']
+    if any(row['scale'] > scale for row in layouts.values()):
+        # A plate measured before the shared scale dropped: re-measure at that scale.
+        for plate in plates:
+            row = layouts[str(plate['id'])]
+            if row['scale'] > scale:
+                layouts[str(plate['id'])] = _plate_fit(src, view, {str(o) for o in plate['object_ids']},
+                                                       scale, tower_mm) or row
+    return {'scale': scale, 'blocking_plate': blocking, 'plates': len(plates),
+            'yaw_by_plate': {pid: row['yaw'] for pid, row in layouts.items()},
+            'layouts': layouts}
 
 
 def painted_fit_for_job(src, decisions, state=None):
@@ -1155,7 +1267,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
     is the largest ladder scale at which every plate and its prime tower fit.
     """
     import uuid
-    from ..core.orca_adapter import slice_model
+    from ..core.orca_adapter import _yaw, slice_model
     source_sha = file_sha256(src); decision_sha = decisions_digest(decisions)
     fit = painted_fit(src, view, plates, float(job.get('scale') or 1.0), tower_mm=_painted_tower_mm(st))
     scale = fit['scale']
@@ -1168,8 +1280,15 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         if not keys:
             continue
         slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
+        yaw = float((fit.get('yaw_by_plate') or {}).get(str(plate['id'])) or 0.0)
+        # A plate the fit measured with no tower (one slot) is sliced with none,
+        # so the slice places exactly what the fit accepted.
+        layout = (fit.get('layouts') or {}).get(str(plate['id'])) or {}
+        towerless = layout.get('tower_mm') == 0.0
         out, provenance, configs = slice_model(src, slice_dir, st, brim_override, color_decisions=view,
                                                object_ids=ids, scale=None if scale == 1.0 else scale,
+                                               rotation=_yaw(yaw) if yaw else None,
+                                               **({'towerless': True} if towerless else {}),
                                                **_support_kw(job), **_edit_kw(job))
         geometry = provenance.get('geometry') or {}
         if sorted(r['part_key'] for r in geometry.get('parts', [])) != sorted(keys):
@@ -1178,7 +1297,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         tools = provenance.get('tool_mapping') or {}
         artifacts.append({'plate_id': plate['id'], 'slot': sorted(set(tools.values())),
                           'binding_key': f"{plate['id']}:painted", 'part_keys': keys,
-                          'scale': scale, 'gcode': str(out), 'offline_check': check,
+                          'scale': scale, 'yaw_deg': yaw, 'gcode': str(out), 'offline_check': check,
                           'estimate_s': gcode_estimate_s(Path(out).read_text(errors='ignore')),
                           'provenance': provenance, 'slice_config': [str(p) for p in configs]})
     if not artifacts:
@@ -1266,6 +1385,9 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
                                        'refusing to slice it as turned')
         out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slots[0],
                                                **_support_kw(job), **_edit_kw(job))
+        # The merged plate is a derived file: it prints every source plate (#1525).
+        from ..core.remap_integrity import sliced_plates
+        provenance = {**(provenance or {}), 'selected_plates': sliced_plates(src)}
         material = st.get('filament_slots', {}).get(str(slots[0]), {}).get('material')
         if not material:
             raise RuntimeError(f'merged plate physical IFS slot {slots[0]} has no verified material')
@@ -1471,6 +1593,8 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
             report = export_single_color_plate(src, plate, view, keys, bed=int(st['bed_mm'][0]), slot_colors=st.get('filament_slots') or {}, **({'fit': current_fit} if current_fit is not None else {}))
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
+            # A derived plate file: the source plate it prints is this one (#1525).
+            provenance = {**(provenance or {}), 'selected_plates': [str(plate_id)]}
             finalize_multicolor(out, None, st, {'0': slot}, adapter=_job_adapter(job))
             check = verify_gcode_offline(out, st, _job_adapter(job), slot=slot)
         except RuntimeError as exc:
@@ -1974,12 +2098,186 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         job_correlation.persist(job_path, correlation_id)
         token = logs.bind(job_correlation_id=correlation_id)
     try:
+        reused = _adopt_reused_slice(job_path, brim_override=brim_override, copies=copies, scale=scale,
+                                     recipe_sha256=recipe_sha256)
+        if reused is not None:
+            return reused
+        _drop_reused_marker(job_path)
         with material_accept.accepting(_accepted_slice_abrasive(job_path)):
             return _slice_job(job_path, brim_override=brim_override, copies=copies, scale=scale,
                               recipe_sha256=recipe_sha256)
     finally:
         if token is not None:
             logs.unbind(token)
+
+
+# What a reused slice carries over from the earlier job (#1648 item 7): the
+# slice fields background_slice snapshots, plus the records the slice paths
+# write beside them. The full-verification marker stays behind, so the
+# launch verifies the copied bytes for this job itself.
+_REUSED_SLICE_EXTRA = ('sliced_copies', 'layout_report', 'auto_scale', 'unit_provenance', 'printer_model',
+                       'color_prompts')
+# A slice that needed an accepted filament warning is never reused: a fresh
+# slice presents the warnings again, as any reslice does.
+_WARNING_FIELDS = ('filament_fallback', 'filament_warnings', 'filament_warnings_pending',
+                   'filament_warning_acknowledgement')
+
+
+def _drop_reused_marker(job_path):
+    """A job sliced afresh is no longer a reused slice: drop the marker an adoption left."""
+    path = Path(job_path)
+    try:
+        job = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return  # _slice_job reports an unreadable JOB.json itself
+    if isinstance(job, dict) and job.pop('reused_slice', None) is not None:
+        write_job(path.parent, job)
+
+
+def _rebased(value, prefixes, new, moved):
+    """``value`` with every path under one of the folder ``prefixes`` moved under ``new``.
+
+    Each moved path is appended to ``moved`` as (old path, new path).
+    """
+    if isinstance(value, dict):
+        return {key: _rebased(item, prefixes, new, moved) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_rebased(item, prefixes, new, moved) for item in value]
+    if isinstance(value, str):
+        for old in prefixes:
+            if value.startswith(old + os.sep):
+                rebased = new + value[len(old):]
+                moved.append((Path(value), Path(rebased)))
+                return rebased
+    return value
+
+
+def reused_slice_refusal(job, earlier, recipe_sha256):
+    """Why ``earlier``'s verified slice is not this job's slice, or None when it is (#1648 item 7).
+
+    ``recipe_sha256`` is the recipe this job slices now. The earlier slice
+    serves only when it was made from the same source bytes, for the same
+    decisions and plate selection, under exactly that recipe (printer,
+    profiles, slicer, filament slots, transform, supports, edits), and its
+    G-code still verifies against its binding.
+    """
+    problem = unverified_artifact(earlier)
+    if problem:
+        return problem
+    stale = stale_build_refusal(earlier, job.get('downloaded_file'))
+    if stale:
+        return stale
+    if any(earlier.get(field) for field in _WARNING_FIELDS):
+        return 'it was sliced under accepted filament warnings, which a new slice presents again'
+    binding = earlier['artifact_binding']
+    if earlier['slice_recipe']['sha256'] != recipe_sha256:
+        return 'the printer, profile, slicer or filament setup changed since it was sliced'
+    if binding.get('source_sha256') != file_sha256(job['downloaded_file']):
+        return 'it was sliced from other source bytes'
+    if binding.get('decisions_sha256') != decisions_digest(job.get('color_decisions')):
+        return 'its color decisions differ'
+    if (earlier.get('selected_plates') or None) != (job.get('selected_plates') or None):
+        return 'its plate selection differs'
+    return None
+
+
+
+def _discard_copies(copied):
+    """Remove partial reuse copies; a failed removal must not stop the fresh-slice fallback."""
+    for dest in copied:
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning('reused slice: could not remove the partial copy %s (%s)', dest, exc)
+
+def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
+    """The earlier job's verified G-code as this job's slice, or None to slice normally (#1648 item 7).
+
+    Only an intake that chose "Print it like last time" names an earlier job
+    (``reused_decisions``). Its artifact is copied into this job's folder,
+    rebound to it, and its hashes are checked again on the copy; anything
+    that does not match leaves the job to the ordinary slice. Nothing here
+    uploads or starts a print: every start-time check still runs on the copy.
+    """
+    import copy as _copy
+    import shutil
+    from ..core import slice_recipe as sr
+    from ..core.background_slice import SLICE_JOB_FIELDS
+    path = Path(job_path)
+    job = json.loads(path.read_text())
+    earlier_path = (job.get('reused_decisions') or {}).get('job_json')
+    if not earlier_path:
+        return None
+    try:
+        earlier = json.loads(Path(earlier_path).read_text())
+    except (OSError, ValueError) as exc:
+        logger.info('reused slice: the earlier job record is unreadable (%s); slicing again', exc)
+        return None
+    if not isinstance(earlier, dict) or not isinstance(earlier.get('slice_recipe'), dict):
+        logger.info('reused slice: the earlier job has no slice recipe; slicing again')
+        return None
+    st = printer_state.load(job["printer_id"]) if job.get("printer_id") else printer_state.load()
+    if copies:
+        job['copies'] = int(copies)
+    current = sr.record(sr.slice_recipe(job, file_sha256(job['downloaded_file']), st,
+                                        copies=copies, scale=scale, brim_override=brim_override))
+    if recipe_sha256 is not None and recipe_sha256 != current['sha256']:
+        return None  # _slice_job refuses a request bound to another recipe, with its own message
+    try:
+        refusal = reused_slice_refusal(job, earlier, current['sha256'])
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        # A file the checks read vanished under them, or the earlier record
+        # is malformed: slice fresh, never surface it as an error (#1648 item 7).
+        logger.info('reused slice: checking the earlier G-code failed (%r); slicing again', exc)
+        return None
+    if refusal:
+        logger.info('reused slice: not reusing the earlier G-code because %s; slicing again', refusal)
+        return None
+    # The slots the decisions use are re-read from the state loaded just now:
+    # what the offer checked can have changed since (a spool swap on a
+    # single-slot printer is not a recipe input), and a changed slot refuses
+    # the copy exactly as it refused the offer (#1648 item 7).
+    from ..core.prepared_intake import loaded_slot_change
+    change = loaded_slot_change(earlier.get('color_decisions'), st)
+    if change:
+        logger.info('reused slice: not reusing the earlier G-code because %s; slicing again', change)
+        return None
+    folder = Path(earlier_path).parent
+    prefixes = sorted({str(folder), str(folder.resolve())}, key=len, reverse=True)
+    moved = []
+    fields = [field for field in SLICE_JOB_FIELDS + _REUSED_SLICE_EXTRA
+              if field != 'gcode_full_verified_sha256' and field in earlier]
+    carried = {field: _rebased(_copy.deepcopy(earlier[field]), prefixes, str(path.parent), moved)
+               for field in fields}
+    copied = []
+    try:
+        for src, dest in moved:
+            if src.is_file() and not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                copied.append(dest)  # tracked before the copy: a copy that fails midway is removed too
+                shutil.copy2(src, dest)
+    except OSError as exc:
+        # The artifact changed or vanished between the checks and the copy:
+        # leave no partial copy behind and slice fresh (#1648 item 7).
+        _discard_copies(copied)
+        logger.info('reused slice: copying the earlier G-code failed (%s); slicing again', exc)
+        return None
+    adopted = {key: value for key, value in job.items()
+               if key not in SLICE_JOB_FIELDS and key not in _REUSED_SLICE_EXTRA}
+    adopted.update(carried)
+    problem = unverified_artifact(adopted)
+    if problem:
+        _discard_copies(copied)
+        logger.warning('reused slice: the copied G-code did not verify (%s); slicing again', problem)
+        return None
+    adopted['reused_slice'] = {'from_intake': earlier.get('intake_id'), 'from_job': str(earlier_path),
+                               'recipe_sha256': current['sha256'],
+                               'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+    write_job(path.parent, adopted)
+    _timing(job_path, 'slice_done', path='reused')
+    gcodes = [str(gcode) for gcode in artifact_gcodes(adopted)]
+    print('REUSED verified slice (not uploaded): ' + ', '.join(gcodes))
+    return gcodes if adopted.get('derived_plates') else Path(gcodes[0])
 
 
 def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):

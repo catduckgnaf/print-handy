@@ -77,7 +77,13 @@ def parse_message(message):
         if isinstance(photo, dict) and photo.get("file_id"):
             attachments.append(_attachment(photo, fallback_name="photo.jpg"))
     text = str(message.get("text") or message.get("caption") or "")
-    return S(author=S(id=sender.get("id"), bot=bool(sender.get("is_bot"))),
+    return S(author=S(id=sender.get("id"), bot=bool(sender.get("is_bot")),
+                      # The sender's display name for starter attribution
+                      # (#1647): first name, else the @username. Absent
+                      # when Telegram supplies neither.
+                      display_name=(str(sender.get("first_name") or "").strip()
+                                    or str(sender.get("username") or "").strip()
+                                    or None)),
              channel=S(id=thread if thread else chat.get("id"),
                        parent_id=chat.get("id") if thread else None),
              content=text, id=message.get("message_id"), attachments=attachments,

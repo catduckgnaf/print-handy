@@ -509,9 +509,15 @@ RULES = (
          "layer heights, wall count, top/bottom shell layers, infill density and pattern, support "
          "enable/structure/placement, brim and seam candidates, each with a stated value kind and "
          "range. A value outside its range or enumeration is refused with a note, never guessed. "
-         "Evidence is spec-synthetic until a genuine Cura-produced fixture exists (see the fixture "
-         "provenance manifest); the rule claims no genuine-producer fidelity.",
+         "Only the designer's literal values are candidates: each stack is resolved in its own "
+         "container order and only the user and quality_changes layers are read, never a vendor "
+         "quality, intent, material, variant or machine-definition default, and never a formula. "
+         "Evidence: the genuine Cura 5.8.1 fixture (cura-genuine.3mf, see the fixture provenance "
+         "manifest) carries its one designer change, Gyroid infill, and none of its vendor "
+         "defaults, through the production reader and a real destination slice.",
          ("tests/core/test_source_descriptor_1525.py::test_cura_settings_translate_the_validated_subset",
+          "tests/core/test_source_descriptor_1525.py::test_genuine_cura_project_carries_only_the_designer_choice",
+          "tests/core/test_source_descriptor_1525.py::test_cura_stack_user_overrides_quality_changes_and_drops_vendor_layers",
           "tests/core/test_source_descriptor_1525.py::test_cura_forbidden_keys_never_translate"),
          ("docs/history/3MF-CONVERSION-EVIDENCE.md#addendum-cross-slicer-source-evidence-1525",),
          {"mapping": _CURA_MAPPING}),

@@ -23,7 +23,7 @@ outside this module.
 
 The base URL resolves through `printer_state.spoolman_url()` (settings
 `services.spoolman_url` first, the hardware record's cached URL only as a
-fallback, #235) unless the caller passes `base_url` — the Hermes-side
+fallback, #235) unless the caller passes `base_url` — the runtime-side
 callers pass the base from their own config, which is the same setting.
 Moonraker's `/server/spoolman/spool_id` endpoint is a Moonraker call, not
 a Spoolman call, and is not routed through here.

@@ -213,12 +213,8 @@ async def _edit_reenter(event, gateway, source, adapter, job):
     re-slices it, shows the new summary and preview, and asks every
     approval fresh against the new G-code hash."""
     from print_handy.core import printer_state
-    from print_handy.core.prepared_intake import prepare_link, resume_job
-    resume = resume_job(job)
-    for field in ('scale', 'copies', 'orientation', 'fit_brim_policy', 'edit_settings',
-                  'edits', 'printer_id', 'unit_decision', 'support_decision'):
-        if job.get(field) is not None:
-            resume[field] = job[field]
+    from print_handy.core.prepared_intake import carry_decisions, prepare_link, resume_job
+    resume = carry_decisions(resume_job(job), job)
     root = _h()._state_dir() / 'model-link-intakes'
     pid = job.get('printer_id') or _h()._routed_printer_id(source, gateway)
     return await prepare_link(event, adapter, printer_state.load(**_h()._pkw(pid)), root,

@@ -1,0 +1,161 @@
+{
+ "_about": "Roasts for print number milestones (#1651): the first pool is print #1 only, the milestone pool is round print numbers. Uses {print_number}.",
+ "_phase": "expansion (#1651)",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+ "entries": {
+  "first": [
+   {
+    "id": "milestone-first-print-printnumber-ever-title-begins",
+    "family": "milestone-first",
+    "text": "Print {print_number} ever: {title} begins the official era of making things at home."
+   },
+   {
+    "id": "milestone-first-the-very-first-print-title",
+    "family": "milestone-first",
+    "text": "The very first print, {title}, and already the shelf situation is being negotiated."
+   },
+   {
+    "id": "milestone-first-title-is-print-printnumber-the",
+    "family": "milestone-first",
+    "text": "{title} is print {print_number}, the one every future print will be compared against."
+   },
+   {
+    "id": "milestone-first-first-print-honors-go-to",
+    "family": "milestone-first",
+    "text": "First print honors go to {title}, a historic debut with very fresh layer lines."
+   },
+   {
+    "id": "milestone-first-every-collection-starts-somewhere-and",
+    "family": "milestone-first",
+    "text": "Every collection starts somewhere, and this one starts with {title} at {print_number}."
+   },
+   {
+    "id": "milestone-first-title-opens-the-archive-at",
+    "family": "milestone-first",
+    "text": "{title} opens the archive at {print_number}, small plastic with enormous precedent energy."
+   },
+   {
+    "id": "milestone-first-print-printnumber-title-has-started",
+    "family": "milestone-first",
+    "text": "Print {print_number}: {title} has started something the spare time will never recover from."
+   },
+   {
+    "id": "milestone-first-the-inaugural-print-is-title",
+    "family": "milestone-first",
+    "text": "The inaugural print is {title}, and the printer has officially become a lifestyle."
+   },
+   {
+    "id": "milestone-first-title-at-printnumber-is-where",
+    "family": "milestone-first",
+    "text": "{title} at {print_number} is where the before-and-after photos will someday begin."
+   },
+   {
+    "id": "milestone-first-first-of-many-if-the",
+    "family": "milestone-first",
+    "text": "First of many, if the filament shelf has anything to say about {title}."
+   },
+   {
+    "id": "milestone-first-title-kicks-off-the-print",
+    "family": "milestone-first",
+    "text": "{title} kicks off the print log at {print_number} with admirable beginner confidence."
+   },
+   {
+    "id": "milestone-first-history-records-title-as-print",
+    "family": "milestone-first",
+    "text": "History records {title} as print {print_number}, the spark before the storage bins."
+   },
+   {
+    "id": "milestone-first-a-first-print-in-color",
+    "family": "milestone-first",
+    "text": "A first print in {color} {material}: {title} sets the tone remarkably early."
+   },
+   {
+    "id": "milestone-first-title-is-the-first-the",
+    "family": "milestone-first",
+    "text": "{title} is the first, the original, the one that made printing a habit."
+   }
+  ],
+  "milestone": [
+   {
+    "id": "milestone-round-print-printnumber-title-marks-a",
+    "family": "milestone-round",
+    "text": "Print {print_number}: {title} marks a round number worth absolutely no ceremony, so here is one."
+   },
+   {
+    "id": "milestone-round-title-lands-exactly-on-printnumber",
+    "family": "milestone-round",
+    "text": "{title} lands exactly on {print_number}, a milestone the spreadsheet will quietly celebrate."
+   },
+   {
+    "id": "milestone-round-a-roundnumber-print-title-at",
+    "family": "milestone-round",
+    "text": "A round-number print: {title} at {print_number}, suitable for framing the statistics page."
+   },
+   {
+    "id": "milestone-round-printnumber-prints-in-and-title",
+    "family": "milestone-round",
+    "text": "Print {print_number} is in the log, and {title} proves the habit is thoroughly load-bearing now."
+   },
+   {
+    "id": "milestone-round-title-is-print-printnumber-which",
+    "family": "milestone-round",
+    "text": "{title} is print {print_number}, which in printer years is basically a veteran."
+   },
+   {
+    "id": "milestone-round-milestone-print-printnumber-goes-to",
+    "family": "milestone-round",
+    "text": "Milestone print {print_number} goes to {title}, collector of anniversaries and shelf space."
+   },
+   {
+    "id": "milestone-round-at-printnumber-title-joins-the",
+    "family": "milestone-round",
+    "text": "At {print_number}, {title} joins the proud tradition of round numbers getting extra attention."
+   },
+   {
+    "id": "milestone-round-title-completes-print-printnumber-and",
+    "family": "milestone-round",
+    "text": "{title} completes print {print_number}, and the log book gets a little gold star."
+   },
+   {
+    "id": "milestone-round-print-printnumber-already-title-is",
+    "family": "milestone-round",
+    "text": "Print {print_number} already: {title} is evidence of commitment, filament, and momentum."
+   },
+   {
+    "id": "milestone-round-the-counter-says-printnumber-and",
+    "family": "milestone-round",
+    "text": "The counter says {print_number} and {title} wears the milestone surprisingly casually."
+   },
+   {
+    "id": "milestone-round-title-at-printnumber-deserves-a",
+    "family": "milestone-round",
+    "text": "{title} at {print_number} deserves a drumroll, confetti, or at least a fresh nozzle check."
+   },
+   {
+    "id": "milestone-round-round-numbers-demand-recognition-so",
+    "family": "milestone-round",
+    "text": "Round numbers demand recognition, so {title} at {print_number} gets the full announcement treatment."
+   },
+   {
+    "id": "milestone-round-printnumber-prints-deep-title-keeps",
+    "family": "milestone-round",
+    "text": "Print {print_number} on the counter, and {title} keeps the streak looking completely intentional."
+   },
+   {
+    "id": "milestone-round-another-hundredpage-chapter-ends-with",
+    "family": "milestone-round",
+    "text": "Another chapter of the print log ends with {title}, formally known as print {print_number}."
+   },
+   {
+    "id": "milestone-round-title-is-printnumber-a-nice",
+    "family": "milestone-round",
+    "text": "{title} is {print_number}, a nice round excuse to admire the whole operation."
+   },
+   {
+    "id": "milestone-round-some-prints-are-filler-but",
+    "family": "milestone-round",
+    "text": "Some prints are filler, but {title} at {print_number} is a landmark with layer lines."
+   }
+  ]
+ }
+}

@@ -144,7 +144,8 @@ def test_a_broken_section_never_breaks_the_dashboard():
             data, status_for=boom_status, spools_for=boom_spools,
             history=dashboard.TempHistory())
         page = server.render_status_html(SNAP, dashboard=dash)
-    assert "Printer unavailable" in page and "read exploded" in page
+    assert "Printer unavailable" in page and dashboard.UNREACHABLE_TEXT in page
+    assert "read exploded" not in page and "RuntimeError" not in page  # log detail only
     assert "Filament unavailable" in page
 
 

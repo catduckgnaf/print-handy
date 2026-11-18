@@ -10,6 +10,7 @@ support rules need (painted supports, variable layer height).
 The rules follow ForgeBridge's published foreign-3MF conversion rules (https://forgebridge.app/);
 the key and value tables here are Print Handy's own.
 """
+import hashlib
 import json
 import re
 import zipfile
@@ -194,6 +195,27 @@ def read_project(source):
 def _project(source):
     """A read_project() record, given one or the source it describes."""
     return source if isinstance(source, dict) else read_project(source)
+
+
+def resolved_digest(source):
+    """SHA256 of the author settings this build resolves from ``source``, or None.
+
+    The resolved settings are the ones conversion actually carries into the
+    slice (for a Cura project, each stack resolved in its own order, reading
+    only the designer's own layers — #1665), so the digest identifies the
+    G-code a build produces from these source bytes beyond what the source
+    SHA256 alone says: the same bytes resolved by another build can mean
+    different settings. None when the source cannot be read or parsed —
+    callers treat an unknown digest as never matching (#1648 item 7).
+    """
+    if not source:
+        return None
+    try:
+        author = read_project(source)['author']
+        payload = json.dumps(author, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    except (OSError, ValueError, TypeError, KeyError, zipfile.BadZipFile):
+        return None
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 PROVENANCE_ARTIFACT = 'conversion_provenance.json'

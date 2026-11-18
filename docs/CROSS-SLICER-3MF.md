@@ -28,7 +28,7 @@ kind and one user-facing class:
 | Source | Settings translation | Editable export | Evidence |
 |---|---|---|---|
 | OrcaSlicer | Native project, author intent carried by the established allowlist | Yes | Real destination slice in CI; a genuine OrcaSlicer 2.5.1 CLI fixture is in the corpus (its Application metadata names the Bambu base; the OrcaSlicer metadata element is the producer proof, and readers honor it over the Application name) |
-| Bambu Studio | Native lineage project; Bambu Studio is also a supported fallback executor | Yes | Real Bambu Studio A1 slice in CI (that check is not branch-protection required); a genuine Bambu Studio 02.08.02.61 CLI fixture is in the corpus and slices through the production rebuild |
+| Bambu Studio | Native lineage project; Bambu Studio is also a supported fallback executor | Yes | Real Bambu Studio A1 slice in CI, plus the genuine Cura, PrusaSlicer and OrcaSlicer projects sliced by the real Bambu Studio; `Slicer test (bambu)` is a required check; a genuine Bambu Studio 02.08.02.61 CLI fixture is in the corpus and slices through the production rebuild |
 | PrusaSlicer | Slic3r config translated through the versioned compatibility registry | Yes | Real Orca slice; a genuine PrusaSlicer 2.8.1 CLI fixture is in the corpus (its CLI export carries geometry and a model config, no settings snapshot) |
 | Cura | Validated subset only: layer heights, wall count, top/bottom shell, infill density/pattern, support enable/structure/placement, brim, seam. Each range- or enum-checked | Yes | A genuine UltiMaker Cura 5.8.1 fixture is in the corpus (saved through the real application's GUI; Cura has no headless project-save operation), plus the spec-synthetic layout fixture through the production reader plus a real Orca slice |
 | Anycubic Slicer Next | Detection only, on the X-ACNext slice-info marker; no settings translation is claimed | As a Bambu-lineage project | Parser-level |
@@ -82,7 +82,11 @@ code, all reached from the places jobs already live:
   page's Mark as printed confirmation records a physical print exactly
   once per file, printer and print id: a repeat, a print id already in
   the print accounting ledger, and an unconfirmed spool charge are
-  refused rather than charged twice.
+  refused rather than charged twice. That ledger is the monitored
+  print accounting for every slot count, including a one-spool print
+  the printer's Moonraker charged live, matched by Moonraker job id or
+  file and print number; a confirmation claims its print id there
+  first, so the monitored end of that print charges nothing more.
 - **Snapmaker U1 feasibility** (`core/u1_feasibility.py`): the U1
   feasibility link on the sliced-jobs page (and from the slice-result
   card) renders the read-only report for a job's source: per plate,

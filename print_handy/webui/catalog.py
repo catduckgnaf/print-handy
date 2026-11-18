@@ -162,6 +162,7 @@ GROUP_OF = {
     "notify.mqtt_port": "home_assistant",
     "notify.mqtt_topic": "home_assistant",
     "notify.mqtt_username": "home_assistant",
+    "notify.mqtt_roast": "home_assistant",
     "notify.ntfy_enabled": "notifications",
     "notify.ntfy_url": "notifications",
     "notify.ntfy_topic": "notifications",
@@ -665,6 +666,14 @@ CATALOG = (
            "MQTT broker username; empty connects anonymously. The password is "
            "MQTT_PASSWORD in the environment — it is never a setting and has "
            "no field here.",
+           validator="settings notify check"),
+    _field("notify", "mqtt_roast", "MQTT last-roast sensor", "toggle",
+           "Publish each printer's last roast as a retained MQTT sensor "
+           "for Home Assistant, with discovery, on the broker above: "
+           "<topic root>/<printer>/last_roast. On by default; it rides "
+           "the MQTT switch and the roast switch, so it is off whenever "
+           "either is. Turn it off to keep the event topics without the "
+           "per-printer roast sensor.",
            validator="settings notify check"),
     _field("notify", "ntfy_enabled", "ntfy events", "toggle",
            "Publish the same print events to an ntfy topic. Off by "

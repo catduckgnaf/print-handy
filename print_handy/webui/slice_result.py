@@ -16,6 +16,7 @@ import logging
 from print_handy.core import slice_result, u1_feasibility
 
 from . import shell
+from . import swatch as swatch_module
 
 _esc = shell._esc
 logger = logging.getLogger(__name__)
@@ -69,13 +70,13 @@ def render_result_page(artifacts, job_id, *, theme=shell.DEFAULT_THEME, nav=None
                 "alt=\"The plate thumbnail the slicer embedded\" "
                 "style=\"max-width:320px\"></p>")
         parts.append(
-            "<table>"
+            '<div class="table-scroll"><table class="rows">'
             f"<tr><th>Thumbnail</th><td>{'shown from the plate file' if artifact.get('thumbnail_present') else 'not present'}</td></tr>"
             f"<tr><th>Layers</th><td>{artifact.get('layer_count') if artifact.get('layer_count') is not None else 'unknown'}</td></tr>"
             f"<tr><th>Estimated time</th><td>{_esc(artifact.get('estimated_time') or 'unknown')}</td></tr>"
             f"<tr><th>Total estimated grams</th><td>{artifact.get('total_estimated_grams') if artifact.get('total_estimated_grams') is not None else 'unknown'}</td></tr>"
             f"<tr><th>Statistics source</th><td>{_esc(artifact.get('statistics_source') or 'unknown')}</td></tr>"
-            "</table>")
+            "</table></div>")
         rows = []
         for row in artifact.get("filaments") or ():
             grams = row.get("estimated_grams")
@@ -87,14 +88,14 @@ def render_result_page(artifacts, job_id, *, theme=shell.DEFAULT_THEME, nav=None
                 "<tr>"
                 f"<td>{_esc(row.get('logical_filament'))}</td>"
                 f"<td>{_esc(row.get('material') or 'unknown')}</td>"
-                f"<td>{_esc(row.get('color') or 'unknown')}</td>"
+                f"<td>{swatch_module.labeled(row.get('color'), row.get('color') or 'unknown')}</td>"
                 f"<td>{grams if grams is not None else 'unknown'}</td>"
                 f"<td>{slot if slot is not None else 'unmapped'}</td>"
                 f"<td>{_esc(suggestions)}</td>"
                 "</tr>")
-        parts.append("<table><tr><th>Filament</th><th>Material</th><th>Color</th>"
+        parts.append('<div class="table-scroll"><table><tr><th>Filament</th><th>Material</th><th>Color</th>'
                      "<th>Estimated grams</th><th>Slot</th><th>Spool suggestions</th></tr>"
-                     + "".join(rows) + "</table>")
+                     + "".join(rows) + "</table></div>")
         parts.append(f"<p>{_esc(artifact.get('note') or '')}</p>")
     if has_source:
         parts.append(f"<p><a href=\"/u1-feasibility/{_esc(job_id)}\">U1 feasibility "

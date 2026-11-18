@@ -201,9 +201,8 @@ design:
   # chat_url/model/api_key_env inherit the [llm] values, so a
   # single-endpoint setup only sets design.model (a stronger model
   # for design, e.g. sol at medium while chat stays luna at medium).
-  # The endpoint fields win in every mode, Hermes included: the
-  # profile's auxiliary.print_design block is only the fallback for a
-  # Hermes install with no endpoint configured.
+  # The endpoint fields are the whole story: design resolves only this
+  # endpoint (inheriting [llm]); there is no fallback lane.
   chat_url: ''
   model: ''
   api_key_env: ''
@@ -490,6 +489,10 @@ notify:
   mqtt_port: 1883
   mqtt_topic: print-handy
   mqtt_username: ''
+  # Each printer's last roast as a retained MQTT sensor for Home Assistant
+  # (#1672), with discovery. On by default; rides mqtt_enabled above and
+  # vision.roast_enabled. Set false to keep the event topics only.
+  mqtt_roast: true
   ntfy_enabled: false
   # The ntfy server (https://ntfy.sh or a self-hosted one); the topic URL
   # may name the topic itself, or set ntfy_topic and it is appended.

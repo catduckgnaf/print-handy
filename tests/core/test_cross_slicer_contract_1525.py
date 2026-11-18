@@ -57,14 +57,14 @@ def test_genuine_cura_fixture_proves_its_producer_inside_the_archive():
     assert described["application"] == "UltiMaker Cura"
     assert described["has_geometry"] is True
     assert described["problems"] == []
-    # The production author-settings path reads the real stacks: the
-    # translated subset carries the values the application saved.
+    # The production author-settings path resolves the real stacks: the
+    # translated subset carries the one setting the designer changed, and
+    # none of the vendor quality/variant defaults (layer height 0.2, 15%
+    # density, tree support, 7 mm brim) the stacks also hold.
     record = author_settings.read_project(fixture)
     assert record["format"] == "cura_project"
-    assert record["author"]["layer_height"] == "0.2"
-    subset = author_settings.read(fixture)
-    assert subset["layer_height"] == "0.2"
-    assert subset["sparse_infill_density"] == "15%"
+    assert record["author"] == {"sparse_infill_pattern": "gyroid"}
+    assert author_settings.read(fixture) == {"sparse_infill_pattern": "gyroid"}
 
 
 def test_genuine_prusa_fixture_is_geometry_only_and_says_so():

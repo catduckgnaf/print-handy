@@ -1,0 +1,157 @@
+{
+ "_about": "Roasts for light prints of 25 grams or less (#1651). Uses {grams}.",
+ "_phase": "expansion (#1651)",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+ "entries": [
+  {
+   "id": "light-filament-only-grams-grams-for-title",
+   "family": "light-filament-only-grams-grams-for-title",
+   "text": "Only {grams} grams for {title}: efficiency has a new tiny champion."
+  },
+  {
+   "id": "light-filament-title-weighs-grams-grams-officially",
+   "family": "light-filament-title-weighs-grams-grams-officially",
+   "text": "{title} weighs {grams} grams, officially lighter than the decision to print it."
+  },
+  {
+   "id": "light-filament-at-grams-grams-title-is",
+   "family": "light-filament-at-grams-grams-title-is",
+   "text": "At {grams} grams, {title} is mostly ambition with a light plastic coating."
+  },
+  {
+   "id": "light-filament-grams-grams-of-material-became",
+   "family": "light-filament-grams-grams-of-material-became",
+   "text": "{grams} grams of {material} became {title}, and the spool barely noticed the loss."
+  },
+  {
+   "id": "light-filament-title-is-a-gramsgram-masterpiece",
+   "family": "light-filament-title-is-a-gramsgram-masterpiece",
+   "text": "{title} is a {grams}-gram masterpiece, travel-sized and commitment-free."
+  },
+  {
+   "id": "light-filament-featherweight-division-title-enters-at",
+   "family": "light-filament-featherweight-division-title-enters-at",
+   "text": "Featherweight division: {title} enters at {grams} grams and leaves with the belt."
+  },
+  {
+   "id": "light-filament-grams-grams-later-title-exists",
+   "family": "light-filament-grams-grams-later-title-exists",
+   "text": "{grams} grams later, {title} exists and the filament budget remains smugly intact."
+  },
+  {
+   "id": "light-filament-title-used-grams-grams-which",
+   "family": "light-filament-title-used-grams-grams-which",
+   "text": "{title} used {grams} grams, which rounds to free in household filament accounting."
+  },
+  {
+   "id": "light-filament-small-print-small-appetite-title",
+   "family": "light-filament-small-print-small-appetite-title",
+   "text": "Small print, small appetite: {title} asked {printer} for just {grams} grams."
+  },
+  {
+   "id": "light-filament-grams-grams-of-plastic-fully",
+   "family": "light-filament-grams-grams-of-plastic-fully",
+   "text": "{grams} grams of plastic, fully transformed into {title} and pure satisfaction."
+  },
+  {
+   "id": "light-filament-title-at-grams-grams-could",
+   "family": "light-filament-title-at-grams-grams-could",
+   "text": "{title} at {grams} grams could be mailed with a stamp and a dream."
+  },
+  {
+   "id": "light-filament-minimal-material-maximal-existence-title",
+   "family": "light-filament-minimal-material-maximal-existence-title",
+   "text": "Minimal material, maximal existence: {title} from only {grams} grams of {material}."
+  },
+  {
+   "id": "light-filament-grams-grams-is-all-title",
+   "family": "light-filament-grams-grams-is-all-title",
+   "text": "{grams} grams is all {title} needed, showing off for the heavy prints again."
+  },
+  {
+   "id": "light-filament-the-spool-lost-grams-grams",
+   "family": "light-filament-the-spool-lost-grams-grams",
+   "text": "The spool lost {grams} grams and gained a {title}; trade accepted without review."
+  },
+  {
+   "id": "light-filament-title-is-grams-grams-of",
+   "family": "light-filament-title-is-grams-grams-of",
+   "text": "{title} is {grams} grams of evidence that good prints come in small extrusions."
+  },
+  {
+   "id": "light-filament-at-grams-grams-title-is-2",
+   "family": "light-filament-at-grams-grams-title-is-2",
+   "text": "At {grams} grams, {title} is less an object and more a polite suggestion."
+  },
+  {
+   "id": "light-filament-grams-grams-for-title-the",
+   "family": "light-filament-grams-grams-for-title-the",
+   "text": "{grams} grams for {title}: the printer warmed up longer than the budget discussion."
+  },
+  {
+   "id": "light-filament-title-weighs-less-than-the",
+   "family": "light-filament-title-weighs-less-than-the",
+   "text": "{title} weighs less than the purge line's ambitions at just {grams} grams."
+  },
+  {
+   "id": "light-filament-tiny-titan-title-does-its",
+   "family": "light-filament-tiny-titan-title-does-its",
+   "text": "Tiny titan: {title} does its whole job on {grams} grams of {material}."
+  },
+  {
+   "id": "light-filament-grams-grams-of-color-material",
+   "family": "light-filament-grams-grams-of-color-material",
+   "text": "{grams} grams of {color} {material}, and {title} still found room for personality."
+  },
+  {
+   "id": "light-filament-title-is-a-snacksized-print",
+   "family": "light-filament-title-is-a-snacksized-print",
+   "text": "{title} is a snack-sized print at {grams} grams, gone from the plate too soon."
+  },
+  {
+   "id": "light-filament-light-as-gossip-title-at",
+   "family": "light-filament-light-as-gossip-title-at",
+   "text": "Light as gossip: {title} at {grams} grams travels fast and impresses quietly."
+  },
+  {
+   "id": "light-filament-grams-grams-went-in-title",
+   "family": "light-filament-grams-grams-went-in-title",
+   "text": "{grams} grams went in, {title} came out, and the scale double-checked the result."
+  },
+  {
+   "id": "light-filament-title-proves-grams-grams-is",
+   "family": "light-filament-title-proves-grams-grams-is",
+   "text": "{title} proves {grams} grams is plenty when the design does the heavy lifting."
+  },
+  {
+   "id": "light-filament-a-gramsgram-print-like-title",
+   "family": "light-filament-a-gramsgram-print-like-title",
+   "text": "A {grams}-gram print like {title} keeps the filament spreadsheet extremely calm."
+  },
+  {
+   "id": "light-filament-title-could-hide-behind-a",
+   "family": "light-filament-title-could-hide-behind-a",
+   "text": "{title} could hide behind a coin at {grams} grams and still feel important."
+  },
+  {
+   "id": "light-filament-grams-grams-title-is-officially",
+   "family": "light-filament-grams-grams-title-is-officially",
+   "text": "{grams} grams: {title} is officially in the pocket-change weight class."
+  },
+  {
+   "id": "light-filament-title-used-fewer-grams-than",
+   "family": "light-filament-title-used-fewer-grams-than",
+   "text": "{title} used fewer grams than a sandwich and will definitely outlast one."
+  },
+  {
+   "id": "light-filament-delicate-work-from-printer-title",
+   "family": "light-filament-delicate-work-from-printer-title",
+   "text": "Delicate work from {printer}: {title} complete at a whisper-light {grams} grams."
+  },
+  {
+   "id": "light-filament-grams-grams-of-filament-and",
+   "family": "light-filament-grams-grams-of-filament-and",
+   "text": "{grams} grams of filament, and {title} already acts like it owns the shelf."
+  }
+ ]
+}
