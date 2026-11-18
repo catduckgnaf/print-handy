@@ -42,6 +42,16 @@
     },
     {
       "destination": "orca",
+      "evidence": "spec-synthetic",
+      "feature": "remap integrity: the package a remap-route slice, a rebuilt export or an editable export is about to write is checked against its source (object and volume roles, paint, support and feature filaments, height ranges, per-layer changes) and refused by name before anything is written",
+      "fixture": "tests/core/test_remap_integrity_package_1525.py",
+      "gap": "Checked offline through the production entry points with a stand-in slicer, on test-built and corpus projects. The rebuilt export is checked by counts (non-printing volumes, printable parts, painted triangles, height color changes), not by decoded paint states.",
+      "id": "remap-integrity-orca",
+      "owner": "print_handy/core/remap_integrity.py",
+      "source": "any"
+    },
+    {
+      "destination": "orca",
       "evidence": "genuine-producer",
       "feature": "validated-subset settings translation, then destination slice",
       "fixture": "tests/corpus/producer-fixtures/cura-genuine.3mf",
@@ -109,6 +119,12 @@
       "gap": "No physical U1 hardware verification exists; feasibility output is a report, never a print plan, and U1 stays hardware-unverified.",
       "id": "gap-u1-hardware",
       "owner": "manual hardware verification"
+    },
+    {
+      "cell": "remap-integrity-orca",
+      "gap": "Custom per-layer G-code refuses the remap route by name (the job falls back to the rebuild, which does not carry it) instead of being renumbered; the integrity refusals have no real-slicer run, because a refused package never reaches the slicer.",
+      "id": "gap-remap-integrity-scope",
+      "owner": "print_handy/core/remap_integrity.py"
     },
     {
       "cell": "prusa-source-orca-slice",
