@@ -153,7 +153,7 @@ PLA, 12 g.").
   a retried delivery shows once.
 * Each printer's listener writes to its own printer, so every screen roasts
   its own last print. A printer with no `moonraker_url` (Bambu, Prusa,
-  offline) gets no screen item — it gets the Home Assistant sensor below
+  offline) gets no screen item; it gets the Home Assistant sensor below
   instead. Roasts asked for in chat ("roast print 84") stay in chat.
 * On by default on both sides, under the same `vision.roast_enabled` switch.
   A printer without HelixScreen just holds one small database item nobody
@@ -168,13 +168,13 @@ PLA, 12 g.").
 
 ### On a Home Assistant dashboard (MQTT)
 
-Printers with no screen Print Handy can write to — Bambu, Prusa, stock
-Flashforge — still get a place to show the roast: with MQTT notifications
+Printers with no screen Print Handy can write to (Bambu, Prusa, stock
+Flashforge) still get a place to show the roast: with MQTT notifications
 on (`notify.mqtt_enabled` and a broker host), each printer's last roast is
 published, retained, to `<notify.mqtt_topic>/<printer_id>/last_roast` on
 the notify broker, as the same record the screen reads plus `printer_id`
 and `status`. The first roast per printer after start also publishes a
-Home Assistant discovery config, so every printer — Moonraker ones too —
+Home Assistant discovery config, so every printer (Moonraker ones too)
 gets a `last_roast` sensor on its Home Assistant device, with the details
 ("Your last print, Benchy, finished. 1h 15m, PLA, 12 g.") as attributes
 behind a tap. A wall tablet or an ESPHome display by the printer can show
