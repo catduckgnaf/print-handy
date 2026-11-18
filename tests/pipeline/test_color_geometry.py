@@ -797,6 +797,137 @@ def test_painted_part_plate_refuses_paint_of_another_slot(tmp_path):
     assert export_single_color_plate(source, tmp_path / 'stencil.3mf', view, ['2:1'])['slot'] == 1
 
 
+def _painted_second_plate_source(path, fully_painted=False):
+    """Two authored plates; plate 2's part is painted with source filament 2
+    over a filament-1 base — the print #120 shape (#1648 defect 5).
+
+    With fully_painted=True every triangle of plate 2's part carries the
+    filament-2 paint, so the plate legitimately slices with zero tool
+    changes and its one tool must be filament 2's chosen slot.
+    """
+    painted_tris = '<triangle v1="0" v2="1" v3="2" paint_color="8"/>'
+    painted_tris += ('<triangle v1="0" v2="2" v3="1" paint_color="8"/>' if fully_painted
+                     else '<triangle v1="0" v2="2" v3="1"/>')
+    painted = _mesh('object_2', [(0, 0, 0), (40, 0, 0), (0, 20, 10)]).replace(
+        '<triangle v1="0" v2="1" v3="2"/>', painted_tris)
+    plain = _mesh('object_1', [(0, 0, 0), (30, 0, 0), (0, 20, 5)])
+    with zipfile.ZipFile(path, 'w') as archive:
+        archive.writestr('3D/Objects/object_1.model', plain)
+        archive.writestr('3D/Objects/object_2.model', painted)
+        archive.writestr('3D/3dmodel.model', '''<model xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" unit="millimeter"><resources>
+          <object id="1" name="Plain"><components><component p:path="/3D/Objects/object_1.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/></components></object>
+          <object id="2" name="Painted"><components><component p:path="/3D/Objects/object_2.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/></components></object>
+        </resources><build>
+          <item objectid="1" transform="1 0 0 0 1 0 0 0 1 20 30 0"/>
+          <item objectid="2" transform="1 0 0 0 1 0 0 0 1 90 30 0"/>
+        </build></model>''')
+        archive.writestr('Metadata/model_settings.config', '''<config>
+          <object id="1"><metadata key="name" value="Plain"/><metadata key="extruder" value="1"/><part id="1"><metadata key="name" value="Plain"/><metadata key="extruder" value="1"/></part></object>
+          <object id="2"><metadata key="name" value="Painted"/><metadata key="extruder" value="1"/><part id="1"><metadata key="name" value="Painted"/><metadata key="extruder" value="1"/></part></object>
+          <plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="1"/></model_instance></plate>
+          <plate><metadata key="plater_id" value="2"/><model_instance><metadata key="object_id" value="2"/></model_instance></plate>
+        </config>''')
+        archive.writestr('Metadata/project_settings.config', _project_settings(['#AAAAAA', '#161616']))
+        archive.writestr('3D/_rels/3dmodel.model.rels', '''<Relationships>
+ <Relationship Target="/3D/Objects/object_1.model" Id="rel-1"/>
+ <Relationship Target="/3D/Objects/object_2.model" Id="rel-2"/>
+</Relationships>''')
+
+
+def _bronze_for_black_view(manifest, state):
+    """Print #120's picks: source filament 1 prints from slot 3, the painted
+    filament 2 (the black regions) from slot 2."""
+    return {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
+            'choices': {'filament:1': model_job.resolve_filament_selection(
+                            state, dict(state['filament_slots']['3'], slot=3)),
+                        'filament:2': model_job.resolve_filament_selection(
+                            state, dict(state['filament_slots']['2'], slot=2))}}
+
+
+def test_painted_plate_export_carries_the_region_remap(tmp_path):
+    """#1648 defect 5: exporting one painted plate on its own (the
+    painted-plate path) remaps the painted regions to their chosen slot:
+    the tool mapping names that slot for the painted tool, the exported
+    paint codes name the painted tool, and the part's own extruder is
+    the base filament's tool."""
+    source = tmp_path / 'source.3mf'
+    _painted_second_plate_source(source)
+    manifest = source_colors.inventory(source)
+    assert manifest['painted']
+    state = json.loads(STATE.read_text())
+    mapping, _report = export_color_geometry(source, tmp_path / 'plate2.3mf',
+                                             _bronze_for_black_view(manifest, state), object_ids={'2'})
+    # Tool 0 prints the painted regions from slot 2; tool 1 prints the
+    # unpainted base from slot 3.
+    assert mapping == {'0': 2, '1': 3}
+    with zipfile.ZipFile(tmp_path / 'plate2.3mf') as archive:
+        model = archive.read('3D/3dmodel.model').decode()
+        # The remapped paint code names job filament 1 (tool 0).
+        assert re.findall(r'paint_color="([^"]*)"', model) == ['4']
+        settings = archive.read('Metadata/model_settings.config').decode()
+        # The part's own extruder is the base tool (2, 1-based).
+        assert set(re.findall(r'key="extruder" value="(\d+)"', settings)) == {'2'}
+
+
+def test_fully_painted_plate_maps_its_one_tool_to_the_chosen_slot(tmp_path):
+    """#1648 defect 5: a plate whose regions are all painted with one
+    filament legitimately slices with zero tool changes — and its single
+    tool must be the slot chosen for that filament, so the one filament
+    color in its G-code is that slot's, not the base filament's."""
+    source = tmp_path / 'source.3mf'
+    _painted_second_plate_source(source, fully_painted=True)
+    manifest = source_colors.inventory(source)
+    state = json.loads(STATE.read_text())
+    mapping, _report = export_color_geometry(source, tmp_path / 'plate2.3mf',
+                                             _bronze_for_black_view(manifest, state), object_ids={'2'})
+    assert mapping == {'0': 2}
+    with zipfile.ZipFile(tmp_path / 'plate2.3mf') as archive:
+        model = archive.read('3D/3dmodel.model').decode()
+        assert re.findall(r'paint_color="([^"]*)"', model) == ['4', '4']
+
+
+def test_slice_job_painted_plates_carry_the_region_remap(tmp_path, monkeypatch):
+    """#1648 defect 5, end to end through slice_job's painted-plate path:
+    each authored plate is sliced with the full color decisions, and the
+    painted plate's artifact records the slots its regions were mapped to."""
+    source = tmp_path / 'source.3mf'
+    _painted_second_plate_source(source)
+    manifest = source_colors.inventory(source)
+    state = json.loads(STATE.read_text())
+    job_path = tmp_path / 'JOB.json'
+    job_path.write_text(json.dumps({'downloaded_file': str(source), 'audit': {'plates': 2}, 'plate_mode': 'separate',
+                                    'color_decisions': _bronze_for_black_view(manifest, state)}))
+
+    def fake_slice(source, folder, state, brim=None, color_decisions=None, object_ids=None, scale=None, **kwargs):
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        # The real exporter decides the tools, exactly as slice_model's
+        # per-part route does; the fake only stands in for Orca itself,
+        # writing one filament color per tool from the mapped slot records.
+        mapping, geometry = export_color_geometry(source, folder / 'geometry.3mf', color_decisions,
+                                                  object_ids=object_ids, scale=scale)
+        hexes = ';'.join(state['filament_slots'][str(mapping[tool])]['hex'] for tool in sorted(mapping, key=int))
+        out = folder / 'plate.gcode'
+        out.write_text(f'; filament_colour = {hexes}\n; nozzle_diameter = 0.4\n'
+                       f'M190 S{state["temps_c"]["bed"]}\nM104 S{state["temps_c"]["nozzle"]} T0\n'
+                       f'START_PRINT BED_TEMP={state["temps_c"]["bed"]} EXTRUDER_TEMP={state["temps_c"]["nozzle"]}\n'
+                       'G1 X10 Y10 Z0.2\nEND_PRINT\n')
+        return out, {'tool_mapping': mapping, 'geometry': geometry}, []
+
+    monkeypatch.setattr(model_job.printer_state, 'check',
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError('slice contacted the printer')))
+    monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
+    paths = model_job.slice_job(job_path)
+    saved = json.loads(job_path.read_text())
+    assert len(paths) == 2
+    by_plate = {row['plate_id']: row for row in saved['derived_plates']}
+    assert by_plate[1]['slot'] == [3]
+    assert by_plate[2]['slot'] == [2, 3]
+    # The painted regions' slot (2, hex FF00FF in the fixture) leads plate 2's
+    # filament colors; the base filament's slot (3) follows.
+    assert '; filament_colour = FF00FF;000000' in Path(by_plate[2]['gcode']).read_text()
+
+
 def test_slice_job_splits_a_one_color_painted_model_per_plate(tmp_path, monkeypatch):
     source = tmp_path / 'source.3mf'
     _painted_two_plate_source(source)
