@@ -57,6 +57,13 @@ def details(title: str, status: str, facts: Mapping[str, Any] | None = None) -> 
     facts = dict(facts or {})
     bits = []
     try:
+        if int(facts.get("print_number") or 0) > 0:
+            bits.append(f"print #{int(facts['print_number'])}")
+        if int(facts.get("copies") or 0) > 1:
+            bits.append(f"{int(facts['copies'])} copies")
+    except (TypeError, ValueError):
+        pass
+    try:
         if facts.get("duration_s"):
             from ..core.roast import human_duration
             bits.append(human_duration(float(facts["duration_s"])))

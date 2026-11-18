@@ -89,6 +89,16 @@ def test_a_failing_write_never_reaches_the_post(monkeypatch):
     assert failed.wait(5)
 
 
+def test_details_name_the_print_number_and_copies(posts):
+    """roast_facts() supplies print_number and copies (#1654); the tap names them."""
+    mel.generate_roast("Benchy", facts={"print_number": 12, "copies": 3, "material": "PLA"},
+                       key="done:benchy-12.gcode")
+    _drain()
+    assert posts[0][1]["details"] == "Your last print, Benchy, finished. print #12, 3 copies, PLA."
+    assert screen_tip.details("Benchy", "completed", {"copies": 1}) == (
+        "Your last print, Benchy, finished.")
+
+
 def test_details_skip_facts_it_does_not_have():
     assert screen_tip.details("Vase", "cancelled") == "Your last print, Vase, was cancelled."
     assert (screen_tip.details("Vase", "spaghetti", {"color": "Red", "material": "PETG"})
