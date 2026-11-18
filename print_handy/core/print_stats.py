@@ -1043,14 +1043,19 @@ def _script(year, stats, highlights, tz=None):
     # and no model involved. A year with no priced jobs gets no line.
     costs = stats.get("costs") or {}
     if costs.get("has_priced"):
-        lines.append(f"Your recorded print costs came to "
-                     f"{costs['currency_code']} {costs['total_spend']:.2f} across "
-                     f"{plural(costs['priced_count'], 'priced print')}. "
+        cur = costs["currency_code"]
+        coverage = (f" ({costs['priced_count']} of {costs['considered_count']} prints "
+                    "had a recorded cost)" if costs.get("unpriced_count") else "")
+        lines.append(f"You spent {cur} {costs['out_of_pocket_total']:.2f} on filament, "
+                     f"power and consumables across "
+                     f"{plural(costs['priced_count'], 'priced print')}{coverage}. "
                      "That is the frozen cost on each record, not a fresh estimate.")
         priciest = costs.get("most_expensive")
         if priciest:
             lines.append(f"Your most expensive print was {priciest['title']} at "
-                         f"{costs['currency_code']} {priciest['cost_per_build']:.2f}.")
+                         f"{cur} {priciest['out_of_pocket']:.2f}.")
+        if costs.get("failed_count"):
+            lines.append(f"Your failures cost you {cur} {costs['failure_total']:.2f}.")
     top_color = highlights["top_color"]
     if top_color and total and highlights["top_color_prints"] / total > 0.5:
         lines.append(f"Your top color was {top_color}, in "

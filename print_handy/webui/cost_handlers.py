@@ -18,9 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 def _render(handler, **kwargs):
+    try:
+        history = cost_history_fragment(handler.server.settings_data)
+    except Exception:  # noqa: BLE001 - the calculator still renders without history
+        logger.warning("cost page: recorded print costs unavailable", exc_info=True)
+        history = ""
     handler._send(200, cost_page_module.render_cost_page(
         handler.server.settings_data, theme=handler._theme(),
-        form_token=handler._form_token(), **kwargs),
+        form_token=handler._form_token(), history=history, **kwargs),
         "text/html; charset=utf-8")
 
 
@@ -88,5 +93,6 @@ def cost_history_fragment(data, records_vault=None):
     rows = cost_page_module.history_cost_rows(records)
     if not rows:
         return ""
-    return ("<h2>Recorded print costs</h2><table><tr><th>Print</th><th>Cost</th></tr>"
-            + "".join(rows) + "</table>")
+    return ("<h2>Recorded print costs</h2><p>The 20 most recent finished prints, "
+            "frozen when each one finished.</p><table><tr><th>Print</th><th>Outcome</th>"
+            "<th>Out of pocket</th><th>Full cost</th></tr>" + "".join(rows) + "</table>")

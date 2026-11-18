@@ -662,6 +662,49 @@ def _selection_text(entry):
     return "recorded"
 
 
+def _money(costs, value):
+    return f"{_esc(costs.get('currency_code') or '')} {float(value or 0):.2f}"
+
+
+def _cost_section(costs):
+    """The Data tab's recorded print costs (#1625, #1632 review), from frozen records only."""
+    costs = costs or {}
+    if not costs.get("has_priced"):
+        return ("<h2>Print costs</h2><p>" + _esc(costs.get("note") or
+                "No priced jobs in this period: no completed print has a recorded cost yet.")
+                + " Costs are recorded when a print finishes; open the "
+                '<a href="/cost">Cost</a> page to price a file now.</p>')
+    rows = [
+        ("Out of pocket", _money(costs, costs["out_of_pocket_total"])),
+        ("Full cost (labor and machine wear)", _money(costs, costs["total_spend"])),
+        ("Cost per gram", _money(costs, costs["cost_per_gram"]) if costs.get("cost_per_gram") else "unknown"),
+        ("Cost per print hour", _money(costs, costs["cost_per_print_hour"])
+         if costs.get("cost_per_print_hour") else "unknown"),
+        ("Failed and cancelled prints", f"{costs['failed_count']}, "
+         + _money(costs, costs["failure_total"])),
+    ]
+    priciest = costs.get("most_expensive") or {}
+    if priciest:
+        rows.append(("Most expensive print", f"{_esc(priciest['title'])}, "
+                     + _money(costs, priciest["out_of_pocket"])))
+    body = "".join(f"<tr><th>{_esc(k)}</th><td>{v}</td></tr>" for k, v in rows)
+    tables = ""
+    for title, table in (("By printer", costs.get("out_of_pocket_by_printer") or {}),
+                         ("By material", costs.get("by_material") or {}),
+                         ("By color", costs.get("by_color") or {})):
+        if table:
+            items = "".join(f"<tr><td>{_esc(k)}</td><td>{_money(costs, v)}</td></tr>"
+                            for k, v in sorted(table.items(), key=lambda kv: -kv[1]))
+            tables += f"<h3>{_esc(title)}</h3><table>{items}</table>"
+    note = f'<p class="note">{_esc(costs["note"])}</p>' if costs.get("note") else ""
+    others = costs.get("other_currencies") or {}
+    if others:
+        note += ('<p class="note">Not included (another currency): '
+                 + _esc(", ".join(f"{n} in {code}" for code, n in others.items())) + ".</p>")
+    return (f"<h2>Print costs</h2><table class=\"rows\">{body}</table>{tables}{note}"
+            "<p>Frozen when each print finished: later price edits never change these.</p>")
+
+
 def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     """GET /data as HTML, from a :func:`data_view` success payload."""
     stats = payload
@@ -694,6 +737,7 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
                      f"({(longest.get('seconds') or 0) / 3600:.2f} h). "
                      f"Average print: "
                      f"{(stats['average_print_seconds'] or 0) / 60:.0f} min.</p>")
+    parts.append(_cost_section(stats.get("costs")))
     failures = stats["failures"]
     stop = ", ".join(f"{_esc(k)}: {v}" for k, v in failures["stop_reasons"].items()) or "none recorded"
     parts.append(f"<h2>Failures and risk flags</h2><p>Failed: {failures['failed']}. "
@@ -1183,6 +1227,29 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
                if almost.get("titles") else "")
             + ". From intake receipts on file; receipts carry no creation "
             "date, so this list is not split by year.</p></section>")
+    costs = stats.get("costs") or {}
+    if costs.get("has_priced"):
+        bits = []
+        priciest = costs.get("most_expensive") or {}
+        cheapest = costs.get("cheapest") or {}
+        if priciest:
+            bits.append(f"Priciest: {_esc(priciest['title'])} at {_money(costs, priciest['out_of_pocket'])}.")
+        if cheapest and cheapest.get("title") != priciest.get("title"):
+            bits.append(f"Cheapest: {_esc(cheapest['title'])} at {_money(costs, cheapest['out_of_pocket'])}.")
+        if costs.get("cost_per_print_hour"):
+            bits.append(f"About {_money(costs, costs['cost_per_print_hour'])} per print hour.")
+        if costs.get("failed_count"):
+            bits.append(f"Your failures cost you {_money(costs, costs['failure_total'])}.")
+        top_color = max((costs.get("by_color") or {}).items(), key=lambda kv: kv[1], default=None)
+        if top_color:
+            bits.append(f"Your priciest color was {_esc(top_color[0])} "
+                        f"({_money(costs, top_color[1])}).")
+        if costs.get("note"):
+            bits.append(_esc(costs["note"]))
+        parts.append(_wrapped_screen(
+            "WHAT IT COST", _money(costs, costs["out_of_pocket_total"]),
+            "on filament, power and consumables, from the cost frozen on each print.",
+            heading="Print costs", extra="<p>" + " ".join(bits) + "</p>"))
     per_color = stats.get("per_color_grams") or {}
     if per_color:
         color_bits = ", ".join(f"{_esc(color)}: {grams:g} g"

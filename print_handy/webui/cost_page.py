@@ -94,7 +94,7 @@ def job_from_form(form, data):
 
 
 def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
-                     notice="", error="", form_token=""):
+                     notice="", error="", form_token="", history=""):
     values = defaults_for(data)
     if form:
         for key, _label, _kind in FIELDS:
@@ -160,18 +160,26 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
                 "<p>The Flashforge AD5X preset is labeled an estimate: no "
                 "reliable measured average for the AD5X was found; it uses "
                 "the Adventurer 5M platform figure.</p>")
+    if history:
+        body.append(history)
     return shell.page("Cost calculator", "".join(body), path="/cost", theme=theme)
 
 
-def history_cost_rows(records):
-    """Rows for completed prints that carry a frozen cost (job/history views)."""
+def history_cost_rows(records, limit=20):
+    """Rows for finished prints that carry a frozen cost, newest first (#1632 review).
+
+    Each row: the print, its outcome, out of pocket, and the full cost.
+    """
     rows = []
-    for record in records or []:
-        frozen = record.get("cost") if isinstance(record, dict) else None
-        if not isinstance(frozen, dict):
-            continue
+    priced = [r for r in records or [] if isinstance(r, dict) and isinstance(r.get("cost"), dict)]
+    priced.sort(key=lambda r: str(r.get("completed_at") or r.get("started_at") or ""), reverse=True)
+    for record in priced[:limit]:
+        frozen = record["cost"]
         cur = html.escape(str(frozen.get("currency_code") or "USD"))
         title = html.escape(str(record.get("title") or record.get("gcode_file") or "print"))
-        rows.append(f"<tr><td>{title}</td><td>{cur} "
-                    f"{float(frozen.get('cost_per_build') or 0):.2f}</td></tr>")
+        status = html.escape(str(record.get("status") or frozen.get("outcome") or ""))
+        pocket = frozen.get("out_of_pocket")
+        pocket = float(frozen.get("cost_per_build") or 0) if pocket is None else float(pocket)
+        rows.append(f"<tr><td>{title}</td><td>{status}</td><td>{cur} {pocket:.2f}</td>"
+                    f"<td>{cur} {float(frozen.get('cost_per_build') or 0):.2f}</td></tr>")
     return rows
