@@ -1085,6 +1085,11 @@ class OneNavigationTests(unittest.TestCase):
                 code, body = self.request(port, "GET", path)
                 self.assertEqual(code, 200, path)
                 navs[path] = re.sub(r' class="active"', "", self.nav(body))
-            self.assertIn('href="/wrapped"', navs["/"])
             self.assertIn('href="/data"', navs["/"])
             self.assertEqual(len(set(navs.values())), 1, navs)
+            # Wrapped (in season) and the other grouped pages live in their
+            # tab's page strip, not as tabs of their own.
+            for grouped in ("/wrapped", "/sliced", "/workflow", "/printer-settings", "/firmware"):
+                self.assertNotIn(f'href="{grouped}"', navs["/"])
+            code, body = self.request(port, "GET", "/data")
+            self.assertIn('href="/wrapped"', body.split('aria-label="Data pages"')[1])

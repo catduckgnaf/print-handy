@@ -987,8 +987,10 @@ CATALOG = (
            validator="settings type check"),
     _field("timelapse", "wrapped_enabled", "Wrapped", "toggle",
            "Pasta Wrapped: the once-a-year recap over the "
-           "print records. On by default; while off, the Wrapped page "
-           "is not in the navigation and its routes refuse by name. "
+           "print records. On by default and counting all year, but like any good "
+           "present it stays wrapped: the year opens on December 1, and the Wrapped "
+           "tab shows under Data only in December and January. While off, the "
+           "Wrapped page is not in the navigation and its routes refuse by name. "
            "The Data tab has its own switch below.",
            validator="settings timelapse check"),
     _field("timelapse", "data_enabled", "Data tab", "toggle",

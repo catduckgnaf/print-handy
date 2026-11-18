@@ -201,8 +201,9 @@ def latest_timelapse(data, *, now=None):
 
     Name, size and modification time only: the Web UI serves the
     compiled Wrapped video, not individual clips, so the dashboard
-    names the clip and links to the Wrapped page rather than embedding
-    a player nothing can serve. The answer is cached per set of roots
+    names the clip rather than embedding a player nothing can serve.
+    (Wrapped is sealed most of the year, so it is no place to send
+    someone looking for yesterday's clip.) The answer is cached per set of roots
     for ``_TIMELAPSE_TTL_S`` seconds.
     """
     try:
@@ -831,8 +832,8 @@ def _timelapse(dash, now):
     size_mb = clip["size"] / 1_000_000
     return ('<section class="card"><h2>Latest timelapse</h2>'
             f'<p class="job-line">{_esc(clip["name"])}</p>'
-            f'<p class="muted">{_esc(_age(clip["mtime"], now))} · {size_mb:.1f} MB · '
-            'watch it on the <a href="/wrapped">Wrapped page</a></p></section>')
+            f'<p class="muted">{_esc(_age(clip["mtime"], now))} · {size_mb:.1f} MB</p>'
+            '</section>')
 
 
 # The dashboard's one script: refresh each camera and printer screen

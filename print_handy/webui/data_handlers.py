@@ -58,6 +58,10 @@ def data_route(handler, path):
     if code != 200:
         handler._json(code, payload)
         return
+    if payload.get("sealed"):
+        handler._send(200, data_module.render_wrapped_sealed_page(
+            data, payload, theme=handler._theme()), "text/html; charset=utf-8")
+        return
     done = (parse_qs(urlparse(handler.path).query).get("done") or [""])[0]
     handler._send(200, data_module.render_wrapped_page(
         data, payload, form_token=handler._form_token(), theme=handler._theme(),

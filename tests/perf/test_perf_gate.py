@@ -12,6 +12,7 @@ Design (numbers measured on a 4 core host, see the PR description):
 Baselines live in tests/perf/baselines.json and are reviewed by hand. Drift is reported, never
 refreshed automatically.
 """
+import gc
 import json
 import statistics
 import time
@@ -67,9 +68,18 @@ def _expected_checksum():
 
 
 def _time(fn):
-    start = time.perf_counter()
-    result = fn()
-    return time.perf_counter() - start, result
+    # Garbage collection off while timing, as timeit does: late in a shard the
+    # process holds every earlier test's objects, so a collection pass costs
+    # far more there than alone and lands on whichever side allocates more.
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        start = time.perf_counter()
+        result = fn()
+        return time.perf_counter() - start, result
+    finally:
+        if enabled:
+            gc.enable()
 
 
 def paired_ratio(candidate, reference, runs=RUNS):

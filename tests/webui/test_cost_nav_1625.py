@@ -10,7 +10,9 @@ def test_cost_takes_the_printer_settings_slot_in_the_nav():
     targets = [target for target, _label in shell.NAV]
     assert "/printer-settings" not in targets
     assert "Printer settings" not in {label for _t, label in shell.NAV}
-    assert targets.index("/cost") == targets.index("/printers") + 1
+    # Cost is a header tab of its own, not a page in another tab's strip.
+    top = shell.page("x", "", path="/").split('aria-label="Web UI pages"')[1].split("</nav>")[0]
+    assert 'href="/cost"' in top
 
 
 def test_each_printer_card_opens_its_printer_settings():

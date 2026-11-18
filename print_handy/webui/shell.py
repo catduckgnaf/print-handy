@@ -49,23 +49,32 @@ THEMES = ("dark", "light")
 _THEME_ICONS = {"dark": "☾", "light": "☀"}
 DEFAULT_THEME = "dark"
 
-# The surfaces the header navigates to: only pages that exist. (The
-# Spools page arrived with #789 while this shell was being built; the
-# header picked it up on the rebase rather than inventing it early.)
+# The surfaces the header navigates to: only pages that exist, in the
+# order people use them. Pages that belong together share one header tab
+# (NAV_GROUPS): making a print (a design, its sliced file, the workflow
+# that prints it), the printers themselves, and the numbers. The group's
+# own pages appear as a strip under the header while you are in it.
 NAV = (
     ("/", "Status"),
+    ("/designs", "Designs"),
     ("/sliced", "Sliced files"),
     ("/workflow", "Workflow"),
     ("/printers", "Printers"),
-    # Cost takes the top-level slot Printer settings had (#1625): a
-    # printer's own settings open from its card on the Printers page,
-    # and that page keeps the Printers tab highlighted.
-    ("/cost", "Cost"),
-    ("/spools", "Spools"),
-    ("/designs", "Designs"),
     ("/firmware", "Firmware"),
+    ("/spools", "Spools"),
+    ("/cost", "Cost"),
     ("/config", "Settings"),
 )
+
+NAV_GROUPS = {
+    "/designs": ("Designs pages", ("/designs", "/sliced", "/workflow")),
+    # A printer's own settings open from its card on the Printers page,
+    # which keeps the Printers tab highlighted, so they are not in the strip.
+    "/printers": ("Printer pages", ("/printers", "/firmware")),
+    "/data": ("Data pages", ("/data", "/wrapped")),
+}
+_GROUP_OF = {child: parent for parent, (_label, children) in NAV_GROUPS.items()
+             for child in children}
 
 # The project's source repository (the same address the setup wizard
 # and the model-site guides use), linked from every page's footer.
@@ -150,6 +159,14 @@ nav.pills a {
 }
 nav.pills a:hover { background: var(--color-bg); }
 nav.pills a.active, .config-tabs a[aria-current="page"] { background: var(--color-ink); color: var(--color-bg); }
+.subnav-bar { border-bottom: 1px solid var(--color-line); background: var(--color-surface); }
+nav.subnav { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+nav.subnav a {
+  padding: 0.625rem 0.75rem; border-bottom: 2px solid transparent;
+  color: var(--color-muted); text-decoration: none; font-size: 0.875rem; font-weight: 500;
+}
+nav.subnav a:hover { color: var(--color-ink); }
+nav.subnav a.active { color: var(--color-ink); border-bottom-color: var(--color-accent); }
 .theme-toggle {
   position: absolute; top: 0.75rem; right: 1rem;
   display: flex; gap: 0.125rem; padding: 0.125rem;
@@ -517,12 +534,53 @@ def theme_cookie_header(theme, secure=False):
 REQUEST_NAV: contextvars.ContextVar = contextvars.ContextVar("print_handy_request_nav", default=None)
 
 
+def _at(path, target):
+    return path == target or (target != "/" and path.startswith(target + "/"))
+
+
+def _tabs(entries):
+    """The header tabs for ``entries``: [(target, label, members)] in order.
+
+    A group's tab is its first present page (its parent, when that is on),
+    so a page whose parent is switched off still has a tab of its own.
+    """
+    tabs, by_group = [], {}
+    for target, label in entries:
+        group = _GROUP_OF.get(target)
+        if group in by_group:
+            by_group[group][2].append((target, label))
+            continue
+        tab = [target, label, [(target, label)]]
+        if group is not None:
+            by_group[group] = tab
+        tabs.append(tab)
+    return tabs
+
+
+def _subnav(path, tab):
+    members = tab[2]
+    if len(members) < 2:
+        return ""
+    current = max((t for t, _label in members if _at(path, t)), key=len, default=None)
+    group = _GROUP_OF.get(members[0][0])
+    name = NAV_GROUPS[group][0] if group else f"{tab[1]} pages"
+    links = "".join(
+        f'<a href="{t}"' + (' class="active" aria-current="page"' if t == current else "")
+        + f">{_esc(label)}</a>" for t, label in members)
+    return (f'<div class="subnav-bar"><div class="wrap">'
+            f'<nav class="subnav" aria-label="{_esc(name)}">{links}</nav></div></div>')
+
+
 def _header(path, theme, nav=None):
     items = []
     if nav is None:
         nav = REQUEST_NAV.get()
-    for target, label in (NAV if nav is None else nav):
-        active = path == target or (target != "/" and path.startswith(target + "/"))
+    sub = ""
+    for tab in _tabs(NAV if nav is None else nav):
+        target, label, members = tab
+        active = any(_at(path, t) for t, _label in members)
+        if active and not sub:
+            sub = _subnav(path, tab)
         items.append(f'<a href="{target}"{" class=\"active\"" if active else ""}>'
                      f"{_esc(label)}</a>")
     toggle = "".join(
@@ -537,7 +595,7 @@ def _header(path, theme, nav=None):
             f'<div class="theme-toggle" role="group" aria-label="Color theme">{toggle}</div>'
             '<div class="chrome-right">'
             f'<nav class="pills" aria-label="Web UI pages">{"".join(items)}</nav>'
-            "</div></div></header>")
+            "</div></div></header>" + sub)
 
 
 def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None,
@@ -593,7 +651,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "PWA_HEAD_TAGS",
+    "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "NAV_GROUPS", "PWA_HEAD_TAGS",
     "PWA_SCRIPT", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
     "page", "theme_cookie_header", "theme_from_cookies",
 ]
