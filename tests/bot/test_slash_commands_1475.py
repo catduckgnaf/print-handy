@@ -45,6 +45,8 @@ def run(coro):
     ("print-calibration", {"subcommand": "records"}, "/print-calibration records"),
     ("print-firmware", {"subcommand": "versions"}, "/print-firmware"),
     ("print-firmware", {"subcommand": "update", "component": "zmod"}, "/print-firmware update zmod"),
+    ("print-firmware", {"subcommand": "channel", "component": "helixscreen", "channel": "beta"},
+     "/print-firmware channel helixscreen beta"),
     ("print-firmware", {"subcommand": "guide", "flavor": "stock"}, "/print-firmware guide stock"),
     ("print-macros", {"subcommand": "list"}, "/print-macros"),
     ("print-macros", {"subcommand": "run", "name": "CLEAN_NOZZLE", "args": "TEMP=200"},
@@ -99,7 +101,7 @@ def test_subcommand_commands_register_as_groups_with_typed_options():
     assert params["spool"].type.name == "integer" and params["spool"].required
     assert params["slot"].autocomplete and params["spool"].autocomplete
     for name, subs in (("print-calibration", ["mesh", "screws", "pid", "shaper", "belts", "zoffset", "records"]),
-                       ("print-firmware", ["versions", "update", "guide"]),
+                       ("print-firmware", ["versions", "update", "channel", "guide"]),
                        ("print-macros", ["list", "run"]),
                        ("nozzle", ["change"])):
         assert [c.name for c in tree.get_command(name).commands] == subs

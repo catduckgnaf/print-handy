@@ -1103,6 +1103,15 @@ class _Handler(BaseHTTPRequestHandler):
     def _firmware_update_status_route(self):
         return firmware_handlers_module.update_status_route(self)
 
+    def _firmware_channel_route(self):
+        return firmware_handlers_module.channel_route(self)
+
+    def _firmware_channel_post(self, form):
+        return firmware_handlers_module.channel_apply_route(self, form)
+
+    def _firmware_channel_status_route(self):
+        return firmware_handlers_module.channel_status_route(self)
+
     def _notifications_dismiss_post(self, form):
         return firmware_handlers_module.dismiss_route(self, form)
 

@@ -483,6 +483,13 @@ _TASK_INTENT_SUGGESTIONS = (
     # route #1298 first gave "update <name>": an instruction to update a
     # named component is an update ask, not a check.
     (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+|my\s+)?{_FW_COMPONENT}(?:\s+(?:firmware|now|please))?{_END}", re.I), "/print-firmware update {c}"),
+    # Channel switches (#1634): "switch helixscreen to beta", "change the
+    # helixscreen channel to beta", "put helixscreen on stable". Only ever
+    # the did-you-mean prompt; the command then shows the exact one-line
+    # config change and asks its own confirmation before anything is sent.
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*beta(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} beta"),
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*stable(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} stable"),
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*dev(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} dev"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every
     # command carries a fuzzy equivalent (the coverage guard in

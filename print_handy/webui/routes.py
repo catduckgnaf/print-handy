@@ -150,6 +150,10 @@ ROUTES = (
     # status page, and toast dismissal.
     _get("/firmware/update", SESSION, "_firmware_update_route"),
     _get("/firmware/update/status", SESSION, "_firmware_update_status_route"),
+    # Channel switch (#1634): the picker/confirmation page and the
+    # running job's status page.
+    _get("/firmware/channel", SESSION, "_firmware_channel_route"),
+    _get("/firmware/channel/status", SESSION, "_firmware_channel_status_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
@@ -205,6 +209,9 @@ ROUTES = (
     # form POST, so session+csrf like the other browser writes; the
     # handler additionally requires [webui] controls_enabled.
     _post("/firmware/update", SESSION_CSRF, "_firmware_update_post", back="/firmware"),
+    # The channel switch's confirmation form (#1634): session+csrf like
+    # the update form; the handler additionally requires controls on.
+    _post("/firmware/channel", SESSION_CSRF, "_firmware_channel_post", back="/firmware"),
     # Toast dismissal changes stored state, so it is a session+CSRF POST
     # like every other state change (#1614 review), never a GET link.
     _post("/notifications/dismiss", SESSION_CSRF, "_notifications_dismiss_post", back="/"),

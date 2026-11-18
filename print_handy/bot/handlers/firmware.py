@@ -31,6 +31,14 @@ async def firmware_dispatch(event, gateway, **kwargs):
     idle, and the usual _confirm button shows the exact version change
     before the single upgrade POST; the result is verified by re-reading
     the status, never taken from the POST alone.
+
+    The channel form (#1634) switches one component's Moonraker update
+    channel (`/print-firmware channel <component> <stable|beta|dev>`):
+    the same eligibility and idle guards, a confirmation showing the
+    exact one-line config change, a backup saved through Moonraker's
+    file API before the write, a Moonraker restart, and verification
+    from the update status, with the backup restored on any failure
+    (print_handy.firmware_update.confirmed_channel_switch).
     """
     source, adapter = _control_preamble(event, gateway, '/print-firmware', with_args=True)
     if source is None:
@@ -72,6 +80,58 @@ async def firmware_dispatch(event, gateway, **kwargs):
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content=firmware_update.guide_text(args[1].casefold(), entry))
         return {'action': 'skip', 'reason': 'print firmware guide shown'}
+    if args and args[0].casefold() == 'channel':
+        # The component name may be typed in words ("helix screen"), so
+        # the grammar is: the last word is the channel, everything
+        # between "channel" and it is the one component name.
+        rest = args[1:]
+        if len(rest) < 2 or rest[-1].casefold() not in firmware_update.CHANNEL_VALUES:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content=('Use `/print-firmware channel <component> '
+                                        '<channel>` with one component name from the '
+                                        '`/print-firmware` report and a channel of '
+                                        'stable, beta or dev (for example '
+                                        '`/print-firmware channel helixscreen beta`). '
+                                        'It changes only that component\'s `channel:` '
+                                        'line in its Moonraker config, behind a '
+                                        'confirmation. Nothing was sent to the printer.'))
+            return {'action': 'skip', 'reason': 'print firmware usage shown'}
+        component_token = ' '.join(rest[:-1])
+        channel_token = rest[-1].casefold()
+        cfg = _config.cfg()
+        if connection != 'moonraker' or not firmware_update.is_apply_eligible(entry, cfg):
+            reason = firmware_update.apply_block_reason(entry, cfg)
+            message = (reason + ' Nothing was sent to the printer.') if reason else \
+                firmware_update.not_moonraker_text(connection)
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
+            return {'action': 'skip', 'reason': 'print firmware channel refused for this printer'}
+        key = ('print-firmware-channel', source.chat_id, source.thread_id)
+        if key in _seen:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='A firmware channel switch prompt is already open here. Nothing sent.')
+            return {'action': 'skip', 'reason': 'firmware channel prompt already active'}
+        _seen[key] = time.monotonic()
+        live_key = _live_key_for(source, gateway, chosen)
+        async def ask(question, choices):
+            return await _confirm(adapter, source, metadata, 'print-firmware', question, choices,
+                                  (globals().get('_config').safety_confirm_timeout_s()
+                                   if globals().get('_config') else 600),
+                                  live_key=live_key)
+
+        try:
+            # The one confirmed channel-switch flow, shared with the Web
+            # UI Firmware page (print_handy.firmware_update).
+            files = firmware_update.config_files_for(pid, cfg)
+            message = await firmware_update.confirmed_channel_switch(
+                mr, files, entry, component_token, channel_token, ask, cfg)
+        except Exception:
+            logger.exception('/print-firmware channel failed')
+            message = ('The firmware channel switch stopped on an error. No confirmation '
+                       'was completed, so nothing was sent.')
+        finally:
+            _seen.pop(key, None)
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
+        return {'action': 'skip', 'reason': 'print firmware channel handled'}
     if args and args[0].casefold() == 'update':
         # One component, whose name may be typed in words ("helix screen",
         # "guppy screen"): the words after "update" are the one name, and
@@ -122,10 +182,12 @@ async def firmware_dispatch(event, gateway, **kwargs):
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content=('Use `/print-firmware` to see the firmware versions '
                                     'your printer reports and what updates are available, '
-                                    '`/print-firmware update <component>` to apply one, or '
-                                    '`/print-firmware guide zmod` / `/print-firmware guide '
-                                    'stock` for the manual update guides. Nothing was sent '
-                                    'to the printer.'))
+                                    '`/print-firmware update <component>` to apply one, '
+                                    '`/print-firmware channel <component> '
+                                    '<stable|beta|dev>` to switch one component\'s '
+                                    'Moonraker update channel, or `/print-firmware guide '
+                                    'zmod` / `/print-firmware guide stock` for the manual '
+                                    'update guides. Nothing was sent to the printer.'))
         return {'action': 'skip', 'reason': 'print firmware usage shown'}
     if connection != 'moonraker':
         await adapter.send(chat_id=source.chat_id, metadata=metadata,

@@ -23,8 +23,11 @@ feeds the Web UI's update notifications (#1610) and, when Web UI
 printer controls are on, offers an update button per component with
 one available; the button leads to a confirmation page, and applying
 runs the same confirmed flow as ``/print-firmware update`` in chat
-(:mod:`print_handy.firmware_update`). With controls off the page is
-read-only and applying stays in chat.
+(:mod:`print_handy.firmware_update`). The same read also lists each
+component's Moonraker update channel with a Switch channel action
+(#1634), shown whether or not an update is available, since the
+channel decides whether a prerelease ever shows as one. With controls
+off the page is read-only and applying stays in chat.
 """
 from __future__ import annotations
 
@@ -173,6 +176,47 @@ def _update_actions(printer_id, entry, status, *, controls, cfg):
     return "".join(parts)
 
 
+def _channel_actions(printer_id, entry, status, *, controls, cfg):
+    """The channel-switch offers under one printer's installed read (#1634).
+
+    One row per component Moonraker reports a channel for, whether or
+    not an update is available: the channel is what decides whether a
+    prerelease ever shows as an update at all. The switch link shows
+    only when this printer may be updated at all and Web UI controls
+    are on; every refusal is named in words, never a dead button.
+    """
+    channeled = [c for c in status.components if c.channel]
+    if not channeled:
+        return ""
+    parts = ["<h3>Update channels</h3>",
+             "<p class=\"muted\">A component's channel decides which releases "
+             "Moonraker offers it: stable takes tagged stable releases, beta "
+             "also takes prereleases, and git components may also take dev "
+             "(the latest commits). Switching a channel installs nothing and "
+             "downgrades nothing.</p>"]
+    block = fw.apply_block_reason(entry, cfg)
+    for component in channeled:
+        parts.append(
+            f"<p><strong>{_esc(component.name)}</strong> is on the "
+            f"{_esc(component.channel)} channel.")
+        if block is None and controls:
+            url = (f"/firmware/channel?printer={quote(printer_id, safe='')}"
+                   f"&component={quote(component.name, safe='')}")
+            parts.append(
+                f' <a class="button" href="{_esc(url)}">Switch channel</a>')
+        parts.append("</p>")
+    if block is not None:
+        parts.append(f"<p>{_esc(block)} Channels stay switchable from the "
+                     "printer's own Moonraker config.</p>")
+    elif not controls:
+        parts.append("<p>To switch a channel from this page, turn on Web UI "
+                     "printer controls (<code>[webui] controls_enabled = "
+                     "true</code>). Until then, channels switch from chat "
+                     "with <code>/print-firmware channel</code>, behind a "
+                     "confirmation.</p>")
+    return "".join(parts)
+
+
 def _printer_section(row, feed, *, checked, transport_for, controls=False,
                      cfg=None, observe=None):
     printer_id, model_key = str(row.get("id")), row.get("model")
@@ -197,6 +241,8 @@ def _printer_section(row, feed, *, checked, transport_for, controls=False,
                 observe(printer_id, name, status)
             parts.append(_update_actions(printer_id, entry, status,
                                          controls=controls, cfg=cfg))
+            parts.append(_channel_actions(printer_id, entry, status,
+                                          controls=controls, cfg=cfg))
     elif entry is not None and entry.connection == "moonraker":
         parts.append(f'<p><a href="/firmware?printer={quote(printer_id, safe="")}">'
                      "Check installed versions</a> reads this printer's update "
@@ -246,7 +292,9 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
         "update is applied only behind a confirmation, from chat with "
         "<code>/print-firmware update</code> or from this page when Web UI "
         "printer controls are on, and only for the firmware that has a safe "
-        "path.</p>"]
+        "path. A component's Moonraker update channel can be switched the "
+        "same way (<code>/print-firmware channel</code>), behind a "
+        "confirmation that shows the exact one-line config change.</p>"]
     if current is None:
         parts.append(f"<p>{_esc(FEED_UNAVAILABLE)}</p>")
     if not roster:
