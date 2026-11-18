@@ -24,6 +24,17 @@ read-only reporting or plain-language guidance:
   Moonraker, because driving a fork's Update Manager at upstream remotes
   is the vendors' documented breakage path (Elegoo says so explicitly
   for the Neptune 4).
+- **Channel switch (#1634)** changes one component's Update Manager
+  ``channel:`` line in the printer's own Moonraker config, for the
+  component whose prerelease an owner subscribed to but Moonraker never
+  offers because its own config still says ``channel: stable``. The
+  same eligibility and idle guards as stage 2, an owner confirmation
+  showing the exact one-line change, a backup copy saved through
+  Moonraker's file API before the write, a Moonraker restart, and
+  verification from ``/machine/update/status`` — with the backup
+  restored when anything fails. A channel switch installs nothing and
+  downgrades nothing; it only changes which releases Moonraker offers
+  for that component.
 - **Stage 3 (guides)** covers the two AD5X layers with no safe API —
   the ZMod base (USB / ``ZFLASH``) and the stock firmware underneath it
   (touchscreen / USB) — as step-by-step operator instructions. The
@@ -43,6 +54,7 @@ import re
 import time
 import urllib.error
 from dataclasses import dataclass, replace
+from urllib.parse import quote
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -57,6 +69,9 @@ UPDATE_UPGRADE_PATH = "/machine/update/upgrade"
 # verification re-reads remain the real outcome check either way.
 UPGRADE_TIMEOUT_S = 900.0
 SYSTEM_INFO_PATH = "/machine/system_info"
+CONFIG_PATH = "/server/config"
+CONFIG_DOWNLOAD_PATH = "/server/files/config/"
+CONFIG_UPLOAD_PATH = "/server/files/upload"
 PRINT_STATE_PATH = "/printer/objects/query?print_stats=state"
 MCU_STATE_PATH = "/printer/objects/query?mcu"
 
@@ -228,6 +243,12 @@ class Component:
     # How many commits a git component is behind its remote, when Moonraker
     # lists them; None when it does not say.
     behind: int | None = None
+    # The component's Update Manager channel ("stable", "beta", "dev")
+    # and configured type ("git_repo", "web", ...), when Moonraker
+    # reports them (#1634). The channel is what decides whether a
+    # prerelease ever shows as the component's available version.
+    channel: str | None = None
+    configured_type: str | None = None
 
     @property
     def update_available(self) -> bool:
@@ -397,7 +418,9 @@ def parse_update_status(payload) -> UpdateStatus:
                                     package_count=count if isinstance(count, int)
                                     and not isinstance(count, bool) else 0,
                                     invalid=_invalid_reason(raw),
-                                    behind=_commits_behind(raw)))
+                                    behind=_commits_behind(raw),
+                                    channel=_short_str(raw.get("channel")),
+                                    configured_type=_short_str(raw.get("configured_type"))))
     remaining = payload["result"].get("github_requests_remaining")
     reset = payload["result"].get("github_limit_reset_time")
     return UpdateStatus(
@@ -406,6 +429,14 @@ def parse_update_status(payload) -> UpdateStatus:
         and not isinstance(remaining, bool) else None,
         github_reset=float(reset) if isinstance(reset, (int, float))
         and not isinstance(reset, bool) else None)
+
+
+def _short_str(value):
+    """A short Moonraker-reported token (a channel, a component type), or None."""
+    if isinstance(value, str):
+        value = value.strip().casefold()
+        return value or None
+    return None
 
 
 def _commits_behind(raw):
@@ -1142,6 +1173,488 @@ async def confirmed_update(transport, entry, component_token, ask, cfg=None) -> 
         return NOT_APPLIED_TEXT
     try:
         return await asyncio.to_thread(send_update, transport, prepared)
+    except (FirmwareRefusal, FirmwareError) as exc:
+        return str(exc)
+
+
+# ------------------------------------------------- channel switch (#1634)
+
+# The channels Moonraker accepts per Update Manager component type, from
+# Moonraker's own configuration docs: git_repo takes stable, beta or dev;
+# web, zip, executable and python components take stable or beta. A type
+# Moonraker does not report (or one this table does not know) gets the
+# common subset, stable or beta. The `system` component has no channel.
+CHANNELS_BY_TYPE = {
+    "git_repo": ("stable", "beta", "dev"),
+    "web": ("stable", "beta"),
+    "zip": ("stable", "beta"),
+    "executable": ("stable", "beta"),
+    "python": ("stable", "beta"),
+}
+DEFAULT_CHANNELS = ("stable", "beta")
+CHANNEL_VALUES = ("stable", "beta", "dev")
+
+SWITCH_LABEL = "Switch channel"
+NOT_SWITCHED_TEXT = "Channel not switched. Nothing sent."
+
+# The config file ZMod owns: its moonraker.conf starts "Do not edit this
+# file" and lives inside the Z-Mod repo, which Moonraker write-protects.
+# A section Print Handy may edit lives in a file the owner owns — on a
+# ZMod printer, mod_data/user.moonraker.conf.
+READ_ONLY_CONFIG_BASENAME = "moonraker.conf"
+USER_CONFIG_HINT = "mod_data/user.moonraker.conf"
+BACKUP_SUFFIX = ".print-handy.bak"
+
+
+def channels_for_type(configured_type) -> tuple:
+    """The channel values Moonraker accepts for one component type."""
+    return CHANNELS_BY_TYPE.get(str(configured_type or "").strip().casefold(),
+                                DEFAULT_CHANNELS)
+
+
+def _config_result(payload) -> dict:
+    """The result mapping of a /server/config response (either wrap shape)."""
+    if isinstance(payload, dict):
+        result = payload.get("result")
+        if isinstance(result, dict):
+            return result
+        return payload
+    return {}
+
+
+def section_file(payload, section_names) -> str | None:
+    """The config file Moonraker reports one of `section_names` in, or None.
+
+    ``/server/config`` lists, per file, the sections parsed from it;
+    filenames are relative to the main config file's folder. Section
+    names match case- and punctuation-insensitively, the same way
+    component names resolve.
+    """
+    files = _config_result(payload).get("files")
+    if not isinstance(files, list):
+        return None
+    wanted = {_component_key(name) for name in section_names}
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        filename = entry.get("filename")
+        sections = entry.get("sections")
+        if not isinstance(filename, str) or not filename \
+                or not isinstance(sections, list):
+            continue
+        if any(_component_key(section) in wanted for section in sections
+               if isinstance(section, str)):
+            return filename
+    return None
+
+
+def _is_read_only_config(filename) -> bool:
+    name = str(filename or "").replace("\\", "/").rstrip("/")
+    return name.rsplit("/", 1)[-1] == READ_ONLY_CONFIG_BASENAME
+
+
+def _safe_config_filename(filename) -> str:
+    """A config filename safe to download and upload, or a refusal.
+
+    Filenames come from Moonraker's own /server/config listing, but they
+    are still only ever used relative to the config root: no absolute
+    paths, no parent hops, no backslashes.
+    """
+    name = str(filename or "").strip()
+    parts = name.replace("\\", "/").split("/")
+    if (not name or name.startswith("/") or "\\" in name
+            or any(part in ("", ".", "..") for part in parts)):
+        raise FirmwareRefusal(f"Moonraker reported an unusable config file name "
+                              f"({filename!r}), so Print Handy will not write to it. "
+                              "Nothing was sent.")
+    return "/".join(parts)
+
+
+_SECTION_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]")
+_CHANNEL_LINE_RE = re.compile(r"^(\s*channel\s*[:=]\s*)(\S+)(.*)$")
+
+
+def _section_present(text, section_name) -> bool:
+    wanted = _component_key(section_name)
+    for line in str(text or "").splitlines():
+        header = _SECTION_HEADER_RE.match(line)
+        if header and _component_key(header.group(1)) == wanted:
+            return True
+    return False
+
+
+def switch_channel_in_text(text, section_name, target_channel):
+    """Change only the ``channel:`` line of one section in a config text.
+
+    Returns (new_text, old_line, new_line, current_channel), the lines
+    stripped for display. Refuses (FirmwareRefusal) when the section is
+    absent, when it has no ``channel:`` line — Print Handy changes an
+    existing line and never adds one, because a section without one
+    follows Moonraker's default for its type and adding a line is a
+    bigger edit than the owner confirmed — or when the line already
+    names the target channel. Everything else in the file, including
+    the line's own spacing and any trailing comment, is preserved.
+    """
+    wanted = _component_key(section_name)
+    lines = str(text or "").splitlines(keepends=True)
+    in_section = False
+    seen_section = False
+    for index, line in enumerate(lines):
+        header = _SECTION_HEADER_RE.match(line)
+        if header:
+            in_section = _component_key(header.group(1)) == wanted
+            seen_section = seen_section or in_section
+            continue
+        if not in_section:
+            continue
+        body = line.rstrip("\r\n")
+        match = _CHANNEL_LINE_RE.match(body)
+        if not match:
+            continue
+        prefix, current, rest = match.groups()
+        current = current.strip().casefold()
+        if current == target_channel:
+            raise FirmwareRefusal(f"The [{section_name}] section in the file already "
+                                  f"sets `channel: {target_channel}`. Nothing was sent.")
+        new_body = f"{prefix}{target_channel}{rest}"
+        lines[index] = new_body + line[len(body):]
+        return "".join(lines), body.strip(), new_body.strip(), current
+    if not seen_section:
+        raise FirmwareRefusal(f"The file does not contain a [{section_name}] section, "
+                              "so there is no channel line to change. Nothing was sent.")
+    raise FirmwareRefusal(f"The [{section_name}] section has no `channel:` line, so it "
+                          "follows Moonraker's default channel for its type. Print Handy "
+                          "changes an existing channel line and never adds one. Nothing "
+                          "was sent.")
+
+
+class MoonrakerConfigFiles:
+    """Download and upload in one printer's Moonraker config root (#1634).
+
+    The JSON transport cannot move plain files, so this speaks the file
+    API directly through print_handy.moonraker (which adds the API key):
+    GET /server/files/config/<name> to download, and a multipart POST to
+    /server/files/upload with root=config to upload. A filename may
+    carry its subdirectory (mod_data/user.moonraker.conf).
+    """
+
+    def __init__(self, base_url):
+        self.base = str(base_url or "").rstrip("/")
+
+    def download(self, filename) -> str:
+        from . import moonraker
+        name = _safe_config_filename(filename)
+        url = f"{self.base}{CONFIG_DOWNLOAD_PATH}{quote(name, safe='/')}"
+        return moonraker.url_text(url, timeout=15, moonraker=True)
+
+    def upload(self, filename, text) -> None:
+        from . import moonraker
+        name = _safe_config_filename(filename)
+        boundary = "----PrintHandyConfigUploadBoundary"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="root"\r\n\r\n'
+            "config\r\n"
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{name}"\r\n'
+            "Content-Type: text/plain\r\n\r\n"
+            f"{text}\r\n"
+            f"--{boundary}--\r\n"
+        ).encode("utf-8")
+        with moonraker.open_url(f"{self.base}{CONFIG_UPLOAD_PATH}", data=body,
+                                method="POST", timeout=30, moonraker=True,
+                                headers={"Content-Type":
+                                         f"multipart/form-data; boundary={boundary}"}):
+            pass
+
+
+def config_files_for(printer_id, data=None) -> MoonrakerConfigFiles:
+    """The config file access for one roster printer (or the default one)."""
+    from . import settings
+    if printer_id:
+        view = settings.view_for(printer_id, data)
+    else:
+        view = data if data is not None else settings.current()
+    base = str((view.get("services") or {}).get("moonraker_url") or "")
+    return MoonrakerConfigFiles(base)
+
+
+@dataclass(frozen=True)
+class PreparedChannelSwitch:
+    """One validated channel switch: the exact one-line change, backup first."""
+
+    component: Component
+    section: str
+    filename: str
+    current_channel: str
+    target_channel: str
+    original_text: str
+    new_text: str
+    old_line: str
+    new_line: str
+
+    @property
+    def name(self):
+        return self.component.name
+
+    @property
+    def backup_filename(self):
+        return self.filename + BACKUP_SUFFIX
+
+
+def prepare_channel_switch(transport, files, entry, component_token, channel_token,
+                           cfg=None) -> PreparedChannelSwitch:
+    """Validate one channel switch against the profile and the live printer; write nothing.
+
+    Mirrors prepare_update's discipline: eligibility from the printer
+    profile, the component resolved against the live status just read,
+    the target checked against the channels Moonraker accepts for that
+    component's type, the section located in the config file Moonraker
+    reports for it (never the read-only moonraker.conf ZMod owns), the
+    printer idle, and the exact one-line change read from the file
+    itself. The backup is taken in send_channel_switch, not here, so a
+    prepared switch that is never confirmed writes nothing at all.
+    """
+    reason = apply_block_reason(entry, cfg)
+    if reason is not None:
+        raise FirmwareRefusal(reason + " Nothing was sent.")
+    target = str(channel_token or "").strip().casefold()
+    if target not in CHANNEL_VALUES:
+        raise FirmwareRefusal(f"{channel_token!r} is not an update channel Moonraker "
+                              "accepts: use stable, beta or dev. Nothing was sent.")
+    try:
+        status = fetch_status(transport)
+    except FirmwareError:
+        raise FirmwareError(UPDATE_COULD_NOT_READ_TEXT) from None
+    component = status.component(component_token)
+    if component is None:
+        raise FirmwareRefusal(f"The printer's update status does not list a component "
+                              f"named {component_token!r}. Run `/print-firmware` to see "
+                              "the components it actually reports — a typed name is "
+                              "never sent on trust. Nothing was sent.")
+    if _component_key(component.name) == "system":
+        raise FirmwareRefusal("The **system** component tracks OS packages and has no "
+                              "update channel to switch. Nothing was sent.")
+    if not component.channel:
+        raise FirmwareRefusal(f"Moonraker does not report an update channel for "
+                              f"**{component.name}**, so there is no channel to switch. "
+                              "Nothing was sent.")
+    allowed = channels_for_type(component.configured_type)
+    if target not in allowed:
+        raise FirmwareRefusal(f"Moonraker accepts only {' or '.join(allowed)} for a "
+                              f"{component.configured_type or 'component'} like "
+                              f"**{component.name}**; {target} is not one of them. "
+                              "Nothing was sent.")
+    if target == component.channel:
+        raise FirmwareRefusal(f"**{component.name}** is already on the {target} channel. "
+                              "Nothing was sent.")
+    try:
+        config_payload = transport("GET", CONFIG_PATH)
+    except Exception as exc:
+        raise FirmwareError(f"Could not read the printer's Moonraker config listing, "
+                            f"so Print Handy cannot say which file holds "
+                            f"**{component.name}**. Nothing was sent. ({exc})") from exc
+    section_names = (f"update_manager {component.name}",
+                     f"update_manager client {component.name}")
+    filename = section_file(config_payload, section_names)
+    if filename is None:
+        raise FirmwareRefusal(f"Moonraker's config listing does not place an "
+                              f"[update_manager {component.name}] section in any file, "
+                              "so Print Handy does not know where its channel is set. "
+                              "Nothing was sent.")
+    filename = _safe_config_filename(filename)
+    if _is_read_only_config(filename):
+        raise FirmwareRefusal(f"The [update_manager {component.name}] section is in "
+                              f"`{filename}`, which ZMod owns and Moonraker "
+                              "write-protects, so Print Handy will not edit it. Move "
+                              f"the section into `{USER_CONFIG_HINT}` (the file ZMod "
+                              "reserves for your own sections), restart Moonraker, and "
+                              "run this again. Nothing was sent.")
+    try:
+        state = print_state(transport)
+    except FirmwareError:
+        raise FirmwareError("Could not read the printer's state from Moonraker, so Print "
+                            "Handy cannot confirm it is idle. Nothing was sent.") from None
+    _require_idle(state)
+    try:
+        original = files.download(filename)
+    except FirmwareRefusal:
+        raise
+    except Exception as exc:
+        raise FirmwareError(f"Could not download `{filename}` from the printer, so the "
+                            f"channel was not switched. Nothing was sent. ({exc})") from exc
+    section = next((name for name in section_names
+                    if _section_present(original, name)), section_names[0])
+    new_text, old_line, new_line, current = switch_channel_in_text(original, section,
+                                                                   target)
+    return PreparedChannelSwitch(component=component, section=section, filename=filename,
+                                 current_channel=current, target_channel=target,
+                                 original_text=original, new_text=new_text,
+                                 old_line=old_line, new_line=new_line)
+
+
+def channel_switch_prompt_text(prepared: PreparedChannelSwitch) -> str:
+    """The confirmation question: the exact one-line change and its safeguards."""
+    lines = [
+        "Switch a Moonraker update channel?",
+        "",
+        f"This changes exactly one line in `{prepared.filename}` on the printer:",
+        f"- [{prepared.section}] `{prepared.old_line}` becomes `{prepared.new_line}`",
+        "",
+        "Print Handy first saves a backup copy of the file "
+        f"(`{prepared.backup_filename}`), writes the change through Moonraker's "
+        "file API, restarts Moonraker, and then checks the update status to "
+        "confirm the new channel. If the write or the restart fails, the backup "
+        "is restored and Moonraker is restarted again.",
+        "A channel switch installs nothing and downgrades nothing: it only "
+        f"changes which releases Moonraker offers for **{prepared.component.name}**.",
+    ]
+    if prepared.target_channel == "stable":
+        lines.append(f"Switching back to stable does not downgrade "
+                     f"**{prepared.component.name}**: it keeps the version it has "
+                     "until a stable release passes it.")
+    return "\n".join(lines)
+
+
+def _restore_config(files, prepared) -> bool:
+    """Put the original file text back; True when the upload went through."""
+    try:
+        files.upload(prepared.filename, prepared.original_text)
+    except Exception:
+        logger.exception("firmware channel switch: restoring %s failed",
+                         prepared.filename)
+        return False
+    return True
+
+
+def _run_restart(restart):
+    """Run the caller's Moonraker restart; the error, or None when it answered.
+
+    The restart is the caller's to send: printer-control commands route
+    through print_handy.printer_control (#1317), so each surface hands
+    in its own printer's service restart and this module never names
+    the endpoint. A dropped connection is an expected shape here
+    (Moonraker goes down to restart), so any failure is treated as
+    unproven and the verification re-read decides.
+    """
+    try:
+        restart()
+    except Exception as exc:  # noqa: BLE001 - verification decides, see docstring
+        return exc
+    return None
+
+
+def send_channel_switch(transport, files, prepared: PreparedChannelSwitch, *,
+                        restart, verify_attempts=8, verify_delay_s=5.0,
+                        sleep=time.sleep) -> str:
+    """Back up, write the one line, restart Moonraker, verify; restore on failure.
+
+    ``restart`` is the surface's Moonraker restart for this printer
+    (its print_handy.printer_control service method), called once after
+    the write and once more after a restore. The idle check is repeated
+    first — the state can change while the operator decides. The backup
+    copy is uploaded before the config file itself is touched; if the
+    backup cannot be saved, nothing is written. Any later failure (the
+    write itself, or the new channel not showing in
+    /machine/update/status after the restart) restores the original
+    text and restarts Moonraker again, and the outcome says whether
+    that restore went through.
+    """
+    try:
+        state = print_state(transport)
+    except FirmwareError:
+        raise FirmwareRefusal("Could not re-check the printer's state just now, so the "
+                              "channel was not switched. Nothing was sent.") from None
+    _require_idle(state, recheck=True)
+    name = prepared.component.name
+    try:
+        files.upload(prepared.backup_filename, prepared.original_text)
+    except Exception as exc:
+        raise FirmwareError(f"Could not save the backup copy "
+                            f"(`{prepared.backup_filename}`), so the channel was not "
+                            f"switched and `{prepared.filename}` was not touched. "
+                            f"({exc})") from exc
+    try:
+        files.upload(prepared.filename, prepared.new_text)
+    except Exception as exc:
+        if _restore_config(files, prepared):
+            return (f"The channel switch for **{name}** failed while writing "
+                    f"`{prepared.filename}` ({exc}). The backup was restored, so the "
+                    f"file is unchanged and **{name}** is still on the "
+                    f"{prepared.current_channel} channel.")
+        return (f"The channel switch for **{name}** failed while writing "
+                f"`{prepared.filename}` ({exc}), and restoring the backup failed "
+                f"too. Fix it by hand: copy `{prepared.backup_filename}` over "
+                f"`{prepared.filename}` in the printer's config folder (Fluidd or "
+                "Mainsail's config editor can do it) and restart Moonraker.")
+    _run_restart(restart)
+    last_status = None
+    for attempt in range(max(1, verify_attempts)):
+        if attempt:
+            sleep(verify_delay_s)
+        try:
+            last_status = fetch_status(transport)
+        except FirmwareError:
+            last_status = None
+            continue
+        component = last_status.component(name)
+        if component is not None and component.channel == prepared.target_channel:
+            text = (f"Switched **{name}** to the {prepared.target_channel} channel — "
+                    "verified: Moonraker's update status now reports "
+                    f"channel: {prepared.target_channel} for it. The backup copy is "
+                    f"`{prepared.backup_filename}`.")
+            if prepared.target_channel == "stable":
+                text += (f" This does not downgrade **{name}**: it keeps "
+                         f"{component.current or 'its installed version'} until a "
+                         "stable release passes it.")
+            return text
+    if _restore_config(files, prepared):
+        _run_restart(restart)
+        seen = ""
+        if last_status is not None:
+            component = last_status.component(name)
+            if component is not None and component.channel:
+                seen = f" It still reports the {component.channel} channel."
+        return (f"The channel switch for **{name}** did not take effect: after the "
+                f"restart Moonraker does not report the {prepared.target_channel} "
+                f"channel for it.{seen} The backup was restored and Moonraker "
+                f"restarted again, so **{name}** is still on the "
+                f"{prepared.current_channel} channel.")
+    return (f"The channel switch for **{name}** did not take effect, and restoring "
+            f"the backup failed too. Fix it by hand: copy "
+            f"`{prepared.backup_filename}` over `{prepared.filename}` in the "
+            "printer's config folder and restart Moonraker.")
+
+
+async def confirmed_channel_switch(transport, files, entry, component_token,
+                                   channel_token, ask, cfg=None, *, restart) -> str:
+    """The channel switch end to end: prepare, ask, then send (#1634).
+
+    The one flow every surface uses: chat's ``/print-firmware channel``
+    and the Web UI Firmware page's Switch channel action.
+    ``ask(question, choices)`` is the surface's confirmation prompt and
+    returns the chosen label (or None). Only an explicit SWITCH_LABEL
+    sends; any other answer, a timeout included, sends nothing.
+    ``restart`` is the surface's Moonraker restart for this printer
+    (its print_handy.printer_control service method, #1317).
+    prepare_channel_switch and send_channel_switch keep every gate
+    (profile eligibility, the live component, the channel values
+    Moonraker accepts for the type, the read-only file refusal, both
+    idle checks, the backup, the verified re-read).
+    """
+    import asyncio
+    try:
+        prepared = await asyncio.to_thread(prepare_channel_switch, transport, files,
+                                           entry, component_token, channel_token, cfg)
+    except (FirmwareRefusal, FirmwareError) as exc:
+        return str(exc)
+    answer = await ask(channel_switch_prompt_text(prepared),
+                       [SWITCH_LABEL, CANCEL_LABEL])
+    if answer != SWITCH_LABEL:
+        return NOT_SWITCHED_TEXT
+    try:
+        return await asyncio.to_thread(send_channel_switch, transport, files, prepared,
+                                       restart=restart)
     except (FirmwareRefusal, FirmwareError) as exc:
         return str(exc)
 

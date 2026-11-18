@@ -44,7 +44,7 @@ DRIVERS = {"print_stop", "print_control", "family_control", "panic", "print_aler
 # Driver attributes that send a control command (or build the object that does).
 PRIMITIVES = {
     "print_stop": {"cancel", "pause", "_lan_adapter"},
-    "print_control": {"resume", "force_reboot"},
+    "print_control": {"resume", "force_reboot", "server_restart"},
     "family_control": {"control_for", "FamilyControl"},
     "panic": {"force_restart", "purge"},
     "print_alert_buttons": {"clear_shutdown"},

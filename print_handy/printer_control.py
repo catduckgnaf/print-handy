@@ -242,6 +242,18 @@ class PrinterControl:
         """The safe REBOOT flow (print_control.force_reboot); refused while printing."""
         return _driver("print_control").force_reboot(**_kw(self.printer_id), **kw)
 
+    def server_restart(self) -> None:
+        """Restart this printer's Moonraker (print_control.server_restart).
+
+        Moonraker printers only: the verb is part of the Moonraker
+        capability set, and any other connection refuses here rather
+        than sending anything.
+        """
+        if not self.capabilities().supports("server_restart"):
+            raise ValueError("server_restart is not supported for this printer "
+                             f"({self.connection or 'unknown'} connection)")
+        return _driver("print_control").server_restart(**_kw(self.printer_id))
+
     def purge(self, **kw) -> dict[str, Any]:
         """The guarded toolhead purge (panic.purge), held to this printer's nozzle ceiling."""
         return _driver("panic").purge(**kw)

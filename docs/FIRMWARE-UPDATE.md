@@ -27,6 +27,11 @@ mocked Moonraker responses in `tests/test_firmware_update.py`.
   when no update is available. The name can be typed in words, and the
   common names resolve to whatever the printer calls the component (see
   [Component names](#component-names)).
+- `/print-firmware channel <component> <stable|beta|dev>`: switch one
+  component's Moonraker update channel, the `channel:` line of its
+  `[update_manager]` section in the printer's own Moonraker config.
+  Owner-confirmed, backup first, verified after a Moonraker restart;
+  see [Switching a component's update channel](#switching-a-components-update-channel).
 - `/print-firmware guide zmod` / `/print-firmware guide stock`; the
   guided manual flows for the ZMod base and the stock Flashforge
   firmware under it (AD5X family). Print Handy performs none of those
@@ -106,7 +111,55 @@ suggestion: nothing runs until you accept it, and then the command asks its
 own confirmation). "update helix", "update helix screen", "update guppy",
 "update zmod" or "upgrade moonraker" suggest `/print-firmware update
 <component>`; "check for guppy updates", "is there a helix update" or "helix
-update" suggest the read-only `/print-firmware` report.
+update" suggest the read-only `/print-firmware` report. "switch helixscreen
+to beta", "change the helixscreen channel to beta" or "put helixscreen on
+stable" suggest `/print-firmware channel <component> <channel>`.
+
+## Switching a component's update channel
+
+Moonraker decides which releases a component is offered from the
+`channel:` line of its own `[update_manager <name>]` section: `stable`
+takes tagged stable releases, `beta` also takes prereleases (beta and RC
+tags), and a `git_repo` component may also take `dev` (the latest
+commits). The other component types Moonraker documents (`web`, `zip`,
+`executable`, `python`) take `stable` or `beta`. Subscribing to
+prereleases in Print Handy only governs what Print Handy reports and
+alerts on; when a component's own channel still says `stable`,
+Moonraker never offers the prerelease, so there is no update to apply.
+`/print-firmware channel <component> <stable|beta|dev>` closes that
+gap, on the same printers the update path runs on (ZMod and vanilla
+Klipper):
+
+- The component is resolved against the live update status, the
+  channel value is checked against what Moonraker accepts for that
+  component's type, and the switch refuses while a print is running,
+  at the confirmation and again just before the write.
+- The section is read from the config file Moonraker itself reports
+  for it (the file list in `/server/config`). When the section sits in
+  the `moonraker.conf` that ZMod owns, the switch refuses and points
+  at `mod_data/user.moonraker.conf`, the file ZMod reserves for your
+  own sections.
+- The confirmation shows the exact one-line change. Only the
+  `channel:` line of the named section changes. A section with no
+  `channel:` line is refused rather than edited: adding a line is a
+  bigger change than the one that was confirmed.
+- Before the write, a backup copy of the file is saved beside it as
+  `<file>.print-handy.bak`, through Moonraker's file API. The write, a
+  Moonraker restart, and a verification read of
+  `/machine/update/status` follow. If the write fails or the new
+  channel does not show after the restart, the backup is restored,
+  Moonraker is restarted again, and the outcome says so.
+- The Web UI Firmware page offers the same switch (the Switch channel
+  action under a checked printer's installed versions), behind Web UI
+  printer controls and the same confirmation text.
+- Switching back to `stable` follows the same path. Moving a component
+  to `stable` does not downgrade it: it keeps the version it has until
+  a stable release passes it. A channel switch installs nothing by
+  itself; it only changes what Moonraker offers from then on.
+
+This flow is not verified on hardware yet. It is covered by offline
+tests against recorded Moonraker shapes, and it stays described that
+way until it has been run on a real printer (an AD5X on ZMod).
 
 ## ZMod update alerts in chat
 
@@ -399,8 +452,8 @@ guides.
 
 | Family (registry keys) | What Print Handy can report | Apply? | How the update is actually done |
 |---|---|---|---|
-| **ZMod, AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro** (`flashforge.*`, Moonraker) | Every Update Manager component (`zmod`, `klipper`, `moonraker`, Fluidd/Mainsail, plugins incl. Print Handy's own), plus the OS↔`zmod` pairing check and Klipper 13 MCU currency | **Yes, components only**, guarded as above | Components: `/print-firmware update <component>`. ZMod itself: Software Update in Fluidd/Mainsail, no USB, unless ZMod shows "Update Z-Mod via USB"; then the `ZFLASH` macro (downloads the release to the USB drive, verifies MD5, installs on reboot) or a manual USB install, `guide zmod`. Stock firmware underneath: touchscreen / USB, `guide stock` |
-| **Generic Klipper + Sovol Klipper family** (`klipper.generic`, `sovol.*` over Moonraker) | Every Update Manager component, as the operator configured it in `moonraker.conf` | **Yes**, same guarded path, minus the ZMod layers | `/print-firmware update <component>`; what it updates is the operator's own Update Manager configuration. Component updates also alert in chat (see Component update alerts above) |
+| **ZMod, AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro** (`flashforge.*`, Moonraker) | Every Update Manager component (`zmod`, `klipper`, `moonraker`, Fluidd/Mainsail, plugins incl. Print Handy's own), plus the OS↔`zmod` pairing check and Klipper 13 MCU currency | **Yes, components only**, guarded as above | Components: `/print-firmware update <component>`. Update channels: `/print-firmware channel <component> <channel>`. ZMod itself: Software Update in Fluidd/Mainsail, no USB, unless ZMod shows "Update Z-Mod via USB"; then the `ZFLASH` macro (downloads the release to the USB drive, verifies MD5, installs on reboot) or a manual USB install, `guide zmod`. Stock firmware underneath: touchscreen / USB, `guide stock` |
+| **Generic Klipper + Sovol Klipper family** (`klipper.generic`, `sovol.*` over Moonraker) | Every Update Manager component, as the operator configured it in `moonraker.conf` | **Yes**, same guarded path, minus the ZMod layers | `/print-firmware update <component>`; what it updates is the operator's own Update Manager configuration. Update channels: `/print-firmware channel <component> <channel>`. Component updates also alert in chat (see Component update alerts above) |
 | **Elegoo Neptune 4 family** (`elegoo.neptune4*`, Moonraker, vendor fork) | The fork's component versions, information only | **No, hard excluded** | Elegoo's `ELEGOO_UPDATE_DIR` USB package via the touchscreen; touchscreen firmware separately via TF card. Elegoo warns that updating to official Klipper/Moonraker/Fluidd "will make the machine not work properly" |
 | **Creality Klipper, K1 family, Ender-3 V3 family** (`creality.*`, vendor fork) | The fork's component versions, information only | **No, hard excluded** | Creality touchscreen OTA / Creality Cloud, or Creality's USB package |
 | **QIDI, Q1 Pro, X-Plus 3/4, X-Max 3, X-Smart 3** (`qidi.*`, vendor fork) | The fork's component versions, information only | **No, hard excluded** | QIDI's official update file on a USB drive at the printer. Online-updating Klipper/Moonraker through the web UI is documented to break QIDI's board/display connections |

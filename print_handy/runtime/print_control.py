@@ -1691,6 +1691,19 @@ def _moonraker_idle_view(printer_id: str) -> dict[str, Any]:
             "bed": {"target": (s.get("heater_bed") or {}).get("target")}}
 
 
+def server_restart(printer_id: str | None = None) -> None:
+    """Restart one printer's Moonraker (POST /server/restart).
+
+    Moonraker re-reads its configuration as it comes back up, which is
+    what makes an edited config file take effect (the firmware channel
+    switch in print_handy.firmware_update restarts this way, through
+    print_handy.printer_control). The reply proves nothing by itself:
+    Moonraker may drop the connection as it goes down, so callers
+    verify from a fresh read afterwards.
+    """
+    _send("/server/restart", method="POST", timeout=15, printer_id=printer_id)
+
+
 def force_reboot(
     wait_grace_s: float = 30,
     max_wait_s: float = 120,
