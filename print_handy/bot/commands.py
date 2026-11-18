@@ -147,7 +147,7 @@ COMMANDS = (
                             Option("args", "Optional KEY=VALUE pairs"))),
             )),
     Command("print-firmware", "Firmware versions and updates (asks first)",
-            usage="/print-firmware [update <name> | guide <zmod|stock>]",
+            usage="/print-firmware [update|guide]",
             subcommands=(
                 Subcommand("versions", "Firmware versions and update state", text_word=""),
                 Subcommand("update", "Update one component (asks first)",
@@ -157,7 +157,7 @@ COMMANDS = (
                            (Option("flavor", "Which firmware", ("zmod", "stock"), required=True),)),
             )),
     Command("print-calibration", "Calibrations; saves only on accept",
-            usage="/print-calibration [mesh|screws|pid|shaper|belts|zoffset|records]",
+            usage="/print-calibration [mode]",
             subcommands=(
                 Subcommand("mesh", "Bed mesh calibration"),
                 Subcommand("screws", "Bed screw calibration"),
@@ -187,6 +187,9 @@ COMMANDS = (
              # '/print-handy debug' (the status form).
              Option("args", "Extra words after the action — for debug: on, off, or on 5 (minutes)")),
             "/print-handy [setup | debug | status | help]"),
+    Command("print-cost", "Print cost (read-only)",
+            (Option("query", "Grams and hours, e.g. '50 g, 3 h, in PETG'; blank asks about the last print"),),
+            "/print-cost", ephemeral=True),
     Command("print-source", "Connected model sites", usage="/print-source", ephemeral=True),
     Command("print-help", "What Print Handy can do", usage="/print-help", ephemeral=True),
 )

@@ -196,6 +196,7 @@ from . import config_handlers as config_handlers_module
 from . import chat_handlers as chat_handlers_module
 from . import upload_handlers as upload_handlers_module
 from . import walkthrough_handlers as walkthrough_handlers_module
+from . import cost_handlers as cost_handlers_module
 from .sessions import (REMEMBER_TTL_S, SESSIONS_FILE, SESSION_COOKIE,
                        SESSION_TTL_S, SessionStore, _access_stamp,
                        _load_remembered_sessions, _remember_lock,
@@ -1089,6 +1090,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _firmware_route(self):
         return design_handlers_module.firmware_route(self)
+
+    def _cost_page(self):
+        return cost_handlers_module.cost_page(self)
+
+    def _cost_post(self, form):
+        return cost_handlers_module.cost_post(self, form)
 
     def _settings_report_route(self, rest=""):
         return design_handlers_module.settings_report_route(self, rest)

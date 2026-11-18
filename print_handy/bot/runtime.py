@@ -480,6 +480,18 @@ _TASK_INTENT_SUGGESTIONS = (
     # route #1298 first gave "update <name>": an instruction to update a
     # named component is an update ask, not a check.
     (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+|my\s+)?{_FW_COMPONENT}(?:\s+(?:firmware|now|please))?{_END}", re.I), "/print-firmware update {c}"),
+    # Cost (#1625): what a print cost or will cost. The amounts, when
+    # the ask carries them, ride along as the command's argument and
+    # the handler parses them; the bare forms ask about the last print.
+    # "coast" is the typo corpus's folded form of "cost", so the
+    # patterns accept both spellings or the folded pass never matches.
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast)\s*,?\s*(?P<q>.+?){_END}", re.I), "/print-cost {q}"),
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:did|does)\s+(?:that\s+print|this\s+print|that|this|the\s+print|it)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?what\s+did\s+filament\s+(?:cost|coast)\s+this\s+month{_END}", re.I), "/print-cost"),
+    (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+print{_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?what\s+(?:did|does)\s+(?:that|this)\s+print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every
     # command carries a fuzzy equivalent (the coverage guard in

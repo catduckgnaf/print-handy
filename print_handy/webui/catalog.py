@@ -122,6 +122,19 @@ GROUP_OF = {
     "services.spoolman_url": "spools",
     "spool.prompt_brand": "spools",
     "spool.accounting": "spools",
+    "cost.currency_code": "cost",
+    "cost.electricity_rate_per_kwh": "cost",
+    "cost.labor_rate_per_hour": "cost",
+    "cost.failure_rate_fdm": "cost",
+    "cost.failure_rate_resin": "cost",
+    "cost.pricing_mode": "cost",
+    "cost.default_margin": "cost",
+    "cost.tax_rate": "cost",
+    "cost.tax_mode": "cost",
+    "cost.marketplace_fee_rate": "cost",
+    "cost.overhead_percent": "cost",
+    "cost.flat_fee_per_job": "cost",
+    "cost.default_filament_cost_per_kg": "cost",
     "notify.mqtt_enabled": "home_assistant",
     "notify.mqtt_host": "home_assistant",
     "notify.mqtt_port": "home_assistant",
@@ -214,6 +227,11 @@ GROUP_OF = {
 # config page renders the note inside the group so the file-only home is
 # discoverable from the UI instead of silent.
 GROUP_FILE_ONLY_NOTES = {
+    "cost": "File-only in this section: the [cost_printers] table holds one "
+            "cost profile per printer (technology, purchase price, lifetime "
+            "hours, watts, resin screen and film figures), keyed by roster id "
+            "or printer name. It is a table of tables, so it is edited in the "
+            "settings file only; the workspace defaults above are fields.",
     "ai": "File-only in this section: the [ai] tier tables — [ai.small], "
           "[ai.chat] and [ai.heavy], each with chat_url, model, "
           "fallback_model, fallback_url, api_key_env, "
@@ -423,6 +441,62 @@ CATALOG = (
            "and the spool is created without one; on inserts the brand step "
            "for operators who track brands.",
            validator="settings spool check"),
+    # Print cost calculator (#1625): the workspace defaults the one cost
+    # engine reads. Every field here is consumed by core.cost; per-printer
+    # profiles are the file-only [cost_printers] table (see the group note).
+    _field("cost", "currency_code", "Cost currency code", "text",
+           "ISO currency code for every cost figure and stored quote "
+           "(for example USD or EUR). Historical records keep the currency "
+           "they were stored with; they are never converted.",
+           validator="settings cost check"),
+    _field("cost", "electricity_rate_per_kwh", "Electricity rate per kWh", "number",
+           "Your electricity price per kilowatt hour. Print energy is "
+           "average watts times hours, never the power supply rating.",
+           validator="settings cost check", minimum=0),
+    _field("cost", "labor_rate_per_hour", "Labor rate per hour", "number",
+           "Prep, post-processing and packing time priced at this rate. "
+           "Set 0 for the hobby preset: the labor line still shows, at zero.",
+           validator="settings cost check", minimum=0),
+    _field("cost", "failure_rate_fdm", "Failure rate (FDM)", "number",
+           "Share of FDM attempts that fail, as a fraction (0.05 is 5 "
+           "percent). Repeatable lines are divided by 1 minus this rate.",
+           validator="settings cost check", minimum=0, maximum=0.95),
+    _field("cost", "failure_rate_resin", "Failure rate (resin)", "number",
+           "Share of resin attempts that fail, as a fraction (0.10 is 10 "
+           "percent). Repeatable lines are divided by 1 minus this rate.",
+           validator="settings cost check", minimum=0, maximum=0.95),
+    _field("cost", "pricing_mode", "Selling price mode", "picker",
+           "Margin (share of the final price): price is cost divided by "
+           "1 minus the margin. Markup (added to cost): price is cost "
+           "times 1 plus the markup. The two are not interchangeable.",
+           choices=("margin", "markup"), validator="settings cost check"),
+    _field("cost", "default_margin", "Default margin or markup", "number",
+           "The default profit fraction for selling prices, read as a "
+           "margin or a markup according to the selling price mode.",
+           validator="settings cost check", minimum=0, maximum=0.95),
+    _field("cost", "tax_rate", "Tax rate", "number",
+           "Sales tax or VAT rate as a fraction (0.20 is 20 percent), "
+           "applied to selling prices according to the tax mode.",
+           validator="settings cost check", minimum=0),
+    _field("cost", "tax_mode", "Tax mode", "picker",
+           "add_on_top adds tax to the selling price; included means the "
+           "selling price already contains the tax; none applies no tax.",
+           choices=("add_on_top", "included", "none"), validator="settings cost check"),
+    _field("cost", "marketplace_fee_rate", "Marketplace fee rate", "number",
+           "Marketplace fee as a fraction of the selling price; the "
+           "price is grossed up by it before tax. 0 means no marketplace.",
+           validator="settings cost check", minimum=0, maximum=0.95),
+    _field("cost", "overhead_percent", "Overhead percent", "number",
+           "Optional overhead as a fraction of the job subtotal (rent, "
+           "software, support time), counted once per job. 0 is off.",
+           validator="settings cost check", minimum=0),
+    _field("cost", "flat_fee_per_job", "Flat fee per job", "number",
+           "Optional flat fee added to every job at cost. 0 is off.",
+           validator="settings cost check", minimum=0),
+    _field("cost", "default_filament_cost_per_kg", "Default filament cost per kilogram", "number",
+           "Fallback material price when neither Spoolman nor the slicer "
+           "embedded a price for a filament line.",
+           validator="settings cost check", minimum=0),
     # Event notifications (#622): print events out of chat, over MQTT
     # and/or ntfy. Neither channel's credential is a field: the MQTT
     # password is MQTT_PASSWORD and the ntfy access token is

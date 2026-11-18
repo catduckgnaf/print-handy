@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -26,6 +27,8 @@ from typing import Any, Mapping
 
 from . import _config
 from . import state_file
+
+logger = logging.getLogger(__name__)
 
 VAULT_ROOT = _config.records_vault()
 PRINTS_DIR = VAULT_ROOT / "Prints"
@@ -99,6 +102,45 @@ def _grams(mm: Any, context: Mapping[str, Any]) -> float | None:
         d, rho = float(context["filament_diameter_mm"]), float(context["filament_density"])
         return round(float(mm) * 3.141592653589793 * (d / 2) ** 2 * rho / 1000, 1)
     except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _frozen_cost(context: Mapping[str, Any], spool: Mapping[str, Any],
+                 stats: Mapping[str, Any], metadata: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The frozen per-job cost (#1625), resolved once at completion.
+
+    Measured duration and measured filament use win over slicer
+    estimates and are labeled as measured. The price comes from the
+    spool the job actually used, through the core engine's precedence.
+    Fail-soft by design: any gap returns None and the record simply has
+    no cost; costing never delays or blocks the completion record.
+    """
+    try:
+        from .. import settings as _settings
+        from ..core import cost as _cost
+        data = _settings.current()
+        workspace = _cost.WorkspaceCost.from_settings(data)
+        profile, _ = _cost.printer_profile_for(
+            data, printer_id=context.get("printer_id"), printer_name=context.get("printer"))
+        used_mm = _first(stats, "filament_used") or _first(metadata, "filament_used")
+        grams = _grams(used_mm, context)
+        source = "measured history"
+        if grams is None:
+            grams = context.get("estimated_filament_g")
+            source = "slicer G-code"
+        grams = float(grams) if grams is not None else None
+        seconds = _first(stats, "print_duration", "total_duration") or _first(metadata, "print_duration")
+        hours = float(seconds) / 3600.0 if seconds else 0.0
+        if not grams and not hours:
+            return None
+        line = _cost.MaterialLine(
+            name=str(context.get("filament_material") or "Filament"),
+            material=str(context.get("filament_material") or ""),
+            grams=grams or 0.0,
+            spool=dict(spool) if isinstance(spool, Mapping) else None)
+        job = _cost.JobCostInput(lines=[line], print_hours=hours, grams_source=source)
+        return _cost.freeze(_cost.compute(job, profile, workspace))
+    except Exception:
         return None
 
 
@@ -275,7 +317,8 @@ def _resolved_title(filename):
         from . import discord_print_summary
         job, _plate = discord_print_summary.find_job(filename)
         return discord_print_summary.safe_label(job["title"]) if job and job.get("title") else None
-    except Exception:
+    except Exception as exc:
+        logger.warning("cost freeze skipped for a job record: %s", exc)
         return None
 
 
@@ -389,6 +432,11 @@ def build_record_data(
         # early_layer) and why a print counted as risky.
         "watch_mode": context.get("watch_mode"),
         "watch_risk": context.get("watch_risk"),
+        # #1625: the cost resolved once at completion and frozen here.
+        # Later price edits never rewrite it; Data and Pasta Wrapped
+        # aggregate this dict only. None when nothing could be priced.
+        "cost": (_frozen_cost(context, spool, stats, metadata)
+                 if status != "printing" else None),
         **_stop_fields(filename, started_at, printer=context.get("printer_id") or context.get("printer")),
     }
 

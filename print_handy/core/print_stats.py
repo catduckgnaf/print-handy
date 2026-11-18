@@ -805,12 +805,22 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         "night_prints": night_prints,
         "top_by_duration": _top(rows, "print_duration_seconds"),
         "top_by_filament": _top(rows, "filament_used_g"),
+        # Cost aggregates (#1625): frozen per-job cost records only.
+        # A period with no priced jobs says so plainly in the block's
+        # note; nothing is estimated here and currencies never mix.
+        "costs": _cost_aggregates(rows),
         # No "timelapse_known" (#981): it keyed on a `timelapse` record
         # field no record ever carries, so it was structurally always 0.
         # Clip counts are a finder result, not a record fact; the Web UI
         # layer reports them separately as timelapse_clips_found.
         "years_available": years,
     }
+
+
+def _cost_aggregates(rows):
+    """Frozen-cost aggregates for the Data tab and Pasta Wrapped (#1625)."""
+    from . import cost as _cost
+    return _cost.aggregate_costs(rows)
 
 
 def _top_label(table):
@@ -1029,6 +1039,18 @@ def _script(year, stats, highlights, tz=None):
         lines.append(f"You ran {grams:g} g of filament through the printer "
                      f"({stats['total_filament_used_kg']:g} kg), failed and stopped "
                      f"prints included.{kept} Some of it even stayed on the bed.")
+    # Recorded costs (#1625): frozen per-job figures only, no estimate
+    # and no model involved. A year with no priced jobs gets no line.
+    costs = stats.get("costs") or {}
+    if costs.get("has_priced"):
+        lines.append(f"Your recorded print costs came to "
+                     f"{costs['currency_code']} {costs['total_spend']:.2f} across "
+                     f"{plural(costs['priced_count'], 'priced print')}. "
+                     "That is the frozen cost on each record, not a fresh estimate.")
+        priciest = costs.get("most_expensive")
+        if priciest:
+            lines.append(f"Your most expensive print was {priciest['title']} at "
+                         f"{costs['currency_code']} {priciest['cost_per_build']:.2f}.")
     top_color = highlights["top_color"]
     if top_color and total and highlights["top_color_prints"] / total > 0.5:
         lines.append(f"Your top color was {top_color}, in "

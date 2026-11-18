@@ -162,7 +162,10 @@ def _apply_key_aliases(layer):
 
 
 # Sections whose keys are names you choose, not a fixed set.
-OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material_tuning"}
+OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material_tuning",
+                 # [cost_printers] (#1625): per-printer cost profiles keyed by
+                 # the names the operator chooses, like material families.
+                 "cost_printers"}
 # Keys that can be optionally specified even if absent from base home.yaml.
 OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int,
                  ("printer", "zmod_delivery_format"): str,
@@ -2272,6 +2275,34 @@ def validate(data):
                 raise SettingsError(f"[material_tuning] {family}.{key} must be between {low:g} and {high:g}, "
                                     f"got {value!r}")
             profile[key] = float(value)
+    # [cost] workspace defaults and [cost_printers] profiles (#1625).
+    # Cost is informational only; validation here only refuses values
+    # the engine cannot compute with, never a print.
+    cost_cfg = data.get("cost") or {}
+    if not isinstance(cost_cfg, dict):
+        raise SettingsError(f"[cost] must be a table, got {cost_cfg!r}")
+    for key in ("electricity_rate_per_kwh", "labor_rate_per_hour", "tax_rate",
+                "marketplace_fee_rate", "overhead_percent", "flat_fee_per_job",
+                "default_filament_cost_per_kg"):
+        value = cost_cfg.get(key)
+        if value is not None and (isinstance(value, bool)
+                                  or not isinstance(value, (int, float)) or value < 0):
+            raise SettingsError(f"[cost] {key} must be a number at or above 0, got {value!r}")
+    for key in ("failure_rate_fdm", "failure_rate_resin", "default_margin"):
+        value = cost_cfg.get(key)
+        if value is not None and (isinstance(value, bool)
+                                  or not isinstance(value, (int, float)) or not 0 <= value < 1):
+            raise SettingsError(f"[cost] {key} must be a fraction from 0 to under 1, got {value!r}")
+    if str(cost_cfg.get("pricing_mode", "margin")).lower() not in ("margin", "markup"):
+        raise SettingsError("[cost] pricing_mode must be margin or markup, "
+                            f"got {cost_cfg.get('pricing_mode')!r}")
+    if str(cost_cfg.get("tax_mode", "add_on_top")).lower() not in ("add_on_top", "included", "none"):
+        raise SettingsError("[cost] tax_mode must be add_on_top, included or none, "
+                            f"got {cost_cfg.get('tax_mode')!r}")
+    cost_printers = data.get("cost_printers") or {}
+    if not isinstance(cost_printers, dict) or not all(
+            isinstance(v, dict) for v in cost_printers.values()):
+        raise SettingsError("[cost_printers] must be a table of per-printer profile tables")
     bed = data.get("printer", {}).get("bed_mm")
     if (not isinstance(bed, list) or len(bed) != 2
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in bed)):

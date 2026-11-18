@@ -312,6 +312,12 @@ class OverrideTests(unittest.TestCase):
                        "local_model_path", "watch_source", "local_empty_enabled",
                        "auto_light_off_minutes", "light_object"},
             "spool": {"prompt_brand", "accounting"},
+            "cost": {"currency_code", "electricity_rate_per_kwh", "labor_rate_per_hour",
+                     "failure_rate_fdm", "failure_rate_resin", "pricing_mode",
+                     "default_margin", "tax_rate", "tax_mode", "marketplace_fee_rate",
+                     "overhead_percent", "flat_fee_per_job",
+                     "default_filament_cost_per_kg"},
+            "cost_printers": set(),
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records
             # whether [timelapse] mode was named or derived, so per-printer

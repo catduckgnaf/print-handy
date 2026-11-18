@@ -146,6 +146,8 @@ ROUTES = (
     # The real user-facing waits, read back from TIMING.jsonl (#1476).
     # Firmware and updates per printer, from the firmware feed (#1280 I).
     _get("/firmware", SESSION, "_firmware_route"),
+    _get("/cost", SESSION, "_cost_page"),
+    _get("/api/cost", SESSION, "_cost_page"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
@@ -191,6 +193,7 @@ ROUTES = (
           claim_lock=True),
     # The Wrapped page embeds the session-bound form token like every
     # other page (#1588), so these take the plain session+csrf rule.
+    _post("/cost", SESSION_CSRF, "_cost_post", back="/cost", multipart=True),
     _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped"),
     _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped"),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),

@@ -60,6 +60,7 @@ NAV = (
     ("/spools", "Spools"),
     ("/designs", "Designs"),
     ("/firmware", "Firmware"),
+    ("/cost", "Cost"),
     ("/config", "Settings"),
 )
 

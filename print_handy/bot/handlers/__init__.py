@@ -51,6 +51,7 @@ _MODULES = (
     'typed_quantity',
     'upload_collection',
     'edit',
+    'cost',
 )
 _homes = tuple(importlib.import_module(f"{__name__}.{name}") for name in _MODULES)
 
@@ -89,6 +90,7 @@ HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'live',
     'plate_calibrate',
     'nozzle',
+    'cost',
 ))
 _DISPATCH_HOOKS = tuple(module.handle for module in HANDLERS)
 _COMMAND_GATES = {module.handle: (module.match.command, module.match.with_args) for module in HANDLERS
