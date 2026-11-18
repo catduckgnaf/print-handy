@@ -1920,6 +1920,29 @@ def _timelapse_postprocess(job_key, completion_message, plan_id=None, tl_plan=No
         _release_postprocess(job_key)
 
 
+def _post_partial_timelapse(job_key, stats):
+    """Post a captured clip for a cancelled/failed print when enough frames exist."""
+    if not job_key:
+        return False
+    try:
+        manifest_path = timelapse_capture.job_dir(_config.cfg()["paths"]["cache"], job_key) / "capture.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if int(manifest.get("frames") or 0) < 24:
+            return False
+        if go2rtc.timelapse_mode(_config.cfg()) == "off":
+            return False
+        video = _captured_timelapse(job_key)
+        if video is None:
+            return False
+        layer = _visual_layer(stats or {})
+        caption = f"Partial timelapse (cancelled at layer {layer})" if layer is not None else "Partial timelapse (cancelled)"
+        post(f"{caption}\\nMEDIA:{video}")
+        return True
+    except Exception as exc:
+        warn(f"partial timelapse unavailable for {job_key!r}: {exc!r}")
+        return False
+
+
 def _plan_timelapse_post(job_key, completion_message, tl_plan):
     """A plate of a multi-plate plan: keep its clip, post video only once, after the last plate or on cancel.
 
@@ -4782,6 +4805,11 @@ class Listener:
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
         await self._apply_ended_bookkeeping(old, new_state, ended)
         await self._run_announcer_guarded(old, new_state)
+        if ended and new_state in ("cancelled", "error"):
+            try:
+                await asyncio.to_thread(_post_partial_timelapse, self.filename, self.last_stats)
+            except Exception as exc:
+                warn(f"partial timelapse post failed file={self.filename!r}: {exc!r}")
         if ended:
             # Marked before the call: if the cleanup itself raises,
             # _on_status must not run it a second time in its finally.
