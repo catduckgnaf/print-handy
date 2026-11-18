@@ -25,7 +25,7 @@
       "evidence": "real-destination-slice",
       "feature": "real A1 slice, primary and Orca fallback",
       "fixture": "tests/slicer/test_bambu_real_a1.py",
-      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "gap": null,
       "id": "bambu-source-bambu-slice",
       "owner": "print_handy/core/orca_adapter.py",
       "source": "bambu"
@@ -95,7 +95,7 @@
       "evidence": "real-destination-slice",
       "feature": "genuine Cura 5.8.1 project sliced by the real Bambu Studio through the production entry point",
       "fixture": "tests/slicer/test_cross_slicer_bambu_real.py",
-      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "gap": null,
       "id": "cura-source-bambu-slice",
       "owner": "print_handy/core/orca_adapter.py",
       "source": "cura"
@@ -105,7 +105,7 @@
       "evidence": "real-destination-slice",
       "feature": "genuine PrusaSlicer 2.8.1 project sliced by the real Bambu Studio through the production entry point",
       "fixture": "tests/slicer/test_cross_slicer_bambu_real.py",
-      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "gap": null,
       "id": "prusa-source-bambu-slice",
       "owner": "print_handy/core/orca_adapter.py",
       "source": "prusa"
@@ -115,19 +115,13 @@
       "evidence": "real-destination-slice",
       "feature": "genuine OrcaSlicer 2.5.1 project sliced by the real Bambu Studio through the production entry point",
       "fixture": "tests/slicer/test_cross_slicer_bambu_real.py",
-      "gap": "The Bambu slicer check is not a required branch-protection context (verified 2026-11-16); it stays a non-required leg.",
+      "gap": null,
       "id": "orca-source-bambu-slice",
       "owner": "print_handy/core/orca_adapter.py",
       "source": "orca"
     }
   ],
   "gaps": [
-    {
-      "cell": "bambu-source-bambu-slice",
-      "gap": "Bambu Studio slicer check exists in CI but is not branch-protection-required (verified 2026-11-16). Promoting it is a repository-settings decision for catduck, not a code change in this PR.",
-      "id": "gap-bambu-not-required",
-      "owner": "repository settings"
-    },
     {
       "cell": "orca-source-orca-slice",
       "gap": "Orca --export-statistics and plate statistics JSON are verified only where the slicer-tier test runs against the pinned Orca 2.5.0 binary; the offline path falls back to verified G-code comment parsing and records which path produced the numbers.",
