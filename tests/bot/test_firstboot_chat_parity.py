@@ -60,6 +60,7 @@ PLATFORM_ANSWERS = {
 }
 
 STEP_ANSWERS = {
+    "brand": guided._brand_of(CANONICAL["model"]),
     "model": CANONICAL["model"],
     "moonraker_url": CANONICAL["moonraker_url"],
     "spoolman_url": CANONICAL["spoolman_url"],

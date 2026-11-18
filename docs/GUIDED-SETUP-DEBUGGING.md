@@ -20,8 +20,13 @@ authorizes a printer, and neither flow can start one.
 
 Setup asks six small steps, validating each answer before moving on:
 
-1. **Printer model**: a model key from the printer registry (see
-   [printer profiles](PRINTER-PROFILES.md)).
+1. **Printer brand and model**: first the brand (Bambu Lab, Prusa, FlashForge,
+   Creality, Qidi, Snapmaker, Elegoo, Anycubic, Sovol, or another Klipper / Marlin
+   printer), then that brand's models by display name, with the firmware route
+   spelled out where one printer runs several (a Creator 5 on ZMod, OpenCreator or
+   Reforge; an AD5X on ZMod or the stock firmware). Typing the exact model key at
+   either step skips straight ahead, and a name that fits more than one model asks
+   which one instead of guessing (see [printer profiles](PRINTER-PROFILES.md)).
 2. **Print channel**: the numeric Discord channel ID.
 3. **Allowed users**: numeric Discord user IDs, comma separated.
 4. **Printer URL** (optional); the address for the model chosen in step 1. Klipper
@@ -48,8 +53,8 @@ Setup asks six small steps, validating each answer before moving on:
   `/print-handy setup restart` discards the saved answers and starts over.
 - A session that has been idle for 24 hours is timed out: a plain reply after that is not
   treated as an answer. Run `/print-handy setup` to resume the saved checklist.
-- An invalid answer (a non-numeric ID, a bad URL, an unknown model key) is rejected with the
-  reason and the same question is asked again; the step does not advance.
+- An invalid answer (a non-numeric ID, a bad URL, an unknown brand or model) is rejected with
+  the reason and the same question is asked again; the step does not advance.
 
 ### The consent step
 
@@ -60,7 +65,7 @@ repeated back) and offers four replies:
   into `config/local.yaml` through the same merge the CLI setup wizard uses: values already
   in the file always win, and no secret is written (the flow collected none).
 - `add`: set up another printer. The flow asks for the first printer's id (the base
-  flow never needed one) and then, per added printer, its id, model, own channel and
+  flow never needed one) and then, per added printer, its id, brand and model, own channel and
   Printer URL (a URL or a hostname, matching that printer). Applying then writes a `[[printers]]` roster instead of the single-printer
   sections, and refuses, leaving the file untouched, when the existing file already
   describes a printer or cannot be rewritten faithfully. Each added printer gets its own
@@ -80,7 +85,9 @@ checklist machinery: one question at a time, the checklist saved after every ste
 `/print-handy cancel` pauses and `/print-handy add-printer` resumes, and nothing is written
 until `apply` at the review step.
 
-1. **Printer model**: a model key from the registry, as in setup.
+1. **Printer brand and model**: the same two questions as in setup — brand first,
+   then that brand's models by display name; an exact model key is accepted at
+   either step.
 2. **Display name**: the name the which-printer picker and announcements show when several
    printers share the channel. It must differ from your other printers' names; the
    roster id is derived from it.
