@@ -53,6 +53,8 @@ import re
 import zipfile
 from pathlib import Path
 
+from . import painted_geometry
+
 ROUTE_REMAP = 'remap'
 ROUTE_REBUILD = 'rebuild'
 
@@ -306,6 +308,7 @@ def rebuild_loses_filament_references(source):
             + ', '.join(found) + ')')
 
 
+@painted_geometry.decode_scoped
 def export_per_part(source, target, decisions, *, item_shifts=None, object_ids=None, scale=None,
                     fit_by_object=None, identity_tools=False, tower_mm=None, layer_mode=None,
                     slicer='orca', rotation=None):
@@ -315,7 +318,10 @@ def export_per_part(source, target, decisions, *, item_shifts=None, object_ids=N
     prime tower) plus ``slice_route``: ``{'route', 'reason'}``, and on the
     remap route ``remap`` (the remapper's report), or on a fallback
     ``remap_refused`` and ``notice``. Raises :class:`RemapRefused` naming
-    both reasons when the remap refuses and the rebuild is not equivalent.
+    both reasons when the remap refuses and the rebuild is not equivalent,
+    and ``remap_integrity.IntegrityRefused`` when the package either route
+    would hand the slicer loses or misassigns a source fact (#1525); in
+    every refusal nothing is written at ``target``.
     """
     from .color_geometry import export_color_geometry
     source, target = Path(source), Path(target)
@@ -390,6 +396,17 @@ def export_per_part(source, target, decisions, *, item_shifts=None, object_ids=N
         payload[_MODEL] = _translate_build(payload, delta)
         if chosen['family'] == 'prusa':
             payload[_PRUSA_MODEL] = _prusa_objects_on_role_filament(payload)
+        # Remap integrity (#1525): the package the slicer is handed must
+        # carry every role, paint state, support and feature filament, height
+        # range and per-layer entry of the source, each on the filament the
+        # mapping names, or the slice refuses by name before anything is
+        # written. No fallback: a remapper that loses a fact is a defect.
+        from .painted_geometry import read_member
+        from .remap_integrity import verify_remapped_package
+        with zipfile.ZipFile(source) as archive:
+            source_payload = {name: read_member(archive, name) for name in archive.namelist()}
+        verify_remapped_package(source_payload, payload, filament_map,
+                                may_drop={row['member'] for row in report['dropped_entries']})
         write_package_atomically(target, payload, source=source)
     finally:
         staged.unlink(missing_ok=True)

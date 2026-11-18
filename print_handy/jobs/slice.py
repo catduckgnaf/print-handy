@@ -1384,6 +1384,9 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
                                        'refusing to slice it as turned')
         out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slots[0],
                                                **_support_kw(job), **_edit_kw(job))
+        # The merged plate is a derived file: it prints every source plate (#1525).
+        from ..core.remap_integrity import sliced_plates
+        provenance = {**(provenance or {}), 'selected_plates': sliced_plates(src)}
         material = st.get('filament_slots', {}).get(str(slots[0]), {}).get('material')
         if not material:
             raise RuntimeError(f'merged plate physical IFS slot {slots[0]} has no verified material')
@@ -1589,6 +1592,8 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
             report = export_single_color_plate(src, plate, view, keys, bed=int(st['bed_mm'][0]), slot_colors=st.get('filament_slots') or {}, **({'fit': current_fit} if current_fit is not None else {}))
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
+            # A derived plate file: the source plate it prints is this one (#1525).
+            provenance = {**(provenance or {}), 'selected_plates': [str(plate_id)]}
             finalize_multicolor(out, None, st, {'0': slot}, adapter=_job_adapter(job))
             check = verify_gcode_offline(out, st, _job_adapter(job), slot=slot)
         except RuntimeError as exc:

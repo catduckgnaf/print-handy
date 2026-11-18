@@ -24,6 +24,7 @@ import collections
 import contextlib
 import contextvars
 import functools
+import hashlib
 import re
 import zipfile
 from pathlib import Path
@@ -301,11 +302,39 @@ def rewrite_paint_bytes(data, table):
 
 
 def paint_states_in(data):
-    """Every paint state named by raw model bytes (both attributes), decoded."""
+    """Every paint state named by raw model bytes (both attributes), decoded: {state: leaves}.
+
+    Inside a decode scope the census of one byte string is decoded once: the
+    remapper, its staged-package re-read and the remap integrity check
+    (#1525) all ask for the same members, and a painted model can be 100+ MB.
+    The key is a digest of the bytes outside the <build> element, which
+    holds no paint: a package moved onto the bed (slice_route translates
+    its build items) shares the census of the package it was moved from,
+    and any other change is decoded again.
+    """
+    cache = _SCOPE.get()
+    key = None
+    if cache is not None and (b'paint_color=' in data or b'mmu_segmentation=' in data):
+        digest = hashlib.blake2b(digest_size=20)
+        # The core spec puts <build> after <resources>, so the last one is it.
+        start = data.rfind(b'<build')
+        if start >= 0 and data[start + 6:start + 7] not in (b'>', b' ', b'\n', b'\r', b'\t'):
+            start = -1
+        end = data.find(b'</build>', start) if start >= 0 else -1
+        if end >= 0:
+            digest.update(memoryview(data)[:start])
+            digest.update(memoryview(data)[end + len(b'</build>'):])
+        else:
+            digest.update(data)
+        key = ('paint_states', digest.digest())
+        if key in cache:
+            return dict(cache[key])
     counter = collections.Counter()
     for regex in (PAINT_RE, MMU_RE):
         for match in regex.finditer(data):
             counter.update(decode_states(match.group(1).decode()))
+    if key is not None:
+        cache[key] = dict(counter)
     return dict(counter)
 
 
