@@ -43,6 +43,7 @@ it is published.
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -162,9 +163,46 @@ def publish(base_url: Any, filename: Any, cost: Any, *,
     if record is None or not str(base_url or ""):
         return False
     payload = {"namespace": NAMESPACE, "key": [record["file"]], "value": record}
-    try:
-        (post or _post)(str(base_url), payload)
-    except Exception as exc:  # best effort by design; the print never waits on this
-        logger.warning("cost publish to Moonraker failed for %s: %s", record["file"], exc)
-        return False
+    slot = (str(base_url), record["file"])
+    # Both writes run on background threads, so they can finish out of order:
+    # writes for one file are serialized, and once a final record went out an
+    # estimate for that file is skipped, so a late estimate can never replace
+    # the frozen cost (#1652 review). A later send of the same file starts a
+    # new print and clears the mark.
+    with _file_lock(slot):
+        if record["state"] == "estimate" and slot in _FINAL_SENT and not _new_send(slot, record):
+            logger.info("cost publish: estimate for %s skipped; its final cost is already published",
+                        record["file"])
+            return False
+        try:
+            (post or _post)(str(base_url), payload)
+        except Exception as exc:  # best effort by design; the print never waits on this
+            logger.warning("cost publish to Moonraker failed for %s: %s", record["file"], exc)
+            return False
+        if record["state"] == "final":
+            _FINAL_SENT[slot] = record["updated_at"]
+        else:
+            _FINAL_SENT.pop(slot, None)
     return True
+
+
+# (moonraker url, file) -> updated_at of the final record published for it.
+_FINAL_SENT: dict[tuple[str, str], str] = {}
+_FILE_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+_FILE_LOCKS_GUARD = threading.Lock()
+
+
+def _file_lock(slot):
+    with _FILE_LOCKS_GUARD:
+        return _FILE_LOCKS.setdefault(slot, threading.Lock())
+
+
+def _new_send(slot, record) -> bool:
+    """True when this estimate is for a later send than the published final.
+
+    The send path stamps an estimate at the moment of the send, before its
+    background thread prices it, so a stale estimate always carries a time
+    at or before the final's; one stamped after it is a new print of the
+    same file and must be published.
+    """
+    return str(record.get("updated_at") or "") > str(_FINAL_SENT.get(slot) or "")

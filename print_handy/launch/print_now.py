@@ -1050,13 +1050,17 @@ def _publish_cost_estimate_in_background(st, job, remote):
     can keep changing its own dict. Returns the started thread.
     """
     import threading
+    from datetime import datetime, timezone
+    # Stamped now, at the send: a final cost published later always wins
+    # over this estimate, however late the thread runs (#1652 review).
+    sent_at = datetime.now(timezone.utc)
     worker = threading.Thread(target=_publish_cost_estimate, args=(dict(st), dict(job or {}), remote),
-                              name="cost-publish-estimate", daemon=True)
+                              kwargs={"sent_at": sent_at}, name="cost-publish-estimate", daemon=True)
     worker.start()
     return worker
 
 
-def _publish_cost_estimate(st, job, remote):
+def _publish_cost_estimate(st, job, remote, sent_at=None):
     """Best effort: the pre-print cost estimate to Moonraker for HelixScreen (#1643). Never blocks a print.
 
     Publishes the estimate the cost engine computes for this job into the
@@ -1080,7 +1084,7 @@ def _publish_cost_estimate(st, job, remote):
         result = _cost.estimate_for_job(job, settings.current(), spool_lookup=_spool)
         if result is None:
             return None
-        return cost_publish.publish(st["moonraker_url"], remote, _cost.freeze(result))
+        return cost_publish.publish(st["moonraker_url"], remote, _cost.freeze(result), now=sent_at)
     except Exception as exc:
         print(f"WARNING: cost estimate not published: {exc}", flush=True)
         return None

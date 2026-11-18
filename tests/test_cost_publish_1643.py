@@ -313,5 +313,48 @@ def test_a_hanging_moonraker_never_delays_the_completion(monkeypatch):
     assert posted.is_set()
 
 
+def test_a_late_estimate_never_replaces_the_final_cost():
+    # duckcatgnaf on #1652: estimate and final writes run on separate threads
+    # and can finish out of order; the final must stay.
+    from datetime import datetime, timezone
+    post = _FakePost()
+    sent = datetime(2026, 11, 18, 20, 0, 0, tzinfo=timezone.utc)
+    done = datetime(2026, 11, 18, 21, 0, 0, tzinfo=timezone.utc)
+    url = BASE + "/late"
+    assert cost_publish.publish(url, "benchy.gcode", _frozen_completed(), post=post, now=done) is True
+    # The estimate stamped at the send, published only now:
+    assert cost_publish.publish(url, "benchy.gcode", cost_engine.freeze(_estimate_result()), post=post, now=sent) is False
+    assert [call[1]["value"]["state"] for call in post.calls] == ["final"]
+
+
+def test_a_new_send_after_a_final_publishes_its_estimate():
+    from datetime import datetime, timezone
+    post = _FakePost()
+    done = datetime(2026, 11, 18, 21, 0, 0, tzinfo=timezone.utc)
+    resend = datetime(2026, 11, 18, 22, 0, 0, tzinfo=timezone.utc)
+    url = BASE + "/resend"
+    assert cost_publish.publish(url, "benchy.gcode", _frozen_completed(), post=post, now=done) is True
+    assert cost_publish.publish(url, "benchy.gcode", cost_engine.freeze(_estimate_result()), post=post, now=resend) is True
+    assert [call[1]["value"]["state"] for call in post.calls] == ["final", "estimate"]
+
+
+def test_the_send_stamps_the_estimate_before_the_thread_runs(monkeypatch):
+    import threading
+    from print_handy.launch import print_now
+    gate, seen = threading.Event(), {}
+
+    def slow_estimate(st, job, remote, sent_at=None):
+        gate.wait(5)
+        seen["sent_at"] = sent_at
+
+    monkeypatch.setattr(print_now, "_publish_cost_estimate", slow_estimate)
+    from datetime import datetime, timezone
+    before = datetime.now(timezone.utc)
+    worker = print_now._publish_cost_estimate_in_background({"moonraker_url": BASE}, {}, "x.gcode")
+    gate.set()
+    worker.join(5)
+    assert seen["sent_at"] is not None and before <= seen["sent_at"] <= datetime.now(timezone.utc)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
