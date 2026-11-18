@@ -6,18 +6,29 @@ HelixScreen sends no map, so ZMod applies its default identity map
 (T0 -> slot 1, T1 -> slot 2, ...) and prints the wrong filament. Relabeling
 the uploaded copy so logical tool ``Tn`` is the tool for slot ``n + 1``
 makes the default map the chosen one; the start command then carries the
-identity map (``T2=3``) and agrees with it.
+identity map (``T2=3``) and agrees with it. That identity default is what
+the #1648 report observed; the repository holds no ZMod source that states it.
 
 Only the bytes uploaded to the printer change. The archived G-code, its
 sha256 bindings and the per-tool usage bookkeeping keep the original
 numbering; the caller records both maps.
 
-The relabel touches tool selections (``T<n>`` lines), heater tool
-parameters (``M104/M109 ... T<n>``), Print Handy's own map and color lines,
-and the per-filament header lists ZMod and Print Handy read (colour, type,
-settings id, temperatures, usage). A map that is not one-to-one, names a
-slot outside 1..slots, or leaves a used tool unmapped is not relabeled
-(``None``): the caller keeps today's behavior.
+The relabel touches tool selections (``T<n>`` lines), Print Handy's own map
+and color lines, and the per-filament header lists ZMod and Print Handy read
+(colour, type, settings id, temperatures, usage). It never touches a heater
+line's tool parameter: on these single-extruder printers ``M104 S<t> T0``
+addresses the one heater, not a filament, and ZMod's native startup contract
+(``printers/flashforge/zmod/native_startup.py``) requires exactly ``T0``
+there; Klipper would read ``M104 T2`` as ``extruder2`` and fail the start.
+
+For a ``.gcode.3mf`` ZMod takes the plate's filaments from
+``Metadata/slice_info.config`` (``core/gcode_3mf.py``), which the package
+builds from the relabeled usage lists, so a single-tool slice on slot 3 is
+listed as filament 3, tool T2, even though its body has no ``T`` line.
+
+A map that is not one-to-one, names a slot outside 1..slots, or leaves a
+used tool unmapped is not relabeled (``None``): the caller keeps today's
+behavior.
 """
 from __future__ import annotations
 
@@ -27,14 +38,71 @@ import re
 
 MAP_PREFIX = '; hermes_tool_slots = '
 COLOR_PREFIX = '; zmod_color_data = '
-_TOOL_LINE = re.compile(r'^([ \t]*)T(\d+)([ \t]*(?:;.*)?)$')
-_HEATER_TOOL = re.compile(r'^([ \t]*M10[49]\b[^;\n]*?\bT)(\d+)\b')
+# Group 3 keeps a CRLF file's '\r' with the line.
+_TOOL_LINE = re.compile(r'^([ \t]*)T(\d+)([ \t]*(?:;.*)?\r?)$')
 # Per-filament header/footer lists: one entry per logical tool.
 LIST_KEYS = ('filament_colour', 'extruder_colour', 'filament_type', 'filament_settings_id',
              'filament_ids', 'nozzle_temperature', 'nozzle_temperature_initial_layer',
              'filament used [g]', 'filament used [mm]', 'filament used [cm3]', 'filament cost')
 _ZERO_KEYS = {'filament used [g]', 'filament used [mm]', 'filament used [cm3]', 'filament cost'}
 _LIST_LINE = re.compile(r'^; (' + '|'.join(re.escape(k) for k in LIST_KEYS) + r') = (.*?)(\r?)$')
+_USAGE_KEYS = ('filament used [g]', 'filament used [mm]')
+
+
+def used_tools(text):
+    """The logical tools ``text`` feeds filament through, as a set of ints.
+
+    Tool-change lines are the answer when the file has any. A single-tool
+    Orca slice has none: its only ``T`` is the heater's ``M104 S<t> T0``,
+    which names the one heater, not a filament, so heater lines are never
+    read here. Without tool lines the tool comes from what names filament:
+    Print Handy's map line (``; hermes_tool_slots``), else the
+    ``; zmod_color_data`` lines, checked against the first per-filament usage
+    list (its entries with nonzero use) when the file has one; with neither,
+    the usage list alone. Disagreeing sources, or none, give an empty set,
+    which ``relabel`` refuses.
+    """
+    tools, mapped, colored, usage = set(), None, set(), None
+    for line in text.splitlines():
+        head = line.lstrip(' \t')[:1]
+        if head == 'T':
+            m = _TOOL_LINE.match(line)
+            if m:
+                tools.add(int(m.group(2)))
+        elif head == ';' and not tools:
+            if line.startswith(MAP_PREFIX):
+                try:
+                    mapped = {int(k) for k in json.loads(line[len(MAP_PREFIX):])}
+                except (ValueError, TypeError, AttributeError):
+                    mapped = set()  # unreadable map: relabel refuses on the map line as well
+            elif line.lower().startswith(COLOR_PREFIX):
+                tool = line[len(COLOR_PREFIX):].partition('|')[0].strip()
+                if tool.isdigit():
+                    colored.add(int(tool))
+            elif usage is None:
+                m = _LIST_LINE.match(line)
+                if m and m.group(1) in _USAGE_KEYS:
+                    usage = _nonzero_entries(m.group(2))
+    if tools:
+        return tools
+    named = mapped if mapped is not None else colored
+    if not named:
+        return usage or set()
+    if usage and usage != named:
+        return set()
+    return named
+
+
+def _nonzero_entries(raw):
+    """Indexes of a usage list's entries above zero; an unreadable list names none."""
+    out = set()
+    for i, item in enumerate(raw.replace(';', ',').split(',')):
+        try:
+            if float(item) > 0:
+                out.add(i)
+        except ValueError:
+            return set()
+    return out
 
 
 def tool_map(mapping, used, slots=4):
@@ -94,7 +162,7 @@ def relabel(text, mapping, used, slots=4):
 
     ``mapping`` is the launch map (logical tool -> 1-based slot, or the
     embedded ``{"physical_slot": n, "spoolman_id": m}`` form); ``used`` the
-    tools the file selects. A map that is already the identity returns the
+    tools the file feeds (``used_tools``). A map that is already the identity returns the
     text unchanged with its identity map. A leading ``; MD5:`` line is
     recomputed over the relabeled body.
     """
@@ -115,10 +183,6 @@ def relabel(text, mapping, used, slots=4):
             m = _TOOL_LINE.match(line)
             if m and int(m.group(2)) in relabel_map:
                 lines[i] = f"{m.group(1)}T{relabel_map[int(m.group(2))]}{m.group(3)}"
-        elif head == 'M':
-            m = _HEATER_TOOL.match(line)
-            if m and int(m.group(2)) in relabel_map:
-                lines[i] = m.group(1) + str(relabel_map[int(m.group(2))]) + line[m.end():]
         elif head == ';':
             if line.startswith(MAP_PREFIX):
                 cr = '\r' if line.endswith('\r') else ''

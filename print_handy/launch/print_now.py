@@ -937,18 +937,25 @@ def _slot_labeled_copy(adapter, g, mapping):
         return g, None
     from ..core import tool_renumber
     try:
-        text = g.read_text()
-        used = adapter.native.used_tools(text)
+        # Bytes, not read_text(): newline translation would drop a CRLF file's '\r' and break its MD5 line.
+        text = g.read_bytes().decode("utf-8")
+        # Used tools come from tool lines and filament metadata, never the heater's T0 (#1648 review).
+        used = tool_renumber.used_tools(text)
         relabeled, identity = tool_renumber.relabel(text, mapping, used, slots=int(getattr(adapter, "slot_count", 4) or 4))
     except Exception as exc:  # a relabel failure keeps today's upload; the start map still applies
         logger.warning("slot relabel skipped for %s: %s", g.name, exc)
         return g, None
     if relabeled is None:
+        logger.info("slot relabel not applied for %s: map %s does not cover used tools %s one-to-one",
+                    g.name, mapping, sorted(used))
         return g, None
+    labels = {"from": {str(k): (v["physical_slot"] if isinstance(v, dict) else v) for k, v in mapping.items()},
+              "to": identity}
+    if relabeled == text:
+        return g, labels
     target = g.with_name(g.stem + ".slots" + g.suffix)
-    target.write_text(relabeled)
-    return target, {"from": {str(k): (v["physical_slot"] if isinstance(v, dict) else v) for k, v in mapping.items()},
-                    "to": identity}
+    target.write_bytes(relabeled.encode("utf-8"))
+    return target, labels
 
 
 def _announce_print_name(st, job, slots=None, gcode=None):
