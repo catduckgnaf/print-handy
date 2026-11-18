@@ -889,7 +889,7 @@ def _note_delivery_format(job, job_path, note):
         logger.warning("could not record delivery format: %s", exc)
 
 
-def _zmod_upload_artifact(adapter, st, g, sha, remote):
+def _zmod_upload_artifact(adapter, st, g, sha, remote, mapping=None):
     """Resolve the Moonraker upload artifact for a Flashforge/ZMod print (#564).
 
     Returns (upload_path, upload_sha256, remote, note). The default — and every
@@ -910,14 +910,52 @@ def _zmod_upload_artifact(adapter, st, g, sha, remote):
     if fmt != "3mf":
         return g, sha, remote, None
     nozzle = (st.get("nozzle") or {}).get("diameter_mm")
-    package = gcode_3mf.package(g, gcode_3mf.package_path_for(g),
+    inner, slot_labels = _slot_labeled_copy(adapter, g, mapping)
+    package = gcode_3mf.package(inner, gcode_3mf.package_path_for(g),
                                 nozzle_mm=float(nozzle) if isinstance(nozzle, (int, float)) else None)
     note = {"format": "3mf", "setting": setting, "reason": reason,
             "zmod_version": ".".join(map(str, version)) if version else None,
             "package_sha256": file_sha256(package)}
+    if slot_labels is not None:
+        note["slot_labeled"] = slot_labels
     packaged_remote = remote[:-len(".gcode")] + ".gcode.3mf" if remote.endswith(".gcode") else remote + ".3mf"
     print(f"DELIVERY FORMAT: .gcode.3mf ({reason})", flush=True)
     return package, note["package_sha256"], packaged_remote, note
+
+
+def _slot_labeled_copy(adapter, g, mapping):
+    """The G-code to package, relabeled so its tool numbers are the IFS slots (#1648).
+
+    A screen or HelixScreen reprint of the uploaded file sends no slot map,
+    and ZMod's default map is T0 -> slot 1. Relabeling the packaged copy so
+    logical tool Tn is slot n + 1 makes that default the chosen slots. The
+    archived G-code ``g`` is untouched: every check, hash and record keyed to
+    it stays valid. Returns (path, {"from": map, "to": identity map}) or
+    (g, None) when there is no map or it cannot be relabeled.
+    """
+    if not mapping:
+        return g, None
+    from ..core import tool_renumber
+    try:
+        # Bytes, not read_text(): newline translation would drop a CRLF file's '\r' and break its MD5 line.
+        text = g.read_bytes().decode("utf-8")
+        # Used tools come from tool lines and filament metadata, never the heater's T0 (#1648 review).
+        used = tool_renumber.used_tools(text)
+        relabeled, identity = tool_renumber.relabel(text, mapping, used, slots=int(getattr(adapter, "slot_count", 4) or 4))
+    except Exception as exc:  # a relabel failure keeps today's upload; the start map still applies
+        logger.warning("slot relabel skipped for %s: %s", g.name, exc)
+        return g, None
+    if relabeled is None:
+        logger.info("slot relabel not applied for %s: map %s does not cover used tools %s one-to-one",
+                    g.name, mapping, sorted(used))
+        return g, None
+    labels = {"from": {str(k): (v["physical_slot"] if isinstance(v, dict) else v) for k, v in mapping.items()},
+              "to": identity}
+    if relabeled == text:
+        return g, labels
+    target = g.with_name(g.stem + ".slots" + g.suffix)
+    target.write_bytes(relabeled.encode("utf-8"))
+    return target, labels
 
 
 def _announce_print_name(st, job, slots=None, gcode=None):
@@ -1697,7 +1735,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     # Every slot this print feeds, not only the first: a short spool warns and can be accepted.
     _gate("filament amount", check_filament_amount, st, filament_need_by_slot(text, mapped))
     remote = remote_name(g, sha, job)
-    upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
+    upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote, mapped)
     lease = launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote,
                                  observed_file=(status.get('print_stats') or {}).get('filename'),
                                  started_files=lambda: _moonraker_started_files(st))
@@ -1719,8 +1757,10 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # so the file is never downloaded back to hash it.
         _timing(job_path, 'upload_verified')
         if delivery: _note_delivery_format(job, job_path, delivery)
+        # A slot-labeled package (#1648) selects slots by tool number, so its start map is the identity one.
+        start_map = (delivery or {}).get('slot_labeled', {}).get('to') or mapping
         command = (f'SET_ZCOLOR FILENAME={remote} SILENT=1 AUTO_ASSIGN=0 LEVELING=0 ' +
-                   ' '.join(f'T{tool}={slot}' for tool, slot in sorted(mapping.items())))
+                   ' '.join(f'T{tool}={slot}' for tool, slot in sorted(start_map.items(), key=lambda r: int(r[0]))))
         # One checkpoint per launch attempt: keyed by this lease's token, so a deliberate reprint
         # replaces the earlier attempt's record instead of colliding with it.
         # The audit trail names BOTH artifacts (#838): `file` is the uploaded remote (the
