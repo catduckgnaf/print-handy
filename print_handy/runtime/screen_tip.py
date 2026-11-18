@@ -61,14 +61,15 @@ def details(title: str, status: str, facts: Mapping[str, Any] | None = None) -> 
             bits.append(f"print #{int(facts['print_number'])}")
         if int(facts.get("copies") or 0) > 1:
             bits.append(f"{int(facts['copies'])} copies")
-    except (TypeError, ValueError):
-        pass
+    except (TypeError, ValueError) as exc:
+        logger.debug("screen tip: bad print number/copies (%r, %r): %s",
+                     facts.get("print_number"), facts.get("copies"), exc)
     try:
         if facts.get("duration_s"):
             from ..core.roast import human_duration
             bits.append(human_duration(float(facts["duration_s"])))
-    except (TypeError, ValueError):
-        pass
+    except (TypeError, ValueError) as exc:
+        logger.debug("screen tip: bad duration %r: %s", facts.get("duration_s"), exc)
     material = " ".join(str(facts[k]).strip() for k in ("color", "material")
                         if str(facts.get(k) or "").strip())
     if material:
@@ -76,8 +77,8 @@ def details(title: str, status: str, facts: Mapping[str, Any] | None = None) -> 
     if facts.get("grams"):
         try:
             bits.append(f"{round(float(facts['grams']))} g")
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.debug("screen tip: bad grams %r: %s", facts.get("grams"), exc)
     ending = _ENDINGS.get(status, "finished")
     text = f"Your last print, {title}, {ending}."
     return f"{text} {', '.join(bits)}." if bits else text
