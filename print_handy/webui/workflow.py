@@ -39,24 +39,12 @@ import re
 from pathlib import Path
 
 from .. import settings
+from . import chat as chat_module
 from . import shell, sliced, transcript
 
 _esc = shell._esc
 REFRESH_SECONDS = 3
 WORKING_TEXT = "Working on it…"
-POLL_FAST_MS = 600
-POLL_SLOW_MS = 3000
-# Same poll contract as the chat page, against this page's own state
-# route: only numbers and a boolean come back; nothing from it is put
-# on the page.
-POLL_SCRIPT = (
-    "<script>(function(){var seq=__SEQ__,wait=" + str(POLL_FAST_MS) + ";"
-    "function tick(){fetch('/workflow/state',{credentials:'same-origin',cache:'no-store'})"
-    ".then(function(r){return r.ok?r.json():null;}).then(function(s){"
-    "if(s&&(s.seq!==seq||!s.pending)){location.reload();return;}"
-    "wait=Math.min(wait*1.5," + str(POLL_SLOW_MS) + ");setTimeout(tick,wait);})"
-    ".catch(function(){setTimeout(tick," + str(POLL_SLOW_MS) + ");});}"
-    "setTimeout(tick,wait);})();</script>")
 
 _CONTENT_TYPES = {".gcode": "text/plain; charset=utf-8",
                   ".3mf": "application/octet-stream"}
@@ -241,7 +229,8 @@ def render_workflow_page(view, receipt, *, form_token, notice=None, error=None,
     if pending:
         seq = entries[-1]["seq"] if entries else 0
         parts.append(f'<noscript><meta http-equiv="refresh" content="{REFRESH_SECONDS}"></noscript>')
-        parts.append(POLL_SCRIPT.replace("__SEQ__", str(int(seq))))
+        # The chat page's poll, against this page's own state route.
+        parts.append(chat_module.poll_script(seq, "/workflow/state"))
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:

@@ -426,7 +426,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                   'I will choose a sensible size and tell you what I assumed.)')
         return {'action': 'skip', 'reason': 'design asked a question'}
     except Exception as exc:
-        await say(_design_failure_text(exc))
+        first = session is not None and not int(session.get('turns') or 0)
+        await say(_design_failure_text(exc, first_turn=first))
         return {'action': 'skip', 'reason': 'design turn failed'}
     return await _design_conversation(event, gateway, adapter, engine, result, note=note)
 

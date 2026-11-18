@@ -275,6 +275,138 @@ def session_file(root, session_id, kind):
     return path if path.is_file() else None
 
 
+def sessions_root_for(cfg) -> Path:
+    """The session store's root for one settings mapping.
+
+    ``paths.cache``, falling back to ``<paths.state_home>/cache``: the
+    resolution the Web UI catalog and the web chat's thread recorder
+    share, so both read the folders the design flow writes.
+    """
+    paths = (cfg or {}).get("paths") or {}
+    cache = paths.get("cache") or (Path(paths.get("state_home") or ".") / "cache")
+    return sessions_root(cache)
+
+
+def newest_session_for_owner(root, owner_key):
+    """The newest session this owner started, finished or not, or None.
+
+    Unlike :func:`find_session_for_owner` a cancelled or handed-off
+    session still counts: a conversation keeps talking about the design
+    it just finished (the hand-off's intake questions, "Design
+    cancelled") until the owner starts another one.
+    """
+    best = None
+    for session in list_sessions(root):
+        if session.get("owner_key") != owner_key:
+            continue
+        if best is None or (float(session.get("created_at") or 0)
+                            > float(best.get("created_at") or 0)):
+            best = session
+    return best
+
+
+def mark_waiting(root, session_id):
+    """Put a rendered session whose question was lost back to waiting.
+
+    The What next question lives in memory, so a restart closes it and
+    leaves the session ``active`` with nobody asking: the owner's next
+    message would then not reach the design at all. Waiting is exactly
+    what pressing Change it leaves behind, so the next message is the
+    change (or a typed "slice it" / "never mind"). Only an ``active``
+    session with a finished turn is touched. Returns the session.
+    """
+    session = load_session(root, session_id)
+    if session and session.get("status") == "active" and int(session.get("turns") or 0) > 0:
+        session["status"] = "awaiting_revision"
+        _save(Path(root), session)
+    return session
+
+
+# --------------------------------------------------------- the conversation
+
+# The conversation that made a session, saved beside its record by the
+# Web UI's design page (#1636). Its own file, never a field of
+# session.json: the engine saves the session it holds in memory
+# wholesale, so a field written alongside it would be lost on its next
+# save. Kept to the newest THREAD_LIMIT entries.
+THREAD_FILE = "thread.json"
+THREAD_LIMIT = 400
+_THREAD_KINDS = ("operator", "message", "prompt", "prompt_closed", "image")
+_PREVIEW_NAME = re.compile(r"turn-([0-9]{1,3})(?:-compare)?\.png")
+
+
+def load_thread(root, session_id) -> list:
+    """The saved conversation of one session, oldest first ([] when none)."""
+    try:
+        folder = _session_path(Path(root), session_id)
+        data = json.loads((folder / THREAD_FILE).read_text(encoding="utf-8"))
+    except (DesignError, OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [entry for entry in data
+            if isinstance(entry, dict) and entry.get("kind") in _THREAD_KINDS]
+
+
+def append_thread(root, session_id, entries) -> None:
+    """Add entries to a session's saved conversation (atomic, like _save).
+
+    Callers serialize their own appends; the file is replaced whole, so
+    a reader never sees half of it.
+    """
+    folder = _session_path(Path(root), session_id)
+    if not (folder / "session.json").is_file():
+        return
+    rows = load_thread(root, session_id)
+    rows.extend(dict(entry) for entry in entries
+                if isinstance(entry, dict) and entry.get("kind") in _THREAD_KINDS)
+    tmp = folder / (THREAD_FILE + ".tmp")
+    tmp.write_text(json.dumps(rows[-THREAD_LIMIT:], indent=1) + "\n", encoding="utf-8")
+    tmp.replace(folder / THREAD_FILE)
+
+
+def preview_turn(root, path):
+    """(session id, turn) when ``path`` is a turn preview the engine wrote, else None.
+
+    The file must sit directly in a session folder of this store and be
+    named the way the engine names a turn's preview (``turn-N.png``, or
+    ``turn-N-compare.png`` for the before/after sheet).
+    """
+    try:
+        path = Path(path).resolve()
+        folder = path.parent
+        if folder.parent != Path(root).resolve():
+            return None
+    except (OSError, ValueError):
+        return None
+    match = _PREVIEW_NAME.fullmatch(path.name)
+    if match is None or load_session(root, folder.name) is None:
+        return None
+    return folder.name, int(match.group(1))
+
+
+def turn_preview(root, session_id, turn):
+    """The preview posted for one turn of a session, or None.
+
+    Resolved from the session record, never from a name in the request:
+    ``turn`` must be a whole number from 1 to the session's turn count,
+    and the file is the before/after sheet the turn posted when it made
+    one, else its own sheet, both inside the session's own folder.
+    """
+    try:
+        session = load_session(root, session_id)
+        turn = int(str(turn))
+    except (DesignError, ValueError):
+        return None
+    if session is None or not 1 <= turn <= int(session.get("turns") or 0):
+        return None
+    folder = _session_path(Path(root), session_id)
+    for name in (f"turn-{turn}-compare.png", f"turn-{turn}.png"):
+        if (folder / name).is_file():
+            return folder / name
+    return None
+
+
 def prune_old_sessions(root, days=RETENTION_DAYS, now=None):
     """Drop session folders whose last update is older than the retention window."""
     root = Path(root)

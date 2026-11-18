@@ -116,13 +116,18 @@ def test_no_form_when_web_chat_is_off():
     assert 'action="/designs"' not in page
 
 
-def test_start_form_when_ready(tmp_path):
+def test_one_message_box_when_ready(tmp_path):
     cfg = dict(READY_CFG, paths={"cache": tmp_path / "cache"})
-    page = _render(designs_module.workshop_model(cfg, FakeView()))
-    assert '<form method="post" action="/designs">' in page
-    assert 'name="mode" value="start"' in page
+    model = designs_module.workshop_model(cfg, FakeView())
+    assert model["phase"] == "start"
+    page = _render(model)
+    assert page.count('<form method="post" action="/designs" class="design-composer">') == 1
     assert 'name="_csrf" value="tok123"' in page
-    assert "Your current design" not in page  # no live session yet
+    assert "Describe a part" in page
+    # #1636: no start/change form pair and no session table.
+    assert 'name="mode"' not in page and "Describe the change" not in page
+    assert "<th>Turns</th><td>" not in page and "Your current design" not in page
+    assert designs_module.composer_message(model, "a box") == "/print-design a box"
 
 
 def _make_session(tmp_path, owner, description="a 40x20 plate with two holes"):
@@ -159,25 +164,34 @@ def test_workshop_panel_shows_the_live_session_and_its_question(tmp_path):
         {"seq": 1, "kind": "message", "content": "Made a plate, 40 x 20 x 3 mm."}])
     model = designs_module.workshop_model(cfg, view)
     assert model["session"]["id"] == session["id"]
-    assert model["session"]["has_preview"]  # the engine wrote turn-1.png
+    assert model["phase"] == "reply"  # the open question takes typed answers
     page = _render(model)
-    assert "Your current design" in page
-    assert f'/designs/{session["id"]}/preview?v=' in page
+    # The thread: no conversation was saved for this engine-made session,
+    # so its history (the request and the turn's preview) stands in, then
+    # the live reply; the question is inline with its own buttons.
+    assert "replies are not shown" in page
+    assert f'src="/designs/{session["id"]}/preview?turn=1"' in page
     assert "Made a plate, 40 x 20 x 3 mm." in page
     assert '<form method="post" action="/designs/choice" class="inline">' in page
     for label in design.CHOICES:
         assert f">{label}</button>" in page
+    assert page.count('class="design-composer"') == 1
     # Another scope never sees this session.
     other = designs_module.workshop_model(cfg, FakeView("someone-else"))
     assert other["session"] is None
 
 
-def test_workshop_panel_offers_the_follow_up_form_when_idle(tmp_path):
+def test_a_rendered_design_with_no_question_takes_the_next_message_as_its_change(tmp_path):
+    # A restart closes the in-memory question; the design is still on
+    # screen, so the box sends the next message as its change.
     cfg = dict(READY_CFG, paths={"cache": tmp_path / "cache"})
     _make_session(tmp_path, designs_module.owner_for_scope("s1"))
-    page = _render(designs_module.workshop_model(cfg, FakeView("s1")))
-    assert 'name="mode" value="revise"' in page
-    assert "Describe the change" in page
+    model = designs_module.workshop_model(cfg, FakeView("s1"))
+    assert model["lost"] and model["phase"] == "reply"
+    assert designs_module.composer_message(model, "make it taller") == "make it taller"
+    page = _render(model)
+    assert "the buttons are gone" in page
+    assert 'name="mode"' not in page and "Describe the change" not in page
 
 
 # ------------------------------------------------------------ server routes
@@ -229,21 +243,25 @@ def test_server_page_without_design_config_shows_the_reason(running):
     status, page = call(port, "GET", "/designs")
     assert status == 200
     assert "not set up yet" in page
-    assert 'name="mode" value="start"' not in page
+    assert 'class="design-composer"' not in page
 
 
 def test_server_post_without_form_token_is_refused(running):
     _srv, port = running
-    body = urllib.parse.urlencode({"mode": "start", "text": "a box"})
+    body = urllib.parse.urlencode({"text": "a box"})
     status, _page = call(port, "POST", "/designs", body=body)
     assert status == 403
 
 
 @pytest.fixture()
-def running_configured(tmp_path):
+def running_configured(tmp_path, monkeypatch):
     extra = ("design:\n  enabled: true\n  chat_url: http://127.0.0.1:9/v1\n"
              "  model: fake-model\n")
-    srv = webui_server.make_server(load_settings(tmp_path, extra), environ={}, port=0)
+    data = load_settings(tmp_path, extra)
+    data["paths"]["cache"] = tmp_path / "cache"  # never the machine's own cache
+    # The bot inside web chat reads the runtime settings: the same ones.
+    monkeypatch.setattr(_config, "_override", data)
+    srv = webui_server.make_server(data, environ={}, port=0)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     yield srv, srv.server_address[1]
@@ -255,15 +273,17 @@ def test_server_start_form_posts_the_command_to_web_chat(running_configured):
     srv, port = running_configured
     browser, secret = chat_cookie(port)
     status, page = call(port, "GET", "/designs", headers=browser)
-    assert status == 200 and 'name="mode" value="start"' in page
-    body = urllib.parse.urlencode(
-        {"_csrf": srv.form_token, "mode": "start", "text": "a small storage box"})
+    assert status == 200 and 'class="design-composer"' in page
+    body = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "a small storage box"})
     status, _page = call(port, "POST", "/designs", body=body, headers=browser)
     assert status == 303
-    # The submission is in this browser's web chat transcript, as the
-    # /print-design command the page submits (designs.start_message).
+    # The submission is in this browser's design thread (its own scope,
+    # not the Chat page's), shown as typed; it went to the bot as the
+    # /print-design command (designs.start_message), which is what starts
+    # a session for the thread's owner key.
     service = webui_server.chat_service_for(srv)
-    view = service.view(web.scope_for(secret))
+    scope = web.design_scope(web.scope_for(secret))
+    view = service.view(scope, shared=False)
     deadline = time.time() + 10
     seen = []
     while time.time() < deadline:
@@ -272,7 +292,14 @@ def test_server_start_form_posts_the_command_to_web_chat(running_configured):
         if seen:
             break
         time.sleep(0.05)
-    assert seen == ["/print-design a small storage box"]
+    assert seen == ["a small storage box"]
+    assert not [e for e in service.view(web.scope_for(secret)).entries()
+                if e.get("kind") == "operator"]
+    root = designs_module.designs_root(srv.settings_data)
+    session = _wait_for(lambda: design.newest_session_for_owner(
+        root, designs_module.owner_for_scope(scope)), "the started session")
+    assert session["description"] == "a small storage box"
+    service.close()
 
 
 # ------------------------------------------------------------ the whole flow
