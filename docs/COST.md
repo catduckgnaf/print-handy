@@ -43,7 +43,7 @@ history reads, never what was recorded.
   (`/print-cost`, or "how much will this file cost") prices that file,
   with the same numbers the Web UI calculator gives for it. An
   unsliced 3MF gets the explicit not-sliced answer instead of a zero
-  cost. The ask is read-only: it creates no job and asks nothing —
+  cost. The ask is read-only: it creates no job and asks nothing;
   printing the file stays a separate ask to the intake flow.
 
 The chat answer is compact: the leading figure for the cost mode, the

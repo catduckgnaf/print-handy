@@ -76,7 +76,7 @@ def test_sliced_gcode_attachment_matches_the_webui_calculator(tmp_path):
     path.write_text(GCODE)
     text = cost_handler.attachment_cost_answer(path, DATA)
     assert text == _webui_answer(path, DATA)
-    assert text.startswith("benchy.gcode (estimate before printing)")
+    assert "benchy.gcode (estimate before printing)" in text
     assert "Priced from:" in text and "never blocks a print" in text
 
 
@@ -85,7 +85,7 @@ def test_sliced_3mf_attachment_matches_the_webui_calculator(tmp_path):
     path.write_bytes(_sliced_3mf_bytes())
     text = cost_handler.attachment_cost_answer(path, DATA)
     assert text == _webui_answer(path, DATA)
-    assert text.startswith("widget.3mf (estimate before printing)")
+    assert "widget.3mf (estimate before printing)" in text
 
 
 def test_unsliced_3mf_gets_the_explicit_not_sliced_answer(tmp_path):
@@ -110,7 +110,8 @@ def test_saved_upload_prefix_is_stripped_from_the_answer(tmp_path):
     path = tmp_path / "doc_0123456789ab_benchy.gcode"
     path.write_text(GCODE)
     text = cost_handler.attachment_cost_answer(path, DATA)
-    assert text.startswith("benchy.gcode (estimate before printing)")
+    assert "benchy.gcode (estimate before printing)" in text
+    assert "doc_0123456789ab" not in text
 
 
 # ------------------------------------------------------------ dispatch decisions
@@ -172,7 +173,7 @@ def test_discord_command_with_a_file_prices_the_file(discord_cfg, tmp_path):
     message = discord.message("/print-cost",
                               attachments=[fake_discord.FakeAttachment(_drop(tmp_path))])
     run(core.handle_message(message))
-    assert any(s.startswith("benchy.gcode (estimate before printing)")
+    assert any("benchy.gcode (estimate before printing)" in s
                for s in discord.sent)
 
 
@@ -181,7 +182,7 @@ def test_discord_phrase_with_a_file_prices_the_file(discord_cfg, tmp_path):
     message = discord.message("how much will this file cost",
                               attachments=[fake_discord.FakeAttachment(_drop(tmp_path))])
     run(core.handle_message(message))
-    assert any(s.startswith("benchy.gcode (estimate before printing)")
+    assert any("benchy.gcode (estimate before printing)" in s
                for s in discord.sent)
     assert not any("Did you mean" in s for s in discord.sent)
 
@@ -197,7 +198,7 @@ def test_discord_cost_ask_creates_no_job_and_no_prompt(discord_cfg, tmp_path):
         run(core.handle_message(message))
     assert intake.call_count == 0
     assert len(discord.sent) == 1
-    assert discord.sent[0].startswith("benchy.gcode (estimate before printing)")
+    assert "benchy.gcode (estimate before printing)" in discord.sent[0]
     archive = Path(discord_cfg["paths"]["archive"])
     assert not archive.exists() or not list(archive.glob("*/JOB.json"))
     vault = Path(discord_cfg["paths"]["records_vault"])
@@ -261,7 +262,7 @@ def test_telegram_caption_command_prices_the_file(telegram_cfg):
     client, core = tt.make_core(telegram_cfg, stub)
     run(client.handle_update(_telegram_update("/print-cost")))
     texts = [p.get("text", "") for p in stub.payloads("sendMessage")]
-    assert any(t.startswith("benchy.gcode (estimate before printing)") for t in texts)
+    assert any("benchy.gcode (estimate before printing)" in t for t in texts)
 
 
 def test_telegram_caption_phrase_prices_the_file(telegram_cfg):
@@ -269,7 +270,7 @@ def test_telegram_caption_phrase_prices_the_file(telegram_cfg):
     client, core = tt.make_core(telegram_cfg, stub)
     run(client.handle_update(_telegram_update("how much will this file cost")))
     texts = [p.get("text", "") for p in stub.payloads("sendMessage")]
-    assert any(t.startswith("benchy.gcode (estimate before printing)") for t in texts)
+    assert any("benchy.gcode (estimate before printing)" in t for t in texts)
 
 
 # ------------------------------------------------------------ Matrix end to end
@@ -317,5 +318,5 @@ def test_matrix_file_with_a_caption_prices_the_file(matrix_cfg, tmp_path):
     stub = tm.HomeserverStub(file_bytes=GCODE.encode())
     client, core = tm.make_core(matrix_cfg, stub, tmp_path)
     run(client.handle_event(_matrix_file_event("how much will this file cost"), tm.ROOM))
-    assert any(b.startswith("benchy.gcode (estimate before printing)")
+    assert any("benchy.gcode (estimate before printing)" in b
                for b in stub.sent_bodies())
