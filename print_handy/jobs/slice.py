@@ -2181,6 +2181,15 @@ def reused_slice_refusal(job, earlier, recipe_sha256):
     return None
 
 
+
+def _discard_copies(copied):
+    """Remove partial reuse copies; a failed removal must not stop the fresh-slice fallback."""
+    for dest in copied:
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning('reused slice: could not remove the partial copy %s (%s)', dest, exc)
+
 def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     """The earlier job's verified G-code as this job's slice, or None to slice normally (#1648 item 7).
 
@@ -2250,8 +2259,7 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
     except OSError as exc:
         # The artifact changed or vanished between the checks and the copy:
         # leave no partial copy behind and slice fresh (#1648 item 7).
-        for dest in copied:
-            dest.unlink(missing_ok=True)
+        _discard_copies(copied)
         logger.info('reused slice: copying the earlier G-code failed (%s); slicing again', exc)
         return None
     adopted = {key: value for key, value in job.items()
@@ -2259,8 +2267,7 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
     adopted.update(carried)
     problem = unverified_artifact(adopted)
     if problem:
-        for dest in copied:
-            dest.unlink(missing_ok=True)
+        _discard_copies(copied)
         logger.warning('reused slice: the copied G-code did not verify (%s); slicing again', problem)
         return None
     adopted['reused_slice'] = {'from_intake': earlier.get('intake_id'), 'from_job': str(earlier_path),

@@ -387,6 +387,25 @@ def test_copy_failure_falls_back_to_a_fresh_slice(env, slicer, monkeypatch):  # 
     assert receipt['status'] == 'STARTED'
 
 
+def test_failed_cleanup_of_a_partial_copy_does_not_escape(tmp_path, caplog):
+    # duckcatgnaf on #1671 (slice.py copy fallback): a cleanup unlink that
+    # raises must not escape, or intake aborts instead of slicing fresh.
+    from print_handy.jobs.slice import _discard_copies
+
+    class Stuck:
+        def unlink(self, missing_ok=False):
+            raise OSError('read-only file system')
+
+        def __str__(self):
+            return 'stuck.gcode'
+
+    removable = tmp_path / 'copied.gcode'
+    removable.write_text('G28')
+    _discard_copies([Stuck(), removable])  # must not raise
+    assert not removable.exists()  # later copies are still removed
+    assert 'could not remove the partial copy stuck.gcode' in caplog.text
+
+
 def test_gcode_vanishing_during_the_scan_is_not_an_error(env, slicer, monkeypatch):  # noqa: F811
     from print_handy.gcode import artifact as gcode_artifact
     first = first_print(env)
