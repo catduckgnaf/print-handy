@@ -304,6 +304,59 @@ def test_unclaimed_start_still_gets_the_normal_post(job, tmp_path, monkeypatch):
     assert "Parts: Stand" in posted[0] and "Approx. finish:" in posted[0]
 
 
+def test_external_start_post_flags_the_printer_mapped_slot(job, tmp_path, monkeypatch):
+    """#1648 defect 2: a start from the printer screen is announced with the
+    slot the printer actually maps; a job record naming another slot is
+    flagged in the start post itself, ahead of the self-check warning."""
+    _claimed_listener(monkeypatch, tmp_path, job)
+    monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: None)
+    monkeypatch.setattr(mel, "_slot_record",
+                        lambda slot: {1: {"color": "White", "material": "PLA"},
+                                      3: {"color": "Black", "material": "PLA+"}}.get(slot))
+    # The job record says slot 3; both printer channels say slot 1 is loading.
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 1, 1, None))
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=False)
+    starts = [p for p in posted if p.startswith("Print started:")]
+    assert len(starts) == 1
+    assert posted[0] is starts[0]  # the announcement lands before the slot self-check warning
+    assert "**Slot mismatch:**" in starts[0]
+    assert "Slot 1 (White PLA)" in starts[0] and "Slot 3 (Black PLA+)" in starts[0]
+
+
+def test_external_start_post_names_the_mapped_slot_without_a_record(job, tmp_path, monkeypatch):
+    """#1648 defect 2: with no job record to compare, the start post still
+    names the slot the printer maps for the job."""
+    _claimed_listener(monkeypatch, tmp_path, job)
+    monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: None)
+    monkeypatch.setattr(mel, "_slot_record",
+                        lambda slot: {2: {"color": "Bronze", "material": "PLA"}}.get(slot))
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (None, 2, 2, None))
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=False)
+    assert len(posted) == 1
+    assert "The printer maps this job to Slot 2 (Bronze PLA)." in posted[0]
+
+
+def test_external_start_post_unchanged_when_the_printer_agrees(job, tmp_path, monkeypatch):
+    """#1648 defect 2: when the printer's mapping matches the record, the
+    start post is the canonical message with nothing added."""
+    _claimed_listener(monkeypatch, tmp_path, job)
+    monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: None)
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (1, 1, 1, None))
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=False)
+    assert len(posted) == 1 and posted[0].startswith("Print started:")
+    assert "Slot 1: Black PLA" in posted[0]  # the canonical record line
+    assert "Slot mismatch" not in posted[0] and "printer maps this job" not in posted[0]
+
+
+def test_external_start_message_leaves_unknown_or_split_sources_alone(job, monkeypatch):
+    """#1648 defect 2: no printer channel read, or channels that contradict
+    each other, name no mapped slot — the canonical message stands."""
+    for sources in (None, (3, None, None, None), (3, 1, 2, None)):
+        text = mel.external_start_message(job.hashed, sources)
+        assert text.startswith("Print started:")
+        assert "Slot mismatch" not in text and "printer maps this job" not in text
+
+
 def test_reconnect_replay_of_claimed_start_does_not_repost_or_reedit(job, tmp_path, monkeypatch):
     edits = _claimed_listener(monkeypatch, tmp_path, job)
     first = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
@@ -643,6 +696,56 @@ def test_listener_terminal_event_has_single_notification_owner(job, monkeypatch,
     else:
         assert len(posted) == 2 and verb in posted[1] and TITLE in posted[1]
     assert not any(HEX.search(p) for p in posted)
+
+
+def test_cancelled_print_posts_its_partial_timelapse(job, monkeypatch):
+    """#1648 defect 3: a cancelled print with a finished capture gets the
+    partial timelapse as a follow-up post. The lookup runs after the print
+    ended, when the capture session is closed and the capture is findable."""
+    monkeypatch.setattr(mel, "_captured_timelapse", lambda key: "/tmp/partial.mp4")
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing", "cancelled"])
+    partials = [p for p in posted if p.startswith("Partial timelapse")]
+    assert len(partials) == 1
+    assert "cancelled" in partials[0] and "MEDIA:/tmp/partial.mp4" in partials[0]
+
+
+def test_error_print_posts_its_partial_timelapse_as_stopped(job, monkeypatch):
+    """#1648 defect 3: an error stop names its partial timelapse as stopped."""
+    monkeypatch.setattr(mel, "_captured_timelapse", lambda key: "/tmp/partial.mp4")
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing", "error"])
+    partials = [p for p in posted if p.startswith("Partial timelapse")]
+    assert len(partials) == 1 and "stopped" in partials[0]
+
+
+def test_completed_print_posts_no_partial_timelapse(job, monkeypatch):
+    """#1648 defect 3: completion keeps its own timelapse path; the partial
+    post never fires for a finished print."""
+    monkeypatch.setattr(mel, "_captured_timelapse", lambda key: "/tmp/partial.mp4")
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing", "complete"])
+    assert not any(p.startswith("Partial timelapse") for p in posted)
+
+
+def test_cancelled_print_without_a_capture_posts_no_partial_timelapse(job, monkeypatch):
+    """#1648 defect 3: a cancel with no usable capture behaves exactly as before."""
+    monkeypatch.setattr(mel, "_captured_timelapse", lambda key: None)
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing", "cancelled"])
+    assert not any("Partial timelapse" in p for p in posted)
+
+
+def test_partial_timelapse_caption_and_no_frame_floor(monkeypatch):
+    """#1648 defect 3: print #120's reprint kept only 18 frames, so the
+    partial post imposes no frame-count floor of its own — the
+    finished-capture lookup is the whole gate."""
+    posted = []
+    monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
+    monkeypatch.setattr(mel, "_captured_timelapse", lambda key: "/tmp/reprint.mp4")
+    assert mel._post_partial_timelapse("job.gcode", {}) is True
+    assert posted == ["Partial timelapse (cancelled)\nMEDIA:/tmp/reprint.mp4"]
+    assert mel._post_partial_timelapse("job.gcode", {}, "error") is True
+    assert posted[-1] == "Partial timelapse (stopped)\nMEDIA:/tmp/reprint.mp4"
+    monkeypatch.setattr(mel, "_captured_timelapse", lambda key: None)
+    assert mel._post_partial_timelapse("job.gcode", {}) is False
+    assert len(posted) == 2
 
 
 def test_listener_unknown_file_still_never_posts_hash(tmp_path, monkeypatch):

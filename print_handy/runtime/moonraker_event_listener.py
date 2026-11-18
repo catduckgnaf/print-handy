@@ -615,6 +615,63 @@ def start_message(filename, archive=None, context_path=None):
     return message
 
 
+def _slot_record(slot):
+    """The hardware record for one IFS slot, or None. No printer call."""
+    try:
+        state = filament_color.adopt_renamed_slots_key(json.loads(_hardware_file().read_text()))
+    except (OSError, ValueError):
+        return None
+    record = (state.get("filament_slots") or {}).get(str(slot))
+    return record if isinstance(record, dict) else None
+
+
+def printer_mapped_slot(ffm_channel, ifs_chan):
+    """The slot the printer itself maps for a job, or None (#1648).
+
+    The printer-side channels (FFMInfo.channel, zmod_ifs Chan) are what
+    a start from the printer screen or HelixScreen actually loads; the
+    job record only says what Print Handy asked for. When both channels
+    are known and contradict each other, no single slot can be named.
+    """
+    known = {value for value in (ffm_channel, ifs_chan)
+             if type(value) is int and 1 <= value <= 4}
+    return known.pop() if len(known) == 1 else None
+
+
+def external_start_message(filename, sources, archive=None, context_path=None):
+    """The start post for a start Print Handy did not launch (#1648 defect 2).
+
+    The canonical start message names the slot from the job record —
+    what Print Handy asked for. A screen or HelixScreen start loads
+    what the printer maps instead, so when the printer-side channels
+    name a slot, the post names that slot too: as a plain note when
+    there is no record to compare with, and as a mismatch flag when it
+    differs from the record, so the wrong filament is called out in
+    the start post itself instead of only in a warning that lands
+    after the swap. Sources that cannot be read leave the canonical
+    message unchanged, so printers without these channels announce
+    exactly as before.
+    """
+    message = start_message(filename, archive=archive, context_path=context_path)
+    try:
+        job_slot, ffm_channel, ifs_chan, _helix_slot = sources
+    except (TypeError, ValueError):
+        return message
+    actual = printer_mapped_slot(ffm_channel, ifs_chan)
+    if actual is None:
+        return message
+    actual_label = filament_color.slot_label(actual, _slot_record(actual))
+    if job_slot is not None and job_slot != actual:
+        record_label = filament_color.slot_label(job_slot, _slot_record(job_slot))
+        message += (f"\n**Slot mismatch:** the printer is loading {actual_label}, "
+                    f"but Print Handy's record for this file says {record_label}. "
+                    "A start from the printer screen uses the printer's own mapping, "
+                    "so the printer's slot is the filament that will print.")
+    elif job_slot is None:
+        message += f"\nThe printer maps this job to {actual_label}."
+    return message
+
+
 def post_exclude_objects(filename, archive=None, context_path=None):
     """Offer one-object cancel when the G-code names objects. Starts nothing.
 
@@ -1920,23 +1977,30 @@ def _timelapse_postprocess(job_key, completion_message, plan_id=None, tl_plan=No
         _release_postprocess(job_key)
 
 
-def _post_partial_timelapse(job_key, stats):
-    """Post a captured clip for a cancelled/failed print when enough frames exist."""
+def _post_partial_timelapse(job_key, stats, outcome="cancelled"):
+    """Post the captured partial timelapse for a print that stopped early (#1648).
+
+    The caller runs this after _print_ended has closed the capture
+    session: only a finished capture can be found and encoded, so a
+    lookup while the session is still open can never post anything.
+    _captured_timelapse is the whole gate, exactly as on the completion
+    path — capture off or mode off, no finished capture for this job,
+    no frames, or every encoder failed all read as None, and a stop
+    with nothing usable posts nothing extra. There is no frame-count
+    floor here beyond the encoder's own: print #120's reprint kept
+    only 18 frames and still had a clip worth posting. Never raises.
+    """
     if not job_key:
         return False
     try:
-        manifest_path = timelapse_capture.job_dir(_config.cfg()["paths"]["cache"], job_key) / "capture.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if int(manifest.get("frames") or 0) < 24:
-            return False
-        if go2rtc.timelapse_mode(_config.cfg()) == "off":
-            return False
         video = _captured_timelapse(job_key)
         if video is None:
             return False
         layer = _visual_layer(stats or {})
-        caption = f"Partial timelapse (cancelled at layer {layer})" if layer is not None else "Partial timelapse (cancelled)"
-        post(f"{caption}\\nMEDIA:{video}")
+        word = "cancelled" if outcome == "cancelled" else "stopped"
+        caption = (f"Partial timelapse ({word} at layer {layer})" if layer is not None
+                   else f"Partial timelapse ({word})")
+        post(f"{caption}\nMEDIA:{video}")
         return True
     except Exception as exc:
         warn(f"partial timelapse unavailable for {job_key!r}: {exc!r}")
@@ -4210,8 +4274,13 @@ class Listener:
             warn(f"jam facts sensor read failed: {exc!r}")
         return facts
 
-    def _slot_agreement(self):
-        """The four slot sources at print start (#1020 D3). Read-only."""
+    def _slot_sources(self):
+        """The four slot sources at print start (#1020 D3). Read-only.
+
+        Returns (job_slot, ffm_channel, ifs_chan, helix_slot); a source
+        that cannot be read is None. Shared by the slot self-check and
+        the external-start post (#1648), which read the same evidence.
+        """
         from . import lane_data_sync, spool_sync
 
         job_slot, spool_id = recovery_slot(self.filename)
@@ -4234,6 +4303,13 @@ class Listener:
             helix_slot = lane_data_sync.helix_seated_slot(lanes, spool_id)
         except Exception as exc:
             warn(f"slot self-check lane read failed: {exc!r}")
+        return job_slot, ffm_channel, ifs_chan, helix_slot
+
+    def _slot_agreement(self):
+        """The slot self-check warning text, or None when the sources agree (#1020 D3)."""
+        from . import lane_data_sync
+
+        job_slot, ffm_channel, ifs_chan, helix_slot = self._slot_sources()
         return lane_data_sync.slot_agreement_warning(
             job_slot=job_slot, ffm_channel=ffm_channel, ifs_chan=ifs_chan,
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
@@ -4792,12 +4868,20 @@ class Listener:
         log(f"state {old} -> {new_state} file={self.filename!r} ({reason})")
         _record_transition_markers(old, new_state, self.filename, self.last_stats)
         await self._apply_launch_lease_settle(new_state)
+        start_transition = old is not None and old != "printing" and new_state == "printing"
+        if start_transition:
+            # #1648 defect 2: the start post goes out before the
+            # fresh-start side effects. Capture begin alone can take
+            # seconds (CAPTURE_BEGIN_TIMEOUT_S) and the slot self-check
+            # reads the printer; print #120's announcement landed after
+            # the filament swap it was supposed to precede.
+            await self._apply_resume_or_start(old, new_state, duplicate_start)
         if fresh_start:
             await self._apply_fresh_start(old, identity)
         await self._apply_reconnect_effects(old, new_state, identity)
         await self._apply_visual_due_check(new_state)
-        if old is not None and old != "printing" and new_state == "printing":
-            await self._apply_resume_or_start(old, new_state, duplicate_start)
+        if start_transition:
+            pass  # announced above, ahead of the fresh-start side effects
         elif old == "printing" and new_state == "paused":
             await self._apply_pause_transition(old, new_state)
         elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
@@ -4805,16 +4889,24 @@ class Listener:
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
         await self._apply_ended_bookkeeping(old, new_state, ended)
         await self._run_announcer_guarded(old, new_state)
-        if ended and new_state in ("cancelled", "error"):
-            try:
-                await asyncio.to_thread(_post_partial_timelapse, self.filename, self.last_stats)
-            except Exception as exc:
-                warn(f"partial timelapse post failed file={self.filename!r}: {exc!r}")
         if ended:
             # Marked before the call: if the cleanup itself raises,
             # _on_status must not run it a second time in its finally.
             self._print_ended_done = True
             await self._print_ended(new_state)
+            if new_state in ("cancelled", "error") or gone:
+                # #1648: a stopped print's partial timelapse posts as its
+                # own follow-up, after _print_ended has closed the capture
+                # session — while the session was still open, the finished
+                # capture could never be found and nothing ever posted.
+                # A job that ended into standby (gone) reads as cancelled,
+                # the same word the terminal notice uses for it.
+                try:
+                    await asyncio.to_thread(
+                        _post_partial_timelapse, self.filename, self.last_stats,
+                        "cancelled" if gone or new_state == "cancelled" else "error")
+                except Exception as exc:
+                    warn(f"partial timelapse post failed file={self.filename!r}: {exc!r}")
 
     def _bind_start_correlation(self):
         """Bind this print's job correlation id process-wide, guarded on its own (#1583)."""
@@ -4907,6 +4999,19 @@ class Listener:
             if reason_due and self._watch_ready():
                 self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
 
+    def _post_external_start(self):
+        """Post the start message for an unclaimed start. Runs in a worker thread.
+
+        The slot sources are read here, off the event loop; any failure
+        falls back to the plain canonical start message (#1648).
+        """
+        try:
+            sources = self._slot_sources()
+        except Exception as exc:
+            warn(f"start slot sources read failed file={self.filename!r}: {exc!r}")
+            sources = None
+        post(external_start_message(self.filename, sources))
+
     async def _apply_resume_or_start(self, old, new_state, duplicate_start):
         """Transition side effect: a resume, or a start's posts and checks."""
         # Claimed starts already have the intake's one post; unclaimed starts (printer screen,
@@ -4945,7 +5050,7 @@ class Listener:
                     warn(f"exclude objects post at print start failed: {exc!r}")
             else:
                 try:
-                    await asyncio.to_thread(post, start_message(self.filename))
+                    await asyncio.to_thread(self._post_external_start)
                 except Exception as exc:
                     warn(f"start post failed file={self.filename!r}: {exc!r}")
                 try:
