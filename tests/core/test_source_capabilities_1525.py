@@ -21,7 +21,9 @@ def test_every_source_kind_has_a_cell_or_is_unknown_only():
 def test_gap_table_names_the_honest_gaps():
     text = " ".join(row["gap"] or "" for row in sc.gap_table()).lower()
     assert "hardware" in text  # the U1 gap stays named
-    assert "not branch-protection-required" in text or "not a required" in text
+    # "Slicer test (bambu)" is a required branch-protection check (2026-11-18),
+    # so no gap may still call it advisory.
+    assert "not branch-protection-required" not in text and "not a required" not in text
     # The Prusa rich-fidelity remainder stays named: the genuine fixture
     # is geometry-only and the rich roles are proven on a spec-synthetic
     # fixture, labeled as such.

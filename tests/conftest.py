@@ -1,7 +1,7 @@
-"""Test settings for the Hermes helpers, installed before any test module imports them.
+"""Test settings for the runtime helpers, installed before any test module imports them.
 
 print_handy.runtime reads its hosts and paths through print_handy.runtime._config. Here that is replaced by
-a copy of the checked-in home config with fake `.test` hosts and temp directories, so no suite (hermes or pipeline)
+a copy of the checked-in home config with fake `.test` hosts and temp directories, so no suite
 can read a live profile or reach a live service through those modules.
 """
 import os
@@ -140,6 +140,13 @@ def _quiet_status_voice(request, monkeypatch):
         return
     from print_handy.core import status_voice
     monkeypatch.setattr(status_voice, "quip", lambda *args, **kwargs: "")
+
+
+@pytest.fixture(autouse=True)
+def _offline_screen_tip(monkeypatch):
+    """A roast never reaches a printer's screen from a test; screen_tip tests patch _post."""
+    from print_handy.runtime import screen_tip
+    monkeypatch.setattr(screen_tip, "_post", lambda url, value: None)
 
 
 @pytest.fixture(autouse=True)

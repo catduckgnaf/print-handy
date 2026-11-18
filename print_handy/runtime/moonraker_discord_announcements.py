@@ -337,7 +337,7 @@ def prune_local_timelapses(now=None):
 def materialize_archived_timelapse(remote_path):
     """Download a successfully archived MP4 into the local media cache for Discord.
 
-    A remote archive path is not a local file. hermes send only sees this copy.
+    A remote archive path is not a local file. The Discord post only sees this copy.
     """
     remote = Path(str(remote_path))
     archive_root = Path(TIMELAPSE_ARCHIVE_DIR)
@@ -613,6 +613,16 @@ def roast_facts(job, plate, stats=None, now=None):
         grams = (plate or {}).get("filament_g")
         if isinstance(grams, (int, float)) and grams > 0:
             facts["grams"] = float(grams)
+        # Copies and print number (#1651): the roast's multi-copy and
+        # milestone banks gate on these, and both are already read from
+        # the job record by the summary code. Best-effort like every
+        # fact here — a missing source means the fact stays absent.
+        copies = print_summary._sliced_copies(job or {})
+        if copies >= 2:
+            facts["copies"] = copies
+        number = print_summary._print_number(job or {})
+        if isinstance(number, int) and number > 0:
+            facts["print_number"] = number
         name = print_summary.announcement_printer_name(job)
         if name:
             facts["printer"] = str(name)

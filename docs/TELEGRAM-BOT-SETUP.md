@@ -131,6 +131,34 @@ defaulting to `true`.
   never consults `[llm]`, and unmatched text still gets the command
   list.
 
+### On the printer's screen (HelixScreen)
+
+The roast of a printer's last print also goes, best effort, to that
+printer's own Moonraker database, where HelixScreen's tips widget shows it
+in place of the tips. It is the line the completion, failure, cancel or
+spaghetti post carried, never a second pick. A tap on it says which print
+it was about and how it went ("Your last print, Benchy, finished. 1h 15m,
+PLA, 12 g.").
+
+* Record: namespace `helix-screen`, key `featured_tip`, value
+  `{"id", "title", "details", "source": "Print Handy", "posted_at"}`
+  (`print_handy/runtime/screen_tip.py`). `id` is stable per print's post, so
+  a retried delivery shows once.
+* Each printer's listener writes to its own printer, so every screen roasts
+  its own last print. A printer with no `moonraker_url` (Bambu, Prusa,
+  offline) gets nothing. Roasts asked for in chat ("roast print 84") stay in
+  chat.
+* On by default on both sides, under the same `vision.roast_enabled` switch.
+  A printer without HelixScreen just holds one small database item nobody
+  reads.
+* By default the roast replaces HelixScreen's tips: it stays on the tile
+  until the next print's roast, until it is a week old, or until the item is
+  gone. The Tips tile's gear in HelixScreen's edit mode switches it to
+  mixing, where each roast shows for one tip rotation.
+* The write runs on its own thread with a 5 second timeout. A failure is
+  logged and never touches the post.
+* Tests never write: `tests/conftest.py` replaces `screen_tip._post`.
+
 ## AI design on Telegram
 
 `/print-design` (or `/design`) and the design phrases ("design me …",

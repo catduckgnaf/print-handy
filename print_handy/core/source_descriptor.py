@@ -16,7 +16,10 @@ being decoded without bound. The source file is never mutated.
 
 Cura projects store their setting stacks as INI-style ``.cfg`` members
 under ``Cura/`` (the workspace writer serializes each container stack
-into the archive). The validated subset in the compatibility registry's
+into the archive). ``parse_cura_settings`` resolves each stack in Cura's
+own container order and keeps only the designer's literal choices (the
+user and quality_changes layers), never a vendor profile's default. The
+validated subset in the compatibility registry's
 ``cura-key-translation`` rule maps those keys to Orca names; everything
 else a Cura project carries — machine identity, start/end G-code,
 temperatures, accelerations, extruder offsets — is never translated,
@@ -29,6 +32,7 @@ import io
 import re
 import zipfile
 from pathlib import Path
+from urllib.parse import unquote_plus
 from xml.etree import ElementTree as ET
 
 from . import compat_registry
@@ -147,32 +151,136 @@ def _model_facts(archive, names):
     return len(objects), len(items), has_mesh, application
 
 
-def parse_cura_settings(archive, names):
-    """Cura setting values from the ``Cura/*.cfg`` stacks, global first.
+# Cura's own container order inside one stack, highest priority first: a
+# stack file lists its container ids in this order under [containers], and
+# this tuple is the fallback when a stack names none.
+CURA_LAYER_ORDER = ("user", "quality_changes", "intent", "quality", "material",
+                    "variant", "definition_changes", "definition")
+# The layers that hold the designer's own choices. Every other layer is a
+# vendor or machine default (quality, intent, material, variant, machine
+# definition) that the destination printer's own profile replaces.
+CURA_DESIGNER_LAYERS = ("user", "quality_changes")
+_CURA_STACK_TYPES = ("machine", "extruder_train")
+_CURA_INSTANCE_SUFFIX = ".inst.cfg"
 
-    Each stack file is INI text whose ``[values]`` section holds the
-    settings that stack carries. Extruder stacks are read after the
-    global stack, so a per-extruder value wins over the global one for
-    the same key — the same precedence Cura's own stack order gives.
-    Returns {} when the archive carries no Cura stack.
+
+def _read_cura_cfg(archive, name):
+    """A Cura .cfg member as a ConfigParser, or None when it does not parse."""
+    data = _bounded_read(archive, name, MAX_CONFIG_BYTES)
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str
+    try:
+        parser.read_string(data.decode("utf-8", "replace"))
+    except configparser.Error:
+        return None
+    return parser
+
+
+def _cura_values(parser):
+    """One container's [values], formulas (``=...``) included."""
+    if not parser.has_section("values"):
+        return {}
+    return {key.strip(): value.strip() for key, value in parser.items("values")}
+
+
+def _cura_stack_order(parser):
+    """The container ids a stack lists under [containers], highest priority first."""
+    if not parser.has_section("containers"):
+        return []
+    rows = []
+    for index, container_id in parser.items("containers"):
+        try:
+            rows.append((int(index), container_id.strip()))
+        except ValueError:
+            continue
+    return [container_id for _index, container_id in sorted(rows)]
+
+
+def _resolve_cura_layers(layers):
+    """One stack's designer values: each key from its highest-priority layer.
+
+    ``layers`` is [(type, values)] in priority order. Only the user and
+    quality_changes layers contribute, so a vendor default never stands in
+    for a choice the designer did not make. A formula is Cura's own
+    expression, not a value: it still wins its key over the lower layers,
+    and then the key is left out rather than carried from a layer the
+    formula overrode.
+    """
+    values: dict[str, str] = {}
+    for layer_type, layer_values in layers:
+        if layer_type not in CURA_DESIGNER_LAYERS:
+            continue
+        for key, value in layer_values.items():
+            values.setdefault(key, value)
+    return {key: value for key, value in values.items() if not value.startswith("=")}
+
+
+def parse_cura_settings(archive, names):
+    """The designer's literal Cura settings, resolved through the stacks.
+
+    A Cura workspace serializes each container stack as a ``*.global.cfg``
+    or ``*.extruder.cfg`` member listing its container ids, highest
+    priority first, under ``[containers]``; each container is an
+    ``<id>.inst.cfg`` member whose ``[metadata] type`` names its layer
+    (user, quality_changes, intent, quality, material, variant,
+    definition_changes). Each stack is resolved in its own order and only
+    literal values from the user and quality_changes layers are returned:
+    vendor quality, intent, material, variant and machine-definition
+    defaults are not the designer's intent, and a formula (``=...``) is
+    Cura's own expression, never a value. A stack with no ``[containers]``
+    falls back to CURA_LAYER_ORDER over the typed containers.
+
+    The global stack is resolved first and the extruder stacks after it,
+    highest position first, so extruder 0's choice wins for a key that
+    several stacks set. A flat project with no stack file and untyped
+    ``[values]`` members (the spec-synthetic layout) is one layer the
+    author wrote and is read as the user layer. Returns {} when the
+    archive carries no Cura stack.
     """
     members = sorted(n for n in names
                      if n.startswith(CURA_PREFIX) and n.endswith(".cfg"))
     if not members:
         return {}
-    ordered = sorted(members, key=lambda n: (0 if "global" in n.lower() else 1, n))
-    values: dict[str, str] = {}
-    for name in ordered:
-        data = _bounded_read(archive, name, MAX_CONFIG_BYTES)
-        parser = configparser.ConfigParser(interpolation=None)
-        parser.optionxform = str
-        try:
-            parser.read_string(data.decode("utf-8", "replace"))
-        except configparser.Error:
+    stacks, instances, untyped = [], {}, []
+    for name in members:
+        parser = _read_cura_cfg(archive, name)
+        if parser is None:
             continue
-        if parser.has_section("values"):
-            for key, value in parser.items("values"):
-                values[key.strip()] = value.strip()
+        kind = parser.get("metadata", "type", fallback="").strip()
+        if kind in _CURA_STACK_TYPES or parser.has_section("containers"):
+            position = parser.get("metadata", "position", fallback="")
+            try:
+                rank = -1 if kind == "machine" else int(position)
+            except ValueError:
+                rank = 0
+            stacks.append((rank, name, _cura_stack_order(parser)))
+        elif kind in CURA_LAYER_ORDER:
+            stem = name[len(CURA_PREFIX):]
+            if stem.endswith(_CURA_INSTANCE_SUFFIX):
+                stem = stem[:-len(_CURA_INSTANCE_SUFFIX)]
+            instances[stem] = (kind, _cura_values(parser))
+            # Ids are stored as file names; tolerate a percent-encoded one.
+            instances.setdefault(unquote_plus(stem), instances[stem])
+        elif not kind and parser.has_section("values"):
+            untyped.append(_resolve_cura_layers([("user", _cura_values(parser))]))
+    values: dict[str, str] = {}
+    if not stacks:
+        layers = sorted(instances.items(),
+                        key=lambda row: (CURA_LAYER_ORDER.index(row[1][0]), row[0]))
+        values.update(_resolve_cura_layers([layer for _stem, layer in layers]))
+        if not instances:
+            for layer in untyped:
+                values.update(layer)
+        return values
+    # Global (rank -1) first, then extruders from the highest position down,
+    # so each later stack overrides and extruder 0 is applied last.
+    for _rank, _name, order in sorted(stacks, key=lambda row: (row[0] != -1, -row[0], row[1])):
+        layers = [instances[container_id] for container_id in order
+                  if container_id in instances]
+        if not order:
+            layers = sorted(instances.values(),
+                            key=lambda layer: CURA_LAYER_ORDER.index(layer[0]))
+        values.update(_resolve_cura_layers(layers))
     return values
 
 

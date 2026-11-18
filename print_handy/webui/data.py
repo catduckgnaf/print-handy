@@ -48,6 +48,7 @@ from pathlib import Path
 from ..core import print_stats, wrapped_joins
 from . import pasta_reel
 from . import share_export
+from . import data_page
 from . import shell
 from . import wrapped_video as video_module
 
@@ -349,7 +350,7 @@ def _display_tz(data):
 
     The name comes from the settings mapping the handlers already
     carry (``discord.timezone``, the same setting
-    ``hermes._config.tz()`` reads); when the mapping names none, the
+    ``runtime._config.tz()`` reads); when the mapping names none, the
     ``_config.tz()`` value itself is used. Any failure falls back to
     UTC, which is the pure functions' own default bucketing.
     """
@@ -848,20 +849,13 @@ def _page(data, title, body, *, path, theme=shell.DEFAULT_THEME):
     return shell.page(title, body, path=path, theme=theme, nav=nav_for(data))
 
 
-def _cards(pairs):
-    items = "".join(
-        f'<section class="card"><p class="eyebrow">{_esc(label)}</p>'
-        f"<h2>{_esc(value)}</h2></section>" for label, value in pairs)
-    return f'<div class="cards">{items}</div>'
-
-
 def _breakdown_table(title, table):
     if not table:
         return f"<h2>{_esc(title)}</h2><p>(nothing recorded)</p>"
     rows = "".join(
         f"<tr><td>{_esc(label)}</td><td>{row['count']}</td>"
-        f"<td>{row['filament_used_g']:g} g</td>"
-        f"<td>{row['print_duration_seconds'] / 3600:.2f} h</td></tr>"
+        f"<td>{_esc(data_page.weight(row['filament_used_g']))}</td>"
+        f"<td>{_esc(data_page.duration(row['print_duration_seconds']))}</td></tr>"
         for label, row in table.items())
     return (f"<h2>{_esc(title)}</h2><div class=\"table-scroll\"><table>"
             f"<tr><th>{_esc(title)}</th><th>prints</th><th>filament</th><th>time</th></tr>"
@@ -1023,27 +1017,31 @@ def _selection_banner(payload):
 
 
 def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
-    """GET /data as HTML, from a :func:`data_view` success payload."""
+    """GET /data as HTML, from a :func:`data_view` success payload.
+
+    The everyday sections come first (:mod:`.data_page`); the full
+    statistics follow, folded into an "All the numbers" expander, for
+    anyone who wants every breakdown.
+    """
     stats = payload
-    parts = []
+    lead = []
     banner = _selection_banner(payload)
     if banner:
-        parts.append(banner)
+        lead.append(banner)
     form = _filter_form("/data", payload, year=stats.get("year"))
     if form:
-        parts.append(form)
-    parts.append(_cards([
-        ("Prints", stats["total_prints"]),
-        ("Hours printing", f"{stats['total_hours']:g}"),
-        ("Filament used", f"{stats['total_filament_used_kg']:g} kg"),
-        ("Success rate", _rate(stats["success_rate"])),
-    ]))
-    parts.append(
-        f"<p>Completed {stats['completed']} · failed {stats['failed']} · "
-        f"canceled {stats['canceled']} · in progress {stats['in_progress']}. "
-        f"{_esc(stats.get('success_rate_note') or '')}</p>")
+        lead.append(form)
+    lead.append(data_page.render_sections(stats))
     if stats.get("year") is not None and stats.get("undated_prints"):
-        parts.append(f'<p class="note">{_undated_text(stats["undated_prints"])}</p>')
+        lead.append(f'<p class="note">{_undated_text(stats["undated_prints"])}</p>')
+    parts = []
+    if not stats.get("total_prints"):
+        body = "".join(lead) + _skipped_note(payload)
+        return _data_shell(data, body, theme)
+    parts.append(
+        f"<p>Finished {stats['completed']} · failed {stats['failed']} · "
+        f"stopped {stats['canceled']} · printing now {stats['in_progress']}. "
+        f"{_esc(stats.get('success_rate_note') or '')}</p>")
     if stats.get("totals_caveat"):
         parts.append(
             f"<p>{_esc(stats['totals_caveat'])} Hours cover "
@@ -1180,8 +1178,8 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
         parts.append(_breakdown_table(title, stats["breakdowns"][key]))
     monthly = "".join(f"<tr><td>{_esc(month)}</td><td>{count}</td></tr>"
                       for month, count in stats["monthly"].items())
-    parts.append(f"<h2>Activity by month</h2><table><tr><th>month</th><th>prints</th></tr>"
-                 f"{monthly}</table>" if monthly else "<h2>Activity by month</h2><p>(nothing recorded)</p>")
+    parts.append(f"<h2>Activity by month</h2><div class=\"table-scroll\"><table><tr><th>month</th>"
+                 f"<th>prints</th></tr>{monthly}</table></div>" if monthly else "<h2>Activity by month</h2><p>(nothing recorded)</p>")
     charts = ["<h2>Graphs</h2>"]
     charts.append(_bar_chart("Prints per month", list(stats["monthly"].items())))
     charts.append(_bar_chart(
@@ -1221,10 +1219,24 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
                         for row in rows)
         parts.append(f"<h2>{title}</h2><ul>{items}</ul>" if items
                      else f"<h2>{title}</h2><p>(nothing recorded)</p>")
-    if payload.get("skipped_records"):
-        named = ", ".join(_esc(name) for name in payload["skipped_records"])
-        parts.append(f'<p class="note">Skipped records that could not be read: {named}.</p>')
-    return _page(data, "data", "".join(parts), path="/data", theme=theme)
+    body = ("".join(lead)
+            + '<details class="dp-more" id="data-all"><summary>All the numbers</summary>'
+            + "".join(parts) + "</details>" + _skipped_note(payload))
+    return _data_shell(data, body, theme)
+
+
+def _skipped_note(payload):
+    if not payload.get("skipped_records"):
+        return ""
+    named = ", ".join(_esc(name) for name in payload["skipped_records"])
+    return f'<p class="note">Skipped records that could not be read: {named}.</p>'
+
+
+def _data_shell(data, body, theme):
+    """The Data tab in the shared shell, with its own scoped styles in the head."""
+    return shell.page("data", f'<div class="data-page">{body}</div>', path="/data",
+                      theme=theme, nav=nav_for(data),
+                      head_extra=f"<style>{data_page.CSS}</style>")
 
 
 def _share_panel(year, form_token, exports, registry_note, preview=None,

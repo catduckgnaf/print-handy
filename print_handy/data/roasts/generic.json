@@ -1,6 +1,6 @@
 {
  "_about": "Completed-print templates that fit any print; {slots} filled from the print's own facts.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -1232,6 +1232,106 @@
    "id": "generic-title-is-finished-and-the",
    "family": "generic-title-is-finished-and-the",
    "text": "{title} is finished, and the room is officially one plastic object more crowded."
+  },
+  {
+   "id": "generic-title-exists-now-which-settles",
+   "family": "generic-title-exists-now-which-settles",
+   "text": "{title} exists now, which settles several arguments nobody was having."
+  },
+  {
+   "id": "generic-somewhere-between-useful-and-delightful",
+   "family": "generic-somewhere-between-useful-and-delightful",
+   "text": "Somewhere between useful and delightful, {title} found its exact address."
+  },
+  {
+   "id": "generic-title-in-color-has-the",
+   "family": "generic-title-in-color-has-the",
+   "text": "{title} in {color} has the confidence of a print half its layer count."
+  },
+  {
+   "id": "generic-the-plan-was-a-quick",
+   "family": "generic-the-plan-was-a-quick",
+   "text": "The plan was a quick print; {title} had other, better-documented ideas."
+  },
+  {
+   "id": "generic-title-finished-and-immediately-became",
+   "family": "generic-title-finished-and-immediately-became",
+   "text": "{title} finished and immediately became the reference photo for itself."
+  },
+  {
+   "id": "generic-another-successful-negotiation-between-printer",
+   "family": "generic-another-successful-negotiation-between-printer",
+   "text": "Another successful negotiation between {printer} and gravity, starring {title}."
+  },
+  {
+   "id": "generic-title-proves-the-download-folder",
+   "family": "generic-title-proves-the-download-folder",
+   "text": "{title} proves the download folder is a legitimate design studio."
+  },
+  {
+   "id": "generic-shelf-management-has-been-notified",
+   "family": "generic-shelf-management-has-been-notified",
+   "text": "Shelf management has been notified: {title} requires a prominent position."
+  },
+  {
+   "id": "generic-title-came-out-so-clean",
+   "family": "generic-title-came-out-so-clean",
+   "text": "{title} came out so clean that the supports apologized on their way out."
+  },
+  {
+   "id": "generic-it-is-not-hoarding-if",
+   "family": "generic-it-is-not-hoarding-if",
+   "text": "It is not hoarding if {title} is this well made; it is archiving."
+  },
+  {
+   "id": "generic-title-survived-the-slice-the",
+   "family": "generic-title-survived-the-slice-the",
+   "text": "{title} survived the slice, the print, and the ceremonial first inspection."
+  },
+  {
+   "id": "generic-the-household-gains-a-title",
+   "family": "generic-the-household-gains-a-title",
+   "text": "The household gains a {title} and loses a small amount of free surface."
+  },
+  {
+   "id": "generic-title-has-the-energy-of",
+   "family": "generic-title-has-the-energy-of",
+   "text": "{title} has the energy of a print that knew the camera was watching."
+  },
+  {
+   "id": "generic-filed-under-triumphs-title-printed",
+   "family": "generic-filed-under-triumphs-title-printed",
+   "text": "Filed under triumphs: {title}, printed in {material} and already beloved."
+  },
+  {
+   "id": "generic-title-is-done-dusted-and",
+   "family": "generic-title-is-done-dusted-and",
+   "text": "{title} is done, dusted, and quietly outclassing its neighbors."
+  },
+  {
+   "id": "generic-nobody-needed-title-urgently-and",
+   "family": "generic-nobody-needed-title-urgently-and",
+   "text": "Nobody needed {title} urgently, and yet here it is, essential as ever."
+  },
+  {
+   "id": "generic-title-joins-the-collection-with",
+   "family": "generic-title-joins-the-collection-with",
+   "text": "{title} joins the collection with the poise of a print twice as expensive."
+  },
+  {
+   "id": "generic-a-crisp-finish-on-title",
+   "family": "generic-a-crisp-finish-on-title",
+   "text": "A crisp finish on {title}, courtesy of patience and suspiciously good settings."
+  },
+  {
+   "id": "generic-title-wraps-up-like-it",
+   "family": "generic-title-wraps-up-like-it",
+   "text": "{title} wraps up like it read the manual and followed most of it."
+  },
+  {
+   "id": "generic-the-printer-hummed-the-hours",
+   "family": "generic-the-printer-hummed-the-hours",
+   "text": "The printer hummed, the hours passed, and {title} rewarded everyone involved."
   }
  ]
 }

@@ -174,7 +174,7 @@ def control_lock(printer_id: str | None = None, *, state_dir: Path | None = None
 
     The lock file is ``<state_dir>/printers/<printer id>/control.lock``;
     ``state_dir`` defaults to the configured state dir, and callers with
-    their own settings view (the Hermes helpers) pass theirs so every
+    their own settings view (the runtime helpers) pass theirs so every
     process resolves the same file for the same install.
     """
     key = _path_segment(_printer_key(printer_id))

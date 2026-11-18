@@ -136,7 +136,27 @@ def test_corpus_painted_models_measure_and_fit_like_the_written_export(rel):
     view = model_job._per_part_view(manifest, decisions)
     plates = _plates(path, manifest)
     for ceiling, tower in ((3.0, None), (1.0, 0.0)):
-        assert model_job.painted_fit(path, view, plates, ceiling, tower) ==             _old_painted_fit(path, view, plates, ceiling, tower)
+        assert _same_or_better(model_job.painted_fit(path, view, plates, ceiling, tower),
+                               _old_painted_fit(path, view, plates, ceiling, tower))
+
+
+def _verdict(fit):
+    """The pre-#1648 verdict keys; #1648 adds per-plate turns and sizes beside them."""
+    return {k: fit.get(k) for k in ('scale', 'blocking_plate', 'plates')}
+
+
+def _same_or_better(new, old):
+    """#1648: a painted fit is never smaller than the frozen ladder-only fit.
+
+    Turning is tried before shrinking, and a plate that never changes tools
+    reserves no prime tower, so the new scale may be larger; when it is the
+    same, the verdict is the old one exactly.
+    """
+    if new['scale'] is None:
+        return old['scale'] is None and _verdict(new) == _verdict(old)
+    if old['scale'] is None or new['scale'] > old['scale']:
+        return True
+    return _verdict(new) == _verdict(old)
 
 
 def _old_painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
@@ -195,7 +215,7 @@ def test_fit_verdicts_equal_the_written_export_fit(tmp_path):
             for tower in (None, 0.0):
                 old = _old_painted_fit(path, view, plates, ceiling, tower)
                 new = model_job.painted_fit(path, view, plates, ceiling, tower)
-                assert new == old, (path.name, ceiling, tower)
+                assert _same_or_better(new, old), (path.name, ceiling, tower, new, old)
                 verdicts.add((new['scale'] is None, new['scale'] == ceiling))
     # fits at the ceiling, fits only lower on the ladder, and no fit at all
     assert verdicts >= {(False, True), (False, False), (True, False)}
@@ -217,9 +237,11 @@ def test_a_fit_writes_nothing_and_parses_the_source_once(tmp_path, monkeypatch):
     monkeypatch.setattr(color_geometry, 'require_millimeter', lambda root: (parsed.append(root), real_require(root)))
     monkeypatch.setattr(color_geometry, 'export_color_geometry',
                         lambda *a, **k: (exports.append(k.get('scale')), real_export(*a, **k))[1])
-    # 8x does not fit either plate: each plate steps down the ladder.
+    # 8x does not fit either plate: each plate steps down the ladder. Since #1648
+    # each plate is first measured once towerless (does it change tools?), and a
+    # turn that fits at the ceiling is tried before shrinking.
     fit = model_job.painted_fit(path, view, plates, 8.0, None)
-    assert fit['scale'] == 1.0 and exports == [8.0, 1.0, 1.0]
+    assert fit['scale'] == 1.0 and exports[0] == 8.0 and exports.count(1.0) >= 2 and len(exports) <= 20
     # Three model members, each parsed once per selection (two plates).
     assert len(parsed) == 3 * len(plates)
 
@@ -259,7 +281,7 @@ def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path):
     view = model_job._per_part_view(manifest, decisions)
     plates = _plates(path, manifest)
     # The measured verdict is the written one before anything is timed.
-    assert model_job.painted_fit(path, view, plates, 3.0) == _old_painted_fit(path, view, plates, 3.0)
+    assert _same_or_better(model_job.painted_fit(path, view, plates, 3.0), _old_painted_fit(path, view, plates, 3.0))
 
     def best(fn, runs=5):
         times = []
@@ -308,3 +330,91 @@ def test_a_paint_code_the_written_export_refuses_is_refused_when_measuring(tmp_p
         _old_painted_fit(path, view, plates, 1.0)
     with pytest.raises(ValueError, match=re.escape(full[2])):
         model_job.painted_fit(path, view, plates, 1.0)
+
+
+def _long_painted_strip(path, length=226.0, width=30.0):
+    """A painted strip longer than the 220 mm bed: it fits only turned diagonally (#1648)."""
+    _dense_painted_source(path, n=12, size=90.0)
+    with zipfile.ZipFile(path) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    root = members['3D/3dmodel.model'].decode()
+    sx, sy = length / 90.0, width / 90.0
+    members['3D/3dmodel.model'] = root.replace('transform="1 0 0 0 1 0 0 0 1 20 30 0"',
+                                               f'transform="{sx} 0 0 0 {sy} 0 0 0 1 0 0 0"').encode()
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    return path
+
+
+def test_1648_painted_fit_turns_before_shrinking_and_names_sizes(tmp_path):
+    path = _long_painted_strip(tmp_path / 'strip.3mf')
+    manifest, decisions = _decisions(path)
+    view = model_job._per_part_view(manifest, decisions)
+    plates = _plates(path, manifest)
+    old = _old_painted_fit(path, view, plates, 1.0, 0.0)
+    assert old['scale'] is not None and old['scale'] < 1.0  # the ladder-only fit shrank it
+    fit = model_job.painted_fit(path, view, plates, 1.0, 0.0)
+    assert fit['scale'] == 1.0
+    (row,) = fit['layouts'].values()
+    assert row['yaw'] not in (0.0, 90.0) and row['tower_mm'] == 0.0
+    assert all(v <= model_job.BED_LIMIT_MM for v in row['extent_mm'][:2])
+    from print_handy.intake.fit_flow import _painted_fit_sizes
+    sizes = _painted_fit_sizes(fit, {'bed_mm': [220, 220]})
+    assert 'turned' in sizes and ' mm' in sizes and '220 x 220 mm' in sizes
+
+
+def test_1648_one_tool_painted_plate_reserves_no_tower(tmp_path):
+    """Print #120 plate 1: one color, so no prime tower room, whatever the purge mode."""
+    path = _long_painted_strip(tmp_path / 'strip.3mf')
+    manifest, decisions = _decisions(path)
+    for row in decisions['choices'].values():
+        row['slot'] = 1
+    view = model_job._per_part_view(manifest, decisions)
+    fit = model_job.painted_fit(path, view, _plates(path, manifest), 1.0, None)
+    (row,) = fit['layouts'].values()
+    assert fit['scale'] == 1.0 and row['tower_mm'] == 0.0
+
+
+def test_1648_slice_places_no_tower_on_a_plate_fit_without_one(tmp_path, monkeypatch):
+    """The slice reserves exactly what the fit accepted: a one-slot plate fit towerless is sliced towerless.
+
+    Otherwise a plate turned to fill the bed with no tower room is sliced with
+    the printer's tower and the export finds no place for it.
+    """
+    import json
+
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as slice_mod
+
+    plates = [{'id': 1, 'object_ids': ['1']}, {'id': 2, 'object_ids': ['2']}]
+    manifest = {'parts': [{'key': 'a', 'object_id': '1'}, {'key': 'b', 'object_id': '2'}]}
+    fit = {'scale': 1.0, 'blocking_plate': None, 'plates': 2, 'yaw_by_plate': {'1': 45.0, '2': 0.0},
+           'layouts': {'1': {'scale': 1.0, 'yaw': 45.0, 'extent_mm': [216.4, 216.4, 80.0], 'tower_mm': 0.0},
+                       '2': {'scale': 1.0, 'yaw': 0.0, 'extent_mm': [120.0, 80.0, 3.0], 'tower_mm': 35.0}}}
+    calls = []
+
+    def fake_slice(src, folder, st, brim=None, object_ids=None, **kw):
+        calls.append((sorted(object_ids), kw.get('towerless', False)))
+        folder.mkdir(parents=True, exist_ok=True)
+        out = folder / 'plate.gcode'
+        out.write_text('G1 X0\n')
+        key = 'a' if object_ids == {'1'} else 'b'
+        return out, {'geometry': {'parts': [{'part_key': key}]}, 'tool_mapping': {}}, []
+
+    monkeypatch.setattr(slice_mod, 'painted_fit', lambda *a, **k: fit)
+    monkeypatch.setattr(slice_mod, '_painted_tower_mm', lambda st: None)
+    monkeypatch.setattr(orca_adapter, 'slice_model', fake_slice)
+    monkeypatch.setattr(slice_mod, 'verify_gcode_offline', lambda *a, **k: {'ok': True})
+    monkeypatch.setattr(slice_mod, '_job_adapter', lambda job: None)
+    monkeypatch.setattr(slice_mod, '_recipe_changed', lambda *a, **k: False)
+    monkeypatch.setattr(slice_mod, '_recipe_binding', lambda job: {})
+    monkeypatch.setattr(slice_mod, 'write_job', lambda work, job: None)
+    src = tmp_path / 'model.3mf'
+    src.write_bytes(b'source')
+    job_path = tmp_path / 'JOB.json'
+    job = {'color_decisions': {'mode': 'per_part'}}
+    job_path.write_text(json.dumps(job))
+    slice_mod._slice_painted_plates(job, job_path, src, manifest, job['color_decisions'], {}, plates,
+                                    {'bed_mm': [220, 220]}, None, tmp_path)
+    assert calls == [(['1'], True), (['2'], False)]

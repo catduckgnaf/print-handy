@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints that finished between midnight and 6 AM after at least 2 hours.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -287,6 +287,31 @@
    "id": "overnight-title-concluded-at-hour-the-2",
    "family": "overnight-title-concluded-at-hour-the-2",
    "text": "{title} concluded at {hour}; the nocturnal printer demon has been appeased."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-while",
+   "family": "overnight-title-finished-at-hour-while",
+   "text": "{title} finished at {hour} while the house slept and the printer glowed."
+  },
+  {
+   "id": "overnight-the-night-shift-delivered-title",
+   "family": "overnight-the-night-shift-delivered-title",
+   "text": "The night shift delivered {title} right on its {hour} schedule."
+  },
+  {
+   "id": "overnight-title-wrapped-up-at-hour-3",
+   "family": "overnight-title-wrapped-up-at-hour-3",
+   "text": "{title} wrapped up at {hour}, a gift from the overnight production department."
+  },
+  {
+   "id": "overnight-while-dreams-happened-elsewhere-printer",
+   "family": "overnight-while-dreams-happened-elsewhere-printer",
+   "text": "While dreams happened elsewhere, {printer} quietly completed {title} by {hour}."
+  },
+  {
+   "id": "overnight-title-at-hour-the-elves",
+   "family": "overnight-title-at-hour-the-elves",
+   "text": "{title} at {hour}: the elves are real and they run on filament."
   }
  ]
 }

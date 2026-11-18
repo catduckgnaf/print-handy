@@ -1,4 +1,4 @@
-"""Shared access to Print Handy settings, state files and secrets for the Hermes helpers.
+"""Shared access to Print Handy settings, state files and secrets for the runtime helpers.
 
 Every hardcoded host, path and interval of the original scripts is a setting in the home configuration.
 Tests install an override with set_override() so no code path reads a live setup.
@@ -213,7 +213,7 @@ def _env_file_value(path: Path, name: str) -> str:
 
 
 def profile_env_value(name: str, *, include_global: bool = True) -> str:
-    """A secret: the environment, then the profile .env, then the global .env next to the hermes root."""
+    """A secret: the environment, then the profile .env, then the global .env two levels above the state home."""
     value = os.environ.get(name)
     if value:
         return value

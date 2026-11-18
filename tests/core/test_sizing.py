@@ -93,7 +93,7 @@ class FeatureClearanceTests(unittest.TestCase):
         from print_handy.core import color_geometry, model_job as mj
 
         def fake_export(base):
-            def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+            def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
                 return None, {'parts': [{'bounds_mm': [[0, base * scale], [0, 10], [0, 10]]}]}
             return export
 
@@ -368,7 +368,7 @@ class TestScaleSearches(unittest.TestCase):
         from unittest.mock import patch
         from print_handy.core import color_geometry, model_job as mj
 
-        def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+        def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
             return None, {'parts': [{'bounds_mm': [[0, 500 * scale], [0, 100 * scale], [0, 10]]}],
                           'build_bounds_mm': [(0.0, 500 * scale), (0.0, 100 * scale), (0.0, 10.0)]}
 
@@ -384,7 +384,7 @@ class TestScaleSearches(unittest.TestCase):
         from unittest.mock import patch
         from print_handy.core import color_geometry, model_job as mj
 
-        def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+        def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
             # The real export raises when no prime tower position clears
             # the parts; a towerless measurement of the same parts succeeds
             # and carries the same bounds.
@@ -405,7 +405,7 @@ class TestScaleSearches(unittest.TestCase):
         from unittest.mock import patch
         from print_handy.core import color_geometry, model_job as mj
 
-        def broken(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+        def broken(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
             raise RuntimeError('mesh parse exploded')
 
         with patch.object(color_geometry, 'export_color_geometry', broken):

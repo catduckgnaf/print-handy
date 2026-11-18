@@ -21,7 +21,7 @@ with the same value for existing payload consumers.
 
 Pasta (spaghetti) is a different source entirely: the watchdog events
 file (``<records vault>/Watchdog/events.jsonl``, written always-on by
-``hermes.watchdog_events``). Callers load it with
+``runtime.watchdog_events``). Callers load it with
 :func:`load_watchdog_events` and pass the events to :func:`aggregate`;
 when no events file exists the aggregate keeps the honest
 ``not_recorded`` pasta state, and risk flags are never read as pasta.
@@ -714,6 +714,160 @@ def _top(rows, key, limit=5):
     return out
 
 
+_OUTCOME_OF_STATUS = {"completed": "finished", "failed": "failed", "canceled": "stopped",
+                      "cancelled": "stopped", "printing": "printing"}
+_NO_REASON = "No reason recorded"
+
+# Plain-language failure causes for the Data tab. Each rule is (cause,
+# tip, lowercase fragments that name it in a printer's stop reason). The
+# first rule that matches wins; a reason no rule names keeps its own
+# text, so nothing is hidden or guessed.
+_FAILURE_CAUSES = (
+    ("Ran out of filament", "Check the spool has enough left before a long print.",
+     ("runout", "run out", "ran out", "out of filament", "filament sensor")),
+    ("Nozzle clog or jam", "Clean or replace the nozzle and check the extruder.",
+     ("clog", "jam", "under-extru", "underextru", "grind")),
+    ("Heater problem", "Check the heater and temperature sensor wiring.",
+     ("thermal runaway", "heater", "thermistor", "temperature", "adc out of range")),
+    ("Layer shift", "Check belt tension and that nothing blocks the toolhead.",
+     ("layer shift", "skipped step", "stall")),
+    ("Came loose from the bed", "Clean the bed and check the first layer.",
+     ("adhesion", "detach", "warp", "came loose", "knocked")),
+    ("Turned into spaghetti", "Check bed adhesion and the supports on this model.",
+     ("spaghetti", "pasta")),
+    ("Printer lost contact with its controller", "Check the USB cable and the printer's power supply.",
+     ("mcu", "timer too close", "lost communication", "serial", "usb")),
+    ("Emergency stop", "Find out what triggered the stop before printing again.",
+     ("emergency", "e-stop", "estop", "shutdown")),
+)
+
+
+def _record_title(record):
+    return (display_title(record.get("title"), record.get("job_key") or record.get("gcode_file"))
+            or "Untitled print")
+
+
+def _outcome(record):
+    return _OUTCOME_OF_STATUS.get(_status(record), "unknown")
+
+
+def failure_cause(reason):
+    """(cause, tip) in plain words for one recorded stop reason.
+
+    A reason no rule recognizes is returned as its own text with no
+    tip, never rewritten into a cause it may not be.
+    """
+    text = " ".join(str(reason or "").split())
+    lowered = text.lower()
+    for cause, tip, fragments in _FAILURE_CAUSES:
+        if any(fragment in lowered for fragment in fragments):
+            return cause, tip
+    return (text[:120] or _NO_REASON), ""
+
+
+def _failure_causes(rows):
+    """Failed prints grouped by plain-language cause, biggest first; unexplained last."""
+    groups: dict[str, dict] = {}
+    for record in rows:
+        if _status(record) != "failed":
+            continue
+        reason = record.get("stop_reason")
+        reason = " ".join(reason.split()) if isinstance(reason, str) else ""
+        cause, tip = failure_cause(reason) if reason else (_NO_REASON, "")
+        entry = groups.setdefault(cause, {"cause": cause, "count": 0, "tip": tip,
+                                          "reasons": [], "recorded": bool(reason)})
+        entry["count"] += 1
+        if reason and reason not in entry["reasons"]:
+            entry["reasons"].append(reason)
+    return sorted(groups.values(), key=lambda e: (not e["recorded"], -e["count"], e["cause"]))
+
+
+def _record_cost(record):
+    """(amount, currency) a print's frozen cost records as spent, else (None, None)."""
+    cost = record.get("cost")
+    if not isinstance(cost, dict):
+        return None, None
+    value = _num(cost.get("out_of_pocket"))
+    if value is None:
+        value = _num(cost.get("cost_per_build"))
+    if value is None:
+        return None, None
+    return value, str(cost.get("currency_code") or "USD")
+
+
+def _recent_prints(rows, limit=10):
+    """The newest dated prints first, with what a person reads in a history list."""
+    dated = [(parsed, r) for r in rows if (parsed := _parse_started(r.get("started_at"))) is not None]
+    dated.sort(key=lambda item: item[0], reverse=True)
+    out = []
+    for _parsed, record in dated[:limit]:
+        cost_value, currency = _record_cost(record)
+        reason = record.get("stop_reason")
+        material = _label(record.get("filament_material"))
+        out.append({
+            "title": _record_title(record), "print_number": record.get("print_number"),
+            "printer": _label(record.get("printer")), "status": _status(record),
+            "outcome": _outcome(record), "started_at": record.get("started_at"),
+            "seconds": _num(record.get("print_duration_seconds")),
+            "filament_used_g": _num(record.get("filament_used_g")),
+            "material": None if material == UNKNOWN else material,
+            "cost": cost_value, "currency_code": currency,
+            "stop_reason": " ".join(reason.split()) if isinstance(reason, str) and reason.strip()
+            else None})
+    return out
+
+
+def _printer_summaries(rows):
+    """One summary per printer: how much it printed and how it went, busiest first."""
+    table: dict[str, dict] = {}
+    for record in rows:
+        name = _label(record.get("printer"))
+        entry = table.setdefault(name, {"printer": name, "prints": 0, "finished": 0, "failed": 0,
+                                        "stopped": 0, "printing": 0, "seconds": 0.0,
+                                        "filament_used_g": 0.0, "last_started_at": None})
+        entry["prints"] += 1
+        outcome = _outcome(record)
+        if outcome in ("finished", "failed", "stopped", "printing"):
+            entry[outcome] += 1
+        seconds = _num(record.get("print_duration_seconds"))
+        if seconds is not None:
+            entry["seconds"] += seconds
+        grams = _num(record.get("filament_used_g"))
+        if grams is not None:
+            entry["filament_used_g"] += grams
+        parsed = _parse_started(record.get("started_at"))
+        last = _parse_started(entry["last_started_at"])
+        if parsed is not None and (last is None or parsed > last):
+            entry["last_started_at"] = record.get("started_at")
+    out = []
+    for entry in table.values():
+        decided = entry["finished"] + entry["failed"]
+        entry["success_rate"] = round(entry["finished"] / decided, 4) if decided else None
+        entry["seconds"] = round(entry["seconds"], 1)
+        entry["filament_used_g"] = round(entry["filament_used_g"], 1)
+        out.append(entry)
+    return sorted(out, key=lambda e: (-e["prints"], e["printer"]))
+
+
+def _monthly_outcomes(rows, resolved):
+    """Per month (display timezone): prints, finished, failed, stopped and the success rate."""
+    months: dict[str, dict] = {}
+    for record in rows:
+        parsed = _parse_started(record.get("started_at"))
+        if parsed is None:
+            continue
+        key = _local(parsed, resolved).strftime("%Y-%m")
+        entry = months.setdefault(key, {"prints": 0, "finished": 0, "failed": 0, "stopped": 0})
+        entry["prints"] += 1
+        outcome = _outcome(record)
+        if outcome in ("finished", "failed", "stopped"):
+            entry[outcome] += 1
+    for entry in months.values():
+        decided = entry["finished"] + entry["failed"]
+        entry["success_rate"] = round(entry["finished"] / decided, 4) if decided else None
+    return dict(sorted(months.items()))
+
+
 def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     """Aggregate record dicts into a JSON-able stats dict.
 
@@ -728,7 +882,7 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     preserves the historical UTC bucketing for direct callers, a
     string is an IANA timezone name, and a tzinfo is used as given.
     The Web UI passes the configured display timezone
-    (``hermes._config.tz()``) so the recap matches the operator's local
+    (``runtime._config.tz()``) so the recap matches the operator's local
     year (#981). ``started_at`` instants themselves stay UTC in the
     records and in every payload field that echoes them.
 
@@ -1037,6 +1191,13 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         # Clip counts are a finder result, not a record fact; the Web UI
         # layer reports them separately as timelapse_clips_found.
         "years_available": years,
+        # The Data tab's everyday views: newest prints first, each
+        # printer's share and record, the month-by-month success trend and
+        # the failure causes in plain words.
+        "recent_prints": _recent_prints(rows),
+        "printers": _printer_summaries(rows),
+        "monthly_outcomes": _monthly_outcomes(rows, resolved),
+        "failure_causes": _failure_causes(rows),
     }
 
 

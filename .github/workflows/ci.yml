@@ -747,6 +747,9 @@ jobs:
     # Studio the home configuration uses. Templates still come from the pinned OrcaSlicer
     # bundle, exactly like production: profiles.install is identity-checked against the
     # OrcaSlicer tree, and Bambu Studio slices from the resolved profiles.
+    # It also slices the genuine Cura, PrusaSlicer, OrcaSlicer and Bambu Studio
+    # producer fixtures with Bambu Studio as the destination
+    # (tests/slicer/test_cross_slicer_bambu_real.py, #1525).
     # Flatpak plus xvfb requires a full system session and display; kept on the host
     # runner, same as the Orca legs.
     runs-on: ubuntu-24.04
@@ -795,7 +798,7 @@ jobs:
           test "$deployed" = "$BAMBU_FLATPAK_COMMIT"
           flatpak info --user "$BAMBU_FLATPAK_APP_ID" | grep -E 'Version|Ref'
       - name: Run slicer tests against Bambu Studio
-        run: xvfb-run -a python -m pytest -v -s tests/slicer/test_bambu_real_a1.py
+        run: xvfb-run -a python -m pytest -v -s tests/slicer/test_bambu_real_a1.py tests/slicer/test_cross_slicer_bambu_real.py
 
   spoolman:
     # spool_sync against a real, throwaway Spoolman.

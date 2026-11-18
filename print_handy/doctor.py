@@ -40,8 +40,8 @@ def check_state_volume(data):
 
 def check_timing(data):
     """The real user-facing waits from the archive's TIMING.jsonl files
-    (#1476): the same report the diagnostics bundle and the Web UI
-    Timing page show. Returns (text, over_budget) or None when the
+    (#1476): the same report the diagnostics bundle and the
+    timing_report command show. Returns (text, over_budget) or None when the
     archive holds no timing data yet."""
     archive = (data.get("paths") or {}).get("archive")
     if not archive:

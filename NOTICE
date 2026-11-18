@@ -42,5 +42,12 @@ code is included here under the following notice:
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
+Bundled media
+-------------
+
+print_handy/data/audio/pole_position_nights.mp3, the default Pasta
+Wrapped music, is original music by catduck and is licensed under the
+same AGPL-3.0-only terms as the rest of this program.
+
 Third-party components keep their own licenses and notices. See
 docs/COMPONENTS.md and the notices in the files concerned.
