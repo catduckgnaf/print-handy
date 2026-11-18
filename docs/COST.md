@@ -25,6 +25,9 @@ The chat answer is compact: cost per part and per build, the top cost
 lines, the failure allowance and the provenance line. The full
 breakdown is on the Web UI cost page.
 
+The command also appears in the live demo's command list
+(`demo/scenarios.json`), which tracks the production command table.
+
 ## The Web UI calculator
 
 The Cost page (in the header) has a simple mode (material amount and
