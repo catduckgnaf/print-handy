@@ -143,6 +143,8 @@ ROUTES = (
     _get("/api/wrapped", SESSION, "_data_route", pass_path=True),
     _get("/wrapped/video-file", SESSION, "_wrapped_video_file_route"),
     _get("/api/wrapped/video-status", SESSION, "_wrapped_video_status_route"),
+    _get("/wrapped/reel-file", SESSION, "_wrapped_reel_file_route"),
+    _get("/api/wrapped/reel-status", SESSION, "_wrapped_reel_status_route"),
     # The real user-facing waits, read back from TIMING.jsonl (#1476).
     # Firmware and updates per printer, from the firmware feed (#1280 I).
     _get("/firmware", SESSION, "_firmware_route"),
@@ -211,6 +213,7 @@ ROUTES = (
     # other page (#1588), so these take the plain session+csrf rule.
     _post("/cost", SESSION_CSRF, "_cost_post", back="/cost", multipart=True),
     _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped"),
+    _post("/wrapped/reel", SESSION_CSRF, "_wrapped_reel_post", back="/wrapped"),
     _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped"),
     # The Firmware page's update confirmation form (#1610): a browser
     # form POST, so session+csrf like the other browser writes; the

@@ -92,11 +92,13 @@ def artifacts(tmp_path_factory):
 def test_the_package_ships_data_files_at_all(artifacts):
     # A walk that found nothing would make every comparison below pass vacuously.
     kinds = {Path(n).suffix for n in artifacts["expected"]}
-    assert {".json", ".toml", ".md", ".pem", ".js"} <= kinds, kinds
+    assert {".json", ".toml", ".md", ".pem", ".js", ".mp3"} <= kinds, kinds
     assert len(artifacts["expected"]) > 150
 
 
 def test_the_wheel_package_data_carries_every_runtime_data_file(artifacts):
+    # The Wrapped music track is binary, the one data file no text pattern covers.
+    assert "print_handy/data/audio/pole_position_nights.mp3" in artifacts["wheel"]
     assert sorted(artifacts["expected"] - artifacts["wheel"]) == []
     assert sorted(artifacts["wheel"] - artifacts["expected"]) == []
 
