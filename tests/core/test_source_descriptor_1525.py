@@ -304,6 +304,35 @@ def test_cura_extruder_stack_overrides_the_global_stack(tmp_path):
     assert raw == {"infill_pattern": "gyroid", "layer_height": "0.16"}
 
 
+def test_cura_empty_order_extruder_stack_does_not_reapply_unrelated_instances(tmp_path):
+    # Regression (#1676): an extruder stack with no container order must not
+    # fall back to every instance in the archive. The empty-order stack is
+    # extruder 0, so it resolves last; the archive-wide fallback re-resolved
+    # all instances in layer-type order, where the global stack's user layer
+    # (A_user, first by file name) wins infill_pattern again and silently
+    # overrides extruder 1's choice.
+    empty_stack = ("[general]\nversion = 6\nid = E0\n\n[metadata]\n"
+                   "type = extruder_train\nposition = 0\n")
+    members = {
+        **_base_members(),
+        "Cura/M.global.cfg": _stack("M", "machine", ["A_user", "A_qc"]),
+        "Cura/A_user.inst.cfg": _instance("user", {"infill_pattern": "grid",
+                                                   "layer_height": "0.16"}),
+        "Cura/A_qc.inst.cfg": _instance("quality_changes", {"wall_line_count": "4"}),
+        "Cura/E1.extruder.cfg": _stack("E1", "extruder_train", ["Z_user"], position=1),
+        "Cura/Z_user.inst.cfg": _instance("user", {"infill_pattern": "cubic",
+                                                   "wall_line_count": "9"}),
+        "Cura/E0.extruder.cfg": empty_stack,
+    }
+    target = _write(tmp_path, "empty-order.3mf", members)
+    with zipfile.ZipFile(target) as archive:
+        raw = sd.parse_cura_settings(archive, archive.namelist())
+    # Extruder 1 overrides the global stack; the empty-order extruder 0
+    # names no layers of its own and contributes nothing.
+    assert raw == {"infill_pattern": "cubic", "layer_height": "0.16",
+                   "wall_line_count": "9"}
+
+
 def test_genuine_cura_project_carries_only_the_designer_choice():
     """cura-genuine.3mf: the designer changed one setting, infill to Gyroid.
 

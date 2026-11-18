@@ -152,8 +152,9 @@ def _model_facts(archive, names):
 
 
 # Cura's own container order inside one stack, highest priority first: a
-# stack file lists its container ids in this order under [containers], and
-# this tuple is the fallback when a stack names none.
+# stack file lists its container ids in this order under [containers]. This
+# tuple orders the typed containers only when an archive carries no stack
+# file at all; a stack file that names no containers resolves nothing.
 CURA_LAYER_ORDER = ("user", "quality_changes", "intent", "quality", "material",
                     "variant", "definition_changes", "definition")
 # The layers that hold the designer's own choices. Every other layer is a
@@ -228,7 +229,9 @@ def parse_cura_settings(archive, names):
     vendor quality, intent, material, variant and machine-definition
     defaults are not the designer's intent, and a formula (``=...``) is
     Cura's own expression, never a value. A stack with no ``[containers]``
-    falls back to CURA_LAYER_ORDER over the typed containers.
+    names no layers of its own and contributes nothing; CURA_LAYER_ORDER
+    over the typed containers is only the fallback for an archive with no
+    stack file at all.
 
     The global stack is resolved first and the extruder stacks after it,
     highest position first, so extruder 0's choice wins for a key that
@@ -275,11 +278,15 @@ def parse_cura_settings(archive, names):
     # Global (rank -1) first, then extruders from the highest position down,
     # so each later stack overrides and extruder 0 is applied last.
     for _rank, _name, order in sorted(stacks, key=lambda row: (row[0] != -1, -row[0], row[1])):
+        if not order:
+            # A stack that names no containers has no layers of its own to
+            # resolve. The instances mapping is archive-wide, so falling
+            # back to it here would re-apply every other stack's layers
+            # under this stack's precedence and override their settings
+            # (#1676); the stack is skipped instead.
+            continue
         layers = [instances[container_id] for container_id in order
                   if container_id in instances]
-        if not order:
-            layers = sorted(instances.values(),
-                            key=lambda layer: CURA_LAYER_ORDER.index(layer[0]))
         values.update(_resolve_cura_layers(layers))
     return values
 
