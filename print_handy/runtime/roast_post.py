@@ -44,8 +44,8 @@ def roast_for_print(filename: str, status: str, *, printer_id: str | None,
     ``key`` is stable per print (terminal kind plus filename, the shape
     the Moonraker paths use), so a reposted terminal notice repeats its
     line instead of drawing a new one. Caller ``facts`` win over the job
-    record's; a cancelled print's sliced grams are dropped, because they
-    were never used.
+    record's; a cancelled print's grams are dropped from both, because
+    they were never used.
     """
     try:
         title, known = print_summary.safe_label(filename), {}
@@ -55,9 +55,9 @@ def roast_for_print(filename: str, status: str, *, printer_id: str | None,
             known = dict(announcer.roast_facts(job, plate, {}) or {})
         except Exception as exc:
             logger.info("%s roast facts unavailable: %r", status, exc)
+        known.update(facts or {})
         if status == "cancelled":
             known.pop("grams", None)
-        known.update(facts or {})
         from . import moonraker_event_listener as mel
         return mel.generate_roast(title, facts=known, key=key, status=status,
                                   printer_id=printer_id) or ""
