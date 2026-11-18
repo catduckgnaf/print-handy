@@ -277,7 +277,7 @@ class OverrideTests(unittest.TestCase):
         expected = {
             "printer": {"name", "firmware", "start_macro", "end_macro", "bed_mm",
                         "max_print_height_mm", "nozzle_diameter_mm", "filament_slots", "model", "vendor", "slicer",
-                        "zmod_delivery_format"},
+                        "zmod_delivery_format", "pause_prompt"},
             "layout": {"spacing", "single_copy_edge_mm", "multi_copy_edge_mm", "arrange_gap_mm", "arrange_edge_mm",
                        "merge_edge_margin_mm", "merge_spacing_mm", "max_merged_hours"},
             "prime_tower": {"size_mm", "part_clearance_mm", "edge_mm", "merge_slack_mm"},
