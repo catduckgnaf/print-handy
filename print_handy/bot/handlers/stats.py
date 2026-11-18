@@ -43,7 +43,8 @@ def _tz():
     try:
         from print_handy.runtime import _config
         return _config.tz()
-    except Exception:
+    except Exception as exc:
+        logger.warning("stats: could not read the display timezone: %s", exc)
         return None
 
 
@@ -273,7 +274,9 @@ def _wrapped_answer(filtered, data, selection, descriptor, tz):
     try:
         from print_handy.webui import data as _webui_data
         revealed = _webui_data.wrapped_revealed(data, year)
-    except Exception:
+    except Exception as exc:
+        logger.warning("stats: could not read the Wrapped reveal state, "
+                       "answering as revealed: %s", exc)
         revealed = True
     if not revealed:
         return (f"Pasta Wrapped {year} is sealed until December 1, like every "
