@@ -1183,6 +1183,35 @@ def _unsupported_for(site):
     return None
 
 
+def _cost_ready_line(variant_jobs):
+    """The Ready card's one cost line (#1625, #1632 review), or "".
+
+    Information only: priced from the sliced variant (the largest when
+    both support choices are shown, so the line never understates one),
+    and never raises. Cost never gates a print.
+    """
+    try:
+        from print_handy.core import cost as cost_module
+        from print_handy.core import spoolman_client
+        data = settings.current()
+
+        def lookup(spool_id):
+            try:
+                return spoolman_client.get_spool(int(spool_id))
+            except Exception:  # noqa: BLE001 - price falls back down the precedence
+                logger.debug("ready card cost: spool %s unavailable", spool_id, exc_info=True)
+                return None
+        results = [cost_module.estimate_for_job(job, data, spool_lookup=lookup)
+                   for job in variant_jobs if job]
+        results = [r for r in results if r is not None]
+        if not results:
+            return ''
+        return cost_module.ready_line(max(results, key=lambda r: r.out_of_pocket))
+    except Exception:  # noqa: BLE001 - display only: a cost problem never touches the menu
+        logger.warning("ready card cost line skipped", exc_info=True)
+        return ''
+
+
 def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
     """Use real sliced grams for a single spool; otherwise preserve source estimates.
 
@@ -3669,6 +3698,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                       shortages=shown_shortages, sliced_variants=spool_variants)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
+            cost_text = await asyncio.to_thread(_cost_ready_line, spool_variants)
+            if cost_text:
+                spool_text = (spool_text + '\n' + cost_text) if spool_text else cost_text
             estimate_s = source_estimate[0] * chosen_quantity if source_estimate else None
             # No source estimate: there is no time to show yet (the post-slice message gives it).
             estimate_text = '' if estimate_s is None else f"~{mj.human_dur(estimate_s + 300)}"

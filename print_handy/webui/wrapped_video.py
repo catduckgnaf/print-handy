@@ -479,6 +479,17 @@ def build_slides(wrapped):
                              f"Busiest month {highlights['busiest_month']}",
                              f"{print_stats.plural(highlights.get('busiest_month_prints', 0), 'print')} in your biggest month.",
                              SHORT_SECONDS))
+    costs = (wrapped.get("stats") or {}).get("costs") or {}
+    if costs.get("has_priced"):
+        # Recorded spend (#1625, #1632 review): the out-of-pocket total
+        # frozen on each print, never an estimate.
+        cur = costs.get("currency_code") or ""
+        line = (f"Across {print_stats.plural(costs['priced_count'], 'priced print')}"
+                + (f"; failures cost {cur} {costs['failure_total']:.2f}"
+                   if costs.get("failed_count") else "") + ".")
+        slides.append(_slide("volume", "WHAT IT COST",
+                             f"{cur} {costs['out_of_pocket_total']:.2f} spent",
+                             line, SHORT_SECONDS))
     script = [str(line) for line in (wrapped.get("script") or []) if str(line).strip()]
     if script:
         # The first commentary line, chunked into slides of at most

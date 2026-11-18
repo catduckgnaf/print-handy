@@ -146,6 +146,8 @@ ROUTES = (
     # The real user-facing waits, read back from TIMING.jsonl (#1476).
     # Firmware and updates per printer, from the firmware feed (#1280 I).
     _get("/firmware", SESSION, "_firmware_route"),
+    _get("/cost", SESSION, "_cost_page"),
+    _get("/api/cost", SESSION, "_cost_page"),
     # Click-to-update (#1610): the confirmation page, the running job's
     # status page, and toast dismissal.
     _get("/firmware/update", SESSION, "_firmware_update_route"),
@@ -203,6 +205,7 @@ ROUTES = (
           claim_lock=True),
     # The Wrapped page embeds the session-bound form token like every
     # other page (#1588), so these take the plain session+csrf rule.
+    _post("/cost", SESSION_CSRF, "_cost_post", back="/cost", multipart=True),
     _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped"),
     _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped"),
     # The Firmware page's update confirmation form (#1610): a browser

@@ -21,7 +21,7 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 - [Settings](SETTINGS.md) · [YAML configuration](CONFIGURATION-YAML.md): settings, precedence and environment overrides.
 - [Outside Spoolman](OUTSIDE-SPOOLMAN.md): run Print Handy against a Spoolman on another host, or the one a printer's Moonraker already points at, with one accounting authority per printer.
 - [Slicer warnings](SLICER-WARNINGS.md): OrcaSlicer warnings after slicing.
-- [Firmware updates](FIRMWARE-UPDATE.md) · [Firmware feed](FIRMWARE-FEED.md) · [Upstream issue watch](upstream-issue-watch.md) · [Calibration](CALIBRATION.md) · [Printer macros](MACROS.md).
+- [Firmware updates](FIRMWARE-UPDATE.md) · [Firmware feed](FIRMWARE-FEED.md) · [Upstream issue watch](upstream-issue-watch.md) · [Calibration](CALIBRATION.md) · [Printer macros](MACROS.md) · [Print cost calculator](COST.md).
 - [Design a part](DESIGN.md): optional AI-assisted OpenSCAD design. Review the result before the usual approval flow.
 - [Edit a prepared model](EDITING.md): confirmed edit operations and limits. OrcaSlicer warning behavior is covered in [Slicer warnings](SLICER-WARNINGS.md).
 - [Printer profiles](PRINTER-PROFILES.md): supported delivery methods and verification limits.

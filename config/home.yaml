@@ -218,6 +218,50 @@ spool:
   # walkthrough (#512). Off by default: the walkthrough skips brand and
   # the spool is created without one. Set true if you track brands.
   prompt_brand: false
+cost:
+  # Print cost calculator (#1625): workspace defaults for the one cost
+  # engine every surface uses (chat, the Web UI calculator page, the
+  # completion record, Data and Pasta Wrapped). Cost is information
+  # only: it never blocks, delays or refuses a print. Per-printer
+  # profiles live in the file-only cost_printers table below; filament
+  # prices come from Spoolman first (see docs/COST.md).
+  currency_code: USD
+  electricity_rate_per_kwh: 0.19
+  # Labor rate per hour. The hobby preset is an explicit 0: the labor
+  # line still shows, priced at zero.
+  labor_rate_per_hour: 20.0
+  failure_rate_fdm: 0.05
+  failure_rate_resin: 0.10
+  # Selling price math, labeled in words everywhere it shows: margin
+  # divides cost by (1 - margin); markup multiplies by (1 + markup).
+  pricing_mode: margin
+  default_margin: 0.40
+  tax_rate: 0.0
+  # add_on_top, included or none.
+  tax_mode: add_on_top
+  marketplace_fee_rate: 0.0
+  overhead_percent: 0.0
+  flat_fee_per_job: 0.0
+  # Fallback filament price when neither Spoolman nor the slicer
+  # embedded a price for a line.
+  default_filament_cost_per_kg: 22.0
+  # hobby leads every answer and Wrapped with what a print cost out of
+  # pocket (filament, power, consumables); seller leads with the full
+  # cost a quote must recover (labor and machine wear included) and
+  # shows the selling price tiers. Both figures are always recorded.
+  cost_mode: hobby
+  # Resin consumables per print: IPA lost per wash, cleanup and PPE.
+  resin_ipa_per_print: 0.23
+  resin_ppe_per_print: 0.12
+# Per-printer cost profiles (#1625), file only: a table keyed by roster
+# id or printer name. Each entry may set technology (fdm or resin),
+# purchase_price, upfront_cost, salvage_value, lifetime_hours,
+# maintenance_per_hour, watts, watts_basis (manufacturer, measured or
+# estimate), watts_by_material (a table of material to watts), idle
+# watts, and for resin: wash_cure_watts, wash_cure_minutes,
+# screen_price, screen_life_hours, film_price and film_life_prints.
+# A printer with no entry uses the generic profile. Empty by default.
+cost_printers: {}
 vision:
   # AI camera checks: off by default, because AI is for designing models.
   # While false, no frame or photo is sent to a vision model endpoint

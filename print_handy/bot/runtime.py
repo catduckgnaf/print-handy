@@ -483,6 +483,21 @@ _TASK_INTENT_SUGGESTIONS = (
     # route #1298 first gave "update <name>": an instruction to update a
     # named component is an update ask, not a check.
     (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+|my\s+)?{_FW_COMPONENT}(?:\s+(?:firmware|now|please))?{_END}", re.I), "/print-firmware update {c}"),
+    # Cost (#1625): what a print cost or will cost. The amounts, when
+    # the ask carries them, ride along as the command's argument and
+    # the handler parses them; the bare forms ask about the last print.
+    # "coast" is the typo corpus's folded form of "cost", so the
+    # patterns accept both spellings or the folded pass never matches.
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast)\s*,?\s*(?P<q>.+?){_END}", re.I), "/print-cost {q}"),
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:did|does)\s+(?:that\s+print|this\s+print|that|this|the\s+print|it)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    # The month asks carry "this month" through as the argument, so the
+    # handler answers the month's recorded spend, not the last print.
+    (re.compile(rf"^(?:please\s+)?what\s+did\s+filament\s+(?:cost|coast)\s+this\s+month{_END}", re.I), "/print-cost this month"),
+    (re.compile(rf"^(?:please\s+)?(?:what|how\s+much)\s+did\s+i\s+spend\s+(?:on\s+(?:filament|printing|prints)\s+)?this\s+month{_END}", re.I), "/print-cost this month"),
+    (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+print{_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?what\s+(?:did|does)\s+(?:that|this)\s+print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
     # Channel switches (#1634): "switch helixscreen to beta", "change the
     # helixscreen channel to beta", "put helixscreen on stable". Only ever
     # the did-you-mean prompt; the command then shows the exact one-line
@@ -580,7 +595,12 @@ _TASK_INTENT_SUGGESTIONS = (
 )
 
 
-_INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what", "which", "where"}
+# "spend" is subtracted for the same reason as the firmware sub-words
+# below: the cost month pattern matches it literally, but as a correction
+# target it hijacks the speed typos ("what does pseed mean" must stay
+# "/print-lookup speed", not "/print-lookup spend").
+_INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what", "which", "where",
+                      "spend"}
 
 
 def _intent_vocabulary():
