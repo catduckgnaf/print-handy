@@ -59,6 +59,8 @@ class RealSlicerBambuWorkflowContract(unittest.TestCase):
     def test_runs_only_the_bambu_subset_under_xvfb(self):
         runs = job_runs(bambu_job())
         self.assertIn("xvfb-run -a python -m pytest -v -s tests/slicer/test_bambu_real_a1.py", runs)
+        # #1525: the genuine producer fixtures, Bambu Studio as the destination.
+        self.assertIn("tests/slicer/test_cross_slicer_bambu_real.py", runs)
         # The Orca corpus belongs to the real-slicer legs; this leg must not
         # silently grow into a second full-corpus run.
         self.assertNotIn("tests/corpus", runs)
