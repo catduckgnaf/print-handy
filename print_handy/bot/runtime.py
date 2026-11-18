@@ -588,7 +588,12 @@ _TASK_INTENT_SUGGESTIONS = (
 )
 
 
-_INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what", "which", "where"}
+# "spend" is subtracted for the same reason as the firmware sub-words
+# below: the cost month pattern matches it literally, but as a correction
+# target it hijacks the speed typos ("what does pseed mean" must stay
+# "/print-lookup speed", not "/print-lookup spend").
+_INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what", "which", "where",
+                      "spend"}
 
 
 def _intent_vocabulary():
