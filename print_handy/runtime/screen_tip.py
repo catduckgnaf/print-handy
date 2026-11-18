@@ -237,6 +237,46 @@ def _publish_mqtt(value: dict[str, Any], status: str, printer_id: str | None) ->
     return True
 
 
+def clear_retained_roasts() -> int:
+    """Remove the retained last-roast sensors when the sensor is switched off (#1674 review).
+
+    Turning off ``notify.mqtt_roast`` or ``vision.roast_enabled`` stops new
+    publishes, but the discovery config and state already on the broker are
+    retained, so Home Assistant would keep a stale sensor. With MQTT still
+    on and the sensor off, an empty retained payload on each roster
+    printer's discovery and state topics clears them; Home Assistant
+    removes an entity whose discovery config is emptied. Runs once at
+    start. With MQTT itself off there is no broker to reach, and nothing
+    is sent. Returns the number of topics cleared; never raises.
+    """
+    from .. import notify as notify_bus
+    from .. import settings
+    try:
+        cfg = settings.current()
+        notify = cfg.get("notify") or {}
+        if notify.get("mqtt_enabled") is not True or _mqtt_roast_on() is not None:
+            return 0
+        cleared = 0
+        for entry in settings.printers(cfg):
+            pid = str(entry.get("id") or "")
+            if not pid:
+                continue
+            topic, _config = discovery_config(notify, pid)
+            for target in (topic, roast_state_topic(notify, pid)):
+                if notify_bus.publish_retained(target, ""):
+                    cleared += 1
+        return cleared
+    except Exception as exc:
+        logger.info("mqtt roast sensors not cleared: %s", exc)
+        return 0
+
+
+def clear_retained_roasts_in_background() -> None:
+    """``clear_retained_roasts`` on a daemon thread, so start never waits on the broker."""
+    threading.Thread(target=clear_retained_roasts, name="screen-tip-mqtt-clear",
+                     daemon=True).start()
+
+
 def publish_roast(line: str, *, title: str, status: str = "completed", key: str | None = None,
                   facts: Mapping[str, Any] | None = None, printer_id: str | None = None) -> bool:
     """Queue a print's roast for that printer's displays. True when a sink queued it.
@@ -260,5 +300,5 @@ def publish_roast(line: str, *, title: str, status: str = "completed", key: str 
         return False
 
 
-__all__ = ("KEY", "NAMESPACE", "SOURCE", "details", "discovery_config", "event_id",
+__all__ = ("KEY", "NAMESPACE", "SOURCE", "clear_retained_roasts", "details", "discovery_config", "event_id",
            "publish_roast", "record", "roast_state_topic")

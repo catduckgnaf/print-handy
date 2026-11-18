@@ -207,3 +207,31 @@ def test_event_topics_stay_non_retained(monkeypatch):
     assert first == 0x30  # the event publish keeps its no-retain byte
     assert topic == "print-handy/complete"
     assert payload == "ad5x: plate 1 finished"
+
+
+@pytest.mark.parametrize("off", ["sensor", "roasts"])
+def test_switching_the_sensor_off_clears_its_retained_topics(broker, monkeypatch, off):
+    # duckcatgnaf on #1674: turning the sensor off must not leave a stale
+    # retained discovery config and state on the broker.
+    cfg = _cfg(mqtt_roast=(off != "sensor"))
+    if off == "roasts":
+        cfg["vision"]["roast_enabled"] = False
+    cfg["printers"] = [{"id": "bambu1"}, {"id": "prusa1"}]
+    monkeypatch.setattr(settings, "current", lambda: cfg)
+    assert screen_tip.clear_retained_roasts() == 4
+    sent = _publishes(broker)
+    assert {(topic, payload) for _first, topic, payload in sent} == {
+        ("homeassistant/sensor/print_handy_bambu1/last_roast/config", ""),
+        ("print-handy/bambu1/last_roast", ""),
+        ("homeassistant/sensor/print_handy_prusa1/last_roast/config", ""),
+        ("print-handy/prusa1/last_roast", ""),
+    }
+    assert all(first & 0x01 for first, _topic, _payload in sent)  # retained clears
+
+
+def test_sensor_on_or_mqtt_off_clears_nothing(broker, monkeypatch):
+    for cfg in (_cfg(), _cfg(mqtt_enabled=False, mqtt_roast=False)):
+        cfg["printers"] = [{"id": "bambu1"}]
+        monkeypatch.setattr(settings, "current", lambda cfg=cfg: cfg)
+        assert screen_tip.clear_retained_roasts() == 0
+    assert broker == []
