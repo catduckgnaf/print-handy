@@ -195,7 +195,12 @@ standard resin 1.10 g/mL.
 ## Resin file support
 
 ChiTuBox and Lychee textual metadata carrying volume and time is
-parsed. The binary ChiTuBox project format (.cxdlpv4) and the Lychee
-.lys container are not parsed in this version; a resin job in those
-formats is costed from its Spoolman bottle and entered volume, and
-the calculator says what is missing rather than guessing.
+parsed. The binary ChiTuBox container (.cxdlpv4) is parsed too: the
+resin volume and print time come from the container's header and
+print parameters block, and the result names the container as its
+source. A Lychee .lys file is a saved scene (models and preparation
+work), not a slice: it carries no resin volume or print time, which
+Lychee computes only when a slice is exported, so a .lys job gets
+the explicit cannot-estimate state with that reason. An unrecognized
+or truncated binary container likewise says what is missing rather
+than guessing, and such jobs are costed from entered values.
