@@ -367,8 +367,8 @@ def printer_logs_section(data, *, log_lines: int = DEFAULT_LOG_LINES, fetch=None
 
 def timing_section(data) -> str:
     """The real user-facing waits from the archive's TIMING.jsonl files
-    (#1476): the same summary the doctor and the Web UI Timing page
-    show, built by print_handy.jobs.timing_report."""
+    (#1476): the same summary the doctor and the timing_report
+    command show, built by print_handy.jobs.timing_report."""
     from .jobs import timing_report
 
     archive = (data.get("paths") or {}).get("archive")
