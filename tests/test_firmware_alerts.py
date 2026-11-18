@@ -534,6 +534,7 @@ def test_alert_printers_are_exactly_the_apply_eligible_ones(cfg):
 def test_settings_default_on_daily():
     data = _config.cfg()
     assert data["firmware"] == {"update_alerts": True, "update_check_hours": 24,
+                                "update_channel": "stable",
                                 "forgex_apply": False,
                                 "notice_firmwares": ["zmod", "opencreator", "forge-x"]}
 
@@ -584,10 +585,10 @@ def test_a_skip_pressed_during_a_check_is_kept(cfg, monkeypatch):
     al = alerter(cfg, Printer())
     real_offers = fa.offers
 
-    def offers_then_skip(observation):
+    def offers_then_skip(observation, **kwargs):
         # The operator presses Skip (on any surface) while this check runs.
         fa.save(state_dir, fa.record_skipped(fa.load(state_dir), "zmod:1.7.5", 1.0))
-        return real_offers(observation)
+        return real_offers(observation, **kwargs)
 
     monkeypatch.setattr(fa, "offers", offers_then_skip)
     check_now(al)

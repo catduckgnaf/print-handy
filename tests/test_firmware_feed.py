@@ -209,7 +209,8 @@ def test_the_feed_carries_nothing_but_public_release_facts():
     assert set(feed) == {"schema", "generated_at", "source", "firmware"}
     assert set(feed["firmware"][0]) == {
         "id", "name", "repo", "feed", "channel", "models", "update",
-        "latest", "latest_stable", "audited", "stale", "kind", "stock_models"}
+        "latest", "latest_stable", "latest_prerelease", "audited", "stale",
+        "kind", "stock_models"}
     assert all(method == "GET" for method, _ in github.calls)
 
 
@@ -705,7 +706,9 @@ def test_shipped_stock_flashforge_covers_every_flashforge_model():
     flashforge = {key for key in printers.MODELS
                   if key.split(".")[0].startswith("flashforge")}
     assert flashforge - covered <= {"flashforge_opencreator.creator5",
-                                    "flashforge_opencreator.creator5_pro"}
+                                    "flashforge_opencreator.creator5_pro",
+                                    "flashforge_reforge.creator5",
+                                    "flashforge_reforge.creator5_pro"}
     assert covered <= set(printers.MODELS)
     # The update line never claims Print Handy installs it.
     assert all("never installs" in s["update"] for s in stock)

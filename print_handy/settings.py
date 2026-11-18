@@ -224,6 +224,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("notify", "ntfy_topic"): str,
                  ("firmware", "update_alerts"): bool,
                  ("firmware", "update_check_hours"): int,
+                 ("firmware", "update_channel"): str,
                  ("firmware", "forgex_apply"): bool,
                  ("external_intake", "enabled"): bool,
                  ("external_intake", "directory"): str,
@@ -1840,6 +1841,11 @@ FIRMWARE_CHECK_HOURS_MAX = 168
 # firmwares Print Handy supports on Flashforge printers. Forge-X follows its feed channel, which is
 # the 1.4.2 prerelease line until 1.4.2 ships stable. Ids are the firmware feed's (docs/firmware-feed.toml).
 FIRMWARE_NOTICE_DEFAULT = ("zmod", "opencreator", "forge-x")
+# Prerelease tracks an owner can subscribe to with [firmware] update_channel
+# (#1627), most stable first as written in a settings file. The value names
+# the least stable track wanted; firmware_alerts.TRACKS carries the same
+# words for the runtime gate (the two are pinned together by tests).
+FIRMWARE_UPDATE_CHANNELS = ("stable", "rc", "beta", "alpha")
 
 
 def _validate_firmware(data):
@@ -1855,11 +1861,21 @@ def _validate_firmware(data):
     ``notice_firmwares`` lists the firmware feed lines whose new releases
     get a chat notice (default zmod, opencreator, forge-x); every other
     line stays in the feed and on the Web UI's Firmware page only.
+    ``update_channel`` (default "stable") is the least stable prerelease
+    track the owner subscribes to (#1627): "rc" adds release candidates,
+    "beta" adds betas, "alpha" adds every other prerelease a firmware
+    publishes. It changes what is surfaced, never what is applied: a
+    subscribed prerelease still goes through the same confirmed path.
     """
     firmware = data.setdefault("firmware", {})
     alerts = firmware.setdefault("update_alerts", True)
     if not isinstance(alerts, bool):
         raise SettingsError(f"[firmware] update_alerts must be true or false, got {alerts!r}")
+    channel = firmware.setdefault("update_channel", "stable")
+    if not isinstance(channel, str) or channel.strip().lower() not in FIRMWARE_UPDATE_CHANNELS:
+        raise SettingsError(f"[firmware] update_channel must be one of "
+                            f"{list(FIRMWARE_UPDATE_CHANNELS)}, got {channel!r}")
+    firmware["update_channel"] = channel.strip().lower()
     hours = firmware.setdefault("update_check_hours", 24)
     if isinstance(hours, bool) or not isinstance(hours, int)             or not 1 <= hours <= FIRMWARE_CHECK_HOURS_MAX:
         raise SettingsError(f"[firmware] update_check_hours must be a whole number of hours "

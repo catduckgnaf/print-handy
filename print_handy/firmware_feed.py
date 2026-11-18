@@ -58,6 +58,10 @@ class Release:
     tag: str = ""
     published_at: str | None = None
     url: str = ""
+    # Prerelease track ("alpha", "beta", "rc") as published for a
+    # latest_prerelease entry (#1627); "" for a final release and for
+    # feeds published before the field existed.
+    track: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,11 @@ class Firmware:
     update: str = ""
     latest: Release | None = None
     latest_stable: Release | None = None
+    # The newest prerelease when it is newer than latest_stable (#1627):
+    # published for every line, surfaced only to owners whose
+    # [firmware] update_channel subscribes to its track. None in feeds
+    # published before the field existed.
+    latest_prerelease: Release | None = None
     audited: str | None = None
     stale: bool = False
 
@@ -121,10 +130,12 @@ def _release(raw) -> Release | None:
     if not isinstance(raw, dict) or not _text(raw.get("version")):
         return None
     url = _text(raw.get("url"))
+    track = _text(raw.get("track")).lower()
     return Release(version=_text(raw.get("version")), tag=_text(raw.get("tag")),
                    published_at=_text(raw.get("published_at")) or None,
                    # Only a GitHub link is ever shown; anything else is dropped.
-                   url=url if url.startswith("https://github.com/") else "")
+                   url=url if url.startswith("https://github.com/") else "",
+                   track=track if track in ("alpha", "beta", "rc") else "")
 
 
 def parse(payload) -> Feed | None:
@@ -157,6 +168,7 @@ def parse(payload) -> Feed | None:
             update=_text(raw.get("update")),
             latest=_release(raw.get("latest")),
             latest_stable=_release(raw.get("latest_stable")),
+            latest_prerelease=_release(raw.get("latest_prerelease")),
             audited=_text(raw.get("audited")) or None,
             stale=bool(raw.get("stale"))))
     return Feed(generated_at=_text(payload.get("generated_at")) or None, firmware=tuple(out))

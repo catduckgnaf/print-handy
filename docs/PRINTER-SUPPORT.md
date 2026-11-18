@@ -32,7 +32,7 @@ Extensive testing is still not a hardware test of your printer. Keep the confirm
 
 ## Your printer is not listed
 
-Pick the route that matches what the printer runs. This matters particularly on FlashForge hardware: [factory firmware](FLASHFORGE-STOCK.md), [ZMod](ZMOD.md) and [OpenCreator](OPENCREATOR.md) have different, non-interchangeable profiles. [Reforge](https://github.com/Klipper4FlashForge/firmware) is an independent Creator 5 firmware with **no dedicated Print Handy profile or hardware verification** at this time. Don't substitute another firmware's model key just because the printer shell looks familiar.
+Pick the route that matches what the printer runs. This matters particularly on FlashForge hardware: [factory firmware](FLASHFORGE-STOCK.md), [ZMod](ZMOD.md), [OpenCreator](OPENCREATOR.md) and [Reforge](REFORGE.md) have different, non-interchangeable profiles. The Reforge profiles are built from Reforge's published config and have **no hardware verification** yet. Don't substitute another firmware's model key just because the printer shell looks familiar.
 
 **Klipper with Moonraker.** Select `klipper.generic`. In your settings file (`config/local.yaml`, or the matching `PRINT_HANDY__...` environment variables from [SETTINGS.md](SETTINGS.md)) set at least:
 

@@ -36,7 +36,8 @@ step) serving:
   printer's own display (:mod:`print_handy.webui.screen`, #1303),
   discovered through Moonraker's registered ``screen`` webcam and
   never the printer's address; ``GET /printers/<id>/screen`` is its
-  labeled, read-only page;
+  labeled page (read-only while controls are off; tappable while
+  they are on, through ``POST /printers/<id>/screen/touch``, #1626);
 - ``GET /api/printers/<id>/spools`` and
   ``POST /api/printers/<id>/spools/{assign,swap,unassign,add,edit,sync,
   purchase/propose,purchase/create}`` — spool management (#789,
@@ -1110,6 +1111,15 @@ class _Handler(BaseHTTPRequestHandler):
     def _firmware_update_status_route(self):
         return firmware_handlers_module.update_status_route(self)
 
+    def _firmware_channel_route(self):
+        return firmware_handlers_module.channel_route(self)
+
+    def _firmware_channel_post(self, form):
+        return firmware_handlers_module.channel_apply_route(self, form)
+
+    def _firmware_channel_status_route(self):
+        return firmware_handlers_module.channel_status_route(self)
+
     def _notifications_dismiss_post(self, form):
         return firmware_handlers_module.dismiss_route(self, form)
 
@@ -1221,6 +1231,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _screen_page(self, printer_id):
         return printer_handlers_module.screen_page(self, printer_id)
+
+    def _screen_touch_post(self, printer_id, form):
+        return printer_handlers_module.screen_touch_post(self, printer_id, form)
 
     def _spools_page(self, printer_id):
         return printer_handlers_module.spools_page(self, printer_id)
@@ -1429,7 +1442,8 @@ class _Handler(BaseHTTPRequestHandler):
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
                 printer_status_func=None, printer_control_func=None,
                 camera_snapshot_func=None, screen_snapshot_func=None,
-                screen_probe_func=None, spools_view_func=None, spools_action_func=None,
+                screen_probe_func=None, screen_touch_func=None,
+                spools_view_func=None, spools_action_func=None,
                 readiness_func=None, roster_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
@@ -1516,7 +1530,9 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.screen_snapshot_func = screen_snapshot_func or (
         lambda printer_id: screen_module.snapshot(data, printer_id))
     server.screen_probe_func = screen_probe_func or (
-        lambda printer_id: screen_module.probe(data, printer_id))
+        lambda printer_id: screen_module.probe_source(data, printer_id))
+    server.screen_touch_func = screen_touch_func or (
+        lambda printer_id, x, y: screen_module.touch(data, printer_id, x, y))
     server.spools_view_func = spools_view_func or (
         lambda printer_id: spools_module.spools_view(data, printer_id))
     server.spools_action_func = spools_action_func or (

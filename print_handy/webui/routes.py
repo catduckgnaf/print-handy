@@ -152,6 +152,10 @@ ROUTES = (
     # status page, and toast dismissal.
     _get("/firmware/update", SESSION, "_firmware_update_route"),
     _get("/firmware/update/status", SESSION, "_firmware_update_status_route"),
+    # Channel switch (#1634): the picker/confirmation page and the
+    # running job's status page.
+    _get("/firmware/channel", SESSION, "_firmware_channel_route"),
+    _get("/firmware/channel/status", SESSION, "_firmware_channel_status_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
@@ -208,6 +212,9 @@ ROUTES = (
     # form POST, so session+csrf like the other browser writes; the
     # handler additionally requires [webui] controls_enabled.
     _post("/firmware/update", SESSION_CSRF, "_firmware_update_post", back="/firmware"),
+    # The channel switch's confirmation form (#1634): session+csrf like
+    # the update form; the handler additionally requires controls on.
+    _post("/firmware/channel", SESSION_CSRF, "_firmware_channel_post", back="/firmware"),
     # Toast dismissal changes stored state, so it is a session+CSRF POST
     # like every other state change (#1614 review), never a GET link.
     _post("/notifications/dismiss", SESSION_CSRF, "_notifications_dismiss_post", back="/"),
@@ -220,6 +227,9 @@ ROUTES = (
     _post("/spools/*", SESSION_CSRF, "_spools_page_post", back="/spools/{arg}"),
     # The Status page E-stop button (a browser cannot send the header).
     _post("/dashboard/estop/*", SESSION_CSRF, "_dashboard_estop_post", back="/"),
+    # The printer screen page's tap (#1626; same browser constraint).
+    _post("/printers/*/screen/touch", SESSION_CSRF, "_screen_touch_post",
+          back="/printers/{arg}/screen"),
     # Header-token upload (#1548): multipart, the header only, like the
     # other API writes — a header client cannot use the session+CSRF
     # upload page or a minted link. Exact row, so it wins over the

@@ -498,6 +498,13 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+print{_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?what\s+(?:did|does)\s+(?:that|this)\s+print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    # Channel switches (#1634): "switch helixscreen to beta", "change the
+    # helixscreen channel to beta", "put helixscreen on stable". Only ever
+    # the did-you-mean prompt; the command then shows the exact one-line
+    # config change and asks its own confirmation before anything is sent.
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*beta(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} beta"),
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*stable(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} stable"),
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*dev(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} dev"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every
     # command carries a fuzzy equivalent (the coverage guard in
