@@ -48,11 +48,14 @@ change behavior rather than consolidate it.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from .core import _external
 from .core import heater_ceiling as _heater_ceiling
+
+logger = logging.getLogger(__name__)
 
 # Every verb the service can route. ``capabilities()`` returns the subset a
 # printer's transport carries.
@@ -237,6 +240,8 @@ class PrinterControl:
         try:
             return pause_reason.prompt_enabled(self.view)
         except Exception:
+            logger.warning("pause_prompt unreadable for printer %s; no pause prompt",
+                           self.printer_id, exc_info=True)
             return False
 
     def resume(self, expected_filename: str = "", *, alert_connection: str | None = None,
@@ -260,6 +265,7 @@ class PrinterControl:
             return pause_reason.clear(_driver("print_control")._send, prompt=self._pause_prompt(),
                                       printer_id=self.printer_id)
         except Exception:
+            logger.warning("pause reason not cleared for printer %s", self.printer_id, exc_info=True)
             return False
 
     def emergency_stop(self, **ladder) -> dict[str, Any]:
