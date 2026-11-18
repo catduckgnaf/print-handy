@@ -357,7 +357,8 @@ class WebChatService:
         with the scope as the thread, so session_key() differs per Web UI
         session while the chat (and so the gateway's routing) is the same."""
         return runtime.make_source(OPERATOR_ID, CHAT_ID, thread_id=scope or None,
-                                   platform_name="webui")
+                                   platform_name="webui",
+                                   display_name="Web UI operator")
 
     def _append(self, entry, scope=""):
         """Record one outbox entry in its scope's transcript (or the shared

@@ -141,6 +141,7 @@ _DISPATCH_HOOKS = (
     slice_result_dispatch,
     nozzle_dispatch,
     cost_dispatch,
+    stats_dispatch,
 )
 
 # The dispatch class of each command hook (#1153 item 10). A hook listed
@@ -172,6 +173,7 @@ _COMMAND_GATES = {
     plate_calibrate_dispatch: ('/print-plate-calibrate', True),
     nozzle_dispatch: ('/nozzle', True),
     cost_dispatch: ('/print-cost', True),
+    stats_dispatch: ('/print-stats', True),
 }
 
 

@@ -634,9 +634,15 @@ def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None,
     if isinstance(starter, dict) and starter.get('user_id'):
         # The intake-stamped requester rides the start context into the
         # print record, so the completion sidecar lookup can still name the
-        # starter after the job folder is gone.
-        ctx['started_by'] = {'platform': str(starter.get('platform') or 'discord'),
-                             'user_id': str(starter['user_id'])}
+        # starter after the job folder is gone. The display name stamped
+        # at intake (#1647) rides along when there is one, so per-user
+        # statistics can name the starter.
+        carried = {'platform': str(starter.get('platform') or 'discord'),
+                   'user_id': str(starter['user_id'])}
+        display_name = str(starter.get('display_name') or '').strip()
+        if display_name:
+            carried['display_name'] = display_name
+        ctx['started_by'] = carried
     if isinstance((job or {}).get('spoolman_usage_pending'), dict):
         # Launch-time accounting failure (#387): carry the pending marker and
         # its intended spool into the start record and the completion sidecar,
