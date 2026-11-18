@@ -158,6 +158,48 @@ class TestExternalIntake:
                 charge=lambda **kw: calls.append(kw))
         assert len(calls) == 1
 
+    def test_concurrent_confirm_charges_exactly_once(self):
+        # Regression (#1682): two concurrent confirmations of the same
+        # card/printer/print id sharing one ledger must charge at most
+        # once; the other confirmation is refused. The charge callback
+        # blocks until the second thread has had its chance to pass the
+        # ledger check, so an unguarded check-then-charge double-charges.
+        import threading
+        import time
+
+        card = {"sha256": "abc", "status": "planned", "path": "x"}
+        ledger = set()
+        calls = []
+        charge_started = threading.Event()
+
+        def charge(**kw):
+            calls.append(kw)
+            charge_started.set()
+            time.sleep(0.3)
+            return "charged"
+
+        results, refused = [], []
+
+        def run():
+            try:
+                results.append(ei.confirm_mark_printed(
+                    card, printer_id="ad5x", print_id="p1", ledger=ledger,
+                    charge=charge))
+            except ei.IntakeRefused as exc:
+                refused.append(exc)
+
+        first = threading.Thread(target=run)
+        first.start()
+        assert charge_started.wait(timeout=5)
+        second = threading.Thread(target=run)
+        second.start()
+        first.join(timeout=5)
+        second.join(timeout=5)
+        assert not first.is_alive() and not second.is_alive()
+        assert len(calls) == 1
+        assert len(results) == 1 and results[0]["accounting"] == "charged"
+        assert len(refused) == 1
+
     def test_watcher_never_charges_on_appearance(self, tmp_path):
         watched = tmp_path / "watch"
         watched.mkdir()

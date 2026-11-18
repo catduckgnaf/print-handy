@@ -19,11 +19,15 @@ the caller's existing accounting callback exactly once per print
 identity: the identity is recorded in a ledger set the caller persists,
 and a Print Handy-launched print whose identity is already in the
 ledger is refused as already recorded — the same physical print can
-never be charged twice.
+never be charged twice. The check, the claim and the charge run under
+one lock with the identity claimed in the ledger before the charge is
+invoked, so concurrent confirmations of the same identity cannot both
+pass the check and charge twice (#1682).
 """
 from __future__ import annotations
 
 import hashlib
+import threading
 from pathlib import Path
 
 from . import source_descriptor
@@ -34,6 +38,13 @@ ACCEPTED_SUFFIXES = (".3mf", ".gcode", ".gco")
 
 class IntakeRefused(RuntimeError):
     """An intake or confirmation the watcher will not perform."""
+
+
+# One confirmation sequence at a time per process: the ledger check,
+# the claim and the charge are one atomic sequence, so two concurrent
+# confirmations of the same print identity cannot both pass the check
+# before either records the claim (#1682).
+_CONFIRM_LOCK = threading.Lock()
 
 
 def _sha256(path: Path) -> str:
@@ -114,17 +125,28 @@ def confirm_mark_printed(card: dict, *, printer_id: str, print_id: str,
     is never called when the identity is already recorded — including
     when a Print Handy-launched print already charged this file on this
     printer under this print id.
+
+    The whole sequence runs under `_CONFIRM_LOCK` and the identity is
+    claimed in ``ledger`` before ``charge`` is invoked, so a concurrent
+    confirmation of the same identity is refused instead of charging a
+    second time (#1682). A charge that raises releases the claim, so a
+    cleanly failed charge can still be retried by a later confirmation.
     """
     identity = print_identity(card, printer_id, print_id)
-    if identity in ledger:
-        raise IntakeRefused(
-            f"print {print_id} of this file on {printer_id} is already "
-            "recorded; refusing to charge the same physical print twice.")
-    if card.get("status") == "printed":
-        raise IntakeRefused(
-            "this draft card was already confirmed as printed; a reprint "
-            "needs its own print id.")
-    result = charge(identity=identity, card=card, printer_id=printer_id)
-    ledger.add(identity)
-    return {"identity": identity, "status": "printed",
-            "accounting": result}
+    with _CONFIRM_LOCK:
+        if identity in ledger:
+            raise IntakeRefused(
+                f"print {print_id} of this file on {printer_id} is already "
+                "recorded; refusing to charge the same physical print twice.")
+        if card.get("status") == "printed":
+            raise IntakeRefused(
+                "this draft card was already confirmed as printed; a reprint "
+                "needs its own print id.")
+        ledger.add(identity)
+        try:
+            result = charge(identity=identity, card=card, printer_id=printer_id)
+        except BaseException:
+            ledger.discard(identity)
+            raise
+        return {"identity": identity, "status": "printed",
+                "accounting": result}
