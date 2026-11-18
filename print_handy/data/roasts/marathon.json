@@ -1,0 +1,157 @@
+{
+ "_about": "Roasts for prints of 24 hours or longer (#1651). Uses {duration}.",
+ "_phase": "expansion (#1651)",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+ "entries": [
+  {
+   "id": "marathon-title-ran-duration-on-printer",
+   "family": "marathon-title-ran-duration-on-printer",
+   "text": "{title} ran {duration} on {printer}, a shift long enough to earn benefits."
+  },
+  {
+   "id": "marathon-a-true-marathon-title-printed",
+   "family": "marathon-a-true-marathon-title-printed",
+   "text": "A true marathon: {title} printed for {duration} and finished with composure intact."
+  },
+  {
+   "id": "marathon-duration-of-printing-later-title",
+   "family": "marathon-duration-of-printing-later-title",
+   "text": "{duration} of printing later, {title} emerges like a traveler with stories."
+  },
+  {
+   "id": "marathon-title-took-duration-outlasting-houseplants",
+   "family": "marathon-title-took-duration-outlasting-houseplants",
+   "text": "{title} took {duration}, outlasting houseplants, playlists, and at least one weekend plan."
+  },
+  {
+   "id": "marathon-marathon-division-champion-title-completing",
+   "family": "marathon-marathon-division-champion-title-completing",
+   "text": "Marathon division champion: {title}, completing {duration} without a single dramatic pause."
+  },
+  {
+   "id": "marathon-printer-worked-duration-straight-on",
+   "family": "marathon-printer-worked-duration-straight-on",
+   "text": "{printer} worked {duration} straight on {title} and deserves a tiny gold medal."
+  },
+  {
+   "id": "marathon-title-crossed-a-full-day",
+   "family": "marathon-title-crossed-a-full-day",
+   "text": "{title} crossed a full day of printing and kept its layer lines together."
+  },
+  {
+   "id": "marathon-after-duration-title-is-less",
+   "family": "marathon-after-duration-title-is-less",
+   "text": "After {duration}, {title} is less a print and more a long-term collaboration."
+  },
+  {
+   "id": "marathon-duration-on-the-clock-for",
+   "family": "marathon-duration-on-the-clock-for",
+   "text": "{duration} on the clock for {title}: endurance sports have officially entered the hobby."
+  },
+  {
+   "id": "marathon-title-survived-a-duration-print",
+   "family": "marathon-title-survived-a-duration-print",
+   "text": "{title} survived a {duration} print, multiple sleeps, and several check-in glances."
+  },
+  {
+   "id": "marathon-the-long-haul-is-over",
+   "family": "marathon-the-long-haul-is-over",
+   "text": "The long haul is over: {title} finished {duration} of continuous quiet determination."
+  },
+  {
+   "id": "marathon-title-at-duration-qualifies-as",
+   "family": "marathon-title-at-duration-qualifies-as",
+   "text": "{title} at {duration} qualifies as a slow-cooked print, served perfectly done."
+  },
+  {
+   "id": "marathon-a-dayplus-print-like-title",
+   "family": "marathon-a-dayplus-print-like-title",
+   "text": "A day-plus print like {title} turns checking the camera into a daily ritual."
+  },
+  {
+   "id": "marathon-printer-held-focus-for-duration",
+   "family": "marathon-printer-held-focus-for-duration",
+   "text": "{printer} held focus for {duration} so {title} could exist; respect is due."
+  },
+  {
+   "id": "marathon-title-ran-longer-than-most",
+   "family": "marathon-title-ran-longer-than-most",
+   "text": "{title} ran longer than most road trips at {duration} and arrived cleaner."
+  },
+  {
+   "id": "marathon-marathon-complete-title-finished-duration",
+   "family": "marathon-marathon-complete-title-finished-duration",
+   "text": "Marathon complete: {title} finished {duration} with the patience of a lighthouse keeper."
+  },
+  {
+   "id": "marathon-duration-of-humming-heating-and",
+   "family": "marathon-duration-of-humming-heating-and",
+   "text": "{duration} of humming, heating, and hoping produced one very committed {title}."
+  },
+  {
+   "id": "marathon-title-is-a-duration-epic",
+   "family": "marathon-title-is-a-duration-epic",
+   "text": "{title} is a {duration} epic, now condensed into a single shelf-ready object."
+  },
+  {
+   "id": "marathon-few-prints-earn-the-marathon",
+   "family": "marathon-few-prints-earn-the-marathon",
+   "text": "Few prints earn the marathon label; {title} earned it one hour at a time."
+  },
+  {
+   "id": "marathon-title-outlasted-the-weekend-the",
+   "family": "marathon-title-outlasted-the-weekend-the",
+   "text": "{title} outlasted the weekend, the snacks, and {duration} of supervised optimism."
+  },
+  {
+   "id": "marathon-after-duration-title-deserves-its",
+   "family": "marathon-after-duration-title-deserves-its",
+   "text": "After {duration}, {title} deserves its own before-and-after documentary episode."
+  },
+  {
+   "id": "marathon-printer-printed-through-days-for",
+   "family": "marathon-printer-printed-through-days-for",
+   "text": "{printer} printed through days for {title}, and the result justifies the vigil."
+  },
+  {
+   "id": "marathon-title-took-duration-which-makes",
+   "family": "marathon-title-took-duration-which-makes",
+   "text": "{title} took {duration}, which makes it less printed and more carefully raised."
+  },
+  {
+   "id": "marathon-the-finish-line-after-duration",
+   "family": "marathon-the-finish-line-after-duration",
+   "text": "The finish line after {duration}: {title}, still dimensionally accurate and mildly heroic."
+  },
+  {
+   "id": "marathon-duration-later-title-steps-off",
+   "family": "marathon-duration-later-title-steps-off",
+   "text": "{duration} later, {title} steps off the plate like it trained for this."
+  },
+  {
+   "id": "marathon-a-duration-print-is-a",
+   "family": "marathon-a-duration-print-is-a",
+   "text": "A {duration} print is a commitment, and {title} honored every single layer."
+  },
+  {
+   "id": "marathon-title-marathoned-for-duration-while",
+   "family": "marathon-title-marathoned-for-duration-while",
+   "text": "{title} marathoned for {duration} while the household lived entire story arcs nearby."
+  },
+  {
+   "id": "marathon-slow-and-steady-won-title",
+   "family": "marathon-slow-and-steady-won-title",
+   "text": "Slow and steady won: {title} completed its {duration} journey without drama."
+  },
+  {
+   "id": "marathon-title-at-duration-is-proof",
+   "family": "marathon-title-at-duration-is-proof",
+   "text": "{title} at {duration} is proof that patience can, in fact, be extruded."
+  },
+  {
+   "id": "marathon-the-ultradistance-event-ends-with",
+   "family": "marathon-the-ultradistance-event-ends-with",
+   "text": "The ultra-distance event ends with {title} finished, filmed, and finally touchable."
+  }
+ ]
+}

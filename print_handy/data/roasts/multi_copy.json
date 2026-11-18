@@ -1,0 +1,157 @@
+{
+ "_about": "Roasts for batch prints of three or more copies (#1651). Uses {copies}.",
+ "_phase": "expansion (#1651)",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+ "entries": [
+  {
+   "id": "multi-copy-copies-copies-of-title-one",
+   "family": "multi-copy-copies-copies-of-title-one",
+   "text": "{copies} copies of {title}: one was a print, the rest are a production strategy."
+  },
+  {
+   "id": "multi-copy-a-batch-of-copies-title",
+   "family": "multi-copy-a-batch-of-copies-title",
+   "text": "A batch of {copies}: {title} has officially entered small-scale manufacturing."
+  },
+  {
+   "id": "multi-copy-title-times-copies-means-somebody",
+   "family": "multi-copy-title-times-copies-means-somebody",
+   "text": "{title} times {copies} means somebody is getting one, whether they asked or not."
+  },
+  {
+   "id": "multi-copy-copies-copies-rolled-off-printer",
+   "family": "multi-copy-copies-copies-rolled-off-printer",
+   "text": "{copies} copies rolled off {printer} like a very small, very proud assembly line."
+  },
+  {
+   "id": "multi-copy-printing-copies-of-title-is",
+   "family": "multi-copy-printing-copies-of-title-is",
+   "text": "Printing {copies} of {title} is how hobbies quietly become inventory management."
+  },
+  {
+   "id": "multi-copy-the-batch-is-done-copies",
+   "family": "multi-copy-the-batch-is-done-copies",
+   "text": "The batch is done: {copies} editions of {title}, each identically giftable."
+  },
+  {
+   "id": "multi-copy-copies-copies-of-title-and",
+   "family": "multi-copy-copies-copies-of-title-and",
+   "text": "{copies} copies of {title} and not one designated as the practice run anymore."
+  },
+  {
+   "id": "multi-copy-title-in-triplicate-and-beyond",
+   "family": "multi-copy-title-in-triplicate-and-beyond",
+   "text": "{title} in triplicate and beyond: {copies} copies of pure distribution potential."
+  },
+  {
+   "id": "multi-copy-somewhere-copies-recipients-are-about",
+   "family": "multi-copy-somewhere-copies-recipients-are-about",
+   "text": "Somewhere, {copies} recipients are about to learn they needed a {title} all along."
+  },
+  {
+   "id": "multi-copy-batch-mode-complete-copies-copies",
+   "family": "multi-copy-batch-mode-complete-copies-copies",
+   "text": "Batch mode complete: {copies} copies, zero meetings, one very efficient {printer}."
+  },
+  {
+   "id": "multi-copy-copies-copies-of-title-is",
+   "family": "multi-copy-copies-copies-of-title-is",
+   "text": "{copies} copies of {title} is not repetition, it is quality assurance with extras."
+  },
+  {
+   "id": "multi-copy-the-fleet-of-title-stands",
+   "family": "multi-copy-the-fleet-of-title-stands",
+   "text": "The fleet of {title} stands at {copies}, freshly printed and awaiting assignments."
+  },
+  {
+   "id": "multi-copy-title-multiplied-to-copies-because",
+   "family": "multi-copy-title-multiplied-to-copies-because",
+   "text": "{title} multiplied to {copies}, because the first one looked lonely on the shelf."
+  },
+  {
+   "id": "multi-copy-production-report-copies-units-of",
+   "family": "multi-copy-production-report-copies-units-of",
+   "text": "Production report: {copies} units of {title}, demand forecast based entirely on enthusiasm."
+  },
+  {
+   "id": "multi-copy-copies-copies-means-title-can",
+   "family": "multi-copy-copies-copies-means-title-can",
+   "text": "{copies} copies means {title} can now be lost, lent, and still have backups."
+  },
+  {
+   "id": "multi-copy-printing-copies-of-title-turned",
+   "family": "multi-copy-printing-copies-of-title-turned",
+   "text": "Printing {copies} of {title} turned the build plate into a tiny parking lot."
+  },
+  {
+   "id": "multi-copy-spares-gifts-and-one-for",
+   "family": "multi-copy-spares-gifts-and-one-for",
+   "text": "Spares, gifts, and one for the car: {copies} copies of {title} covers everything."
+  },
+  {
+   "id": "multi-copy-title-batch-of-copies-the",
+   "family": "multi-copy-title-batch-of-copies-the",
+   "text": "{title} batch of {copies}: the printer has seen this file and sends no complaints."
+  },
+  {
+   "id": "multi-copy-a-full-set-copies-copies",
+   "family": "multi-copy-a-full-set-copies-copies",
+   "text": "A full set: {copies} copies of {title}, ready for distribution or dramatic hoarding."
+  },
+  {
+   "id": "multi-copy-copies-copies-of-title-later",
+   "family": "multi-copy-copies-copies-of-title-later",
+   "text": "{copies} copies of {title} later, consistency has been thoroughly demonstrated."
+  },
+  {
+   "id": "multi-copy-the-duplicates-are-intentional-this",
+   "family": "multi-copy-the-duplicates-are-intentional-this",
+   "text": "The duplicates are intentional this time: {copies} copies of {title}, all keepers."
+  },
+  {
+   "id": "multi-copy-title-now-exists-copies-times",
+   "family": "multi-copy-title-now-exists-copies-times",
+   "text": "{title} now exists {copies} times over, which counts as a product line somewhere."
+  },
+  {
+   "id": "multi-copy-batch-complete-on-printer-copies",
+   "family": "multi-copy-batch-complete-on-printer-copies",
+   "text": "Batch complete on {printer}: {copies} copies, each with identical bragging rights."
+  },
+  {
+   "id": "multi-copy-copies-copies-of-title-and-2",
+   "family": "multi-copy-copies-copies-of-title-and-2",
+   "text": "{copies} copies of {title} and the spares drawer just got a promotion."
+  },
+  {
+   "id": "multi-copy-printing-copies-of-title-is-2",
+   "family": "multi-copy-printing-copies-of-title-is-2",
+   "text": "Printing {copies} of {title} is fleet management at its most miniature scale."
+  },
+  {
+   "id": "multi-copy-title-xcopies-because-one-finished",
+   "family": "multi-copy-title-xcopies-because-one-finished",
+   "text": "{title} x{copies}: because one finished print is a result and several are logistics."
+  },
+  {
+   "id": "multi-copy-the-copies-agree-copies-versions",
+   "family": "multi-copy-the-copies-agree-copies-versions",
+   "text": "The copies agree: {copies} versions of {title} and every one claims to be first."
+  },
+  {
+   "id": "multi-copy-copies-copies-of-title-proving",
+   "family": "multi-copy-copies-copies-of-title-proving",
+   "text": "{copies} copies of {title}, proving the download button has excellent follow-through."
+  },
+  {
+   "id": "multi-copy-inventory-update-title-stock-rises",
+   "family": "multi-copy-inventory-update-title-stock-rises",
+   "text": "Inventory update: {title} stock rises to {copies}, market reaction expected to be warm."
+  },
+  {
+   "id": "multi-copy-copies-copies-printed-photographed-once",
+   "family": "multi-copy-copies-copies-printed-photographed-once",
+   "text": "{copies} copies printed, photographed once, and distributed according to ancient gift law."
+  }
+ ]
+}

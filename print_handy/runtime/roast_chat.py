@@ -328,6 +328,10 @@ def facts_for(row: dict[str, Any], tz=None) -> tuple[dict[str, Any], str]:
     printer = summary.announcement_printer_name(job) if job else None
     if printer:
         facts["printer"] = str(printer)
+    if job:
+        copies = summary._sliced_copies(job)
+        if copies >= 2:
+            facts["copies"] = copies
     try:
         launches = pc._load_number_registry()["launches"]
         times = sum(1 for e in launches if e.get("job") == str(row["job_json"]))

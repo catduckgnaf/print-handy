@@ -15,9 +15,10 @@ Selection, in order:
    status banks are wired to the failure, cancel and confirmed-spaghetti
    posts as well as to chat requests (#1017 batch 2).
 2. **Fact banks before the title reaction.** For a completed print the
-   outcome and context banks go first (reprint-after-failure, then
-   overnight, long, heavy, repeat, short — each only when the fact it
-   talks about is actually known), then history and color banks, then the
+   outcome and context banks go first (reprint-after-failure, milestone
+   and first-print, then marathon, overnight, long, heavy, light, repeat,
+   multi-copy, short — each only when the fact it talks about is actually
+   known), then history, color and material banks, then the
    **title reaction** (a known keyword in the title), then the **generic**
    templates and one-liners. Title-reaction entries fill from the title
    alone — no other slot — so a bare keyword match must not outrank a
@@ -87,7 +88,8 @@ STATUS_BANKS = {"failed": "failed", "cancelled": "cancelled", "spaghetti": "spag
 CUSTOM_BANK = "custom"
 NEAR_DUPLICATE_RATIO = 0.88
 # Context banks in precedence order, each with the fact it is about.
-CONTEXT_BANKS = ("overnight", "long_print", "heavy_filament", "repeat_print", "short_print")
+CONTEXT_BANKS = ("marathon", "overnight", "long_print", "heavy_filament", "light_filament",
+                 "repeat_print", "multi_copy", "short_print")
 TEMPLATE_BANKS = ("generic", "dark_humor") + CONTEXT_BANKS + tuple(STATUS_BANKS.values())
 
 MAX_WORDS = 20
@@ -107,6 +109,29 @@ SHORT_PRINT_S = 30 * 60
 OVERNIGHT_HOURS = range(0, 6)
 OVERNIGHT_MIN_S = 2 * 3600
 HEAVY_GRAMS = 150
+LIGHT_GRAMS = 25
+MARATHON_S = 24 * 3600
+MULTI_COPY_MIN = 3
+# Round print numbers that earn the milestone bank (#1651); print #1 has
+# its own pool, and every 1000th print above 1000 is a milestone too.
+MILESTONE_NUMBERS = frozenset({10, 25, 50, 75, 100, 200, 250, 500, 750})
+
+# Material families for the keyed material bank (#1651), matched most
+# specific first: a carbon-fiber or wood-filled PLA is a carbon or wood
+# print before it is a PLA print. Keys are the material_roasts.json keys.
+MATERIAL_FAMILIES = ("carbon", "wood", "tpu", "petg", "abs", "asa", "nylon", "pc", "hips", "pla")
+_MATERIAL_TOKEN_FAMILY = {
+    "carbon": "carbon", "cf": "carbon",
+    "wood": "wood",
+    "tpu": "tpu", "tpe": "tpu",
+    "petg": "petg",
+    "abs": "abs",
+    "asa": "asa",
+    "nylon": "nylon",
+    "pc": "pc", "polycarbonate": "pc",
+    "hips": "hips",
+    "pla": "pla",
+}
 
 COLOR_FAMILIES = (
     "rainbow", "silk", "neon", "glow", "clear", "gold", "silver", "copper",
@@ -136,6 +161,17 @@ _COMMON_NON_KEYWORDS = frozenset({
     "widget", "widgets", "thing", "things", "object", "objects", "part", "parts",
     "model", "models", "print", "prints", "file", "files", "item", "items",
     "piece", "pieces", "test", "tests", "sample", "samples"
+})
+
+# Title keywords that match only as written (or plural), never through a
+# typo correction (#1651). Each is one edit from a common English word that
+# names an unrelated print ("socket"/"pocket"/"rocker" -> rocket, "horse" ->
+# house, "host" -> ghost, "whole" -> whale, "rabbet" -> rabbit, "castile" ->
+# castle), so a fuzzy hit would roast a soap dish as a castle.
+_EXACT_TITLE_KEYWORDS = frozenset({
+    "bear", "boat", "butterfly", "castle", "cat", "dog", "elephant", "fox", "frog",
+    "ghost", "guitar", "house", "mushroom", "owl", "penguin", "rabbit", "robot",
+    "rocket", "tree", "whale",
 })
 
 
@@ -421,6 +457,8 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
     color_roasts = keyed("color_roasts", "color")
     reprint_failed = keyed("reprint_failed", "reprint_failed")
     history_callbacks = keyed("history_callbacks", "history")
+    material_roasts = keyed("material_roasts", "material")
+    milestone = keyed("milestone", "milestone")
 
     # The operator's custom bank (#1002 Phase 4): validated through the
     # same gates as the shipped banks (see load_custom_bank) and merged
@@ -431,7 +469,8 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
     if custom_path:
         shipped_texts = [text for rows in banks.values() for _i, text in rows]
         shipped_texts += [text for rows in reactions.values() for _i, text in rows]
-        for keyed_rows in (color_roasts, reprint_failed, history_callbacks):
+        for keyed_rows in (color_roasts, reprint_failed, history_callbacks,
+                           material_roasts, milestone):
             shipped_texts += [text for rows in keyed_rows.values() for _i, text in rows]
         custom_entries, custom_problems = load_custom_bank(
             custom_path, shipped_ids=set(families), shipped_texts=shipped_texts,
@@ -468,12 +507,14 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
                         dict_lookup[k.strip().lower()] = target
 
     digest = hashlib.sha1(json.dumps([banks, reactions, fragments, color_roasts,
-                                      reprint_failed, history_callbacks, dictionary, families],
+                                      reprint_failed, history_callbacks, material_roasts,
+                                      milestone, dictionary, families],
                                      sort_keys=True).encode("utf-8")).hexdigest()[:12]
     return {
         "banks": banks, "title_reactions": reactions, "fragments": fragments,
         "blocklist": blocklist, "color_roasts": color_roasts,
         "reprint_failed": reprint_failed, "history_callbacks": history_callbacks,
+        "material_roasts": material_roasts, "milestone": milestone,
         "dictionary": dictionary, "dictionary_lookup": dict_lookup,
         "families": families, "aliases": aliases, "version": digest,
         "custom_problems": custom_problems,
@@ -487,7 +528,9 @@ def corpus_size(custom_path: str | None = None) -> int:
             + sum(len(v) for v in corpus["title_reactions"].values())
             + sum(len(v) for v in corpus.get("color_roasts", {}).values())
             + sum(len(v) for v in corpus.get("reprint_failed", {}).values())
-            + sum(len(v) for v in corpus.get("history_callbacks", {}).values()))
+            + sum(len(v) for v in corpus.get("history_callbacks", {}).values())
+            + sum(len(v) for v in corpus.get("material_roasts", {}).values())
+            + sum(len(v) for v in corpus.get("milestone", {}).values()))
 
 
 def dictionary_size() -> int:
@@ -583,6 +626,22 @@ def color_family_keys(color_str: str) -> list[str]:
     return matched
 
 
+def material_family_keys(material_str: str) -> list[str]:
+    """The one material family a raw material name belongs to, or [].
+
+    Most specific first (#1651): filler and fiber modifiers outrank the
+    base polymer, so "PLA CF" and "Carbon Fiber PETG" are carbon prints,
+    "Wood PLA" is a wood print, and plain "PLA Plus" is a PLA print.
+    """
+    if not material_str:
+        return []
+    tokens = set(re.findall(r"[a-z0-9]+", material_str.lower()))
+    for family in MATERIAL_FAMILIES:
+        if any(_MATERIAL_TOKEN_FAMILY.get(tok) == family for tok in tokens):
+            return [family]
+    return []
+
+
 def _clean_value(value: Any, limit: int = 24) -> str:
     text = scrub_title(value)
     return text if 0 < len(text) <= limit else ""
@@ -632,8 +691,10 @@ def build_context(title: Any, *, duration_s: Any = None, material: Any = None, c
         facts["grams"] = float(grams)
     if isinstance(copies, int) and not isinstance(copies, bool) and copies >= 2:
         ctx["copies"] = str(copies)
+        facts["copies"] = copies
     if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
         ctx["print_number"] = f"#{print_number}"
+        facts["print_number"] = print_number
     if isinstance(times, int) and not isinstance(times, bool) and times >= 2:
         ctx["times"] = str(times)
         facts["times"] = times
@@ -682,14 +743,20 @@ def _context_banks(ctx: Mapping[str, Any]) -> list[str]:
     facts = ctx.get("_facts") or {}
     duration = facts.get("duration_s")
     out = []
+    if duration is not None and duration >= MARATHON_S:
+        out.append("marathon")
     if facts.get("hour") in OVERNIGHT_HOURS and (duration or 0) >= OVERNIGHT_MIN_S:
         out.append("overnight")
     if duration is not None and duration >= LONG_PRINT_S:
         out.append("long_print")
     if (facts.get("grams") or 0) >= HEAVY_GRAMS:
         out.append("heavy_filament")
+    if 1 <= (facts.get("grams") or 0) <= LIGHT_GRAMS:
+        out.append("light_filament")
     if (facts.get("times") or 0) >= 2:
         out.append("repeat_print")
+    if (facts.get("copies") or 0) >= MULTI_COPY_MIN:
+        out.append("multi_copy")
     if duration is not None and duration < SHORT_PRINT_S:
         out.append("short_print")
     return out
@@ -710,11 +777,13 @@ def _title_keywords(ctx: Mapping[str, Any], corpus: Mapping[str, Any]) -> list[s
     hits = []
     for keyword in corpus["title_reactions"]:
         key = fuzzy.norm(keyword)
-        if key in folded or (corrected and key in corrected):
+        exact_only = key in _EXACT_TITLE_KEYWORDS
+        typo_fixed = "" if exact_only else corrected
+        if key in folded or (typo_fixed and key in typo_fixed):
             pattern = rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])"
-            if re.search(pattern, folded) or (corrected and re.search(pattern, corrected)):
+            if re.search(pattern, folded) or (typo_fixed and re.search(pattern, typo_fixed)):
                 hits.append(keyword)
-        elif fuzzy_target and " " not in key and len(key) >= 5 and fuzzy.token_match(fuzzy_target, [key])[1] == key:
+        elif fuzzy_target and not exact_only and " " not in key and len(key) >= 5                 and fuzzy.token_match(fuzzy_target, [key])[1] == key:
             hits.append(keyword)
     dict_lookup = corpus.get("dictionary_lookup") or {}
     for term_key, target in dict_lookup.items():
@@ -751,6 +820,16 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
     if prev_fails >= 1 and corpus.get("reprint_failed", {}).get("completed"):
         pools.append(("reprint_failed:completed", corpus["reprint_failed"]["completed"]))
 
+    # Milestone pools (#1651): print #1 and round print numbers are facts
+    # of this print like any other, so they join the fact rotation ahead
+    # of the title reaction.
+    print_number = facts.get("print_number") or 0
+    if print_number == 1 and corpus.get("milestone", {}).get("first"):
+        pools.append(("milestone:first", corpus["milestone"]["first"]))
+    elif (print_number in MILESTONE_NUMBERS or (print_number >= 1000 and print_number % 1000 == 0)) \
+            and corpus.get("milestone", {}).get("milestone"):
+        pools.append(("milestone:milestone", corpus["milestone"]["milestone"]))
+
     # Fact banks first: every pool above the title reaction is gated on,
     # and fills from, a real fact of this print (duration, grams, repeat
     # count, finish hour, previous print, color). Title-reaction entries
@@ -770,6 +849,11 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
     for ckey in color_family_keys(raw_color):
         if corpus.get("color_roasts", {}).get(ckey):
             pools.append((f"color:{ckey}", corpus["color_roasts"][ckey]))
+
+    raw_material = str(ctx.get("material") or "")
+    for mkey in material_family_keys(raw_material):
+        if corpus.get("material_roasts", {}).get(mkey):
+            pools.append((f"material:{mkey}", corpus["material_roasts"][mkey]))
 
     for k in _title_keywords(ctx, corpus):
         pools.append((f"title:{k}", corpus["title_reactions"][k]))
@@ -1097,5 +1181,6 @@ def _roast(ctx, *, status, key, state_path, rng, custom_path=None):
 
 __all__ = ["CUSTOM_BANK", "SLOTS", "STATUSES", "CorpusError", "build_context", "candidate_pools",
            "color_family_keys", "contract_problem", "corpus_size", "dictionary_size",
+           "material_family_keys",
            "entry_id", "framed_problem", "framing_options", "load_corpus", "load_custom_bank",
            "parse_entry", "render", "roast", "scrub_last_title", "scrub_title"]

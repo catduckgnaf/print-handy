@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints under 30 minutes.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -287,6 +287,31 @@
    "id": "short_print-title-wrapped-in-duration-the",
    "family": "short_print-title-wrapped-in-duration-the",
    "text": "{title} wrapped in {duration}; the nozzle moved like it had dinner reservations."
+  },
+  {
+   "id": "short-print-title-was-done-in-duration",
+   "family": "short-print-title-was-done-in-duration",
+   "text": "{title} was done in {duration}, barely time to second-guess anything."
+  },
+  {
+   "id": "short-print-blink-and-it-printed-title",
+   "family": "short-print-blink-and-it-printed-title",
+   "text": "Blink and it printed: {title} in a brisk {duration}."
+  },
+  {
+   "id": "short-print-title-took-duration-a-print",
+   "family": "short-print-title-took-duration-a-print",
+   "text": "{title} took {duration}, a print with excellent time management."
+  },
+  {
+   "id": "short-print-short-sweet-and-sliced-title",
+   "family": "short-print-short-sweet-and-sliced-title",
+   "text": "Short, sweet, and sliced: {title} wrapped up in {duration}."
+  },
+  {
+   "id": "short-print-duration-flat-for-title-the",
+   "family": "short-print-duration-flat-for-title-the",
+   "text": "{duration} flat for {title}, the express lane of printing."
   }
  ]
 }

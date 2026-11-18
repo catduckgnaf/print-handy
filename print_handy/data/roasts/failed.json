@@ -1,6 +1,6 @@
 {
  "_about": "Failed prints only. Gentle: the target is the print, never the operator.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -477,6 +477,56 @@
    "id": "failed-title-is-gone-the-hotend",
    "family": "failed-title-is-gone-the-hotend",
    "text": "{title} is gone; the hotend has already moved on without remorse."
+  },
+  {
+   "id": "failed-title-gave-its-all-which",
+   "family": "failed-title-gave-its-all-which",
+   "text": "{title} gave its all, which turned out to be most of a print."
+  },
+  {
+   "id": "failed-the-first-layers-believed-in",
+   "family": "failed-the-first-layers-believed-in",
+   "text": "The first layers believed in {title}; the upper layers filed a complaint."
+  },
+  {
+   "id": "failed-title-is-survived-by-its",
+   "family": "failed-title-is-survived-by-its",
+   "text": "{title} is survived by its brim, its purge line, and valuable lessons."
+  },
+  {
+   "id": "failed-a-valiant-attempt-at-title",
+   "family": "failed-a-valiant-attempt-at-title",
+   "text": "A valiant attempt at {title}, now serving as a troubleshooting exhibit."
+  },
+  {
+   "id": "failed-printer-produced-a-limited-edition",
+   "family": "failed-printer-produced-a-limited-edition",
+   "text": "{printer} produced a limited edition abstract interpretation of {title}."
+  },
+  {
+   "id": "failed-title-reached-for-greatness-and-2",
+   "family": "failed-title-reached-for-greatness-and-2",
+   "text": "{title} reached for greatness and achieved a very educational altitude."
+  },
+  {
+   "id": "failed-the-print-stopped-the-learning",
+   "family": "failed-the-print-stopped-the-learning",
+   "text": "The print stopped, the learning continued, and {title} took one for science."
+  },
+  {
+   "id": "failed-title-is-not-finished-but",
+   "family": "failed-title-is-not-finished-but",
+   "text": "{title} is not finished, but it is finished enough to be remembered."
+  },
+  {
+   "id": "failed-gravity-and-adhesion-held-a",
+   "family": "failed-gravity-and-adhesion-held-a",
+   "text": "Gravity and adhesion held a meeting about {title} and reached no consensus."
+  },
+  {
+   "id": "failed-title-joins-the-honorable-shelf",
+   "family": "failed-title-joins-the-honorable-shelf",
+   "text": "{title} joins the honorable shelf of prints that taught us something."
   }
  ]
 }
