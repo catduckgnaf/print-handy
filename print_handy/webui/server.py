@@ -63,10 +63,14 @@ step) serving:
 - ``GET /designs`` and ``GET /designs/<id>`` — the design workshop over
   the catalog of AI design sessions (#388, stage 3; #1449;
   :mod:`print_handy.webui.designs`), with per-session file downloads
-  under ``GET /designs/<id>/<scad|stl|preview>``. ``POST /designs``
-  and ``POST /designs/choice`` are the workshop's forms: they submit
-  through this browser's web chat view, so a design started here runs
-  the chat design dispatch itself, not a page-side pipeline.
+  under ``GET /designs/<id>/<scad|stl|preview>`` (``preview?turn=N``
+  for one turn's). The workshop is a conversation (#1636): ``POST
+  /designs`` (its message box) and ``POST /designs/choice`` (a
+  question's button) submit through this browser's design-thread view
+  of web chat, so a design started here runs the chat design dispatch
+  itself, not a page-side pipeline; ``GET /designs/state`` is its poll,
+  ``POST /designs/new`` starts a fresh thread and ``POST
+  /designs/<id>/continue`` reopens one of this browser's own.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
   walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
   every install that has not finished it; its steps write through the
@@ -1098,6 +1102,18 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _designs_choice_post(self, form):
         return design_handlers_module.designs_choice_post(self, form)
+
+    def _designs_state(self):
+        return design_handlers_module.designs_state(self)
+
+    def _designs_new_post(self, form):
+        return design_handlers_module.designs_new_post(self, form)
+
+    def _designs_continue_post(self, rest, form):
+        return design_handlers_module.designs_continue_post(self, rest, form)
+
+    def _design_view(self, issue=True):
+        return design_handlers_module.design_view(self, issue)
 
     def _firmware_route(self):
         return design_handlers_module.firmware_route(self)

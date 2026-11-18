@@ -26,15 +26,23 @@ WORKING_TEXT = "Working on it…"
 POLL_FAST_MS = 600     # poll interval right after a message is sent
 POLL_SLOW_MS = 3000    # the interval it backs off to while the turn keeps running
 # Reload when the transcript grew or the turn ended. Only numbers and a
-# boolean come back from /chat/state; nothing from it is put on the page.
+# boolean come back from the state route; nothing from it is put on the page.
 POLL_SCRIPT = (
     "<script>(function(){var seq=__SEQ__,wait=" + str(POLL_FAST_MS) + ";"
-    "function tick(){fetch('/chat/state',{credentials:'same-origin',cache:'no-store'})"
+    "function tick(){fetch('__STATE__',{credentials:'same-origin',cache:'no-store'})"
     ".then(function(r){return r.ok?r.json():null;}).then(function(s){"
     "if(s&&(s.seq!==seq||!s.pending)){location.reload();return;}"
     "wait=Math.min(wait*1.5," + str(POLL_SLOW_MS) + ");setTimeout(tick,wait);})"
     ".catch(function(){setTimeout(tick," + str(POLL_SLOW_MS) + ");});}"
     "setTimeout(tick,wait);})();</script>")
+
+
+def poll_script(seq, state_path="/chat/state"):
+    """The reload-on-reply poll for a conversation whose state is served at
+    ``state_path`` (one of our fixed routes, never request text), from the
+    transcript position ``seq`` the page was rendered at. Chat, Workflow
+    and Designs all poll this way."""
+    return POLL_SCRIPT.replace("__STATE__", state_path).replace("__SEQ__", str(int(seq)))
 
 
 def chat_state(service):
@@ -100,7 +108,7 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         # refresh in <noscript> does the same, a little later.
         seq = entries[-1]["seq"] if entries else 0
         parts.append(f'<noscript><meta http-equiv="refresh" content="{REFRESH_SECONDS}"></noscript>')
-        parts.append(POLL_SCRIPT.replace("__SEQ__", str(int(seq))))
+        parts.append(poll_script(seq))
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
@@ -130,4 +138,4 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
                       heading="Chat", nav=nav)
 
 
-__all__ = ["REFRESH_SECONDS", "chat_state", "render_chat_disabled_page", "render_chat_page"]
+__all__ = ["REFRESH_SECONDS", "chat_state", "poll_script", "render_chat_disabled_page", "render_chat_page"]

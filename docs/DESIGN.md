@@ -266,23 +266,33 @@ keep printing:
 ## Designing in the Web UI
 
 The [Web UI](WEBUI.md) **Designs** page (`/designs`, behind the same
-access token as every other page) leads with the workshop: describe the
-part, and the design runs on the page, with its preview, what the turn
-made and assumed, and the Slice it / Change it / Cancel question as page
-buttons; a follow-up form sends the next change. The workshop is not a
-second design pipeline: its forms submit through web chat, so the same
-`/print-design` dispatch, engine, intake hand-off and confirmations run
-as in Discord, Telegram or Matrix, and it needs web chat on
+access token as every other page) leads with a design conversation,
+the same shape as the Chat page and a Discord thread: one message box,
+your messages and the bot's replies in order, each turn's preview in the
+thread at the turn that made it, and the Slice it / Change it / Cancel
+question inline with its buttons. The first message starts the design;
+every later one is the change, or the answer to the open question, so
+typing "slice it", "never mind" or a choice number works as it does in
+chat. Only the design is in the thread: print posts and other Chat page
+traffic stay on the Chat page. The conversation is kept with the design
+session, so a reload or a restart brings it back, and **New design**
+starts a fresh thread while the previous design stays in the catalog,
+where its own page shows its conversation and offers to continue it.
+A design started in Discord, Telegram, Matrix, the Chat page or another
+browser can be read there but carries on where it was started. The page
+is not a second design pipeline: it submits through web chat, so the
+same `/print-design` dispatch, engine, intake hand-off and confirmations
+run as in Discord, Telegram or Matrix, and it needs web chat on
 (`webui.chat_enabled`). While `[design]` is switched off, or no design
-model is configured, the workshop says why, in the same terms the chat
-handler uses, and shows no form.
+model is configured, the page says why, in the same terms the chat
+handler uses, and shows no message box.
 
 Below the workshop, the page is a catalog of the design sessions on the
 machine, newest first: what each one is (created from a description, or
 an edit with its source named), its state, how many turns it took, when
 it was made and last changed, and its preview. Opening a design shows
-its final `.scad` source and offers downloads of the `.scad`, the final
-`.stl` and the preview PNG. The catalog lists what exists on disk (the
+its conversation, its final `.scad` source and downloads of the `.scad`,
+the final `.stl` and the preview PNG. The catalog lists what exists on disk (the
 same sessions chat works with, kept for the same 14 days), so it lists
 sessions even while `[design]` is switched off.
 

@@ -8,11 +8,13 @@ route-table names; behavior and output are unchanged.
 """
 from __future__ import annotations
 
+import logging
+import re
+import secrets
 from urllib.parse import parse_qs, urlparse
 
-import logging
-
 log = logging.getLogger(__name__)
+from . import chat as chat_module
 from . import controls as controls_module
 from . import data as data_module
 from . import designs as designs_module
@@ -24,6 +26,7 @@ from . import notifications as notifications_module
 from . import settings_report as settings_report_module
 from . import sliced as sliced_module
 from . import sources as sources_module
+from .sessions import REMEMBER_TTL_S
 
 
 def sources_page(handler):
@@ -33,50 +36,141 @@ def sources_page(handler):
         chat_enabled=handler._web_chat_enabled()),
         "text/html; charset=utf-8")
 
+DESIGN_COOKIE = "webui_design"
+_DESIGN_NONCE = re.compile(r"[0-9a-f]{12}")
+
+
+def design_view(handler, issue=True):
+    """This browser's design-thread view of the web chat (#1636).
+
+    The browser's own chat scope plus the thread suffix its design cookie
+    names (none: the browser's first thread), read without the shared
+    posts, so the thread holds the design conversation and nothing else.
+    """
+    from ..bot import web
+    base = handler._chat_view(issue)
+    nonce = getattr(handler, "_new_design_thread", None)
+    if nonce is None:
+        nonce = handler._cookie_value(DESIGN_COOKIE)
+        if not _DESIGN_NONCE.fullmatch(nonce or ""):
+            nonce = ""
+    return handler._chat_service().view(web.design_scope(base.scope, nonce), shared=False)
+
+
+def _design_cookie_headers(handler):
+    """The chat cookie (when issued) and the design-thread cookie (when changed)."""
+    headers = list(handler._chat_cookie_headers())
+    nonce = getattr(handler, "_new_design_thread", None)
+    if nonce is not None:
+        flags = "; Secure" if handler._cookie_secure() else ""
+        headers.append(("Set-Cookie", f"{DESIGN_COOKIE}={nonce}; HttpOnly; "
+                                      f"SameSite=Strict; Path=/designs; "
+                                      f"Max-Age={REMEMBER_TTL_S}{flags}"))
+    return headers
+
+
 def designs_page(handler, notice=None, error=None):
     data = handler.server.settings_data
     rows = designs_module.catalog_rows(data)
-    # The workshop submits through this browser's web chat view, so
-    # it exists only while web chat is on; with it off the page
-    # renders the reason instead of a form (designs_module).
-    view = handler._chat_view() if handler._web_chat_enabled() else None
+    # The workshop submits through this browser's design-thread view, so
+    # it exists only while web chat is on; with it off the page renders
+    # the reason instead of a message box (designs_module).
+    view = handler._design_view() if handler._web_chat_enabled() else None
     workshop = designs_module.workshop_model(data, view)
     handler._send(200, designs_module.render_designs_page(
         rows, theme=handler._theme(), nav=data_module.nav_for(data),
         workshop=workshop, form_token=handler._form_token(),
         notice=notice, error=error),
-        "text/html; charset=utf-8", headers=handler._chat_cookie_headers())
+        "text/html; charset=utf-8", headers=_design_cookie_headers(handler))
+
+
+def designs_state(handler):
+    """GET /designs/state: the design thread's poll (chat.chat_state's shape)."""
+    handler._json(200, chat_module.chat_state(
+        handler._design_view(issue=False) if handler._web_chat_enabled() else None))
+
 
 def designs_post(handler, form):
-    """POST /designs: the workshop's start and follow-up forms (#1449).
+    """POST /designs: the message box, and Try again (#1636).
 
-    Both submit one message to this browser's web chat view: a start
-    submits the /print-design command for the description, a follow-up
-    submits its text as-is (the design dispatch routes it: the answer
-    to the open question, or the revision the session waits for).
-    The page itself designs, slices and prints nothing.
+    One message to this browser's design thread. The first message of
+    a thread (or one after its design finished or failed) goes as the
+    /print-design command; every other goes as typed, so the design
+    dispatch routes it the way it routes chat: the answer to the open
+    question, a typed "slice it" or choice number, or the change the
+    waiting design is after. ``retry`` sends a failed first turn's own
+    description again. The page itself designs, slices and prints nothing.
     """
     if not handler._web_chat_enabled():
         handler._designs_page()
         return
-    text = (form.get("text") or [""])[0].strip()
-    if not text:
-        handler._redirect("/designs")
-        return
-    mode = (form.get("mode") or ["start"])[0]
-    message = designs_module.start_message(text) if mode == "start" else text
-    if not handler._chat_view().submit(message):
+    data = handler.server.settings_data
+    view = handler._design_view()
+    model = designs_module.workshop_model(data, view)
+    if (form.get("retry") or [""])[0]:
+        message = designs_module.retry_message(model)
+        if message is None:
+            handler._redirect("/designs", headers=_design_cookie_headers(handler))
+            return
+        text = model["session"]["description"]
+    else:
+        text = (form.get("text") or [""])[0].strip()
+        if not text:
+            handler._redirect("/designs", headers=_design_cookie_headers(handler))
+            return
+        message = designs_module.composer_message(model, text)
+        designs_module.resume_lost(data, model)
+    # The thread shows what was typed; the command wrapper is the page's.
+    if not view.submit(message, shown=text):
         handler._designs_page(error="Too many messages in the last minute; "
                                  "give the bot a moment to catch up.")
         return
-    handler._redirect("/designs", headers=handler._chat_cookie_headers())
+    handler._redirect("/designs", headers=_design_cookie_headers(handler))
+
+
+def designs_new_post(handler, form):
+    """POST /designs/new: a fresh design thread; the old session is left as it is.
+
+    Only the browser's thread changes (a new suffix in its design
+    cookie). Nothing is cancelled or deleted: the design it leaves stays
+    in the catalog, and its page offers to continue it.
+    """
+    if handler._web_chat_enabled():
+        handler._new_design_thread = secrets.token_hex(6)
+    handler._redirect("/designs", headers=_design_cookie_headers(handler))
+
+
+def designs_continue_post(handler, rest, form):
+    """POST /designs/<id>/continue: make that session this browser's open thread.
+
+    Only a live session one of this browser's own design threads started
+    can be continued here; any other is refused with its page's reason.
+    """
+    data = handler.server.settings_data
+    detail = designs_module.load_detail(data, rest) if rest and "/" not in rest else None
+    if detail is None:
+        handler._json(404, {"ok": False, "reason": "no such design session"})
+        return
+    session = detail[0]
+    if not handler._web_chat_enabled():
+        handler._designs_page(error="Web chat is turned off, so a design cannot be "
+                                 "continued here.")
+        return
+    scope = handler._chat_view(issue=False).scope
+    if designs_module.continue_state(session, scope) != "continue":
+        handler._designs_page(error="That design cannot be continued from this browser: "
+                                 "it is finished, or another chat started it.")
+        return
+    handler._new_design_thread = designs_module.thread_of(session)[1]
+    handler._redirect("/designs", headers=_design_cookie_headers(handler))
+
 
 def designs_choice_post(handler, form):
-    """POST /designs/choice: one button of the design's open question.
+    """POST /designs/choice: one button of the design thread's open question.
 
     The same press as /chat/choice (the prompt's own button, resolved
-    through the adapter with the prompt's own approval rules), only
-    landing back on the designs page.
+    through the adapter with the prompt's own approval rules), from the
+    design thread's view, landing back on the designs page.
     """
     if not handler._web_chat_enabled():
         handler._designs_page()
@@ -88,46 +182,69 @@ def designs_choice_post(handler, form):
         index = -1
     if clarify_id and index >= 0:
         try:
-            label = handler._chat_view().answer(clarify_id, index)
+            label = handler._design_view().answer(clarify_id, index)
         except Exception:
             log.warning("design page answer for %s did not reach the bot",
                         clarify_id, exc_info=True)
             handler._designs_page(error="That answer didn't reach the bot "
                                      "in time. The question is still "
-                                     "open — try again.")
+                                     "open, so try again.")
             return
         if label is None:
-            handler._designs_page(error="That answer wasn't accepted — "
+            handler._designs_page(error="That answer wasn't accepted: "
                                      "the question may have closed, or "
                                      "the answer belongs to another step.")
             return
     handler._redirect("/designs")
+
+
+def _detail_page(handler, session_id):
+    data = handler.server.settings_data
+    detail = designs_module.load_detail(data, session_id)
+    if detail is None:
+        handler._json(404, {"ok": False, "reason": "no such design session"})
+        return
+    session, scad_text, has_stl, has_preview, has_base = detail
+    continue_as = "elsewhere"
+    if handler._web_chat_enabled():
+        browser = handler._chat_view(issue=False).scope
+        continue_as = designs_module.continue_state(session, browser)
+        if continue_as == "continue" and designs_module.owner_for_scope(
+                handler._design_view(issue=False).scope) == session.get("owner_key"):
+            continue_as = "current"
+    handler._send(200, designs_module.render_design_detail(
+        session, scad_text, has_stl=has_stl, has_preview=has_preview,
+        has_base=has_base, theme=handler._theme(),
+        nav=data_module.nav_for(data),
+        thread=designs_module.session_thread(data, session),
+        continue_as=continue_as, form_token=handler._form_token()),
+        "text/html; charset=utf-8")
+
 
 def design_route(handler, rest):
     """GET /designs/<id> (detail) and /designs/<id>/<kind> (a file).
 
     ``rest`` is the path after ``/designs/``: exactly one segment is
     a session id, exactly two is that session's ``scad`` / ``stl`` /
-    ``preview`` / ``base`` file. Anything else — extra segments, ``..``, unknown
-    ids or kinds — is a 404; the file itself is resolved by
+    ``preview`` / ``base`` file. Anything else (extra segments, ``..``,
+    unknown ids or kinds) is a 404; the file itself is resolved by
     :func:`print_handy.core.design.session_file` from the session
     record, so nothing outside the session's own folder can be named.
+    ``preview?turn=N`` is one turn's preview, as the design thread shows
+    it, resolved by :func:`print_handy.core.design.turn_preview` from
+    the record's turn count, the same containment.
     """
     segments = rest.split("/")
     data = handler.server.settings_data
     if len(segments) == 1 and segments[0]:
-        detail = designs_module.load_detail(data, segments[0])
-        if detail is None:
-            handler._json(404, {"ok": False, "reason": "no such design session"})
-            return
-        session, scad_text, has_stl, has_preview, has_base = detail
-        handler._send(200, designs_module.render_design_detail(
-            session, scad_text, has_stl=has_stl, has_preview=has_preview,
-            has_base=has_base, theme=handler._theme()),
-            "text/html; charset=utf-8")
+        _detail_page(handler, segments[0])
         return
     if len(segments) == 2 and segments[0] and segments[1] in designs_module.FILE_KINDS:
-        found = designs_module.file_for(data, segments[0], segments[1])
+        turn = (parse_qs(urlparse(handler.path).query).get("turn") or [None])[0]
+        if segments[1] == "preview" and turn is not None:
+            found = designs_module.turn_preview_for(data, segments[0], turn)
+        else:
+            found = designs_module.file_for(data, segments[0], segments[1])
         if found is None:
             handler._json(404, {"ok": False, "reason": "no such design file"})
             return

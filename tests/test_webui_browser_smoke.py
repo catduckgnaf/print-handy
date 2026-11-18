@@ -216,6 +216,57 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.assertTrue(response.body().startswith(b"\xff\xd8"),
                         "the snapshot is a JPEG from the fake source")
 
+    def test_designs_page_is_one_conversation(self):
+        """#1636: one message box starts the design, the reply and the turn's
+        preview land in the thread (the page's own poll reloads into them),
+        a question's button answers in place, and the next message iterates.
+        The design pipeline is doubled as in tests/test_webui_design_workshop.py."""
+        from unittest import mock
+
+        from print_handy.bot.handlers import design as design_handler
+        from print_handy.core import design
+        from print_handy.runtime import _config
+
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_webui_design_workshop import GOOD, THICKER, _runner, _scripted
+
+        self.settings_data["design"] = {"enabled": True, "chat_url": "http://design.test/v1",
+                                        "model": "fake", "timeout_s": 30,
+                                        "repair_attempts": 1}
+        complete = _scripted([GOOD, THICKER])
+        engine = mock.patch.object(design_handler, "_design_engine", lambda cfg, _c:
+                                   design.DesignEngine(cfg["paths"]["cache"], complete,
+                                                       cfg=cfg, runner=_runner))
+        for patch in (engine, mock.patch.object(_config, "_override", self.settings_data)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.addCleanup(lambda: getattr(self.httpd, "chat_service", None)
+                        and self.httpd.chat_service.close())
+
+        self.login()
+        self.page.goto(self.base + "/designs")
+        self.assertEqual(self.page.locator("form.design-composer").count(), 1)
+        self.page.fill("#d-text", "a 40x20 plate with two holes")
+        self.page.locator("form.design-composer button[type=submit]").click()
+        # The poll reloads the page once the question is asked.
+        question = self.page.locator(".chat-prompt button", has_text="Change it")
+        question.wait_for(timeout=30000)
+        log = self.page.locator("ol.chat-log")
+        self.assertIn("a 40x20 plate with two holes", log.locator(".chat-op").first.inner_text())
+        self.assertIn("Design turn 1", log.inner_text())
+        image = log.locator('img[src*="/preview?turn=1"]')
+        self.assertEqual(image.count(), 1)
+        self.assertTrue(self.page.evaluate(
+            "img => img.complete && img.naturalWidth > 0", image.element_handle()))
+
+        question.click()
+        self.page.locator("ol.chat-log", has_text="Say the change").wait_for(timeout=30000)
+        self.page.fill("#d-text", "give it a 6 mm lip")
+        self.page.locator("form.design-composer button[type=submit]").click()
+        self.page.locator('ol.chat-log img[src*="/preview?turn=2"]').wait_for(timeout=30000)
+        self.assertIn("Design turn 2", self.page.locator("ol.chat-log").inner_text())
+        self.assertEqual(self.page.locator("form.design-composer").count(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

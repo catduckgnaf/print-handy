@@ -12,17 +12,33 @@ owns the session store (``<cache>/design-sessions/``): this module only
 reads through its catalog API, so the retention window (14 days) and
 the on-disk layout have exactly one owner.
 
-The workshop runs no design pipeline of its own. Its forms submit to
-the operator's web chat session (``POST /designs`` and
-``POST /designs/choice`` in the server), which runs the message through
-``BotCore.process``: the same ``/print-design`` dispatch, the same
-engine, the same Slice it / Change it / Cancel question and the same
-hand-off into prepared intake as every chat platform. The page renders
-the live session for this browser's chat scope (its preview, its state,
-the open question's own buttons) from the session store and the chat
-service's view of that scope. When design is not set up (disabled, or
-no model configured) the workshop says why, in the chat handler's own
-terms, and shows no form that cannot work; the catalog below renders
+The workshop is a conversation (#1636), drawn by the same transcript
+renderer as the Chat page: your messages and the bot's replies in
+order, each turn's preview in the thread at the turn that made it, the
+open question inline with its own buttons, a working line while a turn
+runs, and one message box. It runs no design pipeline of its own: the
+box and the buttons submit to a web chat scope of the page's own (the
+browser's scope plus a design-thread suffix, ``bot.web.design_scope``),
+which runs every message through ``BotCore.process``: the same
+``/print-design`` dispatch, engine, Slice it / Change it / Cancel
+question and hand-off into prepared intake as every chat platform. The
+first message of a thread is sent as the ``/print-design`` command;
+every later one goes as typed, so a change, a typed "slice it" or a
+choice number reach the design exactly as they do in chat. The thread
+reads its own entries only, never the shared print feed, so Chat and
+Workflow traffic and print posts stay out of it.
+
+The conversation is saved beside its session (``core.design``'s thread
+file, written by the web chat service), so it survives a reload and a
+restart and reopens from the catalog. "New design" starts a new thread
+(a new suffix, kept in a cookie); the session it leaves stays as it was
+and can be continued from its own page. A session started on another
+platform, or in another browser, can be read here but continues where
+it was started: its owner key names that chat (``owner_for_scope``).
+
+When design is not set up (disabled, or no model configured) or web
+chat is off, the workshop says why, in the chat handler's own terms,
+and shows no message box that cannot work; the catalog below renders
 the same either way, because disabling design stops new sessions, it
 does not hide the ones already made.
 
@@ -40,7 +56,7 @@ from pathlib import Path
 
 from ..core import design
 from . import chat as chat_module
-from . import shell
+from . import shell, transcript
 
 # The file kinds a session exposes, with their download presentation:
 # kind -> (content type, inline?) — the preview is inline so the
@@ -59,9 +75,7 @@ def designs_root(data) -> Path:
     Resolves the cache directory exactly as the design engine's callers
     do: ``paths.cache``, falling back to ``<state_home>/cache``.
     """
-    paths = (data or {}).get("paths") or {}
-    cache = paths.get("cache") or (Path(paths.get("state_home") or ".") / "cache")
-    return design.sessions_root(cache)
+    return design.sessions_root_for(data)
 
 
 def session_name(session) -> str:
@@ -175,6 +189,19 @@ def file_for(data, session_id, kind):
     return path, content_type, inline
 
 
+def turn_preview_for(data, session_id, turn):
+    """(path, content_type, inline) for one turn's preview, or None.
+
+    The picture a turn posted in the thread (``?turn=N``), resolved by
+    :func:`print_handy.core.design.turn_preview` from the session record,
+    so only that session's own preview files can be named."""
+    path = design.turn_preview(designs_root(data), session_id, turn)
+    if path is None:
+        return None
+    content_type, inline = FILE_KINDS["preview"]
+    return path, content_type, inline
+
+
 # ---------------------------------------------------------------- workshop
 
 def design_availability(data):
@@ -205,7 +232,7 @@ def design_availability(data):
 
 
 def owner_for_scope(scope):
-    """The design owner key for one Web UI session's chat scope.
+    """The design owner key for one web chat scope.
 
     The chat design handler keys a session by its source: chat id,
     thread, user. A web chat source is the operator in the web chat
@@ -213,56 +240,183 @@ def owner_for_scope(scope):
     adapter's own constants, never a second spelling of them.
     """
     from ..bot import web
-    return f"{web.CHAT_ID}:{scope or ''}:{web.OPERATOR_ID}"
+    return web.DesignThreads.owner_for(scope)
 
 
 def start_message(description):
     """The web chat message that starts a design: the /print-design command.
 
     The command form, not a bare description, so the dispatch always
-    treats it as a fresh design (superseding any session this operator
+    treats it as a fresh design (superseding any session this thread
     had waiting), exactly as typing the command in chat does.
     """
     return f"/print-design {description}"
 
 
-def workshop_model(data, view):
-    """Everything the workshop section renders, for one chat view.
+def thread_of(session):
+    """(browser scope, thread nonce) of a web design thread's session, else None.
 
-    ``view`` is the browser session's scoped web chat view, or None
-    when web chat is off (the server builds no service then, so there
-    is nothing to submit through). The live session is this scope's
-    own, found by its design owner key; another session's design is
-    never shown. ``messages`` is the tail of the bot's replies in this
-    scope, so a finished turn's dimensions and assumptions are on the
-    page next to the preview.
+    Sessions started in another chat (Discord, Telegram, Matrix, the
+    Chat page) or by another browser name a different owner; they are
+    shown here, and continue where they were started.
+    """
+    from ..bot import web
+    parts = str((session or {}).get("owner_key") or "").split(":")
+    if len(parts) != 3 or parts[0] != web.CHAT_ID or parts[2] != web.OPERATOR_ID:
+        return None
+    return web.design_thread_of(parts[1])
+
+
+def _thread_entry(entry, session_id):
+    """One saved thread row as a render entry (an image's url rebuilt here)."""
+    from ..bot import web
+    if entry.get("kind") != "image":
+        return dict(entry)
+    try:
+        turn = int(entry.get("turn"))
+    except (TypeError, ValueError):
+        return None
+    return {"kind": "image", "caption": entry.get("caption") or f"Turn {turn} preview",
+            "url": web.preview_url(session_id, turn)}
+
+
+def session_thread(data, session):
+    """The saved conversation of a session, as render entries, oldest first.
+
+    A session saved before conversations were kept (or started on
+    another platform) has only its record's history: each turn's
+    instruction and the preview it made. That is what is shown then,
+    with a note saying the replies were not kept.
+    """
+    from ..bot import web
+    root = designs_root(data)
+    sid = session["id"]
+    saved = [row for row in (_thread_entry(e, sid) for e in design.load_thread(root, sid))
+             if row is not None]
+    if saved:
+        return saved
+    rows = []
+    history = [h for h in session.get("history") or [] if isinstance(h, dict)]
+    if history or session.get("description"):
+        rows.append({"kind": "prompt_closed",
+                     "note": "Only your messages and the previews were kept for this "
+                             "design, so the bot's replies are not shown."})
+    if not history and session.get("description"):
+        rows.append({"kind": "operator", "content": str(session["description"])})
+    for index, turn in enumerate(history):
+        text = turn.get("instruction") or (session.get("description") if index == 0 else "")
+        if text:
+            rows.append({"kind": "operator", "content": str(text)})
+        number = turn.get("turn")
+        if isinstance(number, int) and design.turn_preview(root, sid, number) is not None:
+            rows.append({"kind": "image", "url": web.preview_url(sid, number),
+                         "caption": f"Turn {number} preview"})
+    return rows
+
+
+def _live_rows(live, session_id):
+    """The live entries the saved thread does not hold yet.
+
+    The web chat service marks an entry ``saved`` (with its session id)
+    once it is in a thread file. What is left is newer than everything
+    saved: the operator's message while its first reply is on the way,
+    or a reply that belongs to no session (a "not set up" answer).
+    Entries saved to another session of this thread are that session's.
+    """
+    if session_id is None:
+        return [e for e in live if not e.get("saved")]
+    last = max((e["seq"] for e in live if e.get("saved")), default=0)
+    return [e for e in live if not e.get("saved") and e["seq"] > last]
+
+
+def workshop_model(data, view):
+    """Everything the workshop renders, for one design-thread view.
+
+    ``view`` is the browser's design-thread view (its own entries only,
+    no shared posts), or None when web chat is off (the server builds
+    no service then, so there is nothing to submit through). The
+    thread's session is the newest one its owner key started; another
+    thread's or another browser's design is never shown here.
+
+    ``phase`` is what the message box sends: ``start`` (the text becomes
+    the /print-design command: nothing is running, the design finished,
+    or its first turn did not work) or ``reply`` (the text goes as typed:
+    the answer to the open question, the change a waiting design is
+    after, or a message while a turn runs, which the design answers
+    itself). ``lost`` is a rendered design whose question a restart
+    closed: the next message is its change.
     """
     ready, reason = design_availability(data)
     model = {"ready": ready, "reason": reason, "chat_off": view is None,
-             "session": None, "prompt": None, "busy": False, "messages": [],
-             "seq": 0}
+             "session": None, "prompt": None, "busy": False, "pending": False,
+             "entries": [], "seq": 0, "phase": "start", "failed": False,
+             "lost": False}
     if view is None:
         return model
-    entries = view.entries()
-    if entries:
-        model["seq"] = entries[-1]["seq"]
-    model["busy"] = bool(view.busy())
-    model["prompt"] = view.open_prompt()
-    model["messages"] = [str(entry.get("content") or "") for entry in entries
-                         if entry.get("kind") == "message"][-6:]
-    root = designs_root(data)
-    session = design.find_session_for_owner(root, owner_for_scope(view.scope))
+    live = view.entries()
+    if live:
+        model["seq"] = live[-1]["seq"]
+    busy = bool(view.busy())
+    prompt = view.open_prompt()
+    model.update(busy=busy, prompt=prompt, pending=busy and not prompt)
+    session = design.newest_session_for_owner(designs_root(data), owner_for_scope(view.scope))
     if session is not None:
+        status = session.get("status")
+        turns = int(session.get("turns") or 0)
+        live_turn = status == "active" and not busy and not prompt
+        failed = live_turn and turns == 0
+        lost = live_turn and turns > 0
+        model.update(failed=failed, lost=lost)
+        if prompt or busy or status == "awaiting_revision" or lost:
+            model["phase"] = "reply"
         model["session"] = {
             "id": session["id"],
             "name": session_name(session),
-            "state": session_state(session),
-            "turns": int(session.get("turns") or 0),
+            "description": str(session.get("description") or ""),
+            "state": "Did not work" if failed else session_state(session),
             "updated": _when(session.get("updated_at")),
-            "updated_epoch": int(session.get("updated_at") or 0),
-            "has_preview": design.session_file(root, session["id"], "preview") is not None,
         }
+        model["entries"] = session_thread(data, session) + _live_rows(live, session["id"])
+    else:
+        if prompt or busy:
+            model["phase"] = "reply"
+        model["entries"] = _live_rows(live, None)
     return model
+
+
+def composer_message(model, text):
+    """The web chat message the message box sends for ``text`` (see workshop_model)."""
+    return start_message(text) if model["phase"] == "start" else text
+
+
+def retry_message(model):
+    """The message that tries a failed first turn again, or None."""
+    session = model.get("session")
+    if not model.get("failed") or not session or not session["description"].strip():
+        return None
+    return start_message(session["description"])
+
+
+def resume_lost(data, model):
+    """Put a design whose question a restart closed back to waiting (core.design)."""
+    if model.get("lost") and model.get("session"):
+        design.mark_waiting(designs_root(data), model["session"]["id"])
+
+
+def continue_state(session, browser_scope):
+    """How the detail page offers to go on with a session.
+
+    ``current``: it is this browser's open design thread. ``continue``:
+    another of this browser's threads, still live. ``finished``: it was
+    handed off or cancelled. ``elsewhere``: another chat or browser
+    started it, so it continues there (its owner key names that chat).
+    """
+    if session.get("status") in ("cancelled", "handed_off"):
+        return "finished"
+    thread = thread_of(session)
+    if thread is None or not browser_scope or thread[0] != browser_scope:
+        return "elsewhere"
+    return "continue"
 
 
 # ---------------------------------------------------------------- rendering
@@ -276,93 +430,97 @@ def _page(title, body, *, theme=shell.DEFAULT_THEME, nav=None):
     return shell.page(title, body, path="/designs", theme=theme, nav=nav)
 
 
-def _render_workshop(workshop, *, form_token):
-    """The workshop section at the top of GET /designs (#1449).
+INTRO = ("<p>Describe a part and Print Handy designs it, checks it, and shows you a "
+         "preview right here. Then just keep talking: say a change, answer its "
+         "questions, or say <em>slice it</em> to hand it to the normal print intake. "
+         "Nothing prints without the usual confirmation.</p>")
 
-    Three shapes, matching what can actually happen: web chat off or
-    design not set up is a plain reason and no form; ready with no live
-    session is the start form; a live session adds its panel (preview,
-    the bot's latest replies, and either the open question's buttons,
-    a working note while a turn runs, or the follow-up form). Every
-    form posts back to this page's own routes, which submit through
-    the scoped web chat view: the buttons are the question's own,
-    answered through the prompt machinery, never a page-side shortcut.
+
+def _hidden_token(form_token):
+    return f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+
+
+def _render_workshop(workshop, *, form_token):
+    """The design conversation at the top of GET /designs (#1636).
+
+    Web chat off or design not set up is a plain reason and no message
+    box. Otherwise: a small header (the design's name, state and update
+    time, and New design), the thread, the open question with its own
+    buttons, a Try again for a first turn that did not work, and one
+    message box. Every form posts back to this page's own routes, which
+    submit through the design-thread view: the buttons are the
+    question's own, answered through the prompt machinery.
     """
-    parts = ["<h2>Design something new</h2>"]
+    parts = ['<section class="design-workshop" aria-label="Design conversation">']
     if workshop is None or workshop["chat_off"]:
-        parts.append("<p>Designing from this page runs through web chat, and web "
+        parts.append("<h2>Design something new</h2>"
+                     "<p>Designing from this page runs through web chat, and web "
                      "chat is turned off (<code>webui.chat_enabled</code>). Turn it "
                      "on in Settings to design here, or design from Discord, "
-                     "Telegram or Matrix with <code>/print-design</code>.</p>")
+                     "Telegram or Matrix with <code>/print-design</code>.</p></section>")
         return "".join(parts)
     if not workshop["ready"]:
-        parts.append(f"<p>{_esc(workshop['reason'])}</p>")
+        parts.append(f"<h2>Design something new</h2><p>{_esc(workshop['reason'])}</p>"
+                     "</section>")
         return "".join(parts)
     session = workshop["session"]
-    parts.append(
-        '<form method="post" action="/designs">'
-        f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
-        '<input type="hidden" name="mode" value="start">'
-        '<div class="field"><label for="d-text">Describe the part</label>'
-        '<input id="d-text" name="text" autocomplete="off" '
-        'placeholder="a 40x20x3 plate with two 4 mm holes 30 mm apart"></div>'
-        '<button type="submit" class="accent">Start designing</button></form>')
+    entries = workshop["entries"]
+    new_form = ('<form method="post" action="/designs/new" class="inline">'
+                f'{_hidden_token(form_token)}'
+                '<button type="submit" class="secondary">New design</button></form>')
     if session is not None:
-        parts.append("<p>Starting a new design replaces the one below that is "
-                     "still waiting for your call.</p>")
-        parts.append("<h3>Your current design</h3>")
-        parts.append(
-            "<table>"
-            f"<tr><th>Design</th><td>{_esc(session['name'])}</td></tr>"
-            f"<tr><th>State</th><td>{_esc(session['state'])}</td></tr>"
-            f"<tr><th>Turns</th><td>{session['turns']}</td></tr>"
-            f"<tr><th>Updated</th><td>{_esc(session['updated'])}</td></tr>"
-            "</table>")
-        if session["has_preview"]:
-            parts.append(
-                f'<p><img src="/designs/{_esc(session["id"])}/preview'
-                f'?v={session["updated_epoch"]}" '
-                f'alt="Preview of {_esc(session["name"])}" width="320"></p>')
-        for message in workshop["messages"]:
-            parts.append(f'<p class="chat-bot">{_esc(message)}</p>')
-        prompt = workshop["prompt"]
-        if prompt:
-            buttons = []
-            for index, choice in enumerate(prompt["choices"]):
-                buttons.append(
-                    '<form method="post" action="/designs/choice" class="inline">'
-                    f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
-                    f'<input type="hidden" name="clarify_id" '
-                    f'value="{_esc(prompt["clarify_id"])}">'
-                    f'<input type="hidden" name="index" value="{index}">'
-                    f'<button type="submit">{_esc(choice)}</button></form>')
-            parts.append('<div class="chat-prompt"><p>'
-                         f'{_esc(prompt["question"])}</p>'
-                         + "".join(buttons) + "</div>")
-        elif workshop["busy"]:
-            # A turn is running and no question is waiting: poll like the
-            # chat page until the reply lands, then reload into it.
-            parts.append(f'<noscript><meta http-equiv="refresh" '
-                         f'content="{chat_module.REFRESH_SECONDS}"></noscript>')
-            parts.append(chat_module.POLL_SCRIPT.replace(
-                "__SEQ__", str(int(workshop["seq"]))))
-            parts.append(f'<p class="chat-bot chat-working"><em>'
-                         f'{chat_module.WORKING_TEXT}</em></p>')
-        else:
-            parts.append(
-                '<form method="post" action="/designs">'
-                f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
-                '<input type="hidden" name="mode" value="revise">'
-                '<div class="field"><label for="d-change">Describe the change</label>'
-                '<input id="d-change" name="text" autocomplete="off" '
-                'placeholder="make it 5 mm taller"></div>'
-                '<button type="submit" class="accent">Send the change</button></form>')
+        parts.append(f"<h2>{_esc(session['name'])}</h2>"
+                     '<div class="design-head">'
+                     f'<p class="muted">{_esc(session["state"])} · updated '
+                     f'{_esc(session["updated"])} · '
+                     f'<a href="/designs/{_esc(session["id"])}">files and source</a></p>'
+                     f"{new_form}</div>")
+    else:
+        parts.append("<h2>Design something new</h2>")
+        if entries:
+            parts.append(f'<div class="design-head">{new_form}</div>')
+    if workshop["pending"]:
+        # A turn is running and no question is waiting: poll like the
+        # chat page (this page's own state route) until the reply lands.
+        parts.append(f'<noscript><meta http-equiv="refresh" '
+                     f'content="{chat_module.REFRESH_SECONDS}"></noscript>')
+        parts.append(chat_module.poll_script(workshop["seq"], "/designs/state"))
+    parts.append(transcript.render_log(entries, open_prompt=workshop["prompt"],
+                                       working=workshop["pending"], empty=INTRO))
+    parts.append(transcript.render_prompt(workshop["prompt"], action="/designs/choice",
+                                          form_token=form_token))
+    if workshop["failed"]:
+        parts.append('<div class="chat-prompt" role="group" aria-label="Try again">'
+                     '<div class="chat-body"><p>That design did not come out. Send it '
+                     'again as it is, or say it another way below.</p></div>'
+                     '<div class="chat-choices">'
+                     '<form method="post" action="/designs" class="inline">'
+                     f'{_hidden_token(form_token)}'
+                     '<input type="hidden" name="retry" value="1">'
+                     '<button type="submit">Try again</button></form></div></div>')
+    if workshop["lost"]:
+        parts.append('<p class="chat-note">Print Handy restarted since this design '
+                     'asked what next, so the buttons are gone. Say a change, or '
+                     '<em>slice it</em>, or <em>never mind</em>.</p>')
+    if workshop["phase"] == "start":
+        placeholder = "a 40x20x3 plate with two 4 mm holes 30 mm apart"
+        label = "Describe a part" if session is None else "Describe a new part"
+    else:
+        placeholder = "make it 5 mm taller, slice it, or answer the question"
+        label = "Message"
+    parts.append('<form method="post" action="/designs" class="design-composer">'
+                 f'{_hidden_token(form_token)}'
+                 f'<div class="field"><label for="d-text">{label}</label>'
+                 '<input id="d-text" name="text" autocomplete="off" '
+                 f'placeholder="{_esc(placeholder)}"></div>'
+                 '<button type="submit" class="accent">Send</button></form>')
+    parts.append("</section>")
     return "".join(parts)
 
 
 def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=None,
                         form_token="", notice=None, error=None):
-    """The GET /designs page: the workshop, then the catalog of sessions."""
+    """The GET /designs page: the design conversation, then the catalog."""
     parts = []
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
@@ -373,14 +531,14 @@ def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=N
                  "<p>Every design session kept here (14 days), from this page or "
                  "from chat with <code>/print-design</code> (or <code>/design</code>) "
                  "(<a href=\"https://github.com/catduckgnaf/print-handy/blob/main/docs/DESIGN.md\">"
-                 "the design guide</a>). Opening one shows its source and files; "
-                 "slicing and printing run through the normal confirmation flow.</p>"
+                 "the design guide</a>). Opening one shows its conversation, source and "
+                 "files; slicing and printing run through the normal confirmation flow.</p>"
                  "<p>Looking for a model to print instead? <a href=\"/sources\">Model "
                  "sources</a> lists every site a link can be dropped from.</p>")
     if not rows:
-        parts.append("<p>No designs yet. Start one in the workshop above, or "
-                     "describe a part with <code>/print-design</code> in chat: "
-                     "finished sessions will be listed here.</p>")
+        parts.append("<p>No designs yet. Start one above, or describe a part with "
+                     "<code>/print-design</code> in chat: every session is listed "
+                     "here.</p>")
         return _page("designs", "".join(parts), theme=theme, nav=nav)
     body = []
     for row in rows:
@@ -397,28 +555,53 @@ def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=N
             f"<td>{_esc(row['updated'])}</td>"
             f"<td>{preview}</td>"
             "</tr>")
-    parts.append("<table><tr><th>Design</th><th>Kind</th><th>State</th>"
-                 "<th>Turns</th><th>Created</th><th>Updated</th><th>Preview</th></tr>"
-                 + "".join(body) + "</table>")
+    parts.append('<div class="table-scroll"><table class="design-catalog"><tr>'
+                 '<th>Design</th><th>Kind</th>'
+                 "<th>State</th><th>Turns</th><th>Created</th><th>Updated</th>"
+                 "<th>Preview</th></tr>" + "".join(body) + "</table></div>")
     return _page("designs", "".join(parts), theme=theme, nav=nav)
 
 
+_CONTINUE_NOTES = {
+    "finished": "This design is finished (handed off or cancelled), so it cannot take "
+                "more changes. Start a new one from the Designs page.",
+    "elsewhere": "This design was started in another chat (Discord, Telegram, Matrix, "
+                 "the Chat page or another browser), so it carries on there.",
+}
+
+
 def render_design_detail(session, scad_text, *, has_stl, has_preview, has_base=False,
-                         theme=shell.DEFAULT_THEME):
-    """The GET /designs/<id> page: facts, downloads, the .scad source."""
+                         theme=shell.DEFAULT_THEME, nav=None, thread=(),
+                         continue_as="elsewhere", form_token=""):
+    """The GET /designs/<id> page: the conversation, the files, the source.
+
+    ``thread`` is the session's conversation (:func:`session_thread`);
+    ``continue_as`` is :func:`continue_state` for this browser, or
+    ``current`` when the session is the browser's open design thread.
+    """
     sid = _esc(session.get("id") or "")
     parts = [f"<h2>{_esc(session_name(session))}</h2>",
-             "<table>"
-             f"<tr><th>Kind</th><td>{_esc(session_kind(session))}</td></tr>"
-             f"<tr><th>State</th><td>{_esc(session_state(session))}</td></tr>"
-             f"<tr><th>Turns</th><td>{int(session.get('turns') or 0)}</td></tr>"
-             f"<tr><th>Created</th><td>{_esc(_when(session.get('created_at')))}</td></tr>"
-             f"<tr><th>Updated</th><td>{_esc(_when(session.get('updated_at')))}</td></tr>"
-             "</table>"]
+             f'<p class="muted">{_esc(session_kind(session))} · '
+             f'{_esc(session_state(session))} · {int(session.get("turns") or 0)} turn(s) · '
+             f'created {_esc(_when(session.get("created_at")))} · '
+             f'updated {_esc(_when(session.get("updated_at")))}</p>']
+    if continue_as == "current":
+        parts.append('<p><a class="button accent" href="/designs">Back to the '
+                     'conversation</a></p>')
+    elif continue_as == "continue":
+        parts.append(f'<form method="post" action="/designs/{sid}/continue" class="inline">'
+                     f'{_hidden_token(form_token)}'
+                     '<button type="submit" class="accent">Continue this design</button>'
+                     '</form>')
+    elif continue_as in _CONTINUE_NOTES:
+        parts.append(f'<p class="muted">{_CONTINUE_NOTES[continue_as]}</p>')
+    parts.append("<h3>Conversation</h3>")
+    parts.append(transcript.render_log(
+        list(thread), empty="<p>No conversation was kept for this design.</p>"))
     downloads = [f'<li><a href="/designs/{sid}/scad">Download the .scad source</a></li>']
     if has_base:
         downloads.append(
-            f'<li><a href="/designs/{sid}/base">Download the base mesh (source.stl)</a> — '
+            f'<li><a href="/designs/{sid}/base">Download the base mesh (source.stl)</a>: '
             "the .scad source imports this file, so keep it next to the source "
             "to open the design in OpenSCAD</li>")
     if has_stl:
@@ -426,20 +609,20 @@ def render_design_detail(session, scad_text, *, has_stl, has_preview, has_base=F
     if has_preview:
         downloads.append(f'<li><a href="/designs/{sid}/preview">Download the preview PNG</a></li>')
     parts.append("<h3>Files</h3><ul>" + "".join(downloads) + "</ul>")
-    if has_preview:
-        parts.append(f'<p><img src="/designs/{sid}/preview" '
-                     f'alt="Preview of {_esc(session_name(session))}" width="320"></p>')
     parts.append("<h3>OpenSCAD source</h3>")
     if scad_text:
-        parts.append(f"<pre>{_esc(scad_text)}</pre>")
+        parts.append(f"<details><summary>Show the source</summary><pre>{_esc(scad_text)}"
+                     "</pre></details>")
     else:
         parts.append("<p>No source recorded for this session yet.</p>")
-    return _page("design", "".join(parts), theme=theme)
+    return _page("design", "".join(parts), theme=theme, nav=nav)
 
 
 __all__ = [
-    "FILE_KINDS", "catalog_rows", "design_availability", "designs_root",
-    "file_for", "load_detail", "owner_for_scope", "render_design_detail",
-    "render_designs_page", "session_kind", "session_name", "session_state",
-    "start_message", "workshop_model",
+    "FILE_KINDS", "catalog_rows", "composer_message", "continue_state",
+    "design_availability", "designs_root", "file_for", "load_detail",
+    "owner_for_scope", "render_design_detail", "render_designs_page",
+    "resume_lost", "retry_message", "session_kind", "session_name",
+    "session_state", "session_thread", "start_message", "thread_of",
+    "turn_preview_for", "workshop_model",
 ]

@@ -575,13 +575,25 @@ def _design_engine(cfg, complete):
                                complete, cfg=cfg)
 
 
-def _design_failure_text(exc):
+def _design_failure_text(exc, *, first_turn=False):
     """What to post when a design turn raises: the engine's own words for a
-    DesignError, and an honest "could not tell why" (logged) for anything else."""
+    DesignError, and an honest "could not tell why" (logged) for anything else.
+
+    ``first_turn`` is a design that has not rendered yet (#1636): nothing
+    was changed, so it is not called a change, and the reply says how to
+    try again. The engine's words always end in a full stop here."""
     from print_handy.core import design
+    what = 'That design did not work' if first_turn else 'That design change did not work'
+    retry = (' Send the description again to retry, or describe the part another way.'
+             if first_turn else '')
     if isinstance(exc, design.DesignError):
-        return f'That design change did not work: {exc} Nothing was sliced or started.'
+        detail = str(exc).strip()
+        if detail and detail[-1] not in '.!?':
+            detail += '.'
+        return f'{what}: {detail} Nothing was sliced or started.{retry}'
     logger.error('design turn failed unexpectedly', exc_info=exc)
+    if first_turn:
+        return _DESIGN_UNEXPECTED_FAILURE.replace('That design change did not work', what) + retry
     return _DESIGN_UNEXPECTED_FAILURE
 
 

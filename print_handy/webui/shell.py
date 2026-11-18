@@ -247,6 +247,12 @@ button:disabled { opacity: 0.55; cursor: default; }
   padding: 0.75rem 1rem; margin: 1rem 0; background: var(--color-surface); }
 .chat-choices { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
 .chat-choices form.inline { display: inline; margin: 0; }
+.chat-body figcaption { font-size: 0.75rem; color: var(--color-muted); margin-top: 0.25rem; }
+.design-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 0.5rem; margin: -0.25rem 0 0.5rem; }
+.design-head p { margin: 0; }
+.design-composer { margin-bottom: 2rem; }
+.design-catalog { min-width: 40rem; }
 .save-state { display: inline-block; margin-left: 0.5rem; font-size: 0.875rem; color: var(--color-muted); }
 .save-state[data-kind="ok"] { color: var(--color-ok); }
 .save-state[data-kind="error"] { color: var(--color-bad); }
