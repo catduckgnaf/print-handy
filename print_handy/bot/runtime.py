@@ -498,6 +498,20 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+print{_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?what\s+(?:did|does)\s+(?:that|this)\s+print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    # Statistics and Pasta Wrapped (#1647): the per-user and
+    # per-printer views of the print history. "my" routes to the
+    # asker's own statistics; a user or printer named in the ask
+    # rides along as the command's argument and the handler resolves
+    # it against the recorded starters and printers.
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?my\s+(?:printing\s+)?(?:stats|statistics){_END}", re.I), "/print-stats me"),
+    (re.compile(rf"^(?:please\s+)?what\s+are\s+my\s+(?:printing\s+)?(?:stats|statistics){_END}", re.I), "/print-stats me"),
+    (re.compile(rf"^(?:please\s+)?how\s+many\s+prints\s+have\s+i\s+(?:made|done|printed){_END}", re.I), "/print-stats me"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:printing\s+)?(?:stats|statistics)\s+for\s+(?P<q>.+?){_END}", re.I), "/print-stats {q}"),
+    (re.compile(rf"^(?:please\s+)?(?:printing\s+)?(?:stats|statistics)\s+for\s+(?P<q>.+?){_END}", re.I), "/print-stats {q}"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:printing\s+)?(?:stats|statistics){_END}", re.I), "/print-stats"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?my\s+(?:pasta\s+)?wrapped{_END}", re.I), "/print-stats wrapped me"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:pasta\s+)?wrapped\s+for\s+(?P<q>.+?){_END}", re.I), "/print-stats wrapped {q}"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:pasta\s+)?wrapped{_END}", re.I), "/print-stats wrapped"),
     # The dropped-file asks (#1661): the same cost question about the
     # attachment in hand. The handler prices the file when one is
     # attached; without one it answers like the bare forms above.
@@ -902,19 +916,36 @@ def session_key(source):
 
 
 def make_source(user_id, chat_id, thread_id=None, is_bot=False, platform_name="discord",
-                printer_id=None, shared_printer_ids=None):
+                printer_id=None, shared_printer_ids=None, display_name=None):
     # printer_id is the roster printer this source's channel routes to (#335);
     # None means the configured single/default printer, as before routing existed.
     # shared_printer_ids is set instead when the channel is shared (#536): the
     # message is served but no printer is decided — printer-bound handlers ask,
     # and a shared channel never falls through to the default printer.
+    # display_name is the sender's display name at message time when the
+    # platform carries one (#1647): it is stamped onto print records as
+    # the starter's name. Absent when the platform supplies none — the
+    # starter is then recorded by id only, never by an invented name.
     return SimpleNamespace(platform=SimpleNamespace(value=str(platform_name)), profile=PROFILE,
                            user_id=str(user_id),
+                           display_name=str(display_name).strip() if display_name else None,
                            chat_id=str(chat_id), thread_id=str(thread_id) if thread_id else None,
                            is_bot=bool(is_bot), profile_route_rejected=False,
                            printer_id=str(printer_id) if printer_id else None,
                            shared_printer_ids=tuple(str(pid) for pid in shared_printer_ids)
                            if shared_printer_ids else None)
+
+
+def author_display_name(author):
+    """The sender's display name when the platform's author object
+    carries one (#1647): Discord's display name, then global name,
+    then user name. None when the platform supplies none — a starter
+    is recorded by id only, never by an invented name."""
+    for attr in ("display_name", "global_name", "name"):
+        value = getattr(author, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def make_event(source, text, message_id, media_urls=(), metadata=None, prov=None):
@@ -1343,7 +1374,8 @@ class BotCore(_RoutedAdapter):
             return None
         source = make_source(author.id, chat_id, thread_id, platform_name=self.platform_name,
                              printer_id=printer_id,
-                             shared_printer_ids=self.shared_ids_for_chat(chat_id))
+                             shared_printer_ids=self.shared_ids_for_chat(chat_id),
+                             display_name=author_display_name(author))
         if self.gateway.setup_only:
             # Setup-only admission reaches only the guided dispatcher
             # (the first router hook), which enforces the Q5 bind and
@@ -1993,7 +2025,8 @@ class BotCore(_RoutedAdapter):
                       and str(chat_id) == self.live_voice_channel_id and thread_id is None)
         source = make_source(user.id, chat_id, thread_id, getattr(user, "bot", False),
                              platform_name=self.platform_name, printer_id=printer_id,
-                             shared_printer_ids=self.shared_ids_for_chat(chat_id))
+                             shared_printer_ids=self.shared_ids_for_chat(chat_id),
+                             display_name=author_display_name(user))
         if live_voice:
             # The live session is install-wide (one voice channel), so the
             # command needs no printer of its own; the source is marked so the

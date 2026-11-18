@@ -136,9 +136,18 @@ def stamp_started_by(job, source):
     """
     starter_id = str(getattr(source, 'user_id', '') or '')
     if starter_id:
-        job['started_by'] = {
+        stamp = {
             'platform': getattr(getattr(source, 'platform', None), 'value', None) or 'discord',
             'user_id': starter_id}
+        # The display name at start time (#1647) rides along when the
+        # platform supplied one, so per-user statistics can name the
+        # starter; a platform that carries no name stamps without one
+        # and the record still attributes by id. Recording only: the
+        # stamp never gates, delays or alters the print.
+        display_name = str(getattr(source, 'display_name', '') or '').strip()
+        if display_name:
+            stamp['display_name'] = display_name
+        job['started_by'] = stamp
 
 
 def _new_stages(timing_path, offset):

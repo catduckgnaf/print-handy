@@ -106,7 +106,7 @@ COMMANDS = (
     Command("print-colors", "Part colors for an archived job",
             (Option("job", "A past job (start typing to pick one)", autocomplete="job", required=True),),
             "/print-colors <job>"),
-    Command("spool", "Guided spool add/change, list or sync",
+    Command("spool", "Spool add/change, list or sync",
             usage="/spool [list | change | new | rename | archive | sync]",
             subcommands=(
                 Subcommand("guided", "Guided spool add/change (asks step by step)", text_word=""),
@@ -143,7 +143,7 @@ COMMANDS = (
             (Option("flow", "Which problem", ("first-layer", "clog", "heat-creep", "bed-level", "ringing", "prepare-to-clean")),),
             "/print-troubleshoot [flow]"),
     Command("print-macros", "List or run printer macros (asks first)",
-            usage="/print-macros [run <name> [KEY=VALUE ...]]",
+            usage="/print-macros [run <name>]",
             subcommands=(
                 Subcommand("list", "List the printer's macros", text_word=""),
                 Subcommand("run", "Run one macro (asks first)",
@@ -186,7 +186,7 @@ COMMANDS = (
             "/print-plate-calibrate"),
     Command("print-design", "Design or edit a model with AI (asks first)",
             (Option("prompt", "What to make or change, e.g. a 40x20x3 plate with two 4 mm holes, or 'make it taller' with a file dropped"),),
-            "/print-design <what to make or change>", aliases=("design",)),
+            "/print-design <request>", aliases=("design",)),
     Command("print-handy", "Setup and read-only debugging",
             (Option("action", "setup, add-printer, debugging, bundle, debug, status, cancel or help",
                     ("setup", "add-printer", "debugging", "bundle", "debug", "status",
@@ -199,6 +199,10 @@ COMMANDS = (
     Command("print-cost", "Print cost (read-only)",
             (Option("query", "Grams and hours, e.g. '50 g, 3 h, in PETG'; blank asks about the last print"),),
             "/print-cost", ephemeral=True),
+    Command("print-stats", "Stats (read-only)",
+            (Option("query", "Blank for all prints; 'me', a user name or @mention, 'printer <name>', "
+                             "or add 'wrapped' for that selection's Pasta Wrapped, e.g. 'wrapped me'"),),
+            "/print-stats", ephemeral=True),
     Command("print-source", "Connected model sites", usage="/print-source", ephemeral=True),
     Command("print-help", "What Print Handy can do", usage="/print-help", ephemeral=True),
 )

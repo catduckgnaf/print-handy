@@ -172,6 +172,220 @@ def _spool_label(value):
     return str(value)
 
 
+# The breakdown label for prints whose starter is not known (#1647):
+# pre-feature records, records from start paths that never knew a
+# starter, and records whose starter could not be captured. They count
+# in every total and are named here, never silently dropped and never
+# attributed to someone after the fact.
+UNATTRIBUTED = "unattributed"
+
+
+def record_starter(record):
+    """The starter a print record carries, normalized (#1647).
+
+    A record's ``started_by`` is the stamp the start path recorded at
+    intake: ``{"platform", "user_id", "display_name"}``, with the
+    display name present only when the platform supplied one. Returns
+    ``{"platform", "user_id"}`` plus ``"display_name"`` when known, or
+    None when the record names no starter — an absent, empty or
+    malformed stamp is unattributed, never guessed.
+    """
+    if not isinstance(record, dict):
+        return None
+    raw = record.get("started_by")
+    if not isinstance(raw, dict):
+        return None
+    user_id = raw.get("user_id")
+    if user_id is None or str(user_id).strip() == "":
+        return None
+    starter = {"platform": str(raw.get("platform") or UNKNOWN),
+               "user_id": str(user_id)}
+    name = raw.get("display_name")
+    if isinstance(name, str) and name.strip():
+        starter["display_name"] = name.strip()
+    return starter
+
+
+def starter_key(record):
+    """``"<platform>:<user_id>"`` for a record's starter, else None.
+
+    The key is the identity a user filter matches on: the same person
+    on two platforms is two starters, because the records cannot
+    prove they are one person.
+    """
+    starter = record_starter(record)
+    if starter is None:
+        return None
+    return f"{starter['platform']}:{starter['user_id']}"
+
+
+def starter_label(record):
+    """The human label for a record's starter: the display name
+    recorded at start time, else the user id, else ``unattributed``."""
+    starter = record_starter(record)
+    if starter is None:
+        return UNATTRIBUTED
+    return starter.get("display_name") or starter["user_id"]
+
+
+def _starter_labels(rows):
+    """Starter key -> breakdown label for these rows (#1647).
+
+    The label is the display name recorded at start time, else the
+    user id. When two different starters share one display name, the
+    platform is appended so the breakdown never merges two people
+    into one row.
+    """
+    base = {}
+    for record in rows:
+        starter = record_starter(record)
+        if starter is None:
+            continue
+        key = f"{starter['platform']}:{starter['user_id']}"
+        base.setdefault(key, (starter.get("display_name") or starter["user_id"],
+                              starter["platform"]))
+    counts = {}
+    for label, _platform in base.values():
+        counts[label] = counts.get(label, 0) + 1
+    return {key: (label if counts[label] == 1 else f"{label} ({platform})")
+            for key, (label, platform) in base.items()}
+
+
+def starter_options(records):
+    """The distinct starters in ``records`` as filter options:
+    ``[{"key", "label", "platform", "user_id", "prints"}]`` sorted by
+    print count, then label. Unattributed prints are not an option
+    here; :func:`filter_records` takes the ``UNATTRIBUTED`` starter
+    value for them."""
+    counts = {}
+    labels = {}
+    for record in records or []:
+        starter = record_starter(record)
+        if starter is None:
+            continue
+        key = f"{starter['platform']}:{starter['user_id']}"
+        counts[key] = counts.get(key, 0) + 1
+        labels.setdefault(key, starter)
+    options = [{"key": key,
+                "label": labels[key].get("display_name") or labels[key]["user_id"],
+                "platform": labels[key]["platform"],
+                "user_id": labels[key]["user_id"],
+                "prints": counts[key]} for key in counts]
+    options.sort(key=lambda row: (-row["prints"], row["label"].lower()))
+    return options
+
+
+def printer_options(records):
+    """The distinct printers in ``records`` as filter options:
+    ``[{"name", "prints"}]`` sorted by print count, then name. The
+    name is the printer the records themselves carry, so an option
+    always matches the records it counts."""
+    counts = {}
+    for record in records or []:
+        name = _record_printer(record)
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    options = [{"name": name, "prints": counts[name]} for name in counts]
+    options.sort(key=lambda row: (-row["prints"], row["name"].lower()))
+    return options
+
+
+def _record_printer(record):
+    """The printer a record names: its ``printer`` display name, or
+    its ``printer_id`` when that is all the record carries."""
+    if not isinstance(record, dict):
+        return ""
+    return str(record.get("printer") or record.get("printer_id") or "").strip()
+
+
+def _printer_matches(record, wanted):
+    """Whether ``record`` ran on the printer ``wanted`` names: the
+    record's printer name or printer id, compared case-insensitively
+    so a filter typed in chat matches the recorded name."""
+    wanted = str(wanted or "").strip().lower()
+    if not wanted:
+        return False
+    return wanted in {str(record.get("printer") or "").strip().lower(),
+                      str(record.get("printer_id") or "").strip().lower()}
+
+
+def filter_records(records, *, starter=None, printer=None):
+    """The records matching a user / printer selection (#1647).
+
+    ``starter`` is a starter key (``"discord:123"``), a starter dict
+    as :func:`record_starter` returns, or :data:`UNATTRIBUTED` for
+    the prints with no recorded starter. ``printer`` is a printer
+    name or id. Both together select one person's prints on one
+    printer. This is the one filtering implementation: the chat
+    answers and the Web UI Data / Wrapped views all call it, so the
+    numbers cannot drift between surfaces.
+    """
+    rows = list(records or [])
+    if starter is not None:
+        if starter == UNATTRIBUTED:
+            rows = [row for row in rows if starter_key(row) is None]
+        else:
+            if isinstance(starter, dict):
+                key = (f"{starter.get('platform') or UNKNOWN}:{starter.get('user_id')}"
+                       if starter.get("user_id") not in (None, "") else None)
+            else:
+                key = str(starter)
+            rows = [row for row in rows if starter_key(row) == key]
+    if printer is not None:
+        rows = [row for row in rows if _printer_matches(row, printer)]
+    return rows
+
+
+def filter_events_for_records(events, records):
+    """The watchdog events that belong to ``records`` (#1647).
+
+    Pasta events are keyed by print, not by starter or printer, so a
+    filtered view keeps only the events whose print is one of the
+    filtered records — matched on print number or job key, the same
+    identity the pasta summary joins events to records with.
+    """
+    numbers = set()
+    keys = set()
+    for record in records or []:
+        number = record.get("print_number")
+        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+            numbers.add(number)
+        job_key = record.get("job_key")
+        if isinstance(job_key, str) and job_key.strip():
+            keys.add(job_key.strip())
+    kept = []
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        number = event.get("print_number")
+        if isinstance(number, int) and not isinstance(number, bool) and number in numbers:
+            kept.append(event)
+            continue
+        job_key = event.get("job_key")
+        if isinstance(job_key, str) and job_key.strip() in keys:
+            kept.append(event)
+    return kept
+
+
+def selection_descriptor(user_label=None, printer=None):
+    """The label a filtered view carries (#1647): ``{"user",
+    "printer", "label"}`` naming whose prints and which printer a
+    selection covers, or None when nothing is filtered. The label is
+    what the Wrapped recap, its share card and the Web UI pages print
+    so a filtered number is never mistaken for the whole history."""
+    user_label = str(user_label or "").strip() or None
+    printer = str(printer or "").strip() or None
+    if user_label is None and printer is None:
+        return None
+    if user_label and printer:
+        label = f"{user_label} on {printer}"
+    elif user_label:
+        label = user_label
+    else:
+        label = printer
+    return {"user": user_label, "printer": printer, "label": label}
+
+
 def _settings_dict(record):
     """The record's slicer_settings as a dict, or None (it may be a
     JSON string, a dict, or absent, depending on the recording path)."""
@@ -724,7 +938,9 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     estimated_values = [v for r in rows if (v := _num(r.get("estimated_filament_g"))) is not None]
 
     breakdowns = {}
+    starter_labels = _starter_labels(rows)
     dimensions = {
+        "by_starter": lambda r: starter_labels.get(starter_key(r), UNATTRIBUTED),
         "by_printer": lambda r: _label(r.get("printer")),
         "by_printer_profile": lambda r: _label(r.get("printer_profile")),
         "by_material": lambda r: _label(r.get("filament_material")),
@@ -874,6 +1090,9 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         "timezone": _tz_name(resolved),
         "total_prints": len(rows),
         "counts_by_status": counts_by_status,
+        # Prints with no recorded starter (#1647): counted in every
+        # total above and named, never attributed after the fact.
+        "unattributed_prints": sum(1 for r in rows if starter_key(r) is None),
         "completed": completed,
         "failed": failed,
         "canceled": canceled,
@@ -1091,14 +1310,30 @@ def _archetype(stats, highlights, rows):
             "fact": f"A steady year: {plural(total, 'print')}, no single habit took over."}
 
 
-def build_wrapped(records, year, tz=None, events=None, enrichments=None):
+def build_wrapped(records, year, tz=None, events=None, enrichments=None,
+                  selection=None):
     """The Wrapped payload for one year: headline stats, highlights, script.
 
     Every script line is data-driven: a line is included only when the
     number behind it is true in this same payload. ``tz`` has the same
     meaning as in :func:`aggregate` (None preserves UTC bucketing).
     ``events`` and ``enrichments`` pass through to :func:`aggregate`.
+
+    ``selection`` (#1647) is the descriptor from
+    :func:`selection_descriptor` when the caller filtered the records
+    to one starter and/or one printer first (with
+    :func:`filter_records`): it rides in the payload as ``selection``
+    and names the recap's coverage in the script's first line, so a
+    per-user or per-printer recap is never mistaken for the whole
+    history. Unfiltered callers pass nothing and get today's payload
+    unchanged.
     """
+    if isinstance(selection, dict) and selection.get("label"):
+        selection = {"user": selection.get("user"),
+                     "printer": selection.get("printer"),
+                     "label": str(selection["label"])}
+    else:
+        selection = None
     resolved = _resolve_tz(tz)
     records = [r for r in (records or []) if isinstance(r, dict)]
     year = int(year)
@@ -1172,8 +1407,8 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None):
         "peak_hour": peak_hour, "peak_weekday": peak_weekday,
     }
     highlights["archetype"] = _archetype(stats, highlights, rows)
-    script = _script(year, stats, highlights, tz=resolved)
-    return {"year": year, "stats": stats, "headline": {
+    script = _script(year, stats, highlights, tz=resolved, selection=selection)
+    return {"year": year, "selection": selection, "stats": stats, "headline": {
                 "total_prints": stats["total_prints"], "completed": stats["completed"],
                 "failed": stats["failed"], "canceled": stats["canceled"],
                 # Pasta/failed/stopped stay separate (#981): stopped is
@@ -1194,16 +1429,26 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None):
             "years_available": stats["years_available"]}
 
 
-def _script(year, stats, highlights, tz=None):
+def _script(year, stats, highlights, tz=None, selection=None):
     resolved = _resolve_tz(tz)
     local_tz = resolved != timezone.utc
     lines = []
     total = stats["total_prints"]
     if not total:
+        if selection:
+            return [f"Pasta Wrapped {year}: no prints were recorded this year "
+                    f"for {selection['label']}. The printer rested. Respect."]
         return [f"Pasta Wrapped {year}: no prints were recorded this year. "
                 "The printer rested. Respect."]
-    lines.append(f"Pasta Wrapped {year}: you made {plural(total, 'print')}. "
-                 "The printer did the work, but you get the recap.")
+    if selection:
+        label = selection["label"]
+        subject = label[:1].upper() + label[1:]
+        lines.append(f"Pasta Wrapped {year} — {subject} made "
+                     f"{plural(total, 'print')}. This recap covers only "
+                     f"{label}.")
+    else:
+        lines.append(f"Pasta Wrapped {year}: you made {plural(total, 'print')}. "
+                     "The printer did the work, but you get the recap.")
     hours = stats["total_hours"]
     if hours >= 1:
         lines.append(f"You spent {hours_text(hours)} printing this year. "
@@ -1306,6 +1551,9 @@ def _script(year, stats, highlights, tz=None):
     return lines
 
 
-__all__ = ["UNKNOWN", "aggregate", "display_title", "hours_text", "plural", "build_wrapped", "load_records",
+__all__ = ["UNKNOWN", "UNATTRIBUTED", "aggregate", "display_title", "filter_events_for_records",
+           "filter_records", "hours_text", "plural", "printer_options", "build_wrapped", "load_records",
            "load_records_from_dir", "load_watchdog_events", "prints_dir",
-           "record_key", "records_in_year", "watchdog_events_path", "years_available"]
+           "record_key", "record_starter", "records_in_year", "selection_descriptor",
+           "starter_key", "starter_label", "starter_options",
+           "watchdog_events_path", "years_available"]
