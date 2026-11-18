@@ -163,8 +163,10 @@ def update_apply_route(handler, form):
         data, printer_id=str(printer_id),
         printer_name=str(row.get("name") or printer_id),
         transport=transport, prepared=prepared,
-        on_finish=lambda finished: notifications_module.clear_observed_update(
-            data, finished.printer_id, finished.component))
+        # Only a verified update clears its notice: a failed or unverified
+        # one is still available and keeps its toast (#1683).
+        on_finish=lambda finished: (notifications_module.clear_observed_update(
+            data, finished.printer_id, finished.component) if finished.succeeded else None))
     return handler._redirect(f"/firmware/update/status?job={job.id}")
 
 
