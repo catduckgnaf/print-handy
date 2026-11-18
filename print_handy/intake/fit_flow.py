@@ -576,6 +576,36 @@ def _fit_failure(job, capacity):
             '10 mm spacing and 8 mm edge margins. Choose a smaller profile, split it into plates, or scale it down.')
 
 
+def _painted_fit_sizes(fit, state):
+    """Measured plate sizes for a painted fit offer (#1648): every plate, its turn, against the bed.
+
+    The fit offer used to name only a percentage. Each plate's measured
+    X x Y x Z at the offered scale is named, with the bed turn the fit chose
+    and the prime tower it reserves, so the operator can check the claim.
+    Plates without a measurement are left out; with none, nothing is added.
+    """
+    layouts = fit.get('layouts') or {}
+    bed = (state or {}).get('bed_mm') or BED
+    rows = []
+    for pid in sorted(layouts, key=lambda k: (len(str(k)), str(k))):
+        row = layouts[pid] or {}
+        extent = row.get('extent_mm') or []
+        if len(extent) < 2:
+            continue
+        size = ' x '.join(f"{float(v):g}" for v in extent[:3]) + ' mm'
+        turn = row.get('yaw')
+        bits = [f"plate {pid}: {size}"]
+        if turn:
+            bits.append(f"turned {float(turn):g}\N{DEGREE SIGN} on the bed")
+        if row.get('tower_mm'):
+            bits.append(f"plus a {float(row['tower_mm']):g} mm prime tower")
+        rows.append(', '.join(bits))
+    if not rows:
+        return ''
+    return (f" Measured at that size: {'; '.join(rows)}. The usable bed is "
+            f"{float(bed[0]):g} x {float(bed[1]):g} mm.")
+
+
 def _painted_no_fit_detail(fit, state):
     """The measured size sentence for a real painted no-fit (#839).
 
