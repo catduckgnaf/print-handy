@@ -87,7 +87,7 @@ def empty_enabled(cfg=None) -> bool:
 
 
 def reference_dir(cfg=None) -> Path:
-    """Where the reference lives: the models directory under the Hermes
+    """Where the reference lives: the models directory under the state
     home, alongside the detector weights (the install's state)."""
     cfg = _config.cfg() if cfg is None else cfg
     home = Path(os.path.expanduser(str(cfg["paths"]["state_home"])))

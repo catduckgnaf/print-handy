@@ -34,8 +34,8 @@ treated None before). It owns:
 Routing is decided once, here: a recorded family alert goes to that family's
 own adapter control (``family_control``), a Bambu LAN printer to its LAN
 client, and Moonraker to Moonraker. The transport drivers are unchanged
-(``hermes/print_stop.py``, ``hermes/print_control.py``,
-``hermes/family_control.py``, ``hermes/panic.py`` and the Web UI's
+(``runtime/print_stop.py``, ``runtime/print_control.py``,
+``runtime/family_control.py``, ``runtime/panic.py`` and the Web UI's
 ``default_send``); this service is the only caller allowed to reach them, so
 a gate added to a driver applies to every surface at once. Drivers are looked
 up at call time (``core._external.load``), so a test that replaces a driver

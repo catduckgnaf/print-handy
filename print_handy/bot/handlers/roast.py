@@ -36,11 +36,11 @@ async def roast_dispatch(event, gateway, **kwargs):
     if not vision.get('roast_enabled', True):
         message = 'Roasts are turned off (vision.roast_enabled is false).'
     else:
-        from print_handy.runtime import _config as hermes_config
-        state_path = hermes_config.state_file('PRINT_HANDY_ROAST_STATE', 'roast_state.json')
+        from print_handy.runtime import _config as runtime_config
+        state_path = runtime_config.state_file('PRINT_HANDY_ROAST_STATE', 'roast_state.json')
         try:
             message = await asyncio.to_thread(roast_chat.roast_reply, text, state_path=state_path,
-                                              tz=hermes_config.tz())
+                                              tz=runtime_config.tz())
         except Exception:
             logger.exception('roast request failed')
             message = 'No roast this time; the print history could not be read.'
