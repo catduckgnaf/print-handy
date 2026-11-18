@@ -80,7 +80,11 @@ def test_aggregates_from_frozen_records_only():
     assert agg["by_material"] == {"PLA": 2.0}
     assert agg["most_expensive"]["title"] == "B"
     assert agg["cost_per_gram"] == 0.13  # 12.50 / 100 g, cent-rounded
-    assert agg["failure_share"] == 0.02  # 0.20 / 12.50
+    # Failure cost is what failed prints cost (#1632 review); both of
+    # these completed, so there is none, and the allowance they carried
+    # is reported separately.
+    assert agg["failure_total"] == 0.0 and agg["failed_count"] == 0
+    assert agg["failure_allowance_total"] == 0.20
 
 
 def test_aggregates_never_mix_currencies():

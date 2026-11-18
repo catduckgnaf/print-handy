@@ -105,42 +105,85 @@ def _grams(mm: Any, context: Mapping[str, Any]) -> float | None:
         return None
 
 
+def _cost_settings():
+    """The settings the completion freeze prices with (a seam for tests)."""
+    from .. import settings as _settings
+    return _settings.current()
+
+
+def _spool_record(spool_id):
+    """One Spoolman spool, for pricing a slot line; None when unreachable."""
+    try:
+        from ..core import spoolman_client
+        return spoolman_client.get_spool(int(spool_id))
+    except Exception as exc:  # pricing falls back down the precedence, never fails the record
+        logger.warning("cost freeze: Spoolman spool %s unavailable: %s", spool_id, exc)
+        return None
+
+
+_COST_OUTCOME = {"completed": "completed", "failed": "failed", "cancelled": "cancelled"}
+
+
 def _frozen_cost(context: Mapping[str, Any], spool: Mapping[str, Any],
-                 stats: Mapping[str, Any], metadata: Mapping[str, Any]) -> dict[str, Any] | None:
+                 stats: Mapping[str, Any], metadata: Mapping[str, Any],
+                 status: str = "completed") -> dict[str, Any] | None:
     """The frozen per-job cost (#1625), resolved once at completion.
 
     Measured duration and measured filament use win over slicer
-    estimates and are labeled as measured. The price comes from the
-    spool the job actually used, through the core engine's precedence.
-    Fail-soft by design: any gap returns None and the record simply has
-    no cost; costing never delays or blocks the completion record.
+    estimates and are labeled as measured. A multi-slot job is priced
+    per slot at each slot's own spool rate, from the same slot plan the
+    spool accounting charges (#1632 review); a one-spool job uses the
+    spool the job actually used. The printer is resolved through the
+    roster, so the model's wattage preset and any [cost_printers]
+    profile apply. A failed or cancelled print is frozen at what it
+    used, with no failure allowance. Fail-soft: any gap returns None
+    (logged), and costing never delays or blocks the completion record.
     """
     try:
-        from .. import settings as _settings
         from ..core import cost as _cost
-        data = _settings.current()
+        from . import multislot_usage
+        data = _cost_settings()
         workspace = _cost.WorkspaceCost.from_settings(data)
         profile, _ = _cost.printer_profile_for(
             data, printer_id=context.get("printer_id"), printer_name=context.get("printer"))
         used_mm = _first(stats, "filament_used") or _first(metadata, "filament_used")
-        grams = _grams(used_mm, context)
-        source = "measured history"
-        if grams is None:
-            grams = context.get("estimated_filament_g")
-            source = "slicer G-code"
-        grams = float(grams) if grams is not None else None
+        measured_g = _grams(used_mm, context)
         seconds = _first(stats, "print_duration", "total_duration") or _first(metadata, "print_duration")
         hours = float(seconds) / 3600.0 if seconds else 0.0
-        if not grams and not hours:
+        plan = multislot_usage.slot_plan(dict(context)) if isinstance(context, Mapping) else None
+        lines = []
+        if plan:
+            planned_total = sum(float(row.get("planned_g") or 0) for row in plan)
+            # Measured filament scales the plan (a stopped print used part
+            # of each slot's planned grams); no measure keeps the plan.
+            scale = (measured_g / planned_total) if measured_g and planned_total else 1.0
+            for row in plan:
+                record = _spool_record(row["spool_id"]) if row.get("spool_id") is not None else None
+                filament = (record or {}).get("filament") or {}
+                lines.append(_cost.MaterialLine(
+                    name=str(filament.get("name") or f"Slot {row.get('slot')}"),
+                    material=str(filament.get("material") or context.get("filament_material") or ""),
+                    grams=float(row.get("planned_g") or 0) * scale,
+                    spool=record, spool_id=row.get("spool_id")))
+            source = "measured history (split by the slot plan)" if measured_g else "slicer G-code"
+        else:
+            grams, source = measured_g, "measured history"
+            if grams is None:
+                grams = context.get("estimated_filament_g")
+                source = "slicer G-code"
+            grams = float(grams) if grams is not None else 0.0
+            lines.append(_cost.MaterialLine(
+                name=str(context.get("filament_material") or "Filament"),
+                material=str(context.get("filament_material") or ""),
+                grams=grams, color=str(context.get("filament_color") or ""),
+                spool=dict(spool) if isinstance(spool, Mapping) and spool else None))
+        if not any(line.grams for line in lines) and not hours:
             return None
-        line = _cost.MaterialLine(
-            name=str(context.get("filament_material") or "Filament"),
-            material=str(context.get("filament_material") or ""),
-            grams=grams or 0.0,
-            spool=dict(spool) if isinstance(spool, Mapping) else None)
-        job = _cost.JobCostInput(lines=[line], print_hours=hours, grams_source=source)
+        job = _cost.JobCostInput(lines=lines, print_hours=hours, grams_source=source,
+                                 outcome=_COST_OUTCOME.get(str(status), "completed"))
         return _cost.freeze(_cost.compute(job, profile, workspace))
-    except Exception:
+    except Exception as exc:  # fail-soft by design, but never silent (#1632 review)
+        logger.warning("cost freeze skipped for a job record: %s", exc, exc_info=True)
         return None
 
 
@@ -317,8 +360,7 @@ def _resolved_title(filename):
         from . import discord_print_summary
         job, _plate = discord_print_summary.find_job(filename)
         return discord_print_summary.safe_label(job["title"]) if job and job.get("title") else None
-    except Exception as exc:
-        logger.warning("cost freeze skipped for a job record: %s", exc)
+    except Exception:
         return None
 
 
@@ -435,7 +477,7 @@ def build_record_data(
         # #1625: the cost resolved once at completion and frozen here.
         # Later price edits never rewrite it; Data and Pasta Wrapped
         # aggregate this dict only. None when nothing could be priced.
-        "cost": (_frozen_cost(context, spool, stats, metadata)
+        "cost": (_frozen_cost(context, spool, stats, metadata, status=status)
                  if status != "printing" else None),
         **_stop_fields(filename, started_at, printer=context.get("printer_id") or context.get("printer")),
     }

@@ -13,7 +13,8 @@ def test_parse_ask_amounts_and_material():
 def test_answer_with_amounts_is_compact_breakdown():
     data = {"cost": {}, "paths": {}}
     text = cost_handler.cost_answer("how much will this cost, 50 g, 3 h", data=data)
-    assert "per part" in text and "per build" in text
+    # Hobby mode (the default) leads with out of pocket and names the full cost.
+    assert text.startswith("Out of pocket") and "the full cost is" in text
     assert "Priced from:" in text
     assert "never blocks a print" in text
 

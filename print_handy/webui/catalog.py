@@ -135,6 +135,9 @@ GROUP_OF = {
     "cost.overhead_percent": "cost",
     "cost.flat_fee_per_job": "cost",
     "cost.default_filament_cost_per_kg": "cost",
+    "cost.cost_mode": "cost",
+    "cost.resin_ipa_per_print": "cost",
+    "cost.resin_ppe_per_print": "cost",
     "notify.mqtt_enabled": "home_assistant",
     "notify.mqtt_host": "home_assistant",
     "notify.mqtt_port": "home_assistant",
@@ -499,6 +502,18 @@ CATALOG = (
     _field("cost", "default_filament_cost_per_kg", "Default filament cost per kilogram", "number",
            "Fallback material price when neither Spoolman nor the slicer "
            "embedded a price for a filament line.",
+           validator="settings cost check", minimum=0),
+    _field("cost", "cost_mode", "Cost mode", "picker",
+           "hobby leads answers and Wrapped with what a print cost out of "
+           "pocket (filament, power, consumables). seller leads with the "
+           "full cost a quote must recover, labor and machine wear "
+           "included, and shows selling prices. Both are always recorded.",
+           choices=("hobby", "seller"), validator="settings cost check"),
+    _field("cost", "resin_ipa_per_print", "Resin IPA per print", "number",
+           "IPA lost per wash, priced per resin print.",
+           validator="settings cost check", minimum=0),
+    _field("cost", "resin_ppe_per_print", "Resin cleanup and PPE per print", "number",
+           "Gloves, towels and other cleanup per resin print.",
            validator="settings cost check", minimum=0),
     # Event notifications (#622): print events out of chat, over MQTT
     # and/or ntfy. Neither channel's credential is a field: the MQTT

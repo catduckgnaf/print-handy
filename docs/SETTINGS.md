@@ -245,6 +245,9 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `cost.overhead_percent` | `PRINT_HANDY__COST__OVERHEAD_PERCENT` | `0` | Optional overhead as a fraction of the job subtotal, counted once per job |
 | `cost.flat_fee_per_job` | `PRINT_HANDY__COST__FLAT_FEE_PER_JOB` | `0` | Optional flat fee added to every job at cost |
 | `cost.default_filament_cost_per_kg` | `PRINT_HANDY__COST__DEFAULT_FILAMENT_COST_PER_KG` | `22` | Fallback material price when neither Spoolman nor the slicer embedded a price |
+| `cost.cost_mode` | `PRINT_HANDY__COST__COST_MODE` | `hobby` | `hobby` leads chat answers, the Ready card line and Wrapped with the out-of-pocket cost (filament, power, consumables); `seller` leads with the full cost a quote must recover (labor and machine wear included) and shows selling prices. Both figures are always recorded |
+| `cost.resin_ipa_per_print` | `PRINT_HANDY__COST__RESIN_IPA_PER_PRINT` | `0.23` | IPA lost per wash, priced per resin print |
+| `cost.resin_ppe_per_print` | `PRINT_HANDY__COST__RESIN_PPE_PER_PRINT` | `0.12` | Gloves, towels and other cleanup per resin print |
 | `cost_printers.<name>` | file only | empty | Per-printer cost profiles (#1625): a table per printer (roster id or name) with technology, purchase price, upfront and salvage, lifetime hours, maintenance per hour, average watts and its basis, per-material watt overrides, and the resin wash/cure, screen and film figures. A printer with no entry uses the generic profile. See [Print cost calculator](COST.md) |
 | `public_text.denylist` | `PRINT_HANDY__PUBLIC_TEXT__DENYLIST` | `[]` | The operator's own machine names that exports must never print: diagnostics bundles and debug exports replace each with a consistent pseudonym; whole-word, case-insensitive; comma- or space-separated in the environment. See "Public text denylist" below |
 

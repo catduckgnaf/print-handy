@@ -74,6 +74,39 @@ WATTAGE_PRESETS = {
 
 MARGIN_TIERS = (0.25, 0.40, 0.60, 0.80)
 
+# Roster model code -> shipped wattage preset (#1632 review). A printer
+# with no [cost_printers] entry is costed on its own model's preset;
+# only an unmapped model falls back to the generic FDM profile. Forks of
+# the same hardware (ZMod, Forge-X, OpenCreator, stock) share a preset.
+MODEL_PRESETS = {
+    "bambulab.a1mini": "bambu_a1_mini",
+    "bambulab.a1": "bambu_a1",
+    "bambulab.p1s": "bambu_p1s",
+    "bambulab.p1p": "bambu_p1s",
+    "bambulab.x1c": "bambu_x1c",
+    "bambulab.x1": "bambu_x1c",
+    "bambulab.x1e": "bambu_x1c",
+    "prusa.mk4s": "prusa_mk4s",
+    "prusa.coreone": "prusa_core_one",
+    "prusa.xl": "prusa_xl",
+    "octoprint.ender3": "ender3_class",
+    "octoprint.ender3pro": "ender3_class",
+    "octoprint.ender3v2": "ender3_class",
+    "octoprint.ender3v3se": "ender3_class",
+    "flashforge.ad5m": "flashforge_ad5m",
+    "flashforge.ad5m_pro": "flashforge_ad5m",
+    "flashforge_forgex.ad5m": "flashforge_ad5m",
+    "flashforge_forgex.ad5m_pro": "flashforge_ad5m",
+    "flashforge.ad5x": "flashforge_ad5x",
+    "flashforge_stock.ad5x": "flashforge_ad5x",
+}
+
+# The hobby/seller switch (#1632 review): "hobby" is what a print cost
+# out of pocket (material, electricity, consumables, extras, and the
+# failure allowance on those); "seller" adds labor, depreciation and
+# maintenance, which are what a quote has to recover.
+COST_MODES = ("hobby", "seller")
+
 
 def _num(value, default=None):
     if isinstance(value, bool) or value is None:
@@ -112,6 +145,9 @@ class WorkspaceCost:
     overhead_percent: float = 0.0
     flat_fee_per_job: float = 0.0
     default_filament_cost_per_kg: float = 22.0
+    cost_mode: str = "hobby"
+    resin_ipa_per_print: float = 0.23
+    resin_ppe_per_print: float = 0.12
 
     @classmethod
     def from_settings(cls, data):
@@ -121,7 +157,8 @@ class WorkspaceCost:
         for key in ("electricity_rate_per_kwh", "labor_rate_per_hour",
                     "failure_rate_fdm", "failure_rate_resin", "default_margin",
                     "tax_rate", "marketplace_fee_rate", "overhead_percent",
-                    "flat_fee_per_job", "default_filament_cost_per_kg"):
+                    "flat_fee_per_job", "default_filament_cost_per_kg",
+                    "resin_ipa_per_print", "resin_ppe_per_print"):
             value = _num(raw.get(key))
             if value is not None:
                 setattr(out, key, value)
@@ -129,6 +166,8 @@ class WorkspaceCost:
         out.pricing_mode = mode if mode in ("margin", "markup") else "margin"
         tax_mode = str(raw.get("tax_mode") or out.tax_mode).lower()
         out.tax_mode = tax_mode if tax_mode in ("add_on_top", "included", "none") else "add_on_top"
+        cost_mode = str(raw.get("cost_mode") or out.cost_mode).lower()
+        out.cost_mode = cost_mode if cost_mode in COST_MODES else "hobby"
         return out
 
 
@@ -167,12 +206,28 @@ class PrinterCostProfile:
         return self.watts
 
     @classmethod
-    def from_mapping(cls, name, raw):
+    def from_preset(cls, key):
+        """The shipped preset as a profile (workspace defaults otherwise)."""
+        preset = WATTAGE_PRESETS[key]
+        tech = RESIN if key in ("generic_resin", "elegoo_mars_class",
+                                "elegoo_saturn_class") else FDM
+        out = cls(name=f"{preset['label']} preset", technology=tech,
+                  watts=float(preset["watts"]), watts_basis=preset["basis"])
+        if tech == RESIN:
+            out.lifetime_hours = 4000.0
+        return out
+
+    @classmethod
+    def from_mapping(cls, name, raw, base=None):
+        """A [cost_printers] entry, layered over ``base`` (the model preset) when given."""
         raw = raw or {}
-        tech = str(raw.get("technology") or FDM).lower()
+        tech = str(raw.get("technology") or (base.technology if base else FDM)).lower()
         tech = RESIN if tech in ("resin", "msla", "sla", "dlp") else FDM
         out = cls(name=str(name), technology=tech)
-        if tech == RESIN:
+        if base is not None and base.technology == tech:
+            out.watts, out.watts_basis = base.watts, base.watts_basis
+            out.lifetime_hours = base.lifetime_hours
+        elif tech == RESIN:
             out.lifetime_hours = 4000.0
             out.watts = 60.0
         for key in ("purchase_price", "upfront_cost", "salvage_value", "lifetime_hours",
@@ -192,21 +247,50 @@ class PrinterCostProfile:
         return out
 
 
-def printer_profile_for(data, printer_id=None, printer_name=None):
-    """The cost profile for one printer: [cost_printers] entry, else a preset/default.
+def _roster_entry(data, printer_id=None, printer_name=None):
+    """The [[printers]] entry a record names: by id, then by name, then the only/default one."""
+    entries = [e for e in ((data or {}).get("printers") or [])
+               if isinstance(e, dict) and e.get("id")]
+    for entry in entries:
+        if printer_id and str(entry.get("id")) == str(printer_id):
+            return entry
+    for entry in entries:
+        if printer_name and str(entry.get("name") or "") == str(printer_name):
+            return entry
+    if printer_id is None and entries:
+        # A record with no printer id (single-printer installs write
+        # none) is the default printer's, or the only one's.
+        defaults = [e for e in entries if e.get("default")]
+        if defaults or len(entries) == 1:
+            return (defaults or entries)[0]
+    return None
 
-    Profiles live in the file-only [cost_printers] table keyed by roster
-    id or printer name. A printer with no entry gets the generic profile
-    for its kind at the workspace defaults, so a cost is always
-    computable and the profile name says it is the generic one.
+
+def printer_profile_for(data, printer_id=None, printer_name=None, model=None):
+    """The cost profile for one printer (#1632 review).
+
+    Resolution: the roster entry the record names (by id, then name,
+    else the default printer); its model's shipped preset; then a
+    [cost_printers] entry keyed by roster id or name, layered over the
+    preset. Only a printer with no mapped model and no entry gets the
+    generic FDM profile, and the profile name says so.
     """
     workspace = WorkspaceCost.from_settings(data)
+    entry = _roster_entry(data, printer_id, printer_name)
+    model = model or (entry or {}).get("model")
+    if not model and (data or {}).get("printer"):
+        model = ((data or {}).get("printer") or {}).get("model")
+    preset_key = MODEL_PRESETS.get(str(model or ""))
+    base = PrinterCostProfile.from_preset(preset_key) if preset_key else None
     profiles = (data or {}).get("cost_printers") or {}
     if isinstance(profiles, dict):
-        for key in (printer_id, printer_name):
+        keys = [printer_id, printer_name]
+        if entry:
+            keys += [entry.get("id"), entry.get("name")]
+        for key in keys:
             if key and str(key) in profiles and isinstance(profiles[str(key)], dict):
-                return PrinterCostProfile.from_mapping(str(key), profiles[str(key)]), workspace
-    return PrinterCostProfile(), workspace
+                return PrinterCostProfile.from_mapping(str(key), profiles[str(key)], base), workspace
+    return (base or PrinterCostProfile()), workspace
 
 
 @dataclass
@@ -223,6 +307,7 @@ class MaterialLine:
     manual_price_per_kg: float | None = None
     density: float | None = None  # g/mL, for length and resin weight conversions
     spool_id: object = None
+    color: str = ""               # the line's filament color, for per-color totals
 
     def density_or_default(self):
         if self.density:
@@ -237,6 +322,14 @@ def _spool_filament(spool):
         if isinstance(filament, dict):
             return filament
     return {}
+
+
+def _line_color(line):
+    """A color name or hex for a line from its Spoolman filament, else ""."""
+    filament = line.filament or _spool_filament(line.spool)
+    name = (filament or {}).get("name") or ""
+    hexcode = (filament or {}).get("color_hex") or ""
+    return str(hexcode and f"#{str(hexcode).lstrip('#')}" or name or "")
 
 
 def spool_net_grams(spool, filament=None):
@@ -311,6 +404,11 @@ class JobCostInput:
     measured_kwh: float | None = None           # a meter reading beats the estimate
     grams_source: str = "manual entry"
     title: str = ""
+    # "estimate" (a quote before printing), "completed", "failed" or
+    # "cancelled" (#1632 review). A failed or cancelled print is the
+    # failure itself: it is frozen at what it actually used, with no
+    # failure allowance and no post-processing or packing labor.
+    outcome: str = "estimate"
 
 
 @dataclass
@@ -327,6 +425,9 @@ class CostResult:
     failure_amount: float
     technology: str
     totals_detail: dict
+    out_of_pocket: float = 0.0  # material, electricity, consumables, extras (+ their failure share)
+    outcome: str = "estimate"
+    cost_mode: str = "hobby"
 
     def to_dict(self):
         return {
@@ -342,6 +443,9 @@ class CostResult:
             "failure_amount": self.failure_amount,
             "technology": self.technology,
             "totals_detail": self.totals_detail,
+            "out_of_pocket": self.out_of_pocket,
+            "outcome": self.outcome,
+            "cost_mode": self.cost_mode,
         }
 
     @classmethod
@@ -358,7 +462,10 @@ class CostResult:
                    failure_rate=_num(raw.get("failure_rate"), 0.0),
                    failure_amount=_num(raw.get("failure_amount"), 0.0),
                    technology=str(raw.get("technology") or FDM),
-                   totals_detail=dict(raw.get("totals_detail") or {}))
+                   totals_detail=dict(raw.get("totals_detail") or {}),
+                   out_of_pocket=_num(raw.get("out_of_pocket"), 0.0),
+                   outcome=str(raw.get("outcome") or "estimate"),
+                   cost_mode=str(raw.get("cost_mode") or "hobby"))
 
 
 def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: WorkspaceCost,
@@ -372,6 +479,10 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
     if failure is None:
         failure = workspace.failure_rate_resin if is_resin else workspace.failure_rate_fdm
     failure = min(max(float(failure), 0.0), 0.95)
+    failed_run = job.outcome in ("failed", "cancelled")
+    if failed_run:
+        # This run is the failure: no allowance on top of it (#1632 review).
+        failure = 0.0
 
     # Material, per line, at that line's own price.
     material_total = 0.0
@@ -388,6 +499,7 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
             "price_source": source, "amount": _round2(amount_raw),
             "spool_id": line.spool_id if line.spool_id is not None
                         else (line.spool or {}).get("id"),
+            "color": line.color or _line_color(line),
         })
     material_with_waste = material_total * (1 + waste)
     waste_amount = material_with_waste - material_total
@@ -398,8 +510,11 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
         electricity = float(job.measured_kwh) * workspace.electricity_rate_per_kwh
         kwh = float(job.measured_kwh)
     else:
-        material_name = job.lines[0].material if job.lines else ""
-        watts = profile.watts_for(material_name)
+        # Multi-material: the wattage override of the line carrying the
+        # most material, not simply the first line (#1632 review).
+        heaviest = max(job.lines, key=lambda ln: (ln.volume_ml if is_resin else ln.grams),
+                       default=None)
+        watts = profile.watts_for(heaviest.material if heaviest else "")
         kwh = watts * hours / 1000.0
         if is_resin:
             kwh += profile.wash_cure_watts * (profile.wash_cure_minutes / 60.0) / 1000.0
@@ -409,8 +524,12 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
                             - profile.salvage_value) / lifetime
     maintenance = hours * profile.maintenance_per_hour
 
-    # Labor: prep once per build, post per part, pack once.
-    labor_minutes = job.prep_minutes + job.post_minutes_per_part * parts + job.pack_minutes
+    # Labor: prep once per build, post per part, pack once. A failed or
+    # cancelled run had its prep, but nothing to post-process or pack.
+    if failed_run:
+        labor_minutes = job.prep_minutes
+    else:
+        labor_minutes = job.prep_minutes + job.post_minutes_per_part * parts + job.pack_minutes
     labor = labor_minutes / 60.0 * workspace.labor_rate_per_hour
 
     # Consumables.
@@ -419,8 +538,8 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
         # IPA cost per print: a workspace-priced loss per wash is carried
         # on the profile-free resin defaults below; the itemized lines
         # stay explicit so the breakdown names each one.
-        ipa = RESIN_IPA_PER_PRINT
-        ppe = RESIN_PPE_PER_PRINT
+        ipa = workspace.resin_ipa_per_print
+        ppe = workspace.resin_ppe_per_print
         screen = (profile.screen_price / profile.screen_life_hours
                   if profile.screen_life_hours else 0.0) * hours
         consumable_parts = {"film": film, "ipa": ipa, "ppe": ppe, "screen_wear": screen}
@@ -453,6 +572,13 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
         failure_amount = 0.0
     total = _round2(once + adjusted_repeatable)
     per_part = _round2(total / parts) if parts else total
+    # Out of pocket (#1632 review): money actually spent, for hobby use
+    # and Wrapped. Material, electricity and consumables, grossed up by
+    # the same failure convention, plus extras. Labor, depreciation and
+    # maintenance are what a seller recovers, not money paid per print.
+    pocket_repeatable = r_material + r_electricity + r_consumables
+    pocket = _round2((pocket_repeatable / (1 - failure) if failure > 0 else pocket_repeatable)
+                     + r_extras)
 
     lines = [
         {"key": "material", "label": "Material (incl. waste allowance)", "amount": r_material},
@@ -484,13 +610,19 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
         "currency_code": workspace.currency_code,
         "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
         "waste_fraction": waste,
+        "watts": profile.watts, "watts_basis": profile.watts_basis,
+        "outcome": job.outcome,
     }
+    if not (profile.purchase_price or profile.upfront_cost):
+        provenance["depreciation_note"] = ("no purchase price set for this printer, "
+                                           "so depreciation is 0.00")
     return CostResult(
         lines=lines, material_lines=material_lines,
         cost_per_build=total, cost_per_part=per_part, parts_per_build=parts,
         currency_code=workspace.currency_code, provenance=provenance,
         selling=selling, failure_rate=failure, failure_amount=failure_amount,
-        technology=tech,
+        technology=tech, out_of_pocket=pocket, outcome=job.outcome,
+        cost_mode=workspace.cost_mode,
         totals_detail={
             "material_before_waste": _round2(material_total),
             "waste_amount": _round2(waste_amount),
@@ -505,9 +637,10 @@ def compute(job: JobCostInput, profile: PrinterCostProfile, workspace: Workspace
 
 
 # Resin per-print consumable defaults (the reference model's itemized
-# block): IPA lost per wash and cleanup/PPE per print.
-RESIN_IPA_PER_PRINT = 0.23
-RESIN_PPE_PER_PRINT = 0.12
+# block): IPA lost per wash and cleanup/PPE per print. The live values
+# are the [cost] resin_ipa_per_print and resin_ppe_per_print settings.
+RESIN_IPA_PER_PRINT = WorkspaceCost.resin_ipa_per_print
+RESIN_PPE_PER_PRINT = WorkspaceCost.resin_ppe_per_print
 
 
 def _selling(cost, workspace: WorkspaceCost):
@@ -563,13 +696,25 @@ def should_decrement_spoolman(accounting: str, moonraker_already_reported: bool)
     return str(accounting or "auto").lower() not in ("printer",)
 
 
+def _record_failed(record, cost):
+    outcome = str((cost or {}).get("outcome") or "")
+    if outcome in ("failed", "cancelled"):
+        return True
+    return str((record or {}).get("status") or "") in ("failed", "cancelled")
+
+
 def aggregate_costs(records):
     """Cost aggregates over job records carrying a frozen ``cost`` dict.
 
     Frozen records only: a record with no priced cost counts as
     unpriced and is never estimated here. Currencies are never mixed:
-    totals are reported per currency, and the headline currency is the
-    one with the most priced records.
+    totals and counts are for the headline currency (the one with the
+    most priced records), and the other currencies are named with their
+    own counts (#1632 review). ``out_of_pocket`` is money actually spent
+    (material, power, consumables, extras); ``total_spend`` is the full
+    cost including labor and machine wear. Failure cost is what the
+    failed and cancelled prints themselves cost, not the allowance
+    carried on successful ones.
     """
     priced, unpriced = [], 0
     for record in records or []:
@@ -586,58 +731,108 @@ def aggregate_costs(records):
         headline = max(by_currency, key=lambda code: len(by_currency[code]))
     rows = by_currency.get(headline, []) if headline else []
 
-    def _sum_by(key_of):
+    def _pocket(cost):
+        value = _num(cost.get("out_of_pocket"))
+        return float(cost["cost_per_build"]) if value is None else value
+
+    def _sum_by(key_of, amount=lambda c: float(c["cost_per_build"])):
         table = {}
         for record, cost in rows:
             key = key_of(record, cost) or "unknown"
-            table[key] = _round2(table.get(key, 0.0) + float(cost["cost_per_build"]))
+            table[key] = _round2(table.get(key, 0.0) + amount(cost))
         return table
 
     total = _round2(sum(float(cost["cost_per_build"]) for _, cost in rows))
+    pocket_total = _round2(sum(_pocket(cost) for _, cost in rows))
     total_grams = sum(float((cost.get("totals_detail") or {}).get("total_grams") or 0)
                       for _, cost in rows)
     total_hours = sum(float((cost.get("totals_detail") or {}).get("print_hours") or 0)
                       for _, cost in rows)
-    failure_total = _round2(sum(float(cost.get("failure_amount") or 0) for _, cost in rows))
-    most_expensive = None
+    failed = [(r, c) for r, c in rows if _record_failed(r, c)]
+    failure_total = _round2(sum(_pocket(c) for _, c in failed))
+    allowance_total = _round2(sum(float(c.get("failure_amount") or 0) for _, c in rows))
+    most_expensive = cheapest = None
     if rows:
-        record, cost = max(rows, key=lambda pair: float(pair[1]["cost_per_build"]))
+        record, cost = max(rows, key=lambda pair: _pocket(pair[1]))
         most_expensive = {"title": record.get("title") or record.get("gcode_file") or "print",
                           "cost_per_build": cost["cost_per_build"],
-                          "currency_code": headline}
-    by_material = {}
-    for _record, cost in rows:
-        for entry in cost.get("material_lines") or []:
+                          "out_of_pocket": _pocket(cost), "currency_code": headline}
+        done = [(r, c) for r, c in rows if not _record_failed(r, c)] or rows
+        record, cost = min(done, key=lambda pair: _pocket(pair[1]))
+        cheapest = {"title": record.get("title") or record.get("gcode_file") or "print",
+                    "out_of_pocket": _pocket(cost), "currency_code": headline}
+    by_material, by_color = {}, {}
+    for record, cost in rows:
+        lines = cost.get("material_lines") or []
+        for entry in lines:
             key = entry.get("material") or entry.get("name") or "unknown"
             by_material[key] = _round2(by_material.get(key, 0.0) + float(entry.get("amount") or 0))
+            color = entry.get("color") or (record.get("filament_color") if len(lines) == 1 else None)
+            if color:
+                by_color[str(color)] = _round2(by_color.get(str(color), 0.0)
+                                               + float(entry.get("amount") or 0))
+    others = {code: len(pairs) for code, pairs in by_currency.items() if code != headline}
+    considered = len(priced) + unpriced
+    if not rows:
+        note = "No priced jobs in this period: no completed print has a recorded cost yet."
+    elif unpriced:
+        note = (f"Priced {len(rows)} of {considered} prints; the other "
+                f"{considered - len(rows)} have no recorded cost"
+                + (" or use another currency" if others else "")
+                + " and are not estimated here.")
+    else:
+        note = ""
     return {
         "has_priced": bool(rows),
-        "priced_count": len(priced), "unpriced_count": unpriced,
+        "priced_count": len(rows), "unpriced_count": unpriced,
+        "considered_count": considered,
+        "other_currencies": others,
         "currency_code": headline,
         "currencies": sorted(by_currency),
         "total_spend": total,
+        "out_of_pocket_total": pocket_total,
         "by_printer": _sum_by(lambda r, c: r.get("printer")),
+        "out_of_pocket_by_printer": _sum_by(lambda r, c: r.get("printer"), _pocket),
         "by_material": by_material,
+        "by_color": by_color,
         "by_spool": _sum_by(lambda r, c: ", ".join(
             str(e.get("spool_id")) for e in c.get("material_lines") or [] if e.get("spool_id"))),
-        "cost_per_gram": _round2(total / total_grams) if total_grams else None,
-        "cost_per_print_hour": _round2(total / total_hours) if total_hours else None,
+        "cost_per_gram": _round2(pocket_total / total_grams) if total_grams else None,
+        "cost_per_print_hour": _round2(pocket_total / total_hours) if total_hours else None,
         "most_expensive": most_expensive,
+        "cheapest": cheapest,
+        "failed_count": len(failed),
         "failure_total": failure_total,
-        "failure_share": _round2(failure_total / total) if total else None,
-        "note": ("" if rows else
-                 "No priced jobs in this period: no completed print has a recorded cost yet."),
+        "failure_share": _round2(failure_total / pocket_total) if pocket_total else None,
+        "failure_allowance_total": allowance_total,
+        "note": note,
     }
 
 
+_POCKET_KEYS = ("material", "electricity", "consumables", "extras")
+
+
 def format_chat_summary(result: CostResult, title=""):
-    """The compact chat breakdown: per part and per build, top lines, provenance."""
+    """The compact chat breakdown: per part and per build, top lines, provenance.
+
+    Hobby mode (the default) leads with what the print cost out of
+    pocket and shows only those lines; seller mode leads with the full
+    cost a quote must recover (#1632 review).
+    """
     cur = result.currency_code
-    lines = [f"Cost{(' for ' + title) if title else ''}: "
-             f"{cur} {result.cost_per_part:.2f} per part, "
-             f"{cur} {result.cost_per_build:.2f} per build "
-             f"({result.parts_per_build} part(s) per build)"]
-    top = sorted(result.lines, key=lambda entry: entry["amount"], reverse=True)[:3]
+    name = f" for {title}" if title else ""
+    if result.cost_mode == "seller":
+        lines = [f"Cost{name}: {cur} {result.cost_per_part:.2f} per part, "
+                 f"{cur} {result.cost_per_build:.2f} per build "
+                 f"({result.parts_per_build} part(s) per build); "
+                 f"{cur} {result.out_of_pocket:.2f} of it out of pocket"]
+        pool = result.lines
+    else:
+        lines = [f"Out of pocket{name}: {cur} {result.out_of_pocket:.2f} "
+                 f"(filament, power and consumables). With labor and machine wear "
+                 f"the full cost is {cur} {result.cost_per_build:.2f}."]
+        pool = [e for e in result.lines if e["key"] in _POCKET_KEYS]
+    top = sorted(pool, key=lambda entry: entry["amount"], reverse=True)[:3]
     for entry in top:
         lines.append(f"- {entry['label']}: {cur} {entry['amount']:.2f}")
     if result.failure_amount:
@@ -646,9 +841,21 @@ def format_chat_summary(result: CostResult, title=""):
     prov = result.provenance
     lines.append(f"Priced from: {', '.join(prov.get('price_sources') or [])}; "
                  f"amounts from {prov.get('grams_source')}; profile {prov.get('printer_profile')}.")
+    if result.outcome in ("failed", "cancelled"):
+        lines.append(f"This print {result.outcome}: the cost is what it used, "
+                     "with no failure allowance on top.")
     lines.append("Full breakdown is on the Web UI cost page. Cost is information only; "
                  "it never blocks a print.")
     return "\n".join(lines)
+
+
+def ready_line(result: CostResult):
+    """One informational line for the Ready card: never a gate, never a prompt."""
+    cur = result.currency_code
+    if result.cost_mode == "seller":
+        return (f"Estimated cost: about {cur} {result.cost_per_build:.2f} "
+                f"({cur} {result.out_of_pocket:.2f} in filament and power).")
+    return f"Estimated cost: about {cur} {result.out_of_pocket:.2f} in filament and power."
 
 
 def format_breakdown(result: CostResult):

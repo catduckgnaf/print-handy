@@ -2317,7 +2317,7 @@ def validate(data):
         raise SettingsError(f"[cost] must be a table, got {cost_cfg!r}")
     for key in ("electricity_rate_per_kwh", "labor_rate_per_hour", "tax_rate",
                 "marketplace_fee_rate", "overhead_percent", "flat_fee_per_job",
-                "default_filament_cost_per_kg"):
+                "default_filament_cost_per_kg", "resin_ipa_per_print", "resin_ppe_per_print"):
         value = cost_cfg.get(key)
         if value is not None and (isinstance(value, bool)
                                   or not isinstance(value, (int, float)) or value < 0):
@@ -2330,6 +2330,9 @@ def validate(data):
     if str(cost_cfg.get("pricing_mode", "margin")).lower() not in ("margin", "markup"):
         raise SettingsError("[cost] pricing_mode must be margin or markup, "
                             f"got {cost_cfg.get('pricing_mode')!r}")
+    if str(cost_cfg.get("cost_mode", "hobby")).lower() not in ("hobby", "seller"):
+        raise SettingsError("[cost] cost_mode must be hobby or seller, "
+                            f"got {cost_cfg.get('cost_mode')!r}")
     if str(cost_cfg.get("tax_mode", "add_on_top")).lower() not in ("add_on_top", "included", "none"):
         raise SettingsError("[cost] tax_mode must be add_on_top, included or none, "
                             f"got {cost_cfg.get('tax_mode')!r}")
