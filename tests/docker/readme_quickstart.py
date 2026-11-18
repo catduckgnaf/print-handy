@@ -245,8 +245,10 @@ def main(argv):
         _run(["bash", "-euo", "pipefail", "-c", start], cwd=qdir, env=env)
         _wait_healthy(qdir, env)
         page = ask_for_help()
-        reply = re.search(r'<p class="chat-bot">([^<]*prints from this channel[^<]*)</p>', page)
-        print("web chat reply to /print-help:", (reply.group(1) if reply else HELP_MARKERS[0])[:400])
+        reply = re.search(r'<div class="chat-body">((?:(?!</div>).)*prints from this channel(?:(?!</div>).)*)</div>',
+                          page, re.S)
+        text = re.sub(r"<[^>]+>", " ", reply.group(1)) if reply else HELP_MARKERS[0]
+        print("web chat reply to /print-help:", " ".join(text.split())[:400])
         ok = True
         print("README quickstart to a /print-help reply: PASS")
         return 0

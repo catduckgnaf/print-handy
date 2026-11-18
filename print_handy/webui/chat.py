@@ -17,6 +17,7 @@ prompt's own approval rules.
 """
 from __future__ import annotations
 
+from . import transcript
 from . import shell
 
 _esc = shell._esc
@@ -104,41 +105,15 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
-    body = []
-    for entry in entries:
-        kind = entry.get("kind")
-        if kind == "operator":
-            body.append(f'<p class="chat-op"><strong>You:</strong> '
-                        f'{_esc(entry.get("content") or "")}</p>')
-        elif kind == "message":
-            body.append(f'<p class="chat-bot">{_esc(entry.get("content") or "")}</p>')
-        elif kind == "prompt":
-            body.append(f'<p class="chat-bot"><em>'
-                        f'{_esc(entry.get("question") or "")}</em></p>')
-    if pending:
-        # The browser's typing indicator: the turn is running. Shown from
-        # the page render right after Send, so the operator sees the
-        # message was taken before the first reply arrives.
-        body.append(f'<p class="chat-bot chat-working"><em>{WORKING_TEXT}</em></p>')
-    if body:
-        parts.append('<div class="chat-log">' + "".join(body) + "</div>")
-    else:
-        parts.append("<p>Nothing here yet. Say hello, drop a model link, "
-                     "or ask for a design — the chat does everything the "
-                     "Discord bot does, including printing, through the "
-                     "same confirmation questions.</p>")
-    if prompt:
-        buttons = []
-        for index, choice in enumerate(prompt["choices"]):
-            buttons.append(
-                '<form method="post" action="/chat/choice" class="inline">'
-                f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
-                f'<input type="hidden" name="clarify_id" '
-                f'value="{_esc(prompt["clarify_id"])}">'
-                f'<input type="hidden" name="index" value="{index}">'
-                f'<button type="submit">{_esc(choice)}</button></form>')
-        parts.append('<div class="chat-prompt"><p>'
-                     f'{_esc(prompt["question"])}</p>' + "".join(buttons) + "</div>")
+    # The working line is the browser's typing indicator: the turn is
+    # running, so the operator sees the message was taken before the first
+    # reply arrives.
+    parts.append(transcript.render_log(
+        entries, open_prompt=prompt, working=pending,
+        empty="<p>Nothing here yet. Paste a model link, type <code>/print-help</code>, "
+              "or describe something to design. Chat does everything the Discord bot "
+              "does, including printing, through the same confirmation questions.</p>"))
+    parts.append(transcript.render_prompt(prompt, action="/chat/choice", form_token=form_token))
     parts.append(
         '<form method="post" action="/chat">'
         f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'

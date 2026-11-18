@@ -1062,3 +1062,27 @@ class SectionLinkEncodingTests(unittest.TestCase):
         selected = self._page("Q #1", section=section)
         self.assertIn('aria-current="page"', selected)
         self.assertIn('id="row-logging.level"', selected)
+
+
+class OneNavigationTests(unittest.TestCase):
+    """Every page shows the same header tabs (they used to differ per page,
+    so the header changed height and Data and Wrapped came and went)."""
+
+    start = ConfigPageTests.start
+    request = ConfigPageTests.request
+
+    @staticmethod
+    def nav(body):
+        return re.search(r'<nav class="pills" aria-label="Web UI pages">(.*?)</nav>', body, re.S).group(1)
+
+    def test_every_page_carries_the_same_tabs_including_data_and_wrapped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            navs = {}
+            for path in ("/", "/config", "/printers", "/sliced", "/workflow", "/chat"):
+                code, body = self.request(port, "GET", path)
+                self.assertEqual(code, 200, path)
+                navs[path] = re.sub(r' class="active"', "", self.nav(body))
+            self.assertIn('href="/wrapped"', navs["/"])
+            self.assertIn('href="/data"', navs["/"])
+            self.assertEqual(len(set(navs.values())), 1, navs)
