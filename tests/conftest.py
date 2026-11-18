@@ -143,6 +143,13 @@ def _quiet_status_voice(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _offline_screen_tip(monkeypatch):
+    """A shared quip never reaches a printer's screen from a test; screen_tip tests patch _post."""
+    from print_handy.runtime import screen_tip
+    monkeypatch.setattr(screen_tip, "_post", lambda url, value: None)
+
+
+@pytest.fixture(autouse=True)
 def _offline_purge_detection(monkeypatch):
     """ZMod purge/plugin detection (#832) never reaches a network in tests: every read fails like an
     unreachable printer. Tests of the detection itself patch purge._fetch with their own fake."""
