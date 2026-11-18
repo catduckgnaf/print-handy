@@ -361,6 +361,28 @@ def test_send_backs_up_first_writes_restarts_and_verifies():
     assert transport.restarts == 1
 
 
+def test_send_restores_backup_after_unexpected_verification_exception():
+    transport = ChannelTransport()
+    original_fetch = fw.fetch_status
+    failed = False
+
+    def unexpected_once(client):
+        nonlocal failed
+        if client is transport and transport.restarted and not failed:
+            failed = True
+            raise RuntimeError("unexpected transport failure")
+        return original_fetch(client)
+
+    with mock.patch.object(fw, "fetch_status", side_effect=unexpected_once):
+        files = FakeFiles()
+        prepared = _prepared(transport, files)
+        message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
+                                         verify_attempts=1, verify_delay_s=0, sleep=_no_sleep)
+    assert "backup was restored" in message and "restarted again" in message
+    assert files.files[USER_FILE] == USER_CONF
+    assert [text for name, text in files.uploads if name == USER_FILE] == [USER_CONF_BETA, USER_CONF]
+
+
 def test_send_rechecks_idle_and_writes_nothing_when_the_printer_started():
     transport = ChannelTransport(states=("standby", "printing"))
     files = FakeFiles()

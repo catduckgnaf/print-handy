@@ -1594,7 +1594,9 @@ def send_channel_switch(transport, files, prepared: PreparedChannelSwitch, *,
             sleep(verify_delay_s)
         try:
             last_status = fetch_status(transport)
-        except FirmwareError:
+        except Exception:
+            # Any failed verification leaves the config write unproven; keep
+            # retrying and ultimately restore the saved original config.
             last_status = None
             continue
         component = last_status.component(name)
