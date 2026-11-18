@@ -8,6 +8,7 @@ print_next.start gates with the stub print-now from the shared ``env`` fixture.
 """
 import asyncio
 import json
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace as S
 
@@ -50,7 +51,7 @@ def slicer(env, monkeypatch):  # noqa: F811
                              f'; run {len(runs)} plate {number}\nG1 X1\n')
             gcodes.append(gcode)
         job['slice_recipe'] = recipe
-        job['artifact_binding'] = {'recipe_version': recipe['version'], 'recipe_sha256': recipe['sha256'],
+        job['artifact_binding'] = {**model_job._recipe_binding(job),
                                    'source_sha256': source_sha,
                                    'decisions_sha256': model_job.decisions_digest(job.get('color_decisions')),
                                    'gcode_sha256': model_job.file_sha256(gcodes[0])}
@@ -222,6 +223,363 @@ def test_start_over_asks_everything_again(env, slicer):  # noqa: F811
     assert len(slicer) == 2 and receipt['status'] == 'STARTED'
 
 
+def intake_as(env, picks, mid, user_id):  # noqa: F811
+    """intake() with a chosen requester, for the same-requester checks."""
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id=user_id),
+              message_id=mid, text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter(picks)
+    result = asyncio.run(prepared_intake.prepare_link(
+        event, adapter, state(), env.root, timeout=1))
+    iid = model_job.intake_id_from_message(event.source, mid)
+    return adapter, result, json.loads((env.root / f'{iid}.json').read_text())
+
+
+# Fix 1: a slice built by another Print Handy version, or from a different
+# resolved author-settings digest, is never a reuse source (#1665's case).
+
+
+def test_other_print_handy_version_is_never_offered(env, slicer):  # noqa: F811
+    break_all(reused_once(env), lambda job: job['artifact_binding'].update(
+        print_handy_version='0.0.0-older'))
+    adapter, _, receipt = intake(env, FRESH_PICKS, 'm3')
+    assert reuse_question(adapter) is None
+    assert color_questions(adapter) and len(slicer) == 2
+    assert receipt['status'] == 'STARTED'
+
+
+def test_changed_author_settings_digest_is_never_offered(env, slicer):  # noqa: F811
+    break_all(reused_once(env), lambda job: job['artifact_binding'].update(
+        author_settings_sha256='0' * 64))
+    adapter, _, receipt = intake(env, FRESH_PICKS, 'm3')
+    assert reuse_question(adapter) is None
+    assert color_questions(adapter) and len(slicer) == 2
+    assert receipt['status'] == 'STARTED'
+
+
+def _cura_cfg(kind, values):
+    rows = '\n'.join(f'{key} = {value}' for key, value in values.items())
+    return f'[general]\nversion = 4\n\n[metadata]\ntype = {kind}\n\n[values]\n{rows}\n'
+
+
+def _cura_project(tmp_path, name, *, quality_changes, quality):
+    stack = ('[general]\nversion = 6\nid = M\n\n[metadata]\ntype = machine\n\n'
+             '[containers]\n0 = M_user\n1 = M_qc\n2 = M_quality\n')
+    members = {'Cura/M.global.cfg': stack,
+               'Cura/M_user.inst.cfg': _cura_cfg('user', {}),
+               'Cura/M_qc.inst.cfg': _cura_cfg('quality_changes', quality_changes),
+               'Cura/M_quality.inst.cfg': _cura_cfg('quality', quality)}
+    target = tmp_path / name
+    with zipfile.ZipFile(target, 'w') as archive:
+        for member, text in members.items():
+            archive.writestr(member, text)
+    return target
+
+
+def test_resolved_digest_tracks_the_resolved_settings_not_the_bytes(tmp_path):
+    """The digest follows what #1665's resolver reads out of a Cura project:
+    changing only the vendor quality layer leaves the digest alone (those
+    defaults are not the designer's), changing the designer's own layer
+    moves it."""
+    from print_handy.core import author_settings
+    designer = {'layer_height': '0.12', 'infill_pattern': 'gyroid'}
+    first = _cura_project(
+        tmp_path, 'a.3mf', quality_changes=designer,
+        quality={'layer_height': '0.2', 'infill_pattern': 'grid',
+                 'support_structure': 'tree'})
+    vendor_changed = _cura_project(
+        tmp_path, 'b.3mf', quality_changes=designer,
+        quality={'layer_height': '0.28', 'infill_pattern': 'lines',
+                 'support_structure': 'normal', 'brim_width': '7'})
+    designer_changed = _cura_project(
+        tmp_path, 'c.3mf', quality_changes={'layer_height': '0.2',
+                                            'infill_pattern': 'gyroid'},
+        quality={'layer_height': '0.2', 'infill_pattern': 'grid',
+                 'support_structure': 'tree'})
+    resolved = author_settings.read_project(first)['author']
+    assert resolved.get('layer_height') == '0.12'
+    assert author_settings.resolved_digest(first) == \
+        author_settings.resolved_digest(vendor_changed)
+    assert author_settings.resolved_digest(first) != \
+        author_settings.resolved_digest(designer_changed)
+    assert author_settings.resolved_digest(tmp_path / 'missing.3mf') is None
+
+
+# Fix 2: the offer is only ever made to the requester of the earlier job.
+
+
+def test_other_requester_is_never_offered(env, slicer):  # noqa: F811
+    first_print(env)
+    adapter, _, receipt = intake_as(env, FRESH_PICKS, 'm2', 'someone-else')
+    assert reuse_question(adapter) is None
+    assert color_questions(adapter) and len(slicer) == 2
+    assert receipt['status'] == 'STARTED'
+
+
+def test_unstamped_earlier_job_is_never_offered(env, slicer):  # noqa: F811
+    break_all(reused_once(env), lambda job: job.pop('started_by', None))
+    adapter, _, receipt = intake(env, FRESH_PICKS, 'm3')
+    assert reuse_question(adapter) is None
+    assert color_questions(adapter) and len(slicer) == 2
+    assert receipt['status'] == 'STARTED'
+
+
+# Fix 3: a job that was sliced but never approved and started is not a
+# reuse source, however good its slice is.
+
+
+def test_sliced_but_never_started_is_never_offered(env, slicer):  # noqa: F811
+    # "Slice and Download", then "Done, don't print" at the plate menu: a
+    # complete verified slice, never approved for a start, never started.
+    adapter, _, first = intake(env, [2, 0, 1, 2], 'm1')
+    assert first['status'] == 'SLICED_NOT_STARTED' and first['started'] is False
+    assert job_of(first).get('gcode_verified')
+    adapter, _, receipt = intake(env, FRESH_PICKS, 'm2')
+    assert reuse_question(adapter) is None
+    assert color_questions(adapter) and len(slicer) == 2
+    assert receipt['status'] == 'STARTED'
+
+
+def test_approved_but_start_refused_is_never_offered(env, slicer, monkeypatch):  # noqa: F811
+    from print_handy.runtime import print_next
+    refused = ('REFUSED: another start already holds this printer. '
+               'Nothing uploaded or started.')
+    gate = {'refuse': True}
+    real_take = print_next._take_claim
+
+    def take(claim, target):
+        return refused if gate['refuse'] else real_take(claim, target)
+
+    monkeypatch.setattr(print_next, '_take_claim', take)
+    adapter, _, first = intake(env, FRESH_PICKS, 'm1')
+    # The operator approved the start; the start itself was refused.
+    assert first['bed_clear_approval'] and first['started'] is False
+    assert first['status'] != 'STARTED'
+    gate['refuse'] = False
+    adapter, _, receipt = intake(env, FRESH_PICKS, 'm2')
+    assert reuse_question(adapter) is None
+    assert color_questions(adapter) and len(slicer) == 2
+    assert receipt['status'] == 'STARTED'
+
+
+# Fix 4: races between the offer's checks and the slice-time copy fall back
+# to a fresh slice — never a partial copy, never an exception.
+
+
+def test_copy_failure_falls_back_to_a_fresh_slice(env, slicer, monkeypatch):  # noqa: F811
+    import shutil
+    first = first_print(env)
+    earlier = job_of(first)
+    earlier_folder = Path(first['job_json']).parent
+    real_copy2 = shutil.copy2
+
+    def flaky_copy2(src, dst, *args, **kwargs):
+        if earlier_folder in Path(src).parents:
+            raise OSError('the artifact vanished mid-copy')
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, 'copy2', flaky_copy2)
+    adapter, _, receipt = intake(env, [0, 0], 'm2')
+    assert reuse_question(adapter) is not None  # the offer itself was sound
+    job = job_of(receipt)
+    assert 'reused_slice' not in job  # nothing was adopted
+    # A fresh slice served the print instead of the copied bytes.
+    assert Path(job['gcode']).read_bytes() != Path(earlier['gcode']).read_bytes()
+    assert receipt['status'] == 'STARTED'
+
+
+def test_gcode_vanishing_during_the_scan_is_not_an_error(env, slicer, monkeypatch):  # noqa: F811
+    from print_handy.gcode import artifact as gcode_artifact
+    first = first_print(env)
+    earlier_folder = Path(first['job_json']).parent
+    real_sha = gcode_artifact.file_sha256
+
+    def vanishing(path):
+        if earlier_folder in Path(path).parents:
+            raise OSError('vanished mid-scan')
+        return real_sha(path)
+
+    monkeypatch.setattr(gcode_artifact, 'file_sha256', vanishing)
+    adapter, _, receipt = intake(env, FRESH_PICKS, 'm2')
+    assert reuse_question(adapter) is None
+    assert color_questions(adapter) and len(slicer) == 2
+    assert receipt['status'] == 'STARTED'
+
+
+def test_adopt_rechecks_the_slots_against_fresh_state(env, slicer, monkeypatch):  # noqa: F811
+    """The offer checks the loaded slots; the copy at slice time checks them
+    again, so a spool swapped in between refuses the reuse."""
+    from print_handy.jobs import slice as slicing
+    first = first_print(env)
+    earlier = job_of(first)
+    folder = Path(env.tmp) / 'archive' / 'resend-job'
+    folder.mkdir(parents=True)
+    new_job = dict(earlier)
+    new_job.pop('reused_slice', None)
+    new_job['reused_decisions'] = {'intake_id': earlier['intake_id'],
+                                   'job_json': first['job_json'],
+                                   'reuse_slice': True}
+    job_path = folder / 'JOB.json'
+    job_path.write_text(json.dumps(new_job))
+    fresh = []
+
+    def sentinel(path, **kwargs):
+        fresh.append(str(path))
+        return Path(path).parent / 'sliced' / 'fresh.gcode'
+
+    monkeypatch.setattr(slicing, '_slice_job', sentinel)
+    # Slots as offered: the verified slice is adopted, no fresh slice runs.
+    result = slicing.slice_job(job_path)
+    assert fresh == [] and Path(result).is_relative_to(folder)
+    # A slot changed since the offer: the copy is refused, a fresh slice runs.
+    monkeypatch.setattr(prepared_intake, 'loaded_slot_change',
+                        lambda decisions, st: 'slot 1 held white PLA and now '
+                                              'holds red PETG')
+    result = slicing.slice_job(job_path)
+    assert fresh == [str(job_path)]
+    assert result == folder / 'sliced' / 'fresh.gcode'
+
+
+# Fix 5: the earlier job's supports answer must not silence a supports flag
+# on a fresh slice — only on the slice that is actually reused.
+
+
+def _force_supports_flag(monkeypatch):
+    """Give every job a risky support-clearance report: the one supports
+    flag a fresh slice can raise even when the job already carries an
+    operator's earlier answer (a slicer finding is answered by that answer
+    and never re-fires, in production too; a clearance report is recomputed
+    from the mesh every time). The harness model analyzes to no report, so
+    the report is supplied at the analyzer seam."""
+    from print_handy.core import support_clearance
+    report = {'risky': True, 'findings': []}
+    monkeypatch.setattr(support_clearance, 'safe_analyze',
+                        lambda source, first_layer_mm=None: report)
+    # The shared env holds every background slice until the delivery step;
+    # the supports question is composed before that, so let this slice run
+    # (the pattern the prepared-intake lifecycle tests use).
+    from print_handy.core import background_slice
+    held_init = background_slice.BackgroundSlice.__init__
+
+    def released_init(runner):
+        held_init(runner)
+        runner.release.set()
+
+    monkeypatch.setattr(background_slice.BackgroundSlice, '__init__', released_init)
+
+
+def _restore_verified_artifact(first):
+    """Re-slice the first job through the production entry, leaving the
+    verified artifact production's delivery slice leaves: in this harness
+    the speculative supports slice shares the first slice's file name and
+    overwrites it, while the real delivery slice re-checks the artifact
+    against its binding and restores matching bytes."""
+    slicing.slice_job(Path(first['job_json']))
+
+
+class PickByLabel(Adapter):
+    """Adapter whose picks may be choice-label substrings instead of indices
+    (the flagged Ready menu orders its supports choices by recommendation)."""
+
+    async def send_clarify(self, **kw):
+        choices = kw.get('choices') or []
+        pick = next(self.picks)
+        if isinstance(pick, str):
+            pick = next(i for i, choice in enumerate(choices) if pick in str(choice))
+        self.questions.append(kw)
+        if len(choices) == 1:
+            self.log.append(kw['question'])
+        answer = choices[pick]
+        import tools.clarify_gateway as cm
+        cm.resolve_gateway_clarify(kw['clarify_id'], answer)
+        return S(success=True)
+
+
+def intake_labeled(env, picks, mid):  # noqa: F811
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id=mid, text='https://www.printables.com/model/1-ghost')
+    adapter = PickByLabel(picks)
+    result = asyncio.run(prepared_intake.prepare_link(
+        event, adapter, state(), env.root, timeout=1))
+    iid = model_job.intake_id_from_message(event.source, mid)
+    return adapter, result, json.loads((env.root / f'{iid}.json').read_text())
+
+
+def test_fresh_slice_after_a_setup_change_asks_supports_again(env, slicer, monkeypatch):  # noqa: F811
+    _force_supports_flag(monkeypatch)
+    # First print: the flag is raised and the operator answers "without
+    # supports" in the Ready menu.
+    adapter, _, first = intake_labeled(env, [2, 0, 'without supports', 0, 0, 0, 0, 0], 'm1')
+    for q in adapter.questions:
+        print('Q1:', q['question'][:70].replace('\n', ' '), '|', [str(c)[:40] for c in q.get('choices') or []])
+    print('FIRST:', first['status'])
+    assert first['status'] == 'STARTED'
+    _restore_verified_artifact(first)
+    decision = job_of(first).get('support_decision') or {}
+    assert decision.get('by') == 'operator' and decision.get('supports') is False
+    # A slicer update changes the recipe: the decisions are reused, the
+    # slice is not — and the fresh slice's own flag is asked, not silenced.
+    monkeypatch.setattr(orca_adapter, 'ORCA_COMMAND', ['orca-slicer-updated'])
+    adapter, _, receipt = intake_labeled(env, [0, 'without supports'], 'm2')
+    asked = [q for q in adapter.questions
+             if any('without supports' in choice for choice in q['choices'])]
+    assert asked, 'the fresh slice never asked about supports'
+    job = job_of(receipt)
+    assert 'reused_slice' not in job
+    assert (job.get('support_decision') or {}).get('by') == 'operator'
+    assert receipt['status'] == 'STARTED'
+
+
+def test_reused_slice_keeps_last_times_supports_answer(env, slicer, monkeypatch):  # noqa: F811
+    _force_supports_flag(monkeypatch)
+    adapter, _, first = intake_labeled(env, [2, 0, 'without supports', 0, 0, 0, 0, 0], 'm1')
+    for q in adapter.questions:
+        print('Q1:', q['question'][:70].replace('\n', ' '), '|', [str(c)[:40] for c in q.get('choices') or []])
+    print('FIRST:', first['status'])
+    assert first['status'] == 'STARTED'
+    _restore_verified_artifact(first)
+    # Nothing changed: the verified slice itself is reused, so its supports
+    # answer stands and the question is not asked again.
+    adapter, _, receipt = intake(env, [0, 0], 'm2')
+    asked = [q for q in adapter.questions
+             if any('without supports' in choice for choice in q['choices'])]
+    assert asked == []
+    job = job_of(receipt)
+    assert job.get('reused_slice') and receipt['status'] == 'STARTED'
+    assert (job.get('support_decision') or {}).get('by') == 'operator'
+
+
+# Fix 6: "no new slice is needed" is computed for the NEW job (its own
+# parameters with the carried decisions applied), not for the old one.
+
+
+def _offer_for(env, earlier, **extra):  # noqa: F811
+    job = {'color_manifest': {'source_sha256':
+                              earlier['color_manifest']['source_sha256']},
+           'printer_id': earlier.get('printer_id'),
+           'downloaded_file': earlier['downloaded_file'],
+           'started_by': {'platform': 'discord', 'user_id': 'u'}, **extra}
+    adapter = Adapter([0])
+    source = S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u')
+    reused = asyncio.run(prepared_intake._offer_previous_decisions(
+        adapter, source, 'k', 1, job, state(), Path(env.tmp) / 'new-job',
+        receipts_root=env.root))
+    return adapter, reused
+
+
+def test_offer_recipe_verdict_is_computed_for_the_new_job(env, slicer):  # noqa: F811
+    earlier = job_of(first_print(env))
+    # The new job carries a full-size split plan the earlier job never had:
+    # its recipe differs, so the offer must say a fresh slice will run.
+    adapter, reused = _offer_for(env, earlier,
+                               full_size_split_plan={'kind': 'test-plan'})
+    assert reused is not None and reused['reuse_slice'] is False
+    assert 'slice it again' in adapter.questions[0]['question']
+    # Control: the same job with nothing new really does need no new slice.
+    adapter, reused = _offer_for(env, earlier)
+    assert reused is not None and reused['reuse_slice'] is True
+    assert 'no new slice is needed' in adapter.questions[0]['question']
+
+
 def test_reused_gcode_still_meets_the_start_gates(env, slicer, monkeypatch):  # noqa: F811
     first_print(env)
     # The one-start-per-printer claim (the start lease) is held elsewhere: a reused
@@ -286,3 +644,7 @@ def test_painted_multi_plate_keeps_last_times_size_without_asking(env, slicer, m
     job = job_of(receipt)
     assert job['scale'] == 0.95 and job['plate_mode'] == 'separate' and job.get('reused_slice')
     assert receipt['status'] == 'STARTED'
+
+
+
+

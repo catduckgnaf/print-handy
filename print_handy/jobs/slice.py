@@ -21,7 +21,8 @@ from .filament import (
 from ..printers.base import MultiColorUnsupported
 from .store import (
     _job_adapter, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing, artifact_gcodes,
-    decisions_digest, gcode_estimate_s, human_dur, stamp_job_printer, unverified_artifact, write_job,
+    decisions_digest, gcode_estimate_s, human_dur, stale_build_refusal, stamp_job_printer,
+    unverified_artifact, write_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -2163,6 +2164,9 @@ def reused_slice_refusal(job, earlier, recipe_sha256):
     problem = unverified_artifact(earlier)
     if problem:
         return problem
+    stale = stale_build_refusal(earlier, job.get('downloaded_file'))
+    if stale:
+        return stale
     if any(earlier.get(field) for field in _WARNING_FIELDS):
         return 'it was sliced under accepted filament warnings, which a new slice presents again'
     binding = earlier['artifact_binding']
@@ -2210,9 +2214,24 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
                                         copies=copies, scale=scale, brim_override=brim_override))
     if recipe_sha256 is not None and recipe_sha256 != current['sha256']:
         return None  # _slice_job refuses a request bound to another recipe, with its own message
-    refusal = reused_slice_refusal(job, earlier, current['sha256'])
+    try:
+        refusal = reused_slice_refusal(job, earlier, current['sha256'])
+    except OSError as exc:
+        # A file the checks read vanished under them: slice fresh, never
+        # surface the race as an error (#1648 item 7).
+        logger.info('reused slice: checking the earlier G-code failed (%s); slicing again', exc)
+        return None
     if refusal:
         logger.info('reused slice: not reusing the earlier G-code because %s; slicing again', refusal)
+        return None
+    # The slots the decisions use are re-read from the state loaded just now:
+    # what the offer checked can have changed since (a spool swap on a
+    # single-slot printer is not a recipe input), and a changed slot refuses
+    # the copy exactly as it refused the offer (#1648 item 7).
+    from ..core.prepared_intake import loaded_slot_change
+    change = loaded_slot_change(earlier.get('color_decisions'), st)
+    if change:
+        logger.info('reused slice: not reusing the earlier G-code because %s; slicing again', change)
         return None
     folder = Path(earlier_path).parent
     prefixes = sorted({str(folder), str(folder.resolve())}, key=len, reverse=True)
@@ -2222,11 +2241,19 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
     carried = {field: _rebased(_copy.deepcopy(earlier[field]), prefixes, str(path.parent), moved)
                for field in fields}
     copied = []
-    for src, dest in moved:
-        if src.is_file() and not dest.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-            copied.append(dest)
+    try:
+        for src, dest in moved:
+            if src.is_file() and not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+                copied.append(dest)
+    except OSError as exc:
+        # The artifact changed or vanished between the checks and the copy:
+        # leave no partial copy behind and slice fresh (#1648 item 7).
+        for dest in copied:
+            dest.unlink(missing_ok=True)
+        logger.info('reused slice: copying the earlier G-code failed (%s); slicing again', exc)
+        return None
     adopted = {key: value for key, value in job.items()
                if key not in SLICE_JOB_FIELDS and key not in _REUSED_SLICE_EXTRA}
     adopted.update(carried)

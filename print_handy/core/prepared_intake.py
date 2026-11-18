@@ -1049,16 +1049,58 @@ REUSE_DECISIONS_LABEL = 'Print it like last time'
 START_OVER_LABEL = 'Start over'
 
 
-def previous_sliced_job(source_sha256, printer_id, archive=None, exclude=None):
+def _same_requester(earlier, requester):
+    """True when both jobs name the same starter (platform and user id) (#1648 item 7).
+
+    A job with no recorded starter, or a new intake with none, can never be
+    shown to be the same requester, so it does not qualify.
+    """
+    starter = earlier.get('started_by') if isinstance(earlier, dict) else None
+    if not isinstance(starter, dict) or not isinstance(requester, dict):
+        return False
+    return (bool(starter.get('user_id')) and starter.get('user_id') == requester.get('user_id')
+            and (starter.get('platform') or 'discord') == (requester.get('platform') or 'discord'))
+
+
+def _job_was_started(job_path, job, receipts_root):
+    """True when an earlier job was approved and actually started (#1648 item 7).
+
+    The evidence is the system's own records: the job's intake receipt (its
+    bed-clear approval recorded, its start outcome started) or a launch
+    number in the print registry, which print-now mints only for a launch
+    that passed its gates. A job that was only sliced — never approved, or
+    approved but never started — has neither.
+    """
+    iid = job.get('intake_id')
+    if receipts_root and iid:
+        try:
+            receipt = json.loads((Path(receipts_root) / f'{iid}.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            receipt = None
+        if (isinstance(receipt, dict) and receipt.get('started') is True
+                and isinstance(receipt.get('bed_clear_approval'), dict)):
+            return True
+    try:
+        from ..runtime import print_control
+        return print_control.latest_number_for_job(job_path) is not None
+    except Exception:
+        logger.debug('could not read the launch registry for %s', job_path, exc_info=True)
+        return False
+
+
+def previous_sliced_job(source_sha256, printer_id, archive=None, exclude=None, requester=None,
+                        receipts_root=None):
     """(JOB.json path, job) of the newest earlier job for these source bytes and printer, else None.
 
-    #1648 item 7: only a job whose color decisions are recorded and whose
-    verified G-code is still intact qualifies; a job that failed
-    verification, was never sliced or lost a file is skipped (and logged).
-    ``exclude`` is the new intake's own folder. Local files only.
+    #1648 item 7: only a job whose color decisions are recorded, whose
+    verified G-code is still intact, that the same requester had approved
+    and actually started, and whose slice this build would still produce
+    (same Print Handy version, same resolved author settings) qualifies; a
+    job that failed any of those is skipped (and logged). ``exclude`` is
+    the new intake's own folder. Local files only.
     """
     from . import model_job as mj
-    from ..jobs.store import artifact_gcodes, unverified_artifact
+    from ..jobs.store import artifact_gcodes, stale_build_refusal, unverified_artifact
     skip = Path(exclude).resolve() if exclude else None
     best = None
     for jp in Path(archive or mj.ARCHIVE).glob('*/JOB.json'):
@@ -1072,11 +1114,28 @@ def previous_sliced_job(source_sha256, printer_id, archive=None, exclude=None):
                 or (job.get('color_manifest') or {}).get('source_sha256') != source_sha256
                 or str(mj._job_printer_id(job)) != str(printer_id)):
             continue
-        problem = unverified_artifact(job)
+        if not _same_requester(job, requester):
+            logger.info('not offering the decisions of %s again: another requester sliced it',
+                        jp.parent.name)
+            continue
+        if not _job_was_started(jp, job, receipts_root):
+            logger.info('not offering the decisions of %s again: it was never approved and started',
+                        jp.parent.name)
+            continue
+        try:
+            problem = unverified_artifact(job)
+            if problem is None:
+                problem = stale_build_refusal(job, job.get('downloaded_file'))
+            when = max(path.stat().st_mtime for path in artifact_gcodes(job)) if problem is None else None
+        except (OSError, ValueError):
+            # The artifact changed under the scan (a file vanished between
+            # the checks): this candidate is simply not offered.
+            logger.info('not offering the decisions of %s again: its files changed while they were checked',
+                        jp.parent.name)
+            continue
         if problem:
             logger.info('not offering the decisions of %s again: %s', jp.parent.name, problem)
             continue
-        when = max(path.stat().st_mtime for path in artifact_gcodes(job))
         if best is None or when > best[0]:
             best = (when, jp, job)
     return (best[1], best[2]) if best else None
@@ -1133,22 +1192,24 @@ def decisions_summary(job):
     return ', '.join(parts)
 
 
-async def _offer_previous_decisions(adapter, source, key, timeout, job, state, folder):
+async def _offer_previous_decisions(adapter, source, key, timeout, job, state, folder, receipts_root=None):
     """Offer the decisions of an earlier slice of these exact bytes; returns what was reused, or None.
 
     #1648 item 7. Asked once per intake, only when an earlier job for the
-    same printer has the same source SHA256, an intact verified slice, and
-    every slot it used still loaded with the same filament. Choosing it
-    copies the decisions onto ``job`` (colors, scale, turn, supports, copies,
-    edits, plate layout) and names the earlier job, whose G-code slice_job
-    reuses when the recipe still matches; otherwise the job slices again with
-    those decisions. "Start over" changes nothing.
+    same printer has the same source SHA256, an intact verified slice this
+    build would still produce, the same requester, an approval and a start
+    on its record, and every slot it used still loaded with the same
+    filament. Choosing it copies the decisions onto ``job`` (colors, scale,
+    turn, supports, copies, edits, plate layout) and names the earlier job,
+    whose G-code slice_job reuses when the recipe still matches; otherwise
+    the job slices again with those decisions. "Start over" changes nothing.
     """
     from . import model_job as mj
     sha = (job.get('color_manifest') or {}).get('source_sha256')
     if not sha:
         return None
-    found = await asyncio.to_thread(previous_sliced_job, sha, mj._job_printer_id(job), exclude=folder)
+    found = await asyncio.to_thread(previous_sliced_job, sha, mj._job_printer_id(job), exclude=folder,
+                                    requester=job.get('started_by'), receipts_root=receipts_root)
     if found is None:
         return None
     earlier_path, earlier = found
@@ -1156,8 +1217,12 @@ async def _offer_previous_decisions(adapter, source, key, timeout, job, state, f
     if change:
         logger.info('not offering the decisions of %s again: %s', earlier_path.parent.name, change)
         return None
+    # "No new slice is needed" is a claim about THIS job: the recipe is
+    # recomputed from the new job with the carried decisions applied, never
+    # from the earlier job's own record (#1648 item 7).
+    prospective = carry_decisions(dict(job), earlier, REUSED_DECISION_FIELDS)
     try:
-        changed = await asyncio.to_thread(mj._recipe_changed, earlier, earlier)
+        changed = await asyncio.to_thread(mj._recipe_changed, earlier, prospective)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         logger.warning('could not compare the earlier slice recipe (%s); it will be sliced again', exc)
         changed = True
@@ -1175,6 +1240,12 @@ async def _offer_previous_decisions(adapter, source, key, timeout, job, state, f
     carry_decisions(job, earlier, REUSED_DECISION_FIELDS)
     job['reused_decisions'] = {'intake_id': earlier.get('intake_id'), 'job_json': str(earlier_path),
                                'reuse_slice': not changed}
+    if job.get('support_decision'):
+        # The supports answer the reuse stands on, recorded on the reuse
+        # record itself: a speculative supports slice can overwrite the
+        # job's own field before the supports question is composed, and the
+        # carried answer must still be the one that decides it.
+        job['reused_decisions']['support_decision'] = job['support_decision']
     return job['reused_decisions']
 
 
@@ -2735,7 +2806,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if not reuse:
             # The same bytes sliced before for this printer (#1648 item 7): one
             # choice between last time's decisions and asking them all again.
-            reused = await _offer_previous_decisions(adapter, source, key, timeout, job, state, folder)
+            reused = await _offer_previous_decisions(adapter, source, key, timeout, job, state, folder,
+                                                     receipts_root=root)
             if reused is not None:
                 mj.write_job(folder, job)
                 receipt.update(reused_decisions=reused)
@@ -3746,10 +3818,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 break
             is_flagged, sup_reason, sup_inputs = supports_decision(
                 early.flagged, early.finding, clearance)
-            reused_supports = (latest.get('support_decision') or {}) if latest.get('reused_decisions') else {}
-            if is_flagged and reused_supports.get('by') == 'operator':
+            reused = latest.get('reused_decisions') or {}
+            # The carried answer as the offer recorded it; the job's own
+            # field can since have been overwritten by a speculative slice.
+            reused_supports = (reused.get('support_decision')
+                               or latest.get('support_decision') or {}) if reused else {}
+            if is_flagged and reused.get('reuse_slice') and reused_supports.get('by') == 'operator':
                 # "Print it like last time" (#1648 item 7) carried the
-                # operator's own supports answer; it is not asked again.
+                # operator's own supports answer, and the verified slice
+                # itself is reused, so that answer is already in the G-code
+                # and is not asked again. A job that slices fresh instead
+                # (the setup changed) keeps this job's own flag: the fresh
+                # slice honors the answer given now, not last time's.
                 is_flagged = False
                 sup_reason = (f"{sup_reason}; answered last time: "
                               f"{'with' if reused_supports.get('supports') else 'without'} supports")
