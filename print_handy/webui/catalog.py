@@ -37,6 +37,10 @@ SOURCE_BOT_PLATFORMS = "bot_platforms"
 SOURCE_VENDOR_SLICERS = "vendor_slicers"
 SOURCE_VENDOR_DELIVERY = "vendor_delivery"
 SOURCE_TIMEZONES = "timezones"
+# [services] camera_source without "bambu" unless a Bambu Lab printer is
+# configured: the pin resolves no camera at all on any other printer
+# (go2rtc.resolve_source; only the Bambu adapter has its own camera paths).
+SOURCE_CAMERA_SOURCES = "camera_sources"
 
 
 @dataclass(frozen=True)
@@ -76,8 +80,8 @@ class Field:
 # and the camera, timelapse, image and live-stream fields in one camera
 # group — instead of by the settings section they happen to live in.
 # Stage 2 gathered every AI surface into the ai group: the chat, design
-# and agent endpoints, the vision endpoint and model, and the [ai] edit
-# gate. The [ai] tier tables themselves stay file-only (see
+# and agent endpoints, the vision endpoint, its model and its on/off
+# switch (vision.ai_enabled), and the [ai] edit gate. The [ai] tier tables themselves stay file-only (see
 # GROUP_FILE_ONLY_NOTES below).
 GROUP_OF = {
     "printer.name": "printers",
@@ -94,7 +98,22 @@ GROUP_OF = {
     "printer.forgex_timelapse": "printers",
     "delivery.methods": "slicing",
     "layout.spacing": "slicing",
-    "bot.mode": "platform",
+    "layout.arrange_gap_mm": "slicing",
+    "layout.arrange_edge_mm": "slicing",
+    "layout.merge_spacing_mm": "slicing",
+    "layout.merge_edge_margin_mm": "slicing",
+    "layout.single_copy_edge_mm": "slicing",
+    "layout.multi_copy_edge_mm": "slicing",
+    "layout.max_merged_hours": "slicing",
+    "prime_tower.size_mm": "slicing",
+    "prime_tower.part_clearance_mm": "slicing",
+    "prime_tower.edge_mm": "slicing",
+    "prime_tower.merge_slack_mm": "slicing",
+    "purge.mode": "slicing",
+    "purge.prime_tower": "slicing",
+    "printer.start_macro": "slicing",
+    "printer.end_macro": "slicing",
+    "slicer.flash_studio_path": "slicing",
     "bot.platform": "platform",
     "discord.chat_id": "platform",
     "discord.allowed_user_ids": "platform",
@@ -135,6 +154,7 @@ GROUP_OF = {
     "external_intake.max_bytes": "slicing",
     "firmware.update_alerts": "notifications",
     "firmware.update_check_hours": "notifications",
+    "firmware.update_channel": "notifications",
     "firmware.notice_firmwares": "notifications",
     "firmware.forgex_apply": "notifications",
     "llm.chat_url": "ai",
@@ -150,12 +170,15 @@ GROUP_OF = {
     "timelapse.capture_source_url": "camera",
     "services.vision_chat_url": "ai",
     "vision.model": "ai",
-    "vision.ai_enabled": "camera",
+    # The vision endpoint's own switch sits with the endpoint it gates;
+    # the camera group leads with the local failure detector, the
+    # default camera check.
+    "vision.ai_enabled": "ai",
+    "vision.local_detector_enabled": "camera",
+    "vision.watch_source": "camera",
+    "vision.local_model_path": "camera",
     "vision.roast_enabled": "camera",
     "vision.roast_custom_bank": "camera",
-    "vision.local_detector_enabled": "camera",
-    "vision.local_model_path": "camera",
-    "vision.watch_source": "camera",
     "vision.local_empty_enabled": "camera",
     "vision.auto_light_off_minutes": "camera",
     "vision.light_object": "camera",
@@ -225,6 +248,15 @@ GROUP_FILE_ONLY_NOTES = {
           "*_api_key_env settings (for llm, design, agent and each tier) "
           "stay file-only too: they name an environment variable, never "
           "a key value.",
+    "slicing": "File-only in this section: the per-material tables "
+               "[material_temps], [material_tuning], [nozzle_temp_offsets] "
+               "and [cold_pull] (you choose their keys, so there is no "
+               "fixed field for each one), the optional purge "
+               "flush_multiplier (unset means the profile's own flush "
+               "volumes, which a number field cannot leave unset), "
+               "[zmod] plugins (auto or a list of plugin names), the "
+               "OrcaSlicer and Bambu Studio commands and the Orca "
+               "template folder. Edit them in the settings file.",
 }
 
 
@@ -255,6 +287,103 @@ CATALOG = (
            "minimum, low, medium or high. A gap named explicitly in the settings "
            "file wins over the preset for that gap.",
            choices=tuple(settings.SPACING_PRESETS), validator="settings layout check"),
+    # The gaps the spacing preset fills, one field each. The /config save
+    # writes only the fields you change, so an untouched gap keeps
+    # following the preset; a changed one is pinned in the settings file
+    # and wins over the preset from then on. Like every [layout],
+    # [prime_tower] and [printer] value, they apply to the default
+    # printer: other printers in a [[printers]] roster keep their model's.
+    _field("layout", "arrange_gap_mm", "Gap between arranged parts (mm)", "number",
+           "Room auto-layout leaves between parts it rearranges onto one plate. "
+           "Changing it pins this gap; the Plate spacing preset no longer sets it. "
+           "In a printer roster it applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("layout", "arrange_edge_mm", "Bed-edge margin for arranged parts (mm)", "number",
+           "How close rearranged parts may come to the bed edge; a job's brim is "
+           "added on top. Changing it pins this gap; the Plate spacing preset no "
+           "longer sets it. In a printer roster it applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("layout", "merge_spacing_mm", "Gap between merged plates (mm)", "number",
+           "Room kept between the parts of plates merged onto one bed. Changing it "
+           "pins this gap; the Plate spacing preset no longer sets it. In a printer "
+           "roster it applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("layout", "merge_edge_margin_mm", "Bed-edge margin for merged plates (mm)", "number",
+           "How close merged plates may come to the bed edge. Changing it pins this "
+           "gap; the Plate spacing preset no longer sets it. In a printer roster it "
+           "applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("layout", "single_copy_edge_mm", "Bed-edge margin for one copy (mm)", "number",
+           "How close a lone part may sit to the bed edge. The Plate spacing preset "
+           "does not change this one; the printer model sets its default. In a "
+           "printer roster it applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("layout", "multi_copy_edge_mm", "Bed-edge margin for several copies (mm)", "number",
+           "How close copies of a part may sit to the bed edge when several share a "
+           "plate. The Plate spacing preset does not change this one; the printer "
+           "model sets its default. In a printer roster it applies to the default "
+           "printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("layout", "max_merged_hours", "Longest merged plate (hours)", "number",
+           "Plates are only merged onto one bed when the merged print would take at "
+           "most this many hours; longer ones stay separate prints. 12 by default.",
+           validator="settings layout check", minimum=0.5, maximum=168),
+    _field("prime_tower", "size_mm", "Prime tower size (mm)", "number",
+           "Width of the prime tower a multicolor slice reserves room for. Only "
+           "printers that print more than one filament use a tower. In a printer "
+           "roster it applies to the default printer.",
+           validator="settings layout check", minimum=5, maximum=100),
+    _field("prime_tower", "part_clearance_mm", "Prime tower to part clearance (mm)", "number",
+           "Room kept between the prime tower and any part. Changing it pins this "
+           "gap; the Plate spacing preset no longer sets it. In a printer roster it "
+           "applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("prime_tower", "edge_mm", "Prime tower to bed edge clearance (mm)", "number",
+           "How close the prime tower (with its brim and wipe passes) may sit to the "
+           "bed edge. Changing it pins this gap; the Plate spacing preset no longer "
+           "sets it. In a printer roster it applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("prime_tower", "merge_slack_mm", "Prime tower room when merging (mm)", "number",
+           "Extra room reserved for the prime tower when plates are merged. Every "
+           "tower spot is still checked by the tower search. Changing it pins this "
+           "gap; the Plate spacing preset no longer sets it. In a printer roster it "
+           "applies to the default printer.",
+           validator="settings layout check", minimum=0.1, maximum=100),
+    _field("purge", "mode", "ZMod color-change purge", "picker",
+           "ZMod printers (the AD5X family) only: where the purge at each color "
+           "change goes. auto follows the printer's own use_trash_on_print setting; "
+           "printer_chute = the printer purges into the chute and the slice has no "
+           "prime tower; prime_tower = the slicer purges into a tower; slicer_chute "
+           "= the slicer's filament-change G-code, which is refused for now. A fixed "
+           "choice is honored even when the printer cannot be read. Applies to every "
+           "ZMod printer in a roster.",
+           choices=tuple(settings.PURGE_MODES), validator="settings purge check"),
+    _field("purge", "prime_tower", "ZMod prime tower", "picker",
+           "ZMod printers only: whether the slice gets a prime tower and the fit "
+           "check keeps room for one. auto = off when the purge goes to the printer's "
+           "chute, on otherwise (including when the printer's setting cannot be "
+           "read); on and off force it.",
+           choices=tuple(settings.PURGE_TOWER_CHOICES), validator="settings purge check"),
+    _field("printer", "start_macro", "Klipper start macro", "text",
+           "Stock Klipper printers (generic Klipper, Sovol and Snapmaker models) "
+           "only: the macro name each sliced file calls to start a print, with the "
+           "bed and nozzle temperatures, for example PRINT_START or START_PRINT. "
+           "It must match a macro in your printer.cfg. In a printer roster it "
+           "applies to the default printer.",
+           validator="settings printer macro check"),
+    _field("printer", "end_macro", "Klipper end macro", "text",
+           "Stock Klipper printers only: the macro name each sliced file ends with, "
+           "for example PRINT_END or END_PRINT. A file that does not end with it is "
+           "refused before it reaches the printer. In a printer roster it applies to "
+           "the default printer.",
+           validator="settings printer macro check"),
+    _field("slicer", "flash_studio_path", "Flash Studio executable", "text",
+           "Flashforge printers only: the path to a Flash Studio program you "
+           "installed yourself, used to slice instead of OrcaSlicer. Empty (the "
+           "default) keeps OrcaSlicer. A path that is missing or not executable "
+           "makes slicing fail with that reason rather than quietly falling back. "
+           "Print Handy never downloads or bundles Flash Studio.",
+           validator="settings slicer path check"),
     _field("printer", "zmod_delivery_format", "ZMod delivery format", "picker",
            "Flashforge/ZMod printers only: auto sends the sliced .gcode.3mf when the printer "
            "reports ZMod 1.7.5+ and plain .gcode otherwise; gcode always sends .gcode; "
@@ -301,10 +430,6 @@ CATALOG = (
            "no timelapse. Forge-X cannot be told to make one for a single print.",
            choices=("printer", "off"), validator="settings forgex timelapse check"),
     # Bot and chat platform (guided setup: mode, plus bot platform from #164).
-    _field("bot", "mode", "Bot mode", "picker",
-           "standalone: Print Handy runs as its own bot (the only mode; the Hermes "
-           "install and runtime mode were removed).",
-           choices=tuple(settings.BOT_MODES), validator="guided mode / settings bot check"),
     _field("bot", "platform", "Bot platform", "picker",
            "Chat platform the standalone bot talks to.",
            choices_source=SOURCE_BOT_PLATFORMS, validator="settings bot platform check"),
@@ -335,7 +460,7 @@ CATALOG = (
            "configured) on Discord. Off by default: Discord runs as a pure bot "
            "(unmatched text gets the short not-understood reply) while [llm] stays "
            "configured for /print-design. On brings the chat AI back. Camera checks "
-           "keep their own switch (AI camera checks) either way.",
+           "keep their own switches either way.",
            validator="settings discord check"),
     _field("discord", "mention_starter", "Mention who started the print", "toggle",
            "On by default: when a print needs its starter (Discord, Telegram or Matrix), the post @mentions "
@@ -413,7 +538,7 @@ CATALOG = (
            "Spoolman URL for filament inventory; empty when Spoolman is not used.",
            validator="guided Spoolman URL / settings services check"),
     _field("spool", "accounting", "Spoolman accounting", "picker",
-           "Who counts filament usage (#1536): auto keeps Print Handy counting, "
+           "Who counts filament usage: auto keeps Print Handy counting, "
            "except on firmware that picks the active spool itself (OpenCreator) "
            "with a Moonraker Spoolman link; print_handy or printer name the one authority. The "
            "other side never charges, so nothing is counted twice. A printer "
@@ -422,7 +547,7 @@ CATALOG = (
            validator="settings spool check"),
     _field("spool", "prompt_brand", "Ask brand for new spools", "toggle",
            "Ask for the brand/vendor during the conversational new-spool "
-           "walkthrough (#512). Off by default: the walkthrough skips brand "
+           "walkthrough. Off by default: the walkthrough skips brand "
            "and the spool is created without one; on inserts the brand step "
            "for operators who track brands.",
            validator="settings spool check"),
@@ -433,7 +558,7 @@ CATALOG = (
     # matching the catalog's no-secrets rule.
     _field("notify", "mqtt_enabled", "MQTT events", "toggle",
            "Publish print events (started, paused, runout, complete, failed) to "
-           "an MQTT broker (#622). Off by default; a failed publish never "
+           "an MQTT broker. Off by default; a failed publish never "
            "blocks chat or a print.",
            validator="settings notify check"),
     _field("notify", "mqtt_host", "MQTT broker host", "host",
@@ -453,7 +578,7 @@ CATALOG = (
            "no field here.",
            validator="settings notify check"),
     _field("notify", "ntfy_enabled", "ntfy events", "toggle",
-           "Publish the same print events to an ntfy topic (#622). Off by "
+           "Publish the same print events to an ntfy topic. Off by "
            "default; a failed publish never blocks chat or a print.",
            validator="settings notify check"),
     _field("notify", "ntfy_url", "ntfy server URL", "url",
@@ -481,6 +606,16 @@ CATALOG = (
            "Hours between update checks for each printer (1 to 168). A check is "
            "skipped while the printer is printing.",
            validator="settings firmware check", minimum=1, maximum=168),
+    _field("firmware", "update_channel", "Firmware prerelease subscription", "picker",
+           "The least stable prerelease track to hear about, for firmware that "
+           "publishes prereleases: stable hears about finals only, rc adds "
+           "release candidates, beta adds betas, and alpha adds every other "
+           "prerelease. A subscribed prerelease is announced and shown like a "
+           "release, labeled with its track, and is still installed only "
+           "through the confirmed update path. Forge-X follows its beta line "
+           "whatever this says.",
+           choices=tuple(settings.FIRMWARE_UPDATE_CHANNELS),
+           validator="settings firmware check"),
     _field("firmware", "forgex_apply", "Forge-X: install updates from chat", "toggle",
            "Off by default. On lets /print-firmware update forge-x install a Forge-X "
            "update within your version line, after a confirmation, only while the printer "
@@ -556,44 +691,75 @@ CATALOG = (
            "hour; 20 by default. 0 disables the limit.",
            validator="settings ai check", minimum=0),
     _field("services", "vision_chat_url", "Vision chat URL", "url",
-           "OpenAI-compatible chat endpoint used for camera checks when AI "
-           "camera checks are on; it is also the default route for the small "
-           "AI tier. Empty disables endpoint camera checks. Its API key stays in the environment, "
-           "never here.",
+           "OpenAI-compatible chat endpoint for camera checks, used only while "
+           "Send camera frames to a vision endpoint (below) is on; it is also the "
+           "default route for the small AI tier. Empty means no endpoint camera "
+           "checks. Its API key stays in the environment, never here.",
            validator="settings services check"),
     _field("vision", "model", "Vision model", "text",
-           "Model the vision endpoint uses for camera checks; also the "
-           "small AI tier's default model."),
+           "Model the vision endpoint uses for camera checks, only while camera "
+           "frames go to a vision endpoint (below); also the small AI tier's "
+           "default model. The default, gemini-latest, is a CLIProxyAPI alias: "
+           "set your own server's vision model name. The local failure detector "
+           "needs no model name."),
+    _field("vision", "ai_enabled", "Send camera frames to a vision endpoint", "toggle",
+           "Off by default: camera checks run on this machine with the local "
+           "failure detector (Camera, timelapse and images), and no frame or "
+           "photo leaves it. On sends camera frames and photos to the vision "
+           "endpoint (PRINT_VISION_URL, the vision chat URL above or [ai.small]) "
+           "for the camera watchdog, the idle plate checks, spool label reads and "
+           "purchase reads. With an endpoint configured it is tried before the "
+           "local detector.",
+           validator="settings vision check"),
     # Images (the camera source type, the snapshot URL and the vision
     # endpoint the watchdog uses; visual_watch itself is the next group.
     # API keys stay in the environment: vision_chat_url names no secret,
     # and there is no key field.)
     _field("services", "camera_source", "Camera source", "picker",
-           "Which camera still images come from (#294): auto follows the configured "
+           "Which camera still images come from: auto follows the configured "
            "printer vendor's rule, or pin one source — moonraker = the Moonraker "
            "webcam snapshot only, bambu = the printer's own Bambu camera, go2rtc = "
            "the go2rtc fan-out only (put the camera's rtsp:// address in RTSP "
            "stream URL), none = no camera images anywhere. The watchdog stills, "
            "the timelapse capture source and the Bambu camera paths all honor "
-           "the pin and name it when they refuse.",
-           choices=tuple(settings.CAMERA_SOURCES), validator="settings camera source check"),
+           "the pin and name it when they refuse. bambu is offered only when a "
+           "Bambu Lab printer is configured.",
+           choices_source=SOURCE_CAMERA_SOURCES, validator="settings camera source check"),
     _field("services", "camera_snapshot_url", "Camera snapshot URL", "url",
-           "Camera snapshot URL for status images and the camera watchdog; empty derives "
-           "it from the Moonraker host.",
+           "Camera snapshot URL for status images and the camera watchdog. Left "
+           "empty in the settings file, it is derived from the Moonraker host "
+           "(http://<host>/webcam/?action=snapshot), and this field shows that "
+           "derived address; saving it unchanged keeps it derived.",
            validator="settings services check"),
     _field("timelapse", "capture_source_url", "RTSP stream URL", "text",
            "An rtsp:// or rtsps:// address. Print Handy hands it to go2rtc, which holds "
            "the one camera connection and fans the stream out for timelapse and live view. "
            "A go2rtc ffmpeg: source is also accepted. Empty keeps the snapshot URL.",
            validator="settings timelapse check"),
-    _field("vision", "ai_enabled", "AI camera checks", "toggle",
-           "Send camera frames and photos to the vision model endpoint "
-           "(PRINT_VISION_URL, the vision chat URL or [ai.small]). Off by "
-           "default: the camera watchdog, the idle plate checks, label reads "
-           "and purchase reads make no model call, and treat the endpoint as "
-           "not configured. The local failure detector and the local "
-           "empty-plate reference still work under their own switches. On "
-           "restores the endpoint camera checks.",
+    _field("vision", "local_detector_enabled", "Local failure detector", "toggle",
+           "On by default: the camera watchdog checks prints with a failure "
+           "detector that runs on this machine, so spaghetti and other failed "
+           "prints are spotted with no AI service, no cloud and no key, and no "
+           "frame leaves the house. The pinned model (Obico failure detector, "
+           "AGPL-3.0 weights, about 202 MB) downloads once in the background "
+           "and is SHA-256 verified. It spots failures only: the empty-plate "
+           "check needs the local empty-plate reference or a vision endpoint. "
+           "Off turns it off.",
+           validator="settings vision check"),
+    _field("vision", "watch_source", "Watchdog verdict source", "picker",
+           "Which route judges the camera watchdog's frames: auto (the default) "
+           "uses the local failure detector, unless camera frames go to a vision "
+           "endpoint (AI and models) and one is configured, which is then tried "
+           "first; local always uses the local detector and never calls an "
+           "endpoint, and counts as turning the detector on for the watch; "
+           "endpoint uses only the vision endpoint and never the local "
+           "detector. Spool-label reads and roasts never follow this setting.",
+           choices=tuple(settings.WATCH_SOURCES), validator="settings vision check"),
+    _field("vision", "local_model_path", "Local detector model path", "text",
+           "Where the local failure detector's ONNX model file lives. "
+           "Empty uses the default location (a models folder under the "
+           "data folder) and the pinned model; name a model file you "
+           "placed yourself to run fully offline.",
            validator="settings vision check"),
     _field("vision", "roast_enabled", "Roast", "toggle",
            "The one-line roast: one per print on the completion post, and on "
@@ -602,37 +768,11 @@ CATALOG = (
            "LLM or endpoint. Off turns roasts off without disabling camera checks.",
            validator="settings vision check"),
     _field("vision", "roast_custom_bank", "Roast custom bank", "text",
-           "Path to a JSON file of your own roast lines (#1002 Phase 4), "
-           "drawn alongside the shipped local corpus on completed prints. "
+           "Path to a JSON file of your own roast lines, drawn alongside the "
+           "shipped local corpus on completed prints. "
            "Empty (the default) means no custom bank. Entries pass the "
            "same validation as the shipped corpus; a file that cannot be "
            "read is ignored with the problem named in the log.",
-           validator="settings vision check"),
-    _field("vision", "local_detector_enabled", "Local failure detector", "toggle",
-           "Built-in ONNX failure detector for the camera watchdog (#455): "
-           "judges camera frames on this machine when no vision endpoint "
-           "is configured, so a no-LLM, no-cloud install still gets "
-           "bad-print detection. Off by default. The pinned model "
-           "(Obico failure detector, AGPL-3.0 weights, about 202 MB) "
-           "downloads once and is SHA-256 verified. It detects failures "
-           "only — spool-label reads and the empty-plate check "
-           "still need a vision endpoint.",
-           validator="settings vision check"),
-    _field("vision", "watch_source", "Watchdog verdict source", "picker",
-           "Which route judges the camera watchdog's frames (#455): auto "
-           "keeps the default precedence (PRINT_VISION_URL, then the vision "
-           "endpoint, then the local detector when no endpoint route is "
-           "configured); endpoint pins the watch to the endpoint routes "
-           "and never consults the local detector; local pins the watch "
-           "to the local detector and never calls an endpoint, and counts "
-           "as enabling the detector for the watch. Spool-label reads and "
-           "roasts never follow this setting.",
-           choices=tuple(settings.WATCH_SOURCES), validator="settings vision check"),
-    _field("vision", "local_model_path", "Local detector model path", "text",
-           "Where the local failure detector's ONNX model file lives. "
-           "Empty uses the default location (a models folder under the "
-           "data folder) and the pinned model; name a model file you "
-           "placed yourself to run fully offline.",
            validator="settings vision check"),
     _field("vision", "local_empty_enabled", "Local empty-plate reference", "toggle",
            "The idle empty-plate checks (auto light-off, the next-plate "
@@ -644,10 +784,11 @@ CATALOG = (
            "the camera or the plate.",
            validator="settings vision check"),
     _field("vision", "auto_light_off_minutes", "Auto light-off minutes", "number",
-           "Auto light-off (#516): the printer light turns on when a print "
+           "Auto light-off: the printer light turns on when a print "
            "starts and off again after the camera has seen an empty plate "
-           "for this many minutes. 0 = off (the default). Needs a vision "
-           "endpoint, like the camera watchdog. Covers Moonraker, Bambu "
+           "for this many minutes. 0 = off (the default). Needs the local "
+           "empty-plate reference or a vision endpoint: the local failure "
+           "detector cannot tell an empty plate. Covers Moonraker, Bambu "
            "Lab and Elegoo SDCP printers; other families have no light "
            "to switch.",
            validator="settings vision check", minimum=0),
@@ -681,32 +822,32 @@ CATALOG = (
     # it is a text field like any other path and no secret value is involved.
     _field("timelapse", "capture_enabled", "In-container capture", "toggle",
            "Print Handy captures the timelapse itself, polling camera frames "
-           "in-container (#246). In rendered mode a finished capture is "
+           "in-container. In rendered mode a finished capture is "
            "preferred over the printer-rendered clip; in container mode "
            "capture is the timelapse; mode off stops capture whatever "
            "this says.",
            validator="settings timelapse check"),
     _field("timelapse", "capture_trigger", "Capture trigger", "picker",
-           "How in-container capture takes frames (#246 stage 2): interval = "
+           "How in-container capture takes frames: interval = "
            "a frame every capture interval; layer = a frame on each layer "
            "change the printer reports; both = either trigger takes a frame.",
            choices=tuple(settings.CAPTURE_TRIGGERS),
            validator="settings timelapse check"),
     _field("timelapse", "capture_interval_s", "Capture interval", "number",
            "Seconds between captured frames for the interval capture "
-           "trigger (#246 stage 2); above 0, at most 3600.",
+           "trigger; above 0, at most 3600.",
            validator="settings timelapse check", maximum=3600),
     _field("timelapse", "capture_max_frames", "Capture max frames", "number",
-           "Most frames captured for one print (#246 stage 3). Capture stops "
+           "Most frames captured for one print. Capture stops "
            "at the cap and keeps the frames already taken; 0 turns the cap off.",
            validator="settings timelapse check", minimum=0),
     _field("timelapse", "capture_max_bytes", "Capture max size", "number",
-           "Largest total size of one print's captured frames, in bytes "
-           "(#246 stage 3). Capture stops at the cap and keeps the frames "
+           "Largest total size of one print's captured frames, in bytes. "
+           "Capture stops at the cap and keeps the frames "
            "already taken; 0 turns the cap off.",
            validator="settings timelapse check", minimum=0),
     _field("timelapse", "mode", "Timelapse mode", "picker",
-           "How timelapses are made (#246/#295): rendered = the printer renders it "
+           "How timelapses are made: rendered = the printer renders it "
            "(moonraker-timelapse), with in-container capture preferred when on; "
            "container = the in-container capture is the timelapse and the "
            "printer-rendered path is not used; off = no timelapses — capture "
@@ -756,13 +897,13 @@ CATALOG = (
            "is stored here, never the key contents.",
            validator="settings type check"),
     _field("timelapse", "wrapped_enabled", "Wrapped", "toggle",
-           "Pasta Wrapped (#956): the once-a-year recap over the "
+           "Pasta Wrapped: the once-a-year recap over the "
            "print records. On by default; while off, the Wrapped page "
            "is not in the navigation and its routes refuse by name. "
            "The Data tab has its own switch below.",
            validator="settings timelapse check"),
     _field("timelapse", "data_enabled", "Data tab", "toggle",
-           "The Data tab (#956): read-only statistics over the print "
+           "The Data tab: read-only statistics over the print "
            "records. On by default; while the key is unset it follows "
            "the Wrapped switch above, and setting it pins the Data "
            "tab on or off independently. Saving a change to the "
@@ -773,16 +914,16 @@ CATALOG = (
            "by name.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_video", "Wrapped video", "toggle",
-           "The on-demand Wrapped video compile (#956): a local video of the "
+           "The on-demand Wrapped video compile: a local video of the "
            "year's slides, the local commentary and the year's timelapses. No "
            "AI model is used; the setting was renamed from wrapped_ai_video "
-           "(#1157) and the old spelling is still accepted in config files "
+           "and the old spelling is still accepted in config files "
            "and the environment. Off by "
            "default, and it needs the Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
-           "Spoken narration for the Wrapped video (#981): none (default; no "
+           "Spoken narration for the Wrapped video: none (default; no "
            "narration) or piper (the local Piper binary, paths.piper with the "
            "voice model at paths.piper_model). No AI model and no cloud "
            "service: the narration never leaves this machine.",
@@ -854,7 +995,7 @@ CATALOG = (
     # belongs to the cloudflared sidecar; this group carries exactly the
     # settings the loader validates.
     _field("live_stream", "enabled", "Live camera in Discord", "toggle",
-           "Live camera viewing in Discord (#311) switch; off by default, and "
+           "Live camera viewing in Discord switch; off by default, and "
            "/print-live only reports that while disabled.",
            validator="settings live_stream check"),
     _field("live_stream", "voice_channel_id", "Live voice channel", "text",
@@ -944,6 +1085,10 @@ def choices_for(field, *, model_key=None, data=None):
     if field.choices_source == SOURCE_BOT_PLATFORMS:
         from ..bot.platform import KNOWN_PLATFORMS
         return tuple(KNOWN_PLATFORMS)
+    if field.choices_source == SOURCE_CAMERA_SOURCES:
+        if data is None or any(m.vendor.key == "bambulab" for m in _roster_models(data)):
+            return tuple(settings.CAMERA_SOURCES)
+        return tuple(s for s in settings.CAMERA_SOURCES if s != "bambu")
     if field.choices_source == SOURCE_TIMEZONES:
         from zoneinfo import available_timezones
         return tuple(sorted(available_timezones()))
@@ -990,6 +1135,38 @@ def _configured_model(data):
         return printers.MODELS[settings._model_key(raw)]
     except (KeyError, ValueError, AttributeError):
         return None
+
+
+def _roster_models(data):
+    """Every printer model the install runs: the [printer] model plus each
+    [[printers]] entry's, skipping any that does not resolve."""
+    found = []
+    model = _configured_model(data)
+    if model is not None:
+        found.append(model)
+    entries = (data or {}).get("printers") if isinstance(data, dict) else None
+    for entry in entries if isinstance(entries, list) else ():
+        if not isinstance(entry, dict) or not entry.get("model"):
+            continue
+        try:
+            found.append(printers.MODELS[settings._model_key(entry["model"])])
+        except (KeyError, ValueError, AttributeError):
+            continue
+    return found
+
+
+# Vendors whose sliced files call [printer] start_macro / end_macro: the
+# stock Klipper adapter and the vendors built on it. Every other vendor
+# writes its own start and end G-code and never reads the two macro names.
+START_MACRO_VENDORS = frozenset({"klipper", "snapmaker", "sovol"})
+# Vendors whose slices can route through a user-installed Flash Studio
+# (core/orca_adapter._flash_studio_command refuses every other vendor).
+FLASH_STUDIO_VENDORS = frozenset({"flashforge", "flashforge_stock"})
+
+
+def _setting(data, field_id):
+    section, _, key = field_id.partition(".")
+    return ((data or {}).get(section) or {}).get(key) if isinstance(data, dict) else None
 
 
 # Chat platforms whose settings hide until the platform is configured
@@ -1064,6 +1241,23 @@ def config_page_visible(field, data, reveal=None) -> bool:
         return bool(model and model.vendor.key == "flashforge_forgex")
     if field.id.startswith("printer.opencreator_"):
         return bool(model and model.vendor.key == "flashforge_opencreator")
+    if field.id in ("printer.start_macro", "printer.end_macro"):
+        return model is None or model.vendor.key in START_MACRO_VENDORS
+    if field.id.startswith("prime_tower."):
+        # Only a printer that prints more than one filament slices a
+        # tower; a fitted accessory (an INDX toolchanger) can make a
+        # single-filament model one.
+        return (model is None or model.color_system != "single"
+                or bool((data or {}).get("accessories")))
+    if field.id.startswith("purge."):
+        # ZMod's purge plan (core/purge.py) runs only on a printer with
+        # the native ZMod screen; a value moved off auto stays visible so
+        # it can be put back.
+        return (any(getattr(m.adapter, "has_native_screen", False) for m in _roster_models(data))
+                or _setting(data, field.id) not in (None, "auto"))
+    if field.id == "slicer.flash_studio_path":
+        return (any(m.vendor.key in FLASH_STUDIO_VENDORS for m in _roster_models(data))
+                or bool(str(_setting(data, field.id) or "").strip()))
     if field.id == "bambu.lan_serial":
         # The serial belongs with the Bambu LAN address: it follows the
         # same per-model visibility as bambu.lan_host, so the pair the

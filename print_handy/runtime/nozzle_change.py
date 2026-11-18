@@ -395,7 +395,7 @@ def record_nozzle_change(state: dict[str, Any], diameter_mm: float,
         "recorded": installed,
         "previous": {"diameter_mm": previous.get("diameter_mm"), "type": previous.get("type")},
         "new": {"diameter_mm": dia, "type": norm_type},
-        "procedure": "guided /nozzle change (#513)",
+        "procedure": "guided /nozzle change",
     }
     return state
 

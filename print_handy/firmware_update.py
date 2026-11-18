@@ -1352,7 +1352,7 @@ GUIDANCE = {
         why_no_apply=("OpenCreator is alpha firmware on a Klipper fork, and one of "
                       "its updates can flash the printer's boards. Print Handy "
                       "reports its update state and tells you when a release is "
-                      "out, and leaves installing it to you (#1490).")),
+                      "out, and leaves installing it to you.")),
     "flashforge_reforge": FamilyGuidance(
         title="Reforge firmware (Flashforge Creator 5, Creator 5 Pro)",
         can_report=("whatever its Moonraker Update Manager lists, which on a stock "
@@ -1382,7 +1382,7 @@ GUIDANCE = {
                       "drive without unpacking it, and install it at the printer "
                       "from the drive. See docs/FORGEX.md."),
         why_no_apply=("Print Handy reports Forge-X update state and installs it only "
-                      "when `[firmware] forgex_apply` is on (off by default, #1506): "
+                      "when `[firmware] forgex_apply` is on (off by default): "
                       "the forge-x component tracks a branch tip rather than release "
                       "tags, and installing is not yet verified on a real Forge-X "
                       "printer. With it on, only forge-x installs, only within the "

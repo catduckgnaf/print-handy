@@ -35,7 +35,8 @@ def test_auto_light_row_on_with_target_and_minutes(cfg, monkeypatch):
 
 
 def test_auto_light_row_on_but_no_vision_endpoint(cfg, monkeypatch):
-    cfg["vision"].update(auto_light_off_minutes=30, light_object="led chamber_led")
+    cfg["vision"].update(auto_light_off_minutes=30, light_object="led chamber_led",
+                         local_detector_enabled=False)
     cfg["services"]["vision_chat_url"] = ""
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     ok, detail = rows(cfg, monkeypatch)["auto light"]
@@ -75,7 +76,7 @@ def test_auto_light_row_bambu_chamber_light(cfg, monkeypatch):
 
 def test_auto_light_row_bambu_still_needs_a_vision_endpoint(cfg, monkeypatch):
     cfg["printer"]["model"] = "bambulab.p1s"
-    cfg["vision"].update(auto_light_off_minutes=30, light_object="")
+    cfg["vision"].update(auto_light_off_minutes=30, light_object="", local_detector_enabled=False)
     cfg["services"]["vision_chat_url"] = ""
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     ok, detail = rows(cfg, monkeypatch)["auto light"]

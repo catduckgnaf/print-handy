@@ -146,7 +146,7 @@ def library_status(name):
         return platform_module(name).library_status()
     module = platform_module(name)
     if module is None:
-        return (str(name), False, f"platform {name!r} is not implemented yet (#164)")
+        return (str(name), False, f"platform {name!r} is not implemented yet")
     return (str(name), True, "standard library client")
 
 

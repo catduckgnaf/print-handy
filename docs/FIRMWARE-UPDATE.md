@@ -152,6 +152,16 @@ apply path:
   again 30 minutes later. Checks are jittered, read-only (GET requests,
   never a Moonraker refresh), and fail soft: a failed check is logged once
   and sends no alert.
+- Prereleases follow your subscription (`[firmware] update_channel`,
+  default `stable`): a Moonraker component whose remote version is a
+  prerelease on a track you subscribe to (`rc`, `beta` or `alpha`) is
+  alerted like a final release, labeled with its track (for example
+  `1.1.0-rc.2 (rc prerelease)`), and its Update button runs the same
+  confirmed path. A prerelease on a track you do not subscribe to is not
+  alerted. Feed lines you get notices for surface their newest
+  prerelease the same way; see
+  [the firmware feed](FIRMWARE-FEED.md#prerelease-subscriptions) for the
+  tracks and for which firmware actually publishes prereleases.
 
 Where the versions come from: Moonraker first. ZMod's Moonraker lists a
 `Z-Mod` component (git repo `ghzserg/z_ad5x`, on the branch of your ZMod

@@ -105,7 +105,7 @@ class OpenCreatorAdapter(KlipperAdapter):
     lane_data_write_refusal = (
         "not written: OpenCreator publishes the lane_data namespace itself "
         "and Print Handy has not verified which publisher owns it, so spool "
-        "assignments are not written there (#1490)")
+        "assignments are not written there")
     facts = facts.CREATOR5
     # The firmware's AFC naming (afc.AfcLayout): Reforge shares this
     # adapter's AFC readers with its own layout.

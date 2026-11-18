@@ -221,6 +221,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("notify", "ntfy_topic"): str,
                  ("firmware", "update_alerts"): bool,
                  ("firmware", "update_check_hours"): int,
+                 ("firmware", "update_channel"): str,
                  ("firmware", "forgex_apply"): bool,
                  ("external_intake", "enabled"): bool,
                  ("external_intake", "directory"): str,
@@ -244,7 +245,8 @@ ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "deny
              ("firmware", "notice_firmwares")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
 # is the word, so the type check accepts either shape; _validate_purge checks the content.
-MIXED_KEYS = {("zmod", "plugins")}
+# [ai] allowed_users is one ID string; a list (its older shape) still loads.
+MIXED_KEYS = {("zmod", "plugins"), ("ai", "allowed_users")}
 PURGE_MODES = ("auto", "printer_chute", "prime_tower", "slicer_chute")
 PURGE_TOWER_CHOICES = ("auto", "on", "off")
 # [[printers]] entry keys (#257 Stage 2a, #333; design docs/MULTI-PRINTER-DESIGN.md §2.1). The
@@ -1765,13 +1767,14 @@ def _validate_vision(data):
         raise SettingsError(f"[vision] roast_custom_bank must be a path string or empty, "
                             f"got {custom_bank!r}")
     vision["roast_custom_bank"] = custom_bank.strip()
-    # Local failure detector (#455): off by default. When on, the camera
-    # watchdog's verdicts can come from the built-in ONNX detector
-    # (hermes.local_vision) on installs with no vision endpoint route
-    # configured; endpoint routes keep precedence. local_model_path names
-    # the weights file when the operator supplies their own — empty uses
-    # the pinned model, downloaded once into the model directory.
-    local_detector = vision.setdefault("local_detector_enabled", False)
+    # Local failure detector (#455): on by default, so the camera watchdog
+    # judges frames with the built-in ONNX detector (runtime.local_vision)
+    # out of the box. Vision endpoint routes keep precedence only while
+    # ai_enabled is on (off by default). local_model_path names the
+    # weights file when the operator supplies their own; empty uses the
+    # pinned model, downloaded once into the model directory. False turns
+    # the detector off.
+    local_detector = vision.setdefault("local_detector_enabled", True)
     if not isinstance(local_detector, bool):
         raise SettingsError(f"[vision] local_detector_enabled must be true or false, "
                             f"got {local_detector!r}")
@@ -1837,6 +1840,11 @@ FIRMWARE_CHECK_HOURS_MAX = 168
 # firmwares Print Handy supports on Flashforge printers. Forge-X follows its feed channel, which is
 # the 1.4.2 prerelease line until 1.4.2 ships stable. Ids are the firmware feed's (docs/firmware-feed.toml).
 FIRMWARE_NOTICE_DEFAULT = ("zmod", "opencreator", "forge-x")
+# Prerelease tracks an owner can subscribe to with [firmware] update_channel
+# (#1627), most stable first as written in a settings file. The value names
+# the least stable track wanted; firmware_alerts.TRACKS carries the same
+# words for the runtime gate (the two are pinned together by tests).
+FIRMWARE_UPDATE_CHANNELS = ("stable", "rc", "beta", "alpha")
 
 
 def _validate_firmware(data):
@@ -1852,11 +1860,21 @@ def _validate_firmware(data):
     ``notice_firmwares`` lists the firmware feed lines whose new releases
     get a chat notice (default zmod, opencreator, forge-x); every other
     line stays in the feed and on the Web UI's Firmware page only.
+    ``update_channel`` (default "stable") is the least stable prerelease
+    track the owner subscribes to (#1627): "rc" adds release candidates,
+    "beta" adds betas, "alpha" adds every other prerelease a firmware
+    publishes. It changes what is surfaced, never what is applied: a
+    subscribed prerelease still goes through the same confirmed path.
     """
     firmware = data.setdefault("firmware", {})
     alerts = firmware.setdefault("update_alerts", True)
     if not isinstance(alerts, bool):
         raise SettingsError(f"[firmware] update_alerts must be true or false, got {alerts!r}")
+    channel = firmware.setdefault("update_channel", "stable")
+    if not isinstance(channel, str) or channel.strip().lower() not in FIRMWARE_UPDATE_CHANNELS:
+        raise SettingsError(f"[firmware] update_channel must be one of "
+                            f"{list(FIRMWARE_UPDATE_CHANNELS)}, got {channel!r}")
+    firmware["update_channel"] = channel.strip().lower()
     hours = firmware.setdefault("update_check_hours", 24)
     if isinstance(hours, bool) or not isinstance(hours, int)             or not 1 <= hours <= FIRMWARE_CHECK_HOURS_MAX:
         raise SettingsError(f"[firmware] update_check_hours must be a whole number of hours "
@@ -2019,6 +2037,26 @@ def _validate_design(data):
     design["repair_attempts"] = attempts
 
 
+def ai_allowed_users(value) -> list[str]:
+    """The [ai] allowed_users IDs as a list, from the stored string or a list.
+
+    Entries split on commas and whitespace. Square brackets and quotes
+    around an entry are dropped: they are never part of a Discord,
+    Telegram or Matrix ID, and an earlier Web UI save could write the
+    list's printed form (``['[]']``) back into the file, which must read
+    as empty rather than as a user named "[]"."""
+    items = value if isinstance(value, (list, tuple)) else [value]
+    out = []
+    for item in items:
+        if item is None or isinstance(item, bool):
+            continue
+        for part in re.split(r"[\s,]+", str(item)):
+            part = part.strip("[]'\"")
+            if part and part not in out:
+                out.append(part)
+    return out
+
+
 def _validate_ai(data):
     """The [ai] section (#818): optional small, chat and heavy tiers, each a table.
 
@@ -2032,11 +2070,17 @@ def _validate_ai(data):
     # Who may use the AI edit lane (#902), and how often. Empty allowed_users keeps the
     # lane open to every user the gateway already authorizes; 0 requests per hour disables
     # the limit.
-    allowed = ai.setdefault("allowed_users", [])
-    if not isinstance(allowed, list) or any(isinstance(v, bool) or not isinstance(v, (str, int))
-                                            for v in allowed):
-        raise SettingsError(f"[ai] allowed_users must be a list of user IDs, got {allowed!r}")
-    ai["allowed_users"] = [str(v).strip() for v in allowed if str(v).strip()]
+    # The value is one comma- or space-separated string, like the other
+    # user ID settings; a list (the older shape) still loads. Either way
+    # it is stored back in the one canonical string form, so the Web UI
+    # text field shows and submits it unchanged.
+    allowed = ai.setdefault("allowed_users", "")
+    if isinstance(allowed, list):
+        if any(isinstance(v, bool) or not isinstance(v, (str, int)) for v in allowed):
+            raise SettingsError(f"[ai] allowed_users must be user IDs, got {allowed!r}")
+    elif isinstance(allowed, bool) or not isinstance(allowed, (str, int)):
+        raise SettingsError(f"[ai] allowed_users must be user IDs, got {allowed!r}")
+    ai["allowed_users"] = ", ".join(ai_allowed_users(allowed))
     per_hour = ai.setdefault("edit_requests_per_hour", 20)
     if isinstance(per_hour, bool) or not isinstance(per_hour, int) or per_hour < 0:
         raise SettingsError(f"[ai] edit_requests_per_hour must be a whole number 0 or more, got {per_hour!r}")

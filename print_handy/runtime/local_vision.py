@@ -939,3 +939,22 @@ def detector_status(cfg=None) -> tuple[str, str]:
 
 def detector_ready(cfg=None) -> bool:
     return detector_status(cfg)[0] == "ready"
+
+
+def model_pending(cfg=None) -> bool:
+    """Whether the detector waits only on its first model download: on,
+    the runtime present, no remembered failure, and the model file not
+    there yet. The detector is on by default, so a fresh install is in
+    this state until the background download finishes; it is not a
+    fault. Never touches the network."""
+    cfg = _config.cfg() if cfg is None else cfg
+    if not watch_uses_detector(cfg):
+        return False
+    try:
+        _runtime()
+    except LocalVisionError:
+        return False
+    path = model_path(cfg)
+    if _remembered_failure(f"file:{path}") or _remembered_failure(f"session:{path}"):
+        return False
+    return not path.is_file()

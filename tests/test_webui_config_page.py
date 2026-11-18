@@ -184,8 +184,10 @@ class ConfigPageTests(unittest.TestCase):
             self.assertIn(f'<option value="{choice}"', bodies["camera"])
         # No Moonraker URL is configured here, so the derived mode is off.
         self.assertIn('<option value="off" selected>', bodies["camera"])
-        for choice in ("auto", "moonraker", "bambu", "go2rtc", "none"):
+        for choice in ("auto", "moonraker", "go2rtc", "none"):
             self.assertIn(f'<option value="{choice}"', bodies["camera"])
+        # An AD5X install has no Bambu Lab printer, so the bambu pin is not offered.
+        self.assertNotIn('<option value="bambu"', bodies["camera"])
         self.assertIn('<option value="auto" selected>', bodies["camera"])
         # The sensitivity number input carries the catalog bounds.
         self.assertIn('min="1" max="5"', row_segment(bodies["camera"], "visual_watch.sensitivity"))
