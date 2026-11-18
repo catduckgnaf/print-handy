@@ -59,7 +59,7 @@ MATRIX_ANSWERS = ("matrix", "flashforge.ad5x", "!room123:example.org",
 
 def test_canonical_step_keys_are_platform_independent():
     keys = [step.key for step in guided.steps()]
-    assert keys[:4] == ["platform", "model", "chat_id", "user_ids"]
+    assert keys[:5] == ["platform", "brand", "model", "chat_id", "user_ids"]
     for key in ("moonraker_url", "spoolman_url", "camera_snapshot_url", "timelapse",
                 "token_stored", "webui_login", "webui_username", "webui_password",
                 "webui_confirm"):

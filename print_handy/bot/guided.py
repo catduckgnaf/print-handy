@@ -103,11 +103,194 @@ def _env_secrets(environ):
 
 # ---------------------------------------------------------------------- setup steps
 
-def _validate_model(value, _answers):
-    key = value.strip()
-    if key not in printers.MODELS:
-        raise ValueError(f"unknown model key {key!r}; reply with one of: {', '.join(sorted(printers.MODELS))}")
-    return key
+# ---------------------------------------------------------------------- brand, then model (#1637)
+#
+# Guided setup used to list every registered model key in the model step's
+# prompt (~90 keys, over Discord's 2000-character limit once the Reforge
+# models landed) and accept only an exact key back. The model question is
+# now two short steps: brand first, then that brand's models by display
+# name. The grouping is derived from the registry itself — a model's brand
+# is the brand its own label starts with, the same grouping the README and
+# docs/PRINTER-PROFILES.md use — so no brand/model pairing is invented
+# here, and a model whose label names no known brand lands in the
+# catch-all. Typed answers keep working at both steps: an exact model key
+# is accepted at either, a display name or key suffix resolves when
+# exactly one model fits, and an ambiguous answer names the candidates
+# and asks — a model is never picked silently on a fuzzy match.
+
+BRANDS = ("Bambu Lab", "Prusa", "FlashForge", "Creality", "Qidi", "Snapmaker",
+          "Elegoo", "Anycubic", "Sovol", "Other Klipper / Marlin")
+OTHER_BRAND = BRANDS[-1]
+
+
+def _brand_of(model_key):
+    """The brand one registered model belongs to, from its own label."""
+    model = printers.MODELS.get(model_key or "")
+    if model is None:
+        return OTHER_BRAND
+    label = (model.label or "").casefold()
+    for brand in BRANDS[:-1]:
+        if label.startswith(brand.casefold()):
+            return brand
+    return OTHER_BRAND
+
+
+def _brand_choices():
+    """The brands that have at least one registered model, in picker order."""
+    present = {_brand_of(key) for key in printers.MODELS}
+    return [brand for brand in BRANDS if brand in present]
+
+
+def _brand_models(brand):
+    """(key, label) for one brand's models, sorted by label."""
+    pairs = [(key, model.label) for key, model in printers.MODELS.items()
+             if _brand_of(key) == brand]
+    return sorted(pairs, key=lambda pair: (pair[1] or "").casefold())
+
+
+def _match_forms(text):
+    """The two comparison forms of a typed answer or a model name: spaced
+    (every run of non-alphanumerics becomes one space) and squashed (no
+    separators at all), so "creator 5 pro", "Creator-5 Pro" and
+    "creator5pro" all compare equal."""
+    spaced = re.sub(r"[^a-z0-9]+", " ", str(text or "").casefold()).strip()
+    return spaced, spaced.replace(" ", "")
+
+
+def _model_forms(model_key):
+    """(spaced, squashed) name forms a model can be answered by: its key,
+    the key's model part, its label, and the label without the brand
+    prefix and without the trailing firmware-route parenthesis."""
+    model = printers.MODELS[model_key]
+    label = model.label or ""
+    brand = _brand_of(model_key)
+    no_route = re.sub(r"\s*\([^)]*\)\s*$", "", label).strip()
+    bare = no_route[len(brand):].strip() \
+        if no_route.casefold().startswith(brand.casefold()) else no_route
+    spaced, squashed = set(), set()
+    for text in (model_key, model_key.rsplit(".", 1)[-1], label, no_route, bare):
+        one, two = _match_forms(text)
+        if one:
+            spaced.add(one)
+        if two:
+            squashed.add(two)
+    return spaced, squashed
+
+
+def _resolve_model(text, brand=None):
+    """Resolve a typed answer to a model key.
+
+    Returns (key, []) when exactly one model fits, (None, [keys]) when
+    several fit, and (None, []) when none do. An exact model key always
+    resolves, whatever brand was picked; name matching is otherwise
+    scoped to ``brand`` when one was picked."""
+    raw = str(text or "").strip()
+    if raw in printers.MODELS:
+        return raw, []
+    by_folded = {key.casefold(): key for key in printers.MODELS}
+    if raw.casefold() in by_folded:
+        return by_folded[raw.casefold()], []
+    spaced, squashed = _match_forms(raw)
+    if not spaced:
+        return None, []
+    hits = []
+    for key in printers.MODELS:
+        if brand is not None and _brand_of(key) != brand:
+            continue
+        forms_spaced, forms_squashed = _model_forms(key)
+        if spaced in forms_spaced or squashed in forms_squashed:
+            hits.append(key)
+    if len(hits) == 1:
+        return hits[0], []
+    return None, sorted(hits)
+
+
+def _candidate_text(keys):
+    return "; ".join(f"{printers.MODELS[key].label} (`{key}`)" for key in keys)
+
+
+def _brand_prompt():
+    choices = _brand_choices()
+    lines = ["Which brand is the printer? Reply with the brand name or its number:"]
+    lines += [f"{index}. {brand}" for index, brand in enumerate(choices, 1)]
+    lines.append("Or reply with the printer's model key or name if you know it "
+                 "(for example `flashforge.ad5x`).")
+    return "\n".join(lines)
+
+
+# The model list inside one step prompt is capped by characters, so no
+# setup message can pass Discord's 2000-character limit however many
+# models a brand gains; the models past the cap stay reachable by name
+# or key, which the overflow line says.
+_MODEL_LIST_BUDGET = 1100
+
+
+def _model_prompt(brand):
+    if brand not in BRANDS:
+        return ("Which printer? Reply with its model name or its model key "
+                "(for example `flashforge.ad5x`).")
+    models = _brand_models(brand)
+    lines = [f"Which {brand} printer? Reply with its model name or key:"]
+    used, shown = 0, 0
+    for key, label in models:
+        line = f"- {label}: `{key}`"
+        if shown and used + len(line) + 1 > _MODEL_LIST_BUDGET:
+            break
+        lines.append(line)
+        used += len(line) + 1
+        shown += 1
+    if shown < len(models):
+        lines.append(f"- …and {len(models) - shown} more. Reply with the model "
+                     "name or key and I will match it.")
+    return "\n".join(lines)
+
+
+def _validate_brand(value, answers):
+    """The brand step's answer: a brand name (or its number), or a model
+    key/name — a resolved model is recorded in ``answers`` so the model
+    step is skipped, and its brand is the step's answer."""
+    text = value.strip()
+    if not text:
+        raise ValueError("reply with a brand, or with the printer's model key or name")
+    key, candidates = _resolve_model(text)
+    if key is not None:
+        answers["model"] = key
+        return _brand_of(key)
+    if candidates:
+        raise ValueError(
+            f"that matches more than one printer: {_candidate_text(candidates)}. "
+            "Reply with the exact model key for the firmware yours runs, "
+            "or with a brand to pick from its models")
+    choices = _brand_choices()
+    folded = text.casefold()
+    for index, brand in enumerate(choices, 1):
+        if folded in (brand.casefold(), str(index)) \
+                or _match_forms(text)[1] == _match_forms(brand)[1] \
+                or (folded == "other" and brand == OTHER_BRAND):
+            return brand
+    raise ValueError(f"unknown brand {text!r}; reply with one of: "
+                     f"{', '.join(choices)}, or with the printer's model key or name")
+
+
+def _brand_chosen(answers):
+    return "brand" in answers
+
+
+def _validate_model(value, answers):
+    text = value.strip()
+    brand = (answers or {}).get("brand")
+    key, candidates = _resolve_model(text, brand=brand)
+    if key is not None:
+        return key
+    if candidates:
+        raise ValueError(
+            f"that matches more than one printer: {_candidate_text(candidates)}. "
+            "Reply with the exact model key for the firmware yours runs")
+    if brand:
+        raise ValueError(f"no {brand} model matches {text!r}; reply with one of the "
+                         "models listed above, or its exact model key")
+    raise ValueError(f"unknown model {text!r}; reply with a model name or its "
+                     "exact model key")
 
 
 def _one_id(value, label):
@@ -471,14 +654,14 @@ def _password_login(answers):
 
 
 def steps(token_env="DISCORD_BOT_TOKEN"):
-    model_list = ", ".join(sorted(printers.MODELS))
     return (
         Step("platform", "Chat platform",
              "Which chat app should Print Handy talk in? Reply `discord`, `telegram`, or "
              "`matrix` (or 1, 2, or 3). The rest of setup asks only that app's questions.",
              _validate_platform),
-        Step("model", "Printer model",
-             f"Which printer? Reply with its model key, one of: {model_list}.", _validate_model),
+        Step("brand", "Printer brand", _brand_prompt(), _validate_brand),
+        Step("model", "Printer model", _model_prompt(None), _validate_model,
+             applies=_brand_chosen),
         Step("chat_id", "Print channel",
              "Reply with the print channel's numeric ID.", _validate_chat_id_platform),
         Step("user_ids", "Allowed users",
@@ -593,7 +776,6 @@ def _validate_new_chat_id(value, _answers):
 
 
 def _add_step_defs():
-    model_list = ", ".join(sorted(printers.MODELS))
     return {
         "first_id": Step("first_id", "First printer's id",
                          "Your first printer needs an id too — it names its state folder and "
@@ -602,9 +784,8 @@ def _add_step_defs():
         "id": Step("id", "Printer id",
                    "Give the new printer an id (a short slug, for example `workshop-printer`). "
                    "It names its state folder and binds its channel.", _validate_new_id),
-        "model": Step("model", "Printer model",
-                      f"Which printer? Reply with its model key, one of: {model_list}.",
-                      _validate_model),
+        "brand": Step("brand", "Printer brand", _brand_prompt(), _validate_brand),
+        "model": Step("model", "Printer model", _model_prompt(None), _validate_model),
         "chat_id": Step("chat_id", "Printer channel",
                         "Reply with the new printer's own channel ID. It cannot share the main "
                         "print channel — that one is the first printer's, and approvals in a "
@@ -620,7 +801,7 @@ def _add_keys(session):
 
     The first cycle also asks the first printer's id (the base flow never needed
     one); freezing the list keeps the step index stable as answers land."""
-    keys = ["id", "model", "chat_id", "moonraker_url"]
+    keys = ["id", "brand", "model", "chat_id", "moonraker_url"]
     if "printer_id" not in (session.get("answers") or {}):
         keys.insert(0, "first_id")
     return keys
@@ -630,6 +811,10 @@ def _add_prompt_text(session, note=""):
     keys = session["add_keys"]
     step = _add_step_defs()[keys[session["add_step"]]]
     prompt = step.prompt
+    if step.key == "model":
+        draft = session.get("draft") or {}
+        prompt = _model_prompt(draft.get("brand")
+                               or (session.get("answers") or {}).get("brand"))
     if step.key == "moonraker_url":
         draft = session.get("draft") or {}
         prompt = _printer_url_prompt(draft.get("model") or (session.get("answers") or {}).get("model"))
@@ -760,6 +945,11 @@ def _onboard_keys(answers):
     where the domain has one, its secret confirmed stored); otherwise the
     flow goes straight to review and says the entry is unverified."""
     keys = ["model", "name"]
+    if "brand" in answers or "model" not in answers:
+        # The brand question (#1637) leads until a model is picked; a
+        # checklist that already holds a model (an older save, or a model
+        # switched at review) is not asked it again.
+        keys.insert(0, "brand")
     model_key = answers.get("model")
     if not model_key:
         return keys
@@ -825,7 +1015,7 @@ def _validate_thermal(value, answers):
 
 
 _STEP_LABELS_OB = {
-    "model": "Printer model", "name": "Display name",
+    "brand": "Printer brand", "model": "Printer model", "name": "Display name",
     "moonraker_url": "Printer URL", "zmod_secrets": "Stock side-channel secrets",
     "lan_gate": "LAN connection", "lan_host": "Printer URL",
     "lan_serial": "Printer serial", "lan_secret": "LAN access code (stored, never pasted)",
@@ -851,10 +1041,11 @@ def _onboard_step_defs(session, probe_runner=None):
     env_hint = (
         "Store it in the profile/data folder's `.env` file (file mode 600), "
         "the same place this bot's own secrets live.")
-    model_list = ", ".join(sorted(printers.MODELS))
     defs = {
+        "brand": Step("brand", _STEP_LABELS_OB["brand"], _brand_prompt(),
+                      _validate_brand),
         "model": Step("model", _STEP_LABELS_OB["model"],
-                      f"Which printer? Reply with its model key, one of: {model_list}.",
+                      _model_prompt(answers.get("brand")),
                       _validate_model),
         "name": Step("name", _STEP_LABELS_OB["name"],
                      "What should this printer be called? The name is what the "
@@ -1328,11 +1519,17 @@ def _onboard_answer(session, raw, *, store, now, probe_runner=None):
         return _onboard_probe_answer(session, raw, step, store=store, now=now)
     context = dict(answers)
     context["__existing"] = session["ob_existing"]
+    before_model = context.get("model")
     try:
         value = step.validate(raw, context)
     except ValueError as exc:
         return (f"That answer does not work: {exc}\n\n"
                 f"{_onboard_prompt_text(session)}")
+    if key == "brand" and context.get("model") != before_model:
+        # A model key or name answered at the brand step (#1637): the
+        # validator recorded the model it resolved on the context copy;
+        # keep it as the model answer so the model step is skipped.
+        answers["model"] = context["model"]
     answers[key] = value
     if key == "name":
         answers["printer_id"] = _derive_printer_id(
@@ -1613,6 +1810,8 @@ def _prompt_text(session, note="", token_env="DISCORD_BOT_TOKEN", can_delete_sec
     platform = answers.get("platform") or "discord"
     if step.key == "moonraker_url":
         prompt = _printer_url_prompt(answers.get("model"))
+    elif step.key == "model":
+        prompt = _model_prompt(answers.get("brand"))
     elif step.key == "chat_id":
         prompt = _chat_id_prompt(platform)
     elif step.key == "user_ids":
@@ -1896,7 +2095,7 @@ def _start_onboarding(key, store, now, config_loader, restarted=False):
         return f"**Printer onboarding cannot start** — {refusal}"
     entries = cfg.get("printers") or []
     session = {"key": key, "flow": "onboard", "status": "onboarding",
-               "ob_answers": {}, "ob_step": 0, "ob_keys": ["model", "name"],
+               "ob_answers": {}, "ob_step": 0, "ob_keys": ["brand", "model", "name"],
                "ob_existing": {
                    "ids": [entry["id"] for entry in entries],
                    "names": [str(entry["name"]) for entry in entries],
@@ -2121,6 +2320,18 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                 store.save(session)
                 return _add_prompt_text(session, note)
             session["status"] = "in_progress" if session["status"] != "awaiting_consent" else "awaiting_consent"
+            if session["status"] == "in_progress":
+                # Land on the first step that still needs an answer: the
+                # step table changes between releases (the brand step,
+                # #1637), and a saved index can point at a step the saved
+                # answers already cover.
+                flow = steps(token_env)
+                while session["step"] < len(flow) and (
+                        not _step_applies(flow[session["step"]].key, session["answers"])
+                        or flow[session["step"]].key in session["answers"]):
+                    session["step"] += 1
+                if session["step"] >= len(flow):
+                    session["status"] = "awaiting_consent"
             session["updated_at"] = now
             store.save(session)
             if session["status"] == "awaiting_consent":
@@ -2212,17 +2423,31 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
         key = session["add_keys"][session["add_step"]]
         step = defs[key]
         context = dict(session["answers"])
+        if session["draft"].get("brand"):
+            context["brand"] = session["draft"]["brand"]  # the new printer's brand, not the first printer's
         if key == "moonraker_url" and session["draft"].get("model"):
             context["model"] = session["draft"]["model"]  # validate against the new printer's model
+        before_model = context.get("model")
         try:
             value = step.validate(raw, context)
         except ValueError as exc:
             return f"That answer does not work: {exc}\n\n" + _add_prompt_text(session)
+        if key == "brand" and context.get("model") != before_model:
+            # A model key or name answered at the brand step (#1637):
+            # the validator recorded the model it resolved on the
+            # context copy (the context starts from the main answers,
+            # whose model is the first printer's); keep the resolved one
+            # as the draft's model so the model step is skipped below.
+            session["draft"]["model"] = context["model"]
         if key == "first_id":
             session["answers"]["printer_id"] = value
         else:
             session["draft"][key] = value
         session["add_step"] += 1
+        while (session["add_step"] < len(session["add_keys"])
+               and session["add_keys"][session["add_step"]] == "model"
+               and "model" in session["draft"]):
+            session["add_step"] += 1
         session["updated_at"] = now
         if session["add_step"] >= len(session["add_keys"]):
             draft = session["draft"]
@@ -2242,8 +2467,13 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
 
     def _advance():
         session["step"] += 1
-        while session["step"] < len(flow) and not _step_applies(flow[session["step"]].key,
-                                                                session["answers"]):
+        while session["step"] < len(flow) and (
+                not _step_applies(flow[session["step"]].key, session["answers"])
+                # A step whose answer is already recorded is not asked
+                # again: the brand step can settle the model (#1637), and
+                # a checklist saved by an older step table can point at a
+                # step its answers already cover.
+                or flow[session["step"]].key in session["answers"]):
             session["step"] += 1
         session["updated_at"] = now
         if session["step"] >= len(flow):

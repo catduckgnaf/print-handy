@@ -104,12 +104,26 @@ def test_add_printer_is_registered_and_in_help(tmp_path):
     assert "add-printer" in reply
 
 
-def test_start_asks_for_the_model_first(tmp_path):
+def test_start_asks_for_the_brand_first(tmp_path):
     st = store(tmp_path)
     reply = start(st, now=1000)
-    assert "Add a printer (1 of 2): Printer model" in reply
+    assert "Add a printer (1 of 3): Printer brand" in reply
     assert "nothing is written until you approve" in reply
     assert "Secrets are never collected" in reply
+
+
+def test_brand_then_model_by_name_onboards(tmp_path):
+    """The two-step picker (#1637): a brand answer narrows the model
+    step to that brand, and a display name resolves within it."""
+    st = store(tmp_path)
+    start(st, now=1000)
+    reply = say(st, "Creality")
+    assert "Add a printer (2 of 3): Printer model" in reply
+    assert "`creality.k1`" in reply and "`bambulab.a1`" not in reply
+    reply = say(st, "K1")
+    assert "Add a printer (3 of 4): Display name" in reply
+    assert st.get("k")["ob_answers"]["model"] == "creality.k1"
+    assert st.get("k")["ob_answers"]["brand"] == "Creality"
 
 
 def test_start_refuses_when_the_config_does_not_load(tmp_path):

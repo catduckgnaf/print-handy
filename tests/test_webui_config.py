@@ -79,7 +79,7 @@ class WebUISettingsTests(unittest.TestCase):
 class CatalogTests(unittest.TestCase):
     def test_every_guided_setup_field_is_in_the_catalog(self):
         step_keys = {step.key for step in guided.steps()}
-        self.assertEqual(set(GUIDED_FIELDS) | {"token_stored", "webui_login",
+        self.assertEqual(set(GUIDED_FIELDS) | {"brand", "token_stored", "webui_login",
                                                "webui_username", "webui_password",
                                                "webui_confirm"}, step_keys)
         for step_key, field_id in GUIDED_FIELDS.items():

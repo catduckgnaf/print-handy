@@ -36,12 +36,30 @@ def finish_steps(store_obj, key="k"):
 def add_a_printer(store_obj, key="k"):
     """Review -> add -> first id, new id, model, its own channel, Moonraker."""
     reply = say(store_obj, "add", key=key)
-    assert "Add a printer (1 of 5)" in reply
+    assert "Add a printer (1 of 6)" in reply
     say(store_obj, "workshop-ad5x", key=key)        # the first printer's id
     say(store_obj, "garage-a1", key=key)            # the new printer's id
-    say(store_obj, "bambulab.a1", key=key)          # its model
+    say(store_obj, "bambulab.a1", key=key)          # its model key, at the brand step
     say(store_obj, "100000000000000003", key=key)   # its own channel (required:
     return say(store_obj, "skip", key=key)          # the main one is printer 1's)
+
+
+def test_add_cycle_brand_then_model_by_name(tmp_path):
+    """The add cycle's model question is the same two steps (#1637):
+    brand first, then that brand's models by display name."""
+    store_obj = store(tmp_path)
+    finish_steps(store_obj)
+    say(store_obj, "add")
+    say(store_obj, "workshop-ad5x")
+    say(store_obj, "garage-a1")
+    reply = say(store_obj, "Bambu Lab")
+    assert "Which Bambu Lab printer?" in reply and "`bambulab.a1`" in reply
+    assert "`sovol.sv08`" not in reply
+    say(store_obj, "A1")
+    say(store_obj, "100000000000000003")
+    review = say(store_obj, "skip")
+    assert "Added printer: `garage-a1`" in review and "`bambulab.a1`" in review
+    assert store_obj.get("k")["answers"]["printers"][0]["model"] == "bambulab.a1"
 
 
 def test_add_cycle_review_lists_the_roster(tmp_path):
@@ -103,7 +121,7 @@ def test_second_cycle_skips_the_first_id_question(tmp_path):
     finish_steps(store_obj)
     add_a_printer(store_obj)
     reply = say(store_obj, "add")
-    assert "Add a printer (1 of 4)" in reply  # no first_id step the second time
+    assert "Add a printer (1 of 5)" in reply  # no first_id step the second time
 
 
 def test_cancel_mid_add_cycle_resumes_the_cycle(tmp_path):
@@ -113,4 +131,4 @@ def test_cancel_mid_add_cycle_resumes_the_cycle(tmp_path):
     say(store_obj, "workshop-ad5x")
     say(store_obj, "/print-handy cancel")
     reply = say(store_obj, "/print-handy setup")
-    assert "Add a printer (2 of 5)" in reply
+    assert "Add a printer (2 of 6)" in reply
