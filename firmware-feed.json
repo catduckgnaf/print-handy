@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-18T07:44:32Z",
+ "generated_at": "2026-11-18T20:44:41Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -106,16 +106,16 @@
    "stock_models": [],
    "update": "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer.",
    "latest": {
-    "version": "1.0.9",
-    "tag": "v1.0.9",
-    "published_at": "2026-11-12T20:20:36Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.9"
+    "version": "1.0.10",
+    "tag": "v1.0.10",
+    "published_at": "2026-11-18T09:13:08Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.10"
    },
    "latest_stable": {
-    "version": "1.0.9",
-    "tag": "v1.0.9",
-    "published_at": "2026-11-12T20:20:36Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.9"
+    "version": "1.0.10",
+    "tag": "v1.0.10",
+    "published_at": "2026-11-18T09:13:08Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.10"
    },
    "latest_prerelease": {
     "version": "1.1.0-rc.3",
@@ -198,16 +198,16 @@
    "stock_models": [],
    "update": "Update OctoPrint from its own Software Update page. Print Handy does not update OctoPrint or the printer's board firmware.",
    "latest": {
-    "version": "2.0.0",
-    "tag": "2.0.0",
-    "published_at": "2026-11-16T13:43:07Z",
-    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.0"
+    "version": "2.0.1",
+    "tag": "2.0.1",
+    "published_at": "2026-11-18T13:54:31Z",
+    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.1"
    },
    "latest_stable": {
-    "version": "2.0.0",
-    "tag": "2.0.0",
-    "published_at": "2026-11-16T13:43:07Z",
-    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.0"
+    "version": "2.0.1",
+    "tag": "2.0.1",
+    "published_at": "2026-11-18T13:54:31Z",
+    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.1"
    },
    "latest_prerelease": null,
    "audited": "2.0.0",
@@ -381,16 +381,16 @@
    "stock_models": [],
    "update": "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware.",
    "latest": {
-    "version": "4.4.24",
-    "tag": "Q1_Pro_V4.4.24",
-    "published_at": "2024-09-02T01:47:22Z",
-    "url": "https://github.com/QIDITECH/QIDI_Q1_Pro/releases/tag/Q1_Pro_V4.4.24"
+    "version": "6.1.1",
+    "tag": "Q1_PRO_V6.1.1",
+    "published_at": "2026-11-18T08:16:01Z",
+    "url": "https://github.com/QIDITECH/QIDI_Q1_Pro/releases/tag/Q1_PRO_V6.1.1"
    },
    "latest_stable": {
-    "version": "4.4.24",
-    "tag": "Q1_Pro_V4.4.24",
-    "published_at": "2024-09-02T01:47:22Z",
-    "url": "https://github.com/QIDITECH/QIDI_Q1_Pro/releases/tag/Q1_Pro_V4.4.24"
+    "version": "6.1.1",
+    "tag": "Q1_PRO_V6.1.1",
+    "published_at": "2026-11-18T08:16:01Z",
+    "url": "https://github.com/QIDITECH/QIDI_Q1_Pro/releases/tag/Q1_PRO_V6.1.1"
    },
    "latest_prerelease": null,
    "audited": "4.4.24",
@@ -437,16 +437,16 @@
    "stock_models": [],
    "update": "Install QIDI's official update file from a USB drive at the printer. Print Handy never applies updates to QIDI's firmware.",
    "latest": {
-    "version": "1.7.1",
-    "tag": "Plus4_v1.7.1",
-    "published_at": "2025-08-06T06:32:41Z",
-    "url": "https://github.com/QIDITECH/QIDI_PLUS4/releases/tag/Plus4_v1.7.1"
+    "version": "2.1.1",
+    "tag": "Plus4_v2.1.1",
+    "published_at": "2026-11-18T08:06:45Z",
+    "url": "https://github.com/QIDITECH/QIDI_PLUS4/releases/tag/Plus4_v2.1.1"
    },
    "latest_stable": {
-    "version": "1.7.1",
-    "tag": "Plus4_v1.7.1",
-    "published_at": "2025-08-06T06:32:41Z",
-    "url": "https://github.com/QIDITECH/QIDI_PLUS4/releases/tag/Plus4_v1.7.1"
+    "version": "2.1.1",
+    "tag": "Plus4_v2.1.1",
+    "published_at": "2026-11-18T08:06:45Z",
+    "url": "https://github.com/QIDITECH/QIDI_PLUS4/releases/tag/Plus4_v2.1.1"
    },
    "latest_prerelease": null,
    "audited": "1.7.1",
