@@ -1,80 +1,82 @@
-"""The quip a chat message carries is mirrored, unchanged, to the printer's screen."""
+"""The roast a print's post carries is mirrored, unchanged, to that printer's screen."""
 from __future__ import annotations
 
-import random
 import threading
 
 import pytest
 
-from print_handy.core import status_voice
+from print_handy import listeners
+from print_handy.runtime import moonraker_event_listener as mel
 from print_handy.runtime import screen_tip
-
-STATUS_VOICE_LIVE = True  # tests/conftest.py: the real selector, so the shared line is the real one
 
 
 @pytest.fixture
-def posts(monkeypatch):
-    """Every screen write, captured synchronously; printers resolve to a URL named for their id."""
-    done = threading.Event()
-
-    class Sent(list):
-        def wait(self):
-            return done.wait(5)
-
-    sent = Sent()
+def posts(monkeypatch, tmp_path):
+    """Every screen write, captured; printers resolve to a URL named for their id."""
+    sent = []
+    lock = threading.Lock()
 
     def fake_post(url, value):
-        sent.append((url, value))
-        done.set()
+        with lock:
+            sent.append((url, value))
 
     monkeypatch.setattr(screen_tip, "_post", fake_post)
     monkeypatch.setattr(screen_tip, "_moonraker_url",
                         lambda printer_id: f"http://{printer_id or 'default'}:7125")
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast-state.json")
     return sent
 
 
-def test_the_screen_gets_the_exact_line_the_chat_message_carried(tmp_path, posts):
-    with screen_tip.routed_to("discord:voron"):
-        line = status_voice.quip("quantity_selected", copies=2, identity="discord:user:1",
-                                 event_key="intake-1:copies:2", state_path=tmp_path / "v.json",
-                                 rng=random.Random(3))
-    assert posts.wait()
+def _drain():
+    for t in list(threading.enumerate()):
+        if t.name == "screen-tip":
+            t.join(5)
+
+
+def test_the_screen_gets_the_exact_roast_the_post_carried(posts, monkeypatch):
+    monkeypatch.setattr(listeners, "instance_printer_id", lambda: "voron")
+    line = mel.generate_roast("Benchy", facts={"duration_s": 4500, "material": "PLA",
+                                               "grams": 12.4}, key="done:benchy.gcode")
+    _drain()
+    assert line
     url, value = posts[0]
-    assert url == "http://discord:voron:7125"
+    assert url == "http://voron:7125"  # this listener's printer, not the default
     assert value["title"] == line
-    assert "Two prints at the same time man." in line
-    assert "Office Space" in value["details"]
+    assert value["details"] == "Your last print, Benchy, finished. 1h 15m, PLA, 12 g."
     assert value["source"] == "Print Handy"
     assert value["id"] and isinstance(value["posted_at"], float)
 
 
-def test_a_replayed_message_resends_the_same_id(tmp_path, posts):
-    kwargs = dict(copies=4, identity="discord:user:1", event_key="intake-2:copies:4",
-                  state_path=tmp_path / "v.json")
-    first = status_voice.quip("quantity_selected", rng=random.Random(1), **kwargs)
-    second = status_voice.quip("quantity_selected", rng=random.Random(99), **kwargs)
-    for t in list(threading.enumerate()):
-        if t.name == "screen-tip":
-            t.join(5)
+def test_a_retried_post_resends_the_same_id(posts):
+    first = mel.generate_roast("Benchy", key="done:benchy.gcode")
+    second = mel.generate_roast("Benchy", key="done:benchy.gcode")
+    _drain()
     assert first == second
     assert len(posts) == 2
     assert posts[0][1]["id"] == posts[1][1]["id"]
-    assert posts[0][1]["details"] == ""  # an ordinary quip has no details
+    assert posts[0][0] == "http://default:7125"
 
 
-def test_no_quip_means_no_screen_write(tmp_path, posts):
-    # quantity_selected without a verified count never chooses a line.
-    assert status_voice.quip("quantity_selected", identity="x",
-                             state_path=tmp_path / "v.json") == ""
+def test_a_failed_print_says_how_it_ended(posts):
+    line = mel.generate_roast("Dragon", status="failed", key="failed:dragon.gcode")
+    _drain()
+    assert line
+    assert posts[0][1]["details"] == "Your last print, Dragon, stopped with an error."
+
+
+def test_roasts_off_means_no_screen_write(posts, monkeypatch):
+    monkeypatch.setitem(mel._config.cfg()["vision"], "roast_enabled", False)
+    assert mel.generate_roast("Benchy", key="done:benchy.gcode") == ""
+    _drain()
     assert posts == []
 
 
 def test_a_printer_without_moonraker_is_skipped(monkeypatch):
     monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "")
-    assert screen_tip.publish(event_id="a", title="joke") is False
+    assert screen_tip.publish_roast("joke", title="Benchy") is False
 
 
-def test_a_failing_write_never_reaches_the_chat_path(monkeypatch):
+def test_a_failing_write_never_reaches_the_post(monkeypatch):
     failed = threading.Event()
 
     def boom(url, value):
@@ -83,14 +85,14 @@ def test_a_failing_write_never_reaches_the_chat_path(monkeypatch):
 
     monkeypatch.setattr(screen_tip, "_post", boom)
     monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "http://p:7125")
-    assert screen_tip.publish(event_id="a", title="joke") is True
+    assert screen_tip.publish_roast("joke", title="Benchy") is True
     assert failed.wait(5)
 
 
-def test_routing_is_scoped_to_the_block():
-    with screen_tip.routed_to("discord:a"):
-        assert screen_tip._PRINTER.get() == "discord:a"
-    assert screen_tip._PRINTER.get() is None
+def test_details_skip_facts_it_does_not_have():
+    assert screen_tip.details("Vase", "cancelled") == "Your last print, Vase, was cancelled."
+    assert (screen_tip.details("Vase", "spaghetti", {"color": "Red", "material": "PETG"})
+            == "Your last print, Vase, turned into spaghetti. Red PETG.")
 
 
 def test_record_shape_is_the_one_helixscreen_reads():

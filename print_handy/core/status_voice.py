@@ -1,8 +1,4 @@
-"""Local, factual-stage status quips. No LLM, printer commands, or automatic actions.
-
-The one outside effect: a chosen line is mirrored, best effort, to the routed
-printer's touchscreen (``runtime/screen_tip.py``), so the screen shows the
-same joke the chat message carried.
+"""Local, factual-stage status quips. No LLM, printer calls, or automatic actions.
 
 The authoritative progress/error text stays separate. This engine only supplies
 optional jokes after a stage is actually entered. It borrows roast.py's stable
@@ -68,11 +64,6 @@ def load_bank() -> dict[str, tuple[dict[str, Any], ...]]:
                     raise ValueError(f"status voice entry too long: {eid}")
                 if set(_PLACEHOLDER.findall(message)) - {"copies"}:
                     raise ValueError(f"unknown status voice placeholder: {eid}")
-                details = row.get("details")
-                if details is not None and not (
-                    isinstance(details, str) and details.strip() and len(details) <= 500
-                ):
-                    raise ValueError(f"invalid status voice details: {eid}")
                 if row.get("first_time") and (
                     stage != "quantity_selected" or
                     type(row.get("exact_copies")) is not int or
@@ -149,11 +140,10 @@ def _fingerprint(value: str) -> str:
 def _choose(
     stage: str, *, copies: int | None, identity: str, event_key: str | None,
     path: Path, rng: random.Random
-) -> tuple[str, str]:
-    """The line and the bank id it came from; ("", "") when there is none."""
+) -> str:
     rows = load_bank().get(stage, ())
     if not rows:
-        return "", ""
+        return ""
     identity_key = _fingerprint(identity) if identity else ""
     replay_key = _fingerprint(f"{identity_key}:{stage}:{event_key}") if event_key else ""
 
@@ -161,8 +151,7 @@ def _choose(
         state = _read(path)
         chosen = state["chosen"] if isinstance(state.get("chosen"), dict) else {}
         if replay_key and isinstance(chosen.get(replay_key), dict):
-            return (str(chosen[replay_key].get("line") or ""),
-                    str(chosen[replay_key].get("id") or ""))
+            return str(chosen[replay_key].get("line") or "")
 
         seen = state["first_seen"] if isinstance(state.get("first_seen"), dict) else {}
         first_for_user = set(seen.get(identity_key) or []) if identity_key else set()
@@ -187,7 +176,7 @@ def _choose(
                 if not row.get("first_time") and _render(row, copies) is not None
             ]
             if not ordinary:
-                return "", ""
+                return ""
             history = state["history"] if isinstance(state.get("history"), list) else []
             bags = state["bags"] if isinstance(state.get("bags"), dict) else {}
             valid_ids = {row["id"] for row in ordinary}
@@ -228,31 +217,7 @@ def _choose(
                 chosen.pop(next(iter(chosen)))
             state["chosen"] = chosen
         _save(path, state)
-        return line or "", selected["id"]
-
-
-def _details(stage: str, entry_id: str) -> str:
-    for row in load_bank().get(stage, ()):
-        if row["id"] == entry_id:
-            return str(row.get("details") or "")
-    return ""
-
-
-def _share_on_screen(stage: str, line: str, entry_id: str, identity: str,
-                     event_key: str | None) -> None:
-    """Mirror the line this chat message carries onto the printer's screen.
-
-    The id is stable per chat event, so a replayed message re-sends the same
-    record and the screen does not show it twice.
-    """
-    try:
-        from ..runtime import screen_tip
-        basis = (f"{_fingerprint(identity)}:{stage}:{event_key}" if event_key
-                 else f"{stage}:{line}:{random.random()}")
-        screen_tip.publish(event_id=_fingerprint(basis), title=line,
-                           details=_details(stage, entry_id))
-    except Exception:
-        logger.debug("status voice could not share stage %s on screen", stage, exc_info=True)
+        return line or ""
 
 
 def quip(
@@ -275,13 +240,10 @@ def quip(
         if state_path is None:
             from .. import settings
             state_path = settings.state_dir() / "status_voice_state.json"
-        line, entry_id = _choose(
+        return _choose(
             stage, copies=copies, identity=identity, event_key=event_key,
             path=Path(state_path), rng=rng or random.Random()
         )
-        if line:
-            _share_on_screen(stage, line, entry_id, identity, event_key)
-        return line
     except Exception:
         logger.exception("status voice unavailable for stage %s", stage)
         return ""

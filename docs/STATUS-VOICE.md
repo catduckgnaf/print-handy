@@ -74,31 +74,6 @@ Selection uses a thread lock and a Linux advisory file lock around atomic
 writes, so simultaneous requests from the same bot installation do not
 silently both win the first-time flag.
 
-## On the printer's screen (HelixScreen)
-
-Every quip Print Handy puts in a chat message is also written, best effort, to
-the routed printer's Moonraker database, where HelixScreen's tips widget shows
-it in place of the tips. It is the same rendered line the chat carried,
-never a second pick from the bank. An entry's optional `details` (the three
-Easter eggs have them) is what a tap on the tip opens.
-
-* Record: namespace `helix-screen`, key `featured_tip`, value
-  `{"id", "title", "details", "source": "Print Handy", "posted_at"}`
-  (`print_handy/runtime/screen_tip.py`). `id` is stable per chat event, so a
-  replayed message is shown once.
-* Routing: an intake writes to the printer it is routed to; posts outside an
-  intake (warmup, family completion and failure) go to the default printer.
-  A printer with no `moonraker_url` (Bambu, Prusa, offline) gets nothing.
-* On by default on both sides, with nothing to configure. A printer without
-  HelixScreen just holds one small database item nobody reads.
-* By default the latest quip replaces HelixScreen's tips: it stays on the tile
-  until a newer one, until it is a week old, or until the item is gone. The
-  Tips tile's gear in HelixScreen's edit mode switches it to mixing, where each
-  quip shows for one tip rotation.
-* The write runs on its own thread with a 5 second timeout. A failure is
-  logged and never touches the chat message.
-* Tests never write: `tests/conftest.py` replaces `screen_tip._post`.
-
 ## Corpus contract
 
 Files: `print_handy/data/status_voice/{intake,preflight,planning,slicing,printing}.json`.

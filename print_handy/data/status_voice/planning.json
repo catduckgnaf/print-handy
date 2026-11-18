@@ -209,7 +209,6 @@
         "id": "quantity-selected-office-space-two",
         "family": "quantity-selected-office-space-two",
         "text": "You know what I would do with a million dollars? Two prints at the same time man.",
-        "details": "Lawrence in Office Space (1999), asked what he would do with a million dollars. Print Handy saves this one for the first time you pick exactly 2 copies.",
         "exact_copies": 2,
         "first_time": true
       },
@@ -217,7 +216,6 @@
         "id": "quantity-selected-binary-ten",
         "family": "quantity-selected-binary-ten",
         "text": "There are 10 types of people in this world, those who understand binary and those who don't.",
-        "details": "10 in binary is two. Print Handy saves this one for the first time you pick exactly 10 copies.",
         "exact_copies": 10,
         "first_time": true
       },
@@ -225,7 +223,6 @@
         "id": "quantity-selected-spinal-tap-eleven",
         "family": "quantity-selected-spinal-tap-eleven",
         "text": "Eleven copies? These go to eleven. Nigel Tufnel would be proud.",
-        "details": "Nigel Tufnel's amp in This Is Spinal Tap (1984): \"These go to eleven.\" Print Handy saves it for the first time you pick exactly 11 copies.",
         "exact_copies": 11,
         "first_time": true
       },

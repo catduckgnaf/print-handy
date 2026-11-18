@@ -2149,12 +2149,9 @@ def _question_timeout(timeout):
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None, confirm_target=False):
     timeout = _question_timeout(timeout)
-    from ..runtime import screen_tip
-    # A quip this intake posts in chat also shows on the routed printer's screen.
-    with screen_tip.routed_to(printer_id):
-        return await _prepare_link_intake(event, adapter, state, root, timeout=timeout, reuse=reuse,
-                                          printer_id=printer_id, before_start=before_start,
-                                          confirm_target=confirm_target)
+    return await _prepare_link_intake(event, adapter, state, root, timeout=timeout, reuse=reuse,
+                                      printer_id=printer_id, before_start=before_start,
+                                      confirm_target=confirm_target)
 
 
 async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
@@ -2203,10 +2200,8 @@ YOLO_GCODE_LABEL = 'Print it as-is (yolo)'
 
 async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=None):
     timeout = _question_timeout(timeout)
-    from ..runtime import screen_tip
-    with screen_tip.routed_to(printer_id):
-        return await _print_gcode_file_intake(event, adapter, root, path, timeout=timeout,
-                                              printer_id=printer_id)
+    return await _print_gcode_file_intake(event, adapter, root, path, timeout=timeout,
+                                          printer_id=printer_id)
 
 
 async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, printer_id=None):

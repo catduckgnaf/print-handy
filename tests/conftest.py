@@ -144,7 +144,7 @@ def _quiet_status_voice(request, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _offline_screen_tip(monkeypatch):
-    """A shared quip never reaches a printer's screen from a test; screen_tip tests patch _post."""
+    """A roast never reaches a printer's screen from a test; screen_tip tests patch _post."""
     from print_handy.runtime import screen_tip
     monkeypatch.setattr(screen_tip, "_post", lambda url, value: None)
 
