@@ -94,5 +94,6 @@ def cost_history_fragment(data, records_vault=None):
     if not rows:
         return ""
     return ("<h2>Recorded print costs</h2><p>The 20 most recent finished prints, "
-            "frozen when each one finished.</p><table><tr><th>Print</th><th>Outcome</th>"
-            "<th>Out of pocket</th><th>Full cost</th></tr>" + "".join(rows) + "</table>")
+            "frozen when each one finished.</p><div class=\"table-scroll\"><table><tr><th>Print</th>"
+            "<th>Outcome</th><th>Out of pocket</th><th>Full cost</th></tr>"
+            + "".join(rows) + "</table></div>")

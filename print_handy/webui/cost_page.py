@@ -146,9 +146,9 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
         detail = result.totals_detail
         body.append(
             "<h2>Breakdown</h2>"
-            f"<table><tr><th>Line</th><th>Amount</th></tr>{lines}"
+            f'<div class="table-scroll"><table><tr><th>Line</th><th>Amount</th></tr>{lines}'
             f"<tr><th>Cost per build</th><th>{cur} {result.cost_per_build:.2f}</th></tr>"
-            f"<tr><th>Cost per part</th><th>{cur} {result.cost_per_part:.2f}</th></tr></table>"
+            f"<tr><th>Cost per part</th><th>{cur} {result.cost_per_part:.2f}</th></tr></table></div>"
             f"<p>Cost per gram: {cur} {detail.get('cost_per_gram') if detail.get('cost_per_gram') is not None else 'not available'}; "
             f"cost per print hour: {cur} {detail.get('cost_per_print_hour') if detail.get('cost_per_print_hour') is not None else 'not available'}.</p>"
             f"<h2>Selling prices ({_esc(str(result.selling.get('mode_label')))})</h2><ul>{tiers}</ul>"

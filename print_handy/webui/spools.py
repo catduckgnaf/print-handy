@@ -69,6 +69,7 @@ from .. import credential_binding, settings
 from ..runtime import purchase_intake, spool_sync
 from . import controls as controls_module
 from . import shell
+from . import swatch as swatch_module
 
 log = logging.getLogger(__name__)
 
@@ -217,21 +218,43 @@ def _load_cache(printer_id, state_path):
         return {"filament_slots": {}}
 
 
+# What the Spools page says when it cannot list spools. Spoolman is a
+# separate inventory app, so "not set up" and "set up but not answering"
+# get different words and the same way forward: the Spools settings.
+NOT_CONFIGURED_REASON = ("Spoolman is not set up yet. Print Handy keeps track of "
+                         "your spools in Spoolman, a separate filament inventory app. "
+                         "Add your Spoolman address in Settings to use this page.")
+UNREACHABLE_REASON = ("Spoolman did not answer, so your spools cannot be listed "
+                      "right now.")
+SPOOL_SETTINGS_URL = "/config?section=spools"
+
+
+def spoolman_configured(data, printer_id):
+    """True when a Spoolman address is set for this printer (or globally)."""
+    try:
+        view = settings.view_for(printer_id, data)
+    except settings.SettingsError:
+        view = data or {}
+    return bool(str(((view or {}).get("services") or {}).get("spoolman_url") or "").strip())
+
+
 def spools_view(data, printer_id, *, client=None, state_path=None):
     """(code, body) for GET /api/printers/<id>/spools."""
     try:
         entry = _resolve_read(data, printer_id)
+        if client is None and not spoolman_configured(data, printer_id):
+            raise SpoolsError(503, NOT_CONFIGURED_REASON)
         client = _client(client)
         try:
             rows = client("GET", "/api/v1/spool?allow_archived=true", None)
         except Exception as exc:
             log.warning("spool view: Spoolman did not answer: %s: %s",
                         type(exc).__name__, exc)
-            raise SpoolsError(502, "Spoolman did not answer, "
-                                   "so the spool view cannot be built") from None
+            raise SpoolsError(502, UNREACHABLE_REASON) from None
         if not isinstance(rows, list):
-            raise SpoolsError(502, "Spoolman did not answer with a spool list, "
-                                   "so the spool view cannot be built")
+            log.warning("spool view: Spoolman answered with %s, not a spool list",
+                        type(rows).__name__)
+            raise SpoolsError(502, UNREACHABLE_REASON)
         spools = [row for row in rows if isinstance(row, dict) and row.get("id") is not None]
         by_id = {int(row["id"]): row for row in spools}
         state = _load_cache(printer_id, state_path)
@@ -771,6 +794,11 @@ def _picker_label(spool):
                               spool.get("id"), spool.get("remaining_weight"))
 
 
+def _spool_label_html(spool):
+    """The spool's label with its color swatch in front (escaped)."""
+    return swatch_module.labeled(spool.get("color_hex"), _picker_label(spool))
+
+
 def _options(items, *, selected=None):
     return "".join(
         f'<option value="{_esc(value)}"{" selected" if selected is not None and str(value) == str(selected) else ""}>'
@@ -843,13 +871,22 @@ def render_spools_error(printer_id, code, reason, *, theme=shell.DEFAULT_THEME):
     Spoolman outage (502), the printer picker for anything else. The
     caller keeps its status code; only the JSON API keeps the
     ``{ok, reason}`` body for this failure."""
-    if code == 502:
-        hint = ('Check that Spoolman is running and that the Spoolman URL on '
-                '<a href="/config">Configuration</a> is right, then reload.')
+    settings_link = (f'<p><a class="button" href="{SPOOL_SETTINGS_URL}">'
+                     'Open Spools settings</a></p>')
+    if code == 503:
+        # Not set up is a state to explain, not an error to alarm about.
+        body = (f'<div class="card"><h2>Set up Spoolman to manage spools</h2>'
+                f'<p>{_esc(reason)}</p>'
+                '<p>In Settings, open the Spools tab and enter the Spoolman URL '
+                '(the address you open Spoolman at in a browser, for example <code>http://spoolman.local:7912</code>), then come back '
+                'here.</p>' + settings_link + '</div>')
+    elif code == 502:
+        body = (f'<p class="error">{_esc(reason)}</p>'
+                '<p>Check that Spoolman is running and that the Spoolman URL in '
+                'Settings is right, then reload this page.</p>' + settings_link)
     else:
-        hint = '<a href="/spools">Pick a printer</a>.'
-    return _page(f"spools — {printer_id}",
-                 f'<p class="error">{_esc(reason)}</p><p>{hint}</p>', theme=theme)
+        body = f'<p class="error">{_esc(reason)}</p><p><a href="/spools">Pick a printer</a>.</p>'
+    return _page("spools", body, theme=theme)
 
 
 def _weight_form(form_token, pid, spool):
@@ -907,7 +944,7 @@ def _spool_rows(view, form_token, pid, slot_options, *, show_archived):
                              attrs='class="inline"')
         elif sid in shelf:
             actions += _load_form(form_token, pid, sid, slot_options)
-        rows.append(f"<tr><td>{esc(_picker_label(spool))}</td><td>{esc(place)}</td>"
+        rows.append(f"<tr><td>{_spool_label_html(spool)}</td><td>{esc(place)}</td>"
                     f"<td>{esc(_amount_text(spool))}</td><td>{actions}</td></tr>")
     return rows
 
@@ -952,7 +989,7 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         spool = row["spool"]
         slot_anchor = f'id="slot-{row["slot"]}"'
         if spool:
-            cell = f"{esc(_picker_label(spool))} — {esc(_amount_text(spool))}"
+            cell = f"{_spool_label_html(spool)}<br>{esc(_amount_text(spool))}"
             actions = _weight_form(form_token, pid, spool) if spool.get("id") is not None else ""
         else:
             cell, actions = "empty", ""

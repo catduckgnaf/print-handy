@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -73,6 +74,7 @@ from . import data as data_module
 from . import screen as screen_module
 from . import spools as spools_module
 from . import status as status_module
+from . import swatch as swatch_module
 from . import wrapped_video
 
 log = logging.getLogger(__name__)
@@ -255,6 +257,29 @@ def _redact_detail(value):
                   lambda match: redact_url(match.group()), str(value))
 
 
+# A transport failure arrives as the exception's own text ("URLError:
+# <urlopen error [Errno 111] Connection refused>"). That is log detail,
+# not something to show a person: the card says it in plain words, and
+# a named reason keeps its words without the exception class in front.
+_TRANSPORT_NOISE = re.compile(
+    r"<urlopen|\[Errno|Traceback|timed out|HTTP Error \d+|Connection (?:refused|reset)"
+    r"|Name or service not known|No route to host", re.IGNORECASE)
+_EXCEPTION_PREFIX = re.compile(r"^\s*[A-Za-z_][\w.]*(?:Error|Exception|Timeout)\s*:\s*")
+UNREACHABLE_TEXT = ("Print Handy could not reach this printer. Check that it is "
+                    "turned on and connected to the network, then reload this "
+                    "page.")
+
+
+def _plain_detail(value):
+    """``value`` for the card, in plain words: no exception class or socket text."""
+    text = str(value or "").strip()
+    if _TRANSPORT_NOISE.search(text):
+        return UNREACHABLE_TEXT
+    if _EXCEPTION_PREFIX.match(text):
+        return _EXCEPTION_PREFIX.sub("", text, count=1).strip() or UNREACHABLE_TEXT
+    return text
+
+
 def _nozzle_label(kind):
     return str(kind or "").replace("_", " ").strip() or "unknown"
 
@@ -384,14 +409,18 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
             live = (body or {}).get("status") or {}
             card["live"] = live
             card["state"] = str(live.get("state") or "unavailable")
-            card["detail"] = _redact_detail(live.get("detail") or "")
+            raw_detail = _redact_detail(live.get("detail") or "")
+            if raw_detail and raw_detail != _plain_detail(raw_detail):
+                log.info("dashboard: printer %s unavailable: %s", printer_id, raw_detail)
+            card["detail"] = _plain_detail(raw_detail)
             card["name"] = (body or {}).get("name") or card["name"]
             card["model"] = (body or {}).get("model") or card["model"]
             history.sample(printer_id, live.get("hotend_c"), live.get("bed_c"),
                            live.get("hotend_target_c"), live.get("bed_target_c"))
         except Exception as exc:  # a dead read is an unavailable card
-            card["detail"] = _redact_detail(f"{type(exc).__name__}: {exc}")
-            log.warning("dashboard status read failed for %s: %s", printer_id, card["detail"])
+            log.warning("dashboard status read failed for %s: %s", printer_id,
+                        _redact_detail(f"{type(exc).__name__}: {exc}"))
+            card["detail"] = UNREACHABLE_TEXT
         card["history"] = history.samples(printer_id)
         try:
             code, sbody = spools_for(printer_id)
@@ -402,7 +431,9 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
                 card["spools_note"] = str((sbody or {}).get("reason")
                                           or "Spoolman did not answer.")
         except Exception as exc:  # a Spoolman problem is a note, not a failure
-            card["spools_note"] = f"Spoolman did not answer ({type(exc).__name__})."
+            log.warning("dashboard spool read failed for %s: %s: %s", printer_id,
+                        type(exc).__name__, _redact_detail(exc))
+            card["spools_note"] = "Spoolman did not answer."
         cards.append(card)
     return {"cards": cards, "recent": recent_prints(data),
             "timelapse": latest_timelapse(data)}
@@ -576,10 +607,11 @@ def _temp_chart(card):
 
 
 def _disc(spool, small=False):
-    color = (spool or {}).get("color_hex") or ""
-    style = f' style="background: {_esc(color)}"' if color else ""
+    # Spoolman's color_hex has no '#'; swatch() writes the valid CSS form.
+    color = (spool or {}).get("color_hex")
     kind = "disc small" if small else "disc"
-    return f'<span class="{kind}"{style} aria-hidden="true"></span>'
+    return (swatch_module.swatch(color, size="small" if small else "large")
+            or f'<span class="{kind}" aria-hidden="true"></span>')
 
 
 def _grams(value):

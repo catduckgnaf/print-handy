@@ -806,7 +806,7 @@ class RouteTests(unittest.TestCase):
             self.assertIn("text/html", headers["Content-Type"])
             self.assertIn('<header class="site">', raw)
             self.assertIn("Spoolman did not answer", raw)
-            self.assertIn('href="/config"', raw)  # the Configuration hint
+            self.assertIn('href="/config?section=spools"', raw)  # the Spools settings hint
             self.assertNotIn('"ok": false', raw)
             self.assertNotIn("URLError", raw)
 

@@ -207,8 +207,8 @@ def render_sliced_page(rows, *, theme=shell.DEFAULT_THEME, nav=None) -> str:
                 f"<td><a href=\"/sliced/{_esc(row['job_id'])}/{int(plate['index'])}\">Download</a></td>"
                 f"<td>{report if number == 0 else ''}</td>"
                 "</tr>")
-    parts.append("<table><tr><th>Model</th><th>Sliced</th><th>File</th>"
-                 "<th>Size</th><th></th><th></th></tr>" + "".join(body) + "</table>")
+    parts.append('<div class="table-scroll"><table><tr><th>Model</th><th>Sliced</th><th>File</th>'
+                 "<th>Size</th><th></th><th></th></tr>" + "".join(body) + "</table></div>")
     return shell.page("sliced", "".join(parts), path="/sliced",
                       theme=theme, heading="Sliced files", nav=nav)
 
