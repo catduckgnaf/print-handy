@@ -213,6 +213,8 @@ def test_phone_width_gives_the_tabs_the_full_header_width():
     # at phone width that squeezed the tabs into a narrow column.
     assert "header.site .wrap { padding-right: 1rem;" in phone
     assert ".chrome-right { flex-basis: 100%; }" in phone
+    # The theme toggle joins the flow, so it can never sit on top of the brand.
+    assert ".theme-toggle { position: static; }" in phone
 
 
 def test_phone_width_scrolls_tables_rather_than_breaking_words_into_letters():

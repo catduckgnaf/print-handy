@@ -383,9 +383,12 @@ img { max-width: 100%; }
   .table-scroll td { min-width: 7rem; }
   .table-scroll form.inline label { white-space: nowrap; }
   .table-scroll form.inline select { max-width: 13rem; }
-  /* Phone header: the brand and theme toggle share the top row, and the
-     tabs get the full width below it instead of a narrow column. */
+  /* Phone header: the brand and theme toggle share the top row in the
+     normal flow (the toggle wraps below rather than overlapping a long
+     brand), and the tabs get the full width under them instead of a
+     narrow column. */
   header.site .wrap { padding-right: 1rem; gap: 0.5rem; }
+  .theme-toggle { position: static; }
   .theme-toggle a { padding: 0.375rem 0.5rem; }
   .chrome-right { flex-basis: 100%; }
   nav.pills a { padding: 0.4rem 0.6rem; }
