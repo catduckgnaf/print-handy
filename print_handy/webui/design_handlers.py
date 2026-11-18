@@ -13,10 +13,12 @@ from urllib.parse import parse_qs, urlparse
 import logging
 
 log = logging.getLogger(__name__)
+from . import controls as controls_module
 from . import data as data_module
 from . import designs as designs_module
 from . import editable_download as editable_download_module
 from . import firmware_page as firmware_page_module
+from . import notifications as notifications_module
 from . import settings_report as settings_report_module
 from . import sliced as sliced_module
 from . import sources as sources_module
@@ -136,12 +138,19 @@ def design_route(handler, rest):
     handler._json(404, {"ok": False, "reason": "no such design session"})
 
 def firmware_route(handler):
-    # Firmware and updates per printer (#1280 section I), read-only.
-    # ?printer=<id> reads that one printer's installed versions.
+    # Firmware and updates per printer (#1280 section I).
+    # ?printer=<id> reads that one printer's installed versions; the
+    # read also records the update observation the Web UI's toast
+    # notifications carry across pages (#1610), and update buttons
+    # show there when Web UI printer controls are on.
+    data = handler.server.settings_data
     checked = (parse_qs(urlparse(handler.path).query).get("printer") or [None])[0]
     handler._send(200, firmware_page_module.render_firmware_page(
-        handler.server.settings_data, theme=handler._theme(), checked=checked,
-        nav=data_module.nav_for(handler.server.settings_data)),
+        data, theme=handler._theme(), checked=checked,
+        nav=data_module.nav_for(data),
+        controls=controls_module.controls_enabled(data),
+        observe=lambda pid, name, status:
+            notifications_module.record_observation(data, pid, name, status)),
         "text/html; charset=utf-8")
 
 def settings_report_route(handler, rest=""):

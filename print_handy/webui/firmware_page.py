@@ -16,11 +16,15 @@ OpenCreator, Klipper), **Stock firmware** (the printer maker's own, such
 as Prusa Buddy or QIDI) and **Plugins** (add-ons that run beside the
 firmware, such as HelixScreen, Moonraker or OctoPrint).
 
-Read-only. The page never refreshes a printer's update manager, never
-applies an update and has no update button: applying stays the
-confirmed ``/print-firmware update`` path in chat. The installed-version
-read happens only for the one printer asked for, so opening the page
-never waits on a roster of printers.
+The page itself never refreshes a printer's update manager. The
+installed-version read happens only for the one printer asked for, so
+opening the page never waits on a roster of printers. That read also
+feeds the Web UI's update notifications (#1610) and, when Web UI
+printer controls are on, offers an update button per component with
+one available; the button leads to a confirmation page, and applying
+runs the same confirmed flow as ``/print-firmware update`` in chat
+(:mod:`print_handy.firmware_update`). With controls off the page is
+read-only and applying stays in chat.
 """
 from __future__ import annotations
 
@@ -105,17 +109,72 @@ def _grouped_tables(rows, heading, model_key=None):
 
 def installed_report(printer_id, entry, transport_for):
     """The ``/print-firmware`` report for one printer, or a plain reason it has none."""
+    text, _status = installed_report_and_status(printer_id, entry, transport_for)
+    return text
+
+
+def installed_report_and_status(printer_id, entry, transport_for):
+    """The installed report plus the live UpdateStatus behind it (#1610).
+
+    One read of the one printer: the status the report was built from
+    also drives the update offers and the notification observation, so
+    checking a printer never reads it twice. ``status`` is None when
+    there is no Moonraker report to build from.
+    """
     if entry is None:
-        return "This printer's model is not in the printer registry, so there is no report."
+        return ("This printer's model is not in the printer registry, so "
+                "there is no report.", None)
     if entry.connection != "moonraker":
-        return fw.guidance_text(entry)
+        return fw.guidance_text(entry), None
     try:
-        return fw.firmware_report(transport_for(printer_id), entry, refresh=False)
+        return fw.firmware_report_with_status(
+            transport_for(printer_id), entry, refresh=False)
     except fw.FirmwareError as exc:
-        return f"{fw.COULD_NOT_READ_TEXT}\n({exc})"
+        return f"{fw.COULD_NOT_READ_TEXT}\n({exc})", None
 
 
-def _printer_section(row, feed, *, checked, transport_for):
+def _update_actions(printer_id, entry, status, *, controls, cfg):
+    """The update offers under one printer's installed-version read (#1610).
+
+    One row per component with an update available: what would change,
+    roughly how long it takes, and — only when this printer may be
+    updated at all and Web UI controls are on — the link to that
+    component's confirmation page. Every refusal is named in words,
+    never a dead button.
+    """
+    updates = status.updates_available
+    if not updates:
+        return ""
+    parts = ["<h3>Updates available</h3>"]
+    block = fw.apply_block_reason(entry, cfg)
+    for component in updates:
+        parts.append(
+            f"<p><strong>{_esc(component.name)}</strong> "
+            f"{_esc(component.current or 'version not reported')} &rarr; "
+            f"{_esc(component.remote)}"
+            f"<br><span class=\"muted\">Takes "
+            f"{_esc(fw.update_estimate_text(component.name))}.</span>")
+        if block is None and controls:
+            url = (f"/firmware/update?printer={quote(printer_id, safe='')}"
+                   f"&component={quote(component.name, safe='')}")
+            parts.append(
+                f' <a class="button" href="{_esc(url)}">'
+                f"Update {_esc(component.name)}</a>")
+        parts.append("</p>")
+    if block is not None:
+        parts.append(f"<p>{_esc(block)} Updates stay available from the "
+                     "printer's own update screen.</p>")
+    elif not controls:
+        parts.append("<p>To update from this page, turn on Web UI printer "
+                     "controls (<code>[webui] controls_enabled = true</code>). "
+                     "Until then, updates apply from chat with "
+                     "<code>/print-firmware update</code>, behind a "
+                     "confirmation.</p>")
+    return "".join(parts)
+
+
+def _printer_section(row, feed, *, checked, transport_for, controls=False,
+                     cfg=None, observe=None):
     printer_id, model_key = str(row.get("id")), row.get("model")
     name = str(row.get("name") or printer_id)
     entry = fw.printer_entry(model_key)
@@ -129,8 +188,15 @@ def _printer_section(row, feed, *, checked, transport_for):
                      "Either its maker publishes no release feed Print Handy can "
                      "read, or it has not been added yet.</p>")
     if checked == printer_id:
+        report, status = installed_report_and_status(printer_id, entry,
+                                                     transport_for)
         parts.append("<h3>Installed versions</h3>"
-                     f"<pre>{_esc(installed_report(printer_id, entry, transport_for))}</pre>")
+                     f"<pre>{_esc(report)}</pre>")
+        if status is not None:
+            if observe is not None:
+                observe(printer_id, name, status)
+            parts.append(_update_actions(printer_id, entry, status,
+                                         controls=controls, cfg=cfg))
     elif entry is not None and entry.connection == "moonraker":
         parts.append(f'<p><a href="/firmware?printer={quote(printer_id, safe="")}">'
                      "Check installed versions</a> reads this printer's update "
@@ -148,13 +214,23 @@ def _default_transport(data):
     return transport_for
 
 
+def printer_transport(data, printer_id):
+    """The Moonraker transport for one roster printer (the update flow's)."""
+    return _default_transport(data)(printer_id)
+
+
 def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=None,
-                         feed=firmware_feed.current, transport_for=None):
+                         feed=firmware_feed.current, transport_for=None,
+                         controls=False, observe=None):
     """The Firmware page document for a settings mapping.
 
     ``checked`` is the roster printer whose installed versions were
     asked for (the ``printer`` query value); an id that is not on the
     roster is ignored. ``feed`` and ``transport_for`` are seams for tests.
+    ``controls`` is whether Web UI printer controls are on (update
+    buttons show only then) and ``observe`` an optional callable
+    ``(printer_id, name, status)`` receiving the checked printer's live
+    update status — the route passes the notification store's recorder.
     """
     current = feed() if callable(feed) else feed
     roster = [row for row in settings.printers(data) if row.get("id") is not None]
@@ -164,11 +240,13 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
     parts = [
         "<p>The newest release of the firmware each of your printers runs, the "
         "version Print Handy was last checked against, and how that firmware is "
-        "updated. Print Handy tells you in chat when a new release appears "
-        "(<code>[firmware] update_alerts</code>). Updates are applied only from "
-        "chat with <code>/print-firmware update</code>, behind a confirmation, "
-        "and only for the firmware that has a safe path; this page changes "
-        "nothing.</p>"]
+        "updated. Print Handy tells you when a new release appears — in chat "
+        "(<code>[firmware] update_alerts</code>) and, once a printer's installed "
+        "versions have been checked below, as a notification in this Web UI. An "
+        "update is applied only behind a confirmation, from chat with "
+        "<code>/print-firmware update</code> or from this page when Web UI "
+        "printer controls are on, and only for the firmware that has a safe "
+        "path.</p>"]
     if current is None:
         parts.append(f"<p>{_esc(FEED_UNAVAILABLE)}</p>")
     if not roster:
@@ -176,7 +254,9 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
                      '<a href="/printers">Printers</a> page.</p>')
     for row in roster:
         parts.append(_printer_section(row, current, checked=checked,
-                                      transport_for=transport_for))
+                                      transport_for=transport_for,
+                                      controls=controls, cfg=data,
+                                      observe=observe))
     if current is not None and current.firmware:
         parts.append("<h2>Every firmware Print Handy follows</h2>")
         if current.generated_at:
@@ -190,4 +270,6 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
     return shell.page("Firmware", "".join(parts), path="/firmware", theme=theme, nav=nav)
 
 
-__all__ = ["FEED_UNAVAILABLE", "installed_report", "render_firmware_page"]
+__all__ = ["FEED_UNAVAILABLE", "installed_report",
+           "installed_report_and_status", "printer_transport",
+           "render_firmware_page"]

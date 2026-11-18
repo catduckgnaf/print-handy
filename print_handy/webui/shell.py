@@ -230,6 +230,15 @@ button:disabled { opacity: 0.55; cursor: default; }
   border-radius: var(--radius-card); padding: 0.75rem 1rem; margin: 1rem 0;
 }
 .banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.toasts { max-width: 64rem; margin: 0 auto; padding: 1rem 1rem 0; display: grid; gap: 0.5rem; }
+.toast {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
+  background: var(--color-surface); border: 1px solid var(--color-accent);
+  border-radius: var(--radius-card); padding: 0.75rem 1rem;
+}
+.toast-body { flex: 1 1 16rem; }
+.toast-dismiss { margin: 0; }
+.toast-dismiss button.link { background: none; border: 0; padding: 0; color: var(--color-muted); text-decoration: underline; cursor: pointer; font: inherit; }
 .overall-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .overall-head h2 { margin: 0; font-size: 1.375rem; }
 .progress {
@@ -514,7 +523,7 @@ def _header(path, theme, nav=None):
 
 
 def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None,
-         eyebrow="", banner="", nav=None):
+         eyebrow="", banner="", nav=None, head_extra=""):
     """One full HTML document in the shared shell.
 
     ``title`` names the page (``Print Handy — <title>`` in the tab, and
@@ -525,7 +534,9 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     above the heading. ``nav`` overrides the header navigation for this
     page only (the Data/Wrapped pages pass the extended nav when that
     feature is on, #956); the default is :data:`NAV`, unchanged for
-    every existing page. The source footer (#1158) is appended on every
+    every existing page. ``head_extra`` is trusted markup inserted at
+    the end of the head (the update status page's refresh tag, #1610).
+    The source footer (#1158) is appended on every
     page, with or without chrome. Every interpolated value here is escaped by
     the callers for body content; title and heading are escaped here.
     """
@@ -535,7 +546,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
              f"{ICON_HEAD_TAGS}"
              f"{PWA_HEAD_TAGS}"
              f"<title>Print Handy — {_esc(title)}</title>"
-             f"<style>{CSS}</style></head><body>"]
+             f"<style>{CSS}</style>{head_extra}</head><body>"]
     if chrome:
         parts.append(_header(path, theme, nav=nav))
     parts.append('<main><div class="wrap">')

@@ -72,6 +72,33 @@ READ_ONLY_NOTE = ("Read-only: Print Handy sent nothing to the printer but read r
 UPDATE_LABEL = "Update now"
 CANCEL_LABEL = "Cancel"
 
+# Roughly how long one component update takes, in seconds, as a
+# (short, long) range (#1610). Display only: the operator deciding
+# whether to start an update wants to know if it is a two-minute job or
+# a fifteen-minute one — a ZMod update (download, install, service
+# restarts, a possible reboot) runs much longer than a HelixScreen one.
+# The outcome is always the verified re-read in send_update, never the
+# clock; these ranges never gate anything.
+UPDATE_ESTIMATES_S = {
+    "zmod": (300, 900),
+    "klipper": (300, 600),
+    "system": (300, 900),
+    "moonraker": (120, 300),
+    "helixscreen": (120, 300),
+}
+DEFAULT_UPDATE_ESTIMATE_S = (120, 600)
+
+
+def update_estimate(name) -> tuple:
+    """The (short, long) rough duration range in seconds for a component."""
+    return UPDATE_ESTIMATES_S.get(_component_key(name), DEFAULT_UPDATE_ESTIMATE_S)
+
+
+def update_estimate_text(name) -> str:
+    """The estimate as the operator reads it: "roughly 5-15 minutes"."""
+    low, high = update_estimate(name)
+    return f"roughly {low // 60}-{high // 60} minutes"
+
 # Klipper print_stats states in which no job is on the printer — the same
 # set the macro run guard uses. Anything else — printing, paused, or a
 # state Print Handy does not recognise — refuses the update (fail closed).
@@ -762,6 +789,16 @@ def firmware_report(transport, entry, *, refresh=False) -> str:
     report always states it, as unknown when Moonraker does not report
     the `zmod` component.
     """
+    text, _status = firmware_report_with_status(transport, entry, refresh=refresh)
+    return text
+
+
+def firmware_report_with_status(transport, entry, *, refresh=False):
+    """firmware_report, plus the UpdateStatus it was built from.
+
+    The Web UI's update offers and notifications (#1610) work from the
+    same single read — a checked printer is read once, never twice.
+    """
     status = fetch_status(transport, refresh=refresh)
     pairing, os_version = "unknown", None
     mcu_state, mcu_versions = "unknown", None
@@ -777,8 +814,8 @@ def firmware_report(transport, entry, *, refresh=False) -> str:
         mcu_state = mcu_currency(klipper.current, mcu_version)
         if mcu_state == "mismatch":
             mcu_versions = (klipper.current, mcu_version)
-    return report_text(status, entry, pairing=pairing, os_version=os_version,
-                       mcu_state=mcu_state, mcu_versions=mcu_versions)
+    return (report_text(status, entry, pairing=pairing, os_version=os_version,
+                        mcu_state=mcu_state, mcu_versions=mcu_versions), status)
 
 
 def not_moonraker_text(connection) -> str:
