@@ -57,6 +57,10 @@ def test_warmup_done_edit_without_a_quip_is_byte_identical(job, tmp_path, monkey
 @pytest.mark.parametrize("speak", [True, False])
 def test_family_terminal_post_quip_follows_the_facts(monkeypatch, kind, stage, speak):
     calls = seed(monkeypatch, speak)
+    # No roast on the post (the #1672 helper draws none here): the quip
+    # wiring below is the no-roast shape, exactly today's post.
+    from print_handy.runtime import roast_post
+    monkeypatch.setattr(roast_post, "roast_for_print", lambda *a, **kw: "")
     posts = []
 
     class Mel:

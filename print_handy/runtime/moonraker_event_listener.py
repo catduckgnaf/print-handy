@@ -531,7 +531,7 @@ _ROAST_FACTS = ("duration_s", "material", "color", "grams", "printer", "copies",
                 "prev_fails", "fail_streak", "color_streak", "top_color")
 
 
-def generate_roast(title, summary="", facts=None, key=None, status="completed"):
+def generate_roast(title, summary="", facts=None, key=None, status="completed", printer_id=None):
     """One short roast line for a print, from the local corpus. Best-effort.
 
     No LLM at all (#1002): no model call, no model fallback, no endpoint.
@@ -556,17 +556,19 @@ def generate_roast(title, summary="", facts=None, key=None, status="completed"):
     except Exception as exc:
         log(f"roast skipped: {exc!r}")
         return ""
-    _roast_on_screen(line, title, status, key, known)
+    _roast_on_screen(line, title, status, key, known, printer_id=printer_id)
     return line
 
 
-def _roast_on_screen(line, title, status, key, facts):
+def _roast_on_screen(line, title, status, key, facts, printer_id=None):
     """Put the roast this post carries on the printer's own screen. Best effort.
 
     HelixScreen's tips widget shows it in place of its tips. The line is the
     one the post carries; ``key`` keeps a retried delivery to one screen
-    record. The printer is this listener's, so each printer's screen roasts
-    its own last print.
+    record. ``printer_id`` is the posting printer's roster id, passed down
+    explicitly by the family-neutral helper (#1672); None is this
+    listener's own printer, so each printer's screen roasts its own last
+    print.
     """
     if not line:
         return
@@ -574,7 +576,8 @@ def _roast_on_screen(line, title, status, key, facts):
         from .. import listeners as _listeners
         from . import screen_tip
         screen_tip.publish_roast(line, title=title, status=status, key=key, facts=facts,
-                                 printer_id=_listeners.instance_printer_id())
+                                 printer_id=printer_id if printer_id is not None
+                                 else _listeners.instance_printer_id())
     except Exception as exc:
         log(f"roast not shared on screen: {exc!r}")
 
@@ -590,25 +593,17 @@ def _with_status_roast(text, filename, status, key, facts=None):
     per-print, so a reposted notice repeats its line instead of drawing
     a second roast for the same print. No LLM anywhere in this path.
     """
-    try:
-        # The job's own facts (#1002 Phase 2): title, material, color and the
-        # print-history slots (prev_fails, fail_streak, ...) that unlock the
-        # reprint-failed and fail-streak pools. Caller facts (the measured
-        # duration) win; a cancelled print's sliced grams were never used.
-        title, known = print_summary.safe_label(filename), {}
-        try:
-            job, plate = print_summary.find_job(filename)
-            title = (job or {}).get("title") or title
-            known = dict(announcer.roast_facts(job, plate, {}) or {})
-        except Exception as exc:
-            log(f"{status} roast facts unavailable: {exc!r}")
-        if status == "cancelled":
-            known.pop("grams", None)
-        known.update(facts or {})
-        line = generate_roast(title, facts=known, key=key, status=status)
-    except Exception as exc:
-        log(f"{status} roast skipped: {exc!r}")
-        return text
+    # The roast step itself is the family-neutral helper (#1672): it
+    # resolves the job's own facts (#1002 Phase 2 — title, material, color
+    # and the print-history slots that unlock the reprint-failed and
+    # fail-streak pools; caller facts win; a cancelled print's sliced
+    # grams are dropped), draws the line and mirrors it to the screen
+    # sinks. This listener passes printer_id=None: the roast generator's
+    # fallback is this listener process's own printer, which is the
+    # posting printer here by construction.
+    from . import roast_post
+    line = roast_post.roast_for_print(filename, status, printer_id=None,
+                                      key=key, facts=facts)
     return f"{text}\n\n{line}" if line else text
 
 

@@ -419,21 +419,42 @@ def retire_headline(state: str) -> str:
 # and an ended-at-the-printer post get no quip.
 FAMILY_EVENT_VOICE = {"complete": "print_complete", "error": "print_failure"}
 
+# The roast bank each terminal kind draws from (#1672): the same banks
+# the Moonraker listener's terminal posts use, under the same switch.
+FAMILY_EVENT_ROAST = {"complete": "completed", "error": "failed", "cancelled": "cancelled"}
 
-def post_family_event(kind: str, filename: str) -> bool:
+
+def post_family_event(kind: str, filename: str, printer_id: str | None = None) -> bool:
     """A plain lifecycle post (start / terminal) in the shared format_event shape.
 
     The send path carries the kind and the print, so the starter pings
     classifier decides the ping (#1095): terminal kinds ping the
     starter, a start post never does.
+
+    A terminal post carries the print's roast (#1672), drawn by the
+    family-neutral helper with this printer's explicit ``printer_id`` —
+    one voice per post, the Moonraker rule: a post with a roast line
+    carries no status quip, and a post with no roast line (roasts off,
+    no title, a failed draw) keeps the status quip it has today, so
+    roasts off is an exact no-op. ``printer_id`` None is the default
+    printer's own listener context (the Web UI event path); the family
+    listener and the Bambu sink pass their printer's id down.
     """
     text = print_summary.format_event(kind, filename)
-    stage = FAMILY_EVENT_VOICE.get(kind)
-    if stage:
-        # These plain terminal posts carry no completion or status roast, so
-        # one status quip may follow the facts on its own line.
-        from ..core import status_voice
-        text = status_voice.voiced(text, stage, separator="\n", event_key=f"{filename}:{kind}")
+    roast_status = FAMILY_EVENT_ROAST.get(kind)
+    line = ""
+    if roast_status:
+        from . import roast_post
+        line = roast_post.roast_for_print(
+            filename, roast_status, printer_id=printer_id,
+            key=f"{roast_status}:{filename}")
+    if line:
+        text = f"{text}\n\n{line}"
+    else:
+        stage = FAMILY_EVENT_VOICE.get(kind)
+        if stage:
+            from ..core import status_voice
+            text = status_voice.voiced(text, stage, separator="\n", event_key=f"{filename}:{kind}")
     return _mel().post(text, ping_kind=kind, ping_job_key=filename)
 
 
@@ -934,7 +955,13 @@ class BambuEventSink:
         self._claim_fn = claim_fn
         self._start_poster = start_poster or post_family_event
         self._pause_poster = pause_poster or post_pause_alert
-        self._terminal_poster = terminal_poster or post_family_event
+        if terminal_poster is None:
+            # The default terminal poster carries this sink's own
+            # printer_id down to the roast helper (#1672); an injected
+            # poster keeps the two-argument (kind, filename) contract.
+            terminal_poster = lambda kind, fn: post_family_event(
+                kind, fn, printer_id=printer_id)
+        self._terminal_poster = terminal_poster
         if retirer is None:
             # Scoped to this sink's printer, like PauseAlerts (P2-176);
             # an injected retirer keeps the two-argument contract.
