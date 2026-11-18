@@ -93,6 +93,27 @@ def job_from_form(form, data):
     return job, profile, workspace
 
 
+def job_from_usage(usage, data):
+    """(JobCostInput, PrinterCostProfile, WorkspaceCost) for one parsed file.
+
+    The calculator's auto-fill as a job: the file's material amount and
+    print time on the form's default shape, with the amounts' provenance
+    set to the parser's source. Shared by the cost page's dropped-file
+    POST and the chat attachment answer (#1661), so a file dropped in
+    chat prices exactly as the same file dropped on this page.
+    """
+    amount = usage.volume_ml if usage.volume_ml is not None else (usage.total_grams or 0)
+    filled = {"technology": ["resin" if usage.volume_ml is not None else "fdm"],
+              "amount": [str(amount)], "hours": [str(round(usage.hours, 3))],
+              "parts": ["1"], "prep_minutes": ["5"], "post_minutes": ["10"],
+              "pack_minutes": ["0"], "hardware": ["0"], "packaging": ["0"]}
+    job, profile, workspace = job_from_form(filled, data)
+    job.grams_source = usage.source
+    if usage.slicer_price_per_kg and job.lines:
+        job.lines[0].slicer_price_per_kg = usage.slicer_price_per_kg
+    return job, profile, workspace
+
+
 def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
                      notice="", error="", form_token="", history=""):
     values = defaults_for(data)

@@ -39,6 +39,12 @@ history reads, never what was recorded.
   failed prints cost named.
 - `/print-cost 50 g, 3 h, in PETG` (or "how much will this cost, 50 g,
   3 h") answers an estimate for those amounts.
+- Dropping a sliced G-code or 3MF file in chat with a cost ask
+  (`/print-cost`, or "how much will this file cost") prices that file,
+  with the same numbers the Web UI calculator gives for it. An
+  unsliced 3MF gets the explicit not-sliced answer instead of a zero
+  cost. The ask is read-only: it creates no job and asks nothing;
+  printing the file stays a separate ask to the intake flow.
 
 The chat answer is compact: the leading figure for the cost mode, the
 top cost lines, the failure allowance and the provenance line. The

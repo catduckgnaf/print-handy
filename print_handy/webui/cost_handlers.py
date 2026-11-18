@@ -55,11 +55,8 @@ def cost_post(handler, form):
                       "parts": ["1"], "prep_minutes": ["5"], "post_minutes": ["10"],
                       "pack_minutes": ["0"], "hardware": ["0"], "packaging": ["0"]}
             try:
-                job, profile, workspace = cost_page_module.job_from_form(
-                    filled, handler.server.settings_data)
-                job.grams_source = usage.source
-                if usage.slicer_price_per_kg and job.lines:
-                    job.lines[0].slicer_price_per_kg = usage.slicer_price_per_kg
+                job, profile, workspace = cost_page_module.job_from_usage(
+                    usage, handler.server.settings_data)
                 from ..core import cost as cost_module
                 result = cost_module.compute(job, profile, workspace)
             except Exception:
