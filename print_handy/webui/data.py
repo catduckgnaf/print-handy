@@ -2,7 +2,9 @@
 
 ``GET /data`` and ``GET /wrapped`` are the pages; ``GET /api/data``
 and ``GET /api/wrapped`` are the same payloads as JSON;
-``POST /wrapped/video`` compiles the Wrapped video and
+``POST /wrapped/video`` compiles the Wrapped video,
+``POST /wrapped/reel`` compiles the pasta reel
+(:mod:`print_handy.webui.pasta_reel`) and
 ``POST /wrapped/share`` exports the static share bundle
 (:mod:`print_handy.webui.share_export`).
 
@@ -15,9 +17,10 @@ false, and :func:`data_enabled` applies the same fallback to a
 loaded or raw mapping alike). While a switch is off, its routes
 answer 403 with the reason naming that switch, and the navigation
 carries only the links whose switch is on. The video step
-additionally needs ``[timelapse] wrapped_video`` (default false);
-while that is off the Wrapped page says so by name and the video
-route refuses by name.
+and the pasta reel additionally need ``[timelapse] wrapped_video``
+(default false); while that is off the Wrapped page says so by name
+and both video routes refuse by name. Whether a year's pasta reel may
+be built and shown is asked in one place, :func:`reel_revealed`.
 
 Aggregation is read-only over the print JSON records
 (:mod:`print_handy.core.print_stats`); the records vault comes from
@@ -43,6 +46,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..core import print_stats, wrapped_joins
+from . import pasta_reel
 from . import share_export
 from . import shell
 from . import wrapped_video as video_module
@@ -55,6 +59,8 @@ WRAPPED_OFF_REASON = ("Pasta Wrapped is off: set "
                       "[timelapse] wrapped_enabled = true to allow it. Nothing shown.")
 VIDEO_OFF_REASON = ("the Wrapped video is off: set [timelapse] wrapped_video = true "
                     "(with wrapped_enabled on) to allow it. Nothing was compiled.")
+REEL_HIDDEN_REASON = ("this pasta reel is still under wraps. It unwraps with the rest of "
+                      "Wrapped. Nothing was compiled.")
 
 
 def wrapped_enabled(data) -> bool:
@@ -462,6 +468,7 @@ def wrapped_view(data, year=None, *, records_vault=None, now=None):
     # own name, not inside the record aggregate. V2: the detailed
     # finder also joins clips to print numbers by delivery name.
     detailed = _clips(data, year, records_vault, records, tz)
+    revealed = reel_revealed(data, year)
     clips_by_print = [{"print_number": entry["print_number"],
                        "name": Path(entry["path"]).name}
                       for entry in detailed if entry.get("print_number")]
@@ -487,7 +494,38 @@ def wrapped_view(data, year=None, *, records_vault=None, now=None):
                  "video_available": wrapped_video_path(data, year,
                                                        records_vault=records_vault) is not None,
                  "video_job": video_module.JOBS.status(year),
-                 "ai_video_enabled": ai_video_enabled(data)}
+                 "ai_video_enabled": ai_video_enabled(data),
+                 "reel_revealed": revealed,
+                 "reel_clips": len(pasta_reel.reel_entries(
+                     detailed, payload, summary["records"], events=summary["events"]))
+                 if revealed else 0,
+                 "reel_available": wrapped_reel_path(
+                     data, year, records_vault=records_vault) is not None,
+                 "reel_job": pasta_reel.REEL_JOBS.status(year)}
+
+
+def reel_revealed(data, year, now=None):
+    """Whether ``year``'s pasta reel may be built and shown: the same reveal
+    as the rest of Wrapped. The reel's page section, its build route and its
+    file route all ask here."""
+    return wrapped_revealed(data, year, now)
+
+
+def _outputs(data, records_vault, out_dir=None):
+    """The wrapped outputs folder every Wrapped file lives in."""
+    return Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
+
+
+def _output_file(data, year, name, records_vault, out_dir):
+    """``name.format(year=...)`` inside the outputs for a whole-number year, or None."""
+    if not wrapped_enabled(data):
+        return None
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return None
+    candidate = _outputs(data, records_vault, out_dir) / name.format(year=year)
+    return candidate if candidate.is_file() else None
 
 
 def wrapped_video_path(data, year, *, records_vault=None, out_dir=None):
@@ -499,15 +537,21 @@ def wrapped_video_path(data, year, *, records_vault=None, out_dir=None):
     is constructed here from the integer year, never taken from a
     request, so path traversal has no input to work with.
     """
-    if not wrapped_enabled(data):
-        return None
+    return _output_file(data, year, "wrapped-{year}.mp4", records_vault, out_dir)
+
+
+def wrapped_reel_path(data, year, *, records_vault=None, out_dir=None):
+    """The compiled pasta reel for ``year``, or None.
+
+    The same construction as :func:`wrapped_video_path` for
+    ``pasta-reel-<year>.mp4``, and only while the reel is revealed.
+    """
     try:
-        year = int(year)
+        if not reel_revealed(data, int(year)):
+            return None
     except (TypeError, ValueError):
         return None
-    folder = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
-    candidate = folder / f"wrapped-{year}.mp4"
-    return candidate if candidate.is_file() else None
+    return _output_file(data, year, "pasta-reel-{year}.mp4", records_vault, out_dir)
 
 
 def parse_byte_range(header, size):
@@ -566,7 +610,7 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
     if not wrapped_revealed(data, year, now):
         return 403, {"ok": False, "reason": _sealed_reason(year, "Nothing was compiled.")}
-    target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
+    target_dir = _outputs(data, records_vault, out_dir)
 
     def work(progress):
         wrapped, records = _wrapped_for_video(data, year, records_vault)
@@ -577,7 +621,59 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
             year, wrapped, target_dir, data=data, export_silent=export_silent,
             progress=progress, **kwargs)
 
-    status, joined = (jobs or video_module.JOBS).start(year, work, wait=wait)
+    return _start_job(jobs or video_module.JOBS, year, work, wait)
+
+
+def make_reel(data, year, *, records_vault=None, out_dir=None, export_silent=False,
+              wait=False, jobs=None, **reel_kwargs):
+    """(code, body) for POST /wrapped/reel: start the pasta reel, or join it.
+
+    The same gates, job runner and answers as :func:`make_video`, plus
+    the reveal (:func:`reel_revealed`, 403) and a year with no failure
+    on camera, which answers 409 with :data:`pasta_reel.EMPTY_REASON`
+    and starts nothing.
+    """
+    if not wrapped_enabled(data):
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
+    if not ai_video_enabled(data):
+        return 403, {"ok": False, "reason": VIDEO_OFF_REASON}
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
+    if not reel_revealed(data, year):
+        return 403, {"ok": False, "reason": REEL_HIDDEN_REASON}
+    wrapped, records, events, tz = _reel_inputs(data, year, records_vault)
+    kwargs = dict(reel_kwargs)
+    finder = kwargs.pop("find_clips", None)
+    try:
+        clips = (finder(year) if finder is not None
+                 else _clips(data, year, records_vault, records, tz)) or []
+    except Exception as exc:
+        logger.warning("pasta reel clip search failed; treating the year as clip-free [PH_WRAPPED_REEL]: %s", exc)
+        clips = []
+    if not pasta_reel.reel_entries(clips, wrapped, records, events=events):
+        return 409, {"ok": False, "reason": pasta_reel.EMPTY_REASON}
+    target_dir = _outputs(data, records_vault, out_dir)
+
+    def work(progress):
+        return pasta_reel.build_pasta_reel(
+            year, wrapped, target_dir, data=data, export_silent=export_silent,
+            records=records, events=events, tz=tz, find_clips=lambda y: clips,
+            progress=progress, **kwargs)
+
+    return _start_job(jobs or pasta_reel.REEL_JOBS, year, work, wait)
+
+
+def _reel_inputs(data, year, records_vault):
+    summary = _summary(data, year, records_vault, "wrapped")
+    return summary["wrapped"], summary["records"], summary["events"], summary["tz"]
+
+
+def _start_job(jobs, year, work, wait):
+    """(code, body) for a compile job: 202 started or joined; with ``wait``,
+    200 with the paths or 502 with the reason."""
+    status, joined = jobs.start(year, work, wait=wait)
     if wait and status["state"] == "failed":
         return 502, {"ok": False, "reason": status["reason"] or "the video compile failed",
                      "script_path": status["script_path"], "notes": status["notes"]}
@@ -603,6 +699,22 @@ def video_status(data, year, *, records_vault=None, jobs=None):
     status = (jobs or video_module.JOBS).status(year)
     return 200, {"ok": True, **status,
                  "available": wrapped_video_path(
+                     data, year, records_vault=records_vault) is not None}
+
+
+def reel_status(data, year, *, records_vault=None, jobs=None):
+    """(code, body) for GET /api/wrapped/reel-status?year=: the reel's poll."""
+    if not wrapped_enabled(data):
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    if not reel_revealed(data, year):
+        return 403, {"ok": False, "reason": REEL_HIDDEN_REASON}
+    status = (jobs or pasta_reel.REEL_JOBS).status(year)
+    return 200, {"ok": True, **status,
+                 "available": wrapped_reel_path(
                      data, year, records_vault=records_vault) is not None}
 
 
@@ -1080,25 +1192,29 @@ def _share_panel(year, form_token, exports, registry_note, preview=None,
     return "".join(parts)
 
 
-def _video_progress(year, job):
-    """The compile's progress block, polled until the job ends."""
+def _video_progress(year, job, *, kind="video", noun="video"):
+    """The compile's progress block, polled until the job ends.
+
+    ``kind`` names the job (``video`` or ``reel``): its element ids and
+    its status route, ``/api/wrapped/<kind>-status``.
+    """
     steps = int(job.get("steps") or 0)
     step = int(job.get("step") or 0)
     label = ("Waiting to start…" if job.get("state") == "queued" or not steps
              else f"Step {step} of {steps}")
-    bar = (f'<progress id="video-progress" max="{steps}" value="{step}"></progress>'
-           if steps else '<progress id="video-progress"></progress>')
+    bar = (f'<progress id="{kind}-progress" max="{steps}" value="{step}"></progress>'
+           if steps else f'<progress id="{kind}-progress"></progress>')
     return (
-        '<div id="video-job" role="status">'
-        f"<p>Compiling your {year} video in the background. "
-        f'<span id="video-job-label">{_esc(label)}</span></p>{bar}</div>'
+        f'<div id="{kind}-job" role="status">'
+        f"<p>Compiling your {year} {_esc(noun)} in the background. "
+        f'<span id="{kind}-job-label">{_esc(label)}</span></p>{bar}</div>'
         "<script>(function(){var year=" + str(int(year)) + ";"
-        "function poll(){fetch('/api/wrapped/video-status?year='+year,"
+        f"function poll(){{fetch('/api/wrapped/{kind}-status?year='+year,"
         "{credentials:'same-origin'}).then(function(r){return r.json();})"
         ".then(function(s){if(s.state==='done'||s.state==='failed'||s.state==='idle')"
         "{location.reload();return;}"
-        "var bar=document.getElementById('video-progress'),"
-        "label=document.getElementById('video-job-label');"
+        f"var bar=document.getElementById('{kind}-progress'),"
+        f"label=document.getElementById('{kind}-job-label');"
         "if(s.steps){bar.max=s.steps;bar.value=s.step;"
         "label.textContent='Step '+s.step+' of '+s.steps;}"
         "setTimeout(poll,2000);}).catch(function(){setTimeout(poll,5000);});}"
@@ -1146,6 +1262,43 @@ def render_wrapped_sealed_page(data, payload, *, theme=shell.DEFAULT_THEME):
         parts.append(f"<p>Already unwrapped: {links}</p>")
     parts.append("</section></div>")
     return _page(data, "wrapped", "".join(parts), path="/wrapped", theme=theme)
+
+
+def _reel_section(year, payload, form_token):
+    """The pasta reel's make/progress/player block, beside the video's."""
+    parts = []
+    job = payload.get("reel_job") or {}
+    clips = int(payload.get("reel_clips") or 0)
+    if payload.get("ai_video_enabled"):
+        parts.append("<h2>Make my pasta reel</h2>")
+        if not clips:
+            parts.append(f"<p>{_esc(pasta_reel.EMPTY_REASON)}</p>")
+        elif job.get("state") in ("queued", "running"):
+            parts.append(_video_progress(year, job, kind="reel", noun="pasta reel"))
+        else:
+            if job.get("state") == "failed":
+                parts.append('<p class="error">The last pasta reel compile failed: '
+                             f"{_esc(job.get('reason') or 'unknown reason')}</p>")
+            parts.append(
+                f'<form method="post" action="/wrapped/reel">'
+                f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+                f'<input type="hidden" name="year" value="{year}">'
+                '<label><input type="checkbox" name="export_silent" value="1"> '
+                "Export silent (no music)</label> "
+                '<button type="submit">Make my pasta reel</button></form>')
+        if clips:
+            parts.append(
+                f"<p>Every failed or pasta print the camera caught in {year} "
+                f"({print_stats.plural(clips, 'clip')}), each cut around the moment "
+                "it went wrong, with a roast from Print Handy's own roast lines, set "
+                "to the Wrapped track and squeezed to fit it. Built on this machine, "
+                "and nothing leaves it.</p>")
+    if payload.get("reel_available"):
+        parts.append(
+            "<h2>Your pasta reel</h2>"
+            f'<video controls preload="metadata" '
+            f'src="/wrapped/reel-file?year={year}"></video>')
+    return "".join(parts)
 
 
 def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None,
@@ -1397,6 +1550,8 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             "<h2>Your Wrapped video</h2>"
             f'<video controls preload="metadata" '
             f'src="/wrapped/video-file?year={year}"></video>')
+    if payload.get("reel_revealed"):
+        finale.append(_reel_section(year, payload, form_token))
     finale.append(_share_panel(year, form_token, payload.get("share_exports") or [],
                                payload.get("share_registry_note"),
                                payload.get("share_preview"),
@@ -1447,9 +1602,10 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
     return _page(data, "wrapped share", body, path="/wrapped", theme=theme)
 
 
-__all__ = ["DATA_OFF_REASON", "VIDEO_OFF_REASON",
-           "WRAPPED_OFF_REASON", "ai_video_enabled", "archive_root", "data_enabled", "data_view",
-           "export_share", "make_video", "nav_for", "render_wrapped_sealed_page",
-           "reveal_text", "wrapped_in_season", "wrapped_revealed", "parse_byte_range", "render_data_page",
-           "render_share_result", "render_wrapped_page", "video_status",
-           "wrapped_enabled", "wrapped_video_path", "wrapped_view"]
+__all__ = ["DATA_OFF_REASON", "REEL_HIDDEN_REASON", "VIDEO_OFF_REASON",
+           "WRAPPED_OFF_REASON", "ai_video_enabled", "archive_root", "data_enabled",
+           "data_view", "export_share", "make_reel", "make_video", "nav_for",
+           "parse_byte_range", "reel_revealed", "reel_status", "render_data_page",
+           "render_share_result", "render_wrapped_page", "render_wrapped_sealed_page",
+           "reveal_text", "video_status", "wrapped_enabled", "wrapped_in_season",
+           "wrapped_reel_path", "wrapped_revealed", "wrapped_video_path", "wrapped_view"]
