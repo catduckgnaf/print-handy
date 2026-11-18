@@ -876,8 +876,12 @@ def _publish_frozen_cost(filename, data):
     no frozen cost publishes nothing.
     """
     try:
+        import threading
         from ..core import cost_publish
-        cost_publish.publish(BASE, filename, (data or {}).get("cost"))
+        # On its own thread: the Moonraker write can wait up to its timeout,
+        # and the completion record and post must never wait on it.
+        threading.Thread(target=cost_publish.publish, args=(BASE, filename, (data or {}).get("cost")),
+                         name="cost-publish-frozen", daemon=True).start()
     except Exception as exc:
         print(f"Frozen cost not published: {exc}", file=sys.stderr)
 

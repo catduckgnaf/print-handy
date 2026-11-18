@@ -212,6 +212,7 @@ def test_completion_hook_publishes_the_frozen_cost(monkeypatch):
                                          {"state": "complete", "start_time": 1700000000},
                                          completed_at="2026-11-18T03:00:00Z")
     assert result["completed_at"] == "2026-11-18T03:00:00Z"
+    _join_publish_threads()
     assert captured["base"] == BASE
     assert captured["filename"] == "benchy.gcode"
     assert captured["cost"] is frozen
@@ -243,6 +244,73 @@ def test_completion_publish_failure_never_reaches_the_completion(monkeypatch):
     monkeypatch.setattr(cost_publish, "publish", boom)
     # The helper swallows anything the publish layer does.
     assert announcer._publish_frozen_cost("benchy.gcode", {"cost": _frozen_completed()}) is None
+
+
+def _join_publish_threads(timeout=5):
+    import threading
+    for worker in threading.enumerate():
+        if worker.name.startswith("cost-publish-"):
+            worker.join(timeout)
+
+
+def test_a_hanging_moonraker_never_delays_the_send(monkeypatch):
+    # duckcatgnaf on #1652: the estimate publish ran inline before submission,
+    # so a slow Moonraker held the send for up to the POST timeout.
+    import threading
+    import time
+    from print_handy.launch import print_now
+
+    release, posted = threading.Event(), threading.Event()
+
+    def hanging_post(base_url, payload):
+        release.wait(10)
+        posted.set()
+
+    monkeypatch.setattr(cost_engine, "estimate_for_job",
+                        lambda job, data, spool_lookup=None: _estimate_result())
+    monkeypatch.setattr(cost_publish, "_post", hanging_post)
+    monkeypatch.setattr(print_now.settings, "current", lambda: {})
+    started = time.monotonic()
+    worker = print_now._publish_cost_estimate_in_background({"moonraker_url": BASE}, {"title": "Benchy"},
+                                                            "benchy.gcode")
+    assert time.monotonic() - started < 1.0  # the send continues at once
+    assert worker.daemon and not posted.is_set()
+    release.set()
+    worker.join(5)
+    assert posted.is_set()  # the estimate still goes out
+
+
+def test_the_send_paths_publish_in_the_background():
+    import inspect
+    from print_handy.launch import print_now
+    source = inspect.getsource(print_now)
+    assert source.count("        _publish_cost_estimate_in_background(st, job, remote)  # never delays") == 2
+    assert "        _publish_cost_estimate(st, job, remote)\n" not in source
+
+
+def test_a_hanging_moonraker_never_delays_the_completion(monkeypatch):
+    import threading
+    import time
+
+    data = {"cost": _frozen_completed(), "completed_at": "2026-11-18T03:00:00Z",
+            "gcode_file": "benchy.gcode"}
+    announcer = _record_completion(monkeypatch, data)
+    release, posted = threading.Event(), threading.Event()
+
+    def hanging_post(base_url, payload):
+        release.wait(10)
+        posted.set()
+
+    monkeypatch.setattr(cost_publish, "_post", hanging_post)
+    monkeypatch.setattr(announcer, "BASE", BASE)
+    started = time.monotonic()
+    result = announcer.record_completion("benchy.gcode", "benchy.gcode",
+                                         {"state": "complete", "start_time": 1700000000},
+                                         completed_at="2026-11-18T03:00:00Z")
+    assert time.monotonic() - started < 1.0 and result["completed_at"] == "2026-11-18T03:00:00Z"
+    release.set()
+    _join_publish_threads()
+    assert posted.is_set()
 
 
 if __name__ == "__main__":

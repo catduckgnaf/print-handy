@@ -998,6 +998,20 @@ def _publish_job_card(st, job, remote, gcode_text=""):
         return None
 
 
+def _publish_cost_estimate_in_background(st, job, remote):
+    """Start ``_publish_cost_estimate`` on a daemon thread and return at once (#1652 review).
+
+    Pricing reads Spoolman and the write waits on Moonraker for up to its
+    timeout; neither may hold up the send. The job is copied so the launch
+    can keep changing its own dict. Returns the started thread.
+    """
+    import threading
+    worker = threading.Thread(target=_publish_cost_estimate, args=(dict(st), dict(job or {}), remote),
+                              name="cost-publish-estimate", daemon=True)
+    worker.start()
+    return worker
+
+
 def _publish_cost_estimate(st, job, remote):
     """Best effort: the pre-print cost estimate to Moonraker for HelixScreen (#1643). Never blocks a print.
 
@@ -1833,7 +1847,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _record_usage_baseline(st, job, job_path, sync.get('spool_id'))
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
-        _publish_cost_estimate(st, job, remote)
+        _publish_cost_estimate_in_background(st, job, remote)  # never delays the send (#1643)
         _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
         _abandon_leased_upload(lease, remote, on_abandon=(
@@ -3527,7 +3541,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
-        _publish_cost_estimate(st, job, remote)
+        _publish_cost_estimate_in_background(st, job, remote)  # never delays the send (#1643)
         _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
         _abandon_leased_upload(lease, remote)
