@@ -74,7 +74,7 @@ to a stream of the display. The screen can show prompts and
 information intended for the person standing at the printer, so
 treating it as a bed camera would be a privacy leak as well as a
 wrong picture. Only an explicitly configured camera name can select
-the screen entry, under its real name; the labeled, read-only screen
+the screen entry, under its real name; the labeled screen
 view is a separate feature (#1303) and no camera path exposes screen
 controls.
 
@@ -92,16 +92,19 @@ entries in either order and refuses a screen-only list by name.
 ## Printer screen view
 
 ZMod publishes the printer's own display as a separate feed from the
-print-bed camera, and Print Handy shows it read-only: the **Printer
-screen** link on a Moonraker printer's card on the Web UI Printers
-page opens `/printers/<id>/screen`, a labeled view that refreshes a
-still of the display while it is open, served by
+print-bed camera, and Print Handy shows it on the Web UI: the
+**Printer screen** link on a Moonraker printer's card on the Web UI
+Printers page opens `/printers/<id>/screen`, a labeled view that
+refreshes a still of the display while it is open, served by
 `GET /api/printers/<id>/screen/snapshot` behind the Web UI's own
 authorization. The same still also appears in a labeled Printer
 screen panel on the Status page dashboard (#1622) for a printer that
 publishes a screen, linked to that dedicated view. It exists so an
 operator can read a prompt on the printer (a filament change, a
-dialog) without walking to it.
+dialog) without walking to it. While printer controls are off the
+view is read-only, as it shipped; while
+`[webui] controls_enabled` is on, the same page can also press the
+screen (see the touch bullet below).
 
 How it works, verified against the ZMod 1.7.6 release payloads and
 the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)):
@@ -123,16 +126,55 @@ the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)
   `WEB_SCREEN` (`SAVE_ZMOD_DATA WEB_SCREEN=1`, default on). With it
   off, no screen is registered and the view explains that, in the
   same shape as an older ZMod that predates the feature.
-- The screen feed is read-only in Print Handy by construction. The
-  printer-side service also accepts touch input on a separate path,
-  and its own page wires clicks to that path; Print Handy never
-  requests that path and never embeds that page, so nothing in the
-  view can press the screen. The service also offers a live MJPEG
-  stream of the display; the view deliberately uses stills only, so
-  the only addresses Print Handy ever requests are Moonraker's
-  webcam list and the one snapshot address. The screen is also never
-  a camera source: the bed camera keeps its own `video` registration
-  and snapshot address, and the two are not interchangeable.
+- The screen feed shipped read-only in Print Handy by construction,
+  and it still is while printer controls are off. The printer-side
+  service also accepts touch input on a separate path, and its own
+  page wires clicks to that path; Print Handy never embeds that page
+  (it sits outside every Web UI gate and would expose the printer's
+  address). Since #1626, while `[webui] controls_enabled` is on, the
+  dedicated screen page can send taps through Print Handy's own
+  route, `POST /printers/<id>/screen/touch` (session plus CSRF, like
+  the dashboard emergency stop): one tap is exactly one request to
+  the service's click path, `/screen/click`, with coordinates in the
+  native 800 by 480 frame, sent only after the same registration
+  discovery the snapshot uses and with redirects refused. The
+  service converts coordinates itself (it reads the printer's
+  `/etc/pointercal`) and answers 200 even when a tap fails, so the
+  page says a tap was sent, never that it landed; the refreshed
+  still is the confirmation. Taps only: no drags and no long
+  presses, because whether a press with no release can leave the
+  panel stuck is unverified (#1624). With controls off the route
+  answers 403, sends nothing, and the view is the read-only page
+  again. The service also offers a live MJPEG stream of the display;
+  the view deliberately uses stills only, so the only addresses
+  Print Handy ever requests are Moonraker's webcam list, the one
+  snapshot address and, behind the controls gate, the one click
+  address. The screen is also never a camera source: the bed camera
+  keeps its own `video` registration and snapshot address, and the
+  two are not interchangeable.
+- A second screen source is recognized beside ZMod's (#1626):
+  HelixScreen 1.1's screen sharing (Settings, Connection, Screen
+  Sharing on the printer, off by default) registers a webcam named
+  `HelixScreen Screen` and stamps it with a `helixscreen_screen`
+  marker in the entry's extra data. Discovery accepts that marker
+  or that name (with the host name appended, as HelixScreen writes
+  it when the entry lives on another host's Moonraker), and the
+  still is fetched from `/helixscreen/screen/snapshot.jpg` on the
+  printer's web port, the address its Moonraker-proxied setup
+  registers, built from the configured host like every other screen
+  address. When both registrations are present the ZMod `screen`
+  entry wins; the HelixScreen entry is the fallback. HelixScreen's
+  pairing-code setup instead registers an absolute address on the
+  screen device's own port; that address is refused by name and
+  never followed, the same rule as any other unexpected shape. A
+  HelixScreen screen is shown but never pressed from Print Handy,
+  at either controls setting: its remote control is HelixScreen's
+  own screen sharing page, behind its pairing code or Moonraker
+  authorization, and Print Handy neither proxies nor embeds that
+  page nor links the printer's address. This support is built
+  against HelixScreen 1.1's registration, a beta line Print Handy
+  is not on yet; live verification on a real printer is still to
+  come.
 
 Verified support per model:
 

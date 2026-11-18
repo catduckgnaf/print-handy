@@ -183,11 +183,33 @@ def screen_page(handler, printer_id):
                          "reason": f"no printer with id {printer_id!r} "
                                    f"is configured"})
         return
-    ok, reason = handler.server.screen_probe_func(printer_id)
+    ok, reason, source = handler.server.screen_probe_func(printer_id)
     handler._send(200, screen_module.render_page(
         entry.get("name") or printer_id, printer_id,
-        ok=ok, reason=reason, theme=handler._theme()),
+        ok=ok, reason=reason, theme=handler._theme(),
+        touch=controls_module.controls_enabled(handler.server.settings_data),
+        form_token=handler._form_token(), source=source),
         "text/html; charset=utf-8")
+
+def screen_touch_post(handler, printer_id, form):
+    """POST /printers/<id>/screen/touch: one tap on the printer screen.
+
+    ``session+csrf`` like the dashboard E-stop (a browser cannot send
+    the ``X-WebUI-Token`` header the API routes require): a live login
+    session plus the session-bound ``_csrf`` value the screen page
+    embeds. The form carries only the tap coordinates; the controls
+    gate, discovery and every refusal live in ``screen.touch``, and
+    the printer's address never reaches the browser.
+    """
+    if not printer_id or "/" in printer_id:
+        handler._json(404, {"ok": False,
+                         "reason": "that printer id does not name a "
+                                   "printer screen page"})
+        return
+    x = (form.get("x") or [""])[0]
+    y = (form.get("y") or [""])[0]
+    code, payload = handler.server.screen_touch_func(printer_id, x, y)
+    handler._json(code, payload)
 
 def spools_page(handler, printer_id):
     """GET /spools/<id>: the per-printer Spools page (#789).

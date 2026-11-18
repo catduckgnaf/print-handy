@@ -112,6 +112,7 @@ EXPECTED = [
     ("POST", "/printers", SC),
     ("POST", "/spools/*", SC),
     ("POST", "/dashboard/estop/*", SC),
+    ("POST", "/printers/*/screen/touch", SC),
     ("POST", "/api/upload", H),
     ("POST", "/api/printers/*", H),
     ("POST", "*", P),
