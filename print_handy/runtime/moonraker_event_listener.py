@@ -625,53 +625,6 @@ def _slot_record(slot):
     return record if isinstance(record, dict) else None
 
 
-def printer_mapped_slot(ffm_channel, ifs_chan):
-    """The slot the printer itself maps for a job, or None (#1648).
-
-    The printer-side channels (FFMInfo.channel, zmod_ifs Chan) are what
-    a start from the printer screen or HelixScreen actually loads; the
-    job record only says what Print Handy asked for. When both channels
-    are known and contradict each other, no single slot can be named.
-    """
-    known = {value for value in (ffm_channel, ifs_chan)
-             if type(value) is int and 1 <= value <= 4}
-    return known.pop() if len(known) == 1 else None
-
-
-def external_start_message(filename, sources, archive=None, context_path=None):
-    """The start post for a start Print Handy did not launch (#1648 defect 2).
-
-    The canonical start message names the slot from the job record —
-    what Print Handy asked for. A screen or HelixScreen start loads
-    what the printer maps instead, so when the printer-side channels
-    name a slot, the post names that slot too: as a plain note when
-    there is no record to compare with, and as a mismatch flag when it
-    differs from the record, so the wrong filament is called out in
-    the start post itself instead of only in a warning that lands
-    after the swap. Sources that cannot be read leave the canonical
-    message unchanged, so printers without these channels announce
-    exactly as before.
-    """
-    message = start_message(filename, archive=archive, context_path=context_path)
-    try:
-        job_slot, ffm_channel, ifs_chan, _helix_slot = sources
-    except (TypeError, ValueError):
-        return message
-    actual = printer_mapped_slot(ffm_channel, ifs_chan)
-    if actual is None:
-        return message
-    actual_label = filament_color.slot_label(actual, _slot_record(actual))
-    if job_slot is not None and job_slot != actual:
-        record_label = filament_color.slot_label(job_slot, _slot_record(job_slot))
-        message += (f"\n**Slot mismatch:** the printer is loading {actual_label}, "
-                    f"but Print Handy's record for this file says {record_label}. "
-                    "A start from the printer screen uses the printer's own mapping, "
-                    "so the printer's slot is the filament that will print.")
-    elif job_slot is None:
-        message += f"\nThe printer maps this job to {actual_label}."
-    return message
-
-
 def post_exclude_objects(filename, archive=None, context_path=None):
     """Offer one-object cancel when the G-code names objects. Starts nothing.
 
@@ -1977,23 +1930,40 @@ def _timelapse_postprocess(job_key, completion_message, plan_id=None, tl_plan=No
         _release_postprocess(job_key)
 
 
-def _post_partial_timelapse(job_key, stats, outcome="cancelled"):
+def _captured_partial_timelapse(job_key, capture_dir):
+    """The encoded video of one specific finished capture directory, or None.
+
+    The partial timelapse's lookup (#1648). Unlike _captured_timelapse it
+    never searches by filename: a stopped print posts only the capture
+    session it opened itself, never an older print's capture of the same
+    file. Never raises.
+    """
+    try:
+        return timelapse_encode.captured_video(
+            job_key, data=_config.cfg(), max_bytes=_media_upload_limit(), log=log,
+            directory=capture_dir)
+    except Exception as exc:
+        warn(f"partial timelapse lookup failed for {job_key!r}: {exc!r}")
+        return None
+
+
+def _post_partial_timelapse(job_key, stats, outcome="cancelled", capture_dir=None):
     """Post the captured partial timelapse for a print that stopped early (#1648).
 
-    The caller runs this after _print_ended has closed the capture
-    session: only a finished capture can be found and encoded, so a
-    lookup while the session is still open can never post anything.
-    _captured_timelapse is the whole gate, exactly as on the completion
-    path — capture off or mode off, no finished capture for this job,
-    no frames, or every encoder failed all read as None, and a stop
-    with nothing usable posts nothing extra. There is no frame-count
-    floor here beyond the encoder's own: print #120's reprint kept
+    ``capture_dir`` is the capture session this print opened; without one
+    nothing posts, so a print whose capture never began cannot borrow an
+    earlier print's footage. The caller runs this after _print_ended has
+    closed that session, in a worker thread: the encode can take minutes.
+    _captured_partial_timelapse is the whole gate: capture or mode off, an
+    unusable capture, no frames, or every encoder failed all read as None,
+    and a stop with nothing usable posts nothing extra. There is no
+    frame-count floor beyond the encoder's own: print #120's reprint kept
     only 18 frames and still had a clip worth posting. Never raises.
     """
-    if not job_key:
+    if not job_key or not capture_dir:
         return False
     try:
-        video = _captured_timelapse(job_key)
+        video = _captured_partial_timelapse(job_key, capture_dir)
         if video is None:
             return False
         layer = _visual_layer(stats or {})
@@ -2004,6 +1974,45 @@ def _post_partial_timelapse(job_key, stats, outcome="cancelled"):
         return True
     except Exception as exc:
         warn(f"partial timelapse unavailable for {job_key!r}: {exc!r}")
+        return False
+
+
+def _start_partial_timelapse(job_key, stats, outcome, capture_dir):
+    """Run the partial timelapse post on a daemon thread; return the thread (#1648).
+
+    The same shape as the completion path's _start_postprocess: an
+    encode can take minutes, and the websocket loop awaits each status
+    update in turn, so awaiting it would hold every later message,
+    the next print's start included.
+    """
+    thread = threading.Thread(target=_post_partial_timelapse,
+                              args=(job_key, dict(stats or {}), outcome, capture_dir),
+                              daemon=True, name="timelapse-partial-stop")
+    thread.start()
+    return thread
+
+
+def _plan_partial_covers(filename):
+    """True when the announcer's multi-plate partial video covers this stop (#1648).
+
+    A stopped plate of a multi-plate plan with plate clips already stored
+    gets the announcer's partial_timelapse_notice, one combined video of
+    the plates so far. The plan id is derived the way the completion
+    record derives it (print_records.update_multipart_plan). Read before
+    the announcer runs: its partial post clears the plan's clips. Any
+    failure reads as not covered, and the per-print partial posts.
+    """
+    try:
+        context = print_records.load_context(filename) if filename else {}
+        plan_id = context.get("multipart_plan_id")
+        if not plan_id and context.get("required_parts"):
+            plan_id = filename
+        if not plan_id:
+            return False
+        plan_id = print_records._safe_slug(str(plan_id), "print-plan")
+        return bool(plan_timelapse.clips(plan_id))
+    except Exception as exc:
+        warn(f"plan partial timelapse check failed for {filename!r}: {exc!r}")
         return False
 
 
@@ -4278,15 +4287,20 @@ class Listener:
         """The four slot sources at print start (#1020 D3). Read-only.
 
         Returns (job_slot, ffm_channel, ifs_chan, helix_slot); a source
-        that cannot be read is None. Shared by the slot self-check and
-        the external-start post (#1648), which read the same evidence.
+        that cannot be read is None. The job's slot is this file's own
+        launch record when it names exactly one slot. The hardware map's
+        active slot is printer-wide (the slot the last Print Handy start
+        used, whatever file that was), so it is only the fallback for a
+        file with no single-slot launch record (#1648).
         """
         from . import lane_data_sync, spool_sync
 
-        job_slot, spool_id = recovery_slot(self.filename)
-        if job_slot is None:
-            mapped = sorted(launch_mapped_slots(self.filename))
-            job_slot = mapped[0] if len(mapped) == 1 else None
+        mapped = sorted(launch_mapped_slots(self.filename))
+        if len(mapped) == 1:
+            job_slot = mapped[0]
+            spool_id = (_slot_record(job_slot) or {}).get("spoolman_id")
+        else:
+            job_slot, spool_id = recovery_slot(self.filename)
         ffm_channel = ifs_chan = None
         try:
             reply = print_control._call("/printer/objects/query?FFMInfo&zmod_ifs")
@@ -4888,6 +4902,9 @@ class Listener:
         elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
             await self._apply_terminal_notice(new_state, gone, identity)
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
+        # #1648: read before the bookkeeping closes the session and the
+        # announcer runs (its plan partial clears the plan's clips).
+        partial_capture = self._stopped_partial_capture(new_state) if ended else None
         await self._apply_ended_bookkeeping(old, new_state, ended)
         await self._run_announcer_guarded(old, new_state)
         if ended:
@@ -4895,19 +4912,37 @@ class Listener:
             # _on_status must not run it a second time in its finally.
             self._print_ended_done = True
             await self._print_ended(new_state)
-            if new_state in ("cancelled", "error") or gone:
+            if partial_capture is not None:
                 # #1648: a stopped print's partial timelapse posts as its
-                # own follow-up, after _print_ended has closed the capture
-                # session — while the session was still open, the finished
-                # capture could never be found and nothing ever posted.
-                # A job that ended into standby (gone) reads as cancelled,
-                # the same word the terminal notice uses for it.
+                # own follow-up once its capture session is closed, on a
+                # daemon thread so the encode never blocks this loop.
                 try:
-                    await asyncio.to_thread(
-                        _post_partial_timelapse, self.filename, self.last_stats,
-                        "cancelled" if gone or new_state == "cancelled" else "error")
+                    _start_partial_timelapse(self.filename, self.last_stats, new_state,
+                                             partial_capture)
                 except Exception as exc:
                     warn(f"partial timelapse post failed file={self.filename!r}: {exc!r}")
+
+    def _stopped_partial_capture(self, new_state):
+        """The capture directory a stopped print's partial timelapse may use, or None (#1648).
+
+        Only a print that really ended cancelled or error gets one. A job
+        that ended into standby may have finished normally (the announcer
+        then posts the completion video), so it never does. The directory
+        is that of the session this print opened: with none open (capture
+        off, or its begin timed out or failed) there is nothing of its own
+        to post. A stop the announcer's multi-plate partial video already
+        covers gets no second post.
+        """
+        if new_state not in ("cancelled", "error"):
+            return None
+        session = self.capture_session
+        directory = getattr(session, "directory", None) if session is not None else None
+        if directory is None:
+            return None
+        if _plan_partial_covers(self.filename):
+            log(f"partial timelapse left to the plan's combined video: {self.filename!r}")
+            return None
+        return directory
 
     def _bind_start_correlation(self):
         """Bind this print's job correlation id process-wide, guarded on its own (#1583)."""
@@ -5000,19 +5035,6 @@ class Listener:
             if reason_due and self._watch_ready():
                 self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
 
-    def _post_external_start(self):
-        """Post the start message for an unclaimed start. Runs in a worker thread.
-
-        The slot sources are read here, off the event loop; any failure
-        falls back to the plain canonical start message (#1648).
-        """
-        try:
-            sources = self._slot_sources()
-        except Exception as exc:
-            warn(f"start slot sources read failed file={self.filename!r}: {exc!r}")
-            sources = None
-        post(external_start_message(self.filename, sources))
-
     async def _apply_resume_or_start(self, old, new_state, duplicate_start):
         """Transition side effect: a resume, or a start's posts and checks."""
         # Claimed starts already have the intake's one post; unclaimed starts (printer screen,
@@ -5051,7 +5073,13 @@ class Listener:
                     warn(f"exclude objects post at print start failed: {exc!r}")
             else:
                 try:
-                    await asyncio.to_thread(self._post_external_start)
+                    # #1648: the start post names no printer-mapped slot. At
+                    # this edge ZMod has not swapped filament yet, so
+                    # FFMInfo.channel / zmod_ifs Chan still report the
+                    # previous print's channel, and no source readable here
+                    # describes this job's own mapping. The slot self-check
+                    # in _apply_fresh_start is the one mismatch reporter.
+                    await asyncio.to_thread(post, start_message(self.filename))
                 except Exception as exc:
                     warn(f"start post failed file={self.filename!r}: {exc!r}")
                 try:

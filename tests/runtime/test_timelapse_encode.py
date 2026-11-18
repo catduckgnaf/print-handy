@@ -438,6 +438,29 @@ def test_captured_video_none_when_disabled_or_absent(tmp_path):
         "job:99", data=on, max_bytes=9_500_000, probe=probe(), run=FakeEncode()) is None
 
 
+def test_captured_video_for_a_named_directory_never_falls_back_to_a_filename_match(tmp_path):
+    """#1648: a stopped print's partial encodes only its own capture. When
+    that capture holds nothing usable, an older finished capture of the
+    same file is never taken in its place."""
+    root = Path(tmp_path) / "timelapse"
+    write_capture(root, "job-3", job_key="job:3", filename="benchy.gcode", finished_at=50.0)
+    own = write_capture(root, "job-9", job_key="job:9", filename="benchy.gcode",
+                        frames=0, finished_at=90.0)
+    data = capture_data(tmp_path)
+    fake = FakeEncode()
+    assert timelapse_encode.captured_video(
+        "benchy.gcode", data=data, max_bytes=9_500_000, probe=probe(), run=fake,
+        directory=own) is None
+    assert fake.calls == []
+    usable = write_capture(root, "job-12", job_key="job:12", filename="benchy.gcode",
+                           frames=2, finished_at=10.0)
+    out = timelapse_encode.captured_video(
+        "benchy.gcode", data=data, max_bytes=9_500_000, probe=probe(), run=fake,
+        directory=usable)
+    assert out is not None and len(fake.calls) == 1
+    assert (usable / "timelapse.mp4").is_file() and not (root / "job-3" / "timelapse.mp4").exists()
+
+
 # --------------------------------------------------------------- delivery order
 
 @pytest.fixture

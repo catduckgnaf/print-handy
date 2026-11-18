@@ -891,6 +891,19 @@ def _scan_match(root, key, data):
     return best
 
 
+def _usable_capture(directory) -> dict | None:
+    """The manifest of a finished capture with frames to encode, or None."""
+    manifest = timelapse_capture.read_manifest(directory)
+    if not manifest or manifest.get("state") in (None, "new", "capturing"):
+        return None
+    if not int(manifest.get("frames") or 0):
+        return None
+    frames_dir = Path(directory) / "frames"
+    if not frames_dir.is_dir() or not any(frames_dir.glob("frame-*.jpg")):
+        return None
+    return manifest
+
+
 def find_capture(job_key, *, data=None, root=None) -> Path | None:
     """The finished capture directory for a job, or None.
 
@@ -908,27 +921,15 @@ def find_capture(job_key, *, data=None, root=None) -> Path | None:
     if not root.is_dir():
         return None
     key = str(job_key or "")
-
-    def usable(directory) -> dict | None:
-        manifest = timelapse_capture.read_manifest(directory)
-        if not manifest or manifest.get("state") in (None, "new", "capturing"):
-            return None
-        if not int(manifest.get("frames") or 0):
-            return None
-        frames_dir = Path(directory) / "frames"
-        if not frames_dir.is_dir() or not any(frames_dir.glob("frame-*.jpg")):
-            return None
-        return manifest
-
     direct = timelapse_capture.job_dir(root, key)
-    manifest = usable(direct)
+    manifest = _usable_capture(direct)
     if manifest and manifest.get("job_key") == key:
         return direct
     match = _scan_match(root, key, data)
     if match is None:
         return None
     directory, _manifest = match
-    return directory if usable(directory) else None
+    return directory if _usable_capture(directory) else None
 
 
 def dark_capture(job_key, *, data=None, root=None) -> dict | None:
@@ -977,13 +978,17 @@ def _deliver(video, job_key, directory, log, filename=None):
 
 
 def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
-                   ffmpeg=None, run=None) -> Path | None:
+                   ffmpeg=None, run=None, directory=None) -> Path | None:
     """The assembled in-container timelapse for a job, or None. Never raises.
 
     None — the caller's cue to use the printer-rendered path — when
     capture was off, no finished capture matches the job, it holds no
     frames, or every encoder failed. An already-assembled video that
     still fits is reused, so a retried postprocess does not re-encode.
+
+    ``directory`` names the one capture to encode (a stopped print's own
+    session, #1648); it is used only when it is a finished capture with
+    frames, and no filename lookup ever replaces it.
 
     The gate is go2rtc.capture_active ([timelapse] mode over
     capture_enabled, 2.2.2), the same gate sessions open under, so a
@@ -995,7 +1000,10 @@ def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
         from .. import go2rtc
         if not go2rtc.capture_active(data):
             return None
-        directory = find_capture(job_key, data=data)
+        if directory is None:
+            directory = find_capture(job_key, data=data)
+        else:
+            directory = Path(directory) if _usable_capture(directory) else None
         if directory is None:
             return None
         target = directory / "timelapse.mp4"
