@@ -870,3 +870,56 @@ def format_breakdown(result: CostResult):
                    f"{int(float(selling.get('default_rate') or 0) * 100)} percent "
                    f"({selling.get('mode_label')}): {cur} {selling.get('default_price', 0):.2f}")
     return "\n".join(out)
+
+
+def estimate_for_job(job, data, *, spool_lookup=None):
+    """A pre-print estimate for one sliced job (JOB.json), or None (#1632 review).
+
+    Grams and time come from the sliced plates (``plate_estimates``), so
+    the Ready card and "how much will this cost" price the file in hand,
+    not the last completed print. A plate that prints from several slots
+    is priced per slot. ``spool_lookup(spool_id)`` returns a Spoolman spool
+    record or None; without it lines fall back down the price precedence.
+    Labeled an estimate; never a gate.
+    """
+    from print_handy.runtime import discord_print_summary as dps
+    rows = dps.plate_estimates(job or {})
+    if not rows or any(row.get("basis") == "unknown" for row in rows):
+        return None
+    seconds = sum(float(row.get("seconds") or 0) for row in rows)
+    selection = (job or {}).get("filament_selection") or {}
+    slot_spools = {}
+    if isinstance(selection, dict) and selection.get("slot") is not None:
+        slot_spools[selection.get("slot")] = selection.get("spoolman_id")
+    for row in (job or {}).get("color_manifest", {}).get("slots", []) if isinstance(
+            (job or {}).get("color_manifest"), dict) else []:
+        if isinstance(row, dict) and row.get("slot") is not None and row.get("spoolman_id"):
+            slot_spools.setdefault(row["slot"], row["spoolman_id"])
+    lines = []
+    for plate in dps.plates_of(job or {}):
+        per_slot = [(f.get("slot"), f.get("filament_g"), f.get("material"), f.get("color"))
+                    for f in plate.get("filaments") or ()]
+        if not per_slot:
+            per_slot = [(plate.get("slot"), None, plate.get("material"), plate.get("color"))]
+        for slot, grams, material, color in per_slot:
+            spool_id = slot_spools.get(slot)
+            record = spool_lookup(spool_id) if (spool_lookup and spool_id) else None
+            lines.append(MaterialLine(name=str(color or material or f"Slot {slot}"),
+                                      material=str(material or ""), grams=float(grams or 0),
+                                      color=str(color or ""), spool=record, spool_id=spool_id))
+    total_g = sum(float(row.get("filament_g") or 0) for row in rows)
+    named_g = sum(line.grams for line in lines)
+    if lines and not named_g:
+        # One-slot plates name no per-slot grams: the plate total is the line's.
+        lines[0].grams = total_g
+    elif lines and named_g and total_g > named_g:
+        lines[0].grams += total_g - named_g
+    if not lines:
+        lines = [MaterialLine(grams=total_g)]
+    profile, workspace = printer_profile_for(data, printer_id=(job or {}).get("printer_id"),
+                                             model=(job or {}).get("printer_model"))
+    basis = {row.get("basis") for row in rows}
+    source = "slicer G-code" if basis == {"sliced"} else "model page estimate"
+    return compute(JobCostInput(lines=lines, print_hours=seconds / 3600.0,
+                                grams_source=source, title=str((job or {}).get("title") or "")),
+                   profile, workspace)

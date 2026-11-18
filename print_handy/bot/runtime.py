@@ -491,7 +491,10 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast){_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast)\s*,?\s*(?P<q>.+?){_END}", re.I), "/print-cost {q}"),
     (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:did|does)\s+(?:that\s+print|this\s+print|that|this|the\s+print|it)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
-    (re.compile(rf"^(?:please\s+)?what\s+did\s+filament\s+(?:cost|coast)\s+this\s+month{_END}", re.I), "/print-cost"),
+    # The month asks carry "this month" through as the argument, so the
+    # handler answers the month's recorded spend, not the last print.
+    (re.compile(rf"^(?:please\s+)?what\s+did\s+filament\s+(?:cost|coast)\s+this\s+month{_END}", re.I), "/print-cost this month"),
+    (re.compile(rf"^(?:please\s+)?(?:what|how\s+much)\s+did\s+i\s+spend\s+(?:on\s+(?:filament|printing|prints)\s+)?this\s+month{_END}", re.I), "/print-cost this month"),
     (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+print{_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?what\s+(?:did|does)\s+(?:that|this)\s+print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
