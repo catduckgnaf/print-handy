@@ -2254,8 +2254,8 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
         for src, dest in moved:
             if src.is_file() and not dest.exists():
                 dest.parent.mkdir(parents=True, exist_ok=True)
+                copied.append(dest)  # tracked before the copy: a copy that fails midway is removed too
                 shutil.copy2(src, dest)
-                copied.append(dest)
     except OSError as exc:
         # The artifact changed or vanished between the checks and the copy:
         # leave no partial copy behind and slice fresh (#1648 item 7).

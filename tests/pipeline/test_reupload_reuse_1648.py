@@ -406,6 +406,39 @@ def test_failed_cleanup_of_a_partial_copy_does_not_escape(tmp_path, caplog):
     assert 'could not remove the partial copy stuck.gcode' in caplog.text
 
 
+def test_a_copy_that_fails_midway_leaves_no_partial_file(env, slicer, monkeypatch):  # noqa: F811
+    # duckcatgnaf on #1671: copy2 can create or truncate dest and then raise;
+    # that partial file must be removed before the fresh slice runs.
+    import shutil
+    from print_handy.jobs import slice as slice_mod
+    first = first_print(env)
+    earlier_folder = Path(first['job_json']).parent
+    real_copy2, real_discard = shutil.copy2, slice_mod._discard_copies
+    partials, removed = [], []
+
+    def half_copy2(src, dst, *args, **kwargs):
+        if earlier_folder in Path(src).parents:
+            Path(dst).write_bytes(b'G28\n; truncated')
+            partials.append(Path(dst))
+            raise OSError('disk full mid-copy')
+        return real_copy2(src, dst, *args, **kwargs)
+
+    def spy_discard(copied):
+        real_discard(copied)
+        removed.extend((Path(p), Path(p).exists()) for p in copied)
+
+    monkeypatch.setattr(shutil, 'copy2', half_copy2)
+    monkeypatch.setattr(slice_mod, '_discard_copies', spy_discard)
+    adapter, _, receipt = intake(env, [0, 0], 'm2')
+    assert reuse_question(adapter) is not None
+    assert partials, 'the reuse copy was never attempted'
+    # The partial file was handed to cleanup and was gone before slicing fresh.
+    assert [(p, False) for p in partials] == [(p, e) for p, e in removed if p in partials]
+    job = job_of(receipt)
+    assert 'reused_slice' not in job
+    assert receipt['status'] == 'STARTED'
+
+
 def test_gcode_vanishing_during_the_scan_is_not_an_error(env, slicer, monkeypatch):  # noqa: F811
     from print_handy.gcode import artifact as gcode_artifact
     first = first_print(env)
