@@ -52,13 +52,15 @@ DEFAULT_THEME = "dark"
 # The surfaces the header navigates to: only pages that exist, in the
 # order people use them. Pages that belong together share one header tab
 # (NAV_GROUPS): making a print (a design, its sliced file, the workflow
-# that prints it), the printers themselves, and the numbers. The group's
+# that prints it, and the chat that drives the same flows), the printers
+# themselves, and the numbers. The group's
 # own pages appear as a strip under the header while you are in it.
 NAV = (
     ("/", "Status"),
     ("/designs", "Designs"),
     ("/sliced", "Sliced files"),
     ("/workflow", "Workflow"),
+    ("/chat", "Chat"),
     ("/printers", "Printers"),
     ("/firmware", "Firmware"),
     ("/spools", "Spools"),
@@ -67,7 +69,7 @@ NAV = (
 )
 
 NAV_GROUPS = {
-    "/designs": ("Designs pages", ("/designs", "/sliced", "/workflow")),
+    "/designs": ("Designs pages", ("/designs", "/sliced", "/workflow", "/chat")),
     # A printer's own settings open from its card on the Printers page,
     # which keeps the Printers tab highlighted, so they are not in the strip.
     "/printers": ("Printer pages", ("/printers", "/firmware")),
@@ -369,9 +371,28 @@ pre {
   border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 1rem;
 }
 img { max-width: 100%; }
+/* A swatch beside a filament color name or code. */
+.swatch-label { display: inline-flex; align-items: center; gap: 0.4rem; }
+.swatch-label > .disc { flex: none; }
 @media (max-width: 40rem) {
   table.rows th { width: auto; }
   th, td { padding: 0.45rem 0.5rem; }
+  /* In a scroll box a phone scrolls the table sideways instead of
+     squeezing every column into a strip of single letters. */
+  .table-scroll th { white-space: nowrap; }
+  .table-scroll td { min-width: 7rem; }
+  .table-scroll form.inline label { white-space: nowrap; }
+  .table-scroll form.inline select { max-width: 13rem; }
+  /* Phone header: the brand and theme toggle share the top row in the
+     normal flow (the toggle wraps below rather than overlapping a long
+     brand), and the tabs get the full width under them instead of a
+     narrow column. */
+  header.site .wrap { padding-right: 1rem; gap: 0.5rem; }
+  .theme-toggle { position: static; }
+  .theme-toggle a { padding: 0.375rem 0.5rem; }
+  .chrome-right { flex-basis: 100%; }
+  nav.pills a { padding: 0.4rem 0.6rem; }
+  nav.subnav a { padding: 0.5rem 0.6rem; }
 }
 /* Pasta Wrapped: the Wrapped page is a scrolling story of
    full-screen sections. Every rule is scoped to .wrapped (or, for

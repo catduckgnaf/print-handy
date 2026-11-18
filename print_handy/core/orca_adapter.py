@@ -2696,7 +2696,16 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             artifact_path.write_text(json.dumps(_conversion_provenance, indent=2) + '\n')
         except (OSError, ValueError):
             _conversion_provenance.pop('artifact', None)
+    # Per-plate usage (#1525, #1110 criterion 3): the source plates this
+    # artifact prints, by the plater_id the per-plate usage records key on.
+    # A derived plate file (preserve_layout) is not the source, so its caller
+    # names the plates; unknown stays None, never a guess.
+    selected_plates = None
+    if not preserve_layout:
+        from .remap_integrity import sliced_plates
+        selected_plates = sliced_plates(source, object_ids)
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
+                    'selected_plates': selected_plates,
                     # #952: the orca_begin -> orca_finalize_done interval, split. slicer_s is the
                     # subprocess time; python_s is everything else slice_model did (profile
                     # assembly, finalize, the post-slice guard reads).

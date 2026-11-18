@@ -82,7 +82,11 @@ code, all reached from the places jobs already live:
   page's Mark as printed confirmation records a physical print exactly
   once per file, printer and print id: a repeat, a print id already in
   the print accounting ledger, and an unconfirmed spool charge are
-  refused rather than charged twice.
+  refused rather than charged twice. That ledger is the monitored
+  print accounting for every slot count, including a one-spool print
+  the printer's Moonraker charged live, matched by Moonraker job id or
+  file and print number; a confirmation claims its print id there
+  first, so the monitored end of that print charges nothing more.
 - **Snapmaker U1 feasibility** (`core/u1_feasibility.py`): the U1
   feasibility link on the sliced-jobs page (and from the slice-result
   card) renders the read-only report for a job's source: per plate,

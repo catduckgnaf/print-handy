@@ -1,4 +1,5 @@
 """Source-bound, instance-preserving multipart core 3MF for Orca."""
+import collections
 import io
 import logging
 import copy
@@ -768,6 +769,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     # Orca emits them at their heights. In 'pause' mode (a single-extruder job
     # whose operator chose manual swaps) each change becomes a pause instead.
     layer_payload, layer_report = None, None
+    layer_expected = 0  # height color changes the written package must carry (#1525)
     if manifest.get('layer_changes'):
         from . import layer_gcode
         with zipfile.ZipFile(source) as archive:
@@ -779,6 +781,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                     xml = None
                 else:
                     xml = layer_gcode.for_plate(xml, plate_id)
+        if xml is not None:
+            layer_expected = len(layer_gcode.tool_changes(layer_gcode.parse(xml)))
         if xml is None:
             layer_report = {'kept': 0, 'dropped': len(manifest['layer_changes']),
                             'reason': 'the exported objects are not on a plate the per-layer entries name'}
@@ -836,6 +840,22 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                'Metadata/model_settings.config': ET.tostring(config, encoding='utf-8', xml_declaration=True)}
     if layer_payload is not None:
         payload[_layer_gcode_module.MEMBER] = layer_payload
+    # Remap integrity (#1525): before anything is written, the rebuilt
+    # package must carry every non-printing volume of the exported objects,
+    # every printable part, only this job's tools, every painted triangle
+    # and every height color change, or the export refuses by name.
+    from .remap_integrity import verify_rebuilt_package
+    painted_triangles = 0
+    if painted:
+        part_of = {p['key']: p for p in manifest['parts']}
+        for record in records:
+            painted_triangles += record['triangles'] - painted_geometry.leaf_states(
+                source, part_of[record['part_key']])['unpainted']
+    verify_rebuilt_package(
+        payload, roles=collections.Counter(row['subtype'] for row in cutter_rows.values()),
+        printable_parts=len(records), tools={int(tool) + 1 for tool in mapping},
+        painted_triangles=painted_triangles, layer_entries=layer_expected,
+        layer_kind='pause' if layer_mode == 'pause' else 'tool_change')
     # Staged write (Phase C, #1110 C1): a failure during the write itself can
     # no longer leave a truncated destination; the staging file validates
     # (zip integrity) before it replaces the target.

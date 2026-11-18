@@ -5303,7 +5303,7 @@ class Listener:
         try:
             context = print_records.load_context(filename) if filename else {}
             plan = multislot_usage.charge_plan(context)
-            if plan is None and not context.get("spool_usage_baseline"):
+            if multislot_usage.charge_key(context) is None:
                 return
             history = await asyncio.to_thread(self._history_entry, filename)
             # The print's own window: its history entry, else (a Moonraker
@@ -5317,8 +5317,9 @@ class Listener:
                     f"{'unavailable' if history is None else history.get('start_time')})")
                 return
             finished = history if (history or {}).get("status") not in (None, "in_progress") else None
+            job_id = (history or {}).get("job_id")
             if plan is None:
-                await self._guard_single_slot_usage(context, new_state, finished)
+                await self._guard_single_slot_usage(context, new_state, finished, job_id=job_id)
                 return
             outcome = "complete" if new_state == "complete" else "stopped"
             actual = planned = None
@@ -5338,7 +5339,7 @@ class Listener:
             entry = await asyncio.to_thread(
                 multislot_usage.charge_finished_print, context, outcome,
                 actual_mm=actual, planned_mm=planned, suspended=suspended,
-                base_url=_config.service_url("spoolman_url") or None)
+                base_url=_config.service_url("spoolman_url") or None, job_id=job_id)
         except Exception as exc:
             warn(f"multi-slot usage charge failed file={filename!r}: {exc!r}")
             return
@@ -5358,7 +5359,7 @@ class Listener:
         filename = self.filename
         try:
             context = print_records.load_context(filename) if filename else {}
-            if multislot_usage.charge_plan(context) is None and not context.get("spool_usage_baseline"):
+            if multislot_usage.charge_key(context) is None:
                 return
             history = await asyncio.to_thread(self._history_entry, filename)
             if history is None or history.get("status") in (None, "in_progress"):
@@ -5397,7 +5398,7 @@ class Listener:
             return None
         return result.get("spool_id") if isinstance(result, dict) else None
 
-    async def _guard_single_slot_usage(self, context, new_state, history=None):
+    async def _guard_single_slot_usage(self, context, new_state, history=None, job_id=None):
         """Undo a runaway Moonraker charge on a finished single-slot print (#1374).
 
         Moonraker charged the active spool while the print ran. After a
@@ -5406,21 +5407,30 @@ class Listener:
         spool's growth since launch with what this print extruded and
         writes the used weight back when it is far over. Moonraker's active
         spool at the end goes with it: a spool no longer active is left alone.
+
+        A print with no usable launch baseline has nothing to check, but
+        Moonraker still charged it live: multislot_usage.record_printer_charged
+        records it in the ledger, so an External intake confirmation can never
+        charge the same print again (#1525).
         """
         from . import multislot_usage
         filename = self.filename
-        if not (context or {}).get("spool_usage_baseline"):
-            return
-        actual = (self.last_stats or {}).get("filament_used")
-        if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
-            actual = (history or {}).get("filament_used")
-        record = load_runout_pause()
+        outcome = "complete" if new_state == "complete" else "stopped"
         active = await asyncio.to_thread(self._active_spool_id)
-        entry = await asyncio.to_thread(
-            multislot_usage.guard_single_slot, context,
-            "complete" if new_state == "complete" else "stopped", actual_mm=actual,
-            active_spool_id=active, suspended=bool(record and record.get("usage_suspended")),
-            base_url=_config.service_url("spoolman_url") or None)
+        entry = None
+        if (context or {}).get("spool_usage_baseline"):
+            actual = (self.last_stats or {}).get("filament_used")
+            if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
+                actual = (history or {}).get("filament_used")
+            record = load_runout_pause()
+            entry = await asyncio.to_thread(
+                multislot_usage.guard_single_slot, context, outcome, actual_mm=actual,
+                active_spool_id=active, suspended=bool(record and record.get("usage_suspended")),
+                base_url=_config.service_url("spoolman_url") or None, job_id=job_id)
+        if entry is None:
+            entry = await asyncio.to_thread(
+                multislot_usage.record_printer_charged, context, outcome,
+                active_spool_id=active, job_id=job_id)
         _log_usage_entry(filename, entry)
 
     async def _print_ended(self, new_state):

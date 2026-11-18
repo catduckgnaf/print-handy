@@ -365,6 +365,50 @@ def _recipe_binding(job):
     return {'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256']}
 
 
+def artifact_gcodes(job):
+    """The G-code files a job's slice made: every derived plate, else the one ``gcode``."""
+    rows = [row for row in job.get('derived_plates') or [] if isinstance(row, dict) and row.get('gcode')]
+    if rows:
+        return [Path(row['gcode']) for row in rows]
+    return [Path(job['gcode'])] if job.get('gcode') else []
+
+
+def unverified_artifact(job):
+    """Why a job's sliced G-code cannot be trusted as it stands, or None when it can (#1648 item 7).
+
+    Trusted means: the slice passed verification (``gcode_verified``), its
+    recipe record is intact and is the one ``artifact_binding`` names, every
+    G-code file is still on disk, and the files' SHA256 are exactly the ones
+    the binding recorded. A job that failed verification, was never sliced,
+    or lost a file answers with the reason.
+    """
+    from ..core import slice_recipe
+    from ..gcode.artifact import file_sha256
+    binding = job.get('artifact_binding') if isinstance(job, dict) else None
+    if not isinstance(binding, dict) or job.get('gcode_verified') is not True:
+        return 'it has no verified slice'
+    try:
+        slice_recipe.require_recorded(job, binding)
+    except RuntimeError as exc:
+        return str(exc)
+    paths = artifact_gcodes(job)
+    if not paths:
+        return 'it records no G-code file'
+    missing = [path.name for path in paths if not path.is_file()]
+    if missing:
+        return f"its G-code is no longer on disk ({', '.join(missing)})"
+    recorded = binding.get('gcode_sha256')
+    if isinstance(recorded, str):
+        expected = [recorded]
+    elif isinstance(recorded, dict):
+        expected = sorted(str(value) for value in recorded.values())
+    else:
+        return 'its slice binding records no G-code hash'
+    if sorted(file_sha256(path) for path in paths) != expected:
+        return 'its G-code changed after it was verified'
+    return None
+
+
 def stamp_job_printer(job, printer_id=None):
     """Record the creating printer's roster id on a new job (#334, design §2.2).
 

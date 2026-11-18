@@ -11,12 +11,19 @@ Mark as printed is the operator's explicit declaration that a physical
 print happened. It goes through `core.external_intake.confirm_mark_printed`
 with a persisted ledger, so the same physical print (file hash +
 printer + print id) is charged exactly once: a second confirmation is
-refused, and a print id that already appears in the multislot
-accounting ledger (`runtime.multislot_usage`) is refused as already
-recorded. When the operator declares spool usage on the form, the
-charge uses the same Spoolman "use" call the multislot charger makes;
-a charge whose outcome is unknown is recorded as unconfirmed and is
-never retried from here.
+refused, and a print id that names a print Print Handy's own monitored
+accounting already charged or checked is refused as already recorded.
+That accounting is the ledger in `runtime.multislot_usage`, for every
+slot count: a multi-slot charge, a one-spool charge at the end, the
+runaway check of a Moonraker live charge, and a one-spool print
+Moonraker charged live. A print id matches by any identity the ledger
+records: the job key with its print number or start time, the job key
+alone, or Moonraker's history job id. A confirmation claims its print id
+in that same ledger before it charges, so the live end of the print
+then charges nothing more. When the operator declares spool usage on
+the form, the charge uses the same Spoolman "use" call the multislot
+charger makes; a charge whose outcome is unknown is recorded as
+unconfirmed and is never retried from here.
 """
 from __future__ import annotations
 
@@ -87,35 +94,60 @@ def scan_cards(data) -> list[dict]:
     return cards
 
 
-def _multislot_ledger_keys() -> set:
-    """Every print id the multislot accounting ledger already holds.
+def _unreadable_ledger(exc) -> ei.IntakeRefused:
+    logger.warning("external intake: the print accounting ledger is "
+                   "unreadable; refusing the confirmation", exc_info=True)
+    return ei.IntakeRefused(
+        "the print accounting ledger could not be read, so Print Handy cannot "
+        "check whether this print was already charged; nothing was recorded "
+        f"or charged. Fix or restore the ledger and try again ({exc}).")
 
-    Fails closed (#1621 review): a ledger that exists but cannot be read
-    or parsed raises `ei.IntakeRefused` instead of returning an empty
-    set, because an empty set would let a print already charged there be
-    confirmed and charged again. Only a ledger that does not exist yet
-    (a fresh install) counts as empty.
+
+def _multislot_ledger_keys() -> set:
+    """Every print id Print Handy's monitored accounting already charged or checked.
+
+    Read from every accounting ledger on this install (the default one
+    and each roster printer's), as `multislot_usage.accounted_print_ids`
+    names them. Fails closed (#1621 review): a ledger that exists but
+    cannot be read or parsed raises `ei.IntakeRefused` instead of
+    returning an empty set, because an empty set would let a print
+    already charged there be confirmed and charged again. Only a ledger
+    that does not exist yet (a fresh install) counts as empty.
     """
-    try:
-        from print_handy.runtime import multislot_usage
-        path = Path(multislot_usage.ledger_path())
-        if not path.exists():
-            return set()
-        ledger = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(ledger, dict):
-            raise ValueError(f"expected a JSON object, found {type(ledger).__name__}")
-    except Exception as exc:
-        logger.warning("external intake: the print accounting ledger is "
-                       "unreadable; refusing the confirmation", exc_info=True)
-        raise ei.IntakeRefused(
-            "the print accounting ledger could not be read, so Print Handy cannot "
-            "check whether this print was already charged; nothing was recorded "
-            f"or charged. Fix or restore the ledger and try again ({exc}).") from exc
+    from print_handy.runtime import multislot_usage
     keys = set()
-    for key in ledger:
-        keys.add(str(key))
-        keys.add(str(key).split("#")[0])
+    for path in multislot_usage.all_ledger_paths():
+        try:
+            keys |= multislot_usage.accounted_print_ids(multislot_usage._load_strict(Path(path)))
+        except (OSError, ValueError) as exc:
+            raise _unreadable_ledger(exc) from exc
     return keys
+
+
+def _claim_in_accounting_ledger(*, print_id, printer_id, identity) -> None:
+    """Claim the print in the shared accounting ledger, or refuse (#1525).
+
+    Rechecks under the ledger's own lock, so a print the live accounting
+    recorded since the first check is still refused, and records the claim
+    the printer's listener reads before it charges a finished print.
+    """
+    from print_handy.runtime import multislot_usage
+    try:
+        multislot_usage.claim_external_print(print_id, printer_id=printer_id, identity=identity)
+    except multislot_usage.AlreadyAccounted as exc:
+        raise ei.IntakeRefused(str(exc)) from exc
+    except (OSError, ValueError) as exc:
+        raise _unreadable_ledger(exc) from exc
+
+
+def _settle_claim(identity, status, *, printer_id) -> None:
+    from print_handy.runtime import multislot_usage
+    try:
+        multislot_usage.settle_external_print(identity, status, printer_id=printer_id)
+    except (OSError, ValueError):
+        logger.warning("external intake: could not record the outcome %r of claim %s "
+                       "in the print accounting ledger; the claim itself stands",
+                       status, identity, exc_info=True)
 
 
 def _validated_charge(spool_id, grams):
@@ -181,10 +213,12 @@ def _confirm_card_locked(data, *, sha256, path, printer_id, print_id,
                  if row.get("sha256") == sha256 and row.get("path") == path), None)
     if card is None:
         raise ei.IntakeRefused("no draft card matches that file; refresh the page.")
-    if str(print_id) in _multislot_ledger_keys():
+    if str(print_id).strip() in _multislot_ledger_keys():
         raise ei.IntakeRefused(
-            "that print id is already recorded in the print accounting ledger; "
-            "refusing to charge the same physical print twice.")
+            f"print {str(print_id).strip()} is already recorded in the print accounting "
+            "ledger: Print Handy's own print monitoring already charged or checked its "
+            "spool usage when it finished. Refusing to charge the same physical print "
+            "twice; nothing was recorded or charged.")
     ledger = set(_read_json(store / "ledger.json", []))
     unconfirmed = set(_read_json(store / "unconfirmed.json", []))
     identity = ei.print_identity(card, printer_id, print_id)
@@ -194,12 +228,17 @@ def _confirm_card_locked(data, *, sha256, path, printer_id, print_id,
             "recorded as unconfirmed and is not retried here.")
 
     def charge(*, identity, card, printer_id):
-        # Claim first: the identity is persisted in the ledger before
-        # any charge is sent, so a crash from here on can never lead to
-        # the same print being charged again by a later confirmation.
+        # Claim first: the identity is persisted in the shared accounting
+        # ledger (refused there when the live accounting already has the
+        # print) and in this page's ledger before any charge is sent, so a
+        # crash from here on can never lead to the same print being charged
+        # again by a later confirmation or by the live end of the print.
+        _claim_in_accounting_ledger(print_id=print_id, printer_id=printer_id,
+                                    identity=identity)
         ledger.add(identity)
         _write_json(store / "ledger.json", sorted(ledger))
         if declared is None:
+            _settle_claim(identity, "recorded", printer_id=printer_id)
             return {"recorded": True, "spool_charge": "none declared — the print "
                     "is recorded; no spool was charged"}
         spool, weight = declared
@@ -211,10 +250,12 @@ def _confirm_card_locked(data, *, sha256, path, printer_id, print_id,
         except Exception as exc:
             unconfirmed.add(identity)
             _write_json(store / "unconfirmed.json", sorted(unconfirmed))
+            _settle_claim(identity, "unconfirmed", printer_id=printer_id)
             raise ei.IntakeRefused(
                 f"the spool charge for spool {spool} could not be confirmed "
                 f"({exc}); it is recorded as unconfirmed and will not be retried "
                 "from here.") from exc
+        _settle_claim(identity, "charged", printer_id=printer_id)
         return {"recorded": True, "spool_charge": f"spool {spool}: {weight:g} g"}
 
     result = ei.confirm_mark_printed(card, printer_id=printer_id,
@@ -273,6 +314,9 @@ def render_page(data, cards, *, theme=shell.DEFAULT_THEME, nav=None,
                 f"<input type=\"hidden\" name=\"path\" value=\"{_esc(card.get('path'))}\">"
                 "<label>Printer id <input name=\"printer_id\" required></label> "
                 "<label>Print id <input name=\"print_id\" required></label> "
+                "<small>When Print Handy monitored this print, use its Moonraker job id "
+                "or its file and print number (file#number): a print it already "
+                "charged is refused.</small> "
                 "<label>Spool id (optional) <input name=\"spool_id\" inputmode=\"numeric\"></label> "
                 "<label>Grams used (optional) <input name=\"grams\" inputmode=\"decimal\"></label> "
                 "<button type=\"submit\">Mark as printed</button></form>")

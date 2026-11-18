@@ -992,9 +992,18 @@ def remap_package(source, target, mapping, object_map=None):
                                  and row['source_extruder'] not in mapping})
             if unresolved:
                 raise RuntimeError(f'unmapped source layer tool(s): {unresolved}')
-            converted, _layer_report = layer_gcode.remap(
-                data, mapping)
-            payload[name] = converted
+            if not identity:
+                # The project is sliced as saved (#1525): its pauses stay, and
+                # custom per-layer G-code, which this converter never
+                # rewrites, refuses by name like embedded G-code rather than
+                # drop silently or keep tool commands of the old numbering.
+                custom = [row['top_z'] for row in entries if row['kind'] == 'custom']
+                if custom:
+                    raise RuntimeError(f'{name} carries custom G-code at height(s) {custom}, which '
+                                       'cannot be renumbered; refusing rather than drop it or keep '
+                                       'commands of the old numbering')
+                converted, _layer_report = layer_gcode.remap(data, mapping, keep_pauses=True)
+                payload[name] = converted
         elif name.lower().endswith('.model'):
             payload[name] = _remap_model_member(data, mapping)
         if payload[name] != data:

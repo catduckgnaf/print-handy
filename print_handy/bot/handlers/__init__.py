@@ -71,6 +71,10 @@ HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'calibration',
     'typed_quantity',
     'upload_wait',
+    # Cost before the intake handlers (#1661): a file dropped with a
+    # cost ask is priced read-only and never enters intake; a bare
+    # file drop's gate does not match, so intake is untouched.
+    'cost',
     'upload_collection',
     'model_link',
     'color_selection',
@@ -93,7 +97,6 @@ HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'plate_calibrate',
     'slice_result',
     'nozzle',
-    'cost',
     'stats',
 ))
 _DISPATCH_HOOKS = tuple(module.handle for module in HANDLERS)

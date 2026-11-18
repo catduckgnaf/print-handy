@@ -6,12 +6,21 @@ print. With grams and hours in the ask ("how much will this cost,
 50 g, 3 h, in PETG") it answers an estimate with provenance; with no
 job in the ask it answers from the newest frozen completion record;
 with neither it asks which print is meant instead of guessing.
+
+A file dropped in chat with a cost ask (the command, or a plain
+cost phrase about the file) prices that attachment instead (#1661):
+the saved upload is parsed by the existing cost parsers and priced by
+the Web UI calculator's own auto-fill computation. The ask stays
+read-only — it never enters the print intake flow, creates no job and
+asks nothing; intake only ever sees the file when the operator asks
+to print it, as its own step.
 """
 import logging
 import asyncio
 import re
+from pathlib import Path
 
-from .common import _control_preamble
+from .common import _command_matches, _control_gate, _control_preamble
 
 logger = logging.getLogger(__name__)
 
@@ -174,17 +183,106 @@ def _spool(spool_id):
         return None
 
 
+def _display_name(path):
+    """The operator's file name for a saved upload (the doc_ cache prefix stripped)."""
+    return re.sub(r"^doc_[0-9a-f]{12}_", "", Path(str(path)).name)
+
+
+def attachment_cost_answer(path, data=None):
+    """The cost answer for one dropped file (#1661).
+
+    The file is parsed by the existing cost parsers and priced by the
+    same auto-fill computation the Web UI calculator runs for a dropped
+    file, so the two surfaces cannot disagree. An unsliced file, and a
+    sliced file naming no usage at all, get the explicit
+    cannot-estimate answer naming what is missing — never a confident
+    0.00. Read-only: nothing here creates a job, a prompt or a printer
+    action.
+    """
+    from print_handy import settings as _settings
+    from print_handy.core import cost_parse
+
+    data = data if data is not None else _settings.current()
+    name = _display_name(path)
+    try:
+        usage = cost_parse.usage_from_file(path)
+    except Exception:
+        logger.exception("cost: could not parse the dropped file %s", path)
+        return (f"Cannot estimate {name} yet: the file could not be read. "
+                "Cost is information only; it never blocks a print.")
+    if not usage.sliced:
+        return (f"Cannot estimate {name} yet: {usage.not_sliced_reason}. "
+                "Cost is information only; it never blocks a print.")
+    if usage.total_grams is None and usage.volume_ml is None and not usage.time_seconds:
+        return (f"Cannot estimate {name} yet: the file names no filament "
+                "usage, resin volume or print time to price. "
+                "Cost is information only; it never blocks a print.")
+    from print_handy.core import cost as _cost
+    from print_handy.webui import cost_page as _cost_page
+    job, profile, workspace = _cost_page.job_from_usage(usage, data)
+    result = _cost.compute(job, profile, workspace)
+    return _cost.format_chat_summary(result, title=f"{name} (estimate before printing)")
+
+
+_ATTACHMENT_ASK = re.compile(
+    r"\b(?:cost|coast|price)\b[^.?!]*\b(?:this|that)\s+(?:file|print|job|model|g-?code|3mf)\b"
+    r"|\b(?:this|that)\s+(?:file|print|job|model|g-?code|3mf)\b[^.?!]*\b(?:cost|coast|price)\b"
+    r"|\b(?:will|would|did|does)\s+(?:this|that)\b[^.?!]*\b(?:cost|coast)\b"
+    r"|\bprice\s+(?:this|that)\b", re.I)
+
+
+def _is_attachment_ask(text):
+    """A plain-language cost ask about a file in hand (#1661)."""
+    return bool(_ATTACHMENT_ASK.search(text or ""))
+
+
+def _attachment_path(event):
+    """The first dropped file this event carries, or None."""
+    for raw in getattr(event, 'media_urls', None) or []:
+        path = Path(str(raw))
+        if path.is_file():
+            return path
+    return None
+
+
+def _attachment_decides(text):
+    """Whether an attached file is the subject of a cost ask (#1661).
+
+    Amounts in the ask keep winning (the manual estimate), and a month
+    ask keeps answering the month's spend; otherwise the file is what
+    the ask is about.
+    """
+    if _MONTH.search(text):
+        return False
+    grams, _hours, _material = _parse_ask(text)
+    return grams is None
+
+
+def _dispatch_answer(text, event):
+    path = _attachment_path(event)
+    if path is not None and _attachment_decides(text):
+        return attachment_cost_answer(path)
+    return cost_answer(text)
+
+
 async def cost_dispatch(event, gateway, **kwargs):
-    """/print-cost: the compact cost breakdown for the right job (#1625)."""
+    """/print-cost: the compact cost breakdown for the right job (#1625).
+
+    With a file attached, the ask prices the attachment instead
+    (#1661); the plain-language file ask takes the same gate and
+    authorization as the command form.
+    """
     source, adapter = _control_preamble(event, gateway, '/print-cost', with_args=True)
+    text = str(getattr(event, 'text', '')).strip()
+    if source is None and _is_attachment_ask(text):
+        source, adapter = _control_gate(event, gateway)
     if source is None:
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'cost UI delivery unavailable'}
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
-    text = str(getattr(event, 'text', '')).strip()
     try:
-        message = await asyncio.to_thread(cost_answer, text)
+        message = await asyncio.to_thread(_dispatch_answer, text, event)
     except Exception:
         logger.exception('/print-cost failed')
         message = 'Could not work out a cost just now. Nothing was changed.'
@@ -192,9 +290,19 @@ async def cost_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'print cost handled'}
 
 
-# --- handler interface (#1323) ---
-from ._gates import command_gate  # noqa: E402
+def _cost_gate(text):
+    """The dispatch gate: the /print-cost command form, or a plain
+    cost ask about a file in hand (#1661). The handler itself decides
+    from the event whether the attachment or another answer applies."""
+    return (_command_matches(text, '/print-cost', True)
+            or _is_attachment_ask(text))
 
-match = command_gate('/print-cost', True)
+
+_cost_gate.command = '/print-cost'
+_cost_gate.with_args = True
+
+# --- handler interface (#1323) ---
+
+match = _cost_gate
 handle = cost_dispatch
 handle.dispatch_gate = match

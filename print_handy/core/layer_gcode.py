@@ -139,13 +139,17 @@ def _rewrite(xml_bytes, convert, z_scale=1.0):
     return ET.tostring(root, encoding='utf-8', xml_declaration=True), kept, dropped
 
 
-def remap(xml_bytes, tool_map, z_scale=1.0):
+def remap(xml_bytes, tool_map, z_scale=1.0, *, keep_pauses=False):
     """Rewrite tool-change extruders through {source extruder: job tool (1-based)}.
 
     Entries for an extruder the job does not map are dropped rather than left
     pointing at a tool the sliced job does not have; pauses and custom
     entries are dropped too — only the height color changes are carried, and
     the caller reports the rest from the inventory. Returns (bytes, report).
+
+    keep_pauses (#1525) is for a caller that slices the source project itself
+    (package_remap): a pause there is the author's own stop at a height, so it
+    stays, its extruder renumbered when the map covers it.
 
     A kept entry's `color` attribute rides verbatim: it is display metadata
     (tool selection comes from the `extruder` attribute), and Orca's 3MF
@@ -154,7 +158,16 @@ def remap(xml_bytes, tool_map, z_scale=1.0):
     in real-slicer CI (PR #1133). Never strip it.
     """
     def convert(node):
-        if kind_of(dict(node.attrib)) != 'tool_change':
+        kind = kind_of(dict(node.attrib))
+        if kind == 'pause' and keep_pauses:
+            try:
+                source = int(node.get('extruder'))
+            except (TypeError, ValueError):
+                return True
+            if source in tool_map:
+                node.set('extruder', str(tool_map[source]))
+            return True
+        if kind != 'tool_change':
             return False
         try:
             source = int(node.get('extruder'))

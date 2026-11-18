@@ -8,9 +8,11 @@ contains time or weight), produce the explicit not-sliced state instead
 of a confident zero cost.
 
 Resin: ChiTuBox and Lychee textual metadata headers are parsed where
-they carry volume and time. The binary ChiTuBox project format
-(.cxdlpv4) and the Lychee .lys container are not parsed; callers name
-that remainder instead of guessing.
+they carry volume and time. The binary ChiTuBox container (.cxdlpv4)
+is parsed for the resin volume and print time its header and print
+parameters block carry. A Lychee .lys file is a saved scene (models
+and preparation), not a slice: it carries neither value, so it lands
+in the explicit not-sliced state with that reason instead of a guess.
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ import io
 import logging
 import math
 import re
+import struct
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -246,9 +249,10 @@ _RESIN_TIME_PATTERNS = (
 def parse_resin_text(text):
     """ChiTuBox / Lychee style textual metadata: volume mL and print time.
 
-    Returns None when the text carries neither, so binary project
-    formats (.cxdlpv4, .lys) fall through to the named remainder rather
-    than a guessed volume.
+    Returns None when the text carries neither, so the caller falls
+    through rather than reporting a guessed volume. The binary
+    containers are dispatched by extension in usage_from_file before
+    this textual fallback runs.
     """
     volume = None
     for pattern in _RESIN_VOLUME_PATTERNS:
@@ -268,12 +272,170 @@ def parse_resin_text(text):
                        source="resin file metadata")
 
 
+# --- resin binary containers ------------------------------------------------
+#
+# ChiTuBox .cxdlpv4 (the Creality HALOT / ChiTuBox v4 sliced format).
+# Layout, cross-checked between two independent open-source
+# implementations that read and write real files: UVtools
+# (UVtools.Core/FileFormats/CrealityCXDLPv4File.cs) and Danslicer
+# (Danslicer.Core/IO/ChituWriter.cs):
+#
+#   offset 0   uint32 big-endian: magic size, always 9
+#   offset 4   9 bytes: the magic "CXSW3DV2" plus a NUL
+#   offset 13  uint16 big-endian: format version, 4 for .cxdlpv4
+#   offset 15  uint32 big-endian: printer model length, NUL included,
+#              followed by that many model bytes
+#   then little-endian fields from the end of the model string:
+#              resolution X/Y (uint16 each), bed X/Y/Z, print height and
+#              layer height (floats), bottom layer count, preview and
+#              layer-table offsets, layer count, print time in seconds
+#              (uint32, at model end + 44), projector type, the print
+#              parameters block offset and size (68 bytes), anti-alias
+#              level, light PWM values, the layer encryption key and
+#              the slicer table offset and size.
+# The print parameters block (little-endian floats) carries the resin
+# volume in milliliters at offset 20, after the lift and retract
+# settings; weight and cost estimates follow it. The header and the
+# parameters block are stored unencrypted; the encryption key applies
+# to layer image data only, which this parser never reads.
+
+_CXDLPV4_MAGIC = b"CXSW3DV2\x00"
+_CXDLPV4_PARAMS_SIZE = 68
+_CXDLPV4_VOLUME_OFFSET = 20
+_CXDLPV4_SOURCE = "ChiTuBox .cxdlpv4 container"
+_LYS_SOURCE = "Lychee .lys container"
+_LYS_SCAN_BYTES = 2 * 1024 * 1024
+
+
+def _cxdlpv4_header(head):
+    """(fields, None) or (None, reason) from .cxdlpv4 header bytes."""
+    if len(head) < 13:
+        return None, "the file ends inside the .cxdlpv4 header"
+    magic_size = struct.unpack_from(">I", head, 0)[0]
+    if magic_size != len(_CXDLPV4_MAGIC) or head[4:13] != _CXDLPV4_MAGIC:
+        return None, "the header does not carry the CXSW3DV2 magic"
+    if len(head) < 19:
+        return None, "the file ends inside the .cxdlpv4 header"
+    version = struct.unpack_from(">H", head, 13)[0]
+    if version != 4:
+        return None, (f"the container is CXDLP version {version}, "
+                      "not the version 4 .cxdlpv4 layout")
+    model_len = struct.unpack_from(">I", head, 15)[0]
+    if model_len < 1 or model_len > 1024:
+        return None, "the printer model name in the header is not readable"
+    base = 19 + model_len
+    if len(head) < base + 80:
+        return None, "the file ends inside the .cxdlpv4 header"
+    fields = {
+        "layer_count": struct.unpack_from("<I", head, base + 36)[0],
+        "print_time": struct.unpack_from("<I", head, base + 44)[0],
+        "params_offset": struct.unpack_from("<I", head, base + 52)[0],
+        "params_size": struct.unpack_from("<I", head, base + 56)[0],
+    }
+    return fields, None
+
+
+def _cxdlpv4_usage(fields, params):
+    """A sliced ParsedUsage, or the cannot-estimate state with a reason."""
+    if params is None or len(params) < _CXDLPV4_VOLUME_OFFSET + 4:
+        return ParsedUsage(
+            sliced=False, source=_CXDLPV4_SOURCE,
+            not_sliced_reason=("the print parameters block is missing or "
+                               "truncated in the .cxdlpv4 container"))
+    volume = struct.unpack_from("<f", params, _CXDLPV4_VOLUME_OFFSET)[0]
+    if not math.isfinite(volume) or volume <= 0:
+        return ParsedUsage(
+            sliced=False, source=_CXDLPV4_SOURCE,
+            not_sliced_reason="the .cxdlpv4 container carries no resin volume")
+    if not fields["layer_count"]:
+        return ParsedUsage(
+            sliced=False, source=_CXDLPV4_SOURCE,
+            not_sliced_reason="the .cxdlpv4 container carries no layers")
+    seconds = fields["print_time"]
+    return ParsedUsage(volume_ml=volume,
+                       time_seconds=float(seconds) if seconds else None,
+                       source=_CXDLPV4_SOURCE)
+
+
+def _cxdlpv4_params_from(data, fields):
+    offset = fields["params_offset"]
+    if offset <= 0 or fields["params_size"] < _CXDLPV4_VOLUME_OFFSET + 4:
+        return None
+    if offset + _CXDLPV4_VOLUME_OFFSET + 4 > len(data):
+        return None
+    return data[offset:offset + _CXDLPV4_PARAMS_SIZE]
+
+
+def parse_cxdlpv4_bytes(data: bytes):
+    """One .cxdlpv4 container's usage, or the cannot-estimate state."""
+    fields, reason = _cxdlpv4_header(data[:_HEAD_BYTES])
+    if fields is None:
+        return ParsedUsage(sliced=False, source=_CXDLPV4_SOURCE,
+                           not_sliced_reason=reason)
+    return _cxdlpv4_usage(fields, _cxdlpv4_params_from(data, fields))
+
+
+def parse_cxdlpv4_file(path):
+    """parse_cxdlpv4_bytes with bounded reads: header, then the block."""
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(_HEAD_BYTES)
+            fields, reason = _cxdlpv4_header(head)
+            if fields is None:
+                return ParsedUsage(sliced=False, source=_CXDLPV4_SOURCE,
+                                   not_sliced_reason=reason)
+            params = None
+            offset = fields["params_offset"]
+            if offset > 0 and fields["params_size"] >= _CXDLPV4_VOLUME_OFFSET + 4:
+                handle.seek(offset)
+                params = handle.read(_CXDLPV4_PARAMS_SIZE)
+    except OSError:
+        return ParsedUsage(sliced=False, source=_CXDLPV4_SOURCE,
+                           not_sliced_reason="could not read the file")
+    return _cxdlpv4_usage(fields, params)
+
+
+def parse_lys_bytes(data: bytes):
+    """A Lychee .lys file's usage: always the cannot-estimate state.
+
+    A .lys is a saved Lychee scene (models and preparation work in a
+    "mango" container, or the same members in a ZIP), not a slice.
+    Neither the container manifest (a version plus a file index) nor
+    the encoded scene payload carries resin volume or print time;
+    Lychee computes both only when a slice is exported to a printer
+    file. So the honest answer is the explicit cannot-estimate state,
+    never a volume derived from the stored meshes.
+    """
+    if data[:4] == b"PK\x03\x04" or b'"mangoFiles"' in data[:_LYS_SCAN_BYTES]:
+        return ParsedUsage(
+            sliced=False, source=_LYS_SOURCE,
+            not_sliced_reason=("Lychee .lys files are saved scenes (models and "
+                               "preparation); they do not carry resin volume or "
+                               "print time, which Lychee computes only when a "
+                               "slice is exported: export the slice or enter "
+                               "values manually"))
+    return ParsedUsage(sliced=False, source=_LYS_SOURCE,
+                       not_sliced_reason="not a readable Lychee .lys container")
+
+
+def parse_lys_file(path):
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(_LYS_SCAN_BYTES)
+    except OSError:
+        return ParsedUsage(sliced=False, source=_LYS_SOURCE,
+                           not_sliced_reason="could not read the file")
+    return parse_lys_bytes(data)
+
+
 def usage_from_file(path):
     """Best automatic usage for one dropped file, by its kind.
 
     .gcode parses directly; .3mf goes through slice_info; a sliced
     .gcode.3mf package's inner plate G-code is parsed when slice_info
-    carries nothing. Resin textual files parse for volume and time.
+    carries nothing. Resin textual files parse for volume and time;
+    a .cxdlpv4 container parses for both from its header and print
+    parameters block; a .lys scene returns its cannot-estimate state.
     Anything else returns the not-sliced state.
     """
     path = Path(path)
@@ -297,6 +459,10 @@ def usage_from_file(path):
         except zipfile.BadZipFile as exc:
             logger.debug("cost parse: the .gcode.3mf payload is not readable: %s", exc)
         return usage
+    if name.endswith(".cxdlpv4"):
+        return parse_cxdlpv4_file(path)
+    if name.endswith(".lys"):
+        return parse_lys_file(path)
     try:
         text = read_head_tail(path)
     except OSError:

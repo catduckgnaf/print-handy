@@ -25,7 +25,7 @@ import re
 import zipfile
 from pathlib import Path
 
-from . import package_remap, remap_integrity, source_descriptor
+from . import package_remap, painted_geometry, remap_integrity, source_descriptor
 
 PROVENANCE_MEMBER = "Metadata/print_handy_export.json"
 _GCODE_MEMBER = re.compile(r"(?:^|/)plate_\d+\.gcode$", re.I)
@@ -63,6 +63,15 @@ def _clean_payload(source: Path) -> tuple[dict, list[str]]:
     return payload, sorted(drop)
 
 
+def _verify(source_payload, payload, mapping, dropped):
+    try:
+        remap_integrity.verify_remapped_package(source_payload, payload, mapping,
+                                                may_drop=set(dropped))
+    except remap_integrity.IntegrityRefused as exc:
+        raise ExportRefused(f"the export was refused: {exc}") from exc
+
+
+@painted_geometry.decode_scoped
 def export_editable(source, target, *, mapping=None, selected_plate_ids=None,
                     target_printer=None) -> dict:
     """Write the editable destination project for `source` at `target`.
@@ -98,9 +107,16 @@ def export_editable(source, target, *, mapping=None, selected_plate_ids=None,
                   "mapping": {str(k): v for k, v in (mapping or {}).items()},
                   "stripped_members": dropped}
     identity = not mapping or all(int(k) == int(v) for k, v in mapping.items())
+    # Remap integrity (#1525): the exported package must carry every role,
+    # paint state, filament reference and per-layer entry of the source on
+    # the filament the mapping names, or the export refuses by name before
+    # the file is written.
+    with zipfile.ZipFile(source) as archive:
+        source_payload = {name: archive.read(name) for name in archive.namelist()}
     if identity:
         payload[PROVENANCE_MEMBER] = (
             json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode()
+        _verify(source_payload, payload, None, dropped)
         package_remap.write_package_atomically(target, payload, source=source)
     else:
         # Remap the cleaned package with the established remapper, then
@@ -119,6 +135,7 @@ def export_editable(source, target, *, mapping=None, selected_plate_ids=None,
                 final = {name: archive.read(name) for name in archive.namelist()}
             final[PROVENANCE_MEMBER] = (
                 json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode()
+            _verify(source_payload, final, mapping, dropped)
             package_remap.write_package_atomically(target, final, source=source)
     return {"target": str(target), "source_sha256": source_sha,
             "source_kind": descriptor["kind"],

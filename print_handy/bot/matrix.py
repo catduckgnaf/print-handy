@@ -107,7 +107,14 @@ def parse_event(event, room_id, bot_user_id=""):
         attachments.append(_attachment(content["url"],
                                        content.get("filename") or content.get("body") or "file",
                                        info.get("size") if isinstance(info, dict) else 0))
-        text = ""
+        # A caption rides with the file (MSC2530): when the event names
+        # the file separately, the body is the sender's text, the same
+        # shape a Telegram caption takes. Without a separate filename
+        # the body IS the file's name and the message stays textless,
+        # exactly as before.
+        filename = content.get("filename")
+        body = str(content.get("body") or "")
+        text = body if filename and body and body != str(filename) else ""
     elif msgtype == "m.text":
         text = str(content.get("body") or "")
     else:

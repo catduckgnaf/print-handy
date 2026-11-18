@@ -118,6 +118,7 @@ _DISPATCH_HOOKS = (
     calibration_dispatch,
     typed_quantity_dispatch,
     upload_wait_dispatch,
+    cost_dispatch,
     upload_collection_dispatch,
     model_link_dispatch,
     color_selection_dispatch,
@@ -140,7 +141,6 @@ _DISPATCH_HOOKS = (
     plate_calibrate_dispatch,
     slice_result_dispatch,
     nozzle_dispatch,
-    cost_dispatch,
     stats_dispatch,
 )
 

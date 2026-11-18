@@ -4,7 +4,7 @@ the fit and painted-scale searches, the filament fallbacks and warnings the slic
 Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
 importable from there for one release.
 """
-import json, logging, math, re, time, zipfile
+import json, logging, math, os, re, time, zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -20,8 +20,8 @@ from .filament import (
 )
 from ..printers.base import MultiColorUnsupported
 from .store import (
-    _job_adapter, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing, decisions_digest,
-    gcode_estimate_s, human_dur, stamp_job_printer, write_job,
+    _job_adapter, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing, artifact_gcodes,
+    decisions_digest, gcode_estimate_s, human_dur, stamp_job_printer, unverified_artifact, write_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -1384,6 +1384,9 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
                                        'refusing to slice it as turned')
         out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slots[0],
                                                **_support_kw(job), **_edit_kw(job))
+        # The merged plate is a derived file: it prints every source plate (#1525).
+        from ..core.remap_integrity import sliced_plates
+        provenance = {**(provenance or {}), 'selected_plates': sliced_plates(src)}
         material = st.get('filament_slots', {}).get(str(slots[0]), {}).get('material')
         if not material:
             raise RuntimeError(f'merged plate physical IFS slot {slots[0]} has no verified material')
@@ -1589,6 +1592,8 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
             report = export_single_color_plate(src, plate, view, keys, bed=int(st['bed_mm'][0]), slot_colors=st.get('filament_slots') or {}, **({'fit': current_fit} if current_fit is not None else {}))
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
+            # A derived plate file: the source plate it prints is this one (#1525).
+            provenance = {**(provenance or {}), 'selected_plates': [str(plate_id)]}
             finalize_multicolor(out, None, st, {'0': slot}, adapter=_job_adapter(job))
             check = verify_gcode_offline(out, st, _job_adapter(job), slot=slot)
         except RuntimeError as exc:
@@ -2092,12 +2097,153 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         job_correlation.persist(job_path, correlation_id)
         token = logs.bind(job_correlation_id=correlation_id)
     try:
+        reused = _adopt_reused_slice(job_path, brim_override=brim_override, copies=copies, scale=scale,
+                                     recipe_sha256=recipe_sha256)
+        if reused is not None:
+            return reused
+        _drop_reused_marker(job_path)
         with material_accept.accepting(_accepted_slice_abrasive(job_path)):
             return _slice_job(job_path, brim_override=brim_override, copies=copies, scale=scale,
                               recipe_sha256=recipe_sha256)
     finally:
         if token is not None:
             logs.unbind(token)
+
+
+# What a reused slice carries over from the earlier job (#1648 item 7): the
+# slice fields background_slice snapshots, plus the records the slice paths
+# write beside them. The full-verification marker stays behind, so the
+# launch verifies the copied bytes for this job itself.
+_REUSED_SLICE_EXTRA = ('sliced_copies', 'layout_report', 'auto_scale', 'unit_provenance', 'printer_model',
+                       'color_prompts')
+# A slice that needed an accepted filament warning is never reused: a fresh
+# slice presents the warnings again, as any reslice does.
+_WARNING_FIELDS = ('filament_fallback', 'filament_warnings', 'filament_warnings_pending',
+                   'filament_warning_acknowledgement')
+
+
+def _drop_reused_marker(job_path):
+    """A job sliced afresh is no longer a reused slice: drop the marker an adoption left."""
+    path = Path(job_path)
+    try:
+        job = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return  # _slice_job reports an unreadable JOB.json itself
+    if isinstance(job, dict) and job.pop('reused_slice', None) is not None:
+        write_job(path.parent, job)
+
+
+def _rebased(value, prefixes, new, moved):
+    """``value`` with every path under one of the folder ``prefixes`` moved under ``new``.
+
+    Each moved path is appended to ``moved`` as (old path, new path).
+    """
+    if isinstance(value, dict):
+        return {key: _rebased(item, prefixes, new, moved) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_rebased(item, prefixes, new, moved) for item in value]
+    if isinstance(value, str):
+        for old in prefixes:
+            if value.startswith(old + os.sep):
+                rebased = new + value[len(old):]
+                moved.append((Path(value), Path(rebased)))
+                return rebased
+    return value
+
+
+def reused_slice_refusal(job, earlier, recipe_sha256):
+    """Why ``earlier``'s verified slice is not this job's slice, or None when it is (#1648 item 7).
+
+    ``recipe_sha256`` is the recipe this job slices now. The earlier slice
+    serves only when it was made from the same source bytes, for the same
+    decisions and plate selection, under exactly that recipe (printer,
+    profiles, slicer, filament slots, transform, supports, edits), and its
+    G-code still verifies against its binding.
+    """
+    problem = unverified_artifact(earlier)
+    if problem:
+        return problem
+    if any(earlier.get(field) for field in _WARNING_FIELDS):
+        return 'it was sliced under accepted filament warnings, which a new slice presents again'
+    binding = earlier['artifact_binding']
+    if earlier['slice_recipe']['sha256'] != recipe_sha256:
+        return 'the printer, profile, slicer or filament setup changed since it was sliced'
+    if binding.get('source_sha256') != file_sha256(job['downloaded_file']):
+        return 'it was sliced from other source bytes'
+    if binding.get('decisions_sha256') != decisions_digest(job.get('color_decisions')):
+        return 'its color decisions differ'
+    if (earlier.get('selected_plates') or None) != (job.get('selected_plates') or None):
+        return 'its plate selection differs'
+    return None
+
+
+def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
+    """The earlier job's verified G-code as this job's slice, or None to slice normally (#1648 item 7).
+
+    Only an intake that chose "Print it like last time" names an earlier job
+    (``reused_decisions``). Its artifact is copied into this job's folder,
+    rebound to it, and its hashes are checked again on the copy; anything
+    that does not match leaves the job to the ordinary slice. Nothing here
+    uploads or starts a print: every start-time check still runs on the copy.
+    """
+    import copy as _copy
+    import shutil
+    from ..core import slice_recipe as sr
+    from ..core.background_slice import SLICE_JOB_FIELDS
+    path = Path(job_path)
+    job = json.loads(path.read_text())
+    earlier_path = (job.get('reused_decisions') or {}).get('job_json')
+    if not earlier_path:
+        return None
+    try:
+        earlier = json.loads(Path(earlier_path).read_text())
+    except (OSError, ValueError) as exc:
+        logger.info('reused slice: the earlier job record is unreadable (%s); slicing again', exc)
+        return None
+    if not isinstance(earlier, dict) or not isinstance(earlier.get('slice_recipe'), dict):
+        logger.info('reused slice: the earlier job has no slice recipe; slicing again')
+        return None
+    st = printer_state.load(job["printer_id"]) if job.get("printer_id") else printer_state.load()
+    if copies:
+        job['copies'] = int(copies)
+    current = sr.record(sr.slice_recipe(job, file_sha256(job['downloaded_file']), st,
+                                        copies=copies, scale=scale, brim_override=brim_override))
+    if recipe_sha256 is not None and recipe_sha256 != current['sha256']:
+        return None  # _slice_job refuses a request bound to another recipe, with its own message
+    refusal = reused_slice_refusal(job, earlier, current['sha256'])
+    if refusal:
+        logger.info('reused slice: not reusing the earlier G-code because %s; slicing again', refusal)
+        return None
+    folder = Path(earlier_path).parent
+    prefixes = sorted({str(folder), str(folder.resolve())}, key=len, reverse=True)
+    moved = []
+    fields = [field for field in SLICE_JOB_FIELDS + _REUSED_SLICE_EXTRA
+              if field != 'gcode_full_verified_sha256' and field in earlier]
+    carried = {field: _rebased(_copy.deepcopy(earlier[field]), prefixes, str(path.parent), moved)
+               for field in fields}
+    copied = []
+    for src, dest in moved:
+        if src.is_file() and not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            copied.append(dest)
+    adopted = {key: value for key, value in job.items()
+               if key not in SLICE_JOB_FIELDS and key not in _REUSED_SLICE_EXTRA}
+    adopted.update(carried)
+    problem = unverified_artifact(adopted)
+    if problem:
+        for dest in copied:
+            dest.unlink(missing_ok=True)
+        logger.warning('reused slice: the copied G-code did not verify (%s); slicing again', problem)
+        return None
+    adopted['reused_slice'] = {'from_intake': earlier.get('intake_id'), 'from_job': str(earlier_path),
+                               'recipe_sha256': current['sha256'],
+                               'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+    write_job(path.parent, adopted)
+    _timing(job_path, 'slice_done', path='reused')
+    gcodes = [str(gcode) for gcode in artifact_gcodes(adopted)]
+    print('REUSED verified slice (not uploaded): ' + ', '.join(gcodes))
+    return gcodes if adopted.get('derived_plates') else Path(gcodes[0])
 
 
 def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
