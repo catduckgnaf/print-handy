@@ -498,6 +498,12 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+print{_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?what\s+(?:did|does)\s+(?:that|this)\s+print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
     (re.compile(rf"^(?:please\s+)?print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    # The dropped-file asks (#1661): the same cost question about the
+    # attachment in hand. The handler prices the file when one is
+    # attached; without one it answers like the bare forms above.
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would|did|does)\s+(?:this|that)\s+(?:file|g-?code|3mf)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?what\s+(?:will|would|did|does)\s+(?:this|that)\s+(?:file|g-?code|3mf)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+(?:file|g-?code|3mf){_END}", re.I), "/print-cost"),
     # Channel switches (#1634): "switch helixscreen to beta", "change the
     # helixscreen channel to beta", "put helixscreen on stable". Only ever
     # the did-you-mean prompt; the command then shows the exact one-line
