@@ -361,8 +361,19 @@ def set_color_decisions(job, decisions):
 
 
 def _recipe_binding(job):
-    """Recipe fields every artifact_binding carries; slice_job records the recipe before slicing."""
-    return {'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256']}
+    """Recipe fields every artifact_binding carries; slice_job records the recipe before slicing.
+
+    The binding also names the build that made the slice and the author
+    settings that build resolves from the job's source (#1648 item 7, #1665):
+    the recipe does not cover either, so without them a later build — or the
+    same source resolved differently, as a Cura project was before the stack
+    resolver fix — would silently reuse G-code it would not have produced.
+    """
+    from .. import __version__
+    from ..core import author_settings
+    return {'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256'],
+            'print_handy_version': __version__,
+            'author_settings_sha256': author_settings.resolved_digest(job.get('downloaded_file'))}
 
 
 def artifact_gcodes(job):
@@ -404,8 +415,38 @@ def unverified_artifact(job):
         expected = sorted(str(value) for value in recorded.values())
     else:
         return 'its slice binding records no G-code hash'
-    if sorted(file_sha256(path) for path in paths) != expected:
+    try:
+        actual = sorted(file_sha256(path) for path in paths)
+    except OSError:
+        # A file that vanishes between the check above and the hash read is
+        # the same refusal as a missing one, never an exception (#1648 item 7).
+        return 'its G-code is no longer on disk'
+    if actual != expected:
         return 'its G-code changed after it was verified'
+    return None
+
+
+def stale_build_refusal(job, source):
+    """Why ``job``'s slice must not be reused by this build, or None (#1648 item 7, #1665).
+
+    Reuse is refused when the artifact was sliced by another Print Handy
+    version than this one, or when the author settings this build resolves
+    from ``source`` (the new job's source file; the bytes are SHA-identical)
+    differ from the digest the slicing build recorded in the binding. A
+    binding that predates the stamps, or a source whose settings cannot be
+    resolved, never matches. The artifact's own integrity is
+    ``unverified_artifact``'s question, not this one's.
+    """
+    from .. import __version__
+    from ..core import author_settings
+    binding = job.get('artifact_binding') if isinstance(job, dict) else None
+    if not isinstance(binding, dict):
+        return None
+    if binding.get('print_handy_version') != __version__:
+        return 'it was sliced by a different Print Handy version'
+    digest = author_settings.resolved_digest(source)
+    if digest is None or binding.get('author_settings_sha256') != digest:
+        return 'the author settings this build resolves from the source differ from the ones it was sliced with'
     return None
 
 
