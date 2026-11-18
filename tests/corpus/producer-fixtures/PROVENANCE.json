@@ -23,6 +23,20 @@
       "sha256": "d61bb9d56ec9e29c6fea418c4f2a57c47851adba98a68f90ef1b4fc99674cee8"
     },
     {
+      "file": "orca-genuine.3mf",
+      "class": "genuine",
+      "producer": "OrcaSlicer-2.5.1",
+      "basis": "Exported by the real OrcaSlicer 2.5.1 application (official Ubuntu 24.04 AppImage, SHA-256 073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb; the same 2.5.1 release CI pins as its flatpak bundle in .github/workflows/ci.yml) through its CLI under Xvfb: AppRun --export-3mf orca-genuine.3mf --outputdir <dir> cube.stl (a closed 20 mm cube). The archive's own root model carries the OrcaSlicer metadata 2.5.1; its Application metadata names the Bambu base (BambuStudio-02.08.01.55), which is why the OrcaSlicer metadata is the producer proof.",
+      "sha256": "498148e91ab2c3594d24bfe3e28e412a40a67589cfa2dcbf5bcc44783ac30ee5"
+    },
+    {
+      "file": "bambu-genuine.3mf",
+      "class": "genuine",
+      "producer": "BambuStudio-02.08.02.61",
+      "basis": "Exported by the real Bambu Studio 02.08.02.61 application (official Ubuntu 24.04 AppImage, SHA-256 d501b103fac5424513ec0e8d6bc145fb30719de2c7d94d7320d723740c81a7fd; the same version as the Flathub commit 68a634d4d733ce7acf79009095db6f7ca76625f0eb810eef1e92dc7adeba7852 the Bambu CI leg pins) through its CLI under Xvfb: AppRun --export-3mf bambu-genuine.3mf --outputdir <dir> cube.stl (a closed 20 mm cube). The archive's own Application metadata records BambuStudio-02.08.02.61 and it carries no OrcaSlicer metadata.",
+      "sha256": "8719ff99185093798ec71d8b5fe5d7044037ca04ff5f9fcc6068387d5aca55e1"
+    },
+    {
       "file": "prusa-rich-spec-synthetic.3mf",
       "class": "spec-synthetic",
       "producer": "PrusaSlicer (format)",

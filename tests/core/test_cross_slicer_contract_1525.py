@@ -30,12 +30,15 @@ def _provenance():
 def test_provenance_manifest_matches_the_bytes_on_disk():
     rows = _provenance()
     assert set(rows) == {"cura-spec-synthetic.3mf", "cura-genuine.3mf",
-                         "prusa-genuine.3mf", "prusa-rich-spec-synthetic.3mf"}
+                         "prusa-genuine.3mf", "prusa-rich-spec-synthetic.3mf",
+                         "orca-genuine.3mf", "bambu-genuine.3mf"}
     for name, row in rows.items():
         digest = hashlib.sha256((FIXTURES / name).read_bytes()).hexdigest()
         assert digest == row["sha256"], name
     assert rows["cura-genuine.3mf"]["class"] == "genuine"
     assert rows["prusa-genuine.3mf"]["class"] == "genuine"
+    assert rows["orca-genuine.3mf"]["class"] == "genuine"
+    assert rows["bambu-genuine.3mf"]["class"] == "genuine"
     assert rows["cura-spec-synthetic.3mf"]["class"] == "spec-synthetic"
     assert rows["prusa-rich-spec-synthetic.3mf"]["class"] == "spec-synthetic"
 
@@ -113,6 +116,61 @@ def test_prusa_rich_fixture_fidelity_through_the_production_entry_points():
     assert roles["support_enforcers"] == ["build:0/volume4"]
     assert any("painted color identity" in warning
                for warning in report["warnings"])
+
+
+def test_genuine_orca_fixture_proves_its_producer_inside_the_archive():
+    fixture = FIXTURES / "orca-genuine.3mf"
+    with zipfile.ZipFile(fixture) as archive:
+        model = archive.read("3D/3dmodel.model").decode("utf-8", "replace")
+    # The producer proof is OrcaSlicer's own metadata element: the
+    # Application metadata of a genuine Orca save names its Bambu base,
+    # so an Application-only reader mislabels this file as Bambu.
+    assert '<metadata name="OrcaSlicer">2.5.1</metadata>' in model
+    assert "BambuStudio-02.08.01.55" in model
+    described = source_descriptor.describe(fixture)
+    assert described["kind"] == "orca"
+    assert described["format"] == "orca_project"
+    assert described["application"] == "OrcaSlicer-2.5.1"
+    assert described["source_version"] == "2.5.1"
+    assert described["user_class"] == "editable-project"
+    # The mesh lives in a 3D/Objects component file, not the root model.
+    assert described["has_geometry"] is True
+    assert described["has_thumbnail"] is True
+    assert described["problems"] == []
+    record = author_settings.read_project(fixture)
+    assert record["format"] == "orca_project"
+    assert record["source_slicer"] == "OrcaSlicer"
+    assert record["source_family"] == "orca"
+    assert record["source_version"] == "2.5.1"
+    inventory = source_colors.inventory(fixture)
+    assert [(row["source_extruder"], row["material"])
+            for row in inventory["filaments"]] == [(1, "PLA")]
+    assert remap_integrity.validate(fixture)["ok"] is True
+
+
+def test_genuine_bambu_fixture_proves_its_producer_inside_the_archive():
+    fixture = FIXTURES / "bambu-genuine.3mf"
+    with zipfile.ZipFile(fixture) as archive:
+        model = archive.read("3D/3dmodel.model").decode("utf-8", "replace")
+    assert '<metadata name="Application">BambuStudio-02.08.02.61</metadata>' in model
+    assert '<metadata name="OrcaSlicer">' not in model
+    described = source_descriptor.describe(fixture)
+    assert described["kind"] == "bambu"
+    assert described["format"] == "orca_project"
+    assert described["application"] == "BambuStudio-02.08.02.61"
+    assert described["source_version"] == "02.08.02.61"
+    assert described["user_class"] == "editable-project"
+    assert described["has_geometry"] is True
+    assert described["problems"] == []
+    record = author_settings.read_project(fixture)
+    assert record["format"] == "orca_project"
+    assert record["source_slicer"] == "BambuStudio"
+    assert record["source_family"] == "bambu_studio"
+    assert record["source_version"] == "02.08.02.61"
+    inventory = source_colors.inventory(fixture)
+    assert [(row["source_extruder"], row["material"])
+            for row in inventory["filaments"]] == [(1, "PLA")]
+    assert remap_integrity.validate(fixture)["ok"] is True
 
 
 def test_bambu_orca_destination_descriptor_contract(tmp_path):

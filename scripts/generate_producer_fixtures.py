@@ -14,16 +14,25 @@ Two honesty classes, never blurred:
 
 Usage:
     python3 scripts/generate_producer_fixtures.py [--prusa /path/to/prusa-slicer]
-                                                  [--cura /path/to/cura]
+                                                  [--orca /path/to/orca-slicer]
+                                                  [--bambu /path/to/bambu-studio]
+                                                  [--cura-genuine /path/to/cura-saved.3mf]
 
 Without a producer binary the script (re)builds only the spec-synthetic
-fixtures and leaves genuine entries untouched.
+fixtures and leaves genuine entries untouched. The Orca/Bambu exports
+run under a display (wrap the call in xvfb-run on a headless machine),
+and a file is recorded as genuine only when its own archive carries
+the producer proof: an OrcaSlicer metadata element for OrcaSlicer, an
+Application metadata naming BambuStudio (and no OrcaSlicer element)
+for Bambu Studio.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -261,10 +270,89 @@ def build_prusa_genuine(prusa_binary: str, work: Path) -> tuple[Path, str] | Non
     return target, banner[0] if banner else "PrusaSlicer"
 
 
+def build_orca_genuine(orca_binary: str, work: Path) -> tuple[Path, str] | None:
+    """Run a real OrcaSlicer CLI to export a genuine .3mf, or None.
+
+    The archive itself must prove the producer: a genuine OrcaSlicer
+    save carries an OrcaSlicer metadata element in its root model
+    (its Application metadata names the Bambu base, so that element
+    is the proof, and its value is the producer version).
+    """
+    work.mkdir(parents=True, exist_ok=True)
+    stl = work / "cube.stl"
+    stl.write_text(CUBE_STL)
+    out = work / "orca-out"
+    out.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [orca_binary, "--export-3mf", "orca-genuine.3mf",
+         "--outputdir", str(out), str(stl)],
+        capture_output=True, text=True, timeout=300)
+    made = out / "orca-genuine.3mf"
+    if result.returncode != 0 or not made.is_file():
+        print(f"OrcaSlicer genuine export failed: {result.stderr[-500:]}",
+              file=sys.stderr)
+        return None
+    with zipfile.ZipFile(made) as archive:
+        model = archive.read("3D/3dmodel.model").decode("utf-8", "replace")
+    match = re.search(r'<metadata name="OrcaSlicer">\s*([^<]+?)\s*</metadata>', model)
+    if not match:
+        print("OrcaSlicer export carries no OrcaSlicer metadata; "
+              "refusing to call it genuine", file=sys.stderr)
+        return None
+    target = OUT / "orca-genuine.3mf"
+    shutil.copyfile(made, target)
+    return target, f"OrcaSlicer-{match.group(1)}"
+
+
+def build_bambu_genuine(bambu_binary: str, work: Path) -> tuple[Path, str] | None:
+    """Run a real Bambu Studio CLI to export a genuine .3mf, or None.
+
+    The archive itself must prove the producer: its Application
+    metadata names BambuStudio with its version, and it carries no
+    OrcaSlicer metadata element (which would make it an Orca save).
+    """
+    work.mkdir(parents=True, exist_ok=True)
+    stl = work / "cube.stl"
+    stl.write_text(CUBE_STL)
+    out = work / "bambu-out"
+    out.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [bambu_binary, "--export-3mf", "bambu-genuine.3mf",
+         "--outputdir", str(out), str(stl)],
+        capture_output=True, text=True, timeout=300)
+    made = out / "bambu-genuine.3mf"
+    if result.returncode != 0 or not made.is_file():
+        print(f"Bambu Studio genuine export failed: {result.stderr[-500:]}",
+              file=sys.stderr)
+        return None
+    with zipfile.ZipFile(made) as archive:
+        model = archive.read("3D/3dmodel.model").decode("utf-8", "replace")
+    match = re.search(r'<metadata name="Application">\s*(BambuStudio-[^<]+?)\s*</metadata>',
+                      model)
+    if not match:
+        print("Bambu Studio export does not name BambuStudio in its "
+              "Application metadata; refusing to call it genuine",
+              file=sys.stderr)
+        return None
+    if re.search(r'<metadata name="OrcaSlicer">', model):
+        print("Bambu Studio export carries an OrcaSlicer metadata "
+              "element; refusing to call it a Bambu save", file=sys.stderr)
+        return None
+    target = OUT / "bambu-genuine.3mf"
+    shutil.copyfile(made, target)
+    return target, match.group(1)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prusa", default=None,
                         help="path to a real prusa-slicer binary")
+    parser.add_argument("--orca", default=None,
+                        help="path to a real OrcaSlicer binary (or its "
+                             "extracted AppImage AppRun)")
+    parser.add_argument("--bambu", default=None,
+                        help="path to a real Bambu Studio binary (or its "
+                             "extracted AppImage AppRun)")
     parser.add_argument("--cura-genuine", default=None,
                         help="path to a project file the real Cura "
                              "application saved through its GUI; recorded "
@@ -318,6 +406,27 @@ def main() -> int:
                 # provenance and must not land in a public fixture record.
                 "basis": f"{Path(args.prusa).name} --export-3mf --output "
                          f"{target.name} cube.stl (a closed 20 mm cube)",
+                "sha256": _sha256(target)}
+    for flag, builder in (("orca", build_orca_genuine),
+                          ("bambu", build_bambu_genuine)):
+        binary = getattr(args, flag)
+        if not binary:
+            continue
+        import tempfile
+        work = Path(args.work) if args.work else Path(
+            tempfile.mkdtemp(prefix="producer-fixtures-"))
+        work.mkdir(parents=True, exist_ok=True)
+        made = builder(binary, work)
+        if made:
+            target, producer = made
+            by_name[target.name] = {
+                "file": target.name, "class": "genuine",
+                "producer": producer,
+                # The binary's name only: a local install path is not
+                # provenance and must not land in a public fixture record.
+                "basis": f"{Path(binary).name} --export-3mf {target.name} "
+                         f"cube.stl (a closed 20 mm cube); the archive's "
+                         f"own metadata records {producer} as its producer",
                 "sha256": _sha256(target)}
     if args.cura_genuine:
         # Cura has no headless project save: the genuine fixture is a

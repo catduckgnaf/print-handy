@@ -343,3 +343,39 @@ Four rows move with the completion change, each on executed evidence:
   tier does pin is the destination descriptor/author contract every
   Bambu conversion starts from
   (`test_bambu_orca_destination_descriptor_contract`).
+
+## Genuine Orca/Bambu addendum (#1525)
+
+The corpus now carries a genuine producer fixture for every supported
+source slicer. The two additions were exported by the real producers'
+own CLIs (`--export-3mf` on the same closed 20 mm cube), from the
+official AppImages whose SHA-256 digests are pinned in
+`scripts/generate_producer_fixtures.py` (`--orca`, `--bambu`) and the
+extended workflow:
+
+- **OrcaSlicer 2.5.1** (`orca-genuine.3mf`). The producer proof inside
+  the archive is the `<metadata name="OrcaSlicer">2.5.1</metadata>`
+  element: a genuine Orca save names its Bambu base in the Application
+  metadata (`BambuStudio-02.08.01.55`), so readers that trust
+  Application alone mislabel the file as Bambu. Both production readers
+  (`source_descriptor`, `author_settings`) now honor the OrcaSlicer
+  element over the Application name, and the descriptor also finds
+  geometry in the `3D/Objects` component files genuine Orca/Bambu
+  saves use, and plate thumbnails at `Metadata/plate_N.png`. Before
+  this change the genuine file read as a Bambu project with no
+  geometry (`unsupported-corrupt`); after it, it reads as an OrcaSlicer
+  2.5.1 editable project, and it slices through the production entry
+  point (`orca_adapter.slice_model`) in
+  `tests/slicer/test_cross_slicer_real.py`.
+- **Bambu Studio 02.08.02.61** (`bambu-genuine.3mf`). The producer
+  proof is its Application metadata, with no OrcaSlicer element. It
+  reads as a Bambu editable project and slices through the same
+  production entry point. A raw Orca CLI slice of this file fails on
+  Bambu's own default sentinel values
+  (`raft_first_layer_expansion = -1`); the production rebuild replaces
+  them with the destination template's values, which is the route a
+  foreign project takes in Print Handy.
+
+Unchanged by this addendum: the Bambu destination check is still not
+branch-protection-required (an owner decision), and the U1 stays
+hardware-unverified.

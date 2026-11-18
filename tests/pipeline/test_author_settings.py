@@ -747,6 +747,32 @@ def test_source_slicer_version_is_the_application_version_never_the_preset_versi
     assert result["source_slicer_version_status"] == "not_recorded_by_source"
 
 
+def _with_orca_metadata(path, application, orca_version):
+    with zipfile.ZipFile(path) as archive:
+        entries = {info.filename: archive.read(info) for info in archive.infolist()}
+    entries["3D/3dmodel.model"] = entries["3D/3dmodel.model"].replace(
+        b"<resources>",
+        (f'<metadata name="Application">{application}</metadata>'
+         f'<metadata name="OrcaSlicer">{orca_version}</metadata><resources>').encode(), 1)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return path
+
+
+def test_orca_metadata_outranks_the_bambu_application_name(tmp_path):
+    # A genuine OrcaSlicer save names its Bambu base in Application
+    # ("BambuStudio-02.08.01.55") and itself in an OrcaSlicer metadata
+    # element; the element is the producing application and its version
+    # (proven by tests/corpus/producer-fixtures/orca-genuine.3mf).
+    source = _with_orca_metadata(bambu_project(tmp_path / "orca.3mf", {"wall_loops": "4"}),
+                                 "BambuStudio-02.08.01.55", "2.5.1")
+    assert author_settings.source_identity(source) == ("orca", "2.5.1", "orca_project")
+    result = author_settings.conversion_provenance(source, TEMPLATE, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["source_slicer"] == "OrcaSlicer"
+    assert result["source_slicer_version"] == "2.5.1"
+
+
 def test_prusa_source_slicer_version_is_parsed_from_the_generated_by_line(tmp_path):
     source = prusa_project(tmp_path / "prusa.3mf",
                            PRUSA_CONFIG.replace("PrusaSlicer 2.8.1", "PrusaSlicer 2.8.1 on 2024-05-01 at 10:00:00 UTC"))

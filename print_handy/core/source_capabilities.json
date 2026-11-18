@@ -2,9 +2,9 @@
   "cells": [
     {
       "destination": "orca",
-      "evidence": "real-destination-slice",
+      "evidence": "genuine-producer",
       "feature": "import, slice, editable export, filament accounting",
-      "fixture": "tests/corpus/cases (Orca-shaped projects)",
+      "fixture": "tests/corpus/producer-fixtures/orca-genuine.3mf",
       "gap": null,
       "id": "orca-source-orca-slice",
       "owner": "print_handy/core/orca_adapter.py",
@@ -12,9 +12,9 @@
     },
     {
       "destination": "orca",
-      "evidence": "real-destination-slice",
+      "evidence": "genuine-producer",
       "feature": "import and slice",
-      "fixture": "tests/corpus/cases/foreign-bambu-profile",
+      "fixture": "tests/corpus/producer-fixtures/bambu-genuine.3mf",
       "gap": null,
       "id": "bambu-source-orca-slice",
       "owner": "print_handy/core/author_settings.py",
@@ -32,20 +32,20 @@
     },
     {
       "destination": "orca",
-      "evidence": "real-destination-slice",
+      "evidence": "genuine-producer",
       "feature": "settings translation, object and volume roles, real slice",
-      "fixture": "tests/slicer/test_prusa_foreign_real.py",
-      "gap": "The long-standing slicer-tier fixture is a hand-built Slic3r config shape, not a genuine PrusaSlicer export. A genuine PrusaSlicer-produced fixture is tracked by the fixture provenance manifest (tests/corpus/producer-fixtures/PROVENANCE.json); until its class is genuine, this cell does not claim genuine-producer evidence.",
+      "fixture": "tests/corpus/producer-fixtures/prusa-genuine.3mf",
+      "gap": "The genuine PrusaSlicer CLI fixture is geometry-only (the CLI writes no settings snapshot); modifier, negative-volume, MMU paint and support-only fidelity are proven through the production readers on the spec-synthetic rich fixture (tests/corpus/producer-fixtures/prusa-rich-spec-synthetic.3mf), labeled spec-synthetic in PROVENANCE.json.",
       "id": "prusa-source-orca-slice",
       "owner": "print_handy/core/author_settings.py",
       "source": "prusa"
     },
     {
       "destination": "orca",
-      "evidence": "spec-synthetic",
+      "evidence": "genuine-producer",
       "feature": "validated-subset settings translation, then destination slice",
-      "fixture": "tests/corpus/producer-fixtures/cura-spec-synthetic.3mf",
-      "gap": "No genuine Cura-produced fixture is claimed until a real UltiMaker Cura binary produces one in the extended tier; see the fixture provenance manifest and scripts/generate_producer_fixtures.py.",
+      "fixture": "tests/corpus/producer-fixtures/cura-genuine.3mf",
+      "gap": null,
       "id": "cura-source-orca-slice",
       "owner": "print_handy/core/source_descriptor.py",
       "source": "cura"
@@ -93,18 +93,6 @@
   ],
   "gaps": [
     {
-      "cell": "cura-source-orca-slice",
-      "gap": "Genuine Cura-produced 3MF fixture not yet produced in this environment; translation ships against spec-synthetic fixtures plus an extended-tier generator script.",
-      "id": "gap-cura-genuine-fixture",
-      "owner": "extended CI tier (.github/workflows/cross-slicer-extended.yml)"
-    },
-    {
-      "cell": "prusa-source-orca-slice",
-      "gap": "Genuine PrusaSlicer-produced fixture provenance is recorded in tests/corpus/producer-fixtures/PROVENANCE.json; the slicer-tier hand-built fixture remains labeled synthetic.",
-      "id": "gap-prusa-genuine-fixture",
-      "owner": "extended CI tier (.github/workflows/cross-slicer-extended.yml)"
-    },
-    {
       "cell": "bambu-source-bambu-slice",
       "gap": "Bambu Studio slicer check exists in CI but is not branch-protection-required (verified 2026-11-16). Promoting it is a repository-settings decision for catduck, not a code change in this PR.",
       "id": "gap-bambu-not-required",
@@ -121,6 +109,12 @@
       "gap": "No physical U1 hardware verification exists; feasibility output is a report, never a print plan, and U1 stays hardware-unverified.",
       "id": "gap-u1-hardware",
       "owner": "manual hardware verification"
+    },
+    {
+      "cell": "prusa-source-orca-slice",
+      "gap": "The genuine PrusaSlicer CLI fixture is geometry-only (the CLI writes no settings snapshot); modifier, negative-volume, MMU paint and support-only fidelity are proven through the production readers on the spec-synthetic rich fixture (tests/corpus/producer-fixtures/prusa-rich-spec-synthetic.3mf), labeled spec-synthetic in PROVENANCE.json.",
+      "id": "gap-prusa-rich-fidelity",
+      "owner": "tests/core/test_cross_slicer_contract_1525.py"
     }
   ],
   "issue": 1525,

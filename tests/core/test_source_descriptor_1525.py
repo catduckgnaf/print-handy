@@ -72,6 +72,38 @@ def test_bambu_and_orca_kinds_come_from_application_metadata(tmp_path):
     assert descriptor["source_version"] == "2.5.0"
 
 
+def test_orca_metadata_outranks_the_bambu_application_name(tmp_path):
+    # A genuine OrcaSlicer save (orca-genuine.3mf) names its Bambu base
+    # in Application and itself in an OrcaSlicer metadata element, and
+    # keeps its mesh in a 3D/Objects component file. Both shapes are
+    # pinned here synthetically; the genuine fixture is pinned in
+    # test_cross_slicer_contract_1525.py.
+    component = MODEL.replace('id="1"', 'id="9"')
+    root_only = f"""<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="{NS}">
+ <metadata name="Application">BambuStudio-02.08.01.55</metadata>
+ <metadata name="OrcaSlicer">2.5.1</metadata>
+ <resources><object id="1" type="model"><components>
+  <component objectid="9"/>
+ </components></object></resources>
+ <build><item objectid="1"/></build>
+</model>"""
+    target = _write(tmp_path, "orca.3mf", {
+        "3D/3dmodel.model": root_only,
+        "3D/Objects/cube_1.model": component,
+        "Metadata/project_settings.config": "{}"})
+    descriptor = sd.describe(target)
+    assert descriptor["kind"] == "orca"
+    assert descriptor["application"] == "OrcaSlicer-2.5.1"
+    assert descriptor["source_version"] == "2.5.1"
+    assert descriptor["has_geometry"] is True
+    assert descriptor["user_class"] == "editable-project"
+    record = author_settings.read_project(target)
+    assert record["source_slicer"] == "OrcaSlicer"
+    assert record["source_family"] == "orca"
+    assert record["source_version"] == "2.5.1"
+
+
 def test_anycubic_marker_is_detection_only(tmp_path):
     target = _write(tmp_path, "ac.3mf", {
         **_base_members(),

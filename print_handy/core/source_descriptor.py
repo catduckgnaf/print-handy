@@ -55,6 +55,13 @@ FORBIDDEN_SOURCE_KEYS = tuple(
 
 _NS = "{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}"
 _APPLICATION = re.compile(rb'<metadata\s+name="Application"\s*>\s*([^<]*?)\s*</metadata>')
+# A genuine OrcaSlicer save names its Bambu base in Application
+# ("BambuStudio-02.08.01.55") and itself in a separate OrcaSlicer metadata
+# element ("2.5.1"); that element is the producer proof, proven by
+# tests/corpus/producer-fixtures/orca-genuine.3mf (#1525). Bambu Studio
+# saves carry no such element.
+_ORCA_METADATA = re.compile(rb'<metadata\s+name="OrcaSlicer"\s*>\s*([^<]*?)\s*</metadata>')
+_PLATE_THUMBNAIL = re.compile(r"Metadata/plate_\d+\.png$", re.I)
 
 
 class DescriptorRefused(ValueError):
@@ -108,8 +115,12 @@ def _model_facts(archive, names):
     if member is None:
         return 0, 0, False, None
     data = _bounded_read(archive, member, MAX_MODEL_BYTES)
-    app_match = _APPLICATION.search(data[:1 << 16])
+    head = data[:1 << 16]
+    app_match = _APPLICATION.search(head)
     application = app_match.group(1).decode("utf-8", "replace") if app_match else None
+    orca_match = _ORCA_METADATA.search(head)
+    if orca_match:
+        application = f"OrcaSlicer-{orca_match.group(1).decode('utf-8', 'replace')}"
     try:
         root = ET.fromstring(data)
     except ET.ParseError as exc:
@@ -117,6 +128,22 @@ def _model_facts(archive, names):
     objects = root.findall(f".//{_NS}object")
     items = root.findall(f".//{_NS}build/{_NS}item")
     has_mesh = root.find(f".//{_NS}mesh") is not None
+    if not has_mesh:
+        # Genuine Orca/Bambu saves keep the mesh in component files under
+        # 3D/Objects/ and reference them from the root model; geometry
+        # lives there, not in the root member.
+        for other in sorted(names):
+            if other == member or not (other.startswith("3D/")
+                                       and other.endswith(".model")):
+                continue
+            try:
+                component = ET.fromstring(_bounded_read(archive, other,
+                                                        MAX_MODEL_BYTES))
+            except (ET.ParseError, DescriptorRefused):
+                continue
+            if component.find(f".//{_NS}mesh") is not None:
+                has_mesh = True
+                break
     return len(objects), len(items), has_mesh, application
 
 
@@ -249,7 +276,8 @@ def describe(source):
         out.update({"object_count": objects, "build_item_count": items,
                     "has_geometry": has_mesh, "application": application})
         out["has_thumbnail"] = any(
-            n.lower().endswith((".png", ".jpg", ".jpeg")) and "thumbnail" in n.lower()
+            (n.lower().endswith((".png", ".jpg", ".jpeg")) and "thumbnail" in n.lower())
+            or _PLATE_THUMBNAIL.search(n)
             for n in names)
         gcode_members = [n for n in names if n.lower().endswith((".gcode", ".gco"))]
         plate_gcode = [n for n in names if "/plate_" in n.lower()
