@@ -456,12 +456,12 @@ def test_status_unavailable_until_the_model_is_downloaded(tmp_path):
 
 def test_settings_defaults_and_env_form():
     data = settings.load(home=settings.HOME, local=False, environ={})
-    assert data["vision"]["local_detector_enabled"] is False
+    assert data["vision"]["local_detector_enabled"] is True  # the default camera check
     assert data["vision"]["local_model_path"] == ""
-    env = {"PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED": "true",
+    env = {"PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED": "false",
            "PRINT_HANDY__VISION__LOCAL_MODEL_PATH": "/models/mine.onnx"}
     data = settings.load(home=settings.HOME, local=False, environ=env)
-    assert data["vision"]["local_detector_enabled"] is True
+    assert data["vision"]["local_detector_enabled"] is False
     assert data["vision"]["local_model_path"] == "/models/mine.onnx"
 
 

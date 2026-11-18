@@ -274,14 +274,14 @@ def test_the_old_vision_settings_still_drive_the_check(monkeypatch):
 # --- settings ------------------------------------------------------------------------------------
 
 def test_the_shipped_defaults_leave_every_tier_empty():
-    assert settings._read(settings.HOME)["ai"] == {"allowed_users": [], "edit_requests_per_hour": 20,
+    assert settings._read(settings.HOME)["ai"] == {"allowed_users": "", "edit_requests_per_hour": 20,
                                                 "small": {}, "chat": {}, "heavy": {}}
 
 
 def test_ai_tier_settings_are_validated():
     data = {}
     settings._validate_ai(data)
-    assert data["ai"] == {"allowed_users": [], "edit_requests_per_hour": 20,
+    assert data["ai"] == {"allowed_users": "", "edit_requests_per_hour": 20,
                                                 "small": {}, "chat": {}, "heavy": {}}
     good = {"ai": {"small": {"chat_url": URL, "model": "m", "fallback_model": "n", "fallback_url": OTHER_URL,
                              "api_key_env": "TIER_KEY", "fallback_api_key_env": "BACKUP_KEY", "timeout_s": 5}}}
@@ -303,6 +303,8 @@ def test_a_tier_that_only_supplies_a_key_makes_the_inherited_endpoint_ready(monk
     config = vw._config.cfg()
     monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {"api_key_env": "TIER_KEY"}})
     monkeypatch.setitem(config["services"], "vision_chat_url", "https://vision.example.com/v1/chat")
+    # The endpoint route alone: the local detector (on by default) would answer otherwise.
+    monkeypatch.setitem(config["vision"], "local_detector_enabled", False)
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     assert vw.vision_ready(lambda: "")
     endpoint = Endpoint(answer='{"verdict": "ok", "reason": "fine"}')

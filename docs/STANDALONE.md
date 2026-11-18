@@ -314,7 +314,7 @@ separate vision endpoint or need none, and keep their own gates: the **roast** (
 `vision.roast_enabled`, on by default) and the **camera watchdog** (`visual_watch.enabled`; its
 model route, `services.vision_chat_url` or `PRINT_VISION_URL`, is used only with `vision.ai_enabled`
 set to `true`, which is off by default; the built-in local failure detector,
-`vision.local_detector_enabled`, #455, needs no model endpoint). The chat switch changes none of them.
+`vision.local_detector_enabled`, on by default, needs no model endpoint). The chat switch changes none of them.
 A stock install makes no model call outside `/print-design`.
 
 ## How the bot is put together

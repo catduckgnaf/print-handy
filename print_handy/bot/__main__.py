@@ -29,7 +29,7 @@ def checks(cfg):
     name = str(cfg["bot"].get("platform") or "discord")
     implemented = platform.platform_module(name) is not None
     add("platform", implemented, name if implemented else
-        f"{name}; platform {name!r} is not implemented yet (#164) — discord, telegram and matrix are available")
+        f"{name}; platform {name!r} is not implemented yet; discord, telegram and matrix are available")
     if name == "discord":
         token_env = cfg["discord"]["token_env"]
         add("token", bool(_config.discord_token()), f"${token_env} is set" if _config.discord_token()
@@ -175,9 +175,9 @@ def checks(cfg):
                 add("roast", True, f"on (local corpus, {size} lines, no LLM; "
                                    "set vision.roast_enabled=false to turn roasts off)")
     # Local failure detector (#455): the built-in ONNX route for the camera
-    # watchdog on installs with no vision endpoint. Off by default; when on
-    # it judges frames only while no endpoint route is configured (endpoint
-    # routes keep precedence), and it never answers roasts or label reads.
+    # watchdog. On by default; it judges frames whenever no endpoint route
+    # is in use, and it never answers roasts or label reads. A fresh
+    # install waits on the first model download: that is not a fault.
     from ..runtime import local_vision as _local_vision
     _detector_state, _detector_detail = _local_vision.detector_status(cfg)
     if _detector_state == "off":
@@ -185,6 +185,8 @@ def checks(cfg):
     elif _detector_state == "ready":
         add("local detector", True, f"on ({_detector_detail}; used by the camera watchdog "
                                     "only when no vision endpoint is configured)")
+    elif _local_vision.model_pending(cfg):
+        add("local detector", True, f"on, waiting for its first model download: {_detector_detail}")
     else:
         add("local detector", False, f"on, but unavailable: {_detector_detail}")
     # Local empty-plate reference (#455): the idle checks can certify an
@@ -253,7 +255,7 @@ def checks(cfg):
                                 "reference (vision.local_empty_enabled) or a vision endpoint "
                                 "with vision.ai_enabled")
     elif not vision_url and not env_vision_url and not _vw_gate.vision_ai_enabled(cfg):
-        add("auto light", True, "on, but the empty-plate check has no route: AI camera "
+        add("auto light", True, "on, but the empty-plate check has no route: vision endpoint camera "
                                 "checks are off (vision.ai_enabled is false) and no plate "
                                 "reference is calibrated (vision.local_empty_enabled, then "
                                 "/print-plate-calibrate)")
@@ -418,7 +420,7 @@ def run():
     if name == "matrix":
         from .matrix import run_bot
         return run_bot(cfg)
-    print(f"Platform {name!r} is not implemented yet (#164).", file=sys.stderr)  # unreachable while checks report it, kept as a guard
+    print(f"Platform {name!r} is not implemented yet.", file=sys.stderr)  # unreachable while checks report it, kept as a guard
     return 2
 
 

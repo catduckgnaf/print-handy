@@ -1124,6 +1124,11 @@ def test_vision_ready_needs_an_endpoint_the_watch_can_actually_use(monkeypatch):
     from print_handy.runtime import visual_watch as vw
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(vw, "_vision_missing_logged", False)
+    # The endpoint routes alone: the local detector (on by default) and a
+    # plate reference are turned off, whatever earlier tests left behind.
+    monkeypatch.setattr(vw.local_vision, "enabled", lambda cfg=None: False)
+    monkeypatch.setattr(vw.local_vision, "watch_source", lambda cfg=None: "auto")
+    monkeypatch.setattr(vw.local_empty, "reference_ready", lambda *a, **k: False)
     urls = {"vision_chat_url": ""}
     monkeypatch.setattr(vw._config, "service_url", lambda key: urls.get(key, ""))
     lines = []

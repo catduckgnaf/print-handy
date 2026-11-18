@@ -1772,7 +1772,7 @@ def _reconcile_finish(pid: str, result: dict[str, Any], assignments: dict[int, i
         rec = (result.get("_records") or {}).get(str(slot)) or {}
         if not rec.get("hex"):
             spool = by_id.get(assignments[slot]) or {}
-            rec = _slot_record(slot, spool, old_slots.get(str(slot)), "Reconciled from Spoolman (#798)")
+            rec = _slot_record(slot, spool, old_slots.get(str(slot)), "Reconciled from Spoolman")
         try:
             pushed = push_screen(slot, rec.get("material") or "", rec.get("hex") or "", mr=mr,
                                  pending_path=_pending_path(pending_path, pid), adapter=adapter)
@@ -1878,7 +1878,7 @@ def _reconcile_rebuild(pid: str, result: dict[str, Any], *, state: dict[str, Any
         spool = live[0]
         sid = int(spool["id"])
         old = old_slots.get(str(slot))
-        record = _slot_record(slot, spool, old, "Rebuilt from Spoolman ph_slot by reconcile (#798)")
+        record = _slot_record(slot, spool, old, "Rebuilt from Spoolman ph_slot by reconcile")
         if old is not None and old.get("spoolman_id") == sid:
             # Identity cross-check: the cache and Spoolman name the same spool
             # for this slot, so a material or color disagreement is a fact

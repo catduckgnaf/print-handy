@@ -112,7 +112,7 @@ CAPABILITIES = (
     Capability("print_history", "Past prints and their outcomes", READ_ONLY,
                examples=("What was my last print?", "Did the last print fail?"),
                handler="answer_status"),
-    Capability("print_pause", "Pause the current print (runs at once, as #1535 shipped)", MUTATING,
+    Capability("print_pause", "Pause the current print (runs at once)", MUTATING,
                examples=("Pause my print",), confirmation="none"),
     Capability("print_resume", "Resume a paused print", MUTATING,
                examples=("Resume it",), confirmation="existing"),
@@ -127,7 +127,7 @@ CAPABILITIES = (
                examples=("What maintenance is due?",), handler="answer_status"),
     Capability("capability_help", "What Print Handy can do, generated from this registry", READ_ONLY,
                examples=("What can you do?",), handler="answer_capability_help"),
-    Capability("indx_tool_question", "Tool questions on an INDX printer (#1198): registered here, "
+    Capability("indx_tool_question", "Tool questions on an INDX printer: registered here, "
                "answered honestly as not built yet", READ_ONLY,
                examples=("What is on T2?",), slots=("tool",), handler="answer_indx"),
     Capability("model_fit_question", "Fit and capability questions about a model or material", READ_ONLY,
@@ -1194,7 +1194,7 @@ def answer_capability_help(core, parsed, facade):
 
 def answer_indx(core, parsed, facade):
     return ("INDX tool questions are registered in the capability list, but INDX printer "
-            "support itself is not built yet (#1198), so I can't answer that honestly yet.")
+            "support itself is not built yet, so I can't answer that honestly yet.")
 
 
 def answer_fit(core, parsed, facade):
