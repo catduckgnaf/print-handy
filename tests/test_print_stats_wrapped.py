@@ -1004,5 +1004,14 @@ class RouteTests(unittest.TestCase):
             self.assertEqual(code, 400)
 
 
+def test_data_materials_shows_recorded_costs_without_material_breakdown():
+    from print_handy.webui.data_page import materials
+    html = materials({"breakdowns": {"by_material": {}}, "costs": {
+        "has_priced": True, "currency_code": "USD", "out_of_pocket_total": 12.5,
+        "priced_count": 1, "failed_count": 1, "failure_total": 3.0}})
+    assert "You spent" in html
+    assert "failed or were stopped" in html
+
+
 if __name__ == "__main__":
     unittest.main()

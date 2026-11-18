@@ -371,7 +371,7 @@ def materials(payload):
     costs = payload.get("costs") or {}
     cost_by_material = costs.get("by_material") or {}
     currency = costs.get("currency_code")
-    if not by_material:
+    if not by_material and not costs.get("has_priced"):
         return ""
     items = []
     for label, row in list(by_material.items())[:6]:
