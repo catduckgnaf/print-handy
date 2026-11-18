@@ -40,6 +40,11 @@ class TestConversionReport:
         assert classes == {"layer_height": "preserved", "wall_loops": "replaced",
                            "brim_width": "dropped", "mystery": "unknown"}
 
+    def test_changed_foreign_project_translation_is_translated(self):
+        assert cr.classify({"project_value": 0.2, "selected_value": 0.24,
+                            "selected_reason": "translation",
+                            "origin": "foreign_project"}) == "translated"
+
     def test_text_and_html_render_the_same_rows(self):
         report = cr.build_report(CONVERSION, job_id="j1")
         text = cr.render_text(report)

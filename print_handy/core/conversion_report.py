@@ -47,6 +47,8 @@ def classify(entry: dict) -> str:
         return "replaced"
     if entry.get("selected_reason") == "designer":
         return "preserved"
+    if entry.get("origin") == "foreign_project":
+        return "translated"
     return "unknown"
 
 
