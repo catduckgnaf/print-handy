@@ -261,6 +261,32 @@ def test_a_typed_choice_number_answers_the_question(server, flow_cfg, pipeline):
     assert current_session(flow_cfg, browser)["status"] == "cancelled"
 
 
+def test_a_clarifying_question_is_asked_in_the_thread_and_answered_there(
+        server, flow_cfg, monkeypatch):
+    """The one clarifying question a design may ask lands in the thread, and
+    the next message in the same box is its answer (as in chat)."""
+    from print_handy.bot.handlers import design as design_handler
+
+    complete = _scripted(["QUESTION: How deep should the plate be?", GOOD])
+    monkeypatch.setattr(design_handler, "_design_engine", lambda cfg, _c: design.DesignEngine(
+        cfg["paths"]["cache"], complete, cfg=cfg, runner=_runner))
+    browser = Browser(server)
+    browser.page()
+    browser.say("a plate with two holes")
+    _wait_for(lambda: "How deep should the plate be?" in thread_text(browser.page()),
+              "the clarifying question")
+    settled(server, browser)
+    assert current_session(flow_cfg, browser)["status"] == "awaiting_revision"
+    assert "Describe a new part" not in thread_text(browser.page())  # the box answers
+    browser.say("3 mm")
+    open_question(server, browser, "the question after the answer")
+    session = current_session(flow_cfg, browser)
+    assert session["turns"] == 1 and session["question_answer"] == "3 mm"
+    page = thread_text(browser.page())
+    assert page.index("How deep should the plate be?") < page.index("<p>3 mm</p>") \
+        < page.index("Design turn 1")
+
+
 def test_slice_it_by_button_hands_off(server, flow_cfg, pipeline):
     _complete, handed = pipeline
     browser = Browser(server)
