@@ -1407,6 +1407,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _config_save(self, form):
         return config_handlers_module.config_save(self, form)
 
+    def _config_field_save(self, form):
+        return config_handlers_module.config_field_save(self, form)
+
     def _debug_post(self, form):
         return config_handlers_module.debug_post(self, form)
 

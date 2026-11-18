@@ -224,6 +224,9 @@ button.secondary, .button.secondary {
 button.accent, .button.accent { background: var(--color-accent); color: var(--color-accent-ink); }
 button:disabled { opacity: 0.55; cursor: default; }
 .error { color: var(--color-bad); }
+.save-state { display: inline-block; margin-left: 0.5rem; font-size: 0.875rem; color: var(--color-muted); }
+.save-state[data-kind="ok"] { color: var(--color-ok); }
+.save-state[data-kind="error"] { color: var(--color-bad); }
 .help, .note { color: var(--color-muted); font-size: 0.875rem; }
 .notice, .banner {
   background: var(--color-surface); border: 1px solid var(--color-line);

@@ -107,6 +107,7 @@ EXPECTED = [
     ("POST", "/notifications/dismiss", SC),
     ("POST", "/config/preview", SC),
     ("POST", "/config", SC),
+    ("POST", "/config/field", SC),
     ("POST", "/printer-settings", SC),
     ("POST", "/debug", SC),
     ("POST", "/printers", SC),

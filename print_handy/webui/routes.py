@@ -210,6 +210,7 @@ ROUTES = (
     _post("/notifications/dismiss", SESSION_CSRF, "_notifications_dismiss_post", back="/"),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),
     _post("/config", SESSION_CSRF, "_config_save", back="/config"),
+    _post("/config/field", SESSION_CSRF, "_config_field_save", back="/config"),
     _post("/printer-settings", SESSION_CSRF, "_printer_settings_save",
           back="/printer-settings"),
     _post("/debug", SESSION_CSRF, "_debug_post", back="/"),
