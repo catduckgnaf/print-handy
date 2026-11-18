@@ -1104,20 +1104,131 @@ def painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
         return _painted_fit(src, view, plates, ceiling, tower_mm)
 
 
+def _plate_hull_yaws(src, ids, usable):
+    """Bed-plane turns for one plate, best first, with the full-size footprint ratio (#1648).
+
+    Reuses split_fit's mesh-hull yaw sweep (#221/#76). Returns
+    [(ratio, degrees)] where ratio is the worst footprint/usable ratio at
+    100%: the hull's extent equals the mesh's, so a turn whose ratio times
+    the scale exceeds 1 cannot fit and is never measured. None when the
+    footprint cannot be read (every turn is then measured as before).
+    """
+    from ..core import color_geometry
+    from ..core.split_fit import mesh_yaw_candidates
+    try:
+        with zipfile.ZipFile(src) as archive:
+            points = [p for hull, _ in color_geometry._world_hull_xy(archive, set(ids)) for p in hull]
+    except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile) as exc:
+        logger.info('painted fit: footprint unreadable for objects %s, measuring every turn: %s', sorted(ids), exc)
+        return None
+    if not points:
+        return None
+    return [(ratio, deg) for ratio, deg, _ in mesh_yaw_candidates(points, usable, usable)]
+
+
+def _turns_for(candidates, scale):
+    """Turns to measure at ``scale``, in offer order: authored, quarter turn, then diagonals by margin."""
+    if candidates is None:
+        return [0.0, 90.0]
+    fits = {deg: ratio for ratio, deg in candidates if ratio * scale <= 1.0 + 1e-9}
+    order = [deg for deg in (0.0, 90.0) if deg in fits]
+    order += [deg for ratio, deg in candidates if deg in fits and deg not in (0.0, 90.0)][:2]
+    return order
+
+
+def _plate_fit(src, view, ids, ceiling, tower_mm, usable=None):
+    """Largest scale <= ceiling, and its turn, at which one painted plate fits (#1648).
+
+    Every turn is tried at the ceiling before any shrinking, and the ladder
+    then runs at the turn with the most margin. A plate that uses one tool
+    needs no prime tower, whatever the printer's purge mode. Returns
+    {'scale', 'yaw', 'extent_mm', 'tower_mm'} or None.
+    """
+    from ..core import painted_geometry
+    from ..core.color_geometry import effective_tower_mm, export_color_geometry
+    from ..core.orca_adapter import _yaw
+    usable = float(usable or BED_LIMIT_MM)
+    candidates = _plate_hull_yaws(src, ids, usable)
+    tower = tower_mm
+
+    def measure(scale, yaw, tower):
+        try:
+            mapping, geometry = export_color_geometry(src, None, view, object_ids=ids, scale=scale, tower_mm=tower,
+                                                      rotation=None if not yaw else _yaw(yaw))
+        except RuntimeError:
+            return None, None
+        bounds = [ax for row in geometry['parts'] for ax in row['bounds_mm'][:2]]
+        fits = all(0 <= ax[0] and ax[1] <= usable for ax in bounds)
+        return mapping, (geometry if fits else None)
+
+    def found(scale, yaw, geometry):
+        bounds = geometry.get('build_bounds_mm') or []
+        extent = [round(float(b[1]) - float(b[0]), 1) for b in bounds[:3]]
+        reserved = float(effective_tower_mm()) if tower is None else float(tower)
+        return {'scale': scale, 'yaw': float(yaw), 'extent_mm': extent, 'tower_mm': reserved or 0.0}
+
+    with painted_geometry.decode_scope():
+        # The as-authored measurement at the ceiling comes first. Its tool map
+        # also says whether the plate changes tools: a one-tool plate needs no
+        # prime tower whatever the purge mode, so it is measured towerless.
+        mapping, geometry = measure(ceiling, 0.0, tower)
+        if mapping is None and tower != 0.0:
+            mapping, _ = measure(ceiling, 0.0, 0.0)  # a tower refusal hides the map
+        if mapping is not None and len(set(mapping.values())) <= 1 and tower != 0.0:
+            tower, geometry = 0.0, None
+        if geometry is not None:
+            return found(ceiling, 0.0, geometry)
+        steps = [ceiling] + [s for s in PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
+        for scale_index, scale in enumerate(steps):
+            # Every turn that can fit is tried at the ceiling; shrinking then
+            # keeps the turn with the most margin. A step no turn can fit at
+            # (by footprint) is skipped without a measurement.
+            if scale_index == 0:
+                turns = _turns_for(candidates, scale)
+            elif candidates is None:
+                turns = [0.0]
+            else:
+                ratio, best = candidates[0]
+                turns = [best] if ratio * scale <= 1.0 + 1e-9 else []
+            for yaw in turns:
+                if scale_index == 0 and yaw == 0.0 and tower == tower_mm and mapping is not None:
+                    continue  # measured above
+                _, geometry = measure(scale, yaw, tower)
+                if geometry is not None:
+                    return found(scale, yaw, geometry)
+    return None
+
+
 def _painted_fit(src, view, plates, ceiling, tower_mm):
-    scale, blocking = ceiling, None
+    """Shared scale for every authored plate, with a per-plate bed turn (#1648).
+
+    Parts of a multi-plate project usually assemble, so the plates keep one
+    scale (the smallest any plate needs); each plate may turn on the bed
+    plane independently, and turning is always tried before shrinking.
+    """
+    scale, blocking, layouts = ceiling, None, {}
     for plate in plates:
         ids = {str(o) for o in plate['object_ids']}
-        fitted = painted_plate_scale(src, view, ids, scale, tower_mm)
+        fitted = _plate_fit(src, view, ids, scale, tower_mm)
         if fitted is None:
             result = {'scale': None, 'blocking_plate': plate['id'], 'plates': len(plates)}
             layout = painted_plate_layout(src, view, ids, PAINTED_SCALE_STEPS[-1], tower_mm)
             if layout is not None:
                 result['blocking_layout'] = layout
             return result
-        if fitted < scale:
-            scale, blocking = fitted, plate['id']
-    return {'scale': scale, 'blocking_plate': blocking, 'plates': len(plates)}
+        layouts[str(plate['id'])] = fitted
+        if fitted['scale'] < scale:
+            scale, blocking = fitted['scale'], plate['id']
+    if any(row['scale'] > scale for row in layouts.values()):
+        # A plate measured before the shared scale dropped: re-measure at that scale.
+        for plate in plates:
+            row = layouts[str(plate['id'])]
+            if row['scale'] > scale:
+                layouts[str(plate['id'])] = _plate_fit(src, view, {str(o) for o in plate['object_ids']},
+                                                       scale, tower_mm) or row
+    return {'scale': scale, 'blocking_plate': blocking, 'plates': len(plates),
+            'yaw_by_plate': {pid: row['yaw'] for pid, row in layouts.items()},
+            'layouts': layouts}
 
 
 def painted_fit_for_job(src, decisions, state=None):
@@ -1155,7 +1266,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
     is the largest ladder scale at which every plate and its prime tower fit.
     """
     import uuid
-    from ..core.orca_adapter import slice_model
+    from ..core.orca_adapter import _yaw, slice_model
     source_sha = file_sha256(src); decision_sha = decisions_digest(decisions)
     fit = painted_fit(src, view, plates, float(job.get('scale') or 1.0), tower_mm=_painted_tower_mm(st))
     scale = fit['scale']
@@ -1168,8 +1279,15 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         if not keys:
             continue
         slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
+        yaw = float((fit.get('yaw_by_plate') or {}).get(str(plate['id'])) or 0.0)
+        # A plate the fit measured with no tower (one slot) is sliced with none,
+        # so the slice places exactly what the fit accepted.
+        layout = (fit.get('layouts') or {}).get(str(plate['id'])) or {}
+        towerless = layout.get('tower_mm') == 0.0
         out, provenance, configs = slice_model(src, slice_dir, st, brim_override, color_decisions=view,
                                                object_ids=ids, scale=None if scale == 1.0 else scale,
+                                               rotation=_yaw(yaw) if yaw else None,
+                                               **({'towerless': True} if towerless else {}),
                                                **_support_kw(job), **_edit_kw(job))
         geometry = provenance.get('geometry') or {}
         if sorted(r['part_key'] for r in geometry.get('parts', [])) != sorted(keys):
@@ -1178,7 +1296,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         tools = provenance.get('tool_mapping') or {}
         artifacts.append({'plate_id': plate['id'], 'slot': sorted(set(tools.values())),
                           'binding_key': f"{plate['id']}:painted", 'part_keys': keys,
-                          'scale': scale, 'gcode': str(out), 'offline_check': check,
+                          'scale': scale, 'yaw_deg': yaw, 'gcode': str(out), 'offline_check': check,
                           'estimate_s': gcode_estimate_s(Path(out).read_text(errors='ignore')),
                           'provenance': provenance, 'slice_config': [str(p) for p in configs]})
     if not artifacts:

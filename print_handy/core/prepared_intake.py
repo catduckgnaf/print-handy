@@ -29,7 +29,7 @@ from . import _external, delivery, failure_report, owned_worker, plate_merge, pu
 from ..intake.fit_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
     BED, FIT_FALLBACK_HEARTBEAT_S, FIT_HEARTBEAT_S, FIT_HINT_PREFIX, FIT_QUIET_S, FitStatus,
     LARGE_MESH_MB, SCALE_LABEL, SCALE_STEP_PERCENTS, _auto_rearrange_eligible, _elapsed_text,
-    _fit_choice_reply, _fit_failure, _fit_state, _painted_no_fit_detail, _pct, _printer_name,
+    _fit_choice_reply, _fit_failure, _fit_state, _painted_fit_sizes, _painted_no_fit_detail, _pct, _printer_name,
     _rotation_phrase, _scale_direction_reply, _scale_fit_offer_reply, _scale_percent_reply,
     _single_body, _unit_oversize_reply, audit_dimensions, auto_rearrange_notice, fit_choice_rows,
     fit_hint, fit_question, large_model_notice, row_brim_policy, write_split_plan,
@@ -3011,12 +3011,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 where = f"{plates} plates" if plates > 1 else 'one plate'
                 label = f"100% · split {plates} plates" if scale >= 1.0 and plates > 1 else f"{_pct(scale)} · {where}"
                 picked = [{'kind': 'painted', 'label': label, 'scale': scale}, {'kind': 'cancel', 'label': 'Cancel'}]
+                detail = _painted_fit_sizes(fit, state)
                 if scale >= 1.0:
-                    prompt = f"{title} prints at 100% as {where}, each in all its painted colors."
+                    prompt = f"{title} prints at 100% as {where}, each in all its painted colors." + detail
                 else:
-                    prompt = (f"{title} is too big to print at 100% even split into its plates. The largest size "
-                              f"that fits with the color-change tower is {_pct(scale)}, as {where}, every part at the "
-                              'same size so they still fit together.')
+                    reserved = any((row or {}).get('tower_mm') for row in (fit.get('layouts') or {}).values())
+                    tower = ' with the color-change tower' if reserved else ''
+                    prompt = (f"{title} is too big to print at 100% even split into its plates and turned on the "
+                              f"bed. The largest size that fits{tower} is {_pct(scale)}, as {where}, every part at "
+                              'the same size so they still fit together.' + detail)
             row = picked[await _ask(adapter, source, key, prompt, [r['label'] for r in picked], timeout,
                                     parser=lambda text: _fit_choice_reply(text, picked))]
             if row['kind'] == 'cancel':
