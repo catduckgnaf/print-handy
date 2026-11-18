@@ -9,11 +9,25 @@
       "sha256": "888a0780fcc385ec39710d609bc257dde008fa7c5cfc6824fa9eb6d2d040f61a"
     },
     {
+      "file": "cura-genuine.3mf",
+      "class": "genuine",
+      "producer": "UltiMaker Cura 5.8.1",
+      "basis": "Saved by the real UltiMaker Cura 5.8.1 application (official AppImage, SHA-256 54b77e574d0b851658a6565b2a4129e035eca80840f562d0845f77dd0019457d as pinned in .github/workflows/cross-slicer-extended.yml) through its own GUI under Xvfb: first-run wizard completed with a local UltiMaker S5, a closed 20 mm cube opened, the infill pattern changed to Gyroid, then File > Save Project. The archive's own Cura/version.ini records cura_version = 5.8.1, and both extruder user stacks carry the changed infill_pattern = gyroid value.",
+      "sha256": "82913e71f4363bd0122ae826e2876c9eaba20aed073d42822a58f01bc1197e07"
+    },
+    {
       "file": "prusa-genuine.3mf",
       "class": "genuine",
       "producer": "PrusaSlicer-2.8.1+linux-x64-GTK3-202409181416 based on Slic3r (with GUI support)",
       "basis": "prusa-slicer --export-3mf --output prusa-genuine.3mf cube.stl (a closed 20 mm cube)",
       "sha256": "d61bb9d56ec9e29c6fea418c4f2a57c47851adba98a68f90ef1b4fc99674cee8"
+    },
+    {
+      "file": "prusa-rich-spec-synthetic.3mf",
+      "class": "spec-synthetic",
+      "producer": "PrusaSlicer (format)",
+      "basis": "PrusaSlicer 3MF layout: Slic3r_PE.config settings snapshot (four filaments, support_material_extruder naming a support-only filament), Slic3r_PE_model.config volumes partitioning the mesh (ModelPart, ParameterModifier, NegativeVolume, SupportBlocker, SupportEnforcer) and slic3rpe:mmu_segmentation paint; built by scripts/generate_producer_fixtures.py, not by a PrusaSlicer binary.",
+      "sha256": "296b0f864b171fbacd04ca67f6719ba49e6755ee6348f429c7a7d0e3c81cacd5"
     }
   ]
 }

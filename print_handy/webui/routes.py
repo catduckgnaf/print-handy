@@ -148,6 +148,10 @@ ROUTES = (
     _get("/firmware", SESSION, "_firmware_route"),
     _get("/cost", SESSION, "_cost_page"),
     _get("/api/cost", SESSION, "_cost_page"),
+    # Click-to-update (#1610): the confirmation page, the running job's
+    # status page, and toast dismissal.
+    _get("/firmware/update", SESSION, "_firmware_update_route"),
+    _get("/firmware/update/status", SESSION, "_firmware_update_status_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
@@ -171,6 +175,9 @@ ROUTES = (
     _get("/settings-report/*", SESSION, "_settings_report_route", decode=False),
     _get("/editable-export/*", SESSION, "_editable_export_route", decode=False),
     _get("/conversion-report/*", SESSION, "_conversion_report_route", decode=False),
+    _get("/slice-result/*", SESSION, "_slice_result_route", decode=False),
+    _get("/u1-feasibility/*", SESSION, "_u1_feasibility_route", decode=False),
+    _get("/external-intake", SESSION, "_external_intake_route"),
     # Anything else: the themed 404 for a browser, JSON otherwise, behind
     # the read rule like every page.
     _get("*", SESSION, "_not_found", decode=False),
@@ -181,6 +188,7 @@ ROUTES = (
     _post("/chat/choice", SESSION_CSRF, "_chat_choice_post", back="/chat"),
     _post("/designs", SESSION_CSRF, "_designs_post", back="/designs"),
     _post("/designs/choice", SESSION_CSRF, "_designs_choice_post", back="/designs"),
+    _post("/external-intake/confirm", SESSION_CSRF, "_external_intake_confirm_post", back="/external-intake"),
     _post("/workflow/link", SESSION_CSRF, "_workflow_link_post", back="/workflow"),
     _post("/workflow/choice", SESSION_CSRF, "_workflow_choice_post", back="/workflow"),
     _post("/workflow/start", SESSION_CSRF, "_workflow_start_post", back="/workflow"),
@@ -196,6 +204,13 @@ ROUTES = (
     _post("/cost", SESSION_CSRF, "_cost_post", back="/cost", multipart=True),
     _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped"),
     _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped"),
+    # The Firmware page's update confirmation form (#1610): a browser
+    # form POST, so session+csrf like the other browser writes; the
+    # handler additionally requires [webui] controls_enabled.
+    _post("/firmware/update", SESSION_CSRF, "_firmware_update_post", back="/firmware"),
+    # Toast dismissal changes stored state, so it is a session+CSRF POST
+    # like every other state change (#1614 review), never a GET link.
+    _post("/notifications/dismiss", SESSION_CSRF, "_notifications_dismiss_post", back="/"),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),
     _post("/config", SESSION_CSRF, "_config_save", back="/config"),
     _post("/printer-settings", SESSION_CSRF, "_printer_settings_save",

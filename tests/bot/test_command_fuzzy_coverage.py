@@ -53,6 +53,8 @@ COMMAND_PHRASES = {
     "print-maintenance": [("run maintenance", "/print-maintenance"),
                           ("what maintenance is due", "/print-maintenance"),
                           ("quick maintenance", "/print-maintenance quick")],
+    "print-slice-result": [("show the slicing result", "/print-slice-result"),
+                           ("how much filament will it use", "/print-slice-result")],
     "print-colors": [("choose the colors for this print", "/print-colors"),
                      ("pick colors for the job", "/print-colors")],
     "spool": [("change the filament", "/spool"),

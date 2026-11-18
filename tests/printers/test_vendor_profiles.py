@@ -33,6 +33,7 @@ def without_added(data):
     data.pop("natural_language", None)  # #1524's plain-language layer settings, added after capture
     data.pop("cost", None)  # #1625's cost calculator settings, added after capture
     data.pop("cost_printers", None)  # #1625's per-printer cost profiles, added after capture
+    data.pop("external_intake", None)  # #1525's watched-folder settings, added after capture
     for key in ("lan_host", "lan_serial", "lan_access_code_env"):  # added by #187, after capture
         data.get("bambu", {}).pop(key, None)
     data.get("discord", {}).pop("approval_all_users", None)  # added with multiple approval users, after capture

@@ -99,6 +99,10 @@ COMMANDS = (
             )),
     Command("print-maintenance", "Maintenance checklist",
             (Option("mode", "full or quick", ("full", "quick")),), "/print-maintenance [full | quick]"),
+    Command("print-slice-result", "Slice result card (read-only)",
+            (Option("job", "A past job (optional; defaults to the newest sliced job)",
+                    autocomplete="job"),),
+            "/print-slice-result [job]", ephemeral=True),
     Command("print-colors", "Part colors for an archived job",
             (Option("job", "A past job (start typing to pick one)", autocomplete="job", required=True),),
             "/print-colors <job>"),
@@ -281,10 +285,10 @@ def help_text(bot_name="Print Handy", supports_live_stream=True):
     # The name appears once, and the whole text stays one Discord message
     # (2000 characters) for a bot_name of up to 32 characters.
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
-             "- Post a model link or .3mf/.stl to print it.",
-             '- "print it" prints the last link; "print again"/"print 57" reprints.',
-             '- "add new filament", "add a new spool" or "swap the filament" starts the guided /spool flow.',
-             '- @mention me: "spool list", or ask in plain words.']
+             "- Post a model link or .3mf/.stl.",
+             '- "print it" or "print again" reprints the last link.',
+             '- "add a new spool" or "add new filament" starts the guided /spool flow.',
+             '- @mention me: "spool list", or just ask.']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
               for c in COMMANDS if c.name != "print-help"

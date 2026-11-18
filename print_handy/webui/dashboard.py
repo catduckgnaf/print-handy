@@ -16,6 +16,12 @@ already own each fact, and nothing else:
 - the latest timelapse from the clip roots the Wrapped finder searches;
 - the camera still from the existing snapshot route, embedded as an
   image and refreshed in place (the screen page's pattern);
+- the printer's own display as a still from the existing screen
+  snapshot route (#1622), in its own labeled panel, only for a printer
+  that publishes a screen: availability comes from the screen module's
+  discovery through its cache, so a dashboard build adds no uncached
+  webcam-list read. The panel is never a camera: the bed camera keeps
+  its own source and the #1306 separation is unchanged;
 - the emergency stop, offered only while ``[webui] controls_enabled``
   is on. The button posts to ``POST /dashboard/estop/<id>``, a
   ``session+csrf`` route (a browser cannot send the API's
@@ -64,6 +70,7 @@ from .. import go2rtc, settings
 from ..core import print_stats
 from . import controls as controls_module
 from . import data as data_module
+from . import screen as screen_module
 from . import spools as spools_module
 from . import status as status_module
 from . import wrapped_video
@@ -295,8 +302,26 @@ def hardware_facts(view, record):
     return facts
 
 
+def _screen_available(data, printer_id):
+    """True when the printer publishes a screen (#1622).
+
+    The screen module's probe, run through its cached discovery so a
+    dashboard build reuses one webcam-list answer per printer inside
+    the discovery TTL instead of adding an uncached read per page
+    load. Discovery only: no still is fetched. Never raises: any
+    failure reads as no screen, so the card renders without a panel.
+    """
+    try:
+        available, _reason = screen_module.probe(
+            data, printer_id, discover=screen_module._cached_discover)
+    except Exception as exc:  # a failed probe is no panel, never a broken card
+        log.debug("dashboard screen probe failed for %s: %s", printer_id, exc)
+        return False
+    return bool(available)
+
+
 def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
-                    hardware_for=None):
+                    hardware_for=None, screen_for=None):
     """The dashboard's data: one card per roster printer, plus the
     install-wide recent prints and latest timelapse.
 
@@ -306,13 +331,18 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
     ``history`` is the temperature history to sample into and read;
     the module's shared one by default. ``hardware_for`` reads one
     printer's hardware record (``printer_id -> dict | None``); the
-    default reads the record ``/nozzle change`` writes. Never raises.
+    default reads the record ``/nozzle change`` writes. ``screen_for``
+    answers whether one printer publishes a screen (``printer_id ->
+    bool``); the default probes through the screen module's cached
+    discovery. Never raises.
     """
     history = HISTORY if history is None else history
     if status_for is None:
         status_for = lambda printer_id: status_module.printer_status(data, printer_id)
     if spools_for is None:
         spools_for = lambda printer_id: spools_module.spools_view(data, printer_id)
+    if screen_for is None:
+        screen_for = lambda printer_id: _screen_available(data, printer_id)
     cards = []
     try:
         entries = settings.printers(data)
@@ -332,7 +362,7 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
         card = {"id": printer_id, "name": entry.get("name") or printer_id,
                 "model": entry.get("model") or "", "default": printer_id == default_id,
                 "live": {}, "state": "unavailable", "detail": "",
-                "camera": False, "controls_enabled": controls_on,
+                "camera": False, "screen": False, "controls_enabled": controls_on,
                 "spools": None, "spools_note": "", "history": [], "hardware": None}
         view = None
         try:
@@ -340,6 +370,10 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
             card["camera"] = _camera_capable(entry, view)
         except Exception as exc:  # identity facts only; the card still renders
             log.debug("dashboard view failed for %s: %s", printer_id, exc)
+        try:
+            card["screen"] = bool(screen_for(printer_id))
+        except Exception as exc:  # a failed screen check is no panel
+            log.debug("dashboard screen check failed for %s: %s", printer_id, exc)
         try:
             card["hardware"] = hardware_facts(view, hardware_for(printer_id))
         except Exception as exc:  # no panel facts is a note, never a broken card
@@ -674,6 +708,22 @@ def _hardware_panels(card):
     return f'<div class="hw-panels">{"".join(nozzle)}{"".join(bed)}</div>'
 
 
+def _screen_panel(card):
+    """The printer screen panel (#1622): the printer's own display as a
+    still from the existing screen snapshot route, labeled as the
+    screen and linked to the dedicated screen page. It is never the
+    bed camera (#1306): the camera keeps its own block above."""
+    printer_id = quote(str(card["id"]), safe="")
+    return (
+        '<div class="dash-panel dash-screen"><h3>Printer screen</h3>'
+        f'<img data-dash-screen src="/api/printers/{printer_id}/screen/snapshot" '
+        f'alt="Printer screen of {_esc(card["name"])}">'
+        '<p class="muted dash-screen-note"></p>'
+        '<p class="muted">This is the printer\'s own display, not the bed '
+        f'camera. <a href="/printers/{printer_id}/screen">Open the full '
+        'printer screen view</a>.</p></div>')
+
+
 def _card(card):
     live = card["live"]
     printer_id = quote(str(card["id"]), safe="")
@@ -724,6 +774,8 @@ def _card(card):
     # dashboard's order), then heat, hardware and filament.
     top.insert(0, f'<div class="dash-side">{"".join(side)}</div>')
     parts.append(f'<div class="dash-top">{"".join(top)}</div>')
+    if card.get("screen"):
+        parts.append(_screen_panel(card))
     parts.append(f'<div class="dash-panel">{_filament(card)}</div>')
     parts.append(_temp_chart(card))
     parts.append(_hardware_panels(card))
@@ -783,23 +835,26 @@ def _timelapse(dash, now):
             'watch it on the <a href="/wrapped">Wrapped page</a></p></section>')
 
 
-# The dashboard's one script: refresh each camera still in place (the
-# screen page's backoff pattern) and wire the E-stop buttons to the
-# existing control route. The E-stop asks first (a plain confirm
-# dialog), then posts the route's own {"confirm": true} body; the
-# route's answer, refusal included, is shown verbatim under the button.
-# Without JavaScript the camera shows its first still and the E-stop
+# The dashboard's one script: refresh each camera and printer screen
+# still in place (the screen page's backoff pattern) and wire the
+# E-stop buttons to the existing control route. The E-stop asks first
+# (a plain confirm dialog), then posts the route's own
+# {"confirm": true} body; the route's answer, refusal included, is
+# shown verbatim under the button.
+# Without JavaScript the stills show their first frame and the E-stop
 # button does nothing: no control is ever sent by the page itself.
 _SCRIPT = (
     "<script>"
-    "document.querySelectorAll('img[data-dash-cam]').forEach(function(img){"
-    "var note=img.parentElement.querySelector('.dash-cam-note');"
+    "document.querySelectorAll('img[data-dash-cam],img[data-dash-screen]').forEach(function(img){"
+    "var note=img.parentElement.querySelector('.dash-cam-note,.dash-screen-note');"
     "var base=img.src.split('?')[0];var failures=0;"
     "function next(){setTimeout(tick,Math.min(2000*Math.pow(2,failures),60000));}"
     "function tick(){if(document.hidden){next();return;}img.src=base+'?t='+Date.now();}"
     "img.onload=function(){failures=0;if(note)note.textContent='';next();};"
     "img.onerror=function(){failures+=1;"
-    "if(note)note.textContent='The camera did not answer; retrying less often.';next();};"
+    "if(note)note.textContent=img.hasAttribute('data-dash-screen')?"
+    "'The printer screen did not answer; retrying less often.'"
+    ":'The camera did not answer; retrying less often.';next();};"
     "});"
     "document.querySelectorAll('button[data-estop]').forEach(function(b){"
     "b.addEventListener('click',function(){"

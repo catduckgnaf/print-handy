@@ -59,28 +59,37 @@ replaced by destination, dropped and unknown decisions, rendered from
 the same provenance record as the JSON, never a second version of the
 truth.
 
-## Built but not yet wired in
+## The wired-in surfaces
 
-These three are built and tested as library code in this release, but
-no chat command, Web UI page or setting reaches them yet. They do
-nothing for an operator until they are wired in (tracked on #1525).
+Three surfaces sit on the statistics, intake and feasibility library
+code, all reached from the places jobs already live:
 
-- **Per-plate statistics** (`core/plate_statistics.py`): estimated grams
-  per logical filament and per mapped slot, from Orca's
+- **Per-plate statistics** (`core/plate_statistics.py`, glued by
+  `core/slice_result.py`): the slice-result card (`/print-slice-result
+  [job]` in chat, and the Slice result link on the Web UI's sliced-jobs
+  page) shows the plate's actual thumbnail when the plate file carries
+  one, the layer count, the estimated time and the estimated grams per
+  logical filament and per mapped slot, from Orca's
   `--export-statistics` file when one exists, else from the G-code
   comments, recording which. Figures a source does not state stay
-  unknown. Spool suggestions are exact material and color matches,
-  never a closest-color guess. Slicing alone never deducts inventory.
-- **External sliced jobs** (`core/external_intake.py`): one allowlisted
-  directory, stable-file detection, and draft cards only. An explicit
-  mark-as-printed confirmation records accounting exactly once per
-  physical print. There is no setting for it yet, so nothing is watched.
-- **Snapmaker U1 feasibility** (`core/u1_feasibility.py`): for a project
-  using more logical filaments than the U1's four toolheads, a read-only
-  report per plate (filament count, support-only filaments,
-  interleaved-layer evidence). It collapses no colors and plans no
-  swaps. The U1 stays hardware-unverified: no U1 has printed through
-  Print Handy.
+  unknown. Spool suggestions are exact material and color matches with
+  their confidence named, never a closest-color guess. Slicing alone
+  never deducts inventory.
+- **External sliced jobs** (`core/external_intake.py`): the
+  `[external_intake]` setting names the one allowlisted directory; the
+  Web UI's External intake page shows draft cards for stable files in
+  it. A card is a draft: nothing prints or charges from a scan. The
+  page's Mark as printed confirmation records a physical print exactly
+  once per file, printer and print id: a repeat, a print id already in
+  the print accounting ledger, and an unconfirmed spool charge are
+  refused rather than charged twice.
+- **Snapmaker U1 feasibility** (`core/u1_feasibility.py`): the U1
+  feasibility link on the sliced-jobs page (and from the slice-result
+  card) renders the read-only report for a job's source: per plate,
+  the filament count against the U1's four toolheads, support-only
+  filaments and interleaved-layer evidence. It collapses no colors and
+  plans no swaps. The U1 stays hardware-unverified: no U1 has printed
+  through Print Handy, and the report is not a print plan.
 
 ## Install paths
 

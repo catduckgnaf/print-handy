@@ -25,6 +25,7 @@ _MODULES = (
     'guided',
     'design',
     'color_selection',
+    'slice_result',
     'print_next',
     'runout_intake',
     'coldpull',
@@ -89,6 +90,7 @@ HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'bed_down',
     'live',
     'plate_calibrate',
+    'slice_result',
     'nozzle',
     'cost',
 ))

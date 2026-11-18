@@ -344,6 +344,7 @@ class OverrideTests(unittest.TestCase):
             "firmware": {"update_alerts", "update_check_hours", "notice_firmwares", "forgex_apply"},
             "natural_language": {"shadow_mode", "unmatched_log_enabled",
                                  "ai_rate_limit_per_hour", "ai_disabled_channel_ids"},
+            "external_intake": {"enabled", "directory", "max_bytes"},
             "maintenance": {"quick_hours", "full_hours", "full_days", "bed_separate_mm"},
             "public_text": {"denylist"},
             "delivery": {"methods"},

@@ -192,6 +192,8 @@ from . import status_handlers as status_handlers_module
 from . import data_handlers as data_handlers_module
 from . import printer_handlers as printer_handlers_module
 from . import design_handlers as design_handlers_module
+from . import firmware_handlers as firmware_handlers_module
+from . import notifications as notifications_module
 from . import config_handlers as config_handlers_module
 from . import chat_handlers as chat_handlers_module
 from . import upload_handlers as upload_handlers_module
@@ -661,6 +663,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, content_type, headers=()):
         data = body.encode() if isinstance(body, str) else body
+        if code == 200 and content_type.startswith("text/html"):
+            data = self._inject_toasts(data)
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
@@ -1097,6 +1101,46 @@ class _Handler(BaseHTTPRequestHandler):
     def _cost_post(self, form):
         return cost_handlers_module.cost_post(self, form)
 
+    def _firmware_update_route(self):
+        return firmware_handlers_module.update_confirm_route(self)
+
+    def _firmware_update_post(self, form):
+        return firmware_handlers_module.update_apply_route(self, form)
+
+    def _firmware_update_status_route(self):
+        return firmware_handlers_module.update_status_route(self)
+
+    def _notifications_dismiss_post(self, form):
+        return firmware_handlers_module.dismiss_route(self, form)
+
+    def _inject_toasts(self, data):
+        """Insert the current toast stack after a shell page's header (#1610).
+
+        Only full shell pages carry the site header; anything else (the
+        login page, downloads, fragments) passes through untouched. The
+        notification store reads state files only — no printer traffic —
+        and ``toasts_for_page`` never raises.
+        """
+        if b'<header class="site">' not in data:
+            return data
+        settings_data = getattr(self.server, "settings_data", None)
+        if not settings_data:
+            return data
+        try:
+            form_token = self._form_token()
+        except Exception:  # noqa: BLE001 - no session token: the page goes out without toasts
+            log.debug("no form token for the toast Dismiss form", exc_info=True)
+            return data
+        toasts = notifications_module.toasts_for_page(
+            settings_data, back=urlparse(self.path).path or "/", form_token=form_token)
+        if not toasts:
+            return data
+        marker = b"</header>"
+        at = data.find(marker)
+        if at < 0:
+            return data
+        return data[:at + len(marker)] + toasts.encode("utf-8") + data[at + len(marker):]
+
     def _settings_report_route(self, rest=""):
         return design_handlers_module.settings_report_route(self, rest)
 
@@ -1108,6 +1152,18 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _sliced_route(self, rest=""):
         return design_handlers_module.sliced_route(self, rest)
+
+    def _slice_result_route(self, rest=""):
+        return design_handlers_module.slice_result_route(self, rest)
+
+    def _u1_feasibility_route(self, rest=""):
+        return design_handlers_module.u1_feasibility_route(self, rest)
+
+    def _external_intake_route(self, notice=None, error=None):
+        return design_handlers_module.external_intake_route(self, notice, error)
+
+    def _external_intake_confirm_post(self, form):
+        return design_handlers_module.external_intake_confirm_post(self, form)
 
     def _not_found(self, path):
         return status_handlers_module.not_found(self, path)
