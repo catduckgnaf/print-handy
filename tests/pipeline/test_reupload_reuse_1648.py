@@ -439,6 +439,27 @@ def test_a_copy_that_fails_midway_leaves_no_partial_file(env, slicer, monkeypatc
     assert receipt['status'] == 'STARTED'
 
 
+@pytest.mark.parametrize('exc', [KeyError('slice_recipe'), TypeError('bad binding')])
+def test_a_malformed_earlier_record_at_adopt_slices_fresh(env, slicer, monkeypatch, exc):  # noqa: F811
+    # duckcatgnaf on #1671: a malformed earlier record must fall back to a
+    # fresh slice at adopt time, not abort the intake.
+    from print_handy.jobs import slice as slice_mod
+    first_print(env)
+    calls = []
+
+    def broken(*args, **kwargs):  # only the adopt step calls it; the offer checks separately
+        calls.append(1)
+        raise exc
+
+    monkeypatch.setattr(slice_mod, 'reused_slice_refusal', broken)
+    adapter, _, receipt = intake(env, [0, 0], 'm2')
+    assert reuse_question(adapter) is not None
+    assert calls, 'the adopt-time check never ran'
+    job = job_of(receipt)
+    assert 'reused_slice' not in job
+    assert receipt['status'] == 'STARTED'
+
+
 def test_gcode_vanishing_during_the_scan_is_not_an_error(env, slicer, monkeypatch):  # noqa: F811
     from print_handy.gcode import artifact as gcode_artifact
     first = first_print(env)

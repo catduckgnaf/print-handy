@@ -2225,10 +2225,10 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
         return None  # _slice_job refuses a request bound to another recipe, with its own message
     try:
         refusal = reused_slice_refusal(job, earlier, current['sha256'])
-    except OSError as exc:
-        # A file the checks read vanished under them: slice fresh, never
-        # surface the race as an error (#1648 item 7).
-        logger.info('reused slice: checking the earlier G-code failed (%s); slicing again', exc)
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        # A file the checks read vanished under them, or the earlier record
+        # is malformed: slice fresh, never surface it as an error (#1648 item 7).
+        logger.info('reused slice: checking the earlier G-code failed (%r); slicing again', exc)
         return None
     if refusal:
         logger.info('reused slice: not reusing the earlier G-code because %s; slicing again', refusal)
