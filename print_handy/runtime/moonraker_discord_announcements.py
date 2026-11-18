@@ -866,6 +866,22 @@ def _charge_missed_multislot(history_job, filename):
         return ""
 
 
+def _publish_frozen_cost(filename, data):
+    """Best effort: the frozen cost to Moonraker for HelixScreen (#1643). Never blocks the completion.
+
+    This completion path only runs for the Moonraker this instance
+    watches, so BASE is the printer that printed the file. The frozen
+    cost on the record replaces, under the same key, the estimate Print
+    Handy published when it sent the file (docs/COST.md). A record with
+    no frozen cost publishes nothing.
+    """
+    try:
+        from ..core import cost_publish
+        cost_publish.publish(BASE, filename, (data or {}).get("cost"))
+    except Exception as exc:
+        print(f"Frozen cost not published: {exc}", file=sys.stderr)
+
+
 def record_completion(job_key, filename, stats, completed_at=None):
     """Persist confirmed completion data; unavailable optional reads stay absent."""
     context = load_context(job_key)
@@ -897,6 +913,7 @@ def record_completion(job_key, filename, stats, completed_at=None):
         completed_at=completed_at or utc_now(),
     )
     result = write_completed_record(data)
+    _publish_frozen_cost(filename, data)
     result.update({"context": context, "completed_at": data["completed_at"]})
     return result
 

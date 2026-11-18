@@ -998,6 +998,36 @@ def _publish_job_card(st, job, remote, gcode_text=""):
         return None
 
 
+def _publish_cost_estimate(st, job, remote):
+    """Best effort: the pre-print cost estimate to Moonraker for HelixScreen (#1643). Never blocks a print.
+
+    Publishes the estimate the cost engine computes for this job into the
+    ``print_handy_cost`` database namespace, keyed by the file name
+    Moonraker reports, so a HelixScreen on the same printer shows the
+    same number. The namespace and record shape are proposed, pending
+    agreement on prestonbrown/helixscreen#2132 (docs/COST.md). A job the
+    engine cannot price (no sliced usage) publishes nothing.
+    """
+    try:
+        from ..core import cost as _cost
+        from ..core import cost_publish, spoolman_client
+
+        def _spool(spool_id):
+            try:
+                return spoolman_client.get_spool(int(spool_id))
+            except Exception as exc:
+                logger.warning("cost estimate: Spoolman spool %s unavailable: %s", spool_id, exc)
+                return None
+
+        result = _cost.estimate_for_job(job, settings.current(), spool_lookup=_spool)
+        if result is None:
+            return None
+        return cost_publish.publish(st["moonraker_url"], remote, _cost.freeze(result))
+    except Exception as exc:
+        print(f"WARNING: cost estimate not published: {exc}", flush=True)
+        return None
+
+
 _readback_status = start_truth._readback_status
 
 
@@ -1803,6 +1833,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _record_usage_baseline(st, job, job_path, sync.get('spool_id'))
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
+        _publish_cost_estimate(st, job, remote)
         _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
         _abandon_leased_upload(lease, remote, on_abandon=(
@@ -3496,6 +3527,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
+        _publish_cost_estimate(st, job, remote)
         _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
         _abandon_leased_upload(lease, remote)
