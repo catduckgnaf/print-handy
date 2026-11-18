@@ -150,7 +150,19 @@ def world(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mel, "post", lambda message: sent.append(message) or True)
     monkeypatch.setattr(mel, "log", lambda line: logs.append(line)); monkeypatch.setattr(mel, "warn", lambda line: logs.append(line))
-    return state, sent, logs
+    yield state, sent, logs
+    # A postprocess thread this test started must not outlive the test.
+    # The working-path test runs the real postprocess on a real thread and
+    # returns as soon as the video post lands, but the thread still owes
+    # the roast follow-up, which it posts through the module-global
+    # mel.post — the NEXT test's world replaces that attribute, so a late
+    # follow-up lands in the next test's capture and breaks its exact
+    # post count (#1638). Drain the claim here, while mel.post still
+    # points at this test's capture: fixture teardown runs before the
+    # monkeypatch restore, so a drained thread has nowhere stray to post.
+    deadline = time.monotonic() + 10
+    while mel._POSTPROCESS_ACTIVE and time.monotonic() < deadline:
+        time.sleep(0.05)
 
 
 def _complete(monkeypatch, thread_cls):
