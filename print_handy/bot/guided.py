@@ -233,14 +233,14 @@ def _model_prompt(brand):
     lines = [f"Which {brand} printer? Reply with its model name or key:"]
     used, shown = 0, 0
     for key, label in models:
-        line = f"- {label} — `{key}`"
+        line = f"- {label}: `{key}`"
         if shown and used + len(line) + 1 > _MODEL_LIST_BUDGET:
             break
         lines.append(line)
         used += len(line) + 1
         shown += 1
     if shown < len(models):
-        lines.append(f"- …and {len(models) - shown} more — reply with the model "
+        lines.append(f"- …and {len(models) - shown} more. Reply with the model "
                      "name or key and I will match it.")
     return "\n".join(lines)
 

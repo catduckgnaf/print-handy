@@ -85,9 +85,9 @@ checklist machinery: one question at a time, the checklist saved after every ste
 `/print-handy cancel` pauses and `/print-handy add-printer` resumes, and nothing is written
 until `apply` at the review step.
 
-1. **Printer brand and model**: the same two questions as in setup — brand first,
-   then that brand's models by display name; an exact model key is accepted at
-   either step.
+1. **Printer brand and model**: the same two questions as in setup. Brand comes
+   first, then that brand's models by display name, and an exact model key is
+   accepted at either step.
 2. **Display name**: the name the which-printer picker and announcements show when several
    printers share the channel. It must differ from your other printers' names; the
    roster id is derived from it.
