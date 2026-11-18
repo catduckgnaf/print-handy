@@ -29,16 +29,25 @@ def test_report_plain_manual_cancel():
     assert "print bot" in out and "plain manual cancel" in out and "Why it stopped" not in out
 
 
-def test_report_omits_console_block_but_keeps_start_refusal():
-    store = [{"message": "T0 -> 1: PLA/white", "time": NOW - 10}]
-    out = kr.build("f.gcode", STATUS, store, "", by_bot=False, now=NOW)
-    assert "Last console messages" not in out
-    assert "T0 -> 1" not in out
+def test_report_omits_console_noise_but_keeps_errors_and_start_refusal():
+    """#1648: Print #120's cancel posts dumped end-of-print macro lines."""
+    store = [{"message": m, "time": NOW - 10} for m in (
+        "T0 -> 1: PLA/white", "Unlocking all filaments", "info Work completed",
+        "HYPERLAPSE ACTION=STOP", 'SET_LED LED="chamber_led" RED=0 GREEN=0 BLUE=0 WHITE=0.5')]
+    ready = {"webhooks": {"state": "ready"}, "print_stats": {"state": "cancelled", "print_duration": 600}}
+    out = kr.build("f.gcode", ready, store, "", by_bot=False, now=NOW)
+    assert "Last console messages" not in out and "console):" not in out
+    assert "SET_LED" not in out and "Work completed" not in out and "T0 -> 1" not in out
+    assert "plain manual cancel" in out
 
-    store.append({"message": "Cancelling print: no filament detected in selected tool", "time": NOW - 10})
-    out = kr.build("f.gcode", STATUS, store, "", by_bot=False, now=NOW)
+    store.append({"message": "!! Move out of range: 240.000 10.000 0.200", "time": NOW - 5})
+    out = kr.build("f.gcode", ready, store, "", by_bot=False, now=NOW)
+    assert "Printer errors before the stop (console):" in out and "Move out of range" in out
+    assert "SET_LED" not in out and "plain manual cancel" not in out
+
+    store.append({"message": "Cancelling print: no filament detected in selected tool", "time": NOW - 4})
+    out = kr.build("f.gcode", ready, store, "", by_bot=False, now=NOW)
     assert "refused the start" in out
-    assert "Last console messages" not in out
 
 
 def test_bot_marker_window(tmp_path):
