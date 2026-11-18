@@ -10,6 +10,7 @@ import sys
 import threading
 import urllib.error
 from pathlib import Path
+import zipfile
 from unittest import mock
 
 import pytest
@@ -1129,3 +1130,44 @@ def test_a_multi_slot_start_leaves_the_active_spool_alone_when_the_printer_count
     clear, job = _launch_two_slots(mapped, "printer")
     assert clear.call_count == 0
     assert job["spool_accounting_authority"] == "printer"
+
+
+def test_1648_mapped_3mf_package_is_slot_labeled_for_screen_reprints(mapped, monkeypatch):
+    """#1648: a HelixScreen reprint of the uploaded file sends no slot map, and
+    ZMod's default map is T0 -> slot 1. The packaged G-code must select the
+    chosen slot by tool number (T0 on slot 3 becomes T2), and SET_ZCOLOR then
+    carries the identity map. The archived G-code and its hash stay as sliced."""
+    adapter = model_job.printers.current()
+    adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
+    adapter.model.vendor_key = "flashforge"
+    adapter.slot_count = 4
+    mapped.native.used_tools.side_effect = flashforge.zmod.used_tools
+    mapped.native.normalize_mapping.side_effect = lambda m, st: {"0": 3}
+    mapped.st["filament_slots"]["3"] = {"material": "PLA", "hex": "#000000"}
+    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 6))
+    # zmod_color in the fixture reports slot ID 1; name it 3 for this launch.
+    original = model_job._mr.side_effect
+
+    def slot3(st, path, data=None, timeout=30):
+        out = original(st, path, data, timeout)
+        for item in (((out.get("result") or {}).get("status") or {}).get("zmod_color") or {}).get("slots", []):
+            item["ID"] = 3
+        return out
+    model_job._mr.side_effect = slot3
+    jp, g = make_job(mapped.root, "slot3")
+    g.write_text('; hermes_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
+                 "; filament_colour = #161616\nM104 S215 T0\nSTART_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nG1 X1\n")
+    before = g.read_bytes()
+    job = json.loads(jp.read_text())
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 3}, job, jp, 0, False)
+    assert g.read_bytes() == before  # the archived G-code is untouched
+    upload = next(c.args[0] for c in mapped.run.call_args_list
+                  if len(c.args[0]) >= 4 and c.args[0][1] == "upload")
+    with zipfile.ZipFile(upload[2]) as archive:
+        inner = archive.read("Metadata/plate_1.gcode").decode()
+    assert "M104 S215 T2" in inner and "M104 S215 T0" not in inner
+    assert '; hermes_tool_slots = {"2":{"physical_slot":3}}' in inner
+    assert "; zmod_color_data = 2|#161616|PLA" in inner
+    assert "; filament_colour = #161616;#161616;#161616" in inner  # slot 3 is the third entry
+    assert mapped.scripts[0].endswith(" T2=3"), mapped.scripts[0]
+    assert out["delivery_format"]["slot_labeled"] == {"from": {"0": 3}, "to": {"2": 3}}
