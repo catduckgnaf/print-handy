@@ -489,6 +489,10 @@ notify:
   mqtt_port: 1883
   mqtt_topic: print-handy
   mqtt_username: ''
+  # Each printer's last roast as a retained MQTT sensor for Home Assistant
+  # (#1672), with discovery. On by default; rides mqtt_enabled above and
+  # vision.roast_enabled. Set false to keep the event topics only.
+  mqtt_roast: true
   ntfy_enabled: false
   # The ntfy server (https://ntfy.sh or a self-hosted one); the topic URL
   # may name the topic itself, or set ntfy_topic and it is appended.

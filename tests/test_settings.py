@@ -341,7 +341,7 @@ class OverrideTests(unittest.TestCase):
             "live_stream": {"enabled", "voice_channel_id", "auto_start_on_print", "max_height", "fps",
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
-                       "ntfy_enabled", "ntfy_url", "ntfy_topic"},
+                       "mqtt_roast", "ntfy_enabled", "ntfy_url", "ntfy_topic"},
             "firmware": {"update_alerts", "update_check_hours", "update_channel",
                          "notice_firmwares", "forgex_apply"},
             "natural_language": {"shadow_mode", "unmatched_log_enabled",
@@ -943,7 +943,7 @@ class NotifySettingsTests(unittest.TestCase):
     channels off by default, credentials never settings."""
 
     DEFAULTS = {"mqtt_enabled": False, "mqtt_host": "", "mqtt_port": 1883,
-                "mqtt_topic": "print-handy", "mqtt_username": "",
+                "mqtt_topic": "print-handy", "mqtt_username": "", "mqtt_roast": True,
                 "ntfy_enabled": False, "ntfy_url": "", "ntfy_topic": ""}
 
     def load_local(self, text, environ=None):

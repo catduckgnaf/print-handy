@@ -219,7 +219,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("flashforge_stock", "host"): str,
                  ("notify", "mqtt_enabled"): bool, ("notify", "mqtt_host"): str,
                  ("notify", "mqtt_port"): int, ("notify", "mqtt_topic"): str,
-                 ("notify", "mqtt_username"): str,
+                 ("notify", "mqtt_username"): str, ("notify", "mqtt_roast"): bool,
                  ("notify", "ntfy_enabled"): bool, ("notify", "ntfy_url"): str,
                  ("notify", "ntfy_topic"): str,
                  ("firmware", "update_alerts"): bool,
@@ -1941,6 +1941,11 @@ def _validate_notify(data):
         value = notify.setdefault(key, False)
         if not isinstance(value, bool):
             raise SettingsError(f"[notify] {key} must be true or false, got {value!r}")
+    # The last-roast MQTT sensor (#1672) defaults on: it rides the MQTT
+    # switch above, so an operator who never enables MQTT never sees it.
+    roast = notify.setdefault("mqtt_roast", True)
+    if not isinstance(roast, bool):
+        raise SettingsError(f"[notify] mqtt_roast must be true or false, got {roast!r}")
     host = notify.setdefault("mqtt_host", "")
     if not isinstance(host, str):
         raise SettingsError(f"[notify] mqtt_host must be a broker hostname or empty, got {host!r}")

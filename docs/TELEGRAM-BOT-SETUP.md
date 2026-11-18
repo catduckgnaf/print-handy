@@ -153,8 +153,8 @@ PLA, 12 g.").
   a retried delivery shows once.
 * Each printer's listener writes to its own printer, so every screen roasts
   its own last print. A printer with no `moonraker_url` (Bambu, Prusa,
-  offline) gets nothing. Roasts asked for in chat ("roast print 84") stay in
-  chat.
+  offline) gets no screen item; it gets the Home Assistant sensor below
+  instead. Roasts asked for in chat ("roast print 84") stay in chat.
 * On by default on both sides, under the same `vision.roast_enabled` switch.
   A printer without HelixScreen just holds one small database item nobody
   reads.
@@ -165,6 +165,38 @@ PLA, 12 g.").
 * The write runs on its own thread with a 5 second timeout. A failure is
   logged and never touches the post.
 * Tests never write: `tests/conftest.py` replaces `screen_tip._post`.
+
+### On a Home Assistant dashboard (MQTT)
+
+Printers with no screen Print Handy can write to (Bambu, Prusa, stock
+Flashforge) still get a place to show the roast: with MQTT notifications
+on (`notify.mqtt_enabled` and a broker host), each printer's last roast is
+published, retained, to `<notify.mqtt_topic>/<printer_id>/last_roast` on
+the notify broker, as the same record the screen reads plus `printer_id`
+and `status`. The first roast per printer after start also publishes a
+Home Assistant discovery config, so every printer (Moonraker ones too)
+gets a `last_roast` sensor on its Home Assistant device, with the details
+("Your last print, Benchy, finished. 1h 15m, PLA, 12 g.") as attributes
+behind a tap. A wall tablet or an ESPHome display by the printer can show
+it the way HelixScreen shows its tile.
+
+* The sensor follows `notify.mqtt_roast` (on by default) and
+  `vision.roast_enabled`: MQTT off, the sensor switched off, or roasts
+  off, and nothing is published. The publish runs on its own thread; a
+  broker failure is logged and never touches the chat post.
+* Home Assistant caps a state at 255 characters, so the sensor's state
+  truncates a longer line there; the full line stays in the `title`
+  attribute.
+* One example card, a Markdown card showing the state and the `details`
+  attribute (name your printer's own sensor):
+
+```yaml
+type: markdown
+content: |
+  ## Last roast
+  {{ states('sensor.ad5x_last_roast') }}
+  _{{ state_attr('sensor.ad5x_last_roast', 'details') }}_
+```
 
 ## AI design on Telegram
 
