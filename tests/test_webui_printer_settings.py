@@ -95,7 +95,11 @@ class PrinterSettingsPageTests(unittest.TestCase):
             port, _local, _env = self.start(tmp, ZMOD)
             code, body, _csrf = self.get_page(port)
             self.assertEqual(code, 200, body)
-            self.assertIn('href="/printer-settings"', body)  # the nav tab
+            # No nav tab of its own (#1625): Cost took the slot, and the
+            # page highlights Printers and links back to it.
+            self.assertNotIn('href="/printer-settings"', body)
+            self.assertIn('<a href="/printers" class="active">', body)
+            self.assertIn('href="/printers">&larr; All printers', body)
             self.assertIn("Printer settings", body)
             self.assertIn("Garage AD5X", body)               # effective name
             self.assertIn("Moonraker URL", body)             # its connection field

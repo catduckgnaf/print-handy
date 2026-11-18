@@ -56,11 +56,13 @@ NAV = (
     ("/sliced", "Sliced files"),
     ("/workflow", "Workflow"),
     ("/printers", "Printers"),
-    ("/printer-settings", "Printer settings"),
+    # Cost takes the top-level slot Printer settings had (#1625): a
+    # printer's own settings open from its card on the Printers page,
+    # and that page keeps the Printers tab highlighted.
+    ("/cost", "Cost"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
     ("/firmware", "Firmware"),
-    ("/cost", "Cost"),
     ("/config", "Settings"),
 )
 

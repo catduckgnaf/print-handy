@@ -406,7 +406,10 @@ def render_page(model, *, form_token, theme=shell.DEFAULT_THEME, nav=None,
         parts.extend(_row_html(row, submitted=submitted, errors=errors) for row in rows)
         parts.append("</section>")
     parts.append('<p><button type="submit">Save changes</button></p></form>')
-    return shell.page("printer settings", "".join(parts), path="/printer-settings",
+    # No nav tab of its own (#1625): the page opens from each printer's
+    # card on the Printers page, so the Printers tab stays highlighted.
+    parts.insert(0, '<p><a href="/printers">&larr; All printers</a></p>')
+    return shell.page("printer settings", "".join(parts), path="/printers",
                       theme=theme, heading="Printer settings", nav=nav)
 
 
