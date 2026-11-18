@@ -182,3 +182,15 @@ def test_roast_for_print_statuses_and_the_cancelled_grams_rule(rig):
     assert "12 g" not in value["details"]
     assert roast_post.roast_for_print(REMOTE, "completed", printer_id="prusa1",
                                       key="completed:benchy.gcode")
+
+
+def test_cancelled_roast_drops_grams_even_from_caller_facts(rig):
+    # duckcatgnaf on #1673 (roast_post.py): caller facts must not re-add
+    # grams to a cancelled print's details.
+    _posts, sent = rig
+    assert roast_post.roast_for_print(REMOTE, "cancelled", printer_id="prusa1",
+                                      key="cancelled:caller-grams",
+                                      facts={"grams": 99})
+    _drain()
+    (_url, value), = sent
+    assert "99 g" not in value["details"]
