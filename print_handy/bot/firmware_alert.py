@@ -432,7 +432,8 @@ class FirmwareAlerter:
         applicable = [offer for offer in offers if offer.applicable]
         if not getattr(adapter, "supports_buttons", False):
             if applicable:
-                lines.append("Use `/print-firmware update <component>` to review and confirm one update.")
+                token = applicable[0].component if len(applicable) == 1 else "<component>"
+                lines.append(f"Use `/print-firmware update {token}` to review and confirm one update.")
             return _delivered(await adapter.send(chat_id=chat, content="\n".join(lines)))
         choices = [DEFER_LABEL]
         if len(applicable) == 1:
