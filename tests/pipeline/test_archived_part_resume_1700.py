@@ -72,9 +72,13 @@ def test_natural_part_two_reopens_checkpoint_and_slices_only_that_plate(flow_env
     assert receipt['uploaded'] is False
 
 
-@pytest.mark.parametrize('utterance', ['print part 2', '/resume-model'])
+@pytest.mark.parametrize('utterance,outcome', [
+    ('print part 2', 'select'), ('/resume-model', 'select'),
+    ('print part 2', 'cancel'), ('print part 2', 'changed'),
+    ('print part 2', 'no adapter'), ('print part 99', 'no match'),
+])
 def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
-        flow_env, monkeypatch, tmp_path, utterance):
+        flow_env, monkeypatch, tmp_path, utterance, outcome):
     from print_handy.core import projects
 
     printer_id = 'printer-1'
@@ -113,6 +117,10 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
     async def confirm(_adapter, _source, _metadata, _prefix, question, choices, _timeout,
                       live_key=None, approval=False):
         questions.append((question, choices, live_key, approval))
+        if outcome == 'cancel':
+            return 'Cancel'
+        if outcome == 'changed':
+            monkeypatch.setattr(projects, 'find_source_checkpoints', lambda **_kwargs: candidates[:1])
         return next(choice for choice in choices if choice.startswith('Beta assembly · plate 2'))
 
     monkeypatch.setattr(model_link, '_confirm', confirm)
@@ -127,8 +135,18 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='discord'), printer_id=printer_id),
               message_id='resume', text=utterance, metadata={})
+    if outcome == 'no adapter':
+        candidates[0]['checkpoint']['color_manifest']['plate_usage'].clear()
+        monkeypatch.setattr(model_link, '_adapter_for', lambda *_args: None)
     result = asyncio.run(model_link.model_link_dispatch(event, gateway))
 
+    if outcome != 'select':
+        assert result['action'] == 'skip'
+        assert not prepared
+        assert len(questions) == (1 if outcome in {'cancel', 'changed'} else 0)
+        if outcome == 'no adapter':
+            assert result['reason'] == 'archived project selection requires a chat adapter'
+        return
     assert result['reason'] == 'captured'
     assert len(questions) == 1
     assert questions[0][0] == 'Which archived project and plate do you mean?'

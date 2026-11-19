@@ -99,13 +99,15 @@ async def model_link_dispatch(event, gateway, **kwargs):
                         if not plate_id or str(plate.get('id')) == plate_id]
             if len(candidates) > 24 or len(rows) > 24:
                 return {'action': 'skip', 'reason': 'too many archived projects to choose safely'}
-            if len(candidates) > 1 or len(rows) > 1:
+            if rows and (len(candidates) > 1 or len(rows) > 1):
                 # Never infer an intended source from ordering or an ordinal.
                 # Even one ordinal match among several scoped projects requires
                 # an explicit selection, and persisted state is reloaded after
                 # the prompt before the choice is trusted.
                 adapter = _adapter_for(gateway, source)
-                if adapter:
+                if not adapter:
+                    return {'action': 'skip', 'reason': 'archived project selection requires a chat adapter'}
+                else:
                     labels = [f"{str(candidate['checkpoint'].get('title') or 'Untitled project')[:36]} · "
                               f"plate {plate.get('id')} ({plate.get('name') or 'unnamed'})"
                               for candidate, plate in rows]
