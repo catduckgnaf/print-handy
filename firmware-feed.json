@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-19T07:41:06Z",
+ "generated_at": "2026-11-19T20:50:07Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -535,7 +535,7 @@
    },
    "latest_prerelease": null,
    "audited": null,
-   "stale": false
+   "stale": true
   },
   {
    "id": "flashforge-stock-ad5m",
@@ -564,7 +564,7 @@
    },
    "latest_prerelease": null,
    "audited": null,
-   "stale": false
+   "stale": true
   },
   {
    "id": "flashforge-stock-ad5m-pro",
@@ -593,7 +593,7 @@
    },
    "latest_prerelease": null,
    "audited": null,
-   "stale": false
+   "stale": true
   },
   {
    "id": "flashforge-stock-creator5",
@@ -621,7 +621,7 @@
    },
    "latest_prerelease": null,
    "audited": null,
-   "stale": false
+   "stale": true
   },
   {
    "id": "flashforge-stock-creator5-pro",
@@ -649,7 +649,7 @@
    },
    "latest_prerelease": null,
    "audited": null,
-   "stale": false
+   "stale": true
   }
  ]
 }
