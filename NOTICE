@@ -46,8 +46,11 @@ Bundled media
 -------------
 
 print_handy/data/audio/pole_position_nights.mp3, the default Pasta
-Wrapped music, is original music by catduck and is licensed under the
-same AGPL-3.0-only terms as the rest of this program.
+Wrapped music, is "Pole Position Nights" by Preston Brown, from
+HelixScreen, licensed CC BY 4.0. It contains a V10 engine sample from
+"Red Bull-Cosworth RB1 (2005).ogg" by Edvvc, Wikimedia Commons,
+licensed CC BY-SA 3.0. It is not covered by this program's AGPL-3.0-only
+license. Full credits: print_handy/data/audio/CREDITS.md.
 
 Third-party components keep their own licenses and notices. See
 docs/COMPONENTS.md and the notices in the files concerned.
