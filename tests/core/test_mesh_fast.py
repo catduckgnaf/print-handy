@@ -178,6 +178,12 @@ def test_bounds_and_volume_bit_identical_to_original_loops():
         assert mesh_fast.bounds_and_volume(tris) == _old_bounds_and_volume(tris)
 
 
+def test_bounds_and_volume_accepts_plain_list_triangles_after_audit_fast_path():
+    triangles = [[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+                 [(0.0, 0.0, 1.0), (1.0, 0.0, 1.0), (0.0, 1.0, 1.0)]]
+    assert mesh_fast.bounds_and_volume(triangles) == _old_bounds_and_volume(triangles)
+
+
 def test_bounds_and_volume_known_tetrahedron():
     a, b, c, d = (0., 0., 0.), (6., 0., 0.), (0., 6., 0.), (0., 0., 6.)
     tris = [[a, c, b], [a, b, d], [a, d, c], [b, c, d]]
