@@ -283,7 +283,9 @@ def test_deferring_a_multi_component_digest_keeps_every_release_pending(cfg):
     async def flow():
         await al.check(PID, GENERIC)
         [digest] = adapter.questions
-        assert digest["choices"] == [fal.DEFER_LABEL]
+        assert digest["choices"] == [
+            "Update klipper", "Update moonraker", "Update fluidd", fal.DEFER_LABEL,
+        ]
         prompts.resolve_gateway_clarify(digest["id"], fal.DEFER_LABEL)
         await settle(al)
 

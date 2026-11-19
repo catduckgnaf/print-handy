@@ -96,7 +96,9 @@ def test_alerter_announces_helixscreen_once_by_key(tmp_path):
     first = asyncio.run(flow())
     assert [o.component for o in first].count("helixscreen") == 1
     assert len(helix_questions()) == 1
-    assert helix_questions()[0]["choices"] == [fal.DEFER_LABEL]
+    assert helix_questions()[0]["choices"] == [
+        "Update zmod", "Update helixscreen", fal.DEFER_LABEL,
+    ]
     second = asyncio.run(flow())
     assert not [o for o in second if o.component == "helixscreen"]
     assert len(helix_questions()) == 1
