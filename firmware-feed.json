@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-18T20:44:41Z",
+ "generated_at": "2026-11-19T07:41:06Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -78,16 +78,16 @@
    "stock_models": [],
    "update": "OpenCreator updates itself from its own updater, or from Fluidd or Mainsail; an update can flash the printer's boards, so never start one during a print. Print Handy reports OpenCreator updates and does not apply them.",
    "latest": {
-    "version": "0.0.7.4",
-    "tag": "0.0.7.4",
-    "published_at": "2026-11-14T05:51:55Z",
-    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.4"
+    "version": "0.0.7.5",
+    "tag": "0.0.7.5",
+    "published_at": "2026-11-18T23:32:24Z",
+    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.5"
    },
    "latest_stable": {
-    "version": "0.0.7.4",
-    "tag": "0.0.7.4",
-    "published_at": "2026-11-14T05:51:55Z",
-    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.4"
+    "version": "0.0.7.5",
+    "tag": "0.0.7.5",
+    "published_at": "2026-11-18T23:32:24Z",
+    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.5"
    },
    "latest_prerelease": null,
    "audited": "0.0.7.4",
@@ -118,10 +118,10 @@
     "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.10"
    },
    "latest_prerelease": {
-    "version": "1.1.0-rc.3",
-    "tag": "v1.1.0-rc.3",
-    "published_at": "2026-11-18T04:03:30Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0-rc.3",
+    "version": "1.1.0-rc.4",
+    "tag": "v1.1.0-rc.4",
+    "published_at": "2026-11-19T00:08:10Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0-rc.4",
     "track": "rc"
    },
    "audited": null,
