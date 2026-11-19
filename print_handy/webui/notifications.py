@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
+from .. import firmware_update as fw
 from .. import settings
 from . import shell
 
@@ -89,7 +90,7 @@ def _update_id(printer_id, component_name, remote) -> str:
     return f"update:{printer_id}:{component_name}:{remote}"
 
 
-def record_observation(data, printer_id, printer_name, status) -> None:
+def record_observation(data, printer_id, printer_name, status, entry=None) -> None:
     """Record one live update-status read for a printer.
 
     ``status`` is a ``firmware_update.UpdateStatus``. The printer's
@@ -98,7 +99,7 @@ def record_observation(data, printer_id, printer_name, status) -> None:
     """
     updates = [{"component": component.name, "current": component.current,
                 "remote": component.remote}
-               for component in status.updates_available]
+               for component in fw.offered_updates(status, entry)]
     state = _load(data)
     state["observations"][str(printer_id)] = {
         "name": str(printer_name or printer_id), "at": time.time(),

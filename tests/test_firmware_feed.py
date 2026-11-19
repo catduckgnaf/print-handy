@@ -532,7 +532,7 @@ def test_page_lists_each_printer_with_its_firmware_and_contacts_no_printer(monke
 def test_checking_one_printer_reads_only_that_printer(monkeypatch):
     asked = []
     monkeypatch.setattr(firmware_page.fw, "firmware_report_with_status",
-                        lambda transport, entry, refresh:
+                        lambda transport, entry, refresh, cfg=None:
                         (f"REPORT for {transport} refresh={refresh}",
                          firmware_page.fw.UpdateStatus(())))
     page = _page(monkeypatch, checked="creator",
@@ -547,7 +547,7 @@ def test_an_unknown_printer_id_and_an_unreadable_printer_are_harmless(monkeypatc
     page = _page(monkeypatch, checked="../../etc")
     assert "Installed versions" not in page
 
-    def broken(transport, entry, refresh):
+    def broken(transport, entry, refresh, cfg=None):
         raise firmware_page.fw.FirmwareError("connection refused")
 
     monkeypatch.setattr(firmware_page.fw, "firmware_report_with_status", broken)

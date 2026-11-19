@@ -268,8 +268,8 @@ def firmware_route(handler):
         data, theme=handler._theme(), checked=checked,
         nav=data_module.nav_for(data),
         controls=controls_module.controls_enabled(data),
-        observe=lambda pid, name, status:
-            notifications_module.record_observation(data, pid, name, status)),
+        observe=lambda pid, name, status, entry:
+            notifications_module.record_observation(data, pid, name, status, entry)),
         "text/html; charset=utf-8")
 
 def settings_report_route(handler, rest=""):

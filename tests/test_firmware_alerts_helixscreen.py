@@ -91,20 +91,21 @@ def test_alerter_announces_helixscreen_once_by_key(tmp_path):
 
     def helix_questions():
         return [q for q in core.adapter.questions
-                if q["question"].startswith("**HelixScreen update available for")]
+                if "• HelixScreen:" in q["question"]]
 
     first = asyncio.run(flow())
     assert [o.component for o in first].count("helixscreen") == 1
     assert len(helix_questions()) == 1
-    assert helix_questions()[0]["choices"] == [fal.UPDATE_LABEL, fal.SKIP_LABEL]
+    assert helix_questions()[0]["choices"] == [
+        "Update zmod", "Update helixscreen", fal.DEFER_LABEL,
+    ]
     second = asyncio.run(flow())
     assert not [o for o in second if o.component == "helixscreen"]
     assert len(helix_questions()) == 1
 
 
 
-def test_skipping_a_helixscreen_alert_names_helixscreen(tmp_path):
-    """Skip on a HelixScreen alert records its key and names HelixScreen."""
+def test_deferring_a_digest_does_not_skip_helixscreen(tmp_path):
     from test_firmware_alerts import _config, settle
     from print_handy.core import prompts
     cfg = copy.deepcopy(_config.cfg())
@@ -119,19 +120,13 @@ def test_skipping_a_helixscreen_alert_names_helixscreen(tmp_path):
 
     async def flow():
         await al.check(PID, AD5X)
-        helix = [q for q in core.adapter.questions
-                 if q["question"].startswith("**HelixScreen update available")]
-        prompts.resolve_gateway_clarify(helix[0]["id"], fal.SKIP_LABEL)
-        for q in core.adapter.questions:
-            if q is not helix[0]:
-                prompts.resolve_gateway_clarify(q["id"], fal.SKIP_LABEL)
+        [digest] = core.adapter.questions
+        assert "• HelixScreen:" in digest["question"]
+        prompts.resolve_gateway_clarify(digest["id"], fal.DEFER_LABEL)
         await settle(al)
-        return helix[0]["id"]
 
-    helix_id = asyncio.run(flow())
-    notes = dict(core.adapter.closed)
-    assert notes[helix_id] == ("Skipped. Print Handy will tell you about "
-                               "the next HelixScreen release.")
+    asyncio.run(flow())
     from print_handy import settings
     state = fa.load(settings.printer_state_dir(PID, cfg))
-    assert "helixscreen:1.0.9" in state["skipped"]
+    assert "helixscreen:1.0.9" not in state["announced"]
+    assert "helixscreen:1.0.9" not in state.get("skipped", {})
