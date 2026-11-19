@@ -67,6 +67,23 @@ def test_parse_message_link_takes_only_a_bare_message_link():
     assert runtime.parse_message_link(MODEL) is None
 
 
+def test_reply_to_source_message_accepts_exact_plate_selector(cfg):
+    discord, core, post = setup(cfg)
+    source = post(MODEL)
+    reply = post("print plate 2")
+    reply.reference = S(channel_id=source.channel.id, message_id=source.id)
+    seen = intake(core, reply)
+    assert seen == [(f"{MODEL} print plate 2", "200000000000000002", str(reply.id))]
+
+
+def test_reply_selector_does_not_fetch_across_channels(cfg):
+    discord, core, post = setup(cfg)
+    source = post(MODEL)
+    reply = post("print plate 2")
+    reply.reference = S(channel_id=source.channel.id + 5, message_id=source.id)
+    assert intake(core, reply) == []
+
+
 def test_a_link_to_an_earlier_model_message_runs_it_again_as_the_paster(cfg):
     discord, core, post = setup(cfg)
     first = post(MODEL)

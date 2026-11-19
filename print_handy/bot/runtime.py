@@ -1398,6 +1398,19 @@ class BotCore(_RoutedAdapter):
             self._signal_working(source)
         content_from, text = message, addressed.text
         linked_request = _MESSAGE_LINK_WITH_TEXT.match(text)
+        reply_request = None if linked_request else getattr(message, "reference", None)
+        if reply_request and re.fullmatch(
+                r"(?:please\s+)?print\s+(?:only\s+)?plate\s+[1-9][0-9]*(?:\s*,?\s+please)?",
+                text.strip(), flags=re.IGNORECASE):
+            # Replies are an exact-source shortcut only inside the same channel;
+            # never use a reply to broaden Discord link read permissions.
+            ref_channel = getattr(reply_request, "channel_id", None)
+            ref_message = getattr(reply_request, "message_id", None)
+            guild_id = getattr(getattr(message, "guild", None), "id", None)
+            if (ref_channel is not None and str(ref_channel) == str(chat_id)
+                    and ref_message is not None and guild_id is not None):
+                linked_request = _MESSAGE_LINK_WITH_TEXT.match(
+                    f"https://discord.com/channels/{guild_id}/{ref_channel}/{ref_message} {text.strip()}")
         if linked_request:
             requester_instruction = (linked_request[4] or "").strip()
             content_from = await self._linked_message(message, linked_request)
