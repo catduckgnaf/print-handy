@@ -2631,10 +2631,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 done = reuse.get('sliced_at') and (reuse.get('filament_selection') or {}).get('color')
                 when = f" (last sliced in {reuse['filament_selection']['color']})" if done else ''
                 interrupted = interrupted_note(reuse)
-                pick = await _ask(adapter, source, key, f"Did you mean {reuse.get('title') or 'the last model'}{when}? "
-                                 'I will slice it again from the saved file, no download.'
-                                 + (f' {interrupted}' if interrupted else ''),
-                                 ['Yes, slice it again', "No, I'll send a link"], timeout)
+                checkpoint_resume = reuse.get('source_checkpoint_resume')
+                prompt = (f"Resume {reuse.get('title') or 'the saved model'} on its authored plate "
+                          f"{checkpoint_resume['plate_name']}? I will inspect and slice the archived source again; "
+                          'all print decisions and approval are fresh.' if checkpoint_resume else
+                          f"Did you mean {reuse.get('title') or 'the last model'}{when}? "
+                          'I will slice it again from the saved file, no download.'
+                          + (f' {interrupted}' if interrupted else ''))
+                pick = await _ask(adapter, source, key, prompt,
+                                  ['Resume plate', 'Cancel'] if checkpoint_resume else
+                                  ['Yes, slice it again', "No, I'll send a link"], timeout)
                 if interrupted:
                     owned_worker.clear(_saved_folder(reuse))  # explained once; the new intake has its own folder
                 if pick != 0:
@@ -2644,6 +2650,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                        content='OK. Send the link or drop the file. Nothing was sliced or started.')
                     return {'action': 'skip', 'reason': 'reprint declined'}
                 job = reuse_job(reuse)
+                if reuse.get('source_checkpoint_resume'):
+                    job['selected_plates'] = [reuse['source_checkpoint_resume']['plate_id']]
                 url = reuse.get('url')
         elif uploads:
             job = with_design_origin(upload_job_set(uploads), event_metadata.get('design_handoff'))
@@ -2760,6 +2768,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 lambda: _with_stop(adapter, source, key, metadata, None,
                                    asyncio.to_thread(fetch, job, chosen, folder / 'source')))
             job['downloaded_file'] = str(path)
+        if reuse and reuse.get('source_checkpoint_resume'):
+            expected = reuse['source_checkpoint_resume']['source_sha256']
+            if await asyncio.to_thread(mj.file_sha256, path) != expected:
+                raise ValueError('The archived model changed while resuming. Nothing was sliced or started.')
         mj.front_mark('download_done')  # the source file is in the job folder (#1476)
         if await asyncio.to_thread(is_gcode_3mf, path):
             # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
@@ -2790,6 +2802,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # STL has no source palette, but still needs an exact-source color decision.
         if not manifest.get('source_sha256'):
             manifest.update(source_sha256=await asyncio.to_thread(mj.file_sha256, path))
+        if reuse and reuse.get('source_checkpoint_resume'):
+            plate_id = reuse['source_checkpoint_resume']['plate_id']
+            if plate_id not in {str(value) for value in (manifest.get('plate_usage') or {})}:
+                raise ValueError('The archived source no longer identifies that authored plate. Nothing was sliced or started.')
         job['color_manifest'] = manifest
         # An explicit plate request applies only to authored plate IDs from
         # this exact inspected source. An unknown or ambiguous request must
@@ -2801,6 +2817,20 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if requested_plates is not None:
             job['selected_plates'] = requested_plates
         job['color_schema'] = 'part_slots_v1'
+        # Persist a source-stage checkpoint immediately after inspection, before
+        # any slicer decision. Keep this distinct from multipart_plan, whose
+        # physical completion counters are created only for verified slices.
+        mj.stamp_job_printer(job, printer_id)
+        from . import projects as project_identity
+        checkpoint_scope = {
+            'platform': getattr(getattr(source, 'platform', None), 'value', None),
+            'requester_id': str(getattr(source, 'user_id', '') or '').strip(),
+            'channel_id': str(getattr(source, 'chat_id', '') or '').strip(),
+            'printer_id': str(job.get('printer_id') or '').strip(),
+        }
+        job['source_checkpoint'] = project_identity.source_checkpoint(
+            job, manifest, checkpoint_scope)
+        mj.write_job(folder, job)
         from . import support_clearance
         # The job's own printer's nozzle and the project's first layer (#1373 review:
         # the default printer's profile was read on multi-printer installs).
@@ -2810,7 +2840,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if clearance_rep:
             job['support_clearance'] = clearance_rep
         mj.front_mark('inspection_done')  # audit, color manifest and clearance are done (#1476)
-        mj.stamp_job_printer(job, printer_id)  # a new job learns its printer at creation (#334); the intake channel's printer wins (#335)
         jp = folder / 'JOB.json'
         mj.write_job(folder, job)
         # The bed fit probes read the job's own printer's bed exclusions, not the default's (#1195).

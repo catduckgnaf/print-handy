@@ -67,6 +67,49 @@ async def model_link_dispatch(event, gateway, **kwargs):
     # An already-sliced G-code drop prints only as an explicit yolo (core/yolo.py).
     gcode_drop = None if model_link(text) else _yolo.gcode_file(event)
     if not (model_link(text) or (model_file(event) or model_files(event)) or gcode_drop):
+        import re
+        resume_match = re.fullmatch(r"\s*(?:please\s+)?print\s+part\s+([1-9][0-9]{0,5})(?:\s+of\s+the\s+file)?\s*[.!]?\s*",
+                                    text, re.IGNORECASE)
+        resume_command = text.strip() == '/resume-model' or text.strip().startswith('/resume-model ')
+        if resume_command or resume_match:
+            args = text.strip().split()
+            part_token = resume_match.group(1) if resume_match else None
+            plate_id = args[1] if resume_command and len(args) > 1 else ''
+            platform = getattr(getattr(source, 'platform', None), 'value', None)
+            printer_id = _channel_printer_id(source, gateway) or _routed_printer_id(source, gateway)
+            if not platform or not printer_id:
+                return {'action': 'skip', 'reason': 'resume requires platform and routed printer'}
+            from print_handy.core import projects as _projects
+            candidates = _projects.find_source_checkpoints(
+                platform=platform, requester_id=str(source.user_id), channel_id=str(source.chat_id),
+                printer_id=str(printer_id))
+            if part_token is not None:
+                # More than one saved project is ambiguous even if only one
+                # happens to contain this part number.
+                plate_id = (_projects.checkpoint_part_plate(candidates[0]['checkpoint'], part_token)
+                            if len(candidates) == 1 else None)
+                if plate_id is None:
+                    candidates = []
+            rows = [(candidate, plate) for candidate in candidates
+                    for plate in candidate['checkpoint'].get('authored_plates', [])
+                    if not plate_id or str(plate.get('id')) == plate_id]
+            if len(rows) != 1:
+                adapter = _adapter_for(gateway, source)
+                if adapter:
+                    detail = ('No exact authored plate checkpoint matches that ID.' if plate_id else
+                              'No unique authored plate checkpoint matches this requester, channel and printer; '
+                              'specify a plate ID with `/resume-model <plate_id>`.')
+                    await adapter.send(chat_id=source.chat_id, content=detail + ' Nothing sliced or started.',
+                                       metadata={'thread_id': source.thread_id} if source.thread_id else None)
+                return {'action': 'skip', 'reason': 'checkpoint ambiguous or missing'}
+            candidate, plate = rows[0]
+            job = candidate['job']
+            if not job.get('selected_source'):
+                return {'action': 'skip', 'reason': 'checkpoint has no selected source'}
+            reuse = dict(job)
+            reuse['source_checkpoint_resume'] = {'plate_id': str(plate.get('id')),
+                                                 'plate_name': str(plate.get('name') or plate.get('id')),
+                                                 'source_sha256': candidate['checkpoint']['source_sha256']}
         if reprint_request(text) and _plain_print_number(text) is not None:
             # "reprint 57" / "print #57 again" names an exact print: that is
             # print_again_dispatch's numbered reprint (#436), never "the last
