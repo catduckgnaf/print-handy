@@ -1146,8 +1146,9 @@ def _plate_fit(src, view, ids, ceiling, tower_mm, usable=None):
     {'scale', 'yaw', 'extent_mm', 'tower_mm'} or None.
     """
     from ..core import painted_geometry
-    from ..core.color_geometry import effective_tower_mm, export_color_geometry
+    from ..core.color_geometry import effective_tower_mm, export_color_geometry, selection_tool_map
     from ..core.orca_adapter import _yaw
+    from ..core.source_colors import inventory_scope
     usable = float(usable or BED_LIMIT_MM)
     candidates = _plate_hull_yaws(src, ids, usable)
     tower = tower_mm
@@ -1168,15 +1169,41 @@ def _plate_fit(src, view, ids, ceiling, tower_mm, usable=None):
         reserved = float(effective_tower_mm()) if tower is None else float(tower)
         return {'scale': scale, 'yaw': float(yaw), 'extent_mm': extent, 'tower_mm': reserved or 0.0}
 
-    with painted_geometry.decode_scope():
+    with painted_geometry.decode_scope(), inventory_scope():
         # The as-authored measurement at the ceiling comes first. Its tool map
         # also says whether the plate changes tools: a one-tool plate needs no
         # prime tower whatever the purge mode, so it is measured towerless.
         mapping, geometry = measure(ceiling, 0.0, tower)
-        if mapping is None and tower != 0.0:
-            mapping, _ = measure(ceiling, 0.0, 0.0)  # a tower refusal hides the map
+        refused = mapping is None
+        if refused and tower != 0.0:
+            # A refusal at the ceiling (the prime tower has no place beside
+            # the full-size layout) hides the tool map the export computed
+            # before it refused. Recover the map from the scope-shared
+            # inventory instead of measuring again towerless at the same
+            # scale (#1697); a refusal the recovery repeats is a genuine one,
+            # and the ladder below refuses the same way.
+            try:
+                mapping = selection_tool_map(src, view, object_ids=ids)
+            except (OSError, ValueError, KeyError, AttributeError, TypeError,
+                    RuntimeError, zipfile.BadZipFile) as exc:
+                # Best effort: a map that cannot be derived without exporting
+                # (an unreadable source, decisions in a shape only the export
+                # itself reads) leaves the map unknown, exactly as a refused
+                # recovery measurement did; the ladder's own measurements
+                # still surface any real failure.
+                logger.info('painted fit: tool map recovery failed for objects %s: %s',
+                            sorted(ids), exc)
+                mapping = None
         if mapping is not None and len(set(mapping.values())) <= 1 and tower != 0.0:
-            tower, geometry = 0.0, None
+            tower = 0.0
+            if geometry is None and refused:
+                # The towerless verdict at the ceiling is still unknown (the
+                # towered measurement refused): take it once, towerless.
+                _, geometry = measure(ceiling, 0.0, 0.0)
+            # Otherwise the measurement already taken is the towerless verdict
+            # too: the tower lane only slides the layout rigidly, so the
+            # extent and the fit verdict at this scale and turn are unchanged,
+            # and measuring again towerless would repeat the same export.
         if geometry is not None:
             return found(ceiling, 0.0, geometry)
         steps = [ceiling] + [s for s in PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
@@ -1192,7 +1219,7 @@ def _plate_fit(src, view, ids, ceiling, tower_mm, usable=None):
                 ratio, best = candidates[0]
                 turns = [best] if ratio * scale <= 1.0 + 1e-9 else []
             for yaw in turns:
-                if scale_index == 0 and yaw == 0.0 and tower == tower_mm and mapping is not None:
+                if scale_index == 0 and yaw == 0.0 and mapping is not None:
                     continue  # measured above
                 _, geometry = measure(scale, yaw, tower)
                 if geometry is not None:
