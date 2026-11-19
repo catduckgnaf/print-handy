@@ -25,7 +25,7 @@ def requested_authored_plate(text, manifest):
         return None
     # Parse only bounded instructions, never the URL or an ambiguous suffix.
     instruction = str(text).replace(url, '', 1).strip(' <>\t\n.,!?')
-    match = re.fullmatch(r'(?:please\s+)?print\s+(?:only\s+)?plate\s+([1-9][0-9]*)',
+    match = re.fullmatch(r'(?:please\s+)?print\s+(?:only\s+)?plate\s+([1-9][0-9]*)(?:\s*,?\s+please)?',
                          instruction, flags=re.IGNORECASE)
     if not match:
         return [] if re.search(r'\bprint\b.*\b(?:plates?|parts?)\b', instruction,

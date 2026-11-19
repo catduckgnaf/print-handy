@@ -232,7 +232,8 @@ class FlowAdapter:
         if len(kw.get('choices') or []) == 1:
             self.log.append(kw['question'])
         want = self.wants.pop(0)
-        answer = next((c for c in kw['choices'] if want in c), kw['choices'][0])
+        answer = next((c for c in kw['choices'] if want in c), None)
+        assert answer is not None, f"wanted {want!r} in choices {kw['choices']!r}"
         import tools.clarify_gateway as cm
         cm.resolve_gateway_clarify(kw['clarify_id'], answer)
         return S(success=True)
