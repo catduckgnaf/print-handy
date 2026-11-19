@@ -226,6 +226,121 @@ def _part_feature_filaments(part, filament_tool, notes):
 
 
 @painted_geometry.decode_scoped
+def _tool_mapping(source, manifest, choices, painted, identity_tools):
+    """The tool mapping the decisions give one selection, and its working parts.
+
+    (mapping, slots, paint_table, base_state): the construction
+    export_color_geometry runs before it reads geometry — the painted branch
+    decodes each selected part's leaf states, the plain branch reads the part
+    rows, and both add the slots of height-based color changes (#870). Every
+    refusal raised here is one the export raises at the same point, so a
+    caller that only needs the map gets the export's own answer.
+    """
+    paint_table, base_state = {}, {}
+    if painted:
+        # Triangle paint: each painted state N is source filament N; unpainted
+        # triangles and state 0 use the part's own extruder. Map every state
+        # actually present to a contiguous tool for the chosen physical slot.
+        used = set()
+        base_state = {}
+        for part in manifest['parts']:
+            row = painted_geometry.leaf_states(source, part)
+            # Fully painted parts never print their base extruder; give the
+            # object-level extruder the part's dominant paint instead.
+            dominant = max(row['states'], key=row['states'].get) if row['states'] else None
+            base_state[part['key']] = part['source_extruder'] if row['unpainted'] or not dominant else dominant
+            used |= {state or part['source_extruder'] for state in row['states']}
+            if row['unpainted']:
+                used.add(part['source_extruder'])
+        missing = sorted(n for n in used if f'filament:{n}' not in choices)
+        if missing:
+            raise RuntimeError(f'painted source filament(s) {missing} have no slot choice')
+        slots = sorted({choices[f'filament:{n}']['slot'] for n in used})
+        # A height-based color change to a filament no triangle paints with
+        # still needs its slot in the tool numbering (#870).
+        for row in manifest.get('layer_changes') or []:
+            sel = choices.get(f"filament:{row.get('source_extruder')}")
+            if sel is not None:
+                slots = sorted(set(slots) | {sel['slot']})
+        paint_table = {n: (choices[f'filament:{n}']['slot'] if identity_tools
+                           else slots.index(choices[f'filament:{n}']['slot']) + 1) for n in used}
+    else:
+        # A support-designation row (#867) names the supports' spool, not the
+        # part's, so it may differ from the part choices for the same source
+        # extruder. A height-change row for that extruder is not exempt: it
+        # prints the parts themselves (#870).
+        layer_exts = {row.get('source_extruder') for row in manifest.get('layer_changes') or []}
+        designated = manifest.get('support_filaments') or {}
+        support_only = {e for e in (designated.get('base'), designated.get('interface'))
+                        if e and e not in layer_exts}
+        for part in manifest['parts']:
+            palette = choices.get(f"filament:{part['source_extruder']}")
+            if (palette and part['source_extruder'] not in support_only
+                    and palette != choices['part:' + part['key']]):
+                raise RuntimeError('part selection contradicts its source filament selection')
+        slots = sorted({choices['part:' + part['key']]['slot'] for part in manifest['parts']})
+        # Height-based color changes (#870): the slots their filaments were
+        # picked for are tools of this job too, not only the parts' slots.
+        for row in manifest.get('layer_changes') or []:
+            sel = choices.get(f"filament:{row.get('source_extruder')}")
+            if sel is not None:
+                slots = sorted(set(slots) | {sel['slot']})
+    if not slots:
+        raise RuntimeError('multipart selection requires at least one slot')
+    if not identity_tools and len(slots) > 4:
+        # The compacted mapping is bounded by the four physical IFS slots. An
+        # identity (toolhead) mapping is bounded by the machine's toolheads
+        # instead — five on the XL — which intake and the adapter's tool
+        # mapping contract already enforce.
+        raise RuntimeError('multipart selection requires one to four IFS slots')
+    mapping = ({str(slot - 1): slot for slot in slots} if identity_tools
+               else {str(i): slot for i, slot in enumerate(slots)})
+    return mapping, slots, paint_table, base_state
+
+
+def selection_tool_map(source, decisions, object_ids=None):
+    """The tool mapping an export of the selection would use, without exporting.
+
+    Runs the same inventory, selection and decision checks the export runs
+    before it reads geometry, so it refuses exactly where the export would
+    before its tower placement. Inside a decode/inventory scope the parsed
+    source and the inventory are the caller's shared ones, so recovering a
+    map an export's tower refusal hid costs no second parse (#1697).
+    """
+    manifest = inventory(source)
+    full_parts = manifest['parts']
+    if object_ids is not None:
+        object_ids = {str(o) for o in object_ids}
+        manifest = dict(manifest, parts=[p for p in full_parts if str(p['object_id']) in object_ids])
+        if not manifest['parts']:
+            raise RuntimeError('object subset selects no source parts')
+    if decisions.get('source_sha256') != manifest['source_sha256'] or decisions.get('mode') != 'per_part':
+        raise RuntimeError('multicolor geometry requires exact-source per_part decisions')
+    with zipfile.ZipFile(source) as _archive:
+        source_members = _archive.namelist()
+        # PrusaSlicer volumes (#1260) are split by inventory; a model config
+        # that cannot be read leaves them unknown, which refuses here.
+        source_colors.prusa_volume_layout(_archive, strict=True)
+        if 'Metadata/layer_config_ranges.xml' in source_members and \
+                b'opt_key="extruder"' in _archive.read('Metadata/layer_config_ranges.xml'):
+            raise RuntimeError('source carries Metadata/layer_config_ranges.xml height-range '
+                               'extruder assignments, which the rebuilt geometry export cannot '
+                               'translate (it renumbers object ids); refusing rather than drop '
+                               'them silently')
+    painted = bool(manifest['painted'])
+    choices = decisions['choices']
+    schema = decisions.get('schema')
+    if schema not in (None, 'part_slots_v1'):
+        raise RuntimeError('unknown color decision schema')
+    planner = source_colors.canonical_prompts if schema == 'part_slots_v1' else source_colors.prompts
+    expected = {row['key'] for row in planner(dict(manifest, parts=full_parts))}
+    if set(choices) != expected:
+        raise RuntimeError('incomplete part/source-filament decisions')
+    mapping, _slots, _paint_table, _base_state = _tool_mapping(source, manifest, choices, painted, False)
+    return mapping
+
+
+@painted_geometry.decode_scoped
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
                           identity_tools=False, tower_mm=None, layer_mode=None, *, ranges_carried=False,
                           rotation=None):
@@ -316,64 +431,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         raise RuntimeError('incomplete part/source-filament decisions')
     # Parts and their source palette rows are distinct UI decisions, but a part
     # cannot silently disagree with the palette assignment it refers to.
-    if painted:
-        # Triangle paint: each painted state N is source filament N; unpainted
-        # triangles and state 0 use the part's own extruder. Map every state
-        # actually present to a contiguous tool for the chosen physical slot.
-        used = set()
-        base_state = {}
-        for part in manifest['parts']:
-            row = painted_geometry.leaf_states(source, part)
-            # Fully painted parts never print their base extruder; give the
-            # object-level extruder the part's dominant paint instead.
-            dominant = max(row['states'], key=row['states'].get) if row['states'] else None
-            base_state[part['key']] = part['source_extruder'] if row['unpainted'] or not dominant else dominant
-            used |= {state or part['source_extruder'] for state in row['states']}
-            if row['unpainted']:
-                used.add(part['source_extruder'])
-        missing = sorted(n for n in used if f'filament:{n}' not in choices)
-        if missing:
-            raise RuntimeError(f'painted source filament(s) {missing} have no slot choice')
-        slots = sorted({choices[f'filament:{n}']['slot'] for n in used})
-        # A height-based color change to a filament no triangle paints with
-        # still needs its slot in the tool numbering (#870).
-        for row in manifest.get('layer_changes') or []:
-            sel = choices.get(f"filament:{row.get('source_extruder')}")
-            if sel is not None:
-                slots = sorted(set(slots) | {sel['slot']})
-        paint_table = {n: (choices[f'filament:{n}']['slot'] if identity_tools
-                           else slots.index(choices[f'filament:{n}']['slot']) + 1) for n in used}
-    else:
-        # A support-designation row (#867) names the supports' spool, not the
-        # part's, so it may differ from the part choices for the same source
-        # extruder. A height-change row for that extruder is not exempt: it
-        # prints the parts themselves (#870).
-        layer_exts = {row.get('source_extruder') for row in manifest.get('layer_changes') or []}
-        designated = manifest.get('support_filaments') or {}
-        support_only = {e for e in (designated.get('base'), designated.get('interface'))
-                        if e and e not in layer_exts}
-        for part in manifest['parts']:
-            palette = choices.get(f"filament:{part['source_extruder']}")
-            if (palette and part['source_extruder'] not in support_only
-                    and palette != choices['part:' + part['key']]):
-                raise RuntimeError('part selection contradicts its source filament selection')
-        slots = sorted({choices['part:' + part['key']]['slot'] for part in manifest['parts']})
-        # Height-based color changes (#870): the slots their filaments were
-        # picked for are tools of this job too, not only the parts' slots.
-        for row in manifest.get('layer_changes') or []:
-            sel = choices.get(f"filament:{row.get('source_extruder')}")
-            if sel is not None:
-                slots = sorted(set(slots) | {sel['slot']})
-    if not slots:
-        raise RuntimeError('multipart selection requires at least one slot')
-    if not identity_tools and len(slots) > 4:
-        # The compacted mapping is bounded by the four physical IFS slots. An
-        # identity (toolhead) mapping is bounded by the machine's toolheads
-        # instead — five on the XL — which intake and the adapter's tool
-        # mapping contract already enforce.
-        raise RuntimeError('multipart selection requires one to four IFS slots')
-    mapping = ({str(slot - 1): slot for slot in slots} if identity_tools
-               else {str(i): slot for i, slot in enumerate(slots)})
+    mapping, slots, paint_table, base_state = _tool_mapping(source, manifest, choices, painted,
+                                                            identity_tools)
     palette_ids = {int(f['source_extruder']) for f in manifest.get('filaments') or []
                    if str(f.get('source_extruder', '')).isdigit()}
 
