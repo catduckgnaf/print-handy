@@ -596,6 +596,7 @@
       "filament_slots": 4,
       "max_print_height_mm": 220.0,
       "nozzle_diameter_mm": 0.4,
+      "pause_prompt": false,
       "start_macro": "START_PRINT",
       "zmod_delivery_format": "auto"
     }

@@ -39,6 +39,7 @@ def without_added(data):
     data.get("discord", {}).pop("approval_all_users", None)  # added with multiple approval users, after capture
     data.get("bambu", {}).pop("start_confirm_s", None)  # added by #271, after capture
     data.get("bot", {}).pop("platform", None)  # added by #164, after the golden files were captured
+    data.get("printer", {}).pop("pause_prompt", None)  # the pause-reason pop-up (helixscreen#2130), added after capture
     for key in ("auto_light_off_minutes", "light_object"):  # added by #516, after capture
         data.get("vision", {}).pop(key, None)
     for key in ("local_detector_enabled", "local_model_path", "local_empty_enabled"):  # added by #455, after capture

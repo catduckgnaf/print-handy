@@ -304,7 +304,7 @@ def _auto_pause_listener(monkeypatch, frames, clock):
     monkeypatch.setattr(mel, "_visual_alert",
                         lambda filename, image, text, identity=None: alerts.append(text))
     monkeypatch.setattr(mel, "_auto_pause_early",
-                        lambda filename, identity: pauses.append(filename) or "Paused")
+                        lambda filename, identity, verdict=None: pauses.append(filename) or "Paused")
     monkeypatch.setattr(mel, "post", lambda msg, **kw: True)
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_visual_verdict", lambda *a, **k: ("spaghetti", "spaghetti found"))
