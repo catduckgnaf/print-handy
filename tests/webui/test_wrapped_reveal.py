@@ -61,6 +61,31 @@ def test_a_sealed_year_cannot_be_peeked_at_through_the_video_or_share(tmp_path):
         assert code == 403 and "December 1" in payload["reason"]
 
 
+def test_sealed_video_status_hides_compile_and_artifact_state(tmp_path):
+    vault = _vault(tmp_path, 2026)
+
+    class Jobs:
+        def status(self, year):
+            raise AssertionError("sealed endpoint must not inspect job state")
+
+    code, payload = data_module.video_status(ON, 2026, records_vault=vault,
+                                             jobs=Jobs(), now=at(2026, 6, 15))
+    assert code == 403 and "December 1" in payload["reason"]
+    assert "state" not in payload and "available" not in payload
+
+
+def test_an_opened_year_still_reports_its_video_status(tmp_path):
+    vault = _vault(tmp_path, 2026)
+
+    class Jobs:
+        def status(self, year):
+            return {"state": "idle"}
+
+    code, payload = data_module.video_status(ON, 2026, records_vault=vault,
+                                             jobs=Jobs(), now=at(2026, 12, 2))
+    assert code == 200 and payload["state"] == "idle" and "available" in payload
+
+
 def test_last_years_wrapped_is_still_there_after_the_season(tmp_path):
     vault = _vault(tmp_path, 2025)
     code, payload = data_module.wrapped_view(ON, records_vault=vault, now=at(2026, 6, 15))

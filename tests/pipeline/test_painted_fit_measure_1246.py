@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import tempfile
 import time
 import zipfile
@@ -274,7 +275,7 @@ def _dense_painted_source(path, n=120, size=90.0):
     return path
 
 
-def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path):
+def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path, monkeypatch):
     path = _dense_painted_source(tmp_path / 'dense.3mf')
     manifest, decisions = _decisions(path)
     assert manifest['painted'] and manifest['parts']
@@ -282,6 +283,24 @@ def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path):
     plates = _plates(path, manifest)
     # The measured verdict is the written one before anything is timed.
     assert _same_or_better(model_job.painted_fit(path, view, plates, 3.0), _old_painted_fit(path, view, plates, 3.0))
+
+    # Since #1648 the new fit also measures towerless and tries turns, so it
+    # takes more steps than the frozen ladder. The gate compares the cost of
+    # one step, which is what #1246 changed. Steps are counted untimed.
+    steps = {'old': 0, 'new': 0}
+    real_export = color_geometry.export_color_geometry
+
+    def counting(key):
+        def export(*a, **k):
+            steps[key] += 1
+            return real_export(*a, **k)
+        return export
+    monkeypatch.setattr(sys.modules[__name__], 'export_color_geometry', counting('old'))
+    _old_painted_fit(path, view, plates, 3.0)
+    monkeypatch.setattr(color_geometry, 'export_color_geometry', counting('new'))
+    model_job.painted_fit(path, view, plates, 3.0)
+    monkeypatch.undo()
+    assert steps['old'] and steps['new'], steps
 
     def best(fn, runs=5):
         times = []
@@ -292,9 +311,11 @@ def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path):
         return min(times)
     old = best(lambda: _old_painted_fit(path, view, plates, 3.0))
     new = best(lambda: model_job.painted_fit(path, view, plates, 3.0))
-    # Measured about 0.33 on this source (one parse, nothing serialized);
-    # the gate leaves room for a loaded runner.
-    assert new / old < 0.6, (new, old)
+    # Per step: about 0.30 on this source (one parse, nothing serialized),
+    # about 0.42 under CI's coverage. The fit's fixed costs (the hull sweep)
+    # count against it; the gate leaves room for a loaded runner.
+    per_step = (new / steps['new']) / (old / steps['old'])
+    assert per_step < 0.6, (new, old, steps)
 
 
 @pytest.mark.parametrize('bad', ['8G', '', '1', '80'])

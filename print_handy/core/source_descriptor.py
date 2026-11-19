@@ -274,12 +274,16 @@ def parse_cura_settings(archive, names):
         return values
     # Global (rank -1) first, then extruders from the highest position down,
     # so each later stack overrides and extruder 0 is applied last.
+    # Instances another stack lists belong to that stack: an empty-order
+    # stack's fallback never re-applies them (#1676).
+    listed = {container_id for _rank, _name, order in stacks for container_id in order}
     for _rank, _name, order in sorted(stacks, key=lambda row: (row[0] != -1, -row[0], row[1])):
         layers = [instances[container_id] for container_id in order
                   if container_id in instances]
         if not order:
-            layers = sorted(instances.values(),
-                            key=lambda layer: CURA_LAYER_ORDER.index(layer[0]))
+            own = {id(layer): layer for stem, layer in instances.items()
+                   if stem not in listed and unquote_plus(stem) not in listed}
+            layers = sorted(own.values(), key=lambda layer: CURA_LAYER_ORDER.index(layer[0]))
         values.update(_resolve_cura_layers(layers))
     return values
 
