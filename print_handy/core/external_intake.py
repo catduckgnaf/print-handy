@@ -24,11 +24,16 @@ never be charged twice.
 from __future__ import annotations
 
 import hashlib
+from threading import Lock
 from pathlib import Path
 
 from . import source_descriptor
 
 DEFAULT_MAX_BYTES = 512 * 1024 * 1024
+# identity -> [lock, holders]; an entry lives only while a confirmation of
+# that identity is running, so the table never grows with print history.
+_CONFIRM_LOCKS: dict[str, list] = {}
+_CONFIRM_LOCKS_GUARD = Lock()
 ACCEPTED_SUFFIXES = (".3mf", ".gcode", ".gco")
 
 
@@ -116,15 +121,38 @@ def confirm_mark_printed(card: dict, *, printer_id: str, print_id: str,
     printer under this print id.
     """
     identity = print_identity(card, printer_id, print_id)
-    if identity in ledger:
-        raise IntakeRefused(
-            f"print {print_id} of this file on {printer_id} is already "
-            "recorded; refusing to charge the same physical print twice.")
-    if card.get("status") == "printed":
-        raise IntakeRefused(
-            "this draft card was already confirmed as printed; a reprint "
-            "needs its own print id.")
-    result = charge(identity=identity, card=card, printer_id=printer_id)
-    ledger.add(identity)
-    return {"identity": identity, "status": "printed",
-            "accounting": result}
+    entry = _hold_confirm_lock(identity)
+    try:
+        with entry[0]:
+            if identity in ledger:
+                raise IntakeRefused(
+                    f"print {print_id} of this file on {printer_id} is already "
+                    "recorded; refusing to charge the same physical print twice.")
+            if card.get("status") == "printed":
+                raise IntakeRefused(
+                    "this draft card was already confirmed as printed; a reprint "
+                    "needs its own print id.")
+            result = charge(identity=identity, card=card, printer_id=printer_id)
+            ledger.add(identity)
+            return {"identity": identity, "status": "printed",
+                    "accounting": result}
+    finally:
+        _release_confirm_lock(identity, entry)
+
+
+def _hold_confirm_lock(identity: str) -> list:
+    """The identity's lock entry, counted as held by this caller (#1682)."""
+    with _CONFIRM_LOCKS_GUARD:
+        entry = _CONFIRM_LOCKS.get(identity)
+        if entry is None:
+            entry = _CONFIRM_LOCKS[identity] = [Lock(), 0]
+        entry[1] += 1
+        return entry
+
+
+def _release_confirm_lock(identity: str, entry: list) -> None:
+    """Drop the entry once no confirmation of the identity holds it."""
+    with _CONFIRM_LOCKS_GUARD:
+        entry[1] -= 1
+        if entry[1] == 0 and _CONFIRM_LOCKS.get(identity) is entry:
+            del _CONFIRM_LOCKS[identity]
