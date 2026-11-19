@@ -178,109 +178,28 @@ cost. Wrapped adds a "What it cost" screen and a video slide.
   currency, and any other currency is named with its count.
 - No model is involved in any cost figure.
 
-## Sharing cost with HelixScreen (proposed format)
+## Sharing cost with HelixScreen
 
-Status: proposed. The namespace and record shape below are Print
-Handy's proposal, published for agreement on
-prestonbrown/helixscreen#2132. Print Handy adapts to what the
-HelixScreen maintainer prefers, so treat this format as a draft until
-that agreement lands.
+Print Handy publishes the filament plus electricity portion of its cost to
+[HelixScreen's v1 contract](https://github.com/prestonbrown/helixscreen/issues/2132#issuecomment-6999700894).
+This excludes labor, wear and other pricing lines. HelixScreen computes its
+own cost when a matching shared value is unavailable.
 
-When a printer runs both Print Handy and HelixScreen, Print Handy is
-the source of truth for print cost, and HelixScreen reads Print Handy's
-number instead of computing its own. HelixScreen keeps its own
-calculation for printers without Print Handy, and for any file with no
-record.
+- Namespace: `helix-screen` in Moonraker's database.
+- Key: `print_cost.<encoded filename>`. Encode the G-code path relative to
+  Moonraker's `gcodes` root, including dots and slashes. For example,
+  `parts/benchy.gcode` becomes `print_cost.parts%2Fbenchy%2Egcode`.
+- Record: `version: 1`, `source: "print-handy"`, `filename`, `file_modified`
+  from Moonraker, a three-letter `currency`, and an `estimate` on send or
+  `actual` on completion. Each block contains `total`, `filament`,
+  `electricity`, `at` in Unix seconds, and `tools`. Tool rows carry `tool`,
+  `grams`, `cost`, and `price_source` (`spoolman` or `setting`). A whole-file
+  row uses tool `-1`; unknown per-tool identities are not guessed.
+- Publishing is best effort and off the launch and completion paths. A
+  prior block is retained only for the same file revision and currency.
+  Actuals use the recorded finish time; HelixScreen can reject actuals
+  from prior prints of the same file.
 
-Print Handy writes one record per file into a Moonraker database
-namespace, through Moonraker's `POST /server/database/item`:
-
-- Namespace: `print_handy_cost`. Print Handy writes only inside this
-  namespace, never into Moonraker's reserved namespaces or the
-  `spoolman` namespace.
-- Key: the one-element array `[file name]`, with the file name exactly
-  as Moonraker reports it, path included. Moonraker treats a string key
-  as a dot-separated path into nested fields, which would split a name
-  like `benchy.gcode`; the array form keeps the whole name, dots and
-  slashes included, as one literal field.
-- Lifecycle: when Print Handy sends a file to a Moonraker-backed
-  printer, it writes the pre-print estimate. When the print finishes
-  and the cost is frozen on the job record, it writes the frozen cost
-  under the same key, replacing the estimate. A failed or cancelled
-  print is frozen at what it used, the same figure the job record
-  carries.
-- Publishing is best effort: a failed or slow write is logged and
-  never blocks, delays or fails a print send or a completion.
-  Printers that are not Moonraker-backed publish nothing. There is no
-  setting; whenever a cost record exists for a Moonraker-backed
-  printer, it is published.
-
-The record:
-
-| Field | Meaning |
-| --- | --- |
-| `schema` | Record schema version (currently 1). Readers fail soft on a version newer than they know and keep their own calculation. |
-| `state` | `estimate` for the pre-print quote, `final` once the cost is frozen at completion. |
-| `file` | The file name the record is keyed by, as Moonraker reports it. |
-| `outcome` | The engine outcome: `estimate`, `completed`, `failed` or `cancelled`. |
-| `out_of_pocket` | Filament, electricity, consumables and extras, with their failure share: the money actually spent on the print. |
-| `full_cost` | The full cost of one build, every cost line included. |
-| `cost_per_part` | The full cost divided by the parts in the build. |
-| `parts_per_build` | How many parts the build makes. |
-| `currency` | The currency code every amount in the record uses. |
-| `tools` | One entry per tool (material line): name, material, color, grams or milliliters used, the line amount, and where its price came from. |
-| `lines` | The full cost breakdown lines (material, electricity, depreciation, maintenance, labor, consumables, and any extras, overhead or failure allowance), each with its amount. |
-| `updated_at` | When this record was written, UTC, ISO 8601. |
-
-Each `tools` entry carries the price source twice: `price_source`, the
-human label (for example "spool price (Spoolman spool 12)"), and
-`price_source_code`, a stable code for machine readers: one of
-`spoolman_spool` (that spool's own price in Spoolman),
-`spoolman_filament` (the filament profile price in Spoolman),
-`spoolman_bottle` (a resin bottle priced by volume in Spoolman),
-`slicer` (the price embedded in the sliced file's profile), `manual`
-(a price entered by hand) or `default` (the workspace default cost per
-kilogram). The entry also carries the `spool_id` when a Spoolman spool
-priced the line.
-
-An example record, the frozen cost of a finished print:
-
-```json
-{
-  "schema": 1,
-  "state": "final",
-  "file": "benchy.gcode",
-  "outcome": "completed",
-  "out_of_pocket": 1.54,
-  "full_cost": 6.69,
-  "cost_per_part": 6.69,
-  "parts_per_build": 1,
-  "currency": "USD",
-  "tools": [
-    {
-      "name": "PLA Red",
-      "material": "PLA",
-      "color": "#FF0000",
-      "grams": 50.0,
-      "volume_ml": 0.0,
-      "amount": 1.25,
-      "price_source": "spool price (Spoolman spool 12)",
-      "price_source_code": "spoolman_spool",
-      "spool_id": 12
-    }
-  ],
-  "lines": [
-    {"key": "material", "label": "Material (incl. waste allowance)", "amount": 1.29},
-    {"key": "electricity", "label": "Electricity", "amount": 0.07},
-    {"key": "depreciation", "label": "Depreciation (over 5,000 lifetime hours)", "amount": 0.0},
-    {"key": "maintenance", "label": "Maintenance", "amount": 0.15},
-    {"key": "labor", "label": "Labor (prep per build, post per part, pack)", "amount": 5.0},
-    {"key": "consumables", "label": "Consumables", "amount": 0.1},
-    {"key": "failure", "label": "Failure allowance (5 percent, repeatable lines divided by 1 minus the rate)", "amount": 0.08}
-  ],
-  "updated_at": "2026-11-18T03:00:00Z"
-}
-```
 
 ## Defaults and presets
 

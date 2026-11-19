@@ -1,208 +1,161 @@
-"""Publish Print Handy cost records to Moonraker for other tools (#1643).
-
-When Print Handy and HelixScreen run on the same printer, Print Handy is
-the source of truth for print cost: it already computes a pre-print
-estimate and freezes the actual cost on the job record at completion
-(#1625). This module writes both figures into a Moonraker database
-namespace HelixScreen can read, so the screen shows the same number as
-the chat and the Web UI instead of computing its own. HelixScreen keeps
-its own calculation wherever no record exists.
-
-The namespace name and record shape below are PROPOSED, pending
-agreement on prestonbrown/helixscreen#2132. Print Handy adapts to what
-the HelixScreen maintainer prefers; until that agreement lands this
-ships as a draft-side implementation of our own proposal (docs/COST.md,
-"Sharing cost with HelixScreen").
-
-Moonraker database rules this design follows (Moonraker's Database
-Management API docs, checked 2026-11-17):
-
-- Each client defines its own namespace; a POST creates the namespace
-  when it does not exist and overwrites an existing key. Moonraker
-  reserves several namespaces for internal use (among them
-  ``moonraker``, ``gcode_metadata`` and ``update_manager``); clients may
-  read those but not modify them. ``print_handy_cost`` is none of them,
-  and nothing here ever writes outside it (the ``spoolman`` namespace
-  included).
-- A key given as a string treats "." as a delimiter into nested fields,
-  which would shred a file name like ``benchy.gcode``. A key given as an
-  array of strings treats each element as one literal field, and the
-  docs name exactly this case: "useful for scenarios where a namespace
-  contains fields that include a '.' character, such as a file name."
-  The key here is therefore the one-element array ``[file name]``, with
-  the file name exactly as Moonraker reports it, path included, so a
-  name with "/" stays one literal field too.
-
-Publishing is best effort, always: a failed or slow write is logged and
-swallowed, and never blocks, delays or fails a print send or a
-completion flow. Printers that are not Moonraker-backed never call this
-module, so for them absence is normal, not an error. There is no
-setting: whenever a cost record exists for a Moonraker-backed printer,
-it is published.
-"""
+"""Publish Print Handy's shared print-cost record to Moonraker (#1643)."""
 from __future__ import annotations
 
 import logging
 import threading
-from datetime import datetime, timezone
+import time
+import urllib.error
+import urllib.parse
 from typing import Any, Callable
 
 from .. import moonraker as _transport
 
 logger = logging.getLogger(__name__)
-
-# The proposed namespace and record schema version. Readers fail soft on
-# a schema newer than they know: they keep their own calculation.
-NAMESPACE = "print_handy_cost"
-SCHEMA = 1
+NAMESPACE = "helix-screen"
 DATABASE_PATH = "/server/database/item"
-
-# The engine's human price-source labels (core.cost.resolve_price) mapped
-# to stable codes for machine readers. The label itself is carried too.
-_SOURCE_CODES = (
-    ("spool price (Spoolman spool", "spoolman_spool"),
-    ("filament profile price (Spoolman)", "spoolman_filament"),
-    ("bottle price by volume (Spoolman)", "spoolman_bottle"),
-    ("slicer-embedded price", "slicer"),
-    ("manual price", "manual"),
-    ("workspace default cost per kilogram", "default"),
-)
+SOURCE = "print-handy"
 
 
-def price_source_code(label: Any) -> str:
-    """The stable price-source code for one engine price-source label."""
-    text = str(label or "")
-    for prefix, code in _SOURCE_CODES:
-        if text.startswith(prefix):
-            return code
-    return "unknown"
-
-
-def state_for(cost: Any) -> str:
-    """The record lifecycle state for a cost dict: estimate or final.
-
-    The engine marks a pre-print quote with outcome "estimate"; a cost
-    frozen at completion carries the print's outcome (completed, failed
-    or cancelled) and is final.
-    """
-    outcome = str((cost or {}).get("outcome") or "estimate")
-    return "estimate" if outcome == "estimate" else "final"
-
-
-def _amount(value: Any) -> float:
+def _finite(value: Any) -> float | None:
     try:
-        out = float(value)
+        number = float(value)
     except (TypeError, ValueError):
-        return 0.0
-    return out if out == out and out not in (float("inf"), float("-inf")) else 0.0
-
-
-def build_record(filename: Any, cost: Any, *, now: datetime | None = None) -> dict[str, Any] | None:
-    """The Moonraker record for one file from a cost dict, or None.
-
-    ``cost`` is the engine's plain-data shape: an estimate result or the
-    frozen per-job record (``core.cost.freeze``), never recomputed here.
-    The per-tool lines are the engine's per-material lines, each with its
-    price source label and stable source code.
-    """
-    if not isinstance(cost, dict) or not str(filename or ""):
         return None
-    tools = []
-    for entry in cost.get("material_lines") or []:
-        if not isinstance(entry, dict):
+    return number if number == number and abs(number) != float("inf") else None
+
+
+def _price_source(label: Any) -> str:
+    """Map cost-engine provenance to HelixScreen's two-value wire contract."""
+    text = str(label or "").lower()
+    if "spoolman" in text:
+        return "spoolman"
+    if any(token in text for token in ("manual", "slicer", "default", "setting")):
+        return "setting"
+    return "setting"  # Unknown evidence is not upgraded into a spool price.
+
+
+def _block(cost: dict[str, Any], *, at: float) -> dict[str, Any] | None:
+    lines = cost.get("lines")
+    if not isinstance(lines, list):
+        return None
+    filament = electricity = 0.0
+    for line in lines:
+        if not isinstance(line, dict):
             continue
-        label = str(entry.get("price_source") or "")
-        tools.append({
-            "name": str(entry.get("name") or ""),
-            "material": str(entry.get("material") or ""),
-            "color": str(entry.get("color") or ""),
-            "grams": _amount(entry.get("grams")),
-            "volume_ml": _amount(entry.get("volume_ml")),
-            "amount": _amount(entry.get("amount")),
-            "price_source": label,
-            "price_source_code": price_source_code(label),
-            "spool_id": entry.get("spool_id"),
-        })
-    lines = [{"key": str(entry.get("key") or ""), "label": str(entry.get("label") or ""),
-              "amount": _amount(entry.get("amount"))}
-             for entry in cost.get("lines") or [] if isinstance(entry, dict)]
-    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {
-        "schema": SCHEMA,
-        "state": state_for(cost),
-        "file": str(filename),
-        "outcome": str(cost.get("outcome") or "estimate"),
-        "out_of_pocket": _amount(cost.get("out_of_pocket")),
-        "full_cost": _amount(cost.get("cost_per_build")),
-        "cost_per_part": _amount(cost.get("cost_per_part")),
-        "parts_per_build": int(_amount(cost.get("parts_per_build")) or 1),
-        "currency": str(cost.get("currency_code") or "USD"),
-        "tools": tools,
-        "lines": lines,
-        "updated_at": stamp,
-    }
+        amount = _finite(line.get("amount"))
+        if amount is None:
+            return None
+        if line.get("key") == "material":
+            filament += amount
+        elif line.get("key") == "electricity":
+            electricity += amount
+    tools = []
+    material_lines = cost.get("material_lines")
+    if isinstance(material_lines, list):
+        for row in material_lines:
+            if not isinstance(row, dict):
+                continue
+            grams = _finite(row.get("grams"))
+            amount = _finite(row.get("amount"))
+            if grams is None or amount is None:
+                return None
+            tool = row.get("tool", row.get("slot"))
+            if type(tool) is not int:
+                if len(material_lines) != 1:
+                    continue  # Do not infer a tool number from a color name or row order.
+                tool = -1  # HelixScreen's whole-file line.
+            tools.append({
+                "tool": tool,
+                "grams": grams,
+                "cost": amount,
+                "price_source": _price_source(row.get("price_source")),
+            })
+    return {"total": round(filament + electricity, 2),
+            "filament": round(filament, 2), "electricity": round(electricity, 2),
+            "at": int(at), "tools": tools}
+
+
+def build_record(filename: Any, file_modified: Any, cost: Any, *, at: float | None = None,
+                 existing: Any = None) -> dict[str, Any] | None:
+    """Build contract v1; preserve a valid other lifecycle block for this revision."""
+    if not isinstance(cost, dict) or not filename:
+        return None
+    modified = _finite(file_modified)
+    if modified is None:
+        return None
+    now = float(time.time() if at is None else at)
+    currency = str(cost.get("currency_code") or "")
+    if len(currency) != 3 or not currency.isalpha() or not currency.isupper():
+        return None
+    old = existing if isinstance(existing, dict) else {}
+    same_revision = (old.get("version") == 1 and old.get("source") == SOURCE
+                     and old.get("filename") == str(filename) and old.get("currency") == currency
+                     and _finite(old.get("file_modified")) == modified)
+    record = {"version": 1, "source": SOURCE, "filename": str(filename),
+              "file_modified": modified, "currency": currency}
+    if same_revision:
+        for state in ("estimate", "actual"):
+            block = old.get(state)
+            if isinstance(block, dict) and _valid_block(block):
+                record[state] = block
+    outcome = str(cost.get("outcome") or "estimate")
+    state = "estimate" if outcome == "estimate" else "actual"
+    block = _block(cost, at=now)
+    if block is None:
+        return None
+    prior = record.get(state)
+    if not prior or prior["at"] <= block["at"]:
+        record[state] = block
+    return record
+
+
+def _valid_block(block: Any) -> bool:
+    return (isinstance(block, dict) and all(_finite(block.get(k)) is not None
+            for k in ("total", "filament", "electricity", "at"))
+            and isinstance(block.get("tools"), list))
+
+
+def record_key(filename: str) -> str:
+    encoded = urllib.parse.quote(str(filename), safe="~").replace(".", "%2E")
+    return "print_cost." + encoded
+
+
+def _read(base_url: str, filename: str) -> Any:
+    query = urllib.parse.urlencode({"namespace": NAMESPACE, "key": record_key(filename)})
+    try:
+        response = _transport.moonraker_json(base_url, f"{DATABASE_PATH}?{query}", timeout=5)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        return None
+    result = (response or {}).get("result") or {}
+    return result.get("value")
 
 
 def _post(base_url: str, payload: dict[str, Any]) -> Any:
-    """One database POST through the one Moonraker transport (#1466)."""
-    return _transport.moonraker_json(base_url, DATABASE_PATH, method="POST",
-                                     data=payload, timeout=5)
+    return _transport.moonraker_json(base_url, DATABASE_PATH, method="POST", data=payload, timeout=5)
 
 
-def publish(base_url: Any, filename: Any, cost: Any, *,
+def publish(base_url: Any, filename: Any, file_modified: Any, cost: Any, *,
             post: Callable[[str, dict[str, Any]], Any] | None = None,
-            now: datetime | None = None) -> bool:
-    """Write one file's cost record to the Moonraker database. Best effort.
-
-    Returns True only when the write went out. No Moonraker base URL (a
-    printer that is not Moonraker-backed) or no cost record is a normal
-    no-op, and any failure is logged and swallowed: publishing never
-    blocks, delays or fails the send or completion that called it.
-    """
-    record = build_record(filename, cost, now=now)
-    if record is None or not str(base_url or ""):
+            at: float | None = None, existing: Any = None) -> bool:
+    """Best-effort publication; no cost estimate or timestamp is invented."""
+    try:
+        record = build_record(filename, file_modified, cost, at=at, existing=existing)
+        if record is None or not base_url:
+            return False
+        payload = {"namespace": NAMESPACE, "key": record_key(record["filename"]), "value": record}
+        (post or _post)(str(base_url), payload)
+        return True
+    except Exception as exc:
+        logger.warning("HelixScreen cost publish failed for %s: %s", filename, exc)
         return False
-    payload = {"namespace": NAMESPACE, "key": [record["file"]], "value": record}
-    slot = (str(base_url), record["file"])
-    # Both writes run on background threads, so they can finish out of order:
-    # writes for one file are serialized, and once a final record went out an
-    # estimate for that file is skipped, so a late estimate can never replace
-    # the frozen cost (#1652 review). A later send of the same file starts a
-    # new print and clears the mark.
-    with _file_lock(slot):
-        if record["state"] == "estimate" and slot in _FINAL_SENT and not _new_send(slot, record):
-            logger.info("cost publish: estimate for %s skipped; its final cost is already published",
-                        record["file"])
-            return False
-        try:
-            (post or _post)(str(base_url), payload)
-        except Exception as exc:  # best effort by design; the print never waits on this
-            logger.warning("cost publish to Moonraker failed for %s: %s", record["file"], exc)
-            return False
-        if record["state"] == "final":
-            _FINAL_SENT[slot] = record["updated_at"]
-        else:
-            _FINAL_SENT.pop(slot, None)
-    return True
 
 
-# (moonraker url, file) -> updated_at of the final record published for it.
-_FINAL_SENT: dict[tuple[str, str], str] = {}
 _FILE_LOCKS: dict[tuple[str, str], threading.Lock] = {}
 _FILE_LOCKS_GUARD = threading.Lock()
 
 
-def _file_lock(slot):
+def file_lock(base_url: str, filename: str) -> threading.Lock:
     with _FILE_LOCKS_GUARD:
-        return _FILE_LOCKS.setdefault(slot, threading.Lock())
-
-
-def _new_send(slot, record) -> bool:
-    """True when this estimate is for a later send than the published final.
-
-    The send path stamps an estimate at the moment of the send, before its
-    background thread prices it, so a stale estimate always carries a time
-    at or before the final's; one stamped after it is a new print of the
-    same file and must be published.
-    """
-    return str(record.get("updated_at") or "") > str(_FINAL_SENT.get(slot) or "")
+        return _FILE_LOCKS.setdefault((str(base_url), str(filename)), threading.Lock())

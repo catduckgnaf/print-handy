@@ -876,22 +876,32 @@ def _charge_missed_multislot(history_job, filename):
         return ""
 
 
-def _publish_frozen_cost(filename, data):
-    """Best effort: the frozen cost to Moonraker for HelixScreen (#1643). Never blocks the completion.
-
-    This completion path only runs for the Moonraker this instance
-    watches, so BASE is the printer that printed the file. The frozen
-    cost on the record replaces, under the same key, the estimate Print
-    Handy published when it sent the file (docs/COST.md). A record with
-    no frozen cost publishes nothing.
-    """
+def _publish_frozen_cost(filename, data, metadata):
+    """Publish from the completion snapshot without another metadata request."""
     try:
         import threading
         from ..core import cost_publish
-        # On its own thread: the Moonraker write can wait up to its timeout,
-        # and the completion record and post must never wait on it.
-        threading.Thread(target=cost_publish.publish, args=(BASE, filename, (data or {}).get("cost")),
-                         name="cost-publish-frozen", daemon=True).start()
+        cost = (data or {}).get("cost")
+        if not cost:
+            return
+        modified = cost_publish._finite(metadata.get("modified"))
+        started = datetime.fromisoformat(data["started_at"].replace("Z", "+00:00")).timestamp()
+        finished = datetime.fromisoformat(data["completed_at"].replace("Z", "+00:00")).timestamp()
+        if modified is None or modified > started or finished <= started:
+            return
+        lock = cost_publish.file_lock(BASE, filename)
+
+        def write():
+            with lock:
+                try:
+                    existing = cost_publish._read(BASE, filename)
+                except Exception as exc:
+                    print(f"Frozen cost not published: {exc}", file=sys.stderr)
+                    return
+                cost_publish.publish(BASE, filename, modified, cost,
+                                     existing=existing, at=finished)
+
+        threading.Thread(target=write, name="cost-publish-actual", daemon=True).start()
     except Exception as exc:
         print(f"Frozen cost not published: {exc}", file=sys.stderr)
 
@@ -927,7 +937,7 @@ def record_completion(job_key, filename, stats, completed_at=None):
         completed_at=completed_at or utc_now(),
     )
     result = write_completed_record(data)
-    _publish_frozen_cost(filename, data)
+    _publish_frozen_cost(filename, data, metadata)
     result.update({"context": context, "completed_at": data["completed_at"]})
     return result
 

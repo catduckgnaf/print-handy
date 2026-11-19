@@ -8,6 +8,7 @@ import logging
 import hashlib, json, os, re, subprocess, time, zipfile
 import urllib.error
 import urllib.request
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -1061,15 +1062,7 @@ def _publish_cost_estimate_in_background(st, job, remote):
 
 
 def _publish_cost_estimate(st, job, remote, sent_at=None):
-    """Best effort: the pre-print cost estimate to Moonraker for HelixScreen (#1643). Never blocks a print.
-
-    Publishes the estimate the cost engine computes for this job into the
-    ``print_handy_cost`` database namespace, keyed by the file name
-    Moonraker reports, so a HelixScreen on the same printer shows the
-    same number. The namespace and record shape are proposed, pending
-    agreement on prestonbrown/helixscreen#2132 (docs/COST.md). A job the
-    engine cannot price (no sliced usage) publishes nothing.
-    """
+    """Best effort publish of a send-time estimate; never blocks a print."""
     try:
         from ..core import cost as _cost
         from ..core import cost_publish, spoolman_client
@@ -1084,7 +1077,18 @@ def _publish_cost_estimate(st, job, remote, sent_at=None):
         result = _cost.estimate_for_job(job, settings.current(), spool_lookup=_spool)
         if result is None:
             return None
-        return cost_publish.publish(st["moonraker_url"], remote, _cost.freeze(result), now=sent_at)
+        metadata = cost_publish._transport.moonraker_json(
+            st["moonraker_url"], "/server/files/metadata?filename=" +
+            urllib.parse.quote(str(remote), safe="/"), timeout=5)
+        modified = (metadata.get("result") or {}).get("modified")
+        if modified is None:
+            return None
+        lock = cost_publish.file_lock(st["moonraker_url"], remote)
+        with lock:
+            existing = cost_publish._read(st["moonraker_url"], remote)
+            return cost_publish.publish(st["moonraker_url"], remote, modified,
+                                        _cost.freeze(result), existing=existing,
+                                        at=(sent_at.timestamp() if sent_at else None))
     except Exception as exc:
         print(f"WARNING: cost estimate not published: {exc}", flush=True)
         return None
