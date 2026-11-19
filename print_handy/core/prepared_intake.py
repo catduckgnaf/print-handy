@@ -5371,7 +5371,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         split = len(gcodes) > 1
         picked_plate = 0
         if split:
-            plan = write_split_plan(jp, sliced, manifest, gcodes, plan_id)
+            scope_values = {
+                'platform': getattr(getattr(source, 'platform', None), 'value', None),
+                'requester_id': str(getattr(source, 'user_id', '') or '').strip(),
+                'channel_id': str(getattr(source, 'chat_id', '') or '').strip(),
+                'printer_id': str(sliced.get('printer_id') or '').strip(),
+            }
+            plan = write_split_plan(jp, sliced, manifest, gcodes, plan_id,
+                                    scope=scope_values if all(
+                                        isinstance(value, str) and value.strip()
+                                        for value in scope_values.values()) else None)
             parts = plan['parts']
             listing = '\n'.join(f"- Plate {p['plate']}: {p['label']}" for p in parts)
             notice = (f"These print as {len(parts)} separate plates because {plan['split_reason']}.\n{listing}\n{breakdown}\n"
