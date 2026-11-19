@@ -1174,6 +1174,39 @@ def test_zmod_stock_update_is_refused_without_compatibility(token):
     assert transport.posts == []
 
 
+@pytest.mark.parametrize("model,stack,expected", [
+    ("flashforge.ad5x", "ZMod", {"helixscreen"}),
+    ("flashforge_forgex.ad5m", "Forge-X", {"forge-x"}),
+    ("flashforge_opencreator.creator5", "OpenCreator", set()),
+    ("flashforge_reforge.creator5", "Reforge", set()),
+    ("klipper.generic", None, {"klipper", "helixscreen"}),
+])
+def test_bundled_update_policy_respects_printer_family(model, stack, expected):
+    printer = entry(model)
+    extras = {"forge-x": {"version": "1.4.2-beta-1", "remote_version": "1.4.2-beta-2"}}
+    live = {"klipper": {"version": "1.0", "remote_version": "2.0"},
+            "helixscreen": {"version": "1.0", "remote_version": "2.0"},
+            "stock_firmware": {"version": "1.0", "remote_version": "2.0"}}
+    if stack == "Forge-X":
+        live.update(extras)
+    payload = {"result": {"version_info": live}}
+    status = fw.parse_update_status(payload)
+    assert fw.flashforge_custom_firmware(printer, status) == stack
+    assert {c.name for c in fw.offered_updates(status, printer)} == expected
+    default_report = fw.firmware_report(FakeTransport(status=payload), printer)
+    assert ("klipper**: 1.0 -> 2.0" in default_report) == (stack not in {"ZMod", "Forge-X"})
+    cfg = {"firmware": {"hide_bundled_updates": False, "forgex_apply": True}}
+    report = fw.firmware_report(FakeTransport(status=payload), printer, cfg=cfg)
+    assert "klipper**: 1.0 -> 2.0" in report
+    assert "update stock_firmware`" not in report
+    if stack:
+        assert "update klipper`" not in report
+    transport = ApplyTransport(status=payload)
+    with pytest.raises(fw.FirmwareRefusal):
+        fw.prepare_update(transport, printer, "stock_firmware", cfg)
+    assert not transport.posts
+
+
 def test_an_exact_live_name_wins_over_an_alias_and_aliases_never_invent_one():
     status = fw.parse_update_status(STATUS)  # vanilla names: klipper, moonraker
     assert status.component("klipper").name == "klipper"

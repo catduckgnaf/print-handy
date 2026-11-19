@@ -343,7 +343,7 @@ class OverrideTests(unittest.TestCase):
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
                        "mqtt_roast", "ntfy_enabled", "ntfy_url", "ntfy_topic"},
             "firmware": {"update_alerts", "update_check_hours", "update_channel",
-                         "notice_firmwares", "forgex_apply"},
+                         "notice_firmwares", "forgex_apply", "hide_bundled_updates"},
             "natural_language": {"shadow_mode", "unmatched_log_enabled",
                                  "ai_rate_limit_per_hour", "ai_disabled_channel_ids"},
             "external_intake": {"enabled", "directory", "max_bytes"},
@@ -686,6 +686,11 @@ class RuntimeSettingsTests(unittest.TestCase):
     def test_generic_env_override(self):
         data = settings.load(local=False, environ={"PRINT_HANDY__MAINTENANCE__FULL_DAYS": "45"})
         self.assertEqual(data["maintenance"]["full_days"], 45)
+
+    def test_hide_bundled_updates_defaults_on_and_accepts_environment_override(self):
+        assert settings.load(local=False, environ={})["firmware"]["hide_bundled_updates"] is True
+        data = settings.load(local=False, environ={"PRINT_HANDY__FIRMWARE__HIDE_BUNDLED_UPDATES": "false"})
+        assert data["firmware"]["hide_bundled_updates"] is False
 
     def test_discord_timeouts_are_positive_whole_seconds(self):
         data = settings.load(local=False, environ={})

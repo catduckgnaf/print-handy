@@ -144,7 +144,7 @@ def installed_report(printer_id, entry, transport_for):
     return text
 
 
-def installed_report_and_status(printer_id, entry, transport_for):
+def installed_report_and_status(printer_id, entry, transport_for, cfg=None):
     """The installed report plus the live UpdateStatus behind it (#1610).
 
     One read of the one printer: the status the report was built from
@@ -159,7 +159,7 @@ def installed_report_and_status(printer_id, entry, transport_for):
         return fw.guidance_text(entry), None
     try:
         return fw.firmware_report_with_status(
-            transport_for(printer_id), entry, refresh=False)
+            transport_for(printer_id), entry, refresh=False, cfg=cfg)
     except fw.FirmwareError as exc:
         return f"{fw.COULD_NOT_READ_TEXT}\n({exc})", None
 
@@ -262,7 +262,7 @@ def _printer_section(row, feed, *, checked, transport_for, controls=False,
                      "read, or it has not been added yet.</p>")
     if checked == printer_id:
         report, status = installed_report_and_status(printer_id, entry,
-                                                     transport_for)
+                                                     transport_for, cfg)
         parts.append("<h3>Installed versions</h3>"
                      f"<pre>{_esc(report)}</pre>")
         if status is not None:

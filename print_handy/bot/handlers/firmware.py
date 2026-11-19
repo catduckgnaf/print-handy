@@ -200,7 +200,7 @@ async def firmware_dispatch(event, gateway, **kwargs):
         return {'action': 'skip', 'reason': 'print firmware not applicable to this printer'}
     try:
         message = await asyncio.to_thread(firmware_update.firmware_report, mr, entry,
-                                          refresh=True)
+                                          refresh=True, cfg=_config.cfg())
     except Exception:
         logger.exception('/print-firmware failed')
         message = firmware_update.COULD_NOT_READ_TEXT

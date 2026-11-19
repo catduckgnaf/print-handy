@@ -194,7 +194,7 @@ def test_opencreator_components_and_printers_never_offer():
                         "is_valid": True},
         "klipper": {"version": "v0.12.0", "remote_version": "v0.13.0",
                     "is_valid": True}})), vendor="klipper")
-    assert [o.component for o in fa.component_offers(obs)] == ["klipper"]
+    assert fa.component_offers(obs) == []
     obs = fa.observe(Printer(), vendor=fw.OPENCREATOR_VENDOR)
     assert fa.component_offers(obs) == []
 

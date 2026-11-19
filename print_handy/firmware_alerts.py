@@ -225,7 +225,7 @@ class Observation:
     # The registry vendor of the printer read ("" when the caller does
     # not say): the generic source's per-vendor exclusions read it.
     vendor: str = ""
-    zmod_install: bool = False
+    custom_stack: str | None = None
 
 
 def zmod_base_from_system_info(payload):
@@ -286,7 +286,8 @@ def observe(transport, latest_release=None, *, vendor="", entry=None) -> Observa
                        helixscreen_valid=helixscreen_valid,
                        components=status.components,
                        vendor=vendor,
-                       zmod_install=bool(current) or fw.is_zmod_install(entry, status))
+                       custom_stack=fw.flashforge_custom_firmware(entry, status)
+                       or ("ZMod" if current else None))
 
 
 def latest_release(opener=None, timeout=GITHUB_TIMEOUT_S):
@@ -408,6 +409,9 @@ def zmod_offers(obs: Observation) -> list:
 
 def helixscreen_offers(obs: Observation) -> list:
     """HelixScreen offers reported by the same Moonraker status read."""
+    if fw.custom_update_block("helixscreen", obs.custom_stack or
+                              ("Forge-X" if obs.vendor == fw.FORGEX_VENDOR else None)):
+        return []
     current, remote = obs.helixscreen_current, obs.helixscreen_remote
     if not current or not remote:
         return []
@@ -461,16 +465,16 @@ def component_offers(obs: Observation) -> list:
     pairing = (fw.pairing_state(obs.base, obs.current)
                if obs.current else "unknown")
     out, seen = [], set()
-    zmod_install = obs.zmod_install or bool(obs.current)
+    stack = obs.custom_stack or ("ZMod" if obs.current else None)
     for comp in obs.components:
         canonical = fw.canonical_component(comp.name)
-        if zmod_install and fw.zmod_update_block(canonical):
+        if fw.custom_update_block(canonical, stack):
             continue
         if canonical in (COMPONENT, "helixscreen", "system") or canonical in seen:
             continue
         if canonical in fw.OPENCREATOR_COMPONENTS:
             continue
-        if obs.vendor == fw.FORGEX_VENDOR:
+        if obs.vendor == fw.FORGEX_VENDOR or stack == "Forge-X":
             if canonical != fw.FORGEX_COMPONENT:
                 continue
             have = fw.version_parts(comp.current)

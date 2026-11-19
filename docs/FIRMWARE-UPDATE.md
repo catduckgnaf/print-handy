@@ -272,9 +272,16 @@ component the printer's own `moonraker.conf` names. On ZMod, Klipper,
 Moonraker, Fluidd and Mainsail are bundled and are not offered or
 installable separately through Print Handy. HelixScreen and separately
 installed plugins remain eligible. Stock Flashforge firmware is not
-applied by Print Handy. Do not apply it manually on ZMod without first
-confirming support for the exact model and target version in ZMod's
-compatibility documentation.
+applied by Print Handy. On ZMod, Forge-X, OpenCreator, or Reforge, do not
+apply it manually without confirming that the installed custom firmware
+supports the exact printer model and target stock version. The same
+principle applies to bundled components: Forge-X only offers its own
+component. OpenCreator and Reforge remain manual, not installable from
+Print Handy. A stock firmware release listing by itself is not evidence
+of compatibility. `[firmware] hide_bundled_updates` defaults to `true`
+for all printer families. Set it to `false` to show bundled versions in
+reports without enabling separate installs. Standalone components are
+not assumed to be bundled just because another family bundles them.
 
 > **Klipper update available for Shop Klipper:** v0.12.0 -> v0.13.0.
 > Press **Update** to install it. Print Handy asks once more, checks
