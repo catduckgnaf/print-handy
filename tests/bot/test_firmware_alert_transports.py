@@ -69,7 +69,7 @@ def _pid(cfg):
 def test_discord_alert_button_runs_the_confirmed_update(cfg, tmp_path):
     cfg["paths"]["state_home"] = tmp_path / "home"
     discord = fake_discord.FakeDiscord(
-        clicks=[{"question": "ZMod update available", "button": "Update"},
+        clicks=[{"question": "Updates for", "button": "Update zmod"},
                 {"question": "Update printer firmware?", "button": "Update now"}],
         chat_id=int(cfg["discord"]["chat_id"]), operator_id=int(cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, cfg)
@@ -87,8 +87,8 @@ def test_discord_alert_button_runs_the_confirmed_update(cfg, tmp_path):
     run(flow())
     assert discord.errors == []
     alert, confirm = discord.questions[:2]
-    assert alert["choices"] == [fal.UPDATE_LABEL, fal.SKIP_LABEL]
-    assert "1.7.5-2 -> 1.7.6-17" in alert["question"]
+    assert alert["choices"] == ["Update zmod", fal.DEFER_LABEL]
+    assert "1.7.5-2 → 1.7.6-17" in alert["question"]
     assert confirm["choices"] == [fw.UPDATE_LABEL, fw.CANCEL_LABEL]
     assert printer.posts == [{"name": "Z-Mod"}]
     assert any("Updated **Z-Mod** to 1.7.6-17" in str(text) for text in discord.sent)
@@ -157,9 +157,9 @@ def test_telegram_alert_is_an_inline_keyboard(cfg, tmp_path):
 
     run(flow())
     payload = stub.payloads("sendMessage")[-1]
-    assert "1.7.5-2 -> 1.7.6-17" in payload["text"]
+    assert "1.7.5-2 → 1.7.6-17" in payload["text"]
     labels = [row[0]["text"] for row in payload["reply_markup"]["inline_keyboard"]]
-    assert labels == [fal.UPDATE_LABEL, fal.SKIP_LABEL]
+    assert labels == ["Update zmod", fal.DEFER_LABEL]
 
 
 def test_matrix_alert_names_the_typed_command(cfg, tmp_path):
@@ -173,7 +173,7 @@ def test_matrix_alert_names_the_typed_command(cfg, tmp_path):
     al = _alerter(core, Printer())
     run(al.check(_pid(cfg), AD5X))
     [body] = stub.sent_bodies()
-    assert "1.7.5-2 -> 1.7.6-17" in body
+    assert "1.7.5-2 → 1.7.6-17" in body
     assert "`/print-firmware update zmod`" in body and "Press **Update**" not in body
     assert al.tasks == set()  # no button question is waiting on Matrix
 
@@ -232,7 +232,7 @@ def _wait_message(view, needle, timeout=10.0):
     raise AssertionError(f"no message {needle!r}: {view.entries()}")
 
 
-def test_web_chat_alert_has_update_and_skip_and_runs_the_confirmed_update(
+def test_web_chat_alert_has_update_and_defer_and_runs_the_confirmed_update(
         cfg, tmp_path, monkeypatch):
     """The Web UI gets the same alert, buttons and confirmed apply as Discord.
 
@@ -246,9 +246,9 @@ def test_web_chat_alert_has_update_and_skip_and_runs_the_confirmed_update(
     _on_loop(service, al.check(_pid(cfg), AD5X))
     one = service.view(web.scope_for("browser-one"))
     two = service.view(web.scope_for("browser-two"))
-    alert = _wait_prompt(one, "ZMod update available")
-    assert alert["choices"] == [fal.UPDATE_LABEL, fal.SKIP_LABEL]
-    assert "1.7.5-2 -> 1.7.6-17" in alert["question"]
+    alert = _wait_prompt(one, "Updates for")
+    assert alert["choices"] == ["Update zmod", fal.DEFER_LABEL]
+    assert "1.7.5-2 → 1.7.6-17" in alert["question"]
     assert two.open_prompt()["clarify_id"] == alert["clarify_id"]  # shared
     assert printer.posts == []
     one.answer(alert["clarify_id"], 0)
@@ -261,24 +261,24 @@ def test_web_chat_alert_has_update_and_skip_and_runs_the_confirmed_update(
     assert printer.posts == [{"name": "Z-Mod"}]
 
 
-def test_web_chat_skip_this_version_is_remembered_on_every_surface(cfg, tmp_path, monkeypatch):
+def test_web_chat_deferral_is_saved_for_this_surface_only(cfg, tmp_path, monkeypatch):
     from print_handy import firmware_alerts as fa
     web, service = _web(cfg, tmp_path, monkeypatch)
     printer = Printer()
     al = service.core.firmware_alerts = _alerter(service.core, printer)
     _on_loop(service, al.check(_pid(cfg), AD5X))
     view = service.view(web.scope_for("browser"))
-    alert = _wait_prompt(view, "ZMod update available")
+    alert = _wait_prompt(view, "Updates for")
     view.answer(alert["clarify_id"], 1)
     _on_loop(service, _settle(al))
     state_dir = al._state_dir(_pid(cfg))
-    assert "zmod:1.7.6" in fa.load(state_dir, fa.WEBUI_SURFACE)["skipped"]
-    assert printer.posts == []
-    # The chat bot's own state never saw this alert, and still honors the skip.
+    state = fa.load(state_dir, fa.WEBUI_SURFACE)
+    assert state["defer_updates_until"] > al.clock()
+    assert not state.get("skipped") and not printer.posts
     assert fa.load(state_dir) == {}
     observation = fa.observe(printer, None)
     assert fa.to_announce(fa.offers(observation), fa.load(state_dir),
-                          skipped=fa.skipped_everywhere(state_dir)) == []
+                          skipped=fa.skipped_everywhere(state_dir))
 
 
 def test_web_and_chat_alerts_keep_separate_announcement_state(cfg, tmp_path, monkeypatch):

@@ -44,7 +44,9 @@ from . import routing
 logger = logging.getLogger(__name__)
 
 UPDATE_LABEL = "Update"
-SKIP_LABEL = "Skip this version"
+DEFER_LABEL = "Defer updates"
+DEFER_DAYS = 7
+
 # The first check after a start waits a little (the bot is still settling,
 # and a crash-looping bot must not hit printers and GitHub on every start).
 FIRST_CHECK_S = 120.0
@@ -284,13 +286,18 @@ class FirmwareAlerter:
                 return []
             self._failing.discard(printer_id)
             mem = self._announced_mem.setdefault(printer_id, set())
-            fresh = [offer for offer in fa.to_announce(
-                         fa.offers(observation, channel=update_channel(self.core.cfg)),
-                         state, skipped=fa.skipped_everywhere(state_dir))
-                     if (offer.key, offer.applicable) not in mem]
+            # Defer is a printer-level, persisted snooze. It suppresses every
+            # update notice until its deadline, then the regular check resurfaces it.
+            deferred_until = state.get("defer_updates_until")
+            offers = fa.offers(observation, channel=update_channel(self.core.cfg))
+            fresh = [] if isinstance(deferred_until, (int, float)) and now < deferred_until else [
+                offer for offer in fa.to_announce(
+                    offers, state, skipped=fa.skipped_everywhere(state_dir))
+                if (offer.key, offer.applicable) not in mem]
             announced = {}
-            for offer in fresh:
-                if await self.announce(printer_id, entry, offer):
+            zmod = getattr(entry, "firmware_family", None) == "zmod"
+            if fresh and await self.announce_digest(printer_id, entry, fresh, zmod=zmod):
+                for offer in fresh:
                     mem.add((offer.key, offer.applicable))
                     announced.update(fa.record_announced({}, offer, self.clock())["announced"])
             self._store(printer_id, state_dir, self._next(now), announced)
@@ -395,65 +402,97 @@ class FirmwareAlerter:
         name = routing.printer_name(self.core.cfg, printer_id)
         return name if name and name != printer_id else entry.label
 
-    async def announce(self, printer_id, entry, offer) -> bool:
-        """Post one alert; True only when the platform delivered it."""
+    async def announce_digest(self, printer_id, entry, offers, *, zmod=False) -> bool:
+        """Deliver one per-printer digest, retaining a distinct update choice."""
         adapter = self.core.adapter
         chat = self._chat(printer_id)
         if not chat:
             logger.info("firmware update alert for %s not posted: no chat configured", printer_id)
             return False
         label = self._label(printer_id, entry)
-        buttons = offer.applicable and bool(getattr(adapter, "supports_buttons", False))
-        text = offer.text(label, buttons=buttons)
-        if not buttons:
-            return _delivered(await adapter.send(chat_id=chat, content=text))
+        grouped = {"plugin": [], "firmware": [], "software": []}
+        for offer in offers:
+            component = offer.component.casefold()
+            if component in {"zmod", "forgex"}:
+                group = "firmware"
+            elif component in {"recommend", "quickswap", "timelapse", "notify"}:
+                group = "plugin"
+            else:
+                group = "software"
+            grouped[group].append(offer)
+        stack = " (ZMod)" if zmod else ""
+        counts = [f"{len(members)} {group} update{'s' if len(members) != 1 else ''}"
+                  for group, members in grouped.items() if members]
+        lines = [f"**Updates for {label}{stack}:** {', '.join(counts)}"]
+        for members in grouped.values():
+            for offer in members:
+                track = f" ({offer.track} prerelease)" if offer.track else ""
+                reason = f" — {offer.block_reason}" if offer.block else ""
+                lines.append(f"• {offer.display_name}: {offer.current} → {offer.available}{track}{reason}")
+        applicable = [offer for offer in offers if offer.applicable]
+        if not getattr(adapter, "supports_buttons", False):
+            if applicable:
+                token = applicable[0].component if len(applicable) == 1 else "<component>"
+                lines.append(f"Use `/print-firmware update {token}` to review and confirm one update.")
+            return _delivered(await adapter.send(chat_id=chat, content="\n".join(lines)))
+        # Offer each applicable component its own route through the existing
+        # confirmed-update flow. Leave one platform button for deferral; if an
+        # unusually large digest exceeds that surface's limit, the typed
+        # command remains the fallback for components that do not fit.
+        max_buttons = max(1, int(getattr(adapter, "max_buttons", 25)))
+        visible = applicable[:max_buttons - 1]
+        choices = [f"Update {offer.component}" for offer in visible]
+        choices.append(DEFER_LABEL)
+        if len(visible) < len(applicable):
+            lines.append("Use `/print-firmware update <component>` to review any other update.")
+        lines.append("Defer updates to get another reminder in 7 days.")
         registry = prompts.gateway()
         clarify_id = f"fwalert-{uuid.uuid4().hex[:12]}"
         session = f"firmware-alert:{chat}:{printer_id}"
-        registry.register(clarify_id, session, text, [UPDATE_LABEL, SKIP_LABEL])
+        registry.register(clarify_id, session, "\n".join(lines), choices)
         try:
-            sent = await adapter.send_clarify(chat_id=chat, question=text,
-                                              choices=[UPDATE_LABEL, SKIP_LABEL],
-                                              clarify_id=clarify_id, session_key=session)
+            sent = await adapter.send_clarify(chat_id=chat, question="\n".join(lines),
+                                              choices=choices, clarify_id=clarify_id,
+                                              session_key=session)
         except Exception:
             sent = None
         if not _delivered(sent):
             _close(registry, clarify_id)
             return False
-        waiter = self._spawn(self._answer(printer_id, entry, offer, chat, clarify_id))
-        # The prompt is registered before the waiter starts, and the waiter's
-        # own cleanup (its finally) runs only once the task has started: a
-        # waiter cancelled before its first step would leave the prompt open
-        # in the shared registry for the rest of the process. Close it from
-        # the task's completion too — _close is idempotent, and on every path
-        # where the waiter did run it has already closed the prompt itself.
+        waiter = self._spawn(self._answer_digest(printer_id, entry, offers, chat, clarify_id))
         waiter.add_done_callback(lambda _task: _close(registry, clarify_id))
         return True
 
-    async def _answer(self, printer_id, entry, offer, chat, clarify_id):
-        """Wait for the alert's press; Update enters the confirmed apply, Skip remembers."""
+    async def _answer_digest(self, printer_id, entry, offers, chat, clarify_id):
         from .runtime import await_prompt
         registry = prompts.gateway()
-        adapter = self.core.adapter
         try:
             answer = await await_prompt(registry, clarify_id, interval_s(self.core.cfg))
         finally:
             _close(registry, clarify_id)
-        if answer == SKIP_LABEL:
+        if answer == DEFER_LABEL:
             state_dir = self._state_dir(printer_id)
-            fa.save(state_dir, fa.record_skipped(fa.load(state_dir, self.surface), offer.key,
-                                                 self.clock()), self.surface)
-            await adapter.close_prompt(clarify_id, "Skipped. Print Handy will tell you about "
-                                                   f"the next {offer.display_name} release.")
-            return "skipped"
-        if answer != UPDATE_LABEL:
-            await adapter.close_prompt(clarify_id, "This alert expired. "
-                                                   f"`/print-firmware update {offer.component}` "
-                                                   "still works.")
+            until = self.clock() + DEFER_DAYS * 86400
+            state = fa.load(state_dir, self.surface)
+            announced = dict(state.get("announced") or {})
+            mem = self._announced_mem.get(printer_id, set())
+            for offer in offers:
+                announced.pop(offer.key, None)
+                mem.discard((offer.key, offer.applicable))
+            fa.save(state_dir, {**state, "announced": announced,
+                                "defer_updates_until": until}, self.surface)
+            await self.core.adapter.close_prompt(clarify_id, "Updates deferred for 7 days; they will resurface then.")
+            return "deferred"
+        if not isinstance(answer, str) or not answer.startswith("Update "):
+            await self.core.adapter.close_prompt(clarify_id, "This update digest expired.")
             return "expired"
-        await adapter.close_prompt(clarify_id, "Checking the printer first.")
-        message = await self.apply(printer_id, entry, offer.component, chat)
-        await adapter.send(chat_id=chat, content=message)
+        selected = next((o for o in offers if answer == f"Update {o.component}" and o.applicable), None)
+        if selected is None:
+            await self.core.adapter.close_prompt(clarify_id, "That update cannot be installed from chat. Nothing was sent.")
+            return "not-applicable"
+        await self.core.adapter.close_prompt(clarify_id, "Checking the printer first.")
+        message = await self.apply(printer_id, entry, selected.component, chat)
+        await self.core.adapter.send(chat_id=chat, content=message)
         return message
 
     async def apply(self, printer_id, entry, component, chat) -> str:

@@ -164,28 +164,26 @@ way until it has been run on a real printer (an AD5X on ZMod).
 ## ZMod update alerts in chat
 
 On by default (`[firmware] update_alerts`, see [Settings](SETTINGS.md)).
-For each ZMod printer, Print Handy checks once a day
-(`[firmware] update_check_hours`) and posts one alert in the printer's chat
-when a new ZMod release is available, on whichever platform the bot runs
-(Discord, Telegram or Matrix). It also alerts when Moonraker lists a newer
-HelixScreen component version, with the same Update button and confirmed
-apply path:
+For eligible printers, Print Handy checks on the configured interval
+(`[firmware] update_check_hours`) and posts one digest per printer when
+updates are available, on whichever platform the bot runs (Discord,
+Telegram or Matrix).
 
-> **ZMod update available for Garage AD5X:** 1.7.5-2 -> 1.7.6-17.
-> Press **Update** to install it. Print Handy asks once more, checks the
-> printer is idle and verifies the result.
+> **Updates for Garage AD5X (ZMod):** 1 firmware update
+> • ZMod: 1.7.5-2 → 1.7.6-17
 
-- **Update** runs exactly `/print-firmware update zmod`: the component is
-  read live, the same confirmation shows `zmod: current -> available`, the
-  printer must be idle when you confirm and again just before the one
-  upgrade request, and the result is verified by re-reading. Nothing is
-  applied without both presses. **Skip this version** silences that release.
-  Matrix has no buttons, so its alert names `/print-firmware update zmod`
-  instead. After a bot restart an old alert's button no longer answers;
-  the typed command still works.
+- One digest per printer gives counts for plugins, firmware and software
+  and identifies ZMod when detected. Every applicable update has its own
+  **Update <component>** choice, each opening its confirmation. If a digest
+  exceeds the platform's button limit, the remaining components are available
+  through `/print-firmware update <component>`. On platforms with buttons,
+  **Defer updates** snoozes reminders on that surface for seven days. Still
+  available updates can then reappear. Deferring does not skip a version or
+  install anything. Each update uses the same confirmation, idle checks and
+  verification; there is no batch installation.
 - **In the Web UI** the same alert appears on the chat page (`/chat`),
-  with the same **Update** and **Skip this version** buttons and the same
-  confirmation, answered from the page. The alert belongs to no one
+  with the same controls
+  and the same confirmation, answered from the page. The alert belongs to no one
   browser session, so every session sees it and either can answer it, like
   the restart notice. The Web UI starts its chat service with the server
   when it has alerts to deliver (web chat on, alerts on, a ZMod printer on
@@ -276,9 +274,9 @@ component the printer's own `moonraker.conf` names.
 
 - **Update** runs exactly `/print-firmware update <component>` for
   that one component: the same confirmation, both idle checks, one
-  upgrade request, verified by re-reading. **Skip this version**
-  silences that component's release. Nothing is applied without both
-  presses, and nothing ever applies on its own.
+  upgrade request, verified by re-reading. Deferral snoozes the printer's
+  digest for seven days and then resurfaces pending updates. Nothing is
+  applied without both presses, and nothing ever applies on its own.
 - **One alert per version**, remembered in the same state file as the
   ZMod alerts, so a restart does not repeat it. A component's builds
   inside one release do not alert on their own; the button applies

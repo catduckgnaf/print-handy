@@ -224,7 +224,8 @@ def test_one_alert_per_version_survives_a_restart(cfg):
 
     assert {o.component for o in run(flow(first))} == {
         "klipper", "moonraker", "fluidd"}
-    assert len(first.core.adapter.questions) == 3
+    assert len(first.core.adapter.questions) == 1
+    assert "(ZMod)" not in first.core.adapter.questions[0]["question"]
     state = fa.load(settings.printer_state_dir(PID, cfg))
     assert state["announced"]["klipper:0.13.0"]["available"] == "v0.13.0"
     # A restart: a new alerter, the same state folder, the same updates.
@@ -242,19 +243,19 @@ def test_a_network_failure_sends_no_alert_and_fails_soft(cfg):
 
 
 def test_update_press_runs_the_confirmed_apply(cfg):
-    printer = Printer()
+    printer = Printer(payload({"klipper": {"version": "v0.12.0", "remote_version": "v0.13.0"}}))
     al = alerter(cfg, printer)
     adapter = al.core.adapter
 
     async def flow():
         await al.check(PID, GENERIC)
         alert = adapter.questions[0]
-        assert alert["choices"] == [fal.UPDATE_LABEL, fal.SKIP_LABEL]
+        assert alert["choices"] == ["Update klipper", fal.DEFER_LABEL]
         assert "Shop Klipper" in alert["question"]
-        assert "v0.12.0 -> v0.13.0" in alert["question"]
+        assert "v0.12.0 → v0.13.0" in alert["question"]
         assert printer.posts == []  # the alert itself sends nothing
-        prompts.resolve_gateway_clarify(alert["id"], fal.UPDATE_LABEL)
-        await wait_for(lambda: len(adapter.questions) == 4)
+        prompts.resolve_gateway_clarify(alert["id"], "Update klipper")
+        await wait_for(lambda: len(adapter.questions) == 2)
         confirm = adapter.questions[-1]
         # The existing confirmation, unchanged: the exact one-component change.
         assert confirm["question"].startswith("Update printer firmware?")
@@ -273,25 +274,26 @@ def test_update_press_runs_the_confirmed_apply(cfg):
                for _chat, text in adapter.sent)
 
 
-def test_skipping_a_component_alert_names_the_component(cfg):
-    al = alerter(cfg, Printer())
+def test_deferring_a_multi_component_digest_keeps_every_release_pending(cfg):
+    clock = Clock()
+    printer = Printer()
+    al = alerter(cfg, printer, clock=clock)
     adapter = al.core.adapter
 
     async def flow():
         await al.check(PID, GENERIC)
-        klipper = adapter.questions[0]
-        prompts.resolve_gateway_clarify(klipper["id"], fal.SKIP_LABEL)
-        for question in adapter.questions[1:]:
-            prompts.resolve_gateway_clarify(question["id"], fal.SKIP_LABEL)
+        [digest] = adapter.questions
+        assert digest["choices"] == [
+            "Update klipper", "Update moonraker", "Update fluidd", fal.DEFER_LABEL,
+        ]
+        prompts.resolve_gateway_clarify(digest["id"], fal.DEFER_LABEL)
         await settle(al)
-        return klipper["id"]
 
-    klipper_id = run(flow())
-    notes = dict(adapter.closed)
-    assert notes[klipper_id] == ("Skipped. Print Handy will tell you about "
-                                 "the next Klipper release.")
+    run(flow())
     state = fa.load(settings.printer_state_dir(PID, cfg))
-    assert "klipper:0.13.0" in state["skipped"]
+    assert state["defer_updates_until"] == clock.now + 7 * 86400
+    assert not state["announced"] and not state.get("skipped")
+    assert not printer.posts
 
 
 def test_zmod_printer_alerts_its_other_components_too():

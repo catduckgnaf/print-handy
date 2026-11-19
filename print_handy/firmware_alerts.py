@@ -359,6 +359,10 @@ class Offer:
     def applicable(self):
         return self.block is None
 
+    @property
+    def block_reason(self):
+        return _BLOCK_TEXT.get(self.block, "") if self.block is not None else ""
+
     def text(self, label, *, buttons=True):
         shown = (f"{self.available} ({self.track} prerelease)" if self.track
                  else self.available)
