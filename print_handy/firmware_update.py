@@ -361,6 +361,8 @@ def hide_bundled_updates(cfg=None) -> bool:
 
 def offered_updates(status, entry=None) -> tuple:
     """Updates safe to present as independent actions for this printer."""
+    if live_identity_block_reason(entry, status):
+        return ()
     stack = flashforge_custom_firmware(entry, status)
     return tuple(c for c in status.updates_available if not custom_update_block(c.name, stack))
 

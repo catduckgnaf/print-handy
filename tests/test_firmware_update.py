@@ -1221,6 +1221,8 @@ def test_live_forgex_requires_the_explicit_profile_in_reports_and_apply():
     }}}
     status = fw.parse_update_status(payload)
     assert fw.flashforge_custom_firmware(GENERIC, status) == "Forge-X"
+    assert fw.offered_updates(status, GENERIC) == ()
+    assert [c.name for c in fw.offered_updates(status, entry("flashforge_forgex.ad5m"))] == ["forge-x"]
     report = fw.firmware_report(FakeTransport(status=payload), GENERIC)
     assert "Forge-X was detected" in report
     assert "update with `/print-firmware update forge-x`" not in report
