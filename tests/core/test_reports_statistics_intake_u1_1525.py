@@ -146,19 +146,33 @@ class TestExternalIntake:
 
     def test_concurrent_confirmations_charge_once_per_identity(self):
         from concurrent.futures import ThreadPoolExecutor
-        from threading import Barrier, Lock
-        import time
+        from threading import Barrier, Event, Lock
 
         card = {"sha256": "concurrent", "status": "planned", "path": "x"}
         ledger = set()
         start = Barrier(8)
         charge_lock = Lock()
         calls = []
+        others_arrived = Event()
+
+        class CountingLedger(set):
+            # Every caller's ledger check counts; the first charge waits until
+            # every other caller has at least reached the lock, so without the
+            # per-identity lock they all pass the check before anyone records.
+            def __contains__(self, item):
+                with charge_lock:
+                    seen.append(item)
+                    if len(seen) >= 8:
+                        others_arrived.set()
+                return super().__contains__(item)
+
+        seen = []
+        ledger = CountingLedger()
 
         def charge(**kw):
             with charge_lock:
                 calls.append(kw)
-                time.sleep(0.05)
+            others_arrived.wait(0.5)
             return "charged"
 
         def confirm():
@@ -175,6 +189,7 @@ class TestExternalIntake:
         assert sum(result is not None for result in results) == 1
         assert len(calls) == 1
         assert len(ledger) == 1
+        assert ei._CONFIRM_LOCKS == {}  # no lock outlives its confirmations
 
     def test_confirm_charges_once_and_never_twice(self, tmp_path):
         card = {"sha256": "abc", "status": "planned", "path": "x"}
