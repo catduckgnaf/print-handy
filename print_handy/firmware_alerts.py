@@ -225,6 +225,7 @@ class Observation:
     # The registry vendor of the printer read ("" when the caller does
     # not say): the generic source's per-vendor exclusions read it.
     vendor: str = ""
+    zmod_install: bool = False
 
 
 def zmod_base_from_system_info(payload):
@@ -243,7 +244,7 @@ def _raw_component(payload, name):
     return {}
 
 
-def observe(transport, latest_release=None, *, vendor="") -> Observation:
+def observe(transport, latest_release=None, *, vendor="", entry=None) -> Observation:
     """Read one printer's update state through ``transport``: GETs only.
 
     The update status read is required (its failure raises
@@ -284,7 +285,8 @@ def observe(transport, latest_release=None, *, vendor="") -> Observation:
                                            if helixscreen_component is not None else None),
                        helixscreen_valid=helixscreen_valid,
                        components=status.components,
-                       vendor=vendor)
+                       vendor=vendor,
+                       zmod_install=bool(current) or fw.is_zmod_install(entry, status))
 
 
 def latest_release(opener=None, timeout=GITHUB_TIMEOUT_S):
@@ -459,8 +461,11 @@ def component_offers(obs: Observation) -> list:
     pairing = (fw.pairing_state(obs.base, obs.current)
                if obs.current else "unknown")
     out, seen = [], set()
+    zmod_install = obs.zmod_install or bool(obs.current)
     for comp in obs.components:
         canonical = fw.canonical_component(comp.name)
+        if zmod_install and fw.zmod_update_block(canonical):
+            continue
         if canonical in (COMPONENT, "helixscreen", "system") or canonical in seen:
             continue
         if canonical in fw.OPENCREATOR_COMPONENTS:

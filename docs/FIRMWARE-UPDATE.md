@@ -268,7 +268,13 @@ Moonraker), and Forge-X when `[firmware] forgex_apply` is on. Print
 Handy checks them on the same schedule and posts one alert per
 component with a real available version: Klipper, Moonraker, Fluidd,
 Mainsail, GuppyScreen where the printer lists one, and any other
-component the printer's own `moonraker.conf` names.
+component the printer's own `moonraker.conf` names. On ZMod, Klipper,
+Moonraker, Fluidd and Mainsail are bundled and are not offered or
+installable separately through Print Handy. HelixScreen and separately
+installed plugins remain eligible. Stock Flashforge firmware is not
+applied by Print Handy. Do not apply it manually on ZMod without first
+confirming support for the exact model and target version in ZMod's
+compatibility documentation.
 
 > **Klipper update available for Shop Klipper:** v0.12.0 -> v0.13.0.
 > Press **Update** to install it. Print Handy asks once more, checks

@@ -310,6 +310,42 @@ class UpdateStatus:
         return tuple(c for c in self.components if c.remote_unknown)
 
 
+_ZMOD_BUNDLED_UPDATE_COMPONENTS = frozenset({"klipper", "moonraker", "fluidd", "mainsail"})
+
+
+def is_zmod_install(entry, status=None) -> bool:
+    """Recognize ZMod by configured family or an explicit live Z-Mod row."""
+    return bool((entry is not None and entry.firmware_family == "zmod")
+                or (status is not None and status.component("zmod") is not None))
+
+
+def component_hidden_on_zmod(name: str) -> bool:
+    """ZMod-bundled core components are updated with ZMod, not independently."""
+    return canonical_component(name) in _ZMOD_BUNDLED_UPDATE_COMPONENTS
+
+
+def offered_updates(status, entry=None) -> tuple:
+    """Updates safe to present as independent actions for this printer."""
+    if not is_zmod_install(entry, status):
+        return status.updates_available
+    return tuple(c for c in status.updates_available if not zmod_update_block(c.name))
+
+
+def zmod_update_block(token) -> str | None:
+    """Why a target cannot be offered or applied independently on ZMod."""
+    key = _component_key(token)
+    if key.startswith(("stockfirmware", "flashforgestock", "flashforgefirmware")) or key in {
+        "stock", "flashforge",
+    }:
+        return ("Stock firmware compatibility with this ZMod install is not verified. "
+                "Do not install it without confirming support for the exact printer model "
+                "and firmware version in ZMod's documentation. Nothing was sent.")
+    if component_hidden_on_zmod(token):
+        return (f"**{token}** is bundled with ZMod and is not offered as an independent update. "
+                "Update it through ZMod's supported update procedure. Nothing was sent.")
+    return None
+
+
 def _component_key(name):
     return re.sub(r"[^0-9a-z]", "", str(name or "").casefold())
 
@@ -749,7 +785,12 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
     eligible = is_apply_eligible(entry)
     label = entry.label if entry is not None else "your printer"
     lines = [f"**Firmware on {label}** (read live from Moonraker's Update Manager):"]
-    lines += [_component_line(c, eligible=eligible) for c in status.components]
+    zmod = is_zmod_install(entry, status)
+    lines += [_component_line(c, eligible=eligible) for c in status.components
+              if not (zmod and zmod_update_block(c.name))]
+    if zmod:
+        lines.append("ZMod bundles Klipper, Moonraker, Fluidd and Mainsail. "
+                     "Print Handy does not offer these as independent updates.")
     if entry is not None and entry.firmware_family == "zmod":
         # #562: the installed ZMod version is always stated for a ZMod
         # printer — as unknown when Moonraker does not report the `zmod`
@@ -952,6 +993,9 @@ def prepare_update(transport, entry, component_token, cfg=None) -> PreparedUpdat
         status = fetch_status(transport)
     except FirmwareError:
         raise FirmwareError(UPDATE_COULD_NOT_READ_TEXT) from None
+    zmod = is_zmod_install(entry, status)
+    if zmod and (reason := zmod_update_block(component_token)):
+        raise FirmwareRefusal(reason)
     component = status.component(component_token)
     if component is None and is_guppy_on_zmod(entry, status, component_token):
         raise FirmwareRefusal(GUPPY_IN_ZMOD_TEXT)
@@ -960,6 +1004,8 @@ def prepare_update(transport, entry, component_token, cfg=None) -> PreparedUpdat
                               f"{component_token!r}. Run `/print-firmware` to see the "
                               "components it actually reports — a typed name is never sent "
                               "on trust. Nothing was sent.")
+    if zmod and (reason := zmod_update_block(component.name)):
+        raise FirmwareRefusal(reason)
     if component.remote_unknown:
         raise FirmwareRefusal(f"The printer does not report the latest version of "
                               f"**{component.name}**, so Print Handy cannot tell whether "
@@ -1739,8 +1785,10 @@ STOCK_GUIDE = """**Updating the stock Flashforge firmware under ZMod (guided —
 
 The stock firmware is the layer underneath ZMod. It updates from the
 printer's own screen or a USB drive — there is no API Print Handy can use,
-so Print Handy cannot do these steps for you. On a ZMod printer, do the
-pre-steps first or the update can strand the install:
+so Print Handy cannot do these steps for you. Do not proceed until
+ZMod documents compatibility with the exact printer model and target
+stock firmware version. If compatible, follow the pre-steps below or
+the update can strand the install:
 
 1. Disable every active plugin except `recommend`, `timelapse` and
    `notify`: `DISABLE_PLUGIN name=<plugin>` for each of the others.

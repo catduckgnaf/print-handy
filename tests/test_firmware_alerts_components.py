@@ -101,6 +101,20 @@ def run(coro):
 
 # ------------------------------------------------------------------ detection
 
+def test_zmod_components_are_not_independent_alert_offers():
+    obs = fa.Observation(current="1.7.6", components=(
+        fw.Component("Z-Mod", current="1.7.6", remote="1.7.7"),
+        fw.Component("klippy", current="1", remote="2"),
+        fw.Component("moon", current="1", remote="2"),
+        fw.Component("fluidd", current="1", remote="2"),
+        fw.Component("mainsail", current="1", remote="2"),
+        fw.Component("recommend", current="1.0", remote="2.0"),
+        fw.Component("quickswap", current="1.0", remote="2.0"),
+        fw.Component("flashforge_stock", current="1.0", remote="2.0"),
+    ), helixscreen_current="1.0", helixscreen_remote="2.0")
+    assert {offer.component for offer in fa.offers(obs)} == {"helixscreen", "recommend", "quickswap"}
+
+
 def test_components_with_real_versions_offer_with_buttons():
     obs = fa.observe(Printer(), vendor="klipper")
     offers = fa.component_offers(obs)
@@ -294,14 +308,11 @@ def test_skipping_a_component_alert_names_the_component(cfg):
     assert "klipper:0.13.0" in state["skipped"]
 
 
-def test_zmod_printer_alerts_its_other_components_too():
-    """A ZMod printer whose Moonraker reports a real Klipper remote gets
-    a Klipper offer beside the ZMod source's own offers."""
+def test_live_zmod_detection_suppresses_klipper_even_without_a_registry_entry():
     zmod_payload = {"result": {"version_info": {
         "Z-Mod": {"version": "1.7.6-17", "remote_version": "1.7.6-17",
                   "is_valid": True},
         "klippy": {"version": "v0.12.0", "remote_version": "v0.13.0",
                    "is_valid": True}}}}
     obs = fa.observe(Printer(zmod_payload), vendor="flashforge")
-    assert [(o.component, o.key) for o in fa.offers(obs)] == [
-        ("klipper", "klipper:0.13.0")]
+    assert fa.offers(obs) == []

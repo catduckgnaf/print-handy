@@ -173,7 +173,7 @@ def _update_actions(printer_id, entry, status, *, controls, cfg):
     component's confirmation page. Every refusal is named in words,
     never a dead button.
     """
-    updates = status.updates_available
+    updates = fw.offered_updates(status, entry)
     if not updates:
         return ""
     parts = ["<h3>Updates available</h3>"]
@@ -267,7 +267,7 @@ def _printer_section(row, feed, *, checked, transport_for, controls=False,
                      f"<pre>{_esc(report)}</pre>")
         if status is not None:
             if observe is not None:
-                observe(printer_id, name, status)
+                observe(printer_id, name, status, entry)
             parts.append(_update_actions(printer_id, entry, status,
                                          controls=controls, cfg=cfg))
             parts.append(_channel_actions(printer_id, entry, status,
@@ -304,7 +304,7 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
     roster is ignored. ``feed`` and ``transport_for`` are seams for tests.
     ``controls`` is whether Web UI printer controls are on (update
     buttons show only then) and ``observe`` an optional callable
-    ``(printer_id, name, status)`` receiving the checked printer's live
+    ``(printer_id, name, status, entry)`` receiving the checked printer's live
     update status — the route passes the notification store's recorder.
     """
     current = feed() if callable(feed) else feed

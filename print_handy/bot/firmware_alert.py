@@ -277,7 +277,7 @@ class FirmwareAlerter:
             try:
                 observation = await asyncio.to_thread(
                     fa.observe, transport, release,
-                    vendor=entry.vendor if entry is not None else "")
+                    vendor=entry.vendor if entry is not None else "", entry=entry)
             except fw.FirmwareError as exc:
                 self._fail(printer_id, exc)
                 self._store(printer_id, state_dir, self._next(now))
