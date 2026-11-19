@@ -320,3 +320,15 @@ def test_matrix_file_with_a_caption_prices_the_file(matrix_cfg, tmp_path):
     run(client.handle_event(_matrix_file_event("how much will this file cost"), tm.ROOM))
     assert any("benchy.gcode (estimate before printing)" in b
                for b in stub.sent_bodies())
+
+
+def test_hours_only_manual_estimate_wins_over_attachment(tmp_path):
+    path = tmp_path / "benchy.gcode"
+    path.write_text(GCODE)
+    event = SimpleNamespace(media_urls=[str(path)])
+    text = cost_handler._dispatch_answer("/print-cost 3 h", event)
+    # The manual hours estimate answers, not the attachment and not a refusal.
+    assert "benchy.gcode" not in text
+    assert text.startswith("Out of pocket for estimate:")
+    assert "Electricity:" in text and "No filament counted" in text
+    assert "Material (incl. waste allowance): USD 0.00" in text
