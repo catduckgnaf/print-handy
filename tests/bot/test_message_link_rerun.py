@@ -77,6 +77,22 @@ def test_a_link_to_an_earlier_model_message_runs_it_again_as_the_paster(cfg):
     assert not any("didn't understand" in text for text in discord.sent)
 
 
+def test_message_link_preserves_requester_plate_selection_not_source_instruction(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print plate 1")
+    paster = fake_discord.FakeUser(200000000000000777, "member")
+    request = post(f"{link(discord.channel.id, source.id)} print plate 2", author=paster)
+    seen = intake(core, request)
+    assert seen == [(f"{MODEL} print plate 2", str(paster.id), str(request.id))]
+
+
+def test_message_link_without_requester_instruction_replays_source_text(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print plate 1")
+    seen = intake(core, post(link(discord.channel.id, source.id)))
+    assert seen == [(f"{MODEL} print plate 1", "200000000000000002", mock.ANY)]
+
+
 def test_a_link_to_a_bot_post_says_so_and_runs_nothing(cfg):
     discord, core, post = setup(cfg)
     reply = post("Inspected 4 parts", author=discord.bot_user)

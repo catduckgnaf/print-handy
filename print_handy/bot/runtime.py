@@ -965,6 +965,9 @@ def make_event(source, text, message_id, media_urls=(), metadata=None, prov=None
 
 _MESSAGE_LINK = re.compile(
     r"^\s*<?https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)/?>?\s*$")
+_MESSAGE_LINK_WITH_TEXT = re.compile(
+    r"^\s*<?https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)/?>?(?:\s+(.+?))?\s*$",
+    re.DOTALL)
 
 
 def parse_message_link(text):
@@ -1394,8 +1397,10 @@ class BotCore(_RoutedAdapter):
         if addressed.text.strip() or getattr(message, "attachments", None):
             self._signal_working(source)
         content_from, text = message, addressed.text
-        if parse_message_link(text):
-            content_from = await self._linked_message(message)
+        linked_request = _MESSAGE_LINK_WITH_TEXT.match(text)
+        if linked_request:
+            requester_instruction = (linked_request[4] or "").strip()
+            content_from = await self._linked_message(message, linked_request)
             if isinstance(content_from, str):
                 await self.adapter.send(chat_id=source.chat_id, content=content_from,
                                         metadata={"thread_id": source.thread_id} if source.thread_id else None)
@@ -1404,6 +1409,10 @@ class BotCore(_RoutedAdapter):
             if linked.elsewhere:
                 return None  # the linked message was meant for a different bot
             text = linked.text
+            # Linked author text is source material; current requester intent wins.
+            if requester_instruction:
+                urls = re.findall(r"https?://[^\\s<>\\)\\]]+", linked.text)
+                text = f"{urls[0] if urls else ''} {requester_instruction}".strip()
         media = await self.save_attachments(content_from)
         prov = self.provenance_for(addressed, message)
         if content_from is not message:
@@ -1432,7 +1441,7 @@ class BotCore(_RoutedAdapter):
         except Exception as exc:  # no permission to post there, or the platform is down
             logger.info("could not answer a mention in channel %s: %r", chat_id, exc)
 
-    async def _linked_message(self, message):
+    async def _linked_message(self, message, link_match=None):
         """The message a pasted Discord message link points at, or the reason it cannot be used.
 
         Pasting a link to an earlier message in a print channel runs that
@@ -1441,7 +1450,10 @@ class BotCore(_RoutedAdapter):
         still asks them. Only links into this server's print channels are
         followed, so a link never reads a channel the bot does not serve.
         """
-        guild_id, channel_id, message_id = parse_message_link(message.content)
+        match = link_match or _MESSAGE_LINK_WITH_TEXT.match(message.content)
+        if not match:
+            return "That is not a valid message link, so nothing happened."
+        guild_id, channel_id, message_id = match.groups()[:3]
         guild = getattr(message, "guild", None)
         if guild is None or str(getattr(guild, "id", "")) != guild_id:
             return "That message link points outside this server, so nothing happened."
