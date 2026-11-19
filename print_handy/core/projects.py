@@ -79,7 +79,12 @@ def source_checkpoint(job: dict, manifest: dict, scope: dict | None) -> dict:
                       for key in ("platform", "requester_id", "channel_id", "printer_id")}
     # Unscoped checkpoints remain explicitly non-discoverable; do not infer
     # provenance from legacy or ambient runtime state.
-    plates = manifest.get("plates") or []
+    # Some historical/audit manifests expose a plate count here rather than
+    # the authored plate records. Preserve authored identity only when the
+    # shape is actually a sequence of plate mappings.
+    plates = manifest.get("plates")
+    if not isinstance(plates, (list, tuple)):
+        plates = []
     return {
         "schema": SOURCE_CHECKPOINT_SCHEMA,
         "source_sha256": source_sha.lower(),
