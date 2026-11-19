@@ -72,6 +72,16 @@ def test_scoped_checkpoint_lookup_survives_restart_and_rejects_changed_source(tm
                                             channel_id="c1", printer_id="p1", archive=tmp_path / "archive") == []
 
 
+def test_part_ordinal_is_not_an_authored_plate_number():
+    checkpoint = {
+        'authored_parts': [{'key': 'a'}, {'key': 'b'}],
+        'color_manifest': {'plate_usage': {'2': {'part_keys': ['a']}, '7': {'part_keys': ['b']}}},
+    }
+    assert projects.checkpoint_part_plate(checkpoint, '2') == '7'
+    checkpoint['color_manifest']['plate_usage']['7']['part_keys'].append('a')
+    assert projects.checkpoint_part_plate(checkpoint, '2') is None
+
+
 def test_source_checkpoint_refuses_unbound_or_incomplete_provenance():
     with pytest.raises(ValueError, match="SHA256"):
         projects.source_checkpoint({"downloaded_file": "/archive/a.3mf"}, {"source_sha256": "bad"}, None)

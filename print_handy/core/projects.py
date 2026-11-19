@@ -85,6 +85,11 @@ def source_checkpoint(job: dict, manifest: dict, scope: dict | None) -> dict:
     plates = manifest.get("plates")
     if not isinstance(plates, (list, tuple)):
         plates = []
+    usage = manifest.get("plate_usage")
+    if isinstance(usage, dict) and usage:
+        labels = {str(plate.get("id")): plate.get("name") for plate in plates if isinstance(plate, dict)}
+        plates = [{"id": str(plate_id), "name": labels.get(str(plate_id)) or f"Plate {plate_id}"}
+                  for plate_id in usage]
     return {
         "schema": SOURCE_CHECKPOINT_SCHEMA,
         "source_sha256": source_sha.lower(),
@@ -104,6 +109,26 @@ def source_checkpoint(job: dict, manifest: dict, scope: dict | None) -> dict:
         "checkpoint": "source_inventoried",
         "launch_approval": None,
     }
+def checkpoint_part_plate(checkpoint: dict, ordinal: str) -> str | None:
+    """Resolve an authored part ordinal only when that plate contains it alone."""
+    parts = checkpoint.get("authored_parts") or []
+    if not re.fullmatch(r"[1-9][0-9]{0,5}", ordinal):
+        return None
+    index = int(ordinal) - 1
+    if index >= len(parts):
+        return None
+    part_key = parts[index].get("key")
+    if not part_key:
+        return None
+    usage = (checkpoint.get("color_manifest") or {}).get("plate_usage") or {}
+    matches = [str(plate_id) for plate_id, details in usage.items()
+               if part_key in (details.get("part_keys") or [])]
+    if len(matches) != 1:
+        return None
+    plate = next(details for plate_id, details in usage.items() if str(plate_id) == matches[0])
+    return matches[0] if set(plate.get("part_keys") or []) == {part_key} else None
+
+
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9_-]+")
 
 # Roles a source may declare for a component (#1017 item 3). The first three

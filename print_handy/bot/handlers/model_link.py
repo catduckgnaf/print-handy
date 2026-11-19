@@ -67,9 +67,14 @@ async def model_link_dispatch(event, gateway, **kwargs):
     # An already-sliced G-code drop prints only as an explicit yolo (core/yolo.py).
     gcode_drop = None if model_link(text) else _yolo.gcode_file(event)
     if not (model_link(text) or (model_file(event) or model_files(event)) or gcode_drop):
-        if text.strip() == '/resume-model' or text.strip().startswith('/resume-model '):
+        import re
+        resume_match = re.fullmatch(r"\s*(?:please\s+)?print\s+part\s+([1-9][0-9]{0,5})(?:\s+of\s+the\s+file)?\s*[.!]?\s*",
+                                    text, re.IGNORECASE)
+        resume_command = text.strip() == '/resume-model' or text.strip().startswith('/resume-model ')
+        if resume_command or resume_match:
             args = text.strip().split()
-            plate_id = args[1] if len(args) > 1 else ''
+            part_token = resume_match.group(1) if resume_match else None
+            plate_id = args[1] if resume_command and len(args) > 1 else ''
             platform = getattr(getattr(source, 'platform', None), 'value', None)
             printer_id = _channel_printer_id(source, gateway) or _routed_printer_id(source, gateway)
             if not platform or not printer_id:
@@ -78,6 +83,13 @@ async def model_link_dispatch(event, gateway, **kwargs):
             candidates = _projects.find_source_checkpoints(
                 platform=platform, requester_id=str(source.user_id), channel_id=str(source.chat_id),
                 printer_id=str(printer_id))
+            if part_token is not None:
+                # More than one saved project is ambiguous even if only one
+                # happens to contain this part number.
+                plate_id = (_projects.checkpoint_part_plate(candidates[0]['checkpoint'], part_token)
+                            if len(candidates) == 1 else None)
+                if plate_id is None:
+                    candidates = []
             rows = [(candidate, plate) for candidate in candidates
                     for plate in candidate['checkpoint'].get('authored_plates', [])
                     if not plate_id or str(plate.get('id')) == plate_id]
