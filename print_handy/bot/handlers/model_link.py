@@ -132,8 +132,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
                             platform=platform, requester_id=str(source.user_id),
                             channel_id=str(source.chat_id), printer_id=str(printer_id))
                         fresh = [row for row in fresh
-                                 if str(Path(row.get('job_json', '')).resolve()) ==
-                                 str(Path(selected_candidate.get('job_json', '')).resolve())
+                                 if row['job_json'] == selected_candidate['job_json']
                                  and row.get('checkpoint', {}).get('source_path') ==
                                  selected_candidate.get('checkpoint', {}).get('source_path')
                                  and row.get('checkpoint', {}).get('source_sha256') ==
