@@ -609,3 +609,28 @@ async def start(target: Mapping[str, Any], model_job: Path | None = None,
     _settle_claim(claim, "started" if ok else ("refused" if safe_refusal else "failed_uncertain"),
                   release=bool(safe_refusal))
     return ok, tail or f"print-now exited {proc.returncode} with no output"
+
+
+def find_scoped_plans(*, platform: str, requester_id: str, channel_id: str, printer_id: str, plans_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Find remaining plans whose persisted request scope exactly matches this caller."""
+    from .print_records import PLANS_DIR
+    directory = plans_dir or PLANS_DIR
+    matches = []
+    for path in directory.glob("*.json"):
+        try:
+            plan = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(plan, dict) or not remaining_parts(plan):
+            continue
+        scope = plan.get("request_scope")
+        if not isinstance(scope, dict):
+            continue
+        expected = (platform, requester_id, channel_id, printer_id)
+        actual = tuple(scope.get(field) for field in
+                       ("platform", "requester_id", "channel_id", "printer_id"))
+        if any(not isinstance(value, str) or not value.strip() for value in actual):
+            continue
+        if actual == expected and all(isinstance(value, str) and value.strip() for value in expected):
+            matches.append(plan)
+    return sorted(matches, key=lambda plan: str(plan.get("plan_id") or ""))

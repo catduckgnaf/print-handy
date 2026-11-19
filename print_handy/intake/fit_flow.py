@@ -216,7 +216,7 @@ def large_model_notice(path):
             f'{minutes} minute{"s" if minutes != 1 else ""}, so it is not stuck.')
 
 
-def write_split_plan(job_path, job, manifest, gcodes, plan_id, plans_dir=None):
+def write_split_plan(job_path, job, manifest, gcodes, plan_id, plans_dir=None, scope=None):
     """Record a split slice as a multipart plan that /print-next can resolve exactly.
 
     Each plate gets one required part bound to its archived JOB.json and absolute
@@ -258,7 +258,8 @@ def write_split_plan(job_path, job, manifest, gcodes, plan_id, plans_dir=None):
     reason = merge.get('reason') or ('the chosen slots were sliced as separate single-color plates'
                                      if not merge else 'the merge planner could not place them on one bed')
     plan = {'plan_id': plan_id, 'title': job.get('title'), 'split_reason': reason, 'parts': parts,
-            'project_id': project_id, 'source_kind': source_kind, 'project_run_id': 'original'}
+            'project_id': project_id, 'source_kind': source_kind, 'project_run_id': 'original',
+            **({'request_scope': dict(scope)} if isinstance(scope, dict) and scope else {})}
     target = (plans_dir or print_records.PLANS_DIR) / f'{plan_id}.json'
     print_records._atomic_write(target, json.dumps(plan, indent=2) + '\n')
     latest = json.loads(Path(job_path).read_text())
