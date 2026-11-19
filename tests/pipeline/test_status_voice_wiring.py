@@ -56,12 +56,11 @@ PREVIEW = ('That looks like Ghost Stand, A sturdy stand. I will use the selected
 
 
 @pytest.mark.parametrize('speak', [True, False])
-def test_link_preview_carries_one_quip_after_the_facts(env, monkeypatch, speak):
+def test_link_preview_is_neutral_and_keeps_its_factual_acknowledgment(env, monkeypatch, speak):
     calls = seed(monkeypatch, speak)
     log, _ = run_preview(env, monkeypatch, 'A sturdy stand.', {'name': 'ghost.3mf', 'instance_id': 1})
-    assert log[0] == ('send', PREVIEW + (' [link_intake quip]' if speak else ''))
-    stage, kwargs = next(call for call in calls if call[0] == 'link_intake')
-    assert kwargs['identity'] == 'discord:user:u' and kwargs['event_key'].endswith(':link_intake')
+    assert log[0] == ('send', PREVIEW)
+    assert not any(stage == 'link_intake' for stage, _kwargs in calls)
 
 
 # model_audit, color_detection, plate_capacity and slice on one ordinary intake.

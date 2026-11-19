@@ -19,7 +19,7 @@ which is sent only when there is a quip to send.
 
 | Stage | Status | Where, or why not |
 | :--- | :--- | :--- |
-| `link_intake` | wired | `prepared_intake.send_preview`: the "That looks like ..." preview after a link lookup (not for uploads) |
+| `link_intake` | unwired | The factual "That looks like ..." preview still confirms the link lookup; it does not append a quip. |
 | `file_download` | unwired | the download runs without any progress message, so there is no line to carry a quip |
 | `file_validation` | unwired | the source checks only speak when they refuse a file, and refusals never carry a quip |
 | `model_audit` | wired | `prepared_intake._prepare_link`: the large-model notice shown while the model check runs |

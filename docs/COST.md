@@ -178,6 +178,29 @@ cost. Wrapped adds a "What it cost" screen and a video slide.
   currency, and any other currency is named with its count.
 - No model is involved in any cost figure.
 
+## Sharing cost with HelixScreen
+
+Print Handy publishes the filament plus electricity portion of its cost to
+[HelixScreen's v1 contract](https://github.com/prestonbrown/helixscreen/issues/2132#issuecomment-6999700894).
+This excludes labor, wear and other pricing lines. HelixScreen computes its
+own cost when a matching shared value is unavailable.
+
+- Namespace: `helix-screen` in Moonraker's database.
+- Key: `print_cost.<encoded filename>`. Encode the G-code path relative to
+  Moonraker's `gcodes` root, including dots and slashes. For example,
+  `parts/benchy.gcode` becomes `print_cost.parts%2Fbenchy%2Egcode`.
+- Record: `version: 1`, `source: "print-handy"`, `filename`, `file_modified`
+  from Moonraker, a three-letter `currency`, and an `estimate` on send or
+  `actual` on completion. Each block contains `total`, `filament`,
+  `electricity`, `at` in Unix seconds, and `tools`. Tool rows carry `tool`,
+  `grams`, `cost`, and `price_source` (`spoolman` or `setting`). A whole-file
+  row uses tool `-1`; unknown per-tool identities are not guessed.
+- Publishing is best effort and off the launch and completion paths. A
+  prior block is retained only for the same file revision and currency.
+  Actuals use the recorded finish time; HelixScreen can reject actuals
+  from prior prints of the same file.
+
+
 ## Defaults and presets
 
 Workspace defaults: currency USD, electricity 0.19 per kWh, labor 20

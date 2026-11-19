@@ -8,6 +8,7 @@ import logging
 import hashlib, json, os, re, subprocess, time, zipfile
 import urllib.error
 import urllib.request
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -1055,6 +1056,57 @@ def _publish_job_card(st, job, remote, gcode_text=""):
         return None
 
 
+def _publish_cost_estimate_in_background(st, job, remote):
+    """Start ``_publish_cost_estimate`` on a daemon thread and return at once (#1652 review).
+
+    Pricing reads Spoolman and the write waits on Moonraker for up to its
+    timeout; neither may hold up the send. The job is copied so the launch
+    can keep changing its own dict. Returns the started thread.
+    """
+    import threading
+    from datetime import datetime, timezone
+    # Stamped now, at the send: a final cost published later always wins
+    # over this estimate, however late the thread runs (#1652 review).
+    sent_at = datetime.now(timezone.utc)
+    worker = threading.Thread(target=_publish_cost_estimate, args=(dict(st), dict(job or {}), remote),
+                              kwargs={"sent_at": sent_at}, name="cost-publish-estimate", daemon=True)
+    worker.start()
+    return worker
+
+
+def _publish_cost_estimate(st, job, remote, sent_at=None):
+    """Best effort publish of a send-time estimate; never blocks a print."""
+    try:
+        from ..core import cost as _cost
+        from ..core import cost_publish, spoolman_client
+
+        def _spool(spool_id):
+            try:
+                return spoolman_client.get_spool(int(spool_id))
+            except Exception as exc:
+                logger.warning("cost estimate: Spoolman spool %s unavailable: %s", spool_id, exc)
+                return None
+
+        result = _cost.estimate_for_job(job, settings.current(), spool_lookup=_spool)
+        if result is None:
+            return None
+        metadata = cost_publish._transport.moonraker_json(
+            st["moonraker_url"], "/server/files/metadata?filename=" +
+            urllib.parse.quote(str(remote), safe="/"), timeout=5)
+        modified = (metadata.get("result") or {}).get("modified")
+        if modified is None:
+            return None
+        lock = cost_publish.file_lock(st["moonraker_url"], remote)
+        with lock:
+            existing = cost_publish._read(st["moonraker_url"], remote)
+            return cost_publish.publish(st["moonraker_url"], remote, modified,
+                                        _cost.freeze(result), existing=existing,
+                                        at=(sent_at.timestamp() if sent_at else None))
+    except Exception as exc:
+        print(f"WARNING: cost estimate not published: {exc}", flush=True)
+        return None
+
+
 _readback_status = start_truth._readback_status
 
 
@@ -1862,6 +1914,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _record_usage_baseline(st, job, job_path, sync.get('spool_id'))
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
+        _publish_cost_estimate_in_background(st, job, remote)  # never delays the send (#1643)
         _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
         _abandon_leased_upload(lease, remote, on_abandon=(
@@ -3555,6 +3608,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
+        _publish_cost_estimate_in_background(st, job, remote)  # never delays the send (#1643)
         _consume_bed_clear(job_path, job, g, reprint)  # #1586 phase two: consume just before submitting
     except BaseException:
         _abandon_leased_upload(lease, remote)
