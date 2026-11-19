@@ -4,10 +4,11 @@ Moved verbatim from ``plugins/print-feedback/__init__.py`` (#1323). The plugin f
 loads the same handlers for one release.
 """
 import logging
+from pathlib import Path
 
 from .common import (
     _EditHost, _INTAKE_UNAVAILABLE_REASON, _adapter_for, _ask_which_printer, _busy_label,
-    _candidate_statuses, _channel_printer_id, _is_bot_platform, _is_hosting_profile, _live_key_for,
+    _candidate_statuses, _channel_printer_id, _confirm, _is_bot_platform, _is_hosting_profile, _live_key_for,
     _pkw, _plain_print_number, _recent_model_link, _routed_form, _routed_printer_id, _state_dir,
     _undecided_printer_ids,
 )
@@ -97,34 +98,50 @@ async def model_link_dispatch(event, gateway, **kwargs):
                 rows = [(candidate, plate) for candidate in candidates
                         for plate in candidate['checkpoint'].get('authored_plates', [])
                         if not plate_id or str(plate.get('id')) == plate_id]
-            if len(rows) > 1:
-                # Do not infer an intended project from ordering, title, or
-                # plate number. Ask the requester to identify the archived
-                # source, then require a second fresh confirmation before
-                # any resume work is prepared.
+            if len(candidates) > 24 or len(rows) > 24:
+                return {'action': 'skip', 'reason': 'too many archived projects to choose safely'}
+            if len(candidates) > 1 or len(rows) > 1:
+                # Never infer an intended source from ordering or an ordinal.
+                # Even one ordinal match among several scoped projects requires
+                # an explicit selection, and persisted state is reloaded after
+                # the prompt before the choice is trusted.
                 adapter = _adapter_for(gateway, source)
                 if adapter:
-                    labels = [f"{candidate['checkpoint'].get('title') or 'Untitled project'} — "
+                    labels = [f"{str(candidate['checkpoint'].get('title') or 'Untitled project')[:36]} · "
                               f"plate {plate.get('id')} ({plate.get('name') or 'unnamed'})"
                               for candidate, plate in rows]
+                    labels = [label[:64] for label in labels]
+                    if len(set(labels)) != len(labels):
+                        await adapter.send(chat_id=source.chat_id,
+                            content='Matching archived projects have indistinguishable picker labels; '
+                                    'use `/resume-model <plate_id>` after removing the ambiguity. '
+                                    'Nothing sliced or started.',
+                            metadata={'thread_id': source.thread_id} if source.thread_id else None)
+                        return {'action': 'skip', 'reason': 'indistinguishable archived project labels'}
                     selection = await _confirm(
                         adapter, source, {'thread_id': source.thread_id} if source.thread_id else None,
                         'resume-project', 'Which archived project and plate do you mean?',
                         labels + ['Cancel'], 1800,
                         live_key=gateway._session_key_for_source(source))
-                    selected = next((row for row, label in zip(rows, labels) if selection == label), None)
-                    if selected:
-                        candidate, plate = selected
-                        confirmation = await _confirm(
-                            adapter, source, {'thread_id': source.thread_id} if source.thread_id else None,
-                            'resume-project-confirm',
-                            f"Resume {candidate['checkpoint'].get('title') or 'Untitled project'}, "
-                            f"plate {plate.get('id')} ({plate.get('name') or 'unnamed'})?",
-                            ['Resume this plate', 'Cancel'], 1800,
-                            live_key=gateway._session_key_for_source(source))
-                        rows = [selected] if confirmation == 'Resume this plate' else []
-                    else:
+                    selected_index = labels.index(selection) if selection in labels else None
+                    if selected_index is None:
                         rows = []
+                    else:
+                        selected_candidate, selected_plate = rows[selected_index]
+                        fresh = _projects.find_source_checkpoints(
+                            platform=platform, requester_id=str(source.user_id),
+                            channel_id=str(source.chat_id), printer_id=str(printer_id))
+                        fresh = [row for row in fresh
+                                 if str(Path(row.get('job_json', '')).resolve()) ==
+                                 str(Path(selected_candidate.get('job_json', '')).resolve())
+                                 and row.get('checkpoint', {}).get('source_path') ==
+                                 selected_candidate.get('checkpoint', {}).get('source_path')
+                                 and row.get('checkpoint', {}).get('source_sha256') ==
+                                 selected_candidate.get('checkpoint', {}).get('source_sha256')]
+                        refreshed_plate = next((plate for row in fresh
+                                                for plate in row['checkpoint'].get('authored_plates', [])
+                                                if str(plate.get('id')) == str(selected_plate.get('id'))), None)
+                        rows = [(fresh[0], refreshed_plate)] if fresh and refreshed_plate else []
             if len(rows) != 1:
                 adapter = _adapter_for(gateway, source)
                 if adapter:
