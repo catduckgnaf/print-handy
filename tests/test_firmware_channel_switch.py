@@ -383,6 +383,31 @@ def test_send_restores_backup_after_unexpected_verification_exception():
     assert [text for name, text in files.uploads if name == USER_FILE] == [USER_CONF_BETA, USER_CONF]
 
 
+def test_send_retries_then_restores_when_every_verification_read_raises(caplog):
+    # duckcatgnaf on #1695: repeated unexpected failures across all attempts
+    # are bounded, logged with the cause, and end with the config restored.
+    transport = ChannelTransport()
+    original_fetch = fw.fetch_status
+    calls = []
+
+    def always_broken(client):
+        if client is transport and transport.restarted:
+            calls.append(1)
+            raise AttributeError("status parser bug")
+        return original_fetch(client)
+
+    with mock.patch.object(fw, "fetch_status", side_effect=always_broken), \
+            caplog.at_level("WARNING", logger=fw.__name__):
+        files = FakeFiles()
+        prepared = _prepared(transport, files)
+        message = fw.send_channel_switch(transport, files, prepared, restart=transport.restart,
+                                         verify_attempts=3, verify_delay_s=0, sleep=_no_sleep)
+    assert len(calls) >= 3
+    assert "backup was restored" in message
+    assert files.files[USER_FILE] == USER_CONF
+    assert "status parser bug" in caplog.text
+
+
 def test_send_rechecks_idle_and_writes_nothing_when_the_printer_started():
     transport = ChannelTransport(states=("standby", "printing"))
     files = FakeFiles()
