@@ -54,10 +54,11 @@ COMPOSE_VARS = {"PRINT_HANDY_IMAGE", "PRINT_HANDY_DATA", "PRINT_HANDY_SPOOLMAN_D
 UNRAID_GPU_VARS = {"NVIDIA_VISIBLE_DEVICES": "", "NVIDIA_DRIVER_CAPABILITIES": "compute,video,utility"}
 RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
 # The slimmed Unraid template's whole Config surface: the Web UI port, the
-# two paths, the bundled/external Spoolman choice (advanced), TZ and the
-# GPU entries. Everything else is set in the mounted config file, the
-# Web UI, or the profile .env inside the Appdata path.
-UNRAID_VARIABLES = {"PRINT_HANDY__SERVICES__SPOOLMAN_URL", "TZ"} | set(UNRAID_GPU_VARS)
+# two paths, bundled/external Spoolman and bundled firmware visibility choices,
+# timezone and GPU entries. Everything else is set in the mounted config file,
+# the Web UI, or the profile .env inside the Appdata path.
+UNRAID_VARIABLES = {"PRINT_HANDY__SERVICES__SPOOLMAN_URL",
+                    "PRINT_HANDY__FIRMWARE__HIDE_BUNDLED_UPDATES", "TZ"} | set(UNRAID_GPU_VARS)
 
 
 def inventory():
@@ -930,7 +931,8 @@ class UnraidCaTemplateParityTests(unittest.TestCase):
         in_repo = self.configs_by_key(UNRAID)
         ca = self.configs_by_key(self.CA)
         self.assertEqual(set(in_repo) - set(ca),
-                         {("Variable", "PRINT_HANDY__SERVICES__SPOOLMAN_URL")})
+                         {("Variable", "PRINT_HANDY__SERVICES__SPOOLMAN_URL"),
+                          ("Variable", "PRINT_HANDY__FIRMWARE__HIDE_BUNDLED_UPDATES")})
 
     def test_repository_and_listing_metadata_differ_as_documented(self):
         # Neither template pins a version (catduck, 2026-11-11): both pull

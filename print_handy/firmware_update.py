@@ -814,8 +814,8 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
     stack = flashforge_custom_firmware(entry, status)
     lines += [_component_line(c, eligible=eligible and not custom_update_block(c.name, stack))
               for c in status.components
-              if not (stack in {"ZMod", "Forge-X"} and hide_bundled_updates(cfg)
-                      and custom_update_block(c.name, stack))]
+              if not (stack == "ZMod" and hide_bundled_updates(cfg)
+                      and component_hidden_on_zmod(c.name))]
     if stack == "ZMod":
         lines.append("ZMod bundles Klipper, Moonraker, Fluidd and Mainsail. "
                      "Print Handy does not offer these as independent updates.")

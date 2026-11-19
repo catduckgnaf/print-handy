@@ -534,7 +534,7 @@ def test_alert_printers_are_exactly_the_apply_eligible_ones(cfg):
 def test_settings_default_on_daily():
     data = _config.cfg()
     assert data["firmware"] == {"update_alerts": True, "update_check_hours": 24,
-                                "update_channel": "stable",
+                                "update_channel": "stable", "hide_bundled_updates": True,
                                 "forgex_apply": False,
                                 "notice_firmwares": ["zmod", "opencreator", "forge-x"]}
 

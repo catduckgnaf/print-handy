@@ -1194,7 +1194,12 @@ def test_bundled_update_policy_respects_printer_family(model, stack, expected):
     assert fw.flashforge_custom_firmware(printer, status) == stack
     assert {c.name for c in fw.offered_updates(status, printer)} == expected
     default_report = fw.firmware_report(FakeTransport(status=payload), printer)
-    assert ("klipper**: 1.0 -> 2.0" in default_report) == (stack not in {"ZMod", "Forge-X"})
+    assert ("klipper**: 1.0 -> 2.0" in default_report) == (stack != "ZMod")
+    if stack == "Forge-X":
+        # Read-only standalone components remain visible although the install
+        # guard blocks applying them; visibility is distinct from eligibility.
+        assert "helixscreen**: 1.0 -> 2.0" in default_report
+        assert "update with `/print-firmware update helixscreen`" not in default_report
     cfg = {"firmware": {"hide_bundled_updates": False, "forgex_apply": True}}
     report = fw.firmware_report(FakeTransport(status=payload), printer, cfg=cfg)
     assert "klipper**: 1.0 -> 2.0" in report
