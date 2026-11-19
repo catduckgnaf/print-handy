@@ -111,7 +111,9 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
     monkeypatch.setattr(model_link, '_state_dir', lambda: flow_env.root)
     monkeypatch.setattr(model_link, '_undecided_printer_ids', lambda *_args: [])
     monkeypatch.setattr(printer_state, 'load', lambda *_args, **_kwargs: harness.tool_state())
-    monkeypatch.setattr(projects, 'find_source_checkpoints', lambda **_kwargs: candidates)
+    monkeypatch.setattr(projects, 'discover_source_checkpoints', lambda **_kwargs: candidates)
+    monkeypatch.setattr(projects, 'load_source_checkpoint', lambda job_json, **_kwargs:
+                        next((row for row in candidates if row['job_json'] == str(job_json)), None))
 
     questions = []
     async def confirm(_adapter, _source, _metadata, _prefix, question, choices, _timeout,
@@ -120,7 +122,9 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
         if outcome == 'cancel':
             return 'Cancel'
         if outcome == 'changed':
-            monkeypatch.setattr(projects, 'find_source_checkpoints', lambda **_kwargs: candidates[:1])
+            monkeypatch.setattr(projects, 'load_source_checkpoint', lambda job_json, **_kwargs:
+                                next((row for row in candidates[:1]
+                                      if row['job_json'] == str(job_json)), None))
         return next(choice for choice in choices if choice.startswith('Beta assembly · plate 2'))
 
     monkeypatch.setattr(model_link, '_confirm', confirm)

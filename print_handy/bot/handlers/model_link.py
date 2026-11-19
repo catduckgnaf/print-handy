@@ -80,7 +80,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
             if not platform or not printer_id:
                 return {'action': 'skip', 'reason': 'resume requires platform and routed printer'}
             from print_handy.core import projects as _projects
-            candidates = _projects.find_source_checkpoints(
+            candidates = _projects.discover_source_checkpoints(
                 platform=platform, requester_id=str(source.user_id), channel_id=str(source.chat_id),
                 printer_id=str(printer_id))
             if part_token is not None:
@@ -129,15 +129,13 @@ async def model_link_dispatch(event, gateway, **kwargs):
                         rows = []
                     else:
                         selected_candidate, selected_plate = rows[selected_index]
-                        fresh = _projects.find_source_checkpoints(
-                            platform=platform, requester_id=str(source.user_id),
-                            channel_id=str(source.chat_id), printer_id=str(printer_id))
-                        fresh = [row for row in fresh
-                                 if row['job_json'] == selected_candidate['job_json']
-                                 and row.get('checkpoint', {}).get('source_path') ==
-                                 selected_candidate.get('checkpoint', {}).get('source_path')
-                                 and row.get('checkpoint', {}).get('source_sha256') ==
-                                 selected_candidate.get('checkpoint', {}).get('source_sha256')]
+                        fresh = _projects.load_source_checkpoint(
+                            selected_candidate['job_json'], platform=platform,
+                            requester_id=str(source.user_id), channel_id=str(source.chat_id),
+                            printer_id=str(printer_id),
+                            expected_source=selected_candidate.get('checkpoint', {}).get('source_path'),
+                            expected_sha256=selected_candidate.get('checkpoint', {}).get('source_sha256'))
+                        fresh = [fresh] if fresh else []
                         refreshed_plate = next((plate for row in fresh
                                                 for plate in row['checkpoint'].get('authored_plates', [])
                                                 if str(plate.get('id')) == str(selected_plate.get('id'))), None)

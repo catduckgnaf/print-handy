@@ -22,13 +22,9 @@ SCHEMA = "project_v1"
 SOURCE_CHECKPOINT_SCHEMA = "source_checkpoint_v1"
 
 
-def find_source_checkpoints(*, platform: str, requester_id: str, channel_id: str,
-                            printer_id: str, archive: Path | None = None) -> list[dict]:
-    """Discover intact, scoped pre-slice checkpoints after restart.
-
-    Read only JOB.json records; the source file must still match its recorded
-    SHA256. The returned record includes its archived job and checkpoint.
-    """
+def discover_source_checkpoints(*, platform: str, requester_id: str, channel_id: str,
+                                printer_id: str, archive: Path | None = None) -> list[dict]:
+    """Read scoped candidate metadata without hashing every archived source."""
     from . import model_job as mj
     directory = Path(archive or mj.ARCHIVE)
     expected = {"platform": platform, "requester_id": requester_id,
@@ -40,22 +36,71 @@ def find_source_checkpoints(*, platform: str, requester_id: str, channel_id: str
         try:
             job = json.loads(path.read_text(encoding="utf-8"))
             checkpoint = job.get("source_checkpoint")
-            scope = checkpoint.get("request_scope")
+            if (not isinstance(checkpoint, dict)
+                    or checkpoint.get("schema") != SOURCE_CHECKPOINT_SCHEMA
+                    or checkpoint.get("status") != "available"
+                    or checkpoint.get("request_scope") != expected
+                    or not path.resolve().is_relative_to(directory.resolve())):
+                continue
             source = Path(checkpoint.get("source_path") or "").resolve()
             archived = Path(job.get("downloaded_file") or "").resolve()
-            if (checkpoint.get("schema") != SOURCE_CHECKPOINT_SCHEMA
-                    or checkpoint.get("status") != "available"
-                    or scope != expected or not source.is_file()
-                    or source != archived or not source.is_relative_to(path.parent.resolve())
-                    or not path.resolve().is_relative_to(directory.resolve())
-                    or not re.fullmatch(r"[a-f0-9]{64}", str(checkpoint.get("source_sha256") or ""))
-                    or mj.file_sha256(source) != checkpoint["source_sha256"]
-                    or job.get("source_sha256") not in (None, checkpoint["source_sha256"])):
+            if (source != archived or not source.is_file()
+                    or not source.is_relative_to(path.parent.resolve())
+                    or not re.fullmatch(r"[a-f0-9]{64}", str(checkpoint.get("source_sha256") or ""))):
                 continue
             matches.append({"job_json": str(path), "job": job, "checkpoint": checkpoint})
         except (OSError, ValueError, TypeError, AttributeError):
             continue
     return sorted(matches, key=lambda row: (str(row["checkpoint"].get("title") or ""), row["job_json"]))
+
+
+def load_source_checkpoint(job_json: str | Path, *, platform: str, requester_id: str,
+                           channel_id: str, printer_id: str, archive: Path | None = None,
+                           expected_source: str | None = None,
+                           expected_sha256: str | None = None) -> dict | None:
+    """Reload one chosen candidate and validate its scope, paths and source digest."""
+    from . import model_job as mj
+    directory = Path(archive or mj.ARCHIVE).resolve()
+    path = Path(job_json)
+    try:
+        if not path.resolve().is_relative_to(directory):
+            return None
+        job = json.loads(path.read_text(encoding="utf-8"))
+        checkpoint = job.get("source_checkpoint")
+        expected_scope = {"platform": platform, "requester_id": requester_id,
+                          "channel_id": channel_id, "printer_id": printer_id}
+        source = Path(checkpoint.get("source_path") or "").resolve()
+        digest = checkpoint.get("source_sha256")
+        if (checkpoint.get("schema") != SOURCE_CHECKPOINT_SCHEMA
+                or checkpoint.get("status") != "available"
+                or checkpoint.get("request_scope") != expected_scope
+                or source != Path(job.get("downloaded_file") or "").resolve()
+                or not source.is_file() or not source.is_relative_to(path.parent.resolve())
+                or not re.fullmatch(r"[a-f0-9]{64}", str(digest or ""))
+                or job.get("source_sha256") not in (None, digest)
+                or (expected_source is not None and str(source) != expected_source)
+                or (expected_sha256 is not None and digest != expected_sha256)
+                or mj.file_sha256(source) != digest):
+            return None
+        return {"job_json": str(path), "job": job, "checkpoint": checkpoint}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def find_source_checkpoints(*, platform: str, requester_id: str, channel_id: str,
+                            printer_id: str, archive: Path | None = None) -> list[dict]:
+    """Compatibility helper returning only source-verified checkpoints."""
+    found = []
+    for row in discover_source_checkpoints(platform=platform, requester_id=requester_id,
+                                           channel_id=channel_id, printer_id=printer_id,
+                                           archive=archive):
+        verified = load_source_checkpoint(row["job_json"], platform=platform,
+            requester_id=requester_id, channel_id=channel_id, printer_id=printer_id,
+            archive=archive, expected_source=row["checkpoint"].get("source_path"),
+            expected_sha256=row["checkpoint"].get("source_sha256"))
+        if verified:
+            found.append(verified)
+    return found
 
 
 def source_checkpoint(job: dict, manifest: dict, scope: dict | None) -> dict:
