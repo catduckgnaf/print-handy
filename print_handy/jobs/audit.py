@@ -117,13 +117,10 @@ def mesh_audit(path, printer_model=None):
     triangles = source_triangles(path)
     if not triangles:
         raise RuntimeError("model has no printable geometry")
-    from ..core.compact_geometry import IndexedTriangles
-    if isinstance(triangles, IndexedTriangles):
-        from ..core.mesh_fast import bounds_and_volume
-        lo, hi, _ = bounds_and_volume(triangles)
-    else:
-        lo = [min(point[axis] for triangle in triangles for point in triangle) for axis in range(3)]
-        hi = [max(point[axis] for triangle in triangles for point in triangle) for axis in range(3)]
+    # One bounded pass replaces six full Python-level min/max scans for list-backed
+    # meshes; indexed meshes use the same established geometry helper as before.
+    from ..core.mesh_fast import bounds_and_volume
+    lo, hi, _ = bounds_and_volume(triangles)
     source_sha256 = file_sha256(path)
     from ..core.orca_adapter import placement_candidates
     return {"schema_version": 1, "sha256": source_sha256,
