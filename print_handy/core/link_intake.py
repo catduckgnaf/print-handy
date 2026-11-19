@@ -13,6 +13,28 @@ from .. import settings
 logger = logging.getLogger(__name__)
 
 
+def requested_authored_plate(text, manifest):
+    """Resolve an explicit ``plate N`` request against authored plate IDs.
+
+    ``None`` means no selector; ``[]`` means a selector was present but did
+    not identify exactly one authored plate, so callers must refuse rather
+    than silently widen the request to the whole model.
+    """
+    url = model_link(text)
+    if not url:
+        return None
+    # Parse only bounded instructions, never the URL or an ambiguous suffix.
+    instruction = str(text).replace(url, '', 1).strip(' <>\t\n.,!?')
+    match = re.fullmatch(r'(?:please\s+)?print\s+(?:only\s+)?plate\s+([1-9][0-9]*)(?:\s*,?\s+please)?',
+                         instruction, flags=re.IGNORECASE)
+    if not match:
+        return [] if re.search(r'\bprint\b.*\b(?:plates?|parts?)\b', instruction,
+                               flags=re.IGNORECASE | re.DOTALL) else None
+    plate_id = match[1]
+    plates = (manifest or {}).get('plate_usage') or {}
+    return [plate_id] if plate_id in {str(key) for key in plates} else []
+
+
 def model_link(text):
     # A question beside a link is still fresh intake, not historical recovery.
     text = str(text or '').strip()
