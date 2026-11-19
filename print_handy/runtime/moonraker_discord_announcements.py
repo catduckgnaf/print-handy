@@ -876,6 +876,36 @@ def _charge_missed_multislot(history_job, filename):
         return ""
 
 
+def _publish_frozen_cost(filename, data, metadata):
+    """Publish from the completion snapshot without another metadata request."""
+    try:
+        import threading
+        from ..core import cost_publish
+        cost = (data or {}).get("cost")
+        if not cost:
+            return
+        modified = cost_publish._finite(metadata.get("modified"))
+        started = datetime.fromisoformat(data["started_at"].replace("Z", "+00:00")).timestamp()
+        finished = datetime.fromisoformat(data["completed_at"].replace("Z", "+00:00")).timestamp()
+        if modified is None or modified > started or finished <= started:
+            return
+        lock = cost_publish.file_lock(BASE, filename)
+
+        def write():
+            with lock:
+                try:
+                    existing = cost_publish._read(BASE, filename)
+                except Exception as exc:
+                    print(f"Frozen cost not published: {exc}", file=sys.stderr)
+                    return
+                cost_publish.publish(BASE, filename, modified, cost,
+                                     existing=existing, at=finished)
+
+        threading.Thread(target=write, name="cost-publish-actual", daemon=True).start()
+    except Exception as exc:
+        print(f"Frozen cost not published: {exc}", file=sys.stderr)
+
+
 def record_completion(job_key, filename, stats, completed_at=None):
     """Persist confirmed completion data; unavailable optional reads stay absent."""
     context = load_context(job_key)
@@ -907,6 +937,7 @@ def record_completion(job_key, filename, stats, completed_at=None):
         completed_at=completed_at or utc_now(),
     )
     result = write_completed_record(data)
+    _publish_frozen_cost(filename, data, metadata)
     result.update({"context": context, "completed_at": data["completed_at"]})
     return result
 
