@@ -226,6 +226,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("firmware", "update_check_hours"): int,
                  ("firmware", "update_channel"): str,
                  ("firmware", "forgex_apply"): bool,
+                 ("firmware", "hide_bundled_updates"): bool,
                  ("external_intake", "enabled"): bool,
                  ("external_intake", "directory"): str,
                  ("external_intake", "max_bytes"): int,
@@ -1898,6 +1899,9 @@ def _validate_firmware(data):
     if isinstance(hours, bool) or not isinstance(hours, int)             or not 1 <= hours <= FIRMWARE_CHECK_HOURS_MAX:
         raise SettingsError(f"[firmware] update_check_hours must be a whole number of hours "
                             f"from 1 to {FIRMWARE_CHECK_HOURS_MAX}, got {hours!r}")
+    hide_bundled = firmware.setdefault("hide_bundled_updates", True)
+    if not isinstance(hide_bundled, bool):
+        raise SettingsError("[firmware] hide_bundled_updates must be true or false")
     forgex_apply = firmware.setdefault("forgex_apply", False)
     if not isinstance(forgex_apply, bool):
         raise SettingsError(f"[firmware] forgex_apply must be true or false, got {forgex_apply!r}")

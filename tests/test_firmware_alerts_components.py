@@ -101,6 +101,20 @@ def run(coro):
 
 # ------------------------------------------------------------------ detection
 
+def test_zmod_components_are_not_independent_alert_offers():
+    obs = fa.Observation(current="1.7.6", components=(
+        fw.Component("Z-Mod", current="1.7.6", remote="1.7.7"),
+        fw.Component("klippy", current="1", remote="2"),
+        fw.Component("moon", current="1", remote="2"),
+        fw.Component("fluidd", current="1", remote="2"),
+        fw.Component("mainsail", current="1", remote="2"),
+        fw.Component("recommend", current="1.0", remote="2.0"),
+        fw.Component("quickswap", current="1.0", remote="2.0"),
+        fw.Component("flashforge_stock", current="1.0", remote="2.0"),
+    ), helixscreen_current="1.0", helixscreen_remote="2.0")
+    assert {offer.component for offer in fa.offers(obs)} == {"helixscreen", "recommend", "quickswap"}
+
+
 def test_components_with_real_versions_offer_with_buttons():
     obs = fa.observe(Printer(), vendor="klipper")
     offers = fa.component_offers(obs)
@@ -180,8 +194,29 @@ def test_opencreator_components_and_printers_never_offer():
                         "is_valid": True},
         "klipper": {"version": "v0.12.0", "remote_version": "v0.13.0",
                     "is_valid": True}})), vendor="klipper")
-    assert [o.component for o in fa.component_offers(obs)] == ["klipper"]
+    assert fa.component_offers(obs) == []
     obs = fa.observe(Printer(), vendor=fw.OPENCREATOR_VENDOR)
+    assert fa.component_offers(obs) == []
+
+
+def test_zmod_component_without_version_still_blocks_independent_bundled_alerts():
+    from dataclasses import replace
+
+    components = payload()["result"]["version_info"]
+    components["Z-Mod"] = {"is_valid": True}
+    obs = fa.observe(Printer(payload(components)), vendor="klipper")
+    assert not obs.current
+    assert obs.custom_stack == "ZMod"
+    assert fa.component_offers(obs) == []
+    assert fa.component_offers(replace(obs, custom_stack=None)) == []
+
+
+def test_live_forgex_without_the_registry_profile_has_no_apply_alert():
+    obs = fa.observe(Printer(payload({
+        "forge-x": {"version": "1.4.2-beta-2", "remote_version": "1.4.2-beta-4",
+                    "is_valid": True},
+    })), vendor="klipper")
+    assert obs.custom_stack == "Forge-X"
     assert fa.component_offers(obs) == []
 
 
@@ -296,14 +331,11 @@ def test_deferring_a_multi_component_digest_keeps_every_release_pending(cfg):
     assert not printer.posts
 
 
-def test_zmod_printer_alerts_its_other_components_too():
-    """A ZMod printer whose Moonraker reports a real Klipper remote gets
-    a Klipper offer beside the ZMod source's own offers."""
+def test_live_zmod_detection_suppresses_klipper_even_without_a_registry_entry():
     zmod_payload = {"result": {"version_info": {
         "Z-Mod": {"version": "1.7.6-17", "remote_version": "1.7.6-17",
                   "is_valid": True},
         "klippy": {"version": "v0.12.0", "remote_version": "v0.13.0",
                    "is_valid": True}}}}
     obs = fa.observe(Printer(zmod_payload), vendor="flashforge")
-    assert [(o.component, o.key) for o in fa.offers(obs)] == [
-        ("klipper", "klipper:0.13.0")]
+    assert fa.offers(obs) == []

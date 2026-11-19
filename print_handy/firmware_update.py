@@ -218,6 +218,20 @@ def apply_block_reason(entry, cfg=None) -> str | None:
     return None
 
 
+def live_identity_block_reason(entry, status) -> str | None:
+    """Why live firmware identity overrides a registry-based apply offer.
+
+    A live Forge-X signature is not enough to authorize an update: the
+    operator must configure the explicit Forge-X registry profile, whose
+    model-specific compatibility is the basis for the allowlist.
+    """
+    if (flashforge_custom_firmware(entry, status) == "Forge-X"
+            and getattr(entry, "vendor", None) != FORGEX_VENDOR):
+        return ("Forge-X was detected. Configure the printer's Forge-X profile "
+                "before applying an update.")
+    return None
+
+
 def is_apply_eligible(entry, cfg=None) -> bool:
     return apply_block_reason(entry, cfg) is None
 
@@ -308,6 +322,70 @@ class UpdateStatus:
     @property
     def remotes_unknown(self):
         return tuple(c for c in self.components if c.remote_unknown)
+
+
+_ZMOD_BUNDLED_UPDATE_COMPONENTS = frozenset({"klipper", "moonraker", "fluidd", "mainsail"})
+
+
+def is_zmod_install(entry, status=None) -> bool:
+    """Recognize ZMod by configured family or an explicit live Z-Mod row."""
+    return bool((entry is not None and entry.firmware_family == "zmod")
+                or (status is not None and status.component("zmod") is not None))
+
+
+def component_hidden_on_zmod(name: str) -> bool:
+    """ZMod-bundled core components are updated with ZMod, not independently."""
+    return canonical_component(name) in _ZMOD_BUNDLED_UPDATE_COMPONENTS
+
+
+def flashforge_custom_firmware(entry=None, status=None) -> str | None:
+    """Identify a supported custom stack without treating stock as modified."""
+    vendor = getattr(entry, "vendor", None)
+    if vendor == REFORGE_VENDOR:
+        return "Reforge"
+    if vendor == OPENCREATOR_VENDOR or (status and any(
+        canonical_component(c.name) in OPENCREATOR_COMPONENTS for c in status.components
+    )):
+        return "OpenCreator"
+    if vendor == FORGEX_VENDOR or (status and status.component(FORGEX_COMPONENT)):
+        return "Forge-X"
+    if is_zmod_install(entry, status):
+        return "ZMod"
+    return None
+
+
+def hide_bundled_updates(cfg=None) -> bool:
+    """Default on for all printers; presentation only, never an apply gate."""
+    return ((cfg or {}).get("firmware") or {}).get("hide_bundled_updates") is not False
+
+
+def offered_updates(status, entry=None) -> tuple:
+    """Updates safe to present as independent actions for this printer."""
+    if live_identity_block_reason(entry, status):
+        return ()
+    stack = flashforge_custom_firmware(entry, status)
+    return tuple(c for c in status.updates_available if not custom_update_block(c.name, stack))
+
+
+def custom_update_block(token, stack) -> str | None:
+    """Why a target cannot be offered or independently applied on this stack."""
+    key = canonical_component(token)
+    if key.startswith(("stockfirmware", "flashforgestock", "flashforgefirmware")) or key in {
+        "stock", "flashforge",
+    }:
+        target = f"this {stack} install" if stack else "this printer configuration"
+        return (f"Stock firmware compatibility with {target} is not verified. "
+                "Do not install it without confirming support for the exact printer model "
+                "and target version in the applicable firmware documentation. Nothing was sent.")
+    if stack == "Forge-X" and key != FORGEX_COMPONENT:
+        return ("Print Handy applies only the **forge-x** component on Forge-X. "
+                "Use the firmware's supported update procedure. Nothing was sent.")
+    if stack in {"OpenCreator", "Reforge"}:
+        return f"Print Handy does not apply {stack} component updates. Nothing was sent."
+    if stack == "ZMod" and component_hidden_on_zmod(token):
+        return (f"**{token}** is bundled with ZMod and is not offered as an independent update. "
+                "Update it through ZMod's supported update procedure. Nothing was sent.")
+    return None
 
 
 def _component_key(name):
@@ -744,12 +822,23 @@ def _opencreator_line(status):
 
 
 def report_text(status, entry, *, pairing="unknown", os_version=None,
-                mcu_state="unknown", mcu_versions=None) -> str:
+                mcu_state="unknown", mcu_versions=None, cfg=None) -> str:
     """The chat-ready stage 1 report for one parsed update status."""
-    eligible = is_apply_eligible(entry)
+    eligible = is_apply_eligible(entry, cfg)
     label = entry.label if entry is not None else "your printer"
     lines = [f"**Firmware on {label}** (read live from Moonraker's Update Manager):"]
-    lines += [_component_line(c, eligible=eligible) for c in status.components]
+    stack = flashforge_custom_firmware(entry, status)
+    live_block = live_identity_block_reason(entry, status)
+    eligible = eligible and live_block is None
+    lines += [_component_line(c, eligible=eligible and not custom_update_block(c.name, stack))
+              for c in status.components
+              if not (stack == "ZMod" and hide_bundled_updates(cfg)
+                      and component_hidden_on_zmod(c.name))]
+    if live_block is not None:
+        lines.append(f"\n{live_block} Nothing was sent.")
+    if stack == "ZMod":
+        lines.append("ZMod bundles Klipper, Moonraker, Fluidd and Mainsail. "
+                     "Print Handy does not offer these as independent updates.")
     if entry is not None and entry.firmware_family == "zmod":
         # #562: the installed ZMod version is always stated for a ZMod
         # printer — as unknown when Moonraker does not report the `zmod`
@@ -819,7 +908,7 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
     return "\n".join(lines)
 
 
-def firmware_report(transport, entry, *, refresh=False) -> str:
+def firmware_report(transport, entry, *, refresh=False, cfg=None) -> str:
     """Read the status (and, for ZMod, the pairing/MCU extras) and build the report.
 
     The status read is the only required one: its failure raises
@@ -829,11 +918,11 @@ def firmware_report(transport, entry, *, refresh=False) -> str:
     report always states it, as unknown when Moonraker does not report
     the `zmod` component.
     """
-    text, _status = firmware_report_with_status(transport, entry, refresh=refresh)
+    text, _status = firmware_report_with_status(transport, entry, refresh=refresh, cfg=cfg)
     return text
 
 
-def firmware_report_with_status(transport, entry, *, refresh=False):
+def firmware_report_with_status(transport, entry, *, refresh=False, cfg=None):
     """firmware_report, plus the UpdateStatus it was built from.
 
     The Web UI's update offers and notifications (#1610) work from the
@@ -855,7 +944,7 @@ def firmware_report_with_status(transport, entry, *, refresh=False):
         if mcu_state == "mismatch":
             mcu_versions = (klipper.current, mcu_version)
     return (report_text(status, entry, pairing=pairing, os_version=os_version,
-                        mcu_state=mcu_state, mcu_versions=mcu_versions), status)
+                        mcu_state=mcu_state, mcu_versions=mcu_versions, cfg=cfg), status)
 
 
 def not_moonraker_text(connection) -> str:
@@ -952,6 +1041,14 @@ def prepare_update(transport, entry, component_token, cfg=None) -> PreparedUpdat
         status = fetch_status(transport)
     except FirmwareError:
         raise FirmwareError(UPDATE_COULD_NOT_READ_TEXT) from None
+    if reason := live_identity_block_reason(entry, status):
+        raise FirmwareRefusal(reason + " Nothing was sent.")
+    stack = flashforge_custom_firmware(entry, status)
+    if reason := custom_update_block(component_token, stack):
+        raise FirmwareRefusal(reason)
+    if stack == "Forge-X" and getattr(entry, "vendor", None) != FORGEX_VENDOR:
+        raise FirmwareRefusal("Forge-X was detected. Configure the printer's Forge-X profile "
+                              "before applying an update. Nothing was sent.")
     component = status.component(component_token)
     if component is None and is_guppy_on_zmod(entry, status, component_token):
         raise FirmwareRefusal(GUPPY_IN_ZMOD_TEXT)
@@ -960,6 +1057,8 @@ def prepare_update(transport, entry, component_token, cfg=None) -> PreparedUpdat
                               f"{component_token!r}. Run `/print-firmware` to see the "
                               "components it actually reports — a typed name is never sent "
                               "on trust. Nothing was sent.")
+    if reason := custom_update_block(component.name, stack):
+        raise FirmwareRefusal(reason)
     if component.remote_unknown:
         raise FirmwareRefusal(f"The printer does not report the latest version of "
                               f"**{component.name}**, so Print Handy cannot tell whether "
@@ -1739,8 +1838,10 @@ STOCK_GUIDE = """**Updating the stock Flashforge firmware under ZMod (guided —
 
 The stock firmware is the layer underneath ZMod. It updates from the
 printer's own screen or a USB drive — there is no API Print Handy can use,
-so Print Handy cannot do these steps for you. On a ZMod printer, do the
-pre-steps first or the update can strand the install:
+so Print Handy cannot do these steps for you. Do not proceed until
+ZMod documents compatibility with the exact printer model and target
+stock firmware version. If compatible, follow the pre-steps below or
+the update can strand the install:
 
 1. Disable every active plugin except `recommend`, `timelapse` and
    `notify`: `DISABLE_PLUGIN name=<plugin>` for each of the others.

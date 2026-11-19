@@ -225,6 +225,7 @@ class Observation:
     # The registry vendor of the printer read ("" when the caller does
     # not say): the generic source's per-vendor exclusions read it.
     vendor: str = ""
+    custom_stack: str | None = None
 
 
 def zmod_base_from_system_info(payload):
@@ -243,7 +244,7 @@ def _raw_component(payload, name):
     return {}
 
 
-def observe(transport, latest_release=None, *, vendor="") -> Observation:
+def observe(transport, latest_release=None, *, vendor="", entry=None) -> Observation:
     """Read one printer's update state through ``transport``: GETs only.
 
     The update status read is required (its failure raises
@@ -284,7 +285,9 @@ def observe(transport, latest_release=None, *, vendor="") -> Observation:
                                            if helixscreen_component is not None else None),
                        helixscreen_valid=helixscreen_valid,
                        components=status.components,
-                       vendor=vendor)
+                       vendor=vendor,
+                       custom_stack=fw.flashforge_custom_firmware(entry, status)
+                       or ("ZMod" if current else None))
 
 
 def latest_release(opener=None, timeout=GITHUB_TIMEOUT_S):
@@ -410,6 +413,9 @@ def zmod_offers(obs: Observation) -> list:
 
 def helixscreen_offers(obs: Observation) -> list:
     """HelixScreen offers reported by the same Moonraker status read."""
+    if fw.custom_update_block("helixscreen", obs.custom_stack or
+                              ("Forge-X" if obs.vendor == fw.FORGEX_VENDOR else None)):
+        return []
     current, remote = obs.helixscreen_current, obs.helixscreen_remote
     if not current or not remote:
         return []
@@ -463,13 +469,20 @@ def component_offers(obs: Observation) -> list:
     pairing = (fw.pairing_state(obs.base, obs.current)
                if obs.current else "unknown")
     out, seen = [], set()
+    stack = obs.custom_stack or ("ZMod" if obs.current or any(
+        fw.canonical_component(component.name) == COMPONENT for component in obs.components
+    ) else None)
+    if stack == "Forge-X" and obs.vendor != fw.FORGEX_VENDOR:
+        return []  # Live identity cannot authorize a Forge-X apply offer.
     for comp in obs.components:
         canonical = fw.canonical_component(comp.name)
+        if fw.custom_update_block(canonical, stack):
+            continue
         if canonical in (COMPONENT, "helixscreen", "system") or canonical in seen:
             continue
         if canonical in fw.OPENCREATOR_COMPONENTS:
             continue
-        if obs.vendor == fw.FORGEX_VENDOR:
+        if obs.vendor == fw.FORGEX_VENDOR or stack == "Forge-X":
             if canonical != fw.FORGEX_COMPONENT:
                 continue
             have = fw.version_parts(comp.current)
