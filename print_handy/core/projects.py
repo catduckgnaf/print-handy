@@ -18,6 +18,50 @@ import re
 from pathlib import Path
 
 SCHEMA = "project_v1"
+SOURCE_CHECKPOINT_SCHEMA = "source_checkpoint_v1"
+
+
+def source_checkpoint(job: dict, manifest: dict, scope: dict | None) -> dict:
+    """Build a durable, pre-slice source checkpoint; never carry launch approval.
+
+    This snapshot binds the inventoried authored source identity and routing
+    scope so a later runtime can decide whether resumption is safe. It is not
+    a multipart completion tracker and contains no slice/start approvals.
+    """
+    if not isinstance(job, dict) or not isinstance(manifest, dict):
+        raise ValueError("job and source manifest are required")
+    source_sha = manifest.get("source_sha256")
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", source_sha):
+        raise ValueError("a SHA256-bound source manifest is required")
+    source_path = job.get("downloaded_file")
+    if not isinstance(source_path, str) or not source_path.strip():
+        raise ValueError("a durable source path is required")
+    safe_scope = {}
+    if isinstance(scope, dict):
+        safe_scope = {key: str(scope.get(key) or "").strip()
+                      for key in ("platform", "requester_id", "channel_id", "printer_id")}
+    # Unscoped checkpoints remain explicitly non-discoverable; do not infer
+    # provenance from legacy or ambient runtime state.
+    plates = manifest.get("plates") or []
+    return {
+        "schema": SOURCE_CHECKPOINT_SCHEMA,
+        "source_sha256": source_sha.lower(),
+        "source_path": source_path,
+        "title": str(job.get("title") or ""),
+        "status": "available",
+        "request_scope": safe_scope if all(safe_scope.values()) else None,
+        "authored_plates": [
+            {key: plate[key] for key in ("id", "name", "object_ids") if key in plate}
+            for plate in plates if isinstance(plate, dict)
+        ],
+        "authored_parts": [
+            {key: part[key] for key in ("key", "name", "source_extruder", "object_id") if key in part}
+            for part in manifest.get("parts", []) if isinstance(part, dict)
+        ],
+        "color_manifest": manifest,
+        "checkpoint": "source_inventoried",
+        "launch_approval": None,
+    }
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9_-]+")
 
 # Roles a source may declare for a component (#1017 item 3). The first three

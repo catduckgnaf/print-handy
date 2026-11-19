@@ -2787,6 +2787,19 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             manifest.update(source_sha256=await asyncio.to_thread(mj.file_sha256, path))
         job['color_manifest'] = manifest
         job['color_schema'] = 'part_slots_v1'
+        # Persist a source-stage checkpoint immediately after inspection, before
+        # any slicer decision. Keep this distinct from multipart_plan, whose
+        # physical completion counters are created only for verified slices.
+        from . import projects as project_identity
+        checkpoint_scope = {
+            'platform': getattr(getattr(source, 'platform', None), 'value', None),
+            'requester_id': str(getattr(source, 'user_id', '') or '').strip(),
+            'channel_id': str(getattr(source, 'chat_id', '') or '').strip(),
+            'printer_id': str(printer_id or '').strip(),
+        }
+        job['source_checkpoint'] = project_identity.source_checkpoint(
+            job, manifest, checkpoint_scope)
+        mj.write_job(folder, job)
         from . import support_clearance
         # The job's own printer's nozzle and the project's first layer (#1373 review:
         # the default printer's profile was read on multi-printer installs).
