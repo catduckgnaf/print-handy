@@ -1,12 +1,12 @@
-import asyncio
 import json
 from pathlib import Path
-from types import SimpleNamespace as S
 
 import pytest
 
+pytest_plugins = ["tests.pipeline.test_multi_tool_intake"]
+
 from print_handy.core.link_intake import requested_authored_plate
-from tests.pipeline.test_multi_tool_intake import creator, flow_env, run_flow
+from tests.pipeline.test_multi_tool_intake import run_flow
 
 
 @pytest.mark.parametrize("message, expected", [
