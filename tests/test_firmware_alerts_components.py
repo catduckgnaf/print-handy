@@ -199,6 +199,18 @@ def test_opencreator_components_and_printers_never_offer():
     assert fa.component_offers(obs) == []
 
 
+def test_zmod_component_without_version_still_blocks_independent_bundled_alerts():
+    from dataclasses import replace
+
+    components = payload()["result"]["version_info"]
+    components["Z-Mod"] = {"is_valid": True}
+    obs = fa.observe(Printer(payload(components)), vendor="klipper")
+    assert not obs.current
+    assert obs.custom_stack == "ZMod"
+    assert fa.component_offers(obs) == []
+    assert fa.component_offers(replace(obs, custom_stack=None)) == []
+
+
 def test_live_forgex_without_the_registry_profile_has_no_apply_alert():
     obs = fa.observe(Printer(payload({
         "forge-x": {"version": "1.4.2-beta-2", "remote_version": "1.4.2-beta-4",

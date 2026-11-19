@@ -465,7 +465,9 @@ def component_offers(obs: Observation) -> list:
     pairing = (fw.pairing_state(obs.base, obs.current)
                if obs.current else "unknown")
     out, seen = [], set()
-    stack = obs.custom_stack or ("ZMod" if obs.current else None)
+    stack = obs.custom_stack or ("ZMod" if obs.current or any(
+        fw.canonical_component(component.name) == COMPONENT for component in obs.components
+    ) else None)
     if stack == "Forge-X" and obs.vendor != fw.FORGEX_VENDOR:
         return []  # Live identity cannot authorize a Forge-X apply offer.
     for comp in obs.components:
