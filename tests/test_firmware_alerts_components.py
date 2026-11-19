@@ -199,6 +199,15 @@ def test_opencreator_components_and_printers_never_offer():
     assert fa.component_offers(obs) == []
 
 
+def test_live_forgex_without_the_registry_profile_has_no_apply_alert():
+    obs = fa.observe(Printer(payload({
+        "forge-x": {"version": "1.4.2-beta-2", "remote_version": "1.4.2-beta-4",
+                    "is_valid": True},
+    })), vendor="klipper")
+    assert obs.custom_stack == "Forge-X"
+    assert fa.component_offers(obs) == []
+
+
 def test_forgex_offers_only_forgex_within_its_line():
     obs = fa.observe(Printer(payload({
         "forge-x": {"version": "1.4.2-beta-2", "remote_version": "1.4.2-beta-4",
