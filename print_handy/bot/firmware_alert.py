@@ -435,11 +435,16 @@ class FirmwareAlerter:
                 token = applicable[0].component if len(applicable) == 1 else "<component>"
                 lines.append(f"Use `/print-firmware update {token}` to review and confirm one update.")
             return _delivered(await adapter.send(chat_id=chat, content="\n".join(lines)))
-        choices = [DEFER_LABEL]
-        if len(applicable) == 1:
-            choices.insert(0, f"Update {applicable[0].component}")
-        elif applicable:
-            lines.append("Use `/print-firmware update <component>` to review and confirm one update.")
+        # Offer each applicable component its own route through the existing
+        # confirmed-update flow. Leave one platform button for deferral; if an
+        # unusually large digest exceeds that surface's limit, the typed
+        # command remains the fallback for components that do not fit.
+        max_buttons = max(1, int(getattr(adapter, "max_buttons", 25)))
+        visible = applicable[:max_buttons - 1]
+        choices = [f"Update {offer.component}" for offer in visible]
+        choices.append(DEFER_LABEL)
+        if len(visible) < len(applicable):
+            lines.append("Use `/print-firmware update <component>` to review any other update.")
         lines.append("Defer updates to get another reminder in 7 days.")
         registry = prompts.gateway()
         clarify_id = f"fwalert-{uuid.uuid4().hex[:12]}"

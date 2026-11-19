@@ -409,9 +409,36 @@ def test_one_digest_groups_offers_and_keeps_updates_individual(cfg):
     assert run(al.announce_digest(PID, AD5X, offers, zmod=True))
     [digest] = al.core.adapter.questions
     assert "(ZMod):** 2 plugin updates, 1 firmware update, 1 software update" in digest["question"]
-    assert "/print-firmware update <component>" in digest["question"]
-    assert digest["choices"] == [fal.DEFER_LABEL]
+    assert digest["choices"] == [
+        "Update zmod", "Update recommend", "Update quickswap",
+        "Update helixscreen", fal.DEFER_LABEL,
+    ]
     assert al.transport_for(PID).posts == []
+
+
+def test_multi_update_digest_button_uses_the_selected_component(cfg, monkeypatch):
+    al = alerter(cfg, Printer())
+    offers = [fa.Offer("zmod", "1.7.5", "1.7.6", "zmod:1.7.6"),
+              fa.Offer("recommend", "1.0", "2.0", "recommend:2.0",
+                       display_name="recommend")]
+    applied = []
+
+    async def apply(printer_id, entry, component, chat):
+        applied.append(component)
+        return f"Applied {component}"
+
+    monkeypatch.setattr(al, "apply", apply)
+
+    async def flow():
+        await al.announce_digest(PID, AD5X, offers, zmod=True)
+        alert = al.core.adapter.questions[0]
+        assert alert["choices"] == ["Update zmod", "Update recommend", fal.DEFER_LABEL]
+        prompts.resolve_gateway_clarify(alert["id"], "Update recommend")
+        await settle(al)
+
+    run(flow())
+    assert applied == ["recommend"]
+    assert al.core.adapter.sent[-1][1] == "Applied recommend"
 
 
 def test_unpressed_alert_expires_without_sending(cfg, monkeypatch):

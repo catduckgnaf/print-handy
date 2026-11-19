@@ -173,13 +173,14 @@ Telegram or Matrix).
 > • ZMod: 1.7.5-2 → 1.7.6-17
 
 - One digest per printer gives counts for plugins, firmware and software
-  and identifies ZMod when detected. When exactly one update can be
-  installed from chat, the digest has a shortcut to its confirmation.
-  For multiple updates, `/print-firmware update <component>` reviews one
-  at a time using the same confirmation, idle checks and verification.
-  On platforms with buttons, **Defer updates** snoozes reminders on that
-  surface for seven days. Still available updates can then reappear.
-  Deferring does not skip a version or install anything.
+  and identifies ZMod when detected. Every applicable update has its own
+  **Update <component>** choice, each opening its confirmation. If a digest
+  exceeds the platform's button limit, the remaining components are available
+  through `/print-firmware update <component>`. On platforms with buttons,
+  **Defer updates** snoozes reminders on that surface for seven days. Still
+  available updates can then reappear. Deferring does not skip a version or
+  install anything. Each update uses the same confirmation, idle checks and
+  verification; there is no batch installation.
 - **In the Web UI** the same alert appears on the chat page (`/chat`),
   with the same controls
   and the same confirmation, answered from the page. The alert belongs to no one
