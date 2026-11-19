@@ -44,6 +44,7 @@ class UpdateJob:
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     outcome: str | None = None
+    succeeded: bool = False
 
     @property
     def running(self) -> bool:
@@ -98,6 +99,7 @@ def start_job(data, *, printer_id, printer_name, transport, prepared, on_finish=
     def run():
         try:
             job.outcome = fw.send_update(transport, prepared)
+            job.succeeded = isinstance(job.outcome, fw.UpdateVerified)
         except (fw.FirmwareRefusal, fw.FirmwareError) as exc:
             job.outcome = str(exc)
         except Exception:
