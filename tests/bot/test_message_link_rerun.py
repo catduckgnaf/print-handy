@@ -76,6 +76,15 @@ def test_reply_to_source_message_accepts_exact_plate_selector(cfg):
     assert seen == [(f"{MODEL} print plate 2", "200000000000000002", str(reply.id))]
 
 
+def test_reply_to_source_message_accepts_authored_part_ordinal(cfg):
+    discord, core, post = setup(cfg)
+    source = post(MODEL)
+    reply = post("print only the second part")
+    reply.reference = S(channel_id=source.channel.id, message_id=source.id)
+    seen = intake(core, reply)
+    assert seen == [(f"{MODEL} print only the second part", "200000000000000002", str(reply.id))]
+
+
 def test_reply_selector_does_not_fetch_across_channels(cfg):
     discord, core, post = setup(cfg)
     source = post(MODEL)
@@ -101,6 +110,24 @@ def test_message_link_preserves_requester_plate_selection_not_source_instruction
     request = post(f"{link(discord.channel.id, source.id)} print plate 2", author=paster)
     seen = intake(core, request)
     assert seen == [(f"{MODEL} print plate 2", str(paster.id), str(request.id))]
+
+
+def test_message_link_preserves_requester_part_selection_not_source_instruction(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print only the first part")
+    paster = fake_discord.FakeUser(200000000000000777, "member")
+    request = post(f"{link(discord.channel.id, source.id)} print only the second part", author=paster)
+    seen = intake(core, request)
+    assert seen == [(f"{MODEL} print only the second part", str(paster.id), str(request.id))]
+
+
+def test_reply_part_selection_overrides_source_author_instruction(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print only the first part")
+    reply = post("print only the second part")
+    reply.reference = S(channel_id=source.channel.id, message_id=source.id)
+    seen = intake(core, reply)
+    assert seen == [(f"{MODEL} print only the second part", "200000000000000002", str(reply.id))]
 
 
 def test_message_link_requester_instruction_keeps_model_url_not_unrelated_url(cfg):

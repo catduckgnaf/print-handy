@@ -1400,7 +1400,9 @@ class BotCore(_RoutedAdapter):
         linked_request = _MESSAGE_LINK_WITH_TEXT.match(text)
         reply_request = None if linked_request else getattr(message, "reference", None)
         if reply_request and re.fullmatch(
-                r"(?:please\s+)?print\s+(?:only\s+)?plate\s+[1-9][0-9]*(?:\s*,?\s+please)?",
+                r"(?:please\s+)?print\s+(?:only\s+)?(?:plate\s+[1-9][0-9]*|"
+                r"the\s+(?:first|second|third|fourth|fifth|[1-9][0-9]*)\s+part)"
+                r"(?:\s*,?\s+please)?",
                 text.strip(), flags=re.IGNORECASE):
             # Replies are an exact-source shortcut only inside the same channel;
             # never use a reply to broaden Discord link read permissions.
