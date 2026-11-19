@@ -327,5 +327,8 @@ def test_hours_only_manual_estimate_wins_over_attachment(tmp_path):
     path.write_text(GCODE)
     event = SimpleNamespace(media_urls=[str(path)])
     text = cost_handler._dispatch_answer("/print-cost 3 h", event)
+    # The manual hours estimate answers, not the attachment and not a refusal.
     assert "benchy.gcode" not in text
-    assert text.startswith("Cannot estimate yet")
+    assert text.startswith("Out of pocket for estimate:")
+    assert "Electricity:" in text and "No filament counted" in text
+    assert "Material (incl. waste allowance): USD 0.00" in text
