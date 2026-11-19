@@ -2783,9 +2783,34 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         await asyncio.to_thread(intake_working_copy, path)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
-        job['audit'] = await _with_stop(adapter, source, key, metadata,
-                                        _voiced(large_model_notice(path), 'model_audit', source, iid),
-                                        _heavy(mj.audit, path))
+        # Cache only pure inspection output, bound to canonical source bytes and
+        # private requester/channel/printer scope. No workflow decisions enter it.
+        from . import intake_inspection_cache
+        from ..runtime import _config as runtime_config
+        inspection_scope = {
+            'platform': getattr(getattr(source, 'platform', None), 'value', None),
+            'requester_id': str(getattr(source, 'user_id', '') or '').strip(),
+            'channel_id': str(getattr(source, 'chat_id', '') or '').strip(),
+            'printer_id': str(printer_id or '').strip(),
+        }
+        actual_sha = await asyncio.to_thread(mj.file_sha256, path)
+        cache_root = runtime_config.cache_dir()
+        audit_cache_key = await asyncio.to_thread(
+            intake_inspection_cache.get, cache_root, 'audit', actual_sha, inspection_scope)
+        if audit_cache_key is not None:
+            job['audit'] = audit_cache_key
+        else:
+            job['audit'] = await _with_stop(
+                adapter, source, key, metadata,
+                _voiced(large_model_notice(path), 'model_audit', source, iid),
+                _heavy(mj.audit, path))
+            # Preserve owned-worker isolation: cache writes are small and independent.
+            await asyncio.to_thread(intake_inspection_cache.put, cache_root, 'audit', actual_sha,
+                                    inspection_scope, job['audit'])
+        if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
+            raise ValueError('Model source changed during audit; retry intake.')
+        if isinstance(job['audit'], dict):
+            job['audit'] = intake_inspection_cache.bind_audit_to_path(job['audit'], path)
         if isinstance(job['audit'], dict) and job['audit'].get('no_printable_volume'):
             # Refuse at intake (#194): asking for colors and copies first only to fail at slicing wastes the operator's time.
             raise mj.NoPrintableVolume(job['audit']['geometry_error'])
@@ -2834,9 +2859,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         from . import support_clearance
         # The job's own printer's nozzle and the project's first layer (#1373 review:
         # the default printer's profile was read on multi-printer installs).
+        clearance_first_layer = support_clearance.profile_first_layer_mm(printer_id, source=path)
         clearance_rep = await asyncio.to_thread(
-            support_clearance.safe_analyze, path,
-            first_layer_mm=support_clearance.profile_first_layer_mm(printer_id, source=path))
+            intake_inspection_cache.get, cache_root, 'clearance', actual_sha, inspection_scope,
+            inputs={'first_layer_mm': clearance_first_layer})
+        if clearance_rep is None:
+            clearance_rep = await asyncio.to_thread(
+                support_clearance.safe_analyze, path, first_layer_mm=clearance_first_layer)
+            await asyncio.to_thread(intake_inspection_cache.put, cache_root, 'clearance', actual_sha,
+                                    inspection_scope, clearance_rep,
+                                    inputs={'first_layer_mm': clearance_first_layer})
+        if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
+            raise ValueError('Model source changed during inspection; retry intake.')
         if clearance_rep:
             job['support_clearance'] = clearance_rep
         mj.front_mark('inspection_done')  # audit, color manifest and clearance are done (#1476)

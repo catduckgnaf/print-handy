@@ -112,6 +112,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(prepared_intake, '_with_stop', _logged_with_stop)
     folder_root = tmp_path / 'archive'
     monkeypatch.setattr(model_job, 'ARCHIVE', folder_root)
+    from print_handy.runtime import _config as runtime_config
+    monkeypatch.setattr(runtime_config, 'cache_dir', lambda: tmp_path / 'cache')
     monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'ghost', 'title': 'Ghost Stand',
         'sources': [{'name': 'ghost.3mf', 'instance_id': 1}]})
