@@ -55,6 +55,17 @@ def test_actual_preserves_estimate_only_for_same_file_revision():
     assert "actual" in changed
 
 
+def test_same_second_resend_updates_estimate_without_replacing_actual():
+    filename = "parts/benchy.gcode"
+    first = cost_publish.build_record(filename, 10, estimate(), at=20.1)
+    finished = cost_publish.build_record(filename, 10, actual(), at=20.4, existing=first)
+    resent = cost_publish.build_record(filename, 10, estimate(), at=20.7, existing=finished)
+    delayed = cost_publish.build_record(filename, 10, estimate(), at=20.3, existing=resent)
+    assert delayed is not None
+    assert delayed["estimate"]["at"] == 20.7
+    assert delayed["actual"]["at"] == 20.4
+
+
 def test_contract_is_fail_soft_without_verified_metadata_or_valid_cost():
     assert cost_publish.build_record("x.gcode", None, estimate(), at=1) is None
     assert cost_publish.build_record("x.gcode", 1, {"currency_code": "USD"}, at=1) is None

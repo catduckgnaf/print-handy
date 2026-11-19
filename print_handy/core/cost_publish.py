@@ -72,7 +72,7 @@ def _block(cost: dict[str, Any], *, at: float) -> dict[str, Any] | None:
             })
     return {"total": round(filament + electricity, 2),
             "filament": round(filament, 2), "electricity": round(electricity, 2),
-            "at": int(at), "tools": tools}
+            "at": at, "tools": tools}
 
 
 def build_record(filename: Any, file_modified: Any, cost: Any, *, at: float | None = None,
@@ -104,7 +104,7 @@ def build_record(filename: Any, file_modified: Any, cost: Any, *, at: float | No
     if block is None:
         return None
     prior = record.get(state)
-    if not prior or prior["at"] <= block["at"]:
+    if not prior or float(prior["at"]) <= block["at"]:
         record[state] = block
     return record
 
