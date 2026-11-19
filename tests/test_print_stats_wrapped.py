@@ -1004,5 +1004,32 @@ class RouteTests(unittest.TestCase):
             self.assertEqual(code, 400)
 
 
+def test_data_materials_shows_recorded_costs_without_material_breakdown():
+    from print_handy.webui.data_page import materials
+    html = materials({"breakdowns": {"by_material": {}}, "costs": {
+        "has_priced": True, "currency_code": "USD", "out_of_pocket_total": 12.5,
+        "priced_count": 1, "failed_count": 1, "failure_total": 3.0}})
+    assert "You spent" in html
+    assert "failed or were stopped" in html
+
+
+def test_data_page_render_shows_costs_for_a_priced_print_with_no_material():
+    # duckcatgnaf on #1693: drive the Data tab renderer with the real stats
+    # builder. A print with no material is bucketed as unknown, so the
+    # section renders with its spending line.
+    from print_handy.core import cost, print_stats
+    from print_handy.webui.data_page import render_sections
+    profile, _ = cost.printer_profile_for({})
+    result = cost.compute(cost.JobCostInput(lines=[], print_hours=3.0, grams_source="test"),
+                          profile, cost.WorkspaceCost.from_settings({}))
+    record = {"title": "Benchy", "status": "completed", "outcome": "completed",
+              "started_at": "2026-11-10T12:00:00Z", "finished_at": "2026-11-10T15:00:00Z",
+              "printer": "ad5x", "cost": cost.freeze(result)}
+    payload = print_stats.aggregate([record], 2026)
+    assert payload["costs"]["has_priced"]
+    html = render_sections(payload)
+    assert 'id="data-materials"' in html and "You spent" in html
+
+
 if __name__ == "__main__":
     unittest.main()
