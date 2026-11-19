@@ -40,6 +40,38 @@ def test_source_checkpoint_persists_authored_identity_scope_and_no_approval(tmp_
     assert "multipart_plan" not in restored
 
 
+def test_scoped_checkpoint_lookup_survives_restart_and_rejects_changed_source(tmp_path, monkeypatch):
+    from print_handy.core import model_job
+
+    folder = tmp_path / "archive" / "intake-a"
+    folder.mkdir(parents=True)
+    source = folder / "source.3mf"
+    source.write_bytes(b"immutable authored source")
+    sha = model_job.file_sha256(source)
+    job = {
+        "title": "Painted model", "downloaded_file": str(source),
+        "selected_source": {"name": "source.3mf", "path": str(source)},
+        "source_checkpoint": {
+            "schema": "source_checkpoint_v1", "status": "available",
+            "source_path": str(source), "source_sha256": sha,
+            "request_scope": {"platform": "discord", "requester_id": "u1",
+                              "channel_id": "c1", "printer_id": "p1"},
+            "authored_plates": [{"id": "authored-plate-2", "name": "Upper shell"}],
+        },
+    }
+    (folder / "JOB.json").write_text(json.dumps(job))
+    found = projects.find_source_checkpoints(platform="discord", requester_id="u1",
+                                             channel_id="c1", printer_id="p1", archive=tmp_path / "archive")
+    assert len(found) == 1
+    assert found[0]["checkpoint"]["authored_plates"][0]["id"] == "authored-plate-2"
+    assert projects.find_source_checkpoints(platform="discord", requester_id="u2",
+                                            channel_id="c1", printer_id="p1", archive=tmp_path / "archive") == []
+
+    source.write_bytes(b"changed source")
+    assert projects.find_source_checkpoints(platform="discord", requester_id="u1",
+                                            channel_id="c1", printer_id="p1", archive=tmp_path / "archive") == []
+
+
 def test_source_checkpoint_refuses_unbound_or_incomplete_provenance():
     with pytest.raises(ValueError, match="SHA256"):
         projects.source_checkpoint({"downloaded_file": "/archive/a.3mf"}, {"source_sha256": "bad"}, None)

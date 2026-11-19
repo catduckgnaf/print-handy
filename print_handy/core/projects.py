@@ -13,12 +13,49 @@ transform and collision checks for want of placement data.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from pathlib import Path
 
 SCHEMA = "project_v1"
 SOURCE_CHECKPOINT_SCHEMA = "source_checkpoint_v1"
+
+
+def find_source_checkpoints(*, platform: str, requester_id: str, channel_id: str,
+                            printer_id: str, archive: Path | None = None) -> list[dict]:
+    """Discover intact, scoped pre-slice checkpoints after restart.
+
+    Read only JOB.json records; the source file must still match its recorded
+    SHA256. The returned record includes its archived job and checkpoint.
+    """
+    from . import model_job as mj
+    directory = Path(archive or mj.ARCHIVE)
+    expected = {"platform": platform, "requester_id": requester_id,
+                "channel_id": channel_id, "printer_id": printer_id}
+    if any(not isinstance(value, str) or not value.strip() for value in expected.values()):
+        return []
+    matches = []
+    for path in directory.glob("*/JOB.json"):
+        try:
+            job = json.loads(path.read_text(encoding="utf-8"))
+            checkpoint = job.get("source_checkpoint")
+            scope = checkpoint.get("request_scope")
+            source = Path(checkpoint.get("source_path") or "").resolve()
+            archived = Path(job.get("downloaded_file") or "").resolve()
+            if (checkpoint.get("schema") != SOURCE_CHECKPOINT_SCHEMA
+                    or checkpoint.get("status") != "available"
+                    or scope != expected or not source.is_file()
+                    or source != archived or not source.is_relative_to(path.parent.resolve())
+                    or not path.resolve().is_relative_to(directory.resolve())
+                    or not re.fullmatch(r"[a-f0-9]{64}", str(checkpoint.get("source_sha256") or ""))
+                    or mj.file_sha256(source) != checkpoint["source_sha256"]
+                    or job.get("source_sha256") not in (None, checkpoint["source_sha256"])):
+                continue
+            matches.append({"job_json": str(path), "job": job, "checkpoint": checkpoint})
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return sorted(matches, key=lambda row: (str(row["checkpoint"].get("title") or ""), row["job_json"]))
 
 
 def source_checkpoint(job: dict, manifest: dict, scope: dict | None) -> dict:
