@@ -7,7 +7,7 @@ import logging
 
 from .common import (
     _EditHost, _INTAKE_UNAVAILABLE_REASON, _adapter_for, _ask_which_printer, _busy_label,
-    _candidate_statuses, _channel_printer_id, _is_bot_platform, _is_hosting_profile, _live_key_for,
+    _candidate_statuses, _channel_printer_id, _confirm, _is_bot_platform, _is_hosting_profile, _live_key_for,
     _pkw, _plain_print_number, _recent_model_link, _routed_form, _routed_printer_id, _state_dir,
     _undecided_printer_ids,
 )
@@ -84,21 +84,70 @@ async def model_link_dispatch(event, gateway, **kwargs):
                 platform=platform, requester_id=str(source.user_id), channel_id=str(source.chat_id),
                 printer_id=str(printer_id))
             if part_token is not None:
-                # More than one saved project is ambiguous even if only one
-                # happens to contain this part number.
-                plate_id = (_projects.checkpoint_part_plate(candidates[0]['checkpoint'], part_token)
-                            if len(candidates) == 1 else None)
-                if plate_id is None:
-                    candidates = []
-            rows = [(candidate, plate) for candidate in candidates
-                    for plate in candidate['checkpoint'].get('authored_plates', [])
-                    if not plate_id or str(plate.get('id')) == plate_id]
+                # Resolve the requested part independently within each source;
+                # if several projects contain it, the picker must disambiguate.
+                rows = []
+                for candidate in candidates:
+                    requested_plate = _projects.checkpoint_part_plate(candidate['checkpoint'], part_token)
+                    if requested_plate:
+                        rows.extend((candidate, plate) for plate in
+                                    candidate['checkpoint'].get('authored_plates', [])
+                                    if str(plate.get('id')) == requested_plate)
+            else:
+                rows = [(candidate, plate) for candidate in candidates
+                        for plate in candidate['checkpoint'].get('authored_plates', [])
+                        if not plate_id or str(plate.get('id')) == plate_id]
+            if len(candidates) > 24 or len(rows) > 24:
+                return {'action': 'skip', 'reason': 'too many archived projects to choose safely'}
+            if rows and (len(candidates) > 1 or len(rows) > 1):
+                # Never infer an intended source from ordering or an ordinal.
+                # Even one ordinal match among several scoped projects requires
+                # an explicit selection, and persisted state is reloaded after
+                # the prompt before the choice is trusted.
+                adapter = _adapter_for(gateway, source)
+                if not adapter:
+                    return {'action': 'skip', 'reason': 'archived project selection requires a chat adapter'}
+                else:
+                    labels = [f"{str(candidate['checkpoint'].get('title') or 'Untitled project')[:36]} · "
+                              f"plate {plate.get('id')} ({plate.get('name') or 'unnamed'})"
+                              for candidate, plate in rows]
+                    labels = [label[:64] for label in labels]
+                    if len(set(labels)) != len(labels):
+                        await adapter.send(chat_id=source.chat_id,
+                            content='Matching archived projects have indistinguishable picker labels; '
+                                    'use `/resume-model <plate_id>` after removing the ambiguity. '
+                                    'Nothing sliced or started.',
+                            metadata={'thread_id': source.thread_id} if source.thread_id else None)
+                        return {'action': 'skip', 'reason': 'indistinguishable archived project labels'}
+                    selection = await _confirm(
+                        adapter, source, {'thread_id': source.thread_id} if source.thread_id else None,
+                        'resume-project', 'Which archived project and plate do you mean?',
+                        labels + ['Cancel'], 1800,
+                        live_key=gateway._session_key_for_source(source))
+                    selected_index = labels.index(selection) if selection in labels else None
+                    if selected_index is None:
+                        rows = []
+                    else:
+                        selected_candidate, selected_plate = rows[selected_index]
+                        fresh = _projects.find_source_checkpoints(
+                            platform=platform, requester_id=str(source.user_id),
+                            channel_id=str(source.chat_id), printer_id=str(printer_id))
+                        fresh = [row for row in fresh
+                                 if row['job_json'] == selected_candidate['job_json']
+                                 and row.get('checkpoint', {}).get('source_path') ==
+                                 selected_candidate.get('checkpoint', {}).get('source_path')
+                                 and row.get('checkpoint', {}).get('source_sha256') ==
+                                 selected_candidate.get('checkpoint', {}).get('source_sha256')]
+                        refreshed_plate = next((plate for row in fresh
+                                                for plate in row['checkpoint'].get('authored_plates', [])
+                                                if str(plate.get('id')) == str(selected_plate.get('id'))), None)
+                        rows = [(fresh[0], refreshed_plate)] if fresh and refreshed_plate else []
             if len(rows) != 1:
                 adapter = _adapter_for(gateway, source)
                 if adapter:
                     detail = ('No exact authored plate checkpoint matches that ID.' if plate_id else
                               'No unique authored plate checkpoint matches this requester, channel and printer; '
-                              'specify a plate ID with `/resume-model <plate_id>`.')
+                              'choose a project and plate or retry `/resume-model <plate_id>`.')
                     await adapter.send(chat_id=source.chat_id, content=detail + ' Nothing sliced or started.',
                                        metadata={'thread_id': source.thread_id} if source.thread_id else None)
                 return {'action': 'skip', 'reason': 'checkpoint ambiguous or missing'}

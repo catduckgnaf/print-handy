@@ -70,3 +70,90 @@ def test_natural_part_two_reopens_checkpoint_and_slices_only_that_plate(flow_env
     assert receipt['sliced'] is True
     assert receipt['started'] is False
     assert receipt['uploaded'] is False
+
+
+@pytest.mark.parametrize('utterance,outcome', [
+    ('print part 2', 'select'), ('/resume-model', 'select'),
+    ('print part 2', 'cancel'), ('print part 2', 'changed'),
+    ('print part 2', 'no adapter'), ('print part 99', 'no match'),
+])
+def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
+        flow_env, monkeypatch, tmp_path, utterance, outcome):
+    from print_handy.core import projects
+
+    printer_id = 'printer-1'
+    candidates = []
+    for index, title in enumerate(('Alpha assembly', 'Beta assembly'), start=1):
+        source = tmp_path / f'project-{index}.3mf'
+        source.write_bytes(f'project-{index}'.encode())
+        checkpoint = {
+            'schema': projects.SOURCE_CHECKPOINT_SCHEMA,
+            'status': 'available',
+            'request_scope': {'platform': 'discord', 'requester_id': 'u',
+                              'channel_id': 'c1', 'printer_id': printer_id},
+            'source_path': str(source),
+            'source_sha256': mj.file_sha256(source),
+            'title': title,
+            'authored_plates': [{'id': '1', 'name': 'First'}, {'id': '2', 'name': 'Second'}],
+            'authored_parts': [{'key': 'part-1', 'name': 'Body'},
+                               {'key': 'part-2', 'name': 'Lid'}],
+            'color_manifest': {'plate_usage': {'2': {'part_keys': ['part-2']}}},
+        }
+        candidates.append({'job_json': str(tmp_path / f'job-{index}.json'),
+                           'job': {'selected_source': {'path': str(source)},
+                                   'downloaded_file': str(source),
+                                   'source_checkpoint': checkpoint},
+                           'checkpoint': checkpoint})
+
+    monkeypatch.setattr(model_link, '_adapter_for', lambda *_args: harness.FlowAdapter([]))
+    monkeypatch.setattr(model_link, '_channel_printer_id', lambda *_args: printer_id)
+    monkeypatch.setattr(model_link, '_routed_printer_id', lambda *_args: printer_id)
+    monkeypatch.setattr(model_link, '_state_dir', lambda: flow_env.root)
+    monkeypatch.setattr(model_link, '_undecided_printer_ids', lambda *_args: [])
+    monkeypatch.setattr(printer_state, 'load', lambda *_args, **_kwargs: harness.tool_state())
+    monkeypatch.setattr(projects, 'find_source_checkpoints', lambda **_kwargs: candidates)
+
+    questions = []
+    async def confirm(_adapter, _source, _metadata, _prefix, question, choices, _timeout,
+                      live_key=None, approval=False):
+        questions.append((question, choices, live_key, approval))
+        if outcome == 'cancel':
+            return 'Cancel'
+        if outcome == 'changed':
+            monkeypatch.setattr(projects, 'find_source_checkpoints', lambda **_kwargs: candidates[:1])
+        return next(choice for choice in choices if choice.startswith('Beta assembly · plate 2'))
+
+    monkeypatch.setattr(model_link, '_confirm', confirm)
+    prepared = []
+    async def capture_prepare(event, adapter, state, root, **kwargs):
+        prepared.append(kwargs['reuse'])
+        return {'action': 'skip', 'reason': 'captured'}
+
+    monkeypatch.setattr(prepared_intake, 'prepare_link', capture_prepare)
+    gateway = S(_is_user_authorized_for_source=lambda _source: True,
+                _session_key_for_source=lambda _source: 'resume-session')
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+                       platform=S(value='discord'), printer_id=printer_id),
+              message_id='resume', text=utterance, metadata={})
+    if outcome == 'no adapter':
+        candidates[0]['checkpoint']['color_manifest']['plate_usage'].clear()
+        monkeypatch.setattr(model_link, '_adapter_for', lambda *_args: None)
+    result = asyncio.run(model_link.model_link_dispatch(event, gateway))
+
+    if outcome != 'select':
+        assert result['action'] == 'skip'
+        assert not prepared
+        assert len(questions) == (1 if outcome in {'cancel', 'changed'} else 0)
+        if outcome == 'no adapter':
+            assert result['reason'] == 'archived project selection requires a chat adapter'
+        return
+    assert result['reason'] == 'captured'
+    assert len(questions) == 1
+    assert questions[0][0] == 'Which archived project and plate do you mean?'
+    expected_choices = 3 if utterance == 'print part 2' else 5
+    assert len(questions[0][1]) == expected_choices
+    assert len(prepared) == 1
+    resume = prepared[0]['source_checkpoint_resume']
+    assert resume['plate_id'] == '2'
+    assert resume['source_sha256'] == candidates[1]['checkpoint']['source_sha256']
+    assert prepared[0].get('start_approval') is None
