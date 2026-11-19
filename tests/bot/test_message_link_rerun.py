@@ -86,6 +86,28 @@ def test_message_link_preserves_requester_plate_selection_not_source_instruction
     assert seen == [(f"{MODEL} print plate 2", str(paster.id), str(request.id))]
 
 
+def test_message_link_requester_instruction_keeps_model_url_not_unrelated_url(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"https://example.com/info {MODEL}")
+    request = post(f"{link(discord.channel.id, source.id)} print plate 2")
+    seen = intake(core, request)
+    assert seen == [(f"{MODEL} print plate 2", "200000000000000002", mock.ANY)]
+
+
+def test_message_link_requester_instruction_fails_closed_for_multiple_model_urls(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} https://www.printables.com/model/123456-other")
+    request = post(f"{link(discord.channel.id, source.id)} print plate 2")
+    sent = []
+
+    async def fake_send(**kwargs):
+        sent.append(kwargs["content"])
+
+    with mock.patch.object(core.adapter, "send", fake_send):
+        assert intake(core, request) == []
+    assert any("exactly one model link" in text for text in sent)
+
+
 def test_message_link_without_requester_instruction_replays_source_text(cfg):
     discord, core, post = setup(cfg)
     source = post(f"{MODEL} print plate 1")

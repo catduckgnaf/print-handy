@@ -1411,8 +1411,19 @@ class BotCore(_RoutedAdapter):
             text = linked.text
             # Linked author text is source material; current requester intent wins.
             if requester_instruction:
+                from print_handy.core.link_intake import model_link
+
                 urls = re.findall(r"https?://[^\s<>\)\]]+", linked.text)
-                text = f"{urls[0] if urls else ''} {requester_instruction}".strip()
+                model_urls = [url for url in urls if model_link(url)]
+                if len(model_urls) != 1:
+                    await self.adapter.send(
+                        chat_id=source.chat_id,
+                        content=("I couldn't identify exactly one model link in that message, "
+                                 "so I didn't start an intake."),
+                        metadata={"thread_id": source.thread_id} if source.thread_id else None,
+                    )
+                    return None
+                text = f"{model_urls[0]} {requester_instruction}".strip()
         media = await self.save_attachments(content_from)
         prov = self.provenance_for(addressed, message)
         if content_from is not message:
