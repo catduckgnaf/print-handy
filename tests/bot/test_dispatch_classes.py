@@ -71,9 +71,9 @@ async def _run_hook(hook, text):
 def test_every_dispatch_hook_is_classified(plugin):
     names = [hook.__name__ for hook in plugin._DISPATCH_HOOKS]
     gated = {hook.__name__ for hook in plugin._DISPATCH_HOOKS if getattr(hook, "dispatch_gate", None)}
-    assert len(names) == len(set(names)) == 33
+    assert len(names) == len(set(names)) == 36
     assert gated | FREE_TEXT_HOOKS == set(names) and not gated & FREE_TEXT_HOOKS
-    assert len(gated) == 19
+    assert len(gated) == 22
 
 
 GATED = sorted(h.__name__ for h in Router().plugin._DISPATCH_HOOKS if getattr(h, "dispatch_gate", None))

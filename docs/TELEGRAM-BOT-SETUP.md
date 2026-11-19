@@ -100,6 +100,13 @@ Prints that do not finish get one too, from the bank that matches how they
 ended: the failure post draws from the failed bank, the cancel post from the
 cancelled bank, and a camera alert that confirms spaghetti carries a line
 from the spaghetti bank.
+Every printer family is roasted the same way: Moonraker, PrusaLink,
+OctoPrint, Elegoo SDCP, stock Flashforge and Bambu terminal posts all carry
+the print's roast, drawn by one shared helper, and a post that carries a
+roast carries no status quip: one voice per post. A post with no roast
+line (roasts off, or a draw that found no line) keeps the status quip it
+has always had, so turning roasts off changes nothing. Spaghetti stays
+Moonraker-only: only its camera watch raises a spaghetti post.
 You can also ask for one in plain words: "roast my last print", "roast print
 84", "roast the dragon" (typos are fine; the print is found the same way
 `print 84` and `/print-again <name>` find it).
@@ -130,6 +137,66 @@ defaulting to `true`.
 - The roast is a post decoration, not the chat LLM: Telegram still
   never consults `[llm]`, and unmatched text still gets the command
   list.
+
+### On the printer's screen (HelixScreen)
+
+The roast of a printer's last print also goes, best effort, to that
+printer's own Moonraker database, where HelixScreen's tips widget shows it
+in place of the tips. It is the line the completion, failure, cancel or
+spaghetti post carried, never a second pick. A tap on it says which print
+it was about and how it went ("Your last print, Benchy, finished. 1h 15m,
+PLA, 12 g.").
+
+* Record: namespace `helix-screen`, key `featured_tip`, value
+  `{"id", "title", "details", "source": "Print Handy", "posted_at"}`
+  (`print_handy/runtime/screen_tip.py`). `id` is stable per print's post, so
+  a retried delivery shows once.
+* Each printer's listener writes to its own printer, so every screen roasts
+  its own last print. A printer with no `moonraker_url` (Bambu, Prusa,
+  offline) gets no screen item; it gets the Home Assistant sensor below
+  instead. Roasts asked for in chat ("roast print 84") stay in chat.
+* On by default on both sides, under the same `vision.roast_enabled` switch.
+  A printer without HelixScreen just holds one small database item nobody
+  reads.
+* By default the roast replaces HelixScreen's tips: it stays on the tile
+  until the next print's roast, until it is a week old, or until the item is
+  gone. The Tips tile's gear in HelixScreen's edit mode switches it to
+  mixing, where each roast shows for one tip rotation.
+* The write runs on its own thread with a 5 second timeout. A failure is
+  logged and never touches the post.
+* Tests never write: `tests/conftest.py` replaces `screen_tip._post`.
+
+### On a Home Assistant dashboard (MQTT)
+
+Printers with no screen Print Handy can write to (Bambu, Prusa, stock
+Flashforge) still get a place to show the roast: with MQTT notifications
+on (`notify.mqtt_enabled` and a broker host), each printer's last roast is
+published, retained, to `<notify.mqtt_topic>/<printer_id>/last_roast` on
+the notify broker, as the same record the screen reads plus `printer_id`
+and `status`. The first roast per printer after start also publishes a
+Home Assistant discovery config, so every printer (Moonraker ones too)
+gets a `last_roast` sensor on its Home Assistant device, with the details
+("Your last print, Benchy, finished. 1h 15m, PLA, 12 g.") as attributes
+behind a tap. A wall tablet or an ESPHome display by the printer can show
+it the way HelixScreen shows its tile.
+
+* The sensor follows `notify.mqtt_roast` (on by default) and
+  `vision.roast_enabled`: MQTT off, the sensor switched off, or roasts
+  off, and nothing is published. The publish runs on its own thread; a
+  broker failure is logged and never touches the chat post.
+* Home Assistant caps a state at 255 characters, so the sensor's state
+  truncates a longer line there; the full line stays in the `title`
+  attribute.
+* One example card, a Markdown card showing the state and the `details`
+  attribute (name your printer's own sensor):
+
+```yaml
+type: markdown
+content: |
+  ## Last roast
+  {{ states('sensor.ad5x_last_roast') }}
+  _{{ state_attr('sensor.ad5x_last_roast', 'details') }}_
+```
 
 ## AI design on Telegram
 

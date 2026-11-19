@@ -21,7 +21,13 @@ def rows(cfg, monkeypatch):
     return {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
 
 
-def test_local_detector_row_off_by_default(cfg, monkeypatch):
+def test_local_detector_row_on_by_default_and_off_when_turned_off(cfg, monkeypatch):
+    # The shipped default (the suite's own runtime config pins it off).
+    import os
+    from pathlib import Path
+    from print_handy import settings
+    assert settings.load(local=Path(os.devnull), environ={})["vision"]["local_detector_enabled"] is True
+    cfg["vision"]["local_detector_enabled"] = False
     ok, detail = rows(cfg, monkeypatch)["local detector"]
     assert ok is True
     assert detail.startswith("off (vision.local_detector_enabled is false")
@@ -64,3 +70,13 @@ def test_auto_light_row_without_local_detector_keeps_the_endpoint_text(cfg, monk
     ok, detail = rows(cfg, monkeypatch)["auto light"]
     assert ok is True
     assert detail.startswith("on, but no vision endpoint is available")
+
+
+def test_local_detector_row_waiting_for_the_first_download_is_not_a_failure(cfg, monkeypatch, tmp_path):
+    # On by default: a fresh install has no model yet, and bot check must
+    # not fail for the background download it is still waiting on.
+    cfg["vision"].update(local_detector_enabled=True, local_model_path=str(tmp_path / "absent.onnx"))
+    ok, detail = rows(cfg, monkeypatch)["local detector"]
+    assert ok is True
+    assert detail.startswith("on, waiting for its first model download:")
+    assert "not downloaded yet" in detail

@@ -312,6 +312,13 @@ class OverrideTests(unittest.TestCase):
                        "local_model_path", "watch_source", "local_empty_enabled",
                        "auto_light_off_minutes", "light_object"},
             "spool": {"prompt_brand", "accounting"},
+            "cost": {"currency_code", "electricity_rate_per_kwh", "labor_rate_per_hour",
+                     "failure_rate_fdm", "failure_rate_resin", "pricing_mode",
+                     "default_margin", "tax_rate", "tax_mode", "marketplace_fee_rate",
+                     "overhead_percent", "flat_fee_per_job",
+                     "default_filament_cost_per_kg", "cost_mode",
+                     "resin_ipa_per_print", "resin_ppe_per_print"},
+            "cost_printers": set(),
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records
             # whether [timelapse] mode was named or derived, so per-printer
@@ -334,10 +341,12 @@ class OverrideTests(unittest.TestCase):
             "live_stream": {"enabled", "voice_channel_id", "auto_start_on_print", "max_height", "fps",
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
-                       "ntfy_enabled", "ntfy_url", "ntfy_topic"},
-            "firmware": {"update_alerts", "update_check_hours", "notice_firmwares", "forgex_apply"},
+                       "mqtt_roast", "ntfy_enabled", "ntfy_url", "ntfy_topic"},
+            "firmware": {"update_alerts", "update_check_hours", "update_channel",
+                         "notice_firmwares", "forgex_apply"},
             "natural_language": {"shadow_mode", "unmatched_log_enabled",
                                  "ai_rate_limit_per_hour", "ai_disabled_channel_ids"},
+            "external_intake": {"enabled", "directory", "max_bytes"},
             "maintenance": {"quick_hours", "full_hours", "full_days", "bed_separate_mm"},
             "public_text": {"denylist"},
             "delivery": {"methods"},
@@ -934,7 +943,7 @@ class NotifySettingsTests(unittest.TestCase):
     channels off by default, credentials never settings."""
 
     DEFAULTS = {"mqtt_enabled": False, "mqtt_host": "", "mqtt_port": 1883,
-                "mqtt_topic": "print-handy", "mqtt_username": "",
+                "mqtt_topic": "print-handy", "mqtt_username": "", "mqtt_roast": True,
                 "ntfy_enabled": False, "ntfy_url": "", "ntfy_topic": ""}
 
     def load_local(self, text, environ=None):

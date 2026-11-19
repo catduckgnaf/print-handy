@@ -36,7 +36,8 @@ step) serving:
   printer's own display (:mod:`print_handy.webui.screen`, #1303),
   discovered through Moonraker's registered ``screen`` webcam and
   never the printer's address; ``GET /printers/<id>/screen`` is its
-  labeled, read-only page;
+  labeled page (read-only while controls are off; tappable while
+  they are on, through ``POST /printers/<id>/screen/touch``, #1626);
 - ``GET /api/printers/<id>/spools`` and
   ``POST /api/printers/<id>/spools/{assign,swap,unassign,add,edit,sync,
   purchase/propose,purchase/create}`` — spool management (#789,
@@ -62,10 +63,14 @@ step) serving:
 - ``GET /designs`` and ``GET /designs/<id>`` — the design workshop over
   the catalog of AI design sessions (#388, stage 3; #1449;
   :mod:`print_handy.webui.designs`), with per-session file downloads
-  under ``GET /designs/<id>/<scad|stl|preview>``. ``POST /designs``
-  and ``POST /designs/choice`` are the workshop's forms: they submit
-  through this browser's web chat view, so a design started here runs
-  the chat design dispatch itself, not a page-side pipeline.
+  under ``GET /designs/<id>/<scad|stl|preview>`` (``preview?turn=N``
+  for one turn's). The workshop is a conversation (#1636): ``POST
+  /designs`` (its message box) and ``POST /designs/choice`` (a
+  question's button) submit through this browser's design-thread view
+  of web chat, so a design started here runs the chat design dispatch
+  itself, not a page-side pipeline; ``GET /designs/state`` is its poll,
+  ``POST /designs/new`` starts a fresh thread and ``POST
+  /designs/<id>/continue`` reopens one of this browser's own.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
   walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
   every install that has not finished it; its steps write through the
@@ -192,10 +197,13 @@ from . import status_handlers as status_handlers_module
 from . import data_handlers as data_handlers_module
 from . import printer_handlers as printer_handlers_module
 from . import design_handlers as design_handlers_module
+from . import firmware_handlers as firmware_handlers_module
+from . import notifications as notifications_module
 from . import config_handlers as config_handlers_module
 from . import chat_handlers as chat_handlers_module
 from . import upload_handlers as upload_handlers_module
 from . import walkthrough_handlers as walkthrough_handlers_module
+from . import cost_handlers as cost_handlers_module
 from .sessions import (REMEMBER_TTL_S, SESSIONS_FILE, SESSION_COOKIE,
                        SESSION_TTL_S, SessionStore, _access_stamp,
                        _load_remembered_sessions, _remember_lock,
@@ -660,6 +668,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, content_type, headers=()):
         data = body.encode() if isinstance(body, str) else body
+        if code == 200 and content_type.startswith("text/html"):
+            data = self._inject_toasts(data)
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
@@ -855,6 +865,12 @@ class _Handler(BaseHTTPRequestHandler):
         method without its own routes gets the read-only refusal with no
         screens, as it always has."""
         self._note_forwarded_for()
+        try:
+            # One nav for the whole Web UI, from the live settings (shell.REQUEST_NAV).
+            from . import data as _data
+            shell.REQUEST_NAV.set(_data.nav_for(self.server.settings_data))
+        except Exception:
+            log.debug("request nav unavailable; the shell uses its default tabs", exc_info=True)
         transfer_codings = [coding.strip().lower()
                             for header in self.headers.get_all(
                                 "Transfer-Encoding", [])
@@ -1087,8 +1103,75 @@ class _Handler(BaseHTTPRequestHandler):
     def _designs_choice_post(self, form):
         return design_handlers_module.designs_choice_post(self, form)
 
+    def _designs_state(self):
+        return design_handlers_module.designs_state(self)
+
+    def _designs_new_post(self, form):
+        return design_handlers_module.designs_new_post(self, form)
+
+    def _designs_continue_post(self, rest, form):
+        return design_handlers_module.designs_continue_post(self, rest, form)
+
+    def _design_view(self, issue=True):
+        return design_handlers_module.design_view(self, issue)
+
     def _firmware_route(self):
         return design_handlers_module.firmware_route(self)
+
+    def _cost_page(self):
+        return cost_handlers_module.cost_page(self)
+
+    def _cost_post(self, form):
+        return cost_handlers_module.cost_post(self, form)
+
+    def _firmware_update_route(self):
+        return firmware_handlers_module.update_confirm_route(self)
+
+    def _firmware_update_post(self, form):
+        return firmware_handlers_module.update_apply_route(self, form)
+
+    def _firmware_update_status_route(self):
+        return firmware_handlers_module.update_status_route(self)
+
+    def _firmware_channel_route(self):
+        return firmware_handlers_module.channel_route(self)
+
+    def _firmware_channel_post(self, form):
+        return firmware_handlers_module.channel_apply_route(self, form)
+
+    def _firmware_channel_status_route(self):
+        return firmware_handlers_module.channel_status_route(self)
+
+    def _notifications_dismiss_post(self, form):
+        return firmware_handlers_module.dismiss_route(self, form)
+
+    def _inject_toasts(self, data):
+        """Insert the current toast stack after a shell page's header (#1610).
+
+        Only full shell pages carry the site header; anything else (the
+        login page, downloads, fragments) passes through untouched. The
+        notification store reads state files only — no printer traffic —
+        and ``toasts_for_page`` never raises.
+        """
+        if b'<header class="site">' not in data:
+            return data
+        settings_data = getattr(self.server, "settings_data", None)
+        if not settings_data:
+            return data
+        try:
+            form_token = self._form_token()
+        except Exception:  # noqa: BLE001 - no session token: the page goes out without toasts
+            log.debug("no form token for the toast Dismiss form", exc_info=True)
+            return data
+        toasts = notifications_module.toasts_for_page(
+            settings_data, back=urlparse(self.path).path or "/", form_token=form_token)
+        if not toasts:
+            return data
+        marker = b"</header>"
+        at = data.find(marker)
+        if at < 0:
+            return data
+        return data[:at + len(marker)] + toasts.encode("utf-8") + data[at + len(marker):]
 
     def _settings_report_route(self, rest=""):
         return design_handlers_module.settings_report_route(self, rest)
@@ -1101,6 +1184,18 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _sliced_route(self, rest=""):
         return design_handlers_module.sliced_route(self, rest)
+
+    def _slice_result_route(self, rest=""):
+        return design_handlers_module.slice_result_route(self, rest)
+
+    def _u1_feasibility_route(self, rest=""):
+        return design_handlers_module.u1_feasibility_route(self, rest)
+
+    def _external_intake_route(self, notice=None, error=None):
+        return design_handlers_module.external_intake_route(self, notice, error)
+
+    def _external_intake_confirm_post(self, form):
+        return design_handlers_module.external_intake_confirm_post(self, form)
 
     def _not_found(self, path):
         return status_handlers_module.not_found(self, path)
@@ -1125,6 +1220,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _wrapped_video_post(self, form):
         return data_handlers_module.wrapped_video_post(self, form)
+
+    def _wrapped_reel_file_route(self):
+        return data_handlers_module.wrapped_video_file_route(self, kind="reel")
+
+    def _wrapped_reel_status_route(self):
+        return data_handlers_module.wrapped_video_status_route(self, kind="reel")
+
+    def _wrapped_reel_post(self, form):
+        return data_handlers_module.wrapped_video_post(self, form, kind="reel")
 
     def _wrapped_share_post(self, form):
         return data_handlers_module.wrapped_share_post(self, form)
@@ -1158,6 +1262,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _screen_page(self, printer_id):
         return printer_handlers_module.screen_page(self, printer_id)
+
+    def _screen_touch_post(self, printer_id, form):
+        return printer_handlers_module.screen_touch_post(self, printer_id, form)
 
     def _spools_page(self, printer_id):
         return printer_handlers_module.spools_page(self, printer_id)
@@ -1351,6 +1458,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _config_save(self, form):
         return config_handlers_module.config_save(self, form)
 
+    def _config_field_save(self, form):
+        return config_handlers_module.config_field_save(self, form)
+
     def _debug_post(self, form):
         return config_handlers_module.debug_post(self, form)
 
@@ -1366,7 +1476,8 @@ class _Handler(BaseHTTPRequestHandler):
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
                 printer_status_func=None, printer_control_func=None,
                 camera_snapshot_func=None, screen_snapshot_func=None,
-                screen_probe_func=None, spools_view_func=None, spools_action_func=None,
+                screen_probe_func=None, screen_touch_func=None,
+                spools_view_func=None, spools_action_func=None,
                 readiness_func=None, roster_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
@@ -1453,7 +1564,9 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.screen_snapshot_func = screen_snapshot_func or (
         lambda printer_id: screen_module.snapshot(data, printer_id))
     server.screen_probe_func = screen_probe_func or (
-        lambda printer_id: screen_module.probe(data, printer_id))
+        lambda printer_id: screen_module.probe_source(data, printer_id))
+    server.screen_touch_func = screen_touch_func or (
+        lambda printer_id, x, y: screen_module.touch(data, printer_id, x, y))
     server.spools_view_func = spools_view_func or (
         lambda printer_id: spools_module.spools_view(data, printer_id))
     server.spools_action_func = spools_action_func or (

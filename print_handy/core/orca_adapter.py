@@ -1466,7 +1466,7 @@ def start_mesh_profile(state):
 
 
 @painted_geometry.decode_scoped
-def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None):
+def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None, towerless=False):
     _slice_started = time.monotonic()
     _slicer_runs = []  # elapsed seconds of each slicer subprocess, for the provenance timing split (#952)
     source, folder = Path(source), Path(folder)
@@ -1555,9 +1555,16 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             and color_decisions.get('mode') == 'per_part'):
         from . import purge
         purge_plan = purge.resolve(state=state, adapter=printer, live=True)
-        if purge_plan.refusal:
+        # A refusal is about how color changes purge. A slice measured towerless
+        # never changes tools (checked after the export below), so nothing purges
+        # and the refusal does not apply to it (#1680).
+        if purge_plan.refusal and not towerless:
             raise RuntimeError(purge_plan.refusal)
         tower_mm = purge.tower_mm(nozzle_dia, purge_plan)
+    if towerless:
+        # The caller measured this slice as one that never changes tools (a
+        # one-slot painted plate, #1648) and fit it to the bed with no tower.
+        tower_mm = 0.0
     # A multi_tool printer slices per-part colours as true multi-extruder
     # output: tools are toolheads (identity mapping), the model's templates
     # already describe every extruder, and no native IFS finalize applies (#346).
@@ -1583,6 +1590,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                             object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
                                             identity_tools=multi_tool, tower_mm=tower_mm, slicer=route_slicer,
                                             **({'rotation': rotation} if rotation is not None else {}))
+        if towerless and len(set((mapping or {}).values())) > 1:
+            raise RuntimeError('a slice fit without a prime tower changes tools; refit it with a tower')
         author = project['author']
     elif identity_single:
         # Expand the one pick to a per-part view in memory (the persisted
@@ -2104,7 +2113,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         mapped_profile = True
     elif mapping:
         import copy
-        purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
+        if towerless:
+            # One tool, no color change: no purge and no tower, whatever the
+            # printer's purge plan says about color changes (#1680).
+            purge_mode, purge_machine, purge_process = None, {}, {'purge_in_prime_tower': '0',
+                                                                  'enable_prime_tower': '0'}
+        else:
+            purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
         process.update({'enable_prime_tower': '1', **purge_process})
         _selected('job', ['enable_prime_tower', *purge_process])
@@ -2690,7 +2705,16 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             artifact_path.write_text(json.dumps(_conversion_provenance, indent=2) + '\n')
         except (OSError, ValueError):
             _conversion_provenance.pop('artifact', None)
+    # Per-plate usage (#1525, #1110 criterion 3): the source plates this
+    # artifact prints, by the plater_id the per-plate usage records key on.
+    # A derived plate file (preserve_layout) is not the source, so its caller
+    # names the plates; unknown stays None, never a guess.
+    selected_plates = None
+    if not preserve_layout:
+        from .remap_integrity import sliced_plates
+        selected_plates = sliced_plates(source, object_ids)
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
+                    'selected_plates': selected_plates,
                     # #952: the orca_begin -> orca_finalize_done interval, split. slicer_s is the
                     # subprocess time; python_s is everything else slice_model did (profile
                     # assembly, finalize, the post-slice guard reads).

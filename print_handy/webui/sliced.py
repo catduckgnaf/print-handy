@@ -140,9 +140,11 @@ def list_sliced(archive: Path, limit: int = SLICED_ROW_LIMIT) -> list:
             mtime = job_path.stat().st_mtime
         except OSError:
             mtime = 0
+        has_source = any(name.suffix.lower() == ".3mf" and "editable" not in name.name
+                         for name in job_path.parent.glob("*.3mf"))
         rows.append({"job_id": job_id, "title": str(payload.get("title") or job_id),
                      "when": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)) if mtime else "unknown",
-                     "mtime": mtime, "plates": plates,
+                     "mtime": mtime, "plates": plates, "has_source": has_source,
                      "settings_report": _has_settings_report(payload)})
     rows.sort(key=lambda row: row["mtime"], reverse=True)
     return rows
@@ -180,7 +182,9 @@ def render_sliced_page(rows, *, theme=shell.DEFAULT_THEME, nav=None) -> str:
              "screen. To slice something new, paste a model link on the "
              "<a href=\"/sources\">Sources</a> page or drop it in "
              "<a href=\"/chat\">chat</a> and choose <strong>Slice and Download</strong>; "
-             "the file lands here. Nothing on this page starts a print.</p>"]
+             "the file lands here. Nothing on this page starts a print. "
+             "Jobs sliced outside Print Handy land on the "
+             "<a href=\"/external-intake\">External intake</a> page.</p>"]
     if not rows:
         parts.append("<p>No sliced files are in the archive yet.</p>")
         return shell.page("sliced", "".join(parts), path="/sliced",
@@ -189,6 +193,10 @@ def render_sliced_page(rows, *, theme=shell.DEFAULT_THEME, nav=None) -> str:
     for row in rows:
         report = ('<a href="/settings-report/' + _esc(row['job_id']) + '">Settings report</a>'
                   if row.get("settings_report") else "")
+        report += (' <a href="/slice-result/' + _esc(row['job_id']) + '">Slice result</a>')
+        if row.get("has_source"):
+            report += (' <a href="/u1-feasibility/' + _esc(row['job_id'])
+                       + '">U1 feasibility</a>')
         for number, plate in enumerate(row["plates"]):
             body.append(
                 "<tr>"
@@ -199,8 +207,8 @@ def render_sliced_page(rows, *, theme=shell.DEFAULT_THEME, nav=None) -> str:
                 f"<td><a href=\"/sliced/{_esc(row['job_id'])}/{int(plate['index'])}\">Download</a></td>"
                 f"<td>{report if number == 0 else ''}</td>"
                 "</tr>")
-    parts.append("<table><tr><th>Model</th><th>Sliced</th><th>File</th>"
-                 "<th>Size</th><th></th><th></th></tr>" + "".join(body) + "</table>")
+    parts.append('<div class="table-scroll"><table><tr><th>Model</th><th>Sliced</th><th>File</th>'
+                 "<th>Size</th><th></th><th></th></tr>" + "".join(body) + "</table></div>")
     return shell.page("sliced", "".join(parts), path="/sliced",
                       theme=theme, heading="Sliced files", nav=nav)
 

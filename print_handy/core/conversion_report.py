@@ -26,13 +26,36 @@ the template system without adding validation.
 from __future__ import annotations
 
 import html
+import re
 
 _REPLACED_REASONS = {"destination_profile", "compatibility_fallback",
                      "material_profile", "operator", "job"}
 
 
-def classify(entry: dict) -> str:
-    """The report class of one provenance settings entry."""
+_CARRIED = re.compile(r"\bcarried as ([A-Za-z0-9_]+)=")
+
+
+def translated_keys(conversion: dict) -> set[str]:
+    """Destination keys the record's conversion notes say were carried under a new name.
+
+    A foreign project's setting translated to an Orca key is noted as
+    "<slicer> <source_key> carried as <orca_key>=<value>" (source_descriptor);
+    those notes are the record's own statement that a row is a translation.
+    """
+    keys = set()
+    for note in conversion.get("conversion_notes") or ():
+        match = _CARRIED.search(str(note))
+        if match:
+            keys.add(match.group(1))
+    return keys
+
+
+def classify(entry: dict, *, translated: bool = False) -> str:
+    """The report class of one provenance settings entry.
+
+    ``translated`` is True when the record's conversion notes name this key
+    as carried from a foreign project under a different name (#1681).
+    """
     project = entry.get("project_value")
     selected = entry.get("selected_value")
     if project is None and selected is None:
@@ -41,10 +64,12 @@ def classify(entry: dict) -> str:
         return "dropped"
     if project is None:
         return "unknown"
+    if entry.get("selected_reason") in _REPLACED_REASONS and project != selected:
+        return "replaced"
+    if translated:
+        return "translated"
     if project == selected:
         return "preserved"
-    if entry.get("selected_reason") in _REPLACED_REASONS:
-        return "replaced"
     if entry.get("selected_reason") == "designer":
         return "preserved"
     return "unknown"
@@ -53,10 +78,11 @@ def classify(entry: dict) -> str:
 def build_report(conversion: dict, *, job_id: str | None = None) -> dict:
     """A structured readable report from one conversion_provenance record."""
     settings = conversion.get("settings") or {}
+    carried = translated_keys(conversion)
     rows = []
     for key in sorted(settings):
         entry = settings[key] if isinstance(settings[key], dict) else {}
-        rows.append({"setting": key, "class": classify(entry),
+        rows.append({"setting": key, "class": classify(entry, translated=key in carried),
                      "project_value": entry.get("project_value"),
                      "selected_value": entry.get("selected_value"),
                      "selected_reason": entry.get("selected_reason"),

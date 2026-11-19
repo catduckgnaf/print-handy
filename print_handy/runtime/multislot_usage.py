@@ -59,6 +59,18 @@ Every charge first checks the print context is this print's: its start
 falls inside the Moonraker history entry's window (``context_in_window``),
 so a context left by an earlier launch of the same file is never charged.
 
+The same ledger is the one record of which physical prints were charged,
+shared with the Web UI's External intake confirmation (#1525). Every entry
+the live path writes names the print's identities (``print_ids``: the job
+key with its print number and with its start time, and Moonraker's history
+``job_id`` when known). A one-spool print whose printer charged it live
+through Moonraker's own Spoolman link, with no launch baseline to check,
+is recorded too (``record_printer_charged``), so it is never charged again
+by hand. A Mark as printed confirmation claims its print id in this ledger
+(``claim_external_print``) before it charges anything, and is refused when
+the print id names a print this ledger already accounts for; the live
+charge in turn skips a print an external confirmation already claimed.
+
 Spoolman is bookkeeping: nothing here raises into the print lifecycle.
 """
 from __future__ import annotations
@@ -88,6 +100,21 @@ SUSPENDED_REASON = "filament usage is paused for an open spool question"
 # live), Print Handy must not charge the same print again at the end.
 PRINTER_AUTHORITY_REASON = ("the printer is the spool accounting authority for this print, "
                             "so Print Handy did not charge it again")
+
+# A one-spool print Moonraker charged live (its own Spoolman link) with no
+# launch baseline for the runaway check: recorded so it is never charged again.
+PRINTER_LIVE_REASON = ("the printer's Moonraker charged this print's spool live, "
+                       "so Print Handy did not charge it again")
+
+# An External intake Mark as printed confirmation (#1525) already declared
+# this physical print, so the live end of the print charges nothing more.
+EXTERNAL_KIND = "external_confirm"
+EXTERNAL_REASON = ("an External intake confirmation already recorded this print, "
+                   "so Print Handy did not charge it again")
+
+
+class AlreadyAccounted(Exception):
+    """A print id names a print the accounting ledger already charged or checked."""
 
 
 def effective_authority(context: dict[str, Any] | None) -> str | None:
@@ -122,6 +149,157 @@ _lock = threading.Lock()
 
 def ledger_path() -> Path:
     return _config.state_file(LEDGER_ENV, LEDGER_NAME, per_instance=True)
+
+
+def ledger_path_for(printer_id: Any) -> Path:
+    """The ledger the listener for roster printer ``printer_id`` charges through.
+
+    A non-default roster printer's listener keeps its own copy under
+    <state>/printers/<id>/ (per_instance); any other id, the default
+    printer, or an env override is this process's ledger_path().
+    """
+    if os.environ.get(LEDGER_ENV):
+        return ledger_path()
+    from print_handy import settings
+
+    data = _config.cfg()
+    wanted = str(printer_id or "").strip()
+    roster = {str(row.get("id")) for row in settings.printers(data) if isinstance(row, dict)}
+    if wanted and wanted in roster and wanted != settings.default_printer_id(data):
+        return settings.printer_state_dir(wanted, data) / LEDGER_NAME
+    return ledger_path()
+
+
+def all_ledger_paths() -> list[Path]:
+    """Every accounting ledger on this install: this process's, the default one, each printer's."""
+    first = ledger_path()
+    if os.environ.get(LEDGER_ENV):
+        return [first]
+    state = _config.state_dir()
+    paths = [first, state / LEDGER_NAME, *sorted((state / "printers").glob(f"*/{LEDGER_NAME}"))]
+    unique: list[Path] = []
+    for path in paths:
+        if path not in unique:
+            unique.append(path)
+    return unique
+
+
+def _load_strict(path: Path) -> dict[str, Any]:
+    """The ledger at ``path``; {} only when it does not exist. Unreadable raises OSError or ValueError."""
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"expected a JSON object, found {type(data).__name__}")
+    return data
+
+
+def _identity_fields(key: str, context: dict[str, Any], job_id: Any) -> dict[str, Any]:
+    """The identities a ledger entry records for its print: job key + print number or start, Moonraker job id."""
+    ids = {key}
+    job_key = context.get("job_key")
+    for run in (context.get("print_number"), context.get("started_at")):
+        if job_key and run:
+            ids.add(f"{job_key}#{run}")
+    fields: dict[str, Any] = {"print_ids": sorted(ids)}
+    moonraker_id = str(job_id).strip() if job_id is not None else ""
+    if moonraker_id:
+        fields["moonraker_job_id"] = moonraker_id
+    return fields
+
+
+def accounted_print_ids(ledger: dict[str, Any]) -> set[str]:
+    """Every print id the live accounting in ``ledger`` already charged or checked.
+
+    The ledger key (job key + print number or start time), the job key
+    alone, each recorded ``print_ids`` entry and the Moonraker job id.
+    External intake claims are not live accounting and are left out.
+    """
+    ids: set[str] = set()
+    for key, entry in ledger.items():
+        if isinstance(entry, dict) and entry.get("kind") == EXTERNAL_KIND:
+            continue
+        ids.add(str(key))
+        ids.add(str(key).split("#")[0])
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("job_key"):
+            ids.add(str(entry["job_key"]))
+        if entry.get("moonraker_job_id"):
+            ids.add(str(entry["moonraker_job_id"]))
+        for value in entry.get("print_ids") or []:
+            ids.add(str(value))
+    return {value.strip() for value in ids if value and value.strip()}
+
+
+def _external_claim_for(ledger: dict[str, Any], key: str, context: dict[str, Any],
+                        job_id: Any) -> dict[str, Any] | None:
+    """The External intake claim that names this print, or None.
+
+    A claim names it by any of its identities (_identity_fields). A claim
+    naming only the job key (the file) counts when it was recorded after
+    this print started; an earlier one was about an earlier print.
+    """
+    fields = _identity_fields(key, context, job_id)
+    ids = set(fields["print_ids"])
+    if fields.get("moonraker_job_id"):
+        ids.add(fields["moonraker_job_id"])
+    job_key = str(context.get("job_key") or "").strip()
+    started = _iso_seconds(context.get("started_at"))
+    claims = [entry for entry in ledger.values() if isinstance(entry, dict)]
+    for other in all_ledger_paths():
+        claims.extend(entry for entry in _load(other).values() if isinstance(entry, dict))
+    for entry in claims:
+        if entry.get("kind") != EXTERNAL_KIND:
+            continue
+        print_id = str(entry.get("print_id") or "").strip()
+        if not print_id:
+            continue
+        if print_id in ids:
+            return entry
+        recorded = _number(entry.get("recorded_at"))
+        if print_id == job_key and started is not None and recorded is not None and recorded >= started:
+            return entry
+    return None
+
+
+def claim_external_print(print_id: Any, *, printer_id: Any, identity: str) -> dict[str, Any]:
+    """Claim one External intake print in the accounting ledger before it is charged (#1525).
+
+    Raises AlreadyAccounted when ``print_id`` names a print the live
+    accounting already charged or checked in any ledger on this install,
+    whatever its slot count. Raises OSError or ValueError when a ledger
+    exists but cannot be read: an unreadable ledger cannot prove the print
+    was not charged. Otherwise records the claim in the ledger the named
+    printer's listener charges through, so its live end skips the print.
+    """
+    wanted = str(print_id or "").strip()
+    with _lock:
+        for path in all_ledger_paths():
+            if wanted and wanted in accounted_print_ids(_load_strict(path)):
+                raise AlreadyAccounted(
+                    f"print {wanted} was already charged or checked by Print Handy's own "
+                    "print accounting when it finished; refusing to charge the same "
+                    "physical print twice.")
+        path = ledger_path_for(printer_id)
+        ledger = _load_strict(path)
+        entry = {"kind": EXTERNAL_KIND, "print_id": wanted, "printer_id": str(printer_id or "").strip(),
+                 "identity": identity, "status": "claimed", "recorded_at": time.time()}
+        ledger[identity] = entry
+        _save(path, ledger)
+        return json.loads(json.dumps(entry))
+
+
+def settle_external_print(identity: str, status: str, *, printer_id: Any) -> None:
+    """Record how a claimed External intake print's charge ended (charged, recorded, unconfirmed)."""
+    path = ledger_path_for(printer_id)
+    with _lock:
+        ledger = _load_strict(path)
+        entry = ledger.get(identity)
+        if not isinstance(entry, dict):
+            return
+        entry["status"] = status
+        _save(path, ledger)
 
 
 def planned_filament_mm(gcode_text: str) -> float | None:
@@ -335,7 +513,8 @@ def _charge_slots(path: Path, ledger: dict[str, Any], key: str, request: Callabl
 def charge_finished_print(context: dict[str, Any] | None, outcome: str, *, actual_mm: Any = None,
                           planned_mm: Any = None, suspended: bool = False,
                           request: Callable[..., Any] | None = None,
-                          base_url: str | None = None, path: Path | None = None) -> dict[str, Any] | None:
+                          base_url: str | None = None, path: Path | None = None,
+                          job_id: Any = None) -> dict[str, Any] | None:
     """Charge each mapped slot's launch-bound spool for a finished multi-slot print.
 
     ``outcome`` is "complete" for a finished print; anything else is a
@@ -349,6 +528,10 @@ def charge_finished_print(context: dict[str, Any] | None, outcome: str, *, actua
     A one-spool print the launch marked for a charge at the end (no
     Moonraker Spoolman link, #1570) is charged the same way, as a plan of
     one row (single_spool_plan).
+
+    ``job_id`` is Moonraker's history job id, recorded with the entry. A
+    print an External intake confirmation already claimed (#1525) is
+    recorded as skipped and charged nothing.
     """
     context = context or {}
     plan = charge_plan(context)
@@ -360,7 +543,13 @@ def charge_finished_print(context: dict[str, Any] | None, outcome: str, *, actua
         ledger = _load(path)
         if key not in ledger:
             planned = planned_mm if _number(planned_mm) else context.get("planned_filament_mm")
-            if not suspended and effective_authority(context) == "printer":
+            claim = _external_claim_for(ledger, key, context, job_id)
+            if claim is not None:
+                entry = _new_entry(key, context, plan, outcome, None, False, actual_mm, planned)
+                entry.update(status="skipped", reason=EXTERNAL_REASON,
+                             external_identity=claim.get("identity"))
+                ledger[key] = entry
+            elif not suspended and effective_authority(context) == "printer":
                 # The printer is the accounting authority (#1536): its
                 # Moonraker already charged this print live, so the entry
                 # records the skip and no slot is charged here.
@@ -371,6 +560,7 @@ def charge_finished_print(context: dict[str, Any] | None, outcome: str, *, actua
             else:
                 ratio = _ratio(outcome, actual_mm, planned)
                 ledger[key] = _new_entry(key, context, plan, outcome, ratio, suspended, actual_mm, planned)
+            ledger[key].update(_identity_fields(key, context, job_id))
             _save(path, ledger)
         _charge_slots(path, ledger, key, request, base_url)
         return json.loads(json.dumps(ledger[key]))
@@ -536,7 +726,7 @@ def _expected_grams(context: dict[str, Any], outcome: str, actual_mm: Any) -> fl
 def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm: Any = None,
                       active_spool_id: Any = None, suspended: bool = False,
                       request: Callable[..., Any] | None = None, base_url: str | None = None,
-                      path: Path | None = None) -> dict[str, Any] | None:
+                      path: Path | None = None, job_id: Any = None) -> dict[str, Any] | None:
     """Undo a runaway Moonraker charge on a finished single-slot print (#1374).
 
     ``actual_mm`` is the filament the print extruded (print_stats or the
@@ -570,7 +760,7 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
             entry = {"kind": "single_slot", "job_key": context.get("job_key"),
                      "outcome": outcome, "recorded_at": time.time(), "spool_id": sid,
                      "status": "skipped", "reason": PRINTER_AUTHORITY_REASON,
-                     "accounting_authority": "printer"}
+                     "accounting_authority": "printer", **_identity_fields(key, context, job_id)}
             ledger[key] = entry
             _save(path, ledger)
             return json.loads(json.dumps(entry))
@@ -582,7 +772,8 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
             return json.loads(json.dumps(ledger[key]))
         entry: dict[str, Any] = {"kind": "single_slot", "job_key": context.get("job_key"),
                                  "outcome": outcome, "recorded_at": time.time(), "spool_id": sid,
-                                 "baseline_used_g": round(before, 2)}
+                                 "baseline_used_g": round(before, 2),
+                                 **_identity_fields(key, context, job_id)}
         expected = _expected_grams(context, outcome, actual_mm)
         if suspended:
             entry.update(status="skipped", reason=SUSPENDED_REASON)
@@ -628,6 +819,39 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
         return json.loads(json.dumps(entry))
 
 
+def record_printer_charged(context: dict[str, Any] | None, outcome: str, *,
+                           active_spool_id: Any = None, job_id: Any = None,
+                           path: Path | None = None) -> dict[str, Any] | None:
+    """Record a one-spool print the printer's Moonraker charged live, with nothing to check (#1525).
+
+    A one-spool print with neither a Print Handy charge (charge_plan) nor
+    a launch baseline (guard_single_slot) left no ledger entry, so nothing
+    showed the print was already charged and an External intake
+    confirmation could charge it again. When Moonraker charged it (an
+    active spool at the end, or the printer as the recorded accounting
+    authority) the print is recorded here with its identities; nothing
+    is charged or written to Spoolman. Returns the entry (the existing one
+    when already recorded), or None when this does not apply.
+    """
+    context = context or {}
+    key = charge_key(context)
+    if key is None or charge_plan(context) is not None or _baseline_for(context) is not None:
+        return None
+    sid = _spool_id(active_spool_id)
+    if sid is None and effective_authority(context) != "printer":
+        return None
+    path = path or ledger_path()
+    with _lock:
+        ledger = _load(path)
+        if key not in ledger:
+            ledger[key] = {"kind": "single_slot", "job_key": context.get("job_key"),
+                           "outcome": outcome, "recorded_at": time.time(), "spool_id": sid,
+                           "status": "printer_charged", "reason": PRINTER_LIVE_REASON,
+                           "accounting_authority": "printer", **_identity_fields(key, context, job_id)}
+            _save(path, ledger)
+        return json.loads(json.dumps(ledger[key]))
+
+
 HISTORY_STOPPED = ("cancelled", "error", "klippy_shutdown", "klippy_disconnect")
 
 
@@ -654,19 +878,22 @@ def charge_history_job(job: dict[str, Any] | None, context: dict[str, Any] | Non
         return None
     if not context_in_window(context, job.get("start_time"), job.get("end_time")):
         return None
+    outcome = "complete" if status == "completed" else "stopped"
     if charge_plan(context) is None:
-        return guard_single_slot(
-            context, "complete" if status == "completed" else "stopped",
+        checked = guard_single_slot(
+            context, outcome,
             actual_mm=job.get("filament_used"), active_spool_id=active_spool_id,
             suspended=usage_suspended() if suspended is None else suspended,
-            request=request, base_url=base_url, path=path)
+            request=request, base_url=base_url, path=path, job_id=job.get("job_id"))
+        return checked or record_printer_charged(context, outcome, active_spool_id=active_spool_id,
+                                                 job_id=job.get("job_id"), path=path)
     planned = ((job.get("metadata") or {}).get("filament_total")
                if not context.get("planned_filament_mm") else None)
     return charge_finished_print(
-        context, "complete" if status == "completed" else "stopped",
+        context, outcome,
         actual_mm=job.get("filament_used"), planned_mm=planned,
         suspended=usage_suspended() if suspended is None else suspended,
-        request=request, base_url=base_url, path=path)
+        request=request, base_url=base_url, path=path, job_id=job.get("job_id"))
 
 
 def retry_pending(*, request: Callable[..., Any] | None = None,

@@ -34,8 +34,8 @@ treated None before). It owns:
 Routing is decided once, here: a recorded family alert goes to that family's
 own adapter control (``family_control``), a Bambu LAN printer to its LAN
 client, and Moonraker to Moonraker. The transport drivers are unchanged
-(``hermes/print_stop.py``, ``hermes/print_control.py``,
-``hermes/family_control.py``, ``hermes/panic.py`` and the Web UI's
+(``runtime/print_stop.py``, ``runtime/print_control.py``,
+``runtime/family_control.py``, ``runtime/panic.py`` and the Web UI's
 ``default_send``); this service is the only caller allowed to reach them, so
 a gate added to a driver applies to every surface at once. Drivers are looked
 up at call time (``core._external.load``), so a test that replaces a driver
@@ -279,6 +279,18 @@ class PrinterControl:
     def force_reboot(self, **kw) -> tuple[bool, str]:
         """The safe REBOOT flow (print_control.force_reboot); refused while printing."""
         return _driver("print_control").force_reboot(**_kw(self.printer_id), **kw)
+
+    def server_restart(self) -> None:
+        """Restart this printer's Moonraker (print_control.server_restart).
+
+        Moonraker printers only: the verb is part of the Moonraker
+        capability set, and any other connection refuses here rather
+        than sending anything.
+        """
+        if not self.capabilities().supports("server_restart"):
+            raise ValueError("server_restart is not supported for this printer "
+                             f"({self.connection or 'unknown'} connection)")
+        return _driver("print_control").server_restart(**_kw(self.printer_id))
 
     def purge(self, **kw) -> dict[str, Any]:
         """The guarded toolhead purge (panic.purge), held to this printer's nozzle ceiling."""

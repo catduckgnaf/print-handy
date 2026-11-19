@@ -435,7 +435,10 @@ def require_current_artifact(job, gcode):
     expected = {'source_sha256': file_sha256(job['downloaded_file']),
                 'decisions_sha256': decisions_digest(job.get('color_decisions')),
                 'gcode_sha256': expected_hash, 'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha}
-    if binding != expected:
+    # The binding's identity fields must match exactly. The record may carry
+    # further fields besides these (the reuse stamps of #1648 item 7, say);
+    # those are checked by the paths that rely on them, not here.
+    if any(binding.get(field) != value for field, value in expected.items()):
         raise RuntimeError('stale color artifact: source, decisions or G-code changed; reslice before launch')
 
 

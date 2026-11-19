@@ -160,10 +160,11 @@ agent:
   api_key_env: AGENT_API_KEY
   timeout_s: 120
 ai:
-  # Who may use the AI edit lane (#902): chat user IDs. Empty keeps it open to
+  # Who may use the AI edit lane (#902): chat user IDs, separated by commas
+  # or spaces (a list also works). Empty keeps it open to
   # everyone the gateway already authorizes. edit_requests_per_hour is per
   # user over a rolling hour; 0 turns the limit off.
-  allowed_users: []
+  allowed_users: ''
   edit_requests_per_hour: 20
   # Optional AI tiers (#818). Nothing ships filled in: leave a tier empty and
   # it keeps the settings it already used (small: services.vision_chat_url and
@@ -202,9 +203,8 @@ design:
   # chat_url/model/api_key_env inherit the [llm] values, so a
   # single-endpoint setup only sets design.model (a stronger model
   # for design, e.g. sol at medium while chat stays luna at medium).
-  # The endpoint fields win in every mode, Hermes included: the
-  # profile's auxiliary.print_design block is only the fallback for a
-  # Hermes install with no endpoint configured.
+  # The endpoint fields are the whole story: design resolves only this
+  # endpoint (inheriting [llm]); there is no fallback lane.
   chat_url: ''
   model: ''
   api_key_env: ''
@@ -220,9 +220,54 @@ spool:
   # walkthrough (#512). Off by default: the walkthrough skips brand and
   # the spool is created without one. Set true if you track brands.
   prompt_brand: false
+cost:
+  # Print cost calculator (#1625): workspace defaults for the one cost
+  # engine every surface uses (chat, the Web UI calculator page, the
+  # completion record, Data and Pasta Wrapped). Cost is information
+  # only: it never blocks, delays or refuses a print. Per-printer
+  # profiles live in the file-only cost_printers table below; filament
+  # prices come from Spoolman first (see docs/COST.md).
+  currency_code: USD
+  electricity_rate_per_kwh: 0.19
+  # Labor rate per hour. The hobby preset is an explicit 0: the labor
+  # line still shows, priced at zero.
+  labor_rate_per_hour: 20.0
+  failure_rate_fdm: 0.05
+  failure_rate_resin: 0.10
+  # Selling price math, labeled in words everywhere it shows: margin
+  # divides cost by (1 - margin); markup multiplies by (1 + markup).
+  pricing_mode: margin
+  default_margin: 0.40
+  tax_rate: 0.0
+  # add_on_top, included or none.
+  tax_mode: add_on_top
+  marketplace_fee_rate: 0.0
+  overhead_percent: 0.0
+  flat_fee_per_job: 0.0
+  # Fallback filament price when neither Spoolman nor the slicer
+  # embedded a price for a line.
+  default_filament_cost_per_kg: 22.0
+  # hobby leads every answer and Wrapped with what a print cost out of
+  # pocket (filament, power, consumables); seller leads with the full
+  # cost a quote must recover (labor and machine wear included) and
+  # shows the selling price tiers. Both figures are always recorded.
+  cost_mode: hobby
+  # Resin consumables per print: IPA lost per wash, cleanup and PPE.
+  resin_ipa_per_print: 0.23
+  resin_ppe_per_print: 0.12
+# Per-printer cost profiles (#1625), file only: a table keyed by roster
+# id or printer name. Each entry may set technology (fdm or resin),
+# purchase_price, upfront_cost, salvage_value, lifetime_hours,
+# maintenance_per_hour, watts, watts_basis (manufacturer, measured or
+# estimate), watts_by_material (a table of material to watts), idle
+# watts, and for resin: wash_cure_watts, wash_cure_minutes,
+# screen_price, screen_life_hours, film_price and film_life_prints.
+# A printer with no entry uses the generic profile. Empty by default.
+cost_printers: {}
 vision:
-  # AI camera checks: off by default, because AI is for designing models.
-  # While false, no frame or photo is sent to a vision model endpoint
+  # Vision endpoint camera checks: off by default. Camera checks run on
+  # this machine with the local failure detector below instead. While
+  # false, no frame or photo is sent to a vision model endpoint
   # (PRINT_VISION_URL, services.vision_chat_url, ai.small): the camera
   # watchdog, idle plate checks, label reads and purchase reads treat the
   # endpoint as not configured. The local detector and plate reference
@@ -241,16 +286,16 @@ vision:
   # corpus, and a file that cannot be read is ignored with the problem
   # named in the log. See "Adding roast lines" in CONTRIBUTING.md.
   roast_custom_bank: ''
-  # Local failure detector (#455): off by default. When on, the camera
-  # watchdog can judge frames with the built-in ONNX detector on installs
-  # with no vision endpoint route configured (PRINT_VISION_URL and
-  # services.vision_chat_url keep precedence). The pinned model
-  # (about 202 MB) downloads once into a models folder under the Hermes
-  # home, SHA-256 verified; nothing leaves the machine.
-  local_detector_enabled: false
+  # Local failure detector (#455): on by default. The camera watchdog
+  # judges frames with the built-in ONNX detector on this machine; a
+  # vision endpoint is used first only while ai_enabled is true. The
+  # pinned model (about 202 MB) downloads once into a models folder under
+  # the state folder, SHA-256 verified; nothing leaves the machine. Set
+  # false to turn it off.
+  local_detector_enabled: true
   # Which route judges the camera watchdog's frames (#455): auto (the
-  # default precedence — PRINT_VISION_URL, then the chat endpoint, then
-  # the local detector when no endpoint route is configured), endpoint
+  # local detector, or the vision endpoint first while ai_enabled is
+  # true: PRINT_VISION_URL, then the chat endpoint), endpoint
   # (endpoint routes only; the local detector is never consulted for the
   # watch) or local (the local detector only, even when an endpoint is
   # configured; counts as enabling the detector for the watch). Label
@@ -423,6 +468,19 @@ live_stream:
   empty_timeout_s: 300
   activity_origin: ''
   port: 0
+external_intake:
+  # External sliced-job intake (#1525): an opt-in watched folder for jobs
+  # sliced outside Print Handy. Off by default, and while directory is
+  # empty nothing is scanned. The folder named here is the only one the
+  # intake ever looks in. A file appearing there becomes a draft job card
+  # on the Web UI's External intake page — it never prints, never sends a
+  # printer command and never charges a spool. Recording a print takes
+  # the operator's explicit Mark as printed confirmation on that page,
+  # charged exactly once through the existing accounting ledger.
+  enabled: false
+  directory: ''
+  # Largest single file the intake accepts, in bytes (512 MiB default).
+  max_bytes: 536870912
 notify:
   # Print events out of chat (#622): MQTT and ntfy, either or both, off by
   # default. A failed publish never blocks chat or a print. Neither
@@ -433,6 +491,10 @@ notify:
   mqtt_port: 1883
   mqtt_topic: print-handy
   mqtt_username: ''
+  # Each printer's last roast as a retained MQTT sensor for Home Assistant
+  # (#1672), with discovery. On by default; rides mqtt_enabled above and
+  # vision.roast_enabled. Set false to keep the event topics only.
+  mqtt_roast: true
   ntfy_enabled: false
   # The ntfy server (https://ntfy.sh or a self-hosted one); the topic URL
   # may name the topic itself, or set ntfy_topic and it is appended.
@@ -444,6 +506,12 @@ firmware:
   # asks once more and applies only through the confirmed path; nothing
   # updates without that press. false turns the alerts off.
   update_alerts: true
+  # The least stable prerelease track to hear about: stable (finals
+  # only), rc (finals and release candidates), beta (adds betas) or
+  # alpha (adds every other prerelease a firmware publishes). Only
+  # firmware that publishes prereleases is affected, and a subscribed
+  # prerelease is still installed only through the confirmed path.
+  update_channel: stable
   # Hours between checks for each printer, 1 to 168.
   update_check_hours: 24
   # Firmware feed lines announced in chat (ids from docs/firmware-feed.toml).

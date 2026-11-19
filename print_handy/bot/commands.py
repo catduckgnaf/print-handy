@@ -99,10 +99,14 @@ COMMANDS = (
             )),
     Command("print-maintenance", "Maintenance checklist",
             (Option("mode", "full or quick", ("full", "quick")),), "/print-maintenance [full | quick]"),
+    Command("print-slice-result", "Slice result card (read-only)",
+            (Option("job", "A past job (optional; defaults to the newest sliced job)",
+                    autocomplete="job"),),
+            "/print-slice-result [job]", ephemeral=True),
     Command("print-colors", "Part colors for an archived job",
             (Option("job", "A past job (start typing to pick one)", autocomplete="job", required=True),),
             "/print-colors <job>"),
-    Command("spool", "Guided spool add/change, list or sync",
+    Command("spool", "Spool add/change, list or sync",
             usage="/spool [list | change | new | rename | archive | sync]",
             subcommands=(
                 Subcommand("guided", "Guided spool add/change (asks step by step)", text_word=""),
@@ -139,7 +143,7 @@ COMMANDS = (
             (Option("flow", "Which problem", ("first-layer", "clog", "heat-creep", "bed-level", "ringing", "prepare-to-clean")),),
             "/print-troubleshoot [flow]"),
     Command("print-macros", "List or run printer macros (asks first)",
-            usage="/print-macros [run <name> [KEY=VALUE ...]]",
+            usage="/print-macros [run <name>]",
             subcommands=(
                 Subcommand("list", "List the printer's macros", text_word=""),
                 Subcommand("run", "Run one macro (asks first)",
@@ -147,17 +151,22 @@ COMMANDS = (
                             Option("args", "Optional KEY=VALUE pairs"))),
             )),
     Command("print-firmware", "Firmware versions and updates (asks first)",
-            usage="/print-firmware [update <name> | guide <zmod|stock>]",
+            usage="/print-firmware [update|channel|guide]",
             subcommands=(
                 Subcommand("versions", "Firmware versions and update state", text_word=""),
                 Subcommand("update", "Update one component (asks first)",
                            (Option("component", "Component name, e.g. zmod, klipper, moonraker, helixscreen",
                                    required=True),)),
+                Subcommand("channel", "Switch one component's update channel (asks first)",
+                           (Option("component", "Component name, e.g. helixscreen, klipper, moonraker",
+                                   required=True),
+                            Option("channel", "New channel", ("stable", "beta", "dev"),
+                                   required=True))),
                 Subcommand("guide", "Firmware update guide",
                            (Option("flavor", "Which firmware", ("zmod", "stock"), required=True),)),
             )),
     Command("print-calibration", "Calibrations; saves only on accept",
-            usage="/print-calibration [mesh|screws|pid|shaper|belts|zoffset|records]",
+            usage="/print-calibration [mode]",
             subcommands=(
                 Subcommand("mesh", "Bed mesh calibration"),
                 Subcommand("screws", "Bed screw calibration"),
@@ -177,7 +186,7 @@ COMMANDS = (
             "/print-plate-calibrate"),
     Command("print-design", "Design or edit a model with AI (asks first)",
             (Option("prompt", "What to make or change, e.g. a 40x20x3 plate with two 4 mm holes, or 'make it taller' with a file dropped"),),
-            "/print-design <what to make or change>", aliases=("design",)),
+            "/print-design <request>", aliases=("design",)),
     Command("print-handy", "Setup and read-only debugging",
             (Option("action", "setup, add-printer, debugging, bundle, debug, status, cancel or help",
                     ("setup", "add-printer", "debugging", "bundle", "debug", "status",
@@ -187,6 +196,13 @@ COMMANDS = (
              # '/print-handy debug' (the status form).
              Option("args", "Extra words after the action — for debug: on, off, or on 5 (minutes)")),
             "/print-handy [setup | debug | status | help]"),
+    Command("print-cost", "Print cost (read-only)",
+            (Option("query", "Grams and hours, e.g. '50 g, 3 h, in PETG'; blank asks about the last print"),),
+            "/print-cost", ephemeral=True),
+    Command("print-stats", "Stats (read-only)",
+            (Option("query", "Blank for all prints; 'me', a user name or @mention, 'printer <name>', "
+                             "or add 'wrapped' for that selection's Pasta Wrapped, e.g. 'wrapped me'"),),
+            "/print-stats", ephemeral=True),
     Command("print-source", "Connected model sites", usage="/print-source", ephemeral=True),
     Command("print-help", "What Print Handy can do", usage="/print-help", ephemeral=True),
 )
@@ -278,10 +294,10 @@ def help_text(bot_name="Print Handy", supports_live_stream=True):
     # The name appears once, and the whole text stays one Discord message
     # (2000 characters) for a bot_name of up to 32 characters.
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
-             "- Post a model link or .3mf/.stl to print it.",
-             '- "print it" prints the last link; "print again"/"print 57" reprints.',
-             '- "add new filament", "add a new spool" or "swap the filament" starts the guided /spool flow.',
-             '- @mention me: "spool list", or ask in plain words.']
+             "- Post a model link or .3mf/.stl.",
+             '- "print it" or "print again" reprints the last link.',
+             '- "add a new spool" or "add new filament" starts the guided /spool flow.',
+             '- @mention me: "spool list", or just ask.']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
               for c in COMMANDS if c.name != "print-help"

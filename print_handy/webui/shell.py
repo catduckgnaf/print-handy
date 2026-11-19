@@ -37,6 +37,7 @@ the login page is the first page a network user reaches.
 """
 from __future__ import annotations
 
+import contextvars
 import html
 from http.cookies import SimpleCookie
 from urllib.parse import quote
@@ -48,20 +49,34 @@ THEMES = ("dark", "light")
 _THEME_ICONS = {"dark": "☾", "light": "☀"}
 DEFAULT_THEME = "dark"
 
-# The surfaces the header navigates to: only pages that exist. (The
-# Spools page arrived with #789 while this shell was being built; the
-# header picked it up on the rebase rather than inventing it early.)
+# The surfaces the header navigates to: only pages that exist, in the
+# order people use them. Pages that belong together share one header tab
+# (NAV_GROUPS): making a print (a design, its sliced file, the workflow
+# that prints it, and the chat that drives the same flows), the printers
+# themselves, and the numbers. The group's
+# own pages appear as a strip under the header while you are in it.
 NAV = (
     ("/", "Status"),
+    ("/designs", "Designs"),
     ("/sliced", "Sliced files"),
     ("/workflow", "Workflow"),
+    ("/chat", "Chat"),
     ("/printers", "Printers"),
-    ("/printer-settings", "Printer settings"),
-    ("/spools", "Spools"),
-    ("/designs", "Designs"),
     ("/firmware", "Firmware"),
+    ("/spools", "Spools"),
+    ("/cost", "Cost"),
     ("/config", "Settings"),
 )
+
+NAV_GROUPS = {
+    "/designs": ("Designs pages", ("/designs", "/sliced", "/workflow", "/chat")),
+    # A printer's own settings open from its card on the Printers page,
+    # which keeps the Printers tab highlighted, so they are not in the strip.
+    "/printers": ("Printer pages", ("/printers", "/firmware")),
+    "/data": ("Data pages", ("/data", "/wrapped")),
+}
+_GROUP_OF = {child: parent for parent, (_label, children) in NAV_GROUPS.items()
+             for child in children}
 
 # The project's source repository (the same address the setup wizard
 # and the model-site guides use), linked from every page's footer.
@@ -107,6 +122,9 @@ html[data-theme="light"] {
   color-scheme: light;
 }
 * { box-sizing: border-box; }
+/* Reserve the scrollbar's width on every page, so moving between a short
+   page and a long one never shifts the layout sideways. */
+html { scrollbar-gutter: stable; }
 body {
   margin: 0;
   background: var(--color-bg);
@@ -142,7 +160,15 @@ nav.pills a {
   color: var(--color-ink); text-decoration: none; font-size: 0.875rem; font-weight: 500;
 }
 nav.pills a:hover { background: var(--color-bg); }
-nav.pills a.active { background: var(--color-ink); color: var(--color-bg); }
+nav.pills a.active, .config-tabs a[aria-current="page"] { background: var(--color-ink); color: var(--color-bg); }
+.subnav-bar { border-bottom: 1px solid var(--color-line); background: var(--color-surface); }
+nav.subnav { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+nav.subnav a {
+  padding: 0.625rem 0.75rem; border-bottom: 2px solid transparent;
+  color: var(--color-muted); text-decoration: none; font-size: 0.875rem; font-weight: 500;
+}
+nav.subnav a:hover { color: var(--color-ink); }
+nav.subnav a.active { color: var(--color-ink); border-bottom-color: var(--color-accent); }
 .theme-toggle {
   position: absolute; top: 0.75rem; right: 1rem;
   display: flex; gap: 0.125rem; padding: 0.125rem;
@@ -224,12 +250,46 @@ button.secondary, .button.secondary {
 button.accent, .button.accent { background: var(--color-accent); color: var(--color-accent-ink); }
 button:disabled { opacity: 0.55; cursor: default; }
 .error { color: var(--color-bad); }
+.chat-log { list-style: none; margin: 1rem 0; padding: 0; display: grid; gap: 0.75rem; }
+.chat-msg { max-width: 46rem; border: 1px solid var(--color-line); border-radius: var(--radius-card);
+  padding: 0.625rem 0.875rem; background: var(--color-surface); }
+.chat-msg.chat-op { justify-self: end; background: var(--color-bg); border-color: var(--color-accent); }
+.chat-who { display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-muted); margin-bottom: 0.25rem; }
+.chat-body > :first-child { margin-top: 0; }
+.chat-body > :last-child { margin-bottom: 0; }
+.chat-body ul, .chat-body ol { padding-left: 1.25rem; margin: 0.5rem 0; }
+.chat-body img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+.chat-body figure { margin: 0; }
+.chat-note { color: var(--color-muted); font-size: 0.875rem; text-align: center; }
+.chat-working .chat-body { color: var(--color-muted); font-style: italic; }
+.chat-prompt { border: 1px solid var(--color-accent); border-radius: var(--radius-card);
+  padding: 0.75rem 1rem; margin: 1rem 0; background: var(--color-surface); }
+.chat-choices { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.chat-choices form.inline { display: inline; margin: 0; }
+.chat-body figcaption { font-size: 0.75rem; color: var(--color-muted); margin-top: 0.25rem; }
+.design-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 0.5rem; margin: -0.25rem 0 0.5rem; }
+.design-head p { margin: 0; }
+.design-composer { margin-bottom: 2rem; }
+.design-catalog { min-width: 40rem; }
+.save-state { display: inline-block; margin-left: 0.5rem; font-size: 0.875rem; color: var(--color-muted); }
+.save-state[data-kind="ok"] { color: var(--color-ok); }
+.save-state[data-kind="error"] { color: var(--color-bad); }
 .help, .note { color: var(--color-muted); font-size: 0.875rem; }
 .notice, .banner {
   background: var(--color-surface); border: 1px solid var(--color-line);
   border-radius: var(--radius-card); padding: 0.75rem 1rem; margin: 1rem 0;
 }
 .banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.toasts { max-width: 64rem; margin: 0 auto; padding: 1rem 1rem 0; display: grid; gap: 0.5rem; }
+.toast {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
+  background: var(--color-surface); border: 1px solid var(--color-accent);
+  border-radius: var(--radius-card); padding: 0.75rem 1rem;
+}
+.toast-body { flex: 1 1 16rem; }
+.toast-dismiss { margin: 0; }
+.toast-dismiss button.link { background: none; border: 0; padding: 0; color: var(--color-muted); text-decoration: underline; cursor: pointer; font: inherit; }
 .overall-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .overall-head h2 { margin: 0; font-size: 1.375rem; }
 .progress {
@@ -244,6 +304,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 .dash-top { display: flex; flex-wrap: wrap; gap: 1rem; }
 .dash-cam { flex: 2 1 20rem; min-width: 0; }
 .dash-cam img { width: 100%; display: block; border-radius: var(--radius-card); }
+.dash-screen img { width: 100%; display: block; border-radius: var(--radius-card); }
 .dash-side { flex: 1 1 15rem; min-width: 0; }
 .ring-wrap { position: relative; width: 8.5rem; height: 8.5rem; }
 .ring-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
@@ -310,11 +371,30 @@ pre {
   border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 1rem;
 }
 img { max-width: 100%; }
+/* A swatch beside a filament color name or code. */
+.swatch-label { display: inline-flex; align-items: center; gap: 0.4rem; }
+.swatch-label > .disc { flex: none; }
 @media (max-width: 40rem) {
   table.rows th { width: auto; }
   th, td { padding: 0.45rem 0.5rem; }
+  /* In a scroll box a phone scrolls the table sideways instead of
+     squeezing every column into a strip of single letters. */
+  .table-scroll th { white-space: nowrap; }
+  .table-scroll td { min-width: 7rem; }
+  .table-scroll form.inline label { white-space: nowrap; }
+  .table-scroll form.inline select { max-width: 13rem; }
+  /* Phone header: the brand and theme toggle share the top row in the
+     normal flow (the toggle wraps below rather than overlapping a long
+     brand), and the tabs get the full width under them instead of a
+     narrow column. */
+  header.site .wrap { padding-right: 1rem; gap: 0.5rem; }
+  .theme-toggle { position: static; }
+  .theme-toggle a { padding: 0.375rem 0.5rem; }
+  .chrome-right { flex-basis: 100%; }
+  nav.pills a { padding: 0.4rem 0.6rem; }
+  nav.subnav a { padding: 0.5rem 0.6rem; }
 }
-/* Pasta Wrapped (#1446): the Wrapped page is a scrolling story of
+/* Pasta Wrapped: the Wrapped page is a scrolling story of
    full-screen sections. Every rule is scoped to .wrapped (or, for
    the scroll behavior, to a document containing one, via :has), so
    no other page's layout or scrolling changes. */
@@ -424,16 +504,14 @@ PWA_HEAD_TAGS = (
 )
 
 # The PWA script (#450 Phase 1): progressive enhancement only, like
-# SUBMIT_SCRIPT — every page works exactly as before without it.
+# SUBMIT_SCRIPT: every page works exactly as before without it.
 # Registration runs only in a secure context (HTTPS or loopback; a
 # plain-HTTP LAN address never registers, and the page is unaffected),
 # and persistent storage is requested so the precached offline shell
-# is less likely to be evicted. The install affordance appears only
-# when the browser offers one: Chromium fires beforeinstallprompt,
-# which is captured so a discreet "Install app" button can be added
-# to the header; iOS Safari has no prompt API, so on an iPhone or
-# iPad that is not already running standalone the script adds one
-# small, dismissible note naming Share, then Add to Home Screen.
+# is less likely to be evicted. The script deliberately offers no
+# install affordance (#1623): the Web UI is installable through the
+# browser's own install UI, and no "Install app" button or
+# add-to-home-screen note is added to any page.
 PWA_SCRIPT = (
     "<script>"
     "if(window.isSecureContext&&'serviceWorker' in navigator){"
@@ -441,29 +519,6 @@ PWA_SCRIPT = (
     "navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){});"
     "if(navigator.storage&&navigator.storage.persist){"
     "navigator.storage.persist().catch(function(){});}});}"
-    "var phInstallEvent=null;"
-    "window.addEventListener('beforeinstallprompt',function(e){"
-    "e.preventDefault();phInstallEvent=e;"
-    "var host=document.querySelector('.chrome-right');"
-    "if(!host||document.getElementById('ph-install'))return;"
-    "var b=document.createElement('button');b.type='button';"
-    "b.id='ph-install';b.textContent='Install app';"
-    "b.addEventListener('click',function(){if(!phInstallEvent)return;"
-    "phInstallEvent.prompt();"
-    "phInstallEvent.userChoice.then(function(){phInstallEvent=null;b.remove();});});"
-    "host.appendChild(b);});"
-    "window.addEventListener('DOMContentLoaded',function(){"
-    "var ios=/iphone|ipad|ipod/i.test(navigator.userAgent);"
-    "if(!ios||window.navigator.standalone)return;"
-    "var main=document.querySelector('main .wrap');if(!main)return;"
-    "var note=document.createElement('p');note.className='note';"
-    "note.id='ph-ios-install';"
-    "note.textContent='To install Print Handy on this device, tap Share, "
-    "then Add to Home Screen. ';"
-    "var close=document.createElement('button');close.type='button';"
-    "close.textContent='Dismiss';"
-    "close.addEventListener('click',function(){note.remove();});"
-    "note.appendChild(close);main.insertBefore(note,main.firstChild);});"
     "</script>")
 
 def _esc(value):
@@ -492,10 +547,61 @@ def theme_cookie_header(theme, secure=False):
     return f"{THEME_COOKIE}={theme}; SameSite=Lax; Path=/; Max-Age=31536000{flags}"
 
 
+# The navigation for the request being served. The server sets it once per
+# request from the live settings (data.nav_for), so every page shows the
+# same tabs, Data and Wrapped included while they are on, without each page
+# having to pass it. Each request runs on its own thread, so one request's
+# nav never leaks into another's.
+REQUEST_NAV: contextvars.ContextVar = contextvars.ContextVar("print_handy_request_nav", default=None)
+
+
+def _at(path, target):
+    return path == target or (target != "/" and path.startswith(target + "/"))
+
+
+def _tabs(entries):
+    """The header tabs for ``entries``: [(target, label, members)] in order.
+
+    A group's tab is its first present page (its parent, when that is on),
+    so a page whose parent is switched off still has a tab of its own.
+    """
+    tabs, by_group = [], {}
+    for target, label in entries:
+        group = _GROUP_OF.get(target)
+        if group in by_group:
+            by_group[group][2].append((target, label))
+            continue
+        tab = [target, label, [(target, label)]]
+        if group is not None:
+            by_group[group] = tab
+        tabs.append(tab)
+    return tabs
+
+
+def _subnav(path, tab):
+    members = tab[2]
+    if len(members) < 2:
+        return ""
+    current = max((t for t, _label in members if _at(path, t)), key=len, default=None)
+    group = _GROUP_OF.get(members[0][0])
+    name = NAV_GROUPS[group][0] if group else f"{tab[1]} pages"
+    links = "".join(
+        f'<a href="{t}"' + (' class="active" aria-current="page"' if t == current else "")
+        + f">{_esc(label)}</a>" for t, label in members)
+    return (f'<div class="subnav-bar"><div class="wrap">'
+            f'<nav class="subnav" aria-label="{_esc(name)}">{links}</nav></div></div>')
+
+
 def _header(path, theme, nav=None):
     items = []
-    for target, label in (NAV if nav is None else nav):
-        active = path == target or (target != "/" and path.startswith(target + "/"))
+    if nav is None:
+        nav = REQUEST_NAV.get()
+    sub = ""
+    for tab in _tabs(NAV if nav is None else nav):
+        target, label, members = tab
+        active = any(_at(path, t) for t, _label in members)
+        if active and not sub:
+            sub = _subnav(path, tab)
         items.append(f'<a href="{target}"{" class=\"active\"" if active else ""}>'
                      f"{_esc(label)}</a>")
     toggle = "".join(
@@ -510,11 +616,11 @@ def _header(path, theme, nav=None):
             f'<div class="theme-toggle" role="group" aria-label="Color theme">{toggle}</div>'
             '<div class="chrome-right">'
             f'<nav class="pills" aria-label="Web UI pages">{"".join(items)}</nav>'
-            "</div></div></header>")
+            "</div></div></header>" + sub)
 
 
 def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None,
-         eyebrow="", banner="", nav=None):
+         eyebrow="", banner="", nav=None, head_extra=""):
     """One full HTML document in the shared shell.
 
     ``title`` names the page (``Print Handy — <title>`` in the tab, and
@@ -525,7 +631,9 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     above the heading. ``nav`` overrides the header navigation for this
     page only (the Data/Wrapped pages pass the extended nav when that
     feature is on, #956); the default is :data:`NAV`, unchanged for
-    every existing page. The source footer (#1158) is appended on every
+    every existing page. ``head_extra`` is trusted markup inserted at
+    the end of the head (the update status page's refresh tag, #1610).
+    The source footer (#1158) is appended on every
     page, with or without chrome. Every interpolated value here is escaped by
     the callers for body content; title and heading are escaped here.
     """
@@ -535,7 +643,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
              f"{ICON_HEAD_TAGS}"
              f"{PWA_HEAD_TAGS}"
              f"<title>Print Handy — {_esc(title)}</title>"
-             f"<style>{CSS}</style></head><body>"]
+             f"<style>{CSS}</style>{head_extra}</head><body>"]
     if chrome:
         parts.append(_header(path, theme, nav=nav))
     parts.append('<main><div class="wrap">')
@@ -564,7 +672,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "PWA_HEAD_TAGS",
+    "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "NAV_GROUPS", "PWA_HEAD_TAGS",
     "PWA_SCRIPT", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
     "page", "theme_cookie_header", "theme_from_cookies",
 ]

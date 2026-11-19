@@ -75,7 +75,7 @@ def test_message_round_trip_through_the_page(running):
         if "You:" in page and "help" in page:
             break
         time.sleep(0.05)
-    assert "You:" in page and "help" in page
+    assert 'class="chat-msg chat-op"' in page and "help" in page  # your message, in the thread
 
 
 def test_post_without_form_token_is_refused(running):

@@ -5,8 +5,9 @@ name: cross-slicer-extended
 # uploaded as artifacts with their provenance manifest. This workflow is
 # scheduled and manual only — never a required check — because genuine
 # producer production is heavy and, for Cura, headless project saving is
-# not a supported CLI operation: the Cura step records the attempt and
-# its outcome in the job summary instead of pretending success.
+# not a supported CLI operation: the Cura step probes the pinned binary
+# and says in the job summary that the committed genuine Cura fixture was
+# GUI-saved, instead of pretending to regenerate it.
 on:
   schedule:
     - cron: "23 5 * * 1"
@@ -43,6 +44,34 @@ jobs:
         run: |
           xvfb-run -a python3 scripts/generate_producer_fixtures.py --prusa "$PRUSA_BIN"
           cat tests/corpus/producer-fixtures/PROVENANCE.json
+      - name: Download pinned OrcaSlicer AppImage (genuine producer)
+        env:
+          ORCA_URL: https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.1/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage
+          ORCA_SHA256: 073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb
+        run: |
+          curl -L -o orca.AppImage "$ORCA_URL"
+          echo "$ORCA_SHA256  orca.AppImage" | sha256sum -c -
+          chmod +x orca.AppImage
+          mkdir -p orca-app && (cd orca-app && ../orca.AppImage --appimage-extract > /dev/null)
+          echo "ORCA_BIN=$PWD/orca-app/squashfs-root/AppRun" >> "$GITHUB_ENV"
+      - name: Regenerate genuine OrcaSlicer fixture
+        run: |
+          xvfb-run -a python3 scripts/generate_producer_fixtures.py --orca "$ORCA_BIN"
+          cat tests/corpus/producer-fixtures/PROVENANCE.json
+      - name: Download pinned Bambu Studio AppImage (genuine producer)
+        env:
+          BAMBU_URL: https://github.com/BambuLab/BambuStudio/releases/download/v02.08.02.61/BambuStudio_ubuntu24.04-v02.08.02.61
+          BAMBU_SHA256: d501b103fac5424513ec0e8d6bc145fb30719de2c7d94d7320d723740c81a7fd
+        run: |
+          curl -L -o bambu.AppImage "$BAMBU_URL"
+          echo "$BAMBU_SHA256  bambu.AppImage" | sha256sum -c -
+          chmod +x bambu.AppImage
+          mkdir -p bambu-app && (cd bambu-app && ../bambu.AppImage --appimage-extract > /dev/null)
+          echo "BAMBU_BIN=$PWD/bambu-app/squashfs-root/AppRun" >> "$GITHUB_ENV"
+      - name: Regenerate genuine Bambu Studio fixture
+        run: |
+          xvfb-run -a python3 scripts/generate_producer_fixtures.py --bambu "$BAMBU_BIN"
+          cat tests/corpus/producer-fixtures/PROVENANCE.json
       - name: Attempt genuine Cura production (recorded, never faked)
         continue-on-error: true
         env:
@@ -53,12 +82,13 @@ jobs:
           echo "$CURA_SHA256  cura.AppImage" | sha256sum -c -
           chmod +x cura.AppImage
           ./cura.AppImage --appimage-extract > /dev/null
-          # Cura has no supported headless "save project" CLI operation.
-          # The attempt runs the real binary's version probe and records
-          # the outcome; a genuine Cura fixture is added only if a real
-          # project file comes out of a real Cura run.
+          # Cura has no supported headless "save project" CLI operation,
+          # so this step only probes the pinned binary. The committed
+          # genuine fixture (tests/corpus/producer-fixtures/cura-genuine.3mf)
+          # was saved through the real Cura 5.8.1 GUI under Xvfb and is
+          # recorded with --cura-genuine; see PROVENANCE.json.
           xvfb-run -a ./squashfs-root/AppRun --version || true
-          echo "Cura genuine project production remains an open gap unless a .3mf was produced above." >> "$GITHUB_STEP_SUMMARY"
+          echo "Cura 5.8.1 binary probed; the genuine Cura fixture is the GUI-saved cura-genuine.3mf recorded in PROVENANCE.json, not regenerated here." >> "$GITHUB_STEP_SUMMARY"
       - name: Upload producer fixtures and provenance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:

@@ -1,6 +1,6 @@
 {
  "_about": "Confirmed spaghetti only, never a mere watchdog risk flag.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
@@ -557,6 +557,56 @@
    "id": "spaghetti-that-bird-nest-of-material-2",
    "family": "spaghetti-that-bird-nest-of-material-2",
    "text": "That bird nest of {material} represents peak mechanical bewilderment."
+  },
+  {
+   "id": "spaghetti-the-pasta-chef-special-title",
+   "family": "spaghetti-the-pasta-chef-special-title",
+   "text": "The pasta chef special: {title} served al dente and entirely unstructured."
+  },
+  {
+   "id": "spaghetti-title-chose-the-noodle-life",
+   "family": "spaghetti-title-chose-the-noodle-life",
+   "text": "{title} chose the noodle life, and the noodle life chose it back."
+  },
+  {
+   "id": "spaghetti-fresh-spaghetti-in-color-tossed",
+   "family": "spaghetti-fresh-spaghetti-in-color-tossed",
+   "text": "Fresh spaghetti in {color}, tossed by {printer} with chaotic confidence."
+  },
+  {
+   "id": "spaghetti-somewhere-an-italian-grandmother-felt",
+   "family": "spaghetti-somewhere-an-italian-grandmother-felt",
+   "text": "Somewhere an Italian grandmother felt a disturbance as {title} printed."
+  },
+  {
+   "id": "spaghetti-title-is-less-a-model",
+   "family": "spaghetti-title-is-less-a-model",
+   "text": "{title} is less a model now and more a serving suggestion."
+  },
+  {
+   "id": "spaghetti-the-plate-received-pasta-instead",
+   "family": "spaghetti-the-plate-received-pasta-instead",
+   "text": "The plate received pasta instead of {title}, and honestly, dinner is served."
+  },
+  {
+   "id": "spaghetti-twirled-tangled-and-totally-unplanned",
+   "family": "spaghetti-twirled-tangled-and-totally-unplanned",
+   "text": "Twirled, tangled, and totally unplanned: {title} went full trattoria."
+  },
+  {
+   "id": "spaghetti-color-linguine-courtesy-of-title",
+   "family": "spaghetti-color-linguine-courtesy-of-title",
+   "text": "{color} linguine, courtesy of {title} and a brief adhesion vacation."
+  },
+  {
+   "id": "spaghetti-the-forecast-called-for-a",
+   "family": "spaghetti-the-forecast-called-for-a",
+   "text": "The forecast called for a model; {title} delivered precipitation in noodle form."
+  },
+  {
+   "id": "spaghetti-title-unravelled-into-the-kind",
+   "family": "spaghetti-title-unravelled-into-the-kind",
+   "text": "{title} unravelled into the kind of pasta that needs no sauce, only answers."
   }
  ]
 }

@@ -55,6 +55,16 @@ Update and Skip this version) are the prompt's own, pressed through
 (tests/bot/test_command_webui_parity.py) fails a heartbeat check a chat
 platform runs that web chat neither runs nor exempts with a reason.
 
+The Designs page is a conversation of its own (#1636): its scope is the
+browser's scope plus a design-thread suffix (:func:`design_scope`), so
+Chat and Workflow traffic never lands in it, and it reads its view with
+``shared=False``, so the shared posts (the listener's print feed, alerts,
+startup notices) stay out of it too. A design turn's preview reaches the
+page as an ``image`` entry (the adapter's ``image_for``) instead of a
+file note, and every entry of a design thread is saved beside the design
+session it talks about (``core.design.append_thread``), so the thread
+survives a restart and reopens from the catalog.
+
 The listener's print posts reach web chat too. The listener runs in its
 own process and posts through the platform REST senders, not BotCore,
 so it appends every post it delivered to the feed file in the state
@@ -78,6 +88,7 @@ import concurrent.futures
 import contextvars
 import hashlib
 import logging
+import re
 import threading
 import time
 import uuid
@@ -130,6 +141,30 @@ def scope_for(session_secret):
     return "s" + digest.hexdigest()[:32]
 
 
+# A design thread's scope: the browser's scope, "d", then the thread's own
+# nonce (empty for the browser's first thread). One segment of a BotCore
+# session key, like every scope, so never a colon in it.
+_DESIGN_SCOPE = re.compile(r"(s[0-9a-f]{32})d([0-9a-f]{0,16})")
+_DESIGN_NONCE = re.compile(r"[0-9a-f]{0,16}")
+
+
+def design_scope(scope, nonce=""):
+    """The design-thread scope for one browser scope and thread nonce.
+
+    "" when the browser scope is not a session scope (the unscoped
+    default has no design threads) or the nonce is malformed."""
+    scope, nonce = str(scope or ""), str(nonce or "")
+    if not re.fullmatch(r"s[0-9a-f]{32}", scope) or not _DESIGN_NONCE.fullmatch(nonce):
+        return ""
+    return f"{scope}d{nonce}"
+
+
+def design_thread_of(scope):
+    """(browser scope, nonce) for a design-thread scope, or None for any other."""
+    match = _DESIGN_SCOPE.fullmatch(str(scope or ""))
+    return (match.group(1), match.group(2)) if match else None
+
+
 class WebAdapter(BasePlatformAdapter):
     """Delivers BotCore's posts into per-session outboxes the Web UI polls.
 
@@ -149,10 +184,13 @@ class WebAdapter(BasePlatformAdapter):
     uses_llm = True
     supports_live_stream = False
 
-    def __init__(self, outbox, *, registry=None):
+    def __init__(self, outbox, *, registry=None, image_for=None):
         kwargs = {"registry": registry} if registry is not None else {}
         super().__init__([OPERATOR_ID], approver=OPERATOR_ID, **kwargs)
         self._outbox = outbox
+        # path -> {"url", "caption", ...} for a file the page can show
+        # as a picture (a design turn's preview), or None.
+        self._image_for = image_for
 
     @staticmethod
     def _scope(metadata=None):
@@ -175,7 +213,9 @@ class WebAdapter(BasePlatformAdapter):
     async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
         # The chat page cannot attach files, so an attachment becomes
         # a note naming the file — never the marker itself, whose server
-        # path is not the reader's business. Markers go through the same
+        # path is not the reader's business; the exception is a picture the Web UI
+        # serves itself (a design turn's preview, #1636), which becomes an
+        # image entry pointing at that route. Markers go through the same
         # restricted compatibility path as on the other platforms.
         scope = self._scope(metadata)
         body, files = rest.outgoing(str(content or ""), files)
@@ -185,6 +225,10 @@ class WebAdapter(BasePlatformAdapter):
                                      "content": body[start:start + self.message_limit]},
                                     scope)
         for path in files:
+            image = self._image(path)
+            if image is not None:
+                self._outbox.append({"kind": "image", **image}, scope)
+                continue
             # A sliced print file is downloadable from the Web UI's Sliced
             # files page (#1443); say so, since the note stands in for the
             # attachment the other platforms receive.
@@ -193,6 +237,16 @@ class WebAdapter(BasePlatformAdapter):
                 note += " — download it from the Web UI's Sliced files page."
             self._outbox.append({"kind": "message", "content": note}, scope)
         return SendResult(True, message_id="web")
+
+    def _image(self, path):
+        if self._image_for is None:
+            return None
+        try:
+            image = self._image_for(path)
+        except Exception:
+            logger.debug("web chat could not resolve an image for %s", path, exc_info=True)
+            return None
+        return dict(image) if image and image.get("url") else None
 
     async def send_clarify(self, chat_id, question, choices, clarify_id,
                            session_key, metadata=None):
@@ -265,6 +319,7 @@ class WebChatService:
         self._seq = 0
         self._sent_at = []          # submit timestamps for the rate limit
         self._inflight = {}         # scope -> process() turns not yet finished
+        self._threads = DesignThreads(cfg)
 
         outer = self
 
@@ -272,7 +327,7 @@ class WebChatService:
             def append(self, entry, scope=""):
                 outer._append(entry, scope)
 
-        self.adapter = WebAdapter(_Outbox())
+        self.adapter = WebAdapter(_Outbox(), image_for=self._threads.image_for)
         webui = cfg.get("webui") or {}
         self.core = runtime.BotCore(
             None, cfg, platform_name="webui", adapter=self.adapter,
@@ -302,7 +357,8 @@ class WebChatService:
         with the scope as the thread, so session_key() differs per Web UI
         session while the chat (and so the gateway's routing) is the same."""
         return runtime.make_source(OPERATOR_ID, CHAT_ID, thread_id=scope or None,
-                                   platform_name="webui")
+                                   platform_name="webui",
+                                   display_name="Web UI operator")
 
     def _append(self, entry, scope=""):
         """Record one outbox entry in its scope's transcript (or the shared
@@ -325,6 +381,8 @@ class WebChatService:
             del entries[:-OUTBOX_LIMIT]
             while len(self._transcripts) > MAX_SCOPES:
                 self._transcripts.pop(next(iter(self._transcripts)))
+        if design_thread_of(scope):
+            self._threads.record(scope, row)
 
     def _touch_locked(self, scope):
         """Mark ``scope`` most recently used (caller holds the lock) and
@@ -537,15 +595,18 @@ class WebChatService:
 
     # -- operator side ------------------------------------------------------
 
-    def view(self, scope):
-        """This service bound to one scope (what the chat page renders)."""
-        return ScopedChat(self, scope)
+    def view(self, scope, shared=True):
+        """This service bound to one scope (what the chat page renders).
+
+        ``shared=False`` leaves the shared posts out of the view: the
+        design page's thread shows its own conversation only (#1636)."""
+        return ScopedChat(self, scope, shared=shared)
 
     def _enabled(self):
         """The page's own switch, read live from the settings mapping."""
         return chat_enabled(self.cfg)
 
-    def submit(self, text, scope="", media_urls=(), ask_ai=False):
+    def submit(self, text, scope="", media_urls=(), ask_ai=False, shown=None):
         """Queue one operator message in ``scope``. False when rate-limited or off.
 
         The rate limit counts every scope together: it guards the bot
@@ -581,7 +642,9 @@ class WebChatService:
             self._message_count += 1
             count = self._message_count
             self._inflight[scope] = self._inflight.get(scope, 0) + 1
-        shown = str(text or "")
+        # ``shown`` is the operator's own words when the page wrapped them
+        # (the design page sends a typed description as /print-design).
+        shown = str(text or "") if shown is None else str(shown)
         if not shown and media_urls:
             from pathlib import Path as _Path
             shown = "📎 " + ", ".join(_Path(str(p)).name for p in media_urls)
@@ -667,18 +730,20 @@ class WebChatService:
 
     # -- rendering side -------------------------------------------------------
 
-    def entries(self, since=0, scope=""):
+    def entries(self, since=0, scope="", shared=True):
         """This scope's transcript and the shared entries, oldest first.
 
-        Reading a transcript counts as using it: the scope moves to the
-        most recently used end, so a session that is only polling is not
+        ``shared=False`` returns the scope's own entries only. Reading a
+        transcript counts as using it: the scope moves to the most
+        recently used end, so a session that is only polling is not
         evicted ahead of scopes nobody is reading."""
         with self._lock:
             own = self._touch_locked(str(scope or "")) if scope else []
-            rows = [entry for entry in (*self._shared, *own) if entry["seq"] > since]
+            common = self._shared if shared else ()
+            rows = [dict(entry) for entry in (*common, *own) if entry["seq"] > since]
         return sorted(rows, key=lambda entry: entry["seq"])
 
-    def open_prompt(self, scope=""):
+    def open_prompt(self, scope="", shared=True):
         """{clarify_id, question, choices} for this scope's open prompt, or None.
 
         The page answers by clarify id (the button-press path every
@@ -690,7 +755,7 @@ class WebChatService:
         scope = str(scope or "")
         for cid, row in reversed(self.adapter.prompts_snapshot()):
             owner = self.adapter.prompt_scope(cid)
-            if owner and owner != scope:
+            if (owner and owner != scope) or (not owner and not shared):
                 continue
             if self.adapter.registry.is_open(cid):
                 return {"clarify_id": str(cid),
@@ -700,26 +765,114 @@ class WebChatService:
 
 
 class ScopedChat:
-    """One Web UI session's view of the web chat service."""
+    """One Web UI session's view of the web chat service.
 
-    def __init__(self, service, scope):
+    ``shared`` False hides the shared posts and prompts (#1636): a
+    design thread shows, and answers, its own conversation only."""
+
+    def __init__(self, service, scope, shared=True):
         self.service = service
         self.scope = str(scope or "")
+        self.shared = bool(shared)
 
-    def submit(self, text, media_urls=(), ask_ai=False):
-        return self.service.submit(text, self.scope, media_urls=media_urls, ask_ai=ask_ai)
+    def submit(self, text, media_urls=(), ask_ai=False, shown=None):
+        return self.service.submit(text, self.scope, media_urls=media_urls, ask_ai=ask_ai,
+                                   shown=shown)
 
     def answer(self, clarify_id, index):
+        if not self.shared and not self.service.adapter.prompt_scope(clarify_id):
+            return None  # a shared prompt is not this view's to answer
         return self.service.answer(clarify_id, index, self.scope)
 
     def entries(self, since=0):
-        return self.service.entries(since, self.scope)
+        return self.service.entries(since, self.scope, shared=self.shared)
 
     def busy(self):
         return self.service.busy(self.scope)
 
     def open_prompt(self):
-        return self.service.open_prompt(self.scope)
+        return self.service.open_prompt(self.scope, shared=self.shared)
+
+
+class DesignThreads:
+    """Saves each design thread's conversation beside its design session (#1636).
+
+    The live transcript is memory only (OUTBOX_LIMIT per scope, gone on a
+    restart), and a session record keeps each turn's instruction, not
+    the replies. So every entry of a design-thread scope is also written
+    to the thread file of the session it talks about: the newest session
+    the thread's owner started (finished or not, so "Design cancelled"
+    and the hand-off's intake questions stay with the design they end).
+
+    The operator's message comes before the session it starts exists, so
+    operator entries wait here and are written with the bot's first
+    reply after them, which lands once the session does. An entry that
+    has been written is marked ``saved`` with its session id, so the
+    page can tell what the file already holds from what is only live.
+    """
+
+    PENDING_LIMIT = 20
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self._lock = threading.Lock()
+        self._pending = {}  # scope -> live rows not yet written
+
+    def _root(self):
+        from ..core import design
+        return design.sessions_root_for(self.cfg)
+
+    @staticmethod
+    def owner_for(scope):
+        """The design owner key for a web chat scope (the design handler's
+        chat:thread:user key, with web chat's own constants)."""
+        return f"{CHAT_ID}:{scope or ''}:{OPERATOR_ID}"
+
+    @staticmethod
+    def stored(row):
+        """What a thread file keeps of one live row: never its live url."""
+        kept = {key: row[key] for key in ("kind", "content", "question", "choices",
+                                          "clarify_id", "note", "caption", "session",
+                                          "turn") if key in row}
+        kept["at"] = round(time.time(), 3)
+        return kept
+
+    def record(self, scope, row):
+        """Write one design-thread row (and the operator rows before it)."""
+        from ..core import design
+        try:
+            with self._lock:
+                pending = self._pending.setdefault(scope, [])
+                pending.append(row)
+                del pending[:-self.PENDING_LIMIT]
+                if row.get("kind") == "operator":
+                    return
+                root = self._root()
+                session = design.newest_session_for_owner(root, self.owner_for(scope))
+                if session is None:
+                    return
+                design.append_thread(root, session["id"],
+                                     [self.stored(item) for item in pending])
+                for item in pending:
+                    item["saved"] = session["id"]
+                pending.clear()
+        except Exception:
+            logger.exception("could not save a design thread entry")
+
+    def image_for(self, path):
+        """An image entry for a design turn's preview, or None for any other file."""
+        from ..core import design
+        found = design.preview_turn(self._root(), path)
+        if found is None:
+            return None
+        session_id, turn = found
+        return {"url": preview_url(session_id, turn), "session": session_id,
+                "turn": turn, "caption": f"Turn {turn} preview"}
+
+
+def preview_url(session_id, turn):
+    """The Web UI route that serves one turn's preview (webui design_route)."""
+    return f"/designs/{session_id}/preview?turn={int(turn)}"
 
 
 def _close_prompt(registry, clarify_id):
@@ -753,5 +906,6 @@ def chat_enabled(cfg):
     return bool((cfg.get("webui") or {}).get("chat_enabled", True))
 
 
-__all__ = ["CHAT_ID", "FEED_POLL_S", "HEARTBEAT_CHECKS", "OPERATOR_ID", "ScopedChat", "WebAdapter", "WebChatService",
-           "chat_enabled", "chat_llm_enabled", "scope_for"]
+__all__ = ["CHAT_ID", "DesignThreads", "FEED_POLL_S", "HEARTBEAT_CHECKS", "OPERATOR_ID",
+           "ScopedChat", "WebAdapter", "WebChatService", "chat_enabled", "chat_llm_enabled",
+           "design_scope", "design_thread_of", "preview_url", "scope_for"]

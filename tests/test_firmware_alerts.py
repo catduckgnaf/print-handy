@@ -505,14 +505,28 @@ def test_next_check_is_the_interval_with_jitter(cfg):
         assert hours * 0.9 <= gap <= hours * 1.1
 
 
-def test_only_zmod_printers_get_alerts(cfg):
+def test_alert_printers_are_exactly_the_apply_eligible_ones(cfg):
+    """#1280 section I: alerts follow apply eligibility, nothing else.
+
+    The chosen set is the registry's apply-eligible entries (ZMod,
+    vanilla Klipper incl. generic Klipper and the Sovol Klipper family);
+    the spot checks pin the exclusions the eligibility rule exists for.
+    """
     registry = knowledge.default_registry()
     rows = [dict(cfg["printers"][0], id=f"p{n}", model=e.key)
             for n, e in enumerate(registry.printers)]
     cfg["printers"] = rows
     chosen = {entry.key for _pid, entry in fal.alert_printers(cfg)}
-    assert chosen == {"flashforge.ad5x", "flashforge.ad5m", "flashforge.ad5m_pro",
-                      "flashforge.creator5", "flashforge.creator5_pro"}
+    assert chosen == {e.key for e in registry.printers if fw.is_apply_eligible(e)}
+    assert {"flashforge.ad5x", "flashforge.creator5_pro",
+            "klipper.generic", "sovol.sv06", "sovol.sv08"} <= chosen
+    assert not chosen & {"elegoo.neptune4", "creality.k1", "qidi.q1pro",
+                         "anycubic.kobra2", "snapmaker.u1",
+                         "flashforge_opencreator.creator5",
+                         "flashforge_forgex.ad5m", "prusa.mk4s",
+                         "bambulab.a1", "octoprint.ender3",
+                         "sovol_marlin.sv06", "flashforge_stock.ad5x",
+                         "elegoo_sdcp.centauricarbon"}
 
 
 # ------------------------------------------------------------------ settings
@@ -520,6 +534,7 @@ def test_only_zmod_printers_get_alerts(cfg):
 def test_settings_default_on_daily():
     data = _config.cfg()
     assert data["firmware"] == {"update_alerts": True, "update_check_hours": 24,
+                                "update_channel": "stable",
                                 "forgex_apply": False,
                                 "notice_firmwares": ["zmod", "opencreator", "forge-x"]}
 
@@ -570,10 +585,10 @@ def test_a_skip_pressed_during_a_check_is_kept(cfg, monkeypatch):
     al = alerter(cfg, Printer())
     real_offers = fa.offers
 
-    def offers_then_skip(observation):
+    def offers_then_skip(observation, **kwargs):
         # The operator presses Skip (on any surface) while this check runs.
         fa.save(state_dir, fa.record_skipped(fa.load(state_dir), "zmod:1.7.5", 1.0))
-        return real_offers(observation)
+        return real_offers(observation, **kwargs)
 
     monkeypatch.setattr(fa, "offers", offers_then_skip)
     check_now(al)

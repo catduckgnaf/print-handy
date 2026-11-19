@@ -17,6 +17,7 @@ prompt's own approval rules.
 """
 from __future__ import annotations
 
+from . import transcript
 from . import shell
 
 _esc = shell._esc
@@ -25,15 +26,23 @@ WORKING_TEXT = "Working on it…"
 POLL_FAST_MS = 600     # poll interval right after a message is sent
 POLL_SLOW_MS = 3000    # the interval it backs off to while the turn keeps running
 # Reload when the transcript grew or the turn ended. Only numbers and a
-# boolean come back from /chat/state; nothing from it is put on the page.
+# boolean come back from the state route; nothing from it is put on the page.
 POLL_SCRIPT = (
     "<script>(function(){var seq=__SEQ__,wait=" + str(POLL_FAST_MS) + ";"
-    "function tick(){fetch('/chat/state',{credentials:'same-origin',cache:'no-store'})"
+    "function tick(){fetch('__STATE__',{credentials:'same-origin',cache:'no-store'})"
     ".then(function(r){return r.ok?r.json():null;}).then(function(s){"
     "if(s&&(s.seq!==seq||!s.pending)){location.reload();return;}"
     "wait=Math.min(wait*1.5," + str(POLL_SLOW_MS) + ");setTimeout(tick,wait);})"
     ".catch(function(){setTimeout(tick," + str(POLL_SLOW_MS) + ");});}"
     "setTimeout(tick,wait);})();</script>")
+
+
+def poll_script(seq, state_path="/chat/state"):
+    """The reload-on-reply poll for a conversation whose state is served at
+    ``state_path`` (one of our fixed routes, never request text), from the
+    transcript position ``seq`` the page was rendered at. Chat, Workflow
+    and Designs all poll this way."""
+    return POLL_SCRIPT.replace("__STATE__", state_path).replace("__SEQ__", str(int(seq)))
 
 
 def chat_state(service):
@@ -99,46 +108,20 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         # refresh in <noscript> does the same, a little later.
         seq = entries[-1]["seq"] if entries else 0
         parts.append(f'<noscript><meta http-equiv="refresh" content="{REFRESH_SECONDS}"></noscript>')
-        parts.append(POLL_SCRIPT.replace("__SEQ__", str(int(seq))))
+        parts.append(poll_script(seq))
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
-    body = []
-    for entry in entries:
-        kind = entry.get("kind")
-        if kind == "operator":
-            body.append(f'<p class="chat-op"><strong>You:</strong> '
-                        f'{_esc(entry.get("content") or "")}</p>')
-        elif kind == "message":
-            body.append(f'<p class="chat-bot">{_esc(entry.get("content") or "")}</p>')
-        elif kind == "prompt":
-            body.append(f'<p class="chat-bot"><em>'
-                        f'{_esc(entry.get("question") or "")}</em></p>')
-    if pending:
-        # The browser's typing indicator: the turn is running. Shown from
-        # the page render right after Send, so the operator sees the
-        # message was taken before the first reply arrives.
-        body.append(f'<p class="chat-bot chat-working"><em>{WORKING_TEXT}</em></p>')
-    if body:
-        parts.append('<div class="chat-log">' + "".join(body) + "</div>")
-    else:
-        parts.append("<p>Nothing here yet. Say hello, drop a model link, "
-                     "or ask for a design — the chat does everything the "
-                     "Discord bot does, including printing, through the "
-                     "same confirmation questions.</p>")
-    if prompt:
-        buttons = []
-        for index, choice in enumerate(prompt["choices"]):
-            buttons.append(
-                '<form method="post" action="/chat/choice" class="inline">'
-                f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
-                f'<input type="hidden" name="clarify_id" '
-                f'value="{_esc(prompt["clarify_id"])}">'
-                f'<input type="hidden" name="index" value="{index}">'
-                f'<button type="submit">{_esc(choice)}</button></form>')
-        parts.append('<div class="chat-prompt"><p>'
-                     f'{_esc(prompt["question"])}</p>' + "".join(buttons) + "</div>")
+    # The working line is the browser's typing indicator: the turn is
+    # running, so the operator sees the message was taken before the first
+    # reply arrives.
+    parts.append(transcript.render_log(
+        entries, open_prompt=prompt, working=pending,
+        empty="<p>Nothing here yet. Paste a model link, type <code>/print-help</code>, "
+              "or describe something to design. Chat does everything the Discord bot "
+              "does, including printing, through the same confirmation questions.</p>"))
+    parts.append(transcript.render_prompt(prompt, action="/chat/choice", form_token=form_token))
     parts.append(
         '<form method="post" action="/chat">'
         f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
@@ -155,4 +138,4 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
                       heading="Chat", nav=nav)
 
 
-__all__ = ["REFRESH_SECONDS", "chat_state", "render_chat_disabled_page", "render_chat_page"]
+__all__ = ["REFRESH_SECONDS", "chat_state", "poll_script", "render_chat_disabled_page", "render_chat_page"]

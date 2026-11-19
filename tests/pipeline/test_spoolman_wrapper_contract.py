@@ -10,7 +10,7 @@ a direct Spoolman call anywhere else:
   client: _get, request_json, _http, get_json). Naming a Spoolman path is
   fine — and necessary — where it is passed to an injected client callable
   whose default transport IS the wrapper (the /spool command layer in
-  hermes/spool_sync.py, the runout answer flow, spool_lifecycle's injected
+  runtime/spool_sync.py, the runout answer flow, spool_lifecycle's injected
   clients): what is banned is pairing the path with a transport of its own.
 - Rule 2: outside the wrapper, no function may combine Spoolman base-URL
   resolution (spoolman_url(...), SPOOLMAN_BASE, service_url("spoolman_url"))
@@ -115,7 +115,7 @@ def test_no_spoolman_base_resolution_with_raw_transport_outside_wrapper():
     assert not violations, "\n".join(violations)
 
 
-# #798: the /spool command layer (hermes/spool_sync.py) is covered whole-module, not only by the
+# #798: the /spool command layer (runtime/spool_sync.py) is covered whole-module, not only by the
 # per-function rules above. Its one remaining private transport, _http, is Moonraker's.
 SPOOL_SYNC = ROOT / "runtime" / "spool_sync.py"
 MOONRAKER_BASES = {"MOONRAKER", "base"}  # the module setting and moonraker_for's per-printer base

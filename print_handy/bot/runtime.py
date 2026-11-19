@@ -413,6 +413,9 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:please\s+)?(?:what(?:'s|\s+is)\s+the\s+eta|how\s+much\s+time\s+is\s+left|time\s+remaining|percent\s+complete|what\s+layer\s+is\s+it\s+on){_END}", re.I), "/print-status"),
     (re.compile(rf"^(?:please\s+)?(?:what\s+temp(?:erature)?\s+is\s+the\s+(?:bed|nozzle)|(?:hotend|bed)\s+temperature|how\s+hot\s+is\s+the\s+(?:nozzle|bed)|is\s+the\s+bed\s+heated|is\s+the\s+nozzle\s+hot){_END}", re.I), "/print-status"),
     (re.compile(rf"^{_LEAD}(?:show\s+(?:me\s+)?(?:the\s+)?camera|check\s+(?:the\s+)?camera|take\s+a\s+snapshot|camera\s+view|webcam\s+snapshot){_END}", re.I), "/print-status"),
+    # Slice result card (#1525): the finished slice's own numbers.
+    (re.compile(rf"^{_LEAD}(?:show|see)\s+(?:me\s+)?(?:the\s+)?slicing\s+result{_END}", re.I), "/print-slice-result"),
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+filament\s+will\s+(?:it|this|the\s+print)\s+use{_END}", re.I), "/print-slice-result"),
     # Reprint and calibration
     (re.compile(rf"^{_LEAD}(?:reprint|print\s+(?:it\s+)?again|retry\s+(?:the|that|last)\s+print|try\s+that\s+print\s+again|run\s+that\s+print\s+again|print\s+another\s+(?:one|copy)|print\s+one\s+more){_END}", re.I), "/print-again"),
     (re.compile(rf"^{_LEAD}(?:(?:print|start)\s+(?:the\s+)?)?next\s+plate{_END}", re.I), "/print-next"),
@@ -480,6 +483,48 @@ _TASK_INTENT_SUGGESTIONS = (
     # route #1298 first gave "update <name>": an instruction to update a
     # named component is an update ask, not a check.
     (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+|my\s+)?{_FW_COMPONENT}(?:\s+(?:firmware|now|please))?{_END}", re.I), "/print-firmware update {c}"),
+    # Cost (#1625): what a print cost or will cost. The amounts, when
+    # the ask carries them, ride along as the command's argument and
+    # the handler parses them; the bare forms ask about the last print.
+    # "coast" is the typo corpus's folded form of "cost", so the
+    # patterns accept both spellings or the folded pass never matches.
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would)\s+this\s+(?:cost|coast)\s*,?\s*(?P<q>.+?){_END}", re.I), "/print-cost {q}"),
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:did|does)\s+(?:that\s+print|this\s+print|that|this|the\s+print|it)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    # The month asks carry "this month" through as the argument, so the
+    # handler answers the month's recorded spend, not the last print.
+    (re.compile(rf"^(?:please\s+)?what\s+did\s+filament\s+(?:cost|coast)\s+this\s+month{_END}", re.I), "/print-cost this month"),
+    (re.compile(rf"^(?:please\s+)?(?:what|how\s+much)\s+did\s+i\s+spend\s+(?:on\s+(?:filament|printing|prints)\s+)?this\s+month{_END}", re.I), "/print-cost this month"),
+    (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+print{_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?what\s+(?:did|does)\s+(?:that|this)\s+print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?print\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    # Statistics and Pasta Wrapped (#1647): the per-user and
+    # per-printer views of the print history. "my" routes to the
+    # asker's own statistics; a user or printer named in the ask
+    # rides along as the command's argument and the handler resolves
+    # it against the recorded starters and printers.
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?my\s+(?:printing\s+)?(?:stats|statistics){_END}", re.I), "/print-stats me"),
+    (re.compile(rf"^(?:please\s+)?what\s+are\s+my\s+(?:printing\s+)?(?:stats|statistics){_END}", re.I), "/print-stats me"),
+    (re.compile(rf"^(?:please\s+)?how\s+many\s+prints\s+have\s+i\s+(?:made|done|printed){_END}", re.I), "/print-stats me"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:printing\s+)?(?:stats|statistics)\s+for\s+(?P<q>.+?){_END}", re.I), "/print-stats {q}"),
+    (re.compile(rf"^(?:please\s+)?(?:printing\s+)?(?:stats|statistics)\s+for\s+(?P<q>.+?){_END}", re.I), "/print-stats {q}"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:printing\s+)?(?:stats|statistics){_END}", re.I), "/print-stats"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?my\s+(?:pasta\s+)?wrapped{_END}", re.I), "/print-stats wrapped me"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:pasta\s+)?wrapped\s+for\s+(?P<q>.+?){_END}", re.I), "/print-stats wrapped {q}"),
+    (re.compile(rf"^{_LEAD}(?:show|give)\s+(?:me\s+)?(?:the\s+)?(?:pasta\s+)?wrapped{_END}", re.I), "/print-stats wrapped"),
+    # The dropped-file asks (#1661): the same cost question about the
+    # attachment in hand. The handler prices the file when one is
+    # attached; without one it answers like the bare forms above.
+    (re.compile(rf"^(?:please\s+)?how\s+much\s+(?:will|would|did|does)\s+(?:this|that)\s+(?:file|g-?code|3mf)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^(?:please\s+)?what\s+(?:will|would|did|does)\s+(?:this|that)\s+(?:file|g-?code|3mf)\s+(?:cost|coast){_END}", re.I), "/print-cost"),
+    (re.compile(rf"^{_LEAD}price\s+(?:this|that)\s+(?:file|g-?code|3mf){_END}", re.I), "/print-cost"),
+    # Channel switches (#1634): "switch helixscreen to beta", "change the
+    # helixscreen channel to beta", "put helixscreen on stable". Only ever
+    # the did-you-mean prompt; the command then shows the exact one-line
+    # config change and asks its own confirmation before anything is sent.
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*beta(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} beta"),
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*stable(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} stable"),
+    (re.compile(rf"^{_LEAD}(?:switch|change|move|put)\s+(?:the\s+)?{_FW_COMPONENT}\s+(?:(?:update\s+)?channel\s+to|to|on)(?:\s+the)?\s*dev(?:\s+channel)?{_END}", re.I), "/print-firmware channel {c} dev"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every
     # command carries a fuzzy equivalent (the coverage guard in
@@ -570,7 +615,12 @@ _TASK_INTENT_SUGGESTIONS = (
 )
 
 
-_INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what", "which", "where"}
+# "spend" is subtracted for the same reason as the firmware sub-words
+# below: the cost month pattern matches it literally, but as a correction
+# target it hijacks the speed typos ("what does pseed mean" must stay
+# "/print-lookup speed", not "/print-lookup spend").
+_INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what", "which", "where",
+                      "spend"}
 
 
 def _intent_vocabulary():
@@ -866,19 +916,36 @@ def session_key(source):
 
 
 def make_source(user_id, chat_id, thread_id=None, is_bot=False, platform_name="discord",
-                printer_id=None, shared_printer_ids=None):
+                printer_id=None, shared_printer_ids=None, display_name=None):
     # printer_id is the roster printer this source's channel routes to (#335);
     # None means the configured single/default printer, as before routing existed.
     # shared_printer_ids is set instead when the channel is shared (#536): the
     # message is served but no printer is decided — printer-bound handlers ask,
     # and a shared channel never falls through to the default printer.
+    # display_name is the sender's display name at message time when the
+    # platform carries one (#1647): it is stamped onto print records as
+    # the starter's name. Absent when the platform supplies none — the
+    # starter is then recorded by id only, never by an invented name.
     return SimpleNamespace(platform=SimpleNamespace(value=str(platform_name)), profile=PROFILE,
                            user_id=str(user_id),
+                           display_name=str(display_name).strip() if display_name else None,
                            chat_id=str(chat_id), thread_id=str(thread_id) if thread_id else None,
                            is_bot=bool(is_bot), profile_route_rejected=False,
                            printer_id=str(printer_id) if printer_id else None,
                            shared_printer_ids=tuple(str(pid) for pid in shared_printer_ids)
                            if shared_printer_ids else None)
+
+
+def author_display_name(author):
+    """The sender's display name when the platform's author object
+    carries one (#1647): Discord's display name, then global name,
+    then user name. None when the platform supplies none — a starter
+    is recorded by id only, never by an invented name."""
+    for attr in ("display_name", "global_name", "name"):
+        value = getattr(author, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def make_event(source, text, message_id, media_urls=(), metadata=None, prov=None):
@@ -1099,7 +1166,7 @@ class BotCore(_RoutedAdapter):
         else:
             module = platform.platform_module(self.platform_name)
             if module is None:
-                raise ValueError(f"platform {self.platform_name!r} is not implemented yet (#164)")
+                raise ValueError(f"platform {self.platform_name!r} is not implemented yet")
             access_section = self.platform_name if section else "discord"
             # The adapter gets the raw list and the approver separately:
             # the access mode latches on the list alone, so setting only
@@ -1307,7 +1374,8 @@ class BotCore(_RoutedAdapter):
             return None
         source = make_source(author.id, chat_id, thread_id, platform_name=self.platform_name,
                              printer_id=printer_id,
-                             shared_printer_ids=self.shared_ids_for_chat(chat_id))
+                             shared_printer_ids=self.shared_ids_for_chat(chat_id),
+                             display_name=author_display_name(author))
         if self.gateway.setup_only:
             # Setup-only admission reaches only the guided dispatcher
             # (the first router hook), which enforces the Q5 bind and
@@ -1957,7 +2025,8 @@ class BotCore(_RoutedAdapter):
                       and str(chat_id) == self.live_voice_channel_id and thread_id is None)
         source = make_source(user.id, chat_id, thread_id, getattr(user, "bot", False),
                              platform_name=self.platform_name, printer_id=printer_id,
-                             shared_printer_ids=self.shared_ids_for_chat(chat_id))
+                             shared_printer_ids=self.shared_ids_for_chat(chat_id),
+                             display_name=author_display_name(user))
         if live_voice:
             # The live session is install-wide (one voice channel), so the
             # command needs no printer of its own; the source is marked so the

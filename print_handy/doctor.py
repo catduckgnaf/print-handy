@@ -40,8 +40,8 @@ def check_state_volume(data):
 
 def check_timing(data):
     """The real user-facing waits from the archive's TIMING.jsonl files
-    (#1476): the same report the diagnostics bundle and the Web UI
-    Timing page show. Returns (text, over_budget) or None when the
+    (#1476): the same report the diagnostics bundle and the
+    timing_report command show. Returns (text, over_budget) or None when the
     archive holds no timing data yet."""
     archive = (data.get("paths") or {}).get("archive")
     if not archive:
@@ -202,14 +202,16 @@ def check_zmod_version(data):
 def check_firmware_identity(data):
     """Which Creator firmware the printer runs, against the configured model (#1490 tranche 1).
 
-    Creator models only (ZMod ``flashforge.creator5*`` and OpenCreator
-    ``flashforge_opencreator.creator5*``). Read-only: one Moonraker
-    objects query for ``zmod_color``, ``creator5_toolchanger`` and
-    ``AFC``. A mismatch is reported in the words readiness uses; an
+    Creator models only (ZMod ``flashforge.creator5*``, OpenCreator
+    ``flashforge_opencreator.creator5*`` and Reforge
+    ``flashforge_reforge.creator5*``). Read-only: one Moonraker objects
+    query for ``zmod_color``, ``creator5_toolchanger``, ``AFC``,
+    ``ff_toolchange`` and ``ff_print``. A mismatch is reported in the words readiness uses; an
     unreachable printer is unknown, never a failure.
     """
     model = str(data["printer"]["model"])
-    if not (model.startswith("flashforge.creator5") or model.startswith("flashforge_opencreator.creator5")):
+    if not model.startswith(("flashforge.creator5", "flashforge_opencreator.creator5",
+                             "flashforge_reforge.creator5")):
         return None
     url = data.get("services", {}).get("moonraker_url")
     if not url:
@@ -217,7 +219,8 @@ def check_firmware_identity(data):
     from .printers.flashforge_opencreator import firmware_check
     try:
         reply = moonraker.moonraker_json(url.rstrip("/"),
-                                         "/printer/objects/query?zmod_color&creator5_toolchanger&AFC",
+                                         "/printer/objects/query?zmod_color&creator5_toolchanger&AFC"
+                                         "&ff_toolchange&ff_print",
                                          timeout=5)
         status = (reply.get("result") or {}).get("status") or {}
     except Exception as exc:
@@ -225,15 +228,24 @@ def check_firmware_identity(data):
     # An unknown object comes back as an empty mapping: absent, not present.
     status = {name: block for name, block in status.items() if isinstance(block, dict) and block}
     opencreator = model.startswith("flashforge_opencreator.")
-    problem = (firmware_check.zmod_mismatch_problem(status) if opencreator
-               else firmware_check.opencreator_mismatch_problem(status))
+    reforge = model.startswith("flashforge_reforge.")
+    if reforge:
+        problem = firmware_check.not_reforge_problem(status)
+    elif opencreator:
+        problem = (firmware_check.zmod_mismatch_problem(status)
+                   or firmware_check.reforge_mismatch_problem(status, "OpenCreator"))
+    else:
+        problem = (firmware_check.opencreator_mismatch_problem(status)
+                   or firmware_check.reforge_mismatch_problem(status, "ZMod"))
     if problem:
         raise RuntimeError(problem)
+    if reforge and firmware_check.reforge_evidence(status):
+        return "Reforge, matching the configured model"
     if opencreator and firmware_check.opencreator_evidence(status):
         return "OpenCreator, matching the configured model"
-    if not opencreator and firmware_check.looks_like_zmod(status):
+    if not opencreator and not reforge and firmware_check.looks_like_zmod(status):
         return "ZMod, matching the configured model"
-    return "unknown (the printer reports neither ZMod's nor OpenCreator's objects)"
+    return "unknown (the printer reports none of ZMod's, OpenCreator's or Reforge's objects)"
 
 
 def check_purge(data):

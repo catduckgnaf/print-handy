@@ -18,9 +18,11 @@ not change which firmware Print Handy can apply an update to.
 
 For each firmware it carries the newest release (version, date and a
 link to the release notes), the newest final release when the firmware
-is followed on a prerelease channel, the printer models the firmware
-runs on, the version Print Handy's code was last audited against, and
-one sentence on how that firmware is updated.
+is followed on a prerelease channel, the newest prerelease with its
+track when one is newer than the newest final (see
+[Prerelease subscriptions](#prerelease-subscriptions)), the printer
+models the firmware runs on, the version Print Handy's code was last
+audited against, and one sentence on how that firmware is updated.
 
 Three pieces make it:
 
@@ -82,6 +84,68 @@ reads the feed again within the hour.
 
 The read sends nothing about you: it is a request for a public file,
 with no printer, model, version or account in it.
+
+## Prerelease subscriptions
+
+Most firmware is followed on its final releases. If you want to hear
+about prerelease builds too, subscribe with
+`[firmware] update_channel` (see [Settings](SETTINGS.md)). The value
+names the least stable track you want: `stable` (the default, finals
+only), `rc` (finals and release candidates), `beta` (adds betas) or
+`alpha` (adds every other prerelease a firmware publishes). Each level
+includes every more stable one.
+
+A prerelease's track is read from its version: `2.0.0rc7` is an RC,
+`8.0.3-beta` is a beta, `6.4.0-RC2` is an RC, and Marlin's `2.1.3-b3`
+shape is a beta. A prerelease with no recognizable track word (a dev or
+preview build, or one upstream flags as a prerelease with no track in
+its name) counts as alpha tier, so only `alpha` subscribers hear about
+it. A final release is always the stable track, including a ZMod build
+suffix like `1.7.5-2`, which is a later build of a final, not a
+prerelease.
+
+The feed publishes each line's newest prerelease, with its track, when
+it is newer than the line's newest final. With a subscription that
+covers its track, Print Handy surfaces it in the same places as a
+release: a chat notice for the line (labeled with the track, for
+example `8.1.0-beta1 (beta)`), the Web UI Firmware page under the
+newest release, and, for a Moonraker component whose remote version is
+a prerelease on a subscribed track, an alert whose Update button runs
+the same confirmed `/print-firmware update` path as a final release.
+A stock firmware prerelease is guidance only, with the maker's update
+instructions and no button, like every stock firmware release. One
+notice or alert per prerelease version, remembered across restarts,
+and the first sight of a line's prerelease is recorded silently, both
+exactly as for final releases. Nothing is ever applied on its own.
+
+Forge-X is the exception, and it is not a subscription case: Print
+Handy supports Forge-X on its 1.4.2 beta line, so its feed channel is
+`prerelease` and its notices already follow the beta, whatever
+`update_channel` says. The setting neither adds nor removes Forge-X
+notices.
+
+Whether a subscription can ever surface anything depends on the
+firmware: some projects publish prereleases and some never do. This
+table was checked against each line's upstream releases and tags on
+2026-11-17; "publishes" means at least one prerelease was observed
+there, with an example.
+
+| Feed line | Upstream | Publishes prereleases? |
+|---|---|---|
+| ZMod | ghzserg/zmod | Never observed: 45 releases, the only flagged one is tag `R` ("Native firmware", 2025-04-03), which carries no version |
+| Forge-X | DrA1ex/ff5m | Yes, beta: `1.4.2-beta-2`, `1.4.2-beta-3`, `1.4.2-beta-4` (already followed on the prerelease channel) |
+| OpenCreator | FlashForge-C5-Modding-Group/OpenCreator | Yes, flagged with no track token: `0.0.1`, `0.0.1.1` (alpha tier under this classification) |
+| HelixScreen | prestonbrown/helixscreen | Yes, beta and RC: `v1.1.0-beta.18`, `v1.1.0-rc.2` |
+| Klipper | Klipper3d/klipper (tags) | Never observed: 14 tags, none carries a stage token |
+| Moonraker | Arksine/moonraker (tags) | Never observed: 25 tags, none carries a stage token |
+| OctoPrint | OctoPrint/OctoPrint | Yes, RC: `2.0.0rc2` through `2.0.0rc7` (57 of the last 100 releases flagged) |
+| Marlin | MarlinFirmware/Marlin | Yes, beta published as full releases: `2.1.3-b1`, `2.1.3-b2`, `2.1.3-b3`; the flagged prereleases are the old `1.1.0-RC` series |
+| Prusa Buddy (MK4S, CORE One, XL, MINI+) | prusa3d/Prusa-Firmware-Buddy | Yes, beta and RC, selected per line by release title: `v8.0.3-beta` (CORE One), `v6.5.3-RC` (incl. MK4S), `v6.4.1-RC` (XL), `v6.4.0-RC2` (incl. MINI) |
+| QIDI (Q1 Pro, X-Plus 3, X-Plus 4, X-Max 3, X-Smart 3) | QIDITECH model repositories | Never observed: no flagged prerelease and no stage-token tag in any of the five repositories |
+| Stock Flashforge (AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro) | Parallel-7/FlashForge-Firmware-Updates (mirror of Flashforge's update server) | Never observed: 32 releases, none flagged, tags are model/version finals |
+
+The weekly audit watch is not part of this: it stays stable-only, and
+a prerelease never moves an audited baseline.
 
 ## Feed and audit are different things
 

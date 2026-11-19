@@ -1336,7 +1336,8 @@ def ai_lane_allowed(user, ai, calls, now):
     edit_requests_per_hour (per user, rolling hour, 0 = no limit). ``calls`` maps
     user -> recent call times and is updated when a call is allowed."""
     user = str(user or '')
-    allowed = [str(v) for v in (ai or {}).get('allowed_users') or []]
+    from .. import settings
+    allowed = settings.ai_allowed_users((ai or {}).get('allowed_users'))
     if allowed and user not in allowed:
         return False, 'not on the AI allowlist'
     limit = int((ai or {}).get('edit_requests_per_hour', 20) or 0)

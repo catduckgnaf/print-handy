@@ -144,18 +144,13 @@ def _emit(kind, summary, *, printer_id, connector, http_opener) -> bool:
     return delivered
 
 
-def _emit_mqtt(cfg, kind, payload, *, connector) -> bool:
+def _deliver_mqtt(cfg, packet, *, connector, timeout=3) -> bool:
+    """Send one prepared packet to the [notify] broker and read its CONNACK."""
     host = str(cfg.get("mqtt_host") or "").strip()
     if not host:
         return False
     port = int(cfg.get("mqtt_port") or 1883)
-    topic_root = str(cfg.get("mqtt_topic") or "print-handy").strip("/") or "print-handy"
-    topic = f"{topic_root}/{kind}"
-    username = str(cfg.get("mqtt_username") or "")
-    password = credential_binding.key_for("notify.mqtt_host", host,
-                                          os.environ.get("MQTT_PASSWORD") or "")
-    packet = _publish_packet(topic, payload, username=username, password=password)
-    opener = connector or (lambda h, p: socket.create_connection((h, p), timeout=3))
+    opener = connector or (lambda h, p: socket.create_connection((h, p), timeout=timeout))
     sock = opener(host, port)
     try:
         sock.sendall(packet)
@@ -170,6 +165,43 @@ def _emit_mqtt(cfg, kind, payload, *, connector) -> bool:
         if closer:
             closer()
     return True
+
+
+def _packet_for(cfg, topic, payload, *, retain=False) -> bytes:
+    host = str(cfg.get("mqtt_host") or "").strip()
+    username = str(cfg.get("mqtt_username") or "")
+    password = credential_binding.key_for("notify.mqtt_host", host,
+                                          os.environ.get("MQTT_PASSWORD") or "")
+    return _publish_packet(topic, payload, username=username, password=password,
+                           retain=retain)
+
+
+def _emit_mqtt(cfg, kind, payload, *, connector) -> bool:
+    topic_root = str(cfg.get("mqtt_topic") or "print-handy").strip("/") or "print-handy"
+    topic = f"{topic_root}/{kind}"
+    return _deliver_mqtt(cfg, _packet_for(cfg, topic, payload), connector=connector)
+
+
+def publish_retained(topic, payload, *, connector=None) -> bool:
+    """One retained QoS 0 publish to the [notify] broker (#1672).
+
+    For state a late subscriber must see immediately (the per-printer
+    last-roast record and its Home Assistant discovery config), unlike
+    the event topics above, which stay non-retained and unchanged.
+    Returns False when MQTT is off or unconfigured, and never raises: a
+    refused or unreachable broker is logged like an event failure.
+    Callers that cannot block use their own thread; the connect timeout
+    here is 5 s.
+    """
+    try:
+        cfg = _settings() or {}
+        if cfg.get("mqtt_enabled") is not True:
+            return False
+        packet = _packet_for(cfg, str(topic), str(payload), retain=True)
+        return _deliver_mqtt(cfg, packet, connector=connector, timeout=5)
+    except Exception as exc:
+        log.warning("mqtt retained publish failed: %s", exc)
+        return False
 
 
 def _ntfy_target(cfg) -> str:
@@ -243,8 +275,12 @@ def _rest(length: int) -> bytes:
             return bytes(out)
 
 
-def _publish_packet(topic, payload, *, username="", password="") -> bytes:
-    """MQTT 3.1.1 CONNECT plus one QoS 0 PUBLISH. No subscribe, no retain."""
+def _publish_packet(topic, payload, *, username="", password="", retain=False) -> bytes:
+    """MQTT 3.1.1 CONNECT plus one QoS 0 PUBLISH. No subscribe.
+
+    ``retain`` sets the PUBLISH retain flag (0x31 instead of 0x30), for
+    the retained state topics (#1672); the event topics never retain.
+    """
     flags = 0x02  # clean session
     if username:
         flags |= 0x80
@@ -257,5 +293,5 @@ def _publish_packet(topic, payload, *, username="", password="") -> bytes:
             variable += _encode(password)
     connect = bytes([0x10]) + _rest(len(variable)) + variable
     body = _encode(topic) + payload.encode("utf-8")
-    publish = bytes([0x30]) + _rest(len(body)) + body
+    publish = bytes([0x31 if retain else 0x30]) + _rest(len(body)) + body
     return connect + publish

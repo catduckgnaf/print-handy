@@ -32,13 +32,22 @@ is.
 
 Step 4 (#981): the presentation is the spec'd slide arc (see
 :func:`build_slides`) over operator-image backgrounds, with a music
-bed (an operator file, or a locally synthesized lavfi pad — no audio
-assets are ever bundled) whose failures slide gets a slow minor pad
-and a descending sad sting, and optional narration by local Piper
-(``[timelapse] wrapped_tts_engine``, the binary under ``[paths]
-piper`` with its voice model at ``[paths] piper_model``). Narration
-never uses an AI model or a cloud service.
+bed whose failures slide gets a slow minor pad and a descending sad
+sting, and optional narration by local Piper (``[timelapse]
+wrapped_tts_engine``, the binary under ``[paths] piper`` with its
+voice model at ``[paths] piper_model``). Narration never uses an AI
+model or a cloud service. The bed is chosen by :func:`resolve_music`:
+the operator's ``[timelapse] wrapped_music_file`` when it is set and
+readable, else the one track Print Handy ships
+(``print_handy/data/audio/pole_position_nights.mp3``), else a locally
+synthesized lavfi pad. Every bed fades out over the video's last
+:data:`MUSIC_FADE_SECONDS`; a track shorter than the video repeats with
+a fade at each seam, so the music never stops on a hard cut.
 ``export_silent`` produces a video with no audio inputs at all.
+
+The pasta reel (:mod:`print_handy.webui.pasta_reel`) is a second video
+built on the same pieces: the slide segment command, the concat and
+mux in :func:`finish_video`, the work folder and the job runner.
 """
 from __future__ import annotations
 
@@ -96,6 +105,14 @@ BED_FAILURE_VOLUME = 0.04
 SAD_VOLUME = 0.22
 STING_VOLUME = 0.30
 NARRATION_VOLUME = 1.0
+# The one shipped music track, supplied by the maintainer for Wrapped.
+BUNDLED_MUSIC = Path(__file__).resolve().parents[1] / "data" / "audio" / "pole_position_nights.mp3"
+BUNDLED_MUSIC_TITLE = "Pole Position Nights"
+# Every music bed fades out over the video's last seconds, and a
+# repeated track fades out before each seam and back in after it.
+MUSIC_FADE_SECONDS = 2
+MUSIC_FADE_IN_SECONDS = 0.5
+PROBE_TIMEOUT_S = 60
 
 
 def _clean_text(text):
@@ -479,6 +496,17 @@ def build_slides(wrapped):
                              f"Busiest month {highlights['busiest_month']}",
                              f"{print_stats.plural(highlights.get('busiest_month_prints', 0), 'print')} in your biggest month.",
                              SHORT_SECONDS))
+    costs = (wrapped.get("stats") or {}).get("costs") or {}
+    if costs.get("has_priced"):
+        # Recorded spend (#1625, #1632 review): the out-of-pocket total
+        # frozen on each print, never an estimate.
+        cur = costs.get("currency_code") or ""
+        line = (f"Across {print_stats.plural(costs['priced_count'], 'priced print')}"
+                + (f"; failures cost {cur} {costs['failure_total']:.2f}"
+                   if costs.get("failed_count") else "") + ".")
+        slides.append(_slide("volume", "WHAT IT COST",
+                             f"{cur} {costs['out_of_pocket_total']:.2f} spent",
+                             line, SHORT_SECONDS))
     script = [str(line) for line in (wrapped.get("script") or []) if str(line).strip()]
     if script:
         # The first commentary line, chunked into slides of at most
@@ -549,18 +577,20 @@ def _slide_filter(slide, files):
 
     All text sits in the central vertical-safe band of the 16:9 frame
     (hero wrapped narrow and centered), so a 9:16 center cut can be
-    derived from the same composition later.
+    derived from the same composition later. A slide may carry
+    ``hero_rows``/``line_rows`` to trade hero lines for explanation
+    lines (the pasta reel's cards hold a whole roast line).
     """
     filters = [
         f"drawtext={files.option(slide['eyebrow'])}:fontcolor=white:"
         "fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2-130"]
     hero_lines = textwrap.wrap(slide["hero"], width=18) or [""]
-    for index, line in enumerate(hero_lines[:3]):
+    for index, line in enumerate(hero_lines[:slide.get("hero_rows", 3)]):
         filters.append(
             f"drawtext={files.option(line)}:fontcolor=white:"
             f"fontsize=64:x=(w-text_w)/2:y=(h-text_h)/2{-50 + index * 76:+d}")
     line_lines = textwrap.wrap(slide["line"], width=34) or []
-    for index, line in enumerate(line_lines[:2]):
+    for index, line in enumerate(line_lines[:slide.get("line_rows", 2)]):
         filters.append(
             f"drawtext={files.option(line)}:fontcolor=white:"
             f"fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2{130 + index * 46:+d}")
@@ -690,9 +720,9 @@ def _prepare_narration(slides, data, work, *, tts_call):
     return {}, f"narration: unknown engine {engine!r}; video has no narration"
 
 
-# Synthesized beds: local ffmpeg lavfi chord pads, no audio assets, no
-# network. The upbeat bed is a major pad; the failures beat is a slow
-# minor pad plus a descending sting whose pitch falls as it plays.
+# Synthesized beds: local ffmpeg lavfi chord pads, no network. The
+# upbeat bed is the last-resort music; the failures beat is a slow minor
+# pad plus a descending sting whose pitch falls as it plays.
 UPBEAT_EXPR = "0.16*sin(2*PI*261.63*t)+0.14*sin(2*PI*329.63*t)+0.14*sin(2*PI*392.00*t)"
 SAD_EXPR = "0.20*sin(2*PI*220.00*t)+0.16*sin(2*PI*261.63*t)+0.16*sin(2*PI*329.63*t)"
 STING_EXPR = "0.30*sin(2*PI*(392.00-60*t)*t)"
@@ -706,32 +736,122 @@ def _vol(value):
     return f"{value:.2f}"
 
 
-def _audio_command(ffmpeg_bin, silent, target, *, total, timeline, narration,
-                   music_file, music_note_prefix=None):
-    """(command, notes): one ffmpeg mux of the music bed + narration.
+def _readable(path):
+    return path.is_file() and os.access(path, os.R_OK)
 
-    Levels are pinned here and in the tests: narration 1.0 primary,
-    bed 0.16 (0.10 ducked under narration), bed 0.04 under the
-    failures slide while the minor pad plays at 0.22 and the sad
-    sting at 0.30, then the bed returns for the finale.
+
+def resolve_music(data):
+    """The music bed: {kind, path, notes}.
+
+    ``[timelapse] wrapped_music_file`` wins when it is set and readable;
+    else the bundled track; else the synthesized pad (``path`` None).
+    A configured file that cannot be read is named in the notes.
     """
     notes = []
+    setting = str(((data or {}).get("timelapse") or {}).get("wrapped_music_file") or "").strip()
+    if setting:
+        chosen = Path(os.path.abspath(setting))
+        if _readable(chosen):
+            return {"kind": "operator", "path": chosen,
+                    "notes": [f"music: operator file {chosen}"]}
+        notes.append(f"music: operator file not found at {setting}")
+    if _readable(BUNDLED_MUSIC):
+        notes.append(f"music: bundled track ({BUNDLED_MUSIC_TITLE})")
+        return {"kind": "bundled", "path": BUNDLED_MUSIC, "notes": notes}
+    notes.append("music: synthesized bed (generated locally; the bundled track is missing)")
+    return {"kind": "synthesized", "path": None, "notes": notes}
+
+
+def _ffprobe_for(ffmpeg_bin):
+    """The ffprobe beside the resolved ffmpeg, else the one on PATH."""
+    path = Path(str(ffmpeg_bin))
+    if path.parent != Path("."):
+        sibling = path.with_name(path.name.replace("ffmpeg", "ffprobe"))
+        if sibling != path and sibling.is_file():
+            return str(sibling)
+    return shutil.which("ffprobe") or "ffprobe"
+
+
+def runner_probe(runner, ffmpeg_bin, cwd):
+    """A ``probe(path) -> seconds or None`` that runs ffprobe through ``runner``.
+
+    It runs in the work folder ``cwd`` like every other step. The media
+    path is never the command's last argument, so a test runner that
+    writes the file a command names never touches it.
+    """
+    ffprobe = _ffprobe_for(ffmpeg_bin)
+
+    def probe(path):
+        try:
+            result = runner([ffprobe, "-v", "error", "-i", str(path), "-show_entries",
+                             "format=duration", "-of", "csv=p=0"],
+                            capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
+                            cwd=str(cwd))
+            seconds = float(str(getattr(result, "stdout", "") or "").strip().splitlines()[0])
+        except Exception as exc:
+            logger.debug("ffprobe could not read a duration [PH_WRAPPED_PROBE]: %s", exc)
+            return None
+        if getattr(result, "returncode", 0) or seconds <= 0:
+            return None
+        return seconds
+
+    return probe
+
+
+def _bed_input(music, total, track_seconds):
+    """(inputs, source filter or None, inputs used) for the music bed.
+
+    A track that covers the video plays once. A shorter one repeats:
+    each copy fades in and fades out before its seam, joined by the
+    concat filter, so no repeat starts on a hard cut. A track whose
+    length is unknown loops as one input. The source filter, when there
+    is one, still needs its output label.
+    """
+    path = music.get("path")
+    if path is None:
+        return ["-f", "lavfi", "-i", f"aevalsrc={UPBEAT_EXPR}:d={total}"], None, 1
+    if not track_seconds:
+        return ["-stream_loop", "-1", "-i", str(path)], None, 1
+    if track_seconds >= total:
+        return ["-i", str(path)], None, 1
+    copies = int(-(-total // track_seconds))
+    fade_at = max(0.0, track_seconds - MUSIC_FADE_SECONDS)
+    inputs, chains = [], []
+    for index in range(copies):
+        inputs += ["-i", str(path)]
+        chains.append(f"[{1 + index}:a]afade=t=in:d={MUSIC_FADE_IN_SECONDS:g},"
+                      f"afade=t=out:st={fade_at:g}:d={MUSIC_FADE_SECONDS:g}[m{index}]")
+    joined = (";".join(chains) + ";" + "".join(f"[m{index}]" for index in range(copies))
+              + f"concat=n={copies}:v=0:a=1")
+    return inputs, joined, copies
+
+
+def _audio_command(ffmpeg_bin, silent, target, *, total, timeline, narration,
+                   music, track_seconds=None):
+    """One ffmpeg mux of the music bed + narration.
+
+    Levels are pinned here and in the tests: narration 1.0 primary,
+    bed 0.16 (0.10 ducked under narration), bed 0.04 under a
+    ``failures`` segment while the minor pad plays at 0.22 and the sad
+    sting at 0.30, then the bed returns. The bed fades out over the
+    last MUSIC_FADE_SECONDS of the video.
+    """
     inputs = [ffmpeg_bin, "-y", "-i", str(silent)]
     filters = []
     labels = []
-    if music_file is not None:
-        inputs += ["-stream_loop", "-1", "-i", str(music_file)]
-        notes.append(f"music: operator file {music_file}")
-    else:
-        inputs += ["-f", "lavfi", "-i", f"aevalsrc={UPBEAT_EXPR}:d={total}"]
-        if music_note_prefix:
-            notes.append(music_note_prefix)
-        notes.append("music: synthesized bed (generated locally, no audio assets)")
+    bed_inputs, bed_source, used = _bed_input(music, total, track_seconds)
+    inputs += bed_inputs
+    head = "[1:a]"
+    if bed_source is not None:
+        filters.append(bed_source + "[bedsrc]")
+        head = "[bedsrc]"
     bed_volume = BED_DUCKED_VOLUME if narration else BED_VOLUME
-    filters.append(f"[1:a]atrim=0:{total},volume={_vol(bed_volume)}[bed0]")
+    fade_at = max(0, total - MUSIC_FADE_SECONDS)
+    filters.append(f"{head}atrim=0:{total},volume={_vol(bed_volume)},"
+                   f"afade=t=out:st={fade_at:g}:d={MUSIC_FADE_SECONDS:g}[bed0]")
     bed_label = "bed0"
     failure = next((entry for entry in timeline if entry.get("role") == "failures"), None)
-    next_index = 2
+    next_index = 1 + used
     if failure is not None:
         start, end = failure["start"], failure["start"] + failure["duration"]
         filters.append(
@@ -764,16 +884,83 @@ def _audio_command(ffmpeg_bin, silent, target, *, total, timeline, narration,
     filters.append("".join(f"[{label}]" for label in mix_labels)
                    + f"amix=inputs={len(mix_labels)}:duration=first:normalize=0,"
                    f"atrim=0:{total}[aout]")
-    command = [*inputs, "-filter_complex", ";".join(filters),
-               "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac",
-               "-t", str(total), str(target)]
-    return command, notes
+    return [*inputs, "-filter_complex", ";".join(filters),
+            "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac",
+            "-t", str(total), str(target)]
+
+
+def resolve_ffmpeg(ffmpeg, data):
+    """(resolved binary or None, the name asked for)."""
+    named = str(ffmpeg or _default_ffmpeg(data))
+    resolved = shutil.which(named) if "/" not in named else (named if Path(named).is_file() else None)
+    return resolved, named
+
+
+def in_work_folder(out_dir, prefix, compile_fn):
+    """Run ``compile_fn(work)`` in a fresh work folder inside ``out_dir``.
+
+    The folder is removed whatever the outcome, and folders a killed
+    run left behind are swept first, so two runs never share pieces.
+    """
+    _sweep_stale_work(out_dir)
+    work = Path(tempfile.mkdtemp(prefix=prefix, dir=out_dir))
+    try:
+        return compile_fn(work)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def finish_video(run, resolved, work, timeline, final_path, *, notes, export_silent,
+                 music, probe, step, narration=None, narration_step=None):
+    """Concat the timeline's segments, mux the audio, move the file into place.
+
+    The concat is a stream copy (every segment shares CARD_FPS and
+    SEGMENT_TIMESCALE). ``export_silent`` keeps the video without any
+    audio input; otherwise the music bed (``music`` from
+    :func:`resolve_music`) and the narration are mixed in, and a failed
+    mux keeps the silent video with a named note. ``narration`` is a
+    callable returning (files, note), run only when audio is wanted,
+    with ``narration_step`` counted after it. Returns the total seconds.
+    """
+    listing = work / "concat.txt"
+    listing.write_text("".join(f"file '{Path(entry['path']).name}'\n" for entry in timeline),
+                       encoding="utf-8")
+    target = work / "final.mp4"
+    silent = work / "silent.mp4"
+    total = sum(entry["duration"] for entry in timeline)
+    run([resolved, "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
+         "-c", "copy", str(silent)], timeout=step_timeout(total / 10))
+    step()
+    if export_silent:
+        notes.append("audio: silent export (no music, no narration)")
+        shutil.copyfile(silent, target)
+    else:
+        files = {}
+        if narration is not None:
+            files, narration_note = narration()
+            if narration_step is not None:
+                narration_step()
+            if narration_note:
+                notes.append(narration_note)
+        notes.extend(music["notes"])
+        track_seconds = probe(music["path"]) if music.get("path") is not None else None
+        command = _audio_command(resolved, silent, target, total=total, timeline=timeline,
+                                 narration=files, music=music, track_seconds=track_seconds)
+        try:
+            run(command, timeout=step_timeout(total / 4))
+        except Exception as exc:
+            notes.append(f"audio: failed ({type(exc).__name__}: {exc}); silent video kept")
+            shutil.copyfile(silent, target)
+    step()
+    # Moved into place whole: a reader never sees a half-written file.
+    os.replace(target, final_path)
+    return total
 
 
 def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                         runner=None, find_clips=None,
                         export_silent=False, tts_call=None,
-                        records=None, tz=None, progress=None):
+                        records=None, tz=None, progress=None, probe=None):
     """Compile one Wrapped video. Returns {ok, path, script_path, notes}.
 
     ``wrapped`` is a :func:`print_handy.core.print_stats.build_wrapped`
@@ -786,7 +973,8 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
     file is moved into place whole, so a reader never sees a half-written
     video and two runs can never delete each other's pieces. Every
     subprocess has a timeout scaled to its work. ``progress(done, total)``
-    is called after each step when given.
+    is called after each step when given. ``probe(path)`` returns a media
+    file's length in seconds or None (default: ffprobe through ``runner``).
     """
     year = int(year)
     out_dir = Path(out_dir)
@@ -799,8 +987,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
          "highlights": wrapped.get("highlights") or {}},
         indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    ffmpeg = str(ffmpeg or _default_ffmpeg(data))
-    resolved = shutil.which(ffmpeg) if "/" not in ffmpeg else (ffmpeg if Path(ffmpeg).is_file() else None)
+    resolved, ffmpeg = resolve_ffmpeg(ffmpeg, data)
     if resolved is None:
         notes.append(f"ffmpeg: unavailable ({ffmpeg!r} not found)")
         return {"ok": False, "reason": f"ffmpeg is not available ({ffmpeg!r} not found), "
@@ -826,14 +1013,9 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
             notes.append(f"timelapses: {len(labeled)} of them are failed or "
                          "pasta prints, labeled in the video")
     slides = build_slides({**wrapped, "script": script})
-    _sweep_stale_work(out_dir)
-    work = Path(tempfile.mkdtemp(prefix=f".wrapped-{year}-", dir=out_dir))
-    try:
-        return _compile(year, wrapped, out_dir, work, notes, script, script_path,
-                        resolved, runner, clips, slides, data, export_silent,
-                        tts_call, progress)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    return in_work_folder(out_dir, f".wrapped-{year}-", lambda work: _compile(
+        year, wrapped, out_dir, work, notes, script, script_path, resolved, runner,
+        clips, slides, data, export_silent, tts_call, progress, probe))
 
 
 def _sweep_stale_work(out_dir):
@@ -857,7 +1039,7 @@ def _notify_progress(progress, done_steps, total_steps):
 
 
 def _compile(year, wrapped, out_dir, work, notes, script, script_path, resolved,
-             runner, clips, slides, data, export_silent, tts_call, progress):
+             runner, clips, slides, data, export_silent, tts_call, progress, probe):
     labeled_rest = sum(1 + (1 if clip_label(entry, wrapped) else 0) for entry in clips[1:])
     narrating = (not export_silent and str(((data or {}).get("timelapse") or {}).get(
         "wrapped_tts_engine") or "none").strip().lower() != "none")
@@ -872,6 +1054,7 @@ def _compile(year, wrapped, out_dir, work, notes, script, script_path, resolved,
 
     files = TextFiles(work)
     run = functools.partial(_run, runner, cwd=work)
+    probe = probe or runner_probe(runner, resolved, work)
     frames = _extract_frames(run, resolved, clips, work, len(slides))
     if clips:
         step()
@@ -958,49 +1141,12 @@ def _compile(year, wrapped, out_dir, work, notes, script, script_path, resolved,
             timeout=step_timeout(finale["duration"]))
         add_segment(segment, finale["duration"], "finale", slide_index=finale_index)
         step()
-        listing = work / "concat.txt"
-        listing.write_text("".join(f"file '{segment.name}'\n" for segment in segments),
-                           encoding="utf-8")
         final_path = out_dir / f"wrapped-{year}.mp4"
-        target = work / "final.mp4"
-        silent = work / "silent.mp4"
-        total = sum(entry["duration"] for entry in timeline)
-        run([resolved, "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
-             "-c", "copy", str(silent)], timeout=step_timeout(total / 10))
-        step()
-        if export_silent:
-            notes.append("audio: silent export (no music, no narration)")
-            shutil.copyfile(silent, target)
-        else:
-            narration, narration_note = _prepare_narration(
-                slides, data, work, tts_call=tts_call)
-            if narrating:
-                step()
-            if narration_note:
-                notes.append(narration_note)
-            music_setting = str(((data or {}).get("timelapse") or {}).get(
-                "wrapped_music_file") or "").strip()
-            music_file = None
-            music_prefix = None
-            if music_setting:
-                if Path(music_setting).is_file():
-                    music_file = Path(os.path.abspath(music_setting))
-                else:
-                    music_prefix = (f"music: operator file not found at {music_setting}; "
-                                    "using synthesized bed")
-            command, audio_notes = _audio_command(
-                resolved, silent, target, total=total, timeline=timeline,
-                narration=narration, music_file=music_file,
-                music_note_prefix=music_prefix)
-            notes.extend(audio_notes)
-            try:
-                run(command, timeout=step_timeout(total / 4))
-            except Exception as exc:
-                notes.append(f"audio: failed ({type(exc).__name__}: {exc}); silent video kept")
-                shutil.copyfile(silent, target)
-        step()
-        # Moved into place whole: a reader never sees a half-written file.
-        os.replace(target, final_path)
+        finish_video(
+            run, resolved, work, timeline, final_path, notes=notes,
+            export_silent=export_silent, music=resolve_music(data), probe=probe, step=step,
+            narration=lambda: _prepare_narration(slides, data, work, tts_call=tts_call),
+            narration_step=step if narrating else None)
     except Exception as exc:
         notes.append(f"ffmpeg: failed ({type(exc).__name__}: {exc})")
         return {"ok": False, "reason": f"the Wrapped video compile failed ({type(exc).__name__}: {exc})",

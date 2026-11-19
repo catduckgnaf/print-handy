@@ -198,6 +198,8 @@ def _no_network(calls):
 
 
 def test_camera_watch_is_off_and_sends_nothing_with_vision_ai_off(vision_endpoint):
+    # The endpoint routes alone: the local detector (on by default) is off here.
+    vision_endpoint["vision"]["local_detector_enabled"] = False
     assert visual_watch.vision_ai_enabled() is False
     # The listener's own gate: the watch does not run on the configured endpoint.
     assert mel._vision_ready() is False
@@ -255,7 +257,7 @@ def test_bot_check_reports_vision_ai_off_with_an_endpoint_configured(stock_cfg, 
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "x" * 20)
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(stock_cfg)}
     ok, detail = rows["vision ai"]
-    assert ok is True and detail.startswith("off (AI camera checks are off")
+    assert ok is True and detail.startswith("off (Vision endpoint camera checks are off")
     assert "set vision.ai_enabled to true" in detail
     stock_cfg["vision"]["ai_enabled"] = True
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(stock_cfg)}

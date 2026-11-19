@@ -341,7 +341,13 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     # The refusal is a question with a real override, never a dead end.
     override_q = adapter.questions[-1]
     assert override_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
-    assert 'Print Handy checked the sliced file and found' in override_q['question']
+    # #1612: this source has more than one placed part and the fake
+    # with-supports G-code carries no object labels, so coverage cannot
+    # be attributed to each part and the question names it unverified
+    # instead of reporting a confident coverage failure. The gate still
+    # asks, still does not start, and still records no acknowledgement.
+    assert "Support coverage couldn't be verified:" in override_q['question']
+    assert 'no object labels' in override_q['question']
     assert 'under 1.0 mm' in override_q['question']
     assert 'support_override' not in receipt
     assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.sent)

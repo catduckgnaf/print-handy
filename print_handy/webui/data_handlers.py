@@ -3,7 +3,8 @@
 Moved out of ``webui/server.py``: the ``/data`` and ``/wrapped``
 routes, the Wrapped video file/status routes and the Wrapped
 video/share form posts. ``_Handler`` keeps thin delegates with the
-route-table names; behavior and output are unchanged.
+route-table names. The pasta reel's file, status and form routes are
+the video's handlers with ``kind="reel"`` (see :data:`VIDEO_KINDS`).
 """
 from __future__ import annotations
 
@@ -11,6 +12,17 @@ import os
 from urllib.parse import parse_qs, urlparse
 
 from . import data as data_module
+
+# The two Wrapped videos: the data.py function names each handler calls
+# for a ``kind`` (looked up at call time), and the file route's 404.
+VIDEO_KINDS = {
+    "video": {"path": "wrapped_video_path", "status": "video_status", "make": "make_video",
+              "missing": "no compiled Wrapped video for that year. "
+                         "Compile it from the Wrapped page first."},
+    "reel": {"path": "wrapped_reel_path", "status": "reel_status", "make": "make_reel",
+             "missing": "no pasta reel for that year yet. "
+                        "Make it from the Wrapped page first."},
+}
 
 
 def year_param(handler):
@@ -22,6 +34,16 @@ def year_param(handler):
     except ValueError:
         return None, (400, {"ok": False,
                             "reason": "year must be a whole number. Nothing shown."})
+
+
+def selection_params(handler):
+    """The user / printer filter query params (#1647): ``user`` is a
+    starter key or ``unattributed``, ``printer`` a printer name; an
+    absent or empty param is no filter."""
+    query = parse_qs(urlparse(handler.path).query)
+    user = (query.get("user") or [None])[0] or None
+    printer = (query.get("printer") or [None])[0] or None
+    return user, printer
 
 def data_route(handler, path):
     """GET /data, /wrapped, /api/data and /api/wrapped (#956).
@@ -37,34 +59,40 @@ def data_route(handler, path):
     if error:
         handler._json(error[0], error[1])
         return
+    user, printer = selection_params(handler)
     data = handler.server.settings_data
     if path == "/api/data":
-        code, payload = data_module.data_view(data, year=year)
+        code, payload = data_module.data_view(data, year=year, user=user, printer=printer)
         handler._json(code, payload)
         return
     if path == "/api/wrapped":
-        code, payload = data_module.wrapped_view(data, year=year)
+        code, payload = data_module.wrapped_view(data, year=year, user=user, printer=printer)
         handler._json(code, payload)
         return
     if path == "/data":
-        code, payload = data_module.data_view(data, year=year)
+        code, payload = data_module.data_view(data, year=year, user=user, printer=printer)
         if code != 200:
             handler._json(code, payload)
             return
         handler._send(200, data_module.render_data_page(data, payload, theme=handler._theme()),
                    "text/html; charset=utf-8")
         return
-    code, payload = data_module.wrapped_view(data, year=year)
+    code, payload = data_module.wrapped_view(data, year=year, user=user, printer=printer)
     if code != 200:
         handler._json(code, payload)
+        return
+    if payload.get("sealed"):
+        handler._send(200, data_module.render_wrapped_sealed_page(
+            data, payload, theme=handler._theme()), "text/html; charset=utf-8")
         return
     done = (parse_qs(urlparse(handler.path).query).get("done") or [""])[0]
     handler._send(200, data_module.render_wrapped_page(
         data, payload, form_token=handler._form_token(), theme=handler._theme(),
         notice=done or None), "text/html; charset=utf-8")
 
-def wrapped_video_file_route(handler):
-    """GET /wrapped/video-file?year=<year> (#981 step 4).
+def wrapped_video_file_route(handler, kind="video"):
+    """GET /wrapped/video-file?year=<year> (#981 step 4), and
+    GET /wrapped/reel-file for the pasta reel.
 
     Serves the compiled Wrapped video so the Wrapped page can
     embed it. Behind the same login as every other route here
@@ -85,11 +113,9 @@ def wrapped_video_file_route(handler):
         handler._json(400, {"ok": False,
                          "reason": "year must be a whole number. Nothing shown."})
         return
-    target = data_module.wrapped_video_path(data, year)
+    target = getattr(data_module, VIDEO_KINDS[kind]["path"])(data, year)
     if target is None:
-        handler._json(404, {"ok": False,
-                         "reason": "no compiled Wrapped video for that year. "
-                                   "Compile it from the Wrapped page first."})
+        handler._json(404, {"ok": False, "reason": VIDEO_KINDS[kind]["missing"]})
         return
     handler._stream_file(target, "video/mp4")
 
@@ -128,20 +154,22 @@ def stream_file(handler, target, content_type):
             handler.wfile.write(chunk)
             remaining -= len(chunk)
 
-def wrapped_video_status_route(handler):
-    """GET /api/wrapped/video-status?year=<year>: the compile's state
-    (idle, queued, running with a step count, done, failed with a
-    short reason), polled by the Wrapped page while a video compiles."""
+def wrapped_video_status_route(handler, kind="video"):
+    """GET /api/wrapped/video-status?year=<year> (and reel-status): the
+    compile's state (idle, queued, running with a step count, done,
+    failed with a short reason), polled by the Wrapped page while a
+    video compiles."""
     year, error = handler._year_param()
     if error or year is None:
         handler._json(*(error or (400, {"ok": False, "reason":
                                      "year must be a whole number. Nothing shown."})))
         return
-    code, payload = data_module.video_status(handler.server.settings_data, year)
+    code, payload = getattr(data_module, VIDEO_KINDS[kind]["status"])(handler.server.settings_data, year)
     handler._json(code, payload)
 
-def wrapped_video_post(handler, form):
-    """POST /wrapped/video (#956): the Wrapped page's video form.
+def wrapped_video_post(handler, form, kind="video"):
+    """POST /wrapped/video (#956) and POST /wrapped/reel: the Wrapped
+    page's video forms.
 
     Policy ``session+csrf`` (routes.py): a login session alone never
     authorizes it; the page embeds the session-bound form token
@@ -159,7 +187,7 @@ def wrapped_video_post(handler, form):
     # The compile runs as a background job: this starts it (or joins the
     # one already running for the year) and goes back to the page, which
     # shows the progress and then the finished video.
-    code, payload = data_module.make_video(
+    code, payload = getattr(data_module, VIDEO_KINDS[kind]["make"])(
         handler.server.settings_data, year,
         export_silent=bool((form.get("export_silent") or [""])[0]))
     if code not in (200, 202):
@@ -201,7 +229,12 @@ def wrapped_share_post(handler, form):
         passphrase=(form.get("passphrase") or [None])[0],
         include_titles=ticked("include_titles", False),
         include_printers=ticked("include_printers", False),
-        include_video=ticked("include_video", False))
+        include_video=ticked("include_video", False),
+        # The filtered view's selection (#1647), posted as hidden
+        # fields by the share panel, so the bundle is the Wrapped the
+        # page is showing.
+        user=(form.get("user") or [None])[0] or None,
+        printer=(form.get("printer") or [None])[0] or None)
     if code != 200:
         handler._html_refusal(code, payload.get("reason", "the export failed"),
                            "/wrapped")

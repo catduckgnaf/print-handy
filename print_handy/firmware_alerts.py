@@ -7,9 +7,13 @@ printer: the only printer requests are GETs, and the Update button runs
 the existing confirmed apply (firmware_update.confirmed_update: prepare,
 the same confirmation, both idle checks, the verified re-read).
 
-Scope (2.3.0): ZMod printers only (AD5X, AD5M, AD5M Pro, Creator 5,
-Creator 5 Pro), the ``zmod`` component only. Other components and other
-families are #1294. A source is one function that returns offers from an
+Scope: the ZMod source below came first (2.3.0, ZMod printers only);
+#1280 section I adds the HelixScreen source (#1572) and a generic
+component source for every other Moonraker Update Manager component
+with a real available version, on every apply-eligible printer (ZMod,
+vanilla Klipper — generic Klipper and the Sovol Klipper family — and
+Forge-X's ``forge-x`` component when ``[firmware] forgex_apply`` is
+on). A source is one function that returns offers from an
 :class:`Observation`; :func:`offers` is where a later source plugs in.
 
 Where the versions come from, and what decides "can it be applied":
@@ -50,7 +54,7 @@ import os
 import re
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import firmware_feed
@@ -72,6 +76,7 @@ BLOCK_UNREPORTED = "unreported"
 BLOCK_USB = "usb"
 BLOCK_PAIRING = "pairing"
 BLOCK_HELIXSCREEN_INVALID = "helixscreen_invalid"
+BLOCK_COMPONENT_INVALID = "component_invalid"
 
 _BLOCK_TEXT = {
     BLOCK_INVALID: ("Moonraker marks this Z-Mod install as not valid (usually files "
@@ -87,6 +92,10 @@ _BLOCK_TEXT = {
     BLOCK_HELIXSCREEN_INVALID: ("Moonraker marks this HelixScreen component as not valid "
                                "and refuses to update it. Fix it, then update from "
                                "Fluidd or Mainsail: Settings, Software Update."),
+    BLOCK_COMPONENT_INVALID: ("Moonraker marks this component as not valid "
+                              "and refuses to update it. `/print-firmware` shows what "
+                              "Moonraker reports; fix the component, then update from "
+                              "Fluidd or Mainsail: Settings, Software Update."),
 }
 
 
@@ -94,6 +103,65 @@ _BLOCK_TEXT = {
 
 _STAGE_RANK = {"dev": 0, "alpha": 1, "beta": 2, "rc": 3}
 _FINAL_RANK = 4
+
+# ------------------------------------------------------- prerelease tracks
+
+# The tracks an owner can subscribe to with [firmware] update_channel
+# (#1627), least stable first. The setting names the least stable track
+# the owner wants to hear about; each level includes every more stable
+# one. The tuple mirrors settings.FIRMWARE_UPDATE_CHANNELS (settings is
+# validated without this module; tests pin the two together).
+TRACKS = ("alpha", "beta", "rc", "stable")
+# Stability rank per track: a subscription accepts a release whose track
+# is at least as stable as the subscribed track.
+_TRACK_RANK = {"alpha": 0, "beta": 1, "rc": 2, "stable": 3}
+# Stage words as they appear in versions and tags, mapped to their
+# track. One-letter stages are Marlin's and the feed builder's shape
+# ("2.1.3-b3" is a beta). Anything else lettered (dev, preview, nightly,
+# a bare suffix) is a prerelease with no recognizable track and counts
+# as alpha tier, so only alpha subscribers hear about it.
+_STAGE_TRACK = {"alpha": "alpha", "a": "alpha", "beta": "beta", "b": "beta",
+                "rc": "rc"}
+
+
+def release_track(version) -> str:
+    """The track of one version: "stable", "rc", "beta" or "alpha".
+
+    A final release is "stable", including a numeric build suffix
+    (``1.7.5-2`` is a later build of the 1.7.5 final, not a prerelease).
+    A lettered suffix is a prerelease: its stage word names the track
+    (``-rc1``, glued ``2.0.0rc7``, ``6.4.0-RC2``, ``-beta.2``), and a
+    prerelease whose stage is not one of those words is "alpha" tier.
+    The ordering is the one version_key already uses: alpha < beta <
+    rc < final.
+    """
+    value = str(version or "").strip().lstrip("vV")
+    main, _, suffix = value.partition("-")
+    if not suffix:
+        glued = re.match(r"^([\d.]*\d)([a-zA-Z].*)$", main)
+        if glued:
+            main, suffix = glued.group(1), glued.group(2)
+    if not suffix or suffix.isdigit():
+        return "stable"
+    match = re.match(r"([a-zA-Z]+)", suffix)
+    stage = match.group(1).lower() if match else ""
+    return _STAGE_TRACK.get(stage, "alpha")
+
+
+def is_prerelease(version) -> bool:
+    """Whether a version is a prerelease on any track."""
+    return release_track(version) != "stable"
+
+
+def channel_accepts(channel, track) -> bool:
+    """Whether an update_channel subscription includes one track.
+
+    An unknown channel value reads as "stable" (the default), so a
+    hand-edited configuration fails toward fewer notices, never more.
+    """
+    wanted = _TRACK_RANK.get(str(channel or "stable").strip().lower(), _TRACK_RANK["stable"])
+    seen = _TRACK_RANK.get(str(track or "stable").strip().lower(), _TRACK_RANK["alpha"])
+    return seen >= wanted
 
 
 def version_key(text) -> tuple:
@@ -141,7 +209,7 @@ def _same_base(version, base) -> bool:
 
 @dataclass(frozen=True)
 class Observation:
-    """What one check read from a ZMod printer and from ZMod's releases."""
+    """What one check read from a printer and from ZMod's releases."""
 
     current: str | None = None         # installed zmod version
     remote: str | None = None          # Moonraker's remote_version, None for "?"
@@ -151,6 +219,12 @@ class Observation:
     helixscreen_current: str | None = None
     helixscreen_remote: str | None = None
     helixscreen_valid: bool = True
+    # Every component the printer's Update Manager listed, as parsed by
+    # firmware_update.parse_update_status (the generic source's input).
+    components: tuple = ()
+    # The registry vendor of the printer read ("" when the caller does
+    # not say): the generic source's per-vendor exclusions read it.
+    vendor: str = ""
 
 
 def zmod_base_from_system_info(payload):
@@ -169,21 +243,25 @@ def _raw_component(payload, name):
     return {}
 
 
-def observe(transport, latest_release=None) -> Observation:
-    """Read one ZMod printer's zmod state through ``transport``: GETs only.
+def observe(transport, latest_release=None, *, vendor="") -> Observation:
+    """Read one printer's update state through ``transport``: GETs only.
 
     The update status read is required (its failure raises
     FirmwareError); the system info read is best-effort. Moonraker is
     never asked to refresh here: a background check stays a plain read,
-    and ZMod's Moonraker refreshes on its own schedule.
+    and ZMod's Moonraker refreshes on its own schedule. ``vendor`` is
+    the printer's registry vendor, carried for the generic source's
+    per-vendor exclusions; the reads themselves are the same for every
+    Moonraker printer.
     """
     try:
         payload = transport("GET", fw.UPDATE_STATUS_PATH)
     except Exception as exc:
         raise fw.FirmwareError(f"the update-status request failed: {exc}") from exc
-    component = fw.parse_update_status(payload).component(COMPONENT)
+    status = fw.parse_update_status(payload)
+    component = status.component(COMPONENT)
     raw = _raw_component(payload, COMPONENT)
-    helixscreen_component = fw.parse_update_status(payload).component("helixscreen")
+    helixscreen_component = status.component("helixscreen")
     helixscreen_raw = _raw_component(payload, "helixscreen")
     helixscreen_valid = (helixscreen_raw.get("is_valid", True) is not False
                          and not helixscreen_raw.get("corrupt"))
@@ -204,7 +282,9 @@ def observe(transport, latest_release=None) -> Observation:
                                             if helixscreen_component is not None else None),
                        helixscreen_remote=(helixscreen_component.remote
                                            if helixscreen_component is not None else None),
-                       helixscreen_valid=helixscreen_valid)
+                       helixscreen_valid=helixscreen_valid,
+                       components=status.components,
+                       vendor=vendor)
 
 
 def latest_release(opener=None, timeout=GITHUB_TIMEOUT_S):
@@ -273,13 +353,16 @@ class Offer:
     key: str                 # one alert per key: "zmod:<release>"
     block: str | None = None  # None: the Update button applies it from chat
     display_name: str = "ZMod"
+    track: str = ""          # prerelease track ("beta"), "" for a final release
 
     @property
     def applicable(self):
         return self.block is None
 
     def text(self, label, *, buttons=True):
-        head = f"**{self.display_name} update available for {label}:** {self.current} -> {self.available}."
+        shown = (f"{self.available} ({self.track} prerelease)" if self.track
+                 else self.available)
+        head = f"**{self.display_name} update available for {label}:** {self.current} -> {shown}."
         if self.block is not None:
             return f"{head}\nNot from chat: {_BLOCK_TEXT[self.block]}"
         if buttons:
@@ -334,13 +417,104 @@ def helixscreen_offers(obs: Observation) -> list:
                   f"helixscreen:{available}", block, "HelixScreen")]
 
 
-# Sources: each turns an observation into offers. #1294 adds the others
-# (klipper, moonraker, web clients, plugins, other families) here.
-SOURCES = (zmod_offers, helixscreen_offers)
+_DISPLAY_NAMES = {"klipper": "Klipper", "moonraker": "Moonraker",
+                  "fluidd": "Fluidd", "mainsail": "Mainsail",
+                  "guppyscreen": "GuppyScreen", "forgex": "Forge-X"}
 
 
-def offers(obs: Observation) -> list:
-    return [offer for source in SOURCES for offer in source(obs)]
+def component_offers(obs: Observation) -> list:
+    """Offers for the Moonraker components the named sources do not own.
+
+    #1280 section I: every other Update Manager component with a real
+    available version — Klipper, Moonraker, the web clients (Fluidd,
+    Mainsail), GuppyScreen where a printer lists one, any other
+    component the printer's own Update Manager configuration names —
+    on an apply-eligible printer (the alerter only checks those). The
+    button runs the same confirmed apply as `/print-firmware update
+    <component>`; the offer's component is the canonical token that
+    path resolves against the live status.
+
+    Never offered:
+
+    - ``zmod`` and ``helixscreen`` (their own sources above), and the
+      OpenCreator components (report-only by decision, #1490 — and an
+      OpenCreator printer is never apply-eligible anyway);
+    - the ``system`` component: it reports a package count, not a
+      version, so there is no version to alert once per version (the
+      `/print-firmware` report still shows its packages);
+    - a component whose remote is unknown (``?``), is not a real
+      version, or is not newer than the installed one — a prerelease
+      of the installed release included;
+    - on Forge-X, anything but ``forge-x`` itself, and ``forge-x``
+      only within the installed version line (the apply gate's own
+      rule: a new line is a USB re-flash, never an alert button).
+
+    A component Moonraker marks invalid, and any component on a ZMod
+    printer whose base and component versions do not pair, is
+    announced without a button, with the reason — the same blocks the
+    confirmed apply would refuse with.
+    """
+    if obs.vendor == fw.OPENCREATOR_VENDOR:
+        return []
+    pairing = (fw.pairing_state(obs.base, obs.current)
+               if obs.current else "unknown")
+    out, seen = [], set()
+    for comp in obs.components:
+        canonical = fw.canonical_component(comp.name)
+        if canonical in (COMPONENT, "helixscreen", "system") or canonical in seen:
+            continue
+        if canonical in fw.OPENCREATOR_COMPONENTS:
+            continue
+        if obs.vendor == fw.FORGEX_VENDOR:
+            if canonical != fw.FORGEX_COMPONENT:
+                continue
+            have = fw.version_parts(comp.current)
+            offered = fw.version_parts(comp.remote)
+            if len(have) < 2 or len(offered) < 2 or have[:2] != offered[:2]:
+                continue
+        if not comp.current or not comp.remote \
+                or not fw.version_parts(comp.remote):
+            continue
+        if version_key(comp.remote) <= version_key(comp.current):
+            continue
+        seen.add(canonical)
+        block = None
+        if comp.invalid:
+            block = BLOCK_COMPONENT_INVALID
+        elif pairing == "mismatch":
+            block = BLOCK_PAIRING
+        out.append(Offer(canonical, comp.current, comp.remote,
+                         f"{canonical}:{release_of(comp.remote)}", block,
+                         _DISPLAY_NAMES.get(canonical, comp.name)))
+    return out
+
+
+# Sources: each turns an observation into offers.
+SOURCES = (zmod_offers, helixscreen_offers, component_offers)
+
+
+def offers(obs: Observation, channel: str = "stable") -> list:
+    """Every source's offers, with prerelease remotes gated by subscription.
+
+    A source compares versions without judging prereleases: a remote on
+    a newer release counts even when it is that release's beta. The
+    gate lives here, in the one path every source flows through, so a
+    later source inherits it: a prerelease offer is dropped unless the
+    owner's [firmware] update_channel subscribes to its track (#1627),
+    and a kept prerelease is labeled with its track and keyed by its
+    full version, so it neither silences nor is silenced by the final
+    release of the same numbers (the sources key finals by release).
+    """
+    out = []
+    for source in SOURCES:
+        for offer in source(obs):
+            track = release_track(offer.available)
+            if track == "stable":
+                out.append(offer)
+            elif channel_accepts(channel, track):
+                out.append(replace(offer, key=f"{offer.component}:{offer.available}",
+                                   track=track))
+    return out
 
 
 # ------------------------------------------------------------------ feed notices
@@ -364,13 +538,20 @@ class ReleaseNotice:
     version: str
     url: str = ""
     update: str = ""
+    track: str = ""          # prerelease track ("beta"), "" for a final release
 
     @property
     def key(self):
         return f"feed:{self.firmware_id}:{self.version}"
 
+    @property
+    def seen_key(self):
+        """The feed_seen record this notice is remembered under."""
+        return f"{self.firmware_id}:prerelease" if self.track else self.firmware_id
+
     def text(self, label):
-        lines = [f"**New {self.name} release for {label}:** {self.version}."]
+        shown = f"{self.version} ({self.track})" if self.track else self.version
+        lines = [f"**New {self.name} release for {label}:** {shown}."]
         if self.update:
             lines.append(self.update)
         if self.url:
@@ -390,7 +571,7 @@ def _is_newer(release, seen) -> bool:
     return True
 
 
-def feed_notices(rows, state, *, skip_ids=()):
+def feed_notices(rows, state, *, skip_ids=(), channel="stable"):
     """``(notices, feed_seen)`` for one printer's firmware lines.
 
     ``rows`` are the feed entries covering the printer's model. The
@@ -399,20 +580,46 @@ def feed_notices(rows, state, *, skip_ids=()):
     feed, is not told about a release that may be months old. After
     that, each newer release is one notice. ``skip_ids`` are lines
     another alert already owns (ZMod's own alert on a ZMod printer).
+
+    A line's newest prerelease (the feed's ``latest_prerelease``) is a
+    second, separate notice on the same terms (#1627): recorded
+    silently at first sight under its own ``<id>:prerelease`` record,
+    noticed once per version after that, and only when the owner's
+    [firmware] update_channel subscribes to its track. Lines the feed
+    itself follows on a prerelease channel (Forge-X) are not part of
+    this: their ``latest`` already is the prerelease, and they keep
+    notifying exactly as before at every subscription.
     """
     seen = dict(state.get(FEED_SEEN) or {}) if isinstance(state.get(FEED_SEEN), dict) else {}
     notices = []
     for row in rows:
+        if row.id in skip_ids:
+            continue
         release = row.latest
-        if release is None or row.id in skip_ids:
+        if release is not None:
+            before = seen.get(row.id)
+            if before is None or _is_newer(release, before):
+                if before is not None:
+                    notices.append(ReleaseNotice(row.id, row.name, release.version,
+                                                 release.url, row.update))
+                seen[row.id] = {"version": release.version,
+                                "published_at": release.published_at}
+        pre = getattr(row, "latest_prerelease", None)
+        if pre is None or row.channel == "prerelease":
             continue
-        before = seen.get(row.id)
-        if before is not None and not _is_newer(release, before):
+        track = getattr(pre, "track", "") or release_track(pre.version)
+        if not channel_accepts(channel, track):
             continue
-        if before is not None:
-            notices.append(ReleaseNotice(row.id, row.name, release.version,
-                                         release.url, row.update))
-        seen[row.id] = {"version": release.version, "published_at": release.published_at}
+        stable = row.latest_stable
+        if stable is not None and version_key(pre.version) <= version_key(stable.version):
+            continue
+        key = f"{row.id}:prerelease"
+        before = seen.get(key)
+        if before is None or _is_newer(pre, before):
+            if before is not None:
+                notices.append(ReleaseNotice(row.id, row.name, pre.version,
+                                             pre.url, row.update, track))
+            seen[key] = {"version": pre.version, "published_at": pre.published_at}
     return notices, seen
 
 

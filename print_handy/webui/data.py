@@ -2,7 +2,9 @@
 
 ``GET /data`` and ``GET /wrapped`` are the pages; ``GET /api/data``
 and ``GET /api/wrapped`` are the same payloads as JSON;
-``POST /wrapped/video`` compiles the Wrapped video and
+``POST /wrapped/video`` compiles the Wrapped video,
+``POST /wrapped/reel`` compiles the pasta reel
+(:mod:`print_handy.webui.pasta_reel`) and
 ``POST /wrapped/share`` exports the static share bundle
 (:mod:`print_handy.webui.share_export`).
 
@@ -15,9 +17,10 @@ false, and :func:`data_enabled` applies the same fallback to a
 loaded or raw mapping alike). While a switch is off, its routes
 answer 403 with the reason naming that switch, and the navigation
 carries only the links whose switch is on. The video step
-additionally needs ``[timelapse] wrapped_video`` (default false);
-while that is off the Wrapped page says so by name and the video
-route refuses by name.
+and the pasta reel additionally need ``[timelapse] wrapped_video``
+(default false); while that is off the Wrapped page says so by name
+and both video routes refuse by name. Whether a year's pasta reel may
+be built and shown is asked in one place, :func:`reel_revealed`.
 
 Aggregation is read-only over the print JSON records
 (:mod:`print_handy.core.print_stats`); the records vault comes from
@@ -39,10 +42,13 @@ import os
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from ..core import print_stats, wrapped_joins
+from . import pasta_reel
 from . import share_export
+from . import data_page
 from . import shell
 from . import wrapped_video as video_module
 
@@ -54,6 +60,8 @@ WRAPPED_OFF_REASON = ("Pasta Wrapped is off: set "
                       "[timelapse] wrapped_enabled = true to allow it. Nothing shown.")
 VIDEO_OFF_REASON = ("the Wrapped video is off: set [timelapse] wrapped_video = true "
                     "(with wrapped_enabled on) to allow it. Nothing was compiled.")
+REEL_HIDDEN_REASON = ("this pasta reel is still under wraps. It unwraps with the rest of "
+                      "Wrapped. Nothing was compiled.")
 
 
 def wrapped_enabled(data) -> bool:
@@ -80,17 +88,58 @@ def data_enabled(data) -> bool:
     return bool(value)
 
 
+# Pasta Wrapped is a surprise, Spotify style: the records keep counting all
+# year, and the year's recap opens on December 1. Until then the current
+# year is sealed on every Wrapped surface (page, API, video, share), and
+# the Wrapped tab is in the navigation only in December and January, the
+# weeks people actually look at it. Past years stay open by URL.
+REVEAL_MONTH, REVEAL_DAY = 12, 1
+SEASON_MONTHS = (12, 1)
+
+
+def _now(tz):
+    return datetime.now(tz)
+
+
+def _today(data, now=None):
+    tz = _display_tz(data)
+    return (now.astimezone(tz) if now is not None else _now(tz)).date()
+
+
+def reveal_text(year) -> str:
+    return f"December 1, {int(year)}"
+
+
+def wrapped_revealed(data, year, now=None) -> bool:
+    """Whether ``year``'s Wrapped has opened: any past year, or the current
+    year from December 1 on."""
+    today = _today(data, now)
+    year = int(year)
+    return year < today.year or (year == today.year
+                                 and (today.month, today.day) >= (REVEAL_MONTH, REVEAL_DAY))
+
+
+def wrapped_in_season(data, now=None) -> bool:
+    """Whether the Wrapped tab belongs in the navigation right now."""
+    return _today(data, now).month in SEASON_MONTHS
+
+
+def _sealed_reason(year, what="Nothing shown."):
+    return (f"Pasta Wrapped {int(year)} is still under wraps: it opens on "
+            f"{reveal_text(year)}. Keep printing; it is all being counted. {what}")
+
+
 def ai_video_enabled(data) -> bool:
     return bool(((data or {}).get("timelapse") or {}).get("wrapped_video", False))
 
 
-def nav_for(data):
-    """The shell nav for a settings mapping: a Data and/or Wrapped link
-    appears only while its own switch is on."""
+def nav_for(data, now=None):
+    """The shell nav for a settings mapping: the Data link while its switch
+    is on, the Wrapped link while its switch is on and it is in season."""
     entries = list(shell.NAV[:-1])
     if data_enabled(data):
         entries.append(("/data", "Data"))
-    if wrapped_enabled(data):
+    if wrapped_enabled(data) and wrapped_in_season(data, now):
         entries.append(("/wrapped", "Wrapped"))
     entries.append(shell.NAV[-1])
     return tuple(entries)
@@ -301,7 +350,7 @@ def _display_tz(data):
 
     The name comes from the settings mapping the handlers already
     carry (``discord.timezone``, the same setting
-    ``hermes._config.tz()`` reads); when the mapping names none, the
+    ``runtime._config.tz()`` reads); when the mapping names none, the
     ``_config.tz()`` value itself is used. Any failure falls back to
     UTC, which is the pure functions' own default bucketing.
     """
@@ -322,7 +371,31 @@ def _display_tz(data):
         return timezone.utc
 
 
-def _summary(data, year, records_vault, kind):
+def _selection_for(data, records, user, printer):
+    """The selection descriptor for a user / printer filter (#1647).
+
+    ``user`` is a starter key (``"discord:123"``) or
+    ``print_stats.UNATTRIBUTED``; its label comes from the starters
+    the records themselves carry. Returns (descriptor, starter value
+    for filter_records) — the descriptor is None when nothing is
+    filtered, so unfiltered views keep today's payloads unchanged.
+    """
+    user_label = None
+    starter = None
+    if user:
+        starter = str(user)
+        if starter == print_stats.UNATTRIBUTED:
+            user_label = print_stats.UNATTRIBUTED
+        else:
+            known = next((row for row in print_stats.starter_options(records)
+                          if row["key"] == starter), None)
+            user_label = known["label"] if known else starter.split(":", 1)[-1]
+    descriptor = print_stats.selection_descriptor(user_label=user_label,
+                                                  printer=printer or None)
+    return descriptor, starter
+
+
+def _summary(data, year, records_vault, kind, *, user=None, printer=None):
     """One year's computed view, built once per fingerprint.
 
     ``kind`` is ``"stats"`` (the Data tab's aggregate; ``year`` may be
@@ -330,23 +403,48 @@ def _summary(data, year, records_vault, kind):
     number ``year``). Returns a dict with the records, the skipped
     record names, the events and the timezone beside the result, so no
     caller loads anything a second time.
+
+    ``user`` / ``printer`` (#1647) filter the view to one starter
+    and/or one printer through print_stats.filter_records — the same
+    filtering the chat /print-stats answers use, so the surfaces
+    cannot drift. The result then carries the ``selection``
+    descriptor, the raw ``filters`` and the ``filter_options`` (every
+    starter and printer in the full history) beside the result.
     """
     vault = _vault(data, records_vault)
     tz = _display_tz(data)
     year = int(year) if year is not None else None
+    user = str(user) if user else None
+    printer = str(printer) if printer else None
     key = ("summary", kind, str(vault), _records_fingerprint(vault),
            _stamp(print_stats.watchdog_events_path(vault)), year, _tz_key(tz),
-           _sources(data))
+           _sources(data), user, printer)
 
     def build():
         records, skipped = _load(data, records_vault)
         events, skipped_events = _load_events(data, records_vault)
+        descriptor, starter = _selection_for(data, records, user, printer)
+        filter_options = {
+            "starters": print_stats.starter_options(records),
+            "printers": print_stats.printer_options(records),
+            "unattributed_prints": sum(
+                1 for row in records if print_stats.starter_key(row) is None),
+        }
+        if descriptor is not None:
+            records = print_stats.filter_records(records, starter=starter,
+                                                 printer=printer)
+            if events is not None:
+                events = print_stats.filter_events_for_records(events, records)
         enrichments = _load_enrichments(data, records, year, tz, records_vault)
         result = {"records": records, "skipped": skipped, "events": events,
-                  "skipped_events": skipped_events, "tz": tz}
+                  "skipped_events": skipped_events, "tz": tz,
+                  "selection": descriptor,
+                  "filters": {"user": user, "printer": printer},
+                  "filter_options": filter_options}
         if kind == "wrapped":
             result["wrapped"] = print_stats.build_wrapped(
-                records, year, tz=tz, events=events, enrichments=enrichments)
+                records, year, tz=tz, events=events, enrichments=enrichments,
+                selection=descriptor)
         else:
             result["stats"] = print_stats.aggregate(
                 records, year=year, tz=tz, events=events, enrichments=enrichments)
@@ -374,41 +472,75 @@ def _clips(data, year, records_vault, records, tz):
     return _cached(key, build)
 
 
-def data_view(data, year=None, *, records_vault=None):
-    """(code, body) for GET /api/data."""
+def data_view(data, year=None, *, records_vault=None, user=None, printer=None):
+    """(code, body) for GET /api/data.
+
+    ``user`` (a starter key, or ``unattributed``) and ``printer``
+    filter the view to one starter and/or one printer (#1647); the
+    payload then carries the ``selection`` it covers and the
+    ``filter_options`` the page's filter form renders.
+    """
     if not data_enabled(data):
         return 403, {"ok": False, "reason": DATA_OFF_REASON}
     try:
         year_value = int(year) if year is not None else None
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
-    summary = _summary(data, year_value, records_vault, "stats")
+    summary = _summary(data, year_value, records_vault, "stats",
+                       user=user, printer=printer)
     return 200, {"ok": True, **summary["stats"], "skipped_records": summary["skipped"],
                  "skipped_event_lines": summary["skipped_events"],
+                 "selection": summary["selection"], "filters": summary["filters"],
+                 "filter_options": summary["filter_options"],
                  "maintenance": _maintenance(data, records_vault, year_value, summary["tz"]),
                  "spoolman_lifetime": _spoolman_lifetime(data)}
 
 
-def wrapped_view(data, year=None, *, records_vault=None):
-    """(code, body) for GET /api/wrapped. The default year is the latest recorded."""
+def wrapped_view(data, year=None, *, records_vault=None, now=None,
+                 user=None, printer=None):
+    """(code, body) for GET /api/wrapped.
+
+    The default year is the latest one that has opened. A year that has
+    not opened yet answers ``{"ok": true, "sealed": true, "year": ...}``
+    and nothing else: no numbers to peek at.
+
+    ``user`` (a starter key, or ``unattributed``) and ``printer``
+    filter the recap to one starter and/or one printer (#1647); the
+    payload then carries the ``selection`` it covers. The compiled
+    video and pasta reel always compile the whole year, so a filtered
+    view does not offer them.
+    """
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     records, skipped = _load(data, records_vault)
     tz = _display_tz(data)
-    years = print_stats.years_available(records, tz)
+    years = [y for y in print_stats.years_available(records, tz)
+             if wrapped_revealed(data, y, now)]
     if year is None:
-        year = years[-1] if years else _current_year(tz)
+        year = years[-1] if years else _today(data, now).year
     try:
         year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
-    summary = _summary(data, year, records_vault, "wrapped")
-    payload = summary["wrapped"]
+    if not wrapped_revealed(data, year, now):
+        return 200, {"ok": True, "sealed": True, "year": year,
+                     "opens_on": reveal_text(year), "years_available": years}
+    summary = _summary(data, year, records_vault, "wrapped",
+                       user=user, printer=printer)
+    payload = dict(summary["wrapped"])
+    payload["years_available"] = [y for y in payload.get("years_available") or years
+                                  if wrapped_revealed(data, y, now)] or [year]
+    if summary["selection"] is not None:
+        payload["years_available"] = sorted(
+            set(payload["years_available"]) | set(years) | {year})
+    payload["filters"] = summary["filters"]
+    payload["filter_options"] = summary["filter_options"]
     # #981: clip counts are a finder result, not a record fact, so they
     # live here at the Web UI layer (where the finder runs) under their
     # own name, not inside the record aggregate. V2: the detailed
     # finder also joins clips to print numbers by delivery name.
     detailed = _clips(data, year, records_vault, records, tz)
+    revealed = reel_revealed(data, year)
     clips_by_print = [{"print_number": entry["print_number"],
                        "name": Path(entry["path"]).name}
                       for entry in detailed if entry.get("print_number")]
@@ -422,19 +554,62 @@ def wrapped_view(data, year=None, *, records_vault=None):
     # soft into a named note here, never a broken page.
     share_entries, share_note = share_export.load_exports(
         _vault(data, records_vault) / "wrapped")
-    return 200, {"ok": True, **payload, "skipped_records": summary["skipped"],
-                 "share_exports": share_entries,
-                 "share_preview": share_export.preview(payload),
-                 "share_registry_note": share_note,
-                 "skipped_event_lines": summary["skipped_events"],
-                 "timelapse_clips_found": len(detailed),
-                 "timelapse_clips_by_print": clips_by_print,
-                 "longest_print_clip": longest_clip,
-                 "maintenance": _maintenance(data, records_vault, year, tz),
-                 "video_available": wrapped_video_path(data, year,
-                                                       records_vault=records_vault) is not None,
-                 "video_job": video_module.JOBS.status(year),
-                 "ai_video_enabled": ai_video_enabled(data)}
+    body = {"ok": True, **payload, "skipped_records": summary["skipped"],
+            "share_exports": share_entries,
+            "share_preview": share_export.preview(payload),
+            "share_registry_note": share_note,
+            "skipped_event_lines": summary["skipped_events"],
+            "timelapse_clips_found": len(detailed),
+            "timelapse_clips_by_print": clips_by_print,
+            "longest_print_clip": longest_clip,
+            "maintenance": _maintenance(data, records_vault, year, tz),
+            "video_available": wrapped_video_path(data, year,
+                                                  records_vault=records_vault) is not None,
+            "video_job": video_module.JOBS.status(year),
+            "ai_video_enabled": ai_video_enabled(data),
+            "reel_revealed": revealed,
+            "reel_clips": len(pasta_reel.reel_entries(
+                detailed, payload, summary["records"], events=summary["events"]))
+            if revealed else 0,
+            "reel_available": wrapped_reel_path(
+                data, year, records_vault=records_vault) is not None,
+            "reel_job": pasta_reel.REEL_JOBS.status(year)}
+    if summary["selection"] is not None:
+        # The compiled video and reel are whole-year artifacts (#1647):
+        # a filtered view neither offers nor embeds them, so a subset
+        # is never presented with the full year's footage.
+        body["video_available"] = False
+        body["reel_available"] = False
+        body["reel_revealed"] = False
+        body["reel_clips"] = 0
+        body["timelapse_clips_found"] = 0
+        body["timelapse_clips_by_print"] = []
+        body["longest_print_clip"] = None
+    return 200, body
+
+
+def reel_revealed(data, year, now=None):
+    """Whether ``year``'s pasta reel may be built and shown: the same reveal
+    as the rest of Wrapped. The reel's page section, its build route and its
+    file route all ask here."""
+    return wrapped_revealed(data, year, now)
+
+
+def _outputs(data, records_vault, out_dir=None):
+    """The wrapped outputs folder every Wrapped file lives in."""
+    return Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
+
+
+def _output_file(data, year, name, records_vault, out_dir):
+    """``name.format(year=...)`` inside the outputs for a whole-number year, or None."""
+    if not wrapped_enabled(data):
+        return None
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return None
+    candidate = _outputs(data, records_vault, out_dir) / name.format(year=year)
+    return candidate if candidate.is_file() else None
 
 
 def wrapped_video_path(data, year, *, records_vault=None, out_dir=None):
@@ -446,15 +621,21 @@ def wrapped_video_path(data, year, *, records_vault=None, out_dir=None):
     is constructed here from the integer year, never taken from a
     request, so path traversal has no input to work with.
     """
-    if not wrapped_enabled(data):
-        return None
+    return _output_file(data, year, "wrapped-{year}.mp4", records_vault, out_dir)
+
+
+def wrapped_reel_path(data, year, *, records_vault=None, out_dir=None):
+    """The compiled pasta reel for ``year``, or None.
+
+    The same construction as :func:`wrapped_video_path` for
+    ``pasta-reel-<year>.mp4``, and only while the reel is revealed.
+    """
     try:
-        year = int(year)
+        if not reel_revealed(data, int(year)):
+            return None
     except (TypeError, ValueError):
         return None
-    folder = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
-    candidate = folder / f"wrapped-{year}.mp4"
-    return candidate if candidate.is_file() else None
+    return _output_file(data, year, "pasta-reel-{year}.mp4", records_vault, out_dir)
 
 
 def parse_byte_range(header, size):
@@ -493,7 +674,7 @@ def _current_year(tz=None):
 
 
 def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=False,
-               wait=False, jobs=None, **video_kwargs):
+               wait=False, jobs=None, now=None, **video_kwargs):
     """(code, body) for POST /wrapped/video: start the compile, or join it.
 
     The compile is one background job per year (see
@@ -511,7 +692,9 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
         year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
-    target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
+    if not wrapped_revealed(data, year, now):
+        return 403, {"ok": False, "reason": _sealed_reason(year, "Nothing was compiled.")}
+    target_dir = _outputs(data, records_vault, out_dir)
 
     def work(progress):
         wrapped, records = _wrapped_for_video(data, year, records_vault)
@@ -522,7 +705,59 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
             year, wrapped, target_dir, data=data, export_silent=export_silent,
             progress=progress, **kwargs)
 
-    status, joined = (jobs or video_module.JOBS).start(year, work, wait=wait)
+    return _start_job(jobs or video_module.JOBS, year, work, wait)
+
+
+def make_reel(data, year, *, records_vault=None, out_dir=None, export_silent=False,
+              wait=False, jobs=None, **reel_kwargs):
+    """(code, body) for POST /wrapped/reel: start the pasta reel, or join it.
+
+    The same gates, job runner and answers as :func:`make_video`, plus
+    the reveal (:func:`reel_revealed`, 403) and a year with no failure
+    on camera, which answers 409 with :data:`pasta_reel.EMPTY_REASON`
+    and starts nothing.
+    """
+    if not wrapped_enabled(data):
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
+    if not ai_video_enabled(data):
+        return 403, {"ok": False, "reason": VIDEO_OFF_REASON}
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
+    if not reel_revealed(data, year):
+        return 403, {"ok": False, "reason": REEL_HIDDEN_REASON}
+    wrapped, records, events, tz = _reel_inputs(data, year, records_vault)
+    kwargs = dict(reel_kwargs)
+    finder = kwargs.pop("find_clips", None)
+    try:
+        clips = (finder(year) if finder is not None
+                 else _clips(data, year, records_vault, records, tz)) or []
+    except Exception as exc:
+        logger.warning("pasta reel clip search failed; treating the year as clip-free [PH_WRAPPED_REEL]: %s", exc)
+        clips = []
+    if not pasta_reel.reel_entries(clips, wrapped, records, events=events):
+        return 409, {"ok": False, "reason": pasta_reel.EMPTY_REASON}
+    target_dir = _outputs(data, records_vault, out_dir)
+
+    def work(progress):
+        return pasta_reel.build_pasta_reel(
+            year, wrapped, target_dir, data=data, export_silent=export_silent,
+            records=records, events=events, tz=tz, find_clips=lambda y: clips,
+            progress=progress, **kwargs)
+
+    return _start_job(jobs or pasta_reel.REEL_JOBS, year, work, wait)
+
+
+def _reel_inputs(data, year, records_vault):
+    summary = _summary(data, year, records_vault, "wrapped")
+    return summary["wrapped"], summary["records"], summary["events"], summary["tz"]
+
+
+def _start_job(jobs, year, work, wait):
+    """(code, body) for a compile job: 202 started or joined; with ``wait``,
+    200 with the paths or 502 with the reason."""
+    status, joined = jobs.start(year, work, wait=wait)
     if wait and status["state"] == "failed":
         return 502, {"ok": False, "reason": status["reason"] or "the video compile failed",
                      "script_path": status["script_path"], "notes": status["notes"]}
@@ -537,7 +772,7 @@ def _wrapped_for_video(data, year, records_vault):
     return summary["wrapped"], summary["records"]
 
 
-def video_status(data, year, *, records_vault=None, jobs=None):
+def video_status(data, year, *, records_vault=None, jobs=None, now=None):
     """(code, body) for GET /api/wrapped/video-status?year=: the page's poll."""
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
@@ -545,15 +780,36 @@ def video_status(data, year, *, records_vault=None, jobs=None):
         year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    if not wrapped_revealed(data, year, now):
+        # Sealed like every other Wrapped surface: no compile state or video
+        # availability for a year that has not opened (#1678).
+        return 403, {"ok": False, "reason": _sealed_reason(year)}
     status = (jobs or video_module.JOBS).status(year)
     return 200, {"ok": True, **status,
                  "available": wrapped_video_path(
                      data, year, records_vault=records_vault) is not None}
 
 
+def reel_status(data, year, *, records_vault=None, jobs=None):
+    """(code, body) for GET /api/wrapped/reel-status?year=: the reel's poll."""
+    if not wrapped_enabled(data):
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    if not reel_revealed(data, year):
+        return 403, {"ok": False, "reason": REEL_HIDDEN_REASON}
+    status = (jobs or pasta_reel.REEL_JOBS).status(year)
+    return 200, {"ok": True, **status,
+                 "available": wrapped_reel_path(
+                     data, year, records_vault=records_vault) is not None}
+
+
 def export_share(data, year, visibility="link-only", *, records_vault=None, out_dir=None,
                  destination_note="", passphrase=None, include_titles=False,
-                 include_printers=False, include_video=False):
+                 include_printers=False, include_video=False, now=None,
+                 user=None, printer=None):
     """(code, body) for POST /wrapped/share: one explicit export.
 
     Behind the same ``wrapped_enabled`` gate as every other Wrapped
@@ -561,13 +817,21 @@ def export_share(data, year, visibility="link-only", *, records_vault=None, out_
     (``<vault>/wrapped/exports/``); nothing is uploaded anywhere.
     Private exports refuse by name inside share_export until an
     established AES-GCM library is a dependency.
+
+    ``user`` / ``printer`` (#1647) export the filtered Wrapped the
+    page is showing: the bundle carries the selection label, under
+    the same redaction rules as every other name.
     """
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     try:
-        wrapped = _summary(data, int(year), records_vault, "wrapped")["wrapped"]
+        year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was exported."}
+    if not wrapped_revealed(data, year, now):
+        return 403, {"ok": False, "reason": _sealed_reason(year, "Nothing was exported.")}
+    wrapped = _summary(data, year, records_vault, "wrapped",
+                       user=user, printer=printer)["wrapped"]
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
     result = share_export.export_bundle(
         wrapped, target_dir, visibility=str(visibility or "link-only"),
@@ -589,20 +853,13 @@ def _page(data, title, body, *, path, theme=shell.DEFAULT_THEME):
     return shell.page(title, body, path=path, theme=theme, nav=nav_for(data))
 
 
-def _cards(pairs):
-    items = "".join(
-        f'<section class="card"><p class="eyebrow">{_esc(label)}</p>'
-        f"<h2>{_esc(value)}</h2></section>" for label, value in pairs)
-    return f'<div class="cards">{items}</div>'
-
-
 def _breakdown_table(title, table):
     if not table:
         return f"<h2>{_esc(title)}</h2><p>(nothing recorded)</p>"
     rows = "".join(
         f"<tr><td>{_esc(label)}</td><td>{row['count']}</td>"
-        f"<td>{row['filament_used_g']:g} g</td>"
-        f"<td>{row['print_duration_seconds'] / 3600:.2f} h</td></tr>"
+        f"<td>{_esc(data_page.weight(row['filament_used_g']))}</td>"
+        f"<td>{_esc(data_page.duration(row['print_duration_seconds']))}</td></tr>"
         for label, row in table.items())
     return (f"<h2>{_esc(title)}</h2><div class=\"table-scroll\"><table>"
             f"<tr><th>{_esc(title)}</th><th>prints</th><th>filament</th><th>time</th></tr>"
@@ -662,21 +919,133 @@ def _selection_text(entry):
     return "recorded"
 
 
+def _money(costs, value):
+    return f"{_esc(costs.get('currency_code') or '')} {float(value or 0):.2f}"
+
+
+def _backfill_line(backfill):
+    backfill = backfill or {}
+    if not backfill.get("estimated_count"):
+        return ""
+    return (f'<p class="note">Estimated, not recorded: about '
+            f'{_esc(backfill["currency_code"])} {backfill["out_of_pocket_estimate"]:.2f} out of pocket '
+            f'for {backfill["estimated_count"]} older print(s) with no recorded cost, priced from '
+            "their recorded grams and hours at today's prices. Not included in the totals.</p>")
+
+
+def _cost_section(costs, backfill=None):
+    """The Data tab's recorded print costs (#1625, #1632 review), from frozen records only."""
+    costs = costs or {}
+    if not costs.get("has_priced"):
+        return ("<h2>Print costs</h2><p>" + _esc(costs.get("note") or
+                "No priced jobs in this period: no completed print has a recorded cost yet.")
+                + " Costs are recorded when a print finishes; open the "
+                '<a href="/cost">Cost</a> page to price a file now.</p>' + _backfill_line(backfill))
+    rows = [
+        ("Out of pocket", _money(costs, costs["out_of_pocket_total"])),
+        ("Full cost (labor and machine wear)", _money(costs, costs["total_spend"])),
+        ("Cost per gram", _money(costs, costs["cost_per_gram"]) if costs.get("cost_per_gram") else "unknown"),
+        ("Cost per print hour", _money(costs, costs["cost_per_print_hour"])
+         if costs.get("cost_per_print_hour") else "unknown"),
+        ("Failed and cancelled prints", f"{costs['failed_count']}, "
+         + _money(costs, costs["failure_total"])),
+    ]
+    priciest = costs.get("most_expensive") or {}
+    if priciest:
+        rows.append(("Most expensive print", f"{_esc(priciest['title'])}, "
+                     + _money(costs, priciest["out_of_pocket"])))
+    body = "".join(f"<tr><th>{_esc(k)}</th><td>{v}</td></tr>" for k, v in rows)
+    tables = ""
+    for title, table in (("By printer", costs.get("out_of_pocket_by_printer") or {}),
+                         ("By material", costs.get("by_material") or {}),
+                         ("By color", costs.get("by_color") or {})):
+        if table:
+            items = "".join(f"<tr><td>{_esc(k)}</td><td>{_money(costs, v)}</td></tr>"
+                            for k, v in sorted(table.items(), key=lambda kv: -kv[1]))
+            tables += f"<h3>{_esc(title)}</h3><table>{items}</table>"
+    note = f'<p class="note">{_esc(costs["note"])}</p>' if costs.get("note") else ""
+    others = costs.get("other_currencies") or {}
+    if others:
+        note += ('<p class="note">Not included (another currency): '
+                 + _esc(", ".join(f"{n} in {code}" for code, n in others.items())) + ".</p>")
+    return (f"<h2>Print costs</h2><table class=\"rows\">{body}</table>{tables}{note}"
+            "<p>Frozen when each print finished: later price edits never change these.</p>"
+            + _backfill_line(backfill))
+
+
+def _filter_form(path, payload, *, year=None):
+    """The user / printer filter form for the Data and Wrapped pages
+    (#1647): two selects built from the history's own starters and
+    printers, so an option always matches the records it counts."""
+    options = payload.get("filter_options") or {}
+    filters = payload.get("filters") or {}
+    starters = options.get("starters") or []
+    printers = options.get("printers") or []
+    if not starters and not printers and not options.get("unattributed_prints"):
+        return ""
+    user = filters.get("user") or ""
+    printer = filters.get("printer") or ""
+    user_options = ['<option value="">Everyone</option>']
+    for row in starters:
+        selected = ' selected' if user == row["key"] else ""
+        user_options.append(
+            f'<option value="{_esc(row["key"])}"{selected}>{_esc(row["label"])} '
+            f'({row["prints"]})</option>')
+    if options.get("unattributed_prints"):
+        selected = ' selected' if user == print_stats.UNATTRIBUTED else ""
+        user_options.append(
+            f'<option value="unattributed"{selected}>Unattributed '
+            f'({options["unattributed_prints"]})</option>')
+    printer_options = ['<option value="">All printers</option>']
+    for row in printers:
+        selected = ' selected' if printer == row["name"] else ""
+        printer_options.append(
+            f'<option value="{_esc(row["name"])}"{selected}>{_esc(row["name"])} '
+            f'({row["prints"]})</option>')
+    year_input = (f'<input type="hidden" name="year" value="{int(year)}">'
+                  if year is not None else "")
+    return (f'<form method="get" action="{_esc(path)}">{year_input}'
+            f'<label>Started by <select name="user">{"".join(user_options)}</select></label> '
+            f'<label>Printer <select name="printer">{"".join(printer_options)}</select></label> '
+            '<button type="submit">Filter</button></form>')
+
+
+def _selection_banner(payload):
+    """The line naming a filtered view's coverage (#1647), or ""."""
+    selection = payload.get("selection")
+    if not selection:
+        return ""
+    return (f'<p class="note">Showing only {_esc(selection["label"])}: every '
+            "number on this page covers these prints. "
+            "Clear the filter for the whole history.</p>")
+
+
 def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
-    """GET /data as HTML, from a :func:`data_view` success payload."""
+    """GET /data as HTML, from a :func:`data_view` success payload.
+
+    The everyday sections come first (:mod:`.data_page`); the full
+    statistics follow, folded into an "All the numbers" expander, for
+    anyone who wants every breakdown.
+    """
     stats = payload
-    parts = [_cards([
-        ("Prints", stats["total_prints"]),
-        ("Hours printing", f"{stats['total_hours']:g}"),
-        ("Filament used", f"{stats['total_filament_used_kg']:g} kg"),
-        ("Success rate", _rate(stats["success_rate"])),
-    ])]
-    parts.append(
-        f"<p>Completed {stats['completed']} · failed {stats['failed']} · "
-        f"canceled {stats['canceled']} · in progress {stats['in_progress']}. "
-        f"{_esc(stats.get('success_rate_note') or '')}</p>")
+    lead = []
+    banner = _selection_banner(payload)
+    if banner:
+        lead.append(banner)
+    form = _filter_form("/data", payload, year=stats.get("year"))
+    if form:
+        lead.append(form)
+    lead.append(data_page.render_sections(stats))
     if stats.get("year") is not None and stats.get("undated_prints"):
-        parts.append(f'<p class="note">{_undated_text(stats["undated_prints"])}</p>')
+        lead.append(f'<p class="note">{_undated_text(stats["undated_prints"])}</p>')
+    parts = []
+    if not stats.get("total_prints"):
+        body = "".join(lead) + _skipped_note(payload)
+        return _data_shell(data, body, theme)
+    parts.append(
+        f"<p>Finished {stats['completed']} · failed {stats['failed']} · "
+        f"stopped {stats['canceled']} · printing now {stats['in_progress']}. "
+        f"{_esc(stats.get('success_rate_note') or '')}</p>")
     if stats.get("totals_caveat"):
         parts.append(
             f"<p>{_esc(stats['totals_caveat'])} Hours cover "
@@ -694,6 +1063,7 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
                      f"({(longest.get('seconds') or 0) / 3600:.2f} h). "
                      f"Average print: "
                      f"{(stats['average_print_seconds'] or 0) / 60:.0f} min.</p>")
+    parts.append(_cost_section(stats.get("costs"), stats.get("cost_backfill")))
     failures = stats["failures"]
     stop = ", ".join(f"{_esc(k)}: {v}" for k, v in failures["stop_reasons"].items()) or "none recorded"
     parts.append(f"<h2>Failures and risk flags</h2><p>Failed: {failures['failed']}. "
@@ -805,14 +1175,15 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
         "Hours and weekdays are in the configured display timezone.</p>"
         + (f"<div class=\"table-scroll\"><table><tr><th>hour</th><th>prints</th></tr>"
            f"{hour_rows}</table></div>" if hour_rows else "<p>(nothing recorded)</p>"))
-    for title, key in (("Printer", "by_printer"), ("Printer profile", "by_printer_profile"),
+    for title, key in (("Starter", "by_starter"),
+                       ("Printer", "by_printer"), ("Printer profile", "by_printer_profile"),
                        ("Material", "by_material"), ("Color", "by_color"),
                        ("Vendor", "by_vendor"), ("Spool", "by_spool"), ("Nozzle", "by_nozzle")):
         parts.append(_breakdown_table(title, stats["breakdowns"][key]))
     monthly = "".join(f"<tr><td>{_esc(month)}</td><td>{count}</td></tr>"
                       for month, count in stats["monthly"].items())
-    parts.append(f"<h2>Activity by month</h2><table><tr><th>month</th><th>prints</th></tr>"
-                 f"{monthly}</table>" if monthly else "<h2>Activity by month</h2><p>(nothing recorded)</p>")
+    parts.append(f"<h2>Activity by month</h2><div class=\"table-scroll\"><table><tr><th>month</th>"
+                 f"<th>prints</th></tr>{monthly}</table></div>" if monthly else "<h2>Activity by month</h2><p>(nothing recorded)</p>")
     charts = ["<h2>Graphs</h2>"]
     charts.append(_bar_chart("Prints per month", list(stats["monthly"].items())))
     charts.append(_bar_chart(
@@ -852,19 +1223,46 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
                         for row in rows)
         parts.append(f"<h2>{title}</h2><ul>{items}</ul>" if items
                      else f"<h2>{title}</h2><p>(nothing recorded)</p>")
-    if payload.get("skipped_records"):
-        named = ", ".join(_esc(name) for name in payload["skipped_records"])
-        parts.append(f'<p class="note">Skipped records that could not be read: {named}.</p>')
-    return _page(data, "data", "".join(parts), path="/data", theme=theme)
+    body = ("".join(lead)
+            + '<details class="dp-more" id="data-all"><summary>All the numbers</summary>'
+            + "".join(parts) + "</details>" + _skipped_note(payload))
+    return _data_shell(data, body, theme)
+
+
+def _skipped_note(payload):
+    if not payload.get("skipped_records"):
+        return ""
+    named = ", ".join(_esc(name) for name in payload["skipped_records"])
+    return f'<p class="note">Skipped records that could not be read: {named}.</p>'
+
+
+def _data_shell(data, body, theme):
+    """The Data tab in the shared shell, with its own scoped styles in the head."""
+    return shell.page("data", f'<div class="data-page">{body}</div>', path="/data",
+                      theme=theme, nav=nav_for(data),
+                      head_extra=f"<style>{data_page.CSS}</style>")
 
 
 def _share_panel(year, form_token, exports, registry_note, preview=None,
-                 video_available=False):
+                 video_available=False, selection_filters=None):
     """The share panel (#981 sharing phase): export form, deploy
     guides, and the local list of what has been shared and where."""
     preview = preview or {}
     titles = preview.get("titles") or []
     printers = preview.get("printers") or []
+    filters = selection_filters or {}
+    hidden = ""
+    if filters.get("user"):
+        hidden += f'<input type="hidden" name="user" value="{_esc(filters["user"])}">'
+    if filters.get("printer"):
+        hidden += f'<input type="hidden" name="printer" value="{_esc(filters["printer"])}">'
+    selection_line = ""
+    if preview.get("selection"):
+        selection_line = (
+            f"<p>This export covers only <strong>{_esc(preview['selection'])}</strong> "
+            "— the filtered Wrapped this page is showing. Its name rides "
+            "on the exported page and cards; the printer part of the name "
+            "follows the printer-names choice below.</p>")
     parts = [
         "<h2>Share this Pasta Wrapped</h2>",
         "<p>Export this year as a self-contained static bundle — the "
@@ -873,9 +1271,11 @@ def _share_panel(year, form_token, exports, registry_note, preview=None,
         "locally under the wrapped outputs. Print Handy uploads nothing "
         "and asks for no tokens: hosting is your own free static-host "
         "account. Choose what goes in before you export.</p>",
+        selection_line,
         f'<form method="post" action="/wrapped/share">'
         f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
         f'<input type="hidden" name="year" value="{year}">'
+        f'{hidden}'
         '<input type="hidden" name="options" value="explicit">'
         '<fieldset><legend>What this export includes</legend>'
         "<p>Always: the year's numbers (prints, hours, kilograms, success "
@@ -967,25 +1367,29 @@ def _share_panel(year, form_token, exports, registry_note, preview=None,
     return "".join(parts)
 
 
-def _video_progress(year, job):
-    """The compile's progress block, polled until the job ends."""
+def _video_progress(year, job, *, kind="video", noun="video"):
+    """The compile's progress block, polled until the job ends.
+
+    ``kind`` names the job (``video`` or ``reel``): its element ids and
+    its status route, ``/api/wrapped/<kind>-status``.
+    """
     steps = int(job.get("steps") or 0)
     step = int(job.get("step") or 0)
     label = ("Waiting to start…" if job.get("state") == "queued" or not steps
              else f"Step {step} of {steps}")
-    bar = (f'<progress id="video-progress" max="{steps}" value="{step}"></progress>'
-           if steps else '<progress id="video-progress"></progress>')
+    bar = (f'<progress id="{kind}-progress" max="{steps}" value="{step}"></progress>'
+           if steps else f'<progress id="{kind}-progress"></progress>')
     return (
-        '<div id="video-job" role="status">'
-        f"<p>Compiling your {year} video in the background. "
-        f'<span id="video-job-label">{_esc(label)}</span></p>{bar}</div>'
+        f'<div id="{kind}-job" role="status">'
+        f"<p>Compiling your {year} {_esc(noun)} in the background. "
+        f'<span id="{kind}-job-label">{_esc(label)}</span></p>{bar}</div>'
         "<script>(function(){var year=" + str(int(year)) + ";"
-        "function poll(){fetch('/api/wrapped/video-status?year='+year,"
+        f"function poll(){{fetch('/api/wrapped/{kind}-status?year='+year,"
         "{credentials:'same-origin'}).then(function(r){return r.json();})"
         ".then(function(s){if(s.state==='done'||s.state==='failed'||s.state==='idle')"
         "{location.reload();return;}"
-        "var bar=document.getElementById('video-progress'),"
-        "label=document.getElementById('video-job-label');"
+        f"var bar=document.getElementById('{kind}-progress'),"
+        f"label=document.getElementById('{kind}-job-label');"
         "if(s.steps){bar.max=s.steps;bar.value=s.step;"
         "label.textContent='Step '+s.step+' of '+s.steps;}"
         "setTimeout(poll,2000);}).catch(function(){setTimeout(poll,5000);});}"
@@ -1018,6 +1422,60 @@ def _wrapped_screen(label, value, caption="", *, heading=None, extra="",
             f"{extra}</section>")
 
 
+def render_wrapped_sealed_page(data, payload, *, theme=shell.DEFAULT_THEME):
+    """GET /wrapped for a year that has not opened: a wrapped present, no numbers."""
+    year = payload["year"]
+    past = [y for y in payload.get("years_available") or [] if y < year]
+    parts = ['<div class="wrapped"><section class="wrapped-hero wrapped-screen">'
+             '<p class="eyebrow">Pasta Wrapped</p>'
+             f"<h1>Your {year} is still wrapped</h1>"
+             f"<p>It opens on {_esc(payload.get('opens_on') or reveal_text(year))}. "
+             "Every print, every success and every glorious pile of spaghetti is being "
+             "counted. No peeking.</p>"]
+    if past:
+        links = " · ".join(f'<a href="/wrapped?year={y}">{y}</a>' for y in reversed(past))
+        parts.append(f"<p>Already unwrapped: {links}</p>")
+    parts.append("</section></div>")
+    return _page(data, "wrapped", "".join(parts), path="/wrapped", theme=theme)
+
+
+def _reel_section(year, payload, form_token):
+    """The pasta reel's make/progress/player block, beside the video's."""
+    parts = []
+    job = payload.get("reel_job") or {}
+    clips = int(payload.get("reel_clips") or 0)
+    if payload.get("ai_video_enabled"):
+        parts.append("<h2>Make my pasta reel</h2>")
+        if not clips:
+            parts.append(f"<p>{_esc(pasta_reel.EMPTY_REASON)}</p>")
+        elif job.get("state") in ("queued", "running"):
+            parts.append(_video_progress(year, job, kind="reel", noun="pasta reel"))
+        else:
+            if job.get("state") == "failed":
+                parts.append('<p class="error">The last pasta reel compile failed: '
+                             f"{_esc(job.get('reason') or 'unknown reason')}</p>")
+            parts.append(
+                f'<form method="post" action="/wrapped/reel">'
+                f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+                f'<input type="hidden" name="year" value="{year}">'
+                '<label><input type="checkbox" name="export_silent" value="1"> '
+                "Export silent (no music)</label> "
+                '<button type="submit">Make my pasta reel</button></form>')
+        if clips:
+            parts.append(
+                f"<p>Every failed or pasta print the camera caught in {year} "
+                f"({print_stats.plural(clips, 'clip')}), each cut around the moment "
+                "it went wrong, with a roast from Print Handy's own roast lines, set "
+                "to the Wrapped track and squeezed to fit it. Built on this machine, "
+                "and nothing leaves it.</p>")
+    if payload.get("reel_available"):
+        parts.append(
+            "<h2>Your pasta reel</h2>"
+            f'<video controls preload="metadata" '
+            f'src="/wrapped/reel-file?year={year}"></video>')
+    return "".join(parts)
+
+
 def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None,
                         theme=shell.DEFAULT_THEME):
     """GET /wrapped as HTML, from a :func:`wrapped_view` success payload.
@@ -1046,6 +1504,9 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         f"<h1>Your {year} in printing</h1>"
         f"<p>{print_stats.plural(headline['total_prints'], 'print')}. Scroll the year.</p>"
         '<p class="wrapped-cue" aria-hidden="true">↓</p></section>')
+    banner = _selection_banner(payload)
+    if banner:
+        parts.append(banner)
     undated = headline.get("undated_prints") or 0
     if undated:
         parts.append(f'<p class="note">{_undated_text(undated)}</p>')
@@ -1183,6 +1644,29 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
                if almost.get("titles") else "")
             + ". From intake receipts on file; receipts carry no creation "
             "date, so this list is not split by year.</p></section>")
+    costs = stats.get("costs") or {}
+    if costs.get("has_priced"):
+        bits = []
+        priciest = costs.get("most_expensive") or {}
+        cheapest = costs.get("cheapest") or {}
+        if priciest:
+            bits.append(f"Priciest: {_esc(priciest['title'])} at {_money(costs, priciest['out_of_pocket'])}.")
+        if cheapest and cheapest.get("title") != priciest.get("title"):
+            bits.append(f"Cheapest: {_esc(cheapest['title'])} at {_money(costs, cheapest['out_of_pocket'])}.")
+        if costs.get("cost_per_print_hour"):
+            bits.append(f"About {_money(costs, costs['cost_per_print_hour'])} per print hour.")
+        if costs.get("failed_count"):
+            bits.append(f"Your failures cost you {_money(costs, costs['failure_total'])}.")
+        top_color = max((costs.get("by_color") or {}).items(), key=lambda kv: kv[1], default=None)
+        if top_color:
+            bits.append(f"Your priciest color was {_esc(top_color[0])} "
+                        f"({_money(costs, top_color[1])}).")
+        if costs.get("note"):
+            bits.append(_esc(costs["note"]))
+        parts.append(_wrapped_screen(
+            "WHAT IT COST", _money(costs, costs["out_of_pocket_total"]),
+            "on filament, power and consumables, from the cost frozen on each print.",
+            heading="Print costs", extra="<p>" + " ".join(bits) + "</p>"))
     per_color = stats.get("per_color_grams") or {}
     if per_color:
         color_bits = ", ".join(f"{_esc(color)}: {grams:g} g"
@@ -1203,9 +1687,17 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         f'<form method="get" action="/wrapped"><label>Year '
         f'<select name="year">{options}</select></label> '
         '<button type="submit">Show</button></form>')
+    filter_form = _filter_form("/wrapped", payload, year=year)
+    if filter_form:
+        finale.append(filter_form)
+    filtered = bool(payload.get("selection"))
     job = payload.get("video_job") or {}
     compiling = job.get("state") in ("queued", "running")
-    if payload.get("ai_video_enabled"):
+    if filtered and payload.get("ai_video_enabled"):
+        finale.append("<h2>Wrapped video</h2><p>The Wrapped video and the "
+                      "pasta reel compile the whole year. Clear the "
+                      "user / printer filter above to make or watch them.</p>")
+    if payload.get("ai_video_enabled") and not filtered:
         finale.append("<h2>Make my Wrapped video</h2>")
         if compiling:
             finale.append(_video_progress(year, job))
@@ -1233,7 +1725,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             "lines are spoken by the local Piper binary and nothing is "
             "sent anywhere; with none (the default) there is no spoken "
             "narration.</p>")
-    else:
+    elif not payload.get("ai_video_enabled"):
         finale.append("<h2>Wrapped video</h2><p>The video step is off: set "
                       "[timelapse] wrapped_video = true to turn on the "
                       "on-demand video compile.</p>")
@@ -1244,19 +1736,24 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             "<h2>Your Wrapped video</h2>"
             f'<video controls preload="metadata" '
             f'src="/wrapped/video-file?year={year}"></video>')
+    if payload.get("reel_revealed"):
+        finale.append(_reel_section(year, payload, form_token))
     finale.append(_share_panel(year, form_token, payload.get("share_exports") or [],
                                payload.get("share_registry_note"),
                                payload.get("share_preview"),
-                               bool(payload.get("video_available"))))
+                               bool(payload.get("video_available")),
+                               selection_filters=payload.get("filters")))
     finale.append("</section>")
     parts.append("".join(finale))
     # Finale card: the share card is the last section of the scroll.
     if archetype.get("name"):
         share_top = _esc(highlights.get("top_color") or "unknown")
+        selection = payload.get("selection") or {}
         parts.append(
             '<section class="card share-card wrapped-screen wrapped-sharecard"><p class="eyebrow">'
             f"Pasta Wrapped {year}</p>"
-            f"<h2>{_esc(archetype['name'])}</h2>"
+            + (f"<p>For {_esc(selection['label'])}</p>" if selection.get("label") else "")
+            + f"<h2>{_esc(archetype['name'])}</h2>"
             f"<p>{print_stats.plural(headline['total_prints'], 'print')} · "
             f"{print_stats.hours_text(headline['total_hours'])} · "
             f"{headline['total_filament_used_kg']:g} kg · "
@@ -1277,7 +1774,9 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
                     for entry in (manifest.get("files") or []))
     body = (f"<p>Your Wrapped {payload.get('year')} share bundle is ready: "
             f"<code>{_esc(payload.get('path') or '')}</code></p>"
-            f"<p>Visibility: {_esc(payload.get('visibility') or '')}. "
+            + (f"<p>Covers only: {_esc(manifest['selection'])}.</p>"
+               if manifest.get("selection") else "")
+            + f"<p>Visibility: {_esc(payload.get('visibility') or '')}. "
             f"Video: {'included' if payload.get('video_included') else 'not included'}. "
             "Print titles: "
             f"{'included (you opted in)' if manifest.get('titles_included') else 'left out'}. "
@@ -1294,8 +1793,10 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
     return _page(data, "wrapped share", body, path="/wrapped", theme=theme)
 
 
-__all__ = ["DATA_OFF_REASON", "VIDEO_OFF_REASON",
-           "WRAPPED_OFF_REASON", "ai_video_enabled", "archive_root", "data_enabled", "data_view",
-           "export_share", "make_video", "nav_for", "parse_byte_range", "render_data_page",
-           "render_share_result", "render_wrapped_page", "video_status",
-           "wrapped_enabled", "wrapped_video_path", "wrapped_view"]
+__all__ = ["DATA_OFF_REASON", "REEL_HIDDEN_REASON", "VIDEO_OFF_REASON",
+           "WRAPPED_OFF_REASON", "ai_video_enabled", "archive_root", "data_enabled",
+           "data_view", "export_share", "make_reel", "make_video", "nav_for",
+           "parse_byte_range", "reel_revealed", "reel_status", "render_data_page",
+           "render_share_result", "render_wrapped_page", "render_wrapped_sealed_page",
+           "reveal_text", "video_status", "wrapped_enabled", "wrapped_in_season",
+           "wrapped_reel_path", "wrapped_revealed", "wrapped_video_path", "wrapped_view"]

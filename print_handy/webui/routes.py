@@ -143,9 +143,20 @@ ROUTES = (
     _get("/api/wrapped", SESSION, "_data_route", pass_path=True),
     _get("/wrapped/video-file", SESSION, "_wrapped_video_file_route"),
     _get("/api/wrapped/video-status", SESSION, "_wrapped_video_status_route"),
-    # The real user-facing waits, read back from TIMING.jsonl (#1476).
+    _get("/wrapped/reel-file", SESSION, "_wrapped_reel_file_route"),
+    _get("/api/wrapped/reel-status", SESSION, "_wrapped_reel_status_route"),
     # Firmware and updates per printer, from the firmware feed (#1280 I).
     _get("/firmware", SESSION, "_firmware_route"),
+    _get("/cost", SESSION, "_cost_page"),
+    _get("/api/cost", SESSION, "_cost_page"),
+    # Click-to-update (#1610): the confirmation page, the running job's
+    # status page, and toast dismissal.
+    _get("/firmware/update", SESSION, "_firmware_update_route"),
+    _get("/firmware/update/status", SESSION, "_firmware_update_status_route"),
+    # Channel switch (#1634): the picker/confirmation page and the
+    # running job's status page.
+    _get("/firmware/channel", SESSION, "_firmware_channel_route"),
+    _get("/firmware/channel/status", SESSION, "_firmware_channel_status_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
@@ -163,12 +174,16 @@ ROUTES = (
     _get("/upload", SESSION, "_upload_page"),
     _get("/sources", SESSION, "_sources_page"),
     _get("/designs", SESSION, "_designs_page"),
+    _get("/designs/state", SESSION, "_designs_state"),
     _get("/designs/*", SESSION, "_design_route", decode=False),
     _get("/sliced", SESSION, "_sliced_route"),
     _get("/sliced/*", SESSION, "_sliced_route", decode=False),
     _get("/settings-report/*", SESSION, "_settings_report_route", decode=False),
     _get("/editable-export/*", SESSION, "_editable_export_route", decode=False),
     _get("/conversion-report/*", SESSION, "_conversion_report_route", decode=False),
+    _get("/slice-result/*", SESSION, "_slice_result_route", decode=False),
+    _get("/u1-feasibility/*", SESSION, "_u1_feasibility_route", decode=False),
+    _get("/external-intake", SESSION, "_external_intake_route"),
     # Anything else: the themed 404 for a browser, JSON otherwise, behind
     # the read rule like every page.
     _get("*", SESSION, "_not_found", decode=False),
@@ -179,6 +194,10 @@ ROUTES = (
     _post("/chat/choice", SESSION_CSRF, "_chat_choice_post", back="/chat"),
     _post("/designs", SESSION_CSRF, "_designs_post", back="/designs"),
     _post("/designs/choice", SESSION_CSRF, "_designs_choice_post", back="/designs"),
+    _post("/designs/new", SESSION_CSRF, "_designs_new_post", back="/designs"),
+    _post("/designs/*/continue", SESSION_CSRF, "_designs_continue_post", back="/designs",
+          decode=False),
+    _post("/external-intake/confirm", SESSION_CSRF, "_external_intake_confirm_post", back="/external-intake"),
     _post("/workflow/link", SESSION_CSRF, "_workflow_link_post", back="/workflow"),
     _post("/workflow/choice", SESSION_CSRF, "_workflow_choice_post", back="/workflow"),
     _post("/workflow/start", SESSION_CSRF, "_workflow_start_post", back="/workflow"),
@@ -191,10 +210,23 @@ ROUTES = (
           claim_lock=True),
     # The Wrapped page embeds the session-bound form token like every
     # other page (#1588), so these take the plain session+csrf rule.
+    _post("/cost", SESSION_CSRF, "_cost_post", back="/cost", multipart=True),
     _post("/wrapped/video", SESSION_CSRF, "_wrapped_video_post", back="/wrapped"),
+    _post("/wrapped/reel", SESSION_CSRF, "_wrapped_reel_post", back="/wrapped"),
     _post("/wrapped/share", SESSION_CSRF, "_wrapped_share_post", back="/wrapped"),
+    # The Firmware page's update confirmation form (#1610): a browser
+    # form POST, so session+csrf like the other browser writes; the
+    # handler additionally requires [webui] controls_enabled.
+    _post("/firmware/update", SESSION_CSRF, "_firmware_update_post", back="/firmware"),
+    # The channel switch's confirmation form (#1634): session+csrf like
+    # the update form; the handler additionally requires controls on.
+    _post("/firmware/channel", SESSION_CSRF, "_firmware_channel_post", back="/firmware"),
+    # Toast dismissal changes stored state, so it is a session+CSRF POST
+    # like every other state change (#1614 review), never a GET link.
+    _post("/notifications/dismiss", SESSION_CSRF, "_notifications_dismiss_post", back="/"),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),
     _post("/config", SESSION_CSRF, "_config_save", back="/config"),
+    _post("/config/field", SESSION_CSRF, "_config_field_save", back="/config"),
     _post("/printer-settings", SESSION_CSRF, "_printer_settings_save",
           back="/printer-settings"),
     _post("/debug", SESSION_CSRF, "_debug_post", back="/"),
@@ -202,6 +234,9 @@ ROUTES = (
     _post("/spools/*", SESSION_CSRF, "_spools_page_post", back="/spools/{arg}"),
     # The Status page E-stop button (a browser cannot send the header).
     _post("/dashboard/estop/*", SESSION_CSRF, "_dashboard_estop_post", back="/"),
+    # The printer screen page's tap (#1626; same browser constraint).
+    _post("/printers/*/screen/touch", SESSION_CSRF, "_screen_touch_post",
+          back="/printers/{arg}/screen"),
     # Header-token upload (#1548): multipart, the header only, like the
     # other API writes — a header client cannot use the session+CSRF
     # upload page or a minted link. Exact row, so it wins over the

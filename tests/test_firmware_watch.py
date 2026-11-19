@@ -737,9 +737,9 @@ class ShippedBaselines(unittest.TestCase):
     def test_recorded_versions_and_their_evidence(self):
         expected = {
             "Klipper": "0.13.0", "Moonraker": "0.11.0",
-            "OctoPrint": "1.11.8", "Marlin": "2.1.2.9",
-            "Prusa Buddy (MK4S)": "6.5.7", "Prusa Buddy (CORE One)": "6.8.1",
-            "Prusa Buddy (XL)": "6.10.3", "Prusa Buddy (MINI+)": "6.4.2",
+            "OctoPrint": "2.0.0", "Marlin": "2.1.2.10",
+            "Prusa Buddy (MK4S)": "8.0.2", "Prusa Buddy (CORE One)": "8.0.2",
+            "Prusa Buddy (XL)": "8.0.2", "Prusa Buddy (MINI+)": "8.0.2",
             "QIDI Q1 Pro": "4.4.24", "QIDI X-Plus 3": "4.2.15",
             "QIDI X-Plus 4": "1.7.1", "QIDI X-Max 3": "4.3.15",
             "QIDI X-Smart 3": "4.1.13",
@@ -838,6 +838,9 @@ class TagFeed(unittest.TestCase):
 
 
 PRUSA_TITLES = {
+    "v8.0.2": ("8.0.2 Firmware for Prusa CORE One L+, CORE One L, CORE One+ (Gen 2) "
+               "INDX, CORE One INDX, CORE One+ (Gen 2), CORE One, XL+, XL, MK4S, MK4, "
+               "MK3.9S, MK3.9, MK3.5S, MK3.5, MINI+, MINI"),
     "v8.0.1": "8.0.1 Firmware for Prusa XL+, XL, MINI+, MINI",
     "v8.0.0": ("8.0.0 Firmware for Prusa CORE One L+, CORE One L, CORE One+ (Gen 2) "
                "INDX, CORE One INDX, CORE One+ (Gen 2), CORE One, XL+, XL, MK4S, MK4, "
@@ -910,8 +913,8 @@ class PrusaLines(unittest.TestCase):
         findings = {f.firmware: f for f in prusa_findings()}
         self.assertEqual(
             {name: f.latest_release.version for name, f in findings.items()},
-            {"Prusa Buddy (MK4S)": "8.0.0", "Prusa Buddy (CORE One)": "8.0.0",
-             "Prusa Buddy (XL)": "8.0.1", "Prusa Buddy (MINI+)": "8.0.1"},
+            {"Prusa Buddy (MK4S)": "8.0.2", "Prusa Buddy (CORE One)": "8.0.2",
+             "Prusa Buddy (XL)": "8.0.2", "Prusa Buddy (MINI+)": "8.0.2"},
         )
         # 7.0.1 (CORE One INDX only) is never the CORE One's newest.
         self.assertFalse(findings["Prusa Buddy (CORE One)"].covers("7.0.1"))
@@ -920,14 +923,15 @@ class PrusaLines(unittest.TestCase):
         actions = watch.plan_actions(prusa_findings(), [])
         self.assertEqual(
             [(a.kind, a.firmware, a.version) for a in actions],
-            [("create", "Prusa Buddy", "8.0.0"), ("create", "Prusa Buddy", "8.0.1")],
+            [("create", "Prusa Buddy", "8.0.2")],
         )
         self.assertEqual(watch.issue_title("Prusa Buddy", "8.0.0"),
                          "Firmware release: Prusa Buddy 8.0.0")
 
     def test_a_closed_notice_is_not_reopened_for_any_line(self):
         closed = [watch.WatchIssue(5, "Prusa Buddy", "8.0.0", open=False),
-                  watch.WatchIssue(6, "Prusa Buddy", "8.0.1", open=False)]
+                  watch.WatchIssue(6, "Prusa Buddy", "8.0.1", open=False),
+                  watch.WatchIssue(7, "Prusa Buddy", "8.0.2", open=False)]
         self.assertEqual(watch.plan_actions(prusa_findings(), closed), [])
 
     def test_a_notice_closes_only_when_every_covered_line_caught_up(self):
@@ -940,7 +944,7 @@ class PrusaLines(unittest.TestCase):
         self.assertEqual([(a.issue_number, a.version) for a in closes], [(5, "8.0.1")])
 
     def test_notice_body_lists_each_covered_line_with_its_baseline(self):
-        findings = prusa_findings()
+        findings = prusa_findings(tags=["v8.0.1", "v6.10.3", "v6.8.1", "v6.5.7", "v6.4.2"])
         release = next(f.newer_release for f in findings if f.firmware == "Prusa Buddy (XL)")
         body = watch.issue_body(findings[2], release, findings)
         self.assertIn("Prusa Buddy (XL): 6.10.3", body)
@@ -1027,7 +1031,7 @@ class RecordedRunBehavior(unittest.TestCase):
         self.assertEqual(len(fetches), 1)
         self.assertEqual(
             [w[2]["title"] for w in self.writes(client)],
-            ["Firmware release: Prusa Buddy 8.0.0", "Firmware release: Prusa Buddy 8.0.1"],
+            ["Firmware release: Prusa Buddy 8.0.2"],
         )
 
     def test_quiet_week_for_every_recorded_family_writes_nothing(self):
@@ -1037,11 +1041,11 @@ class RecordedRunBehavior(unittest.TestCase):
         responses[("GET", "/repos/Klipper3d/klipper/tags")] = [tag("v0.13.0")]
         responses[("GET", "/repos/Arksine/moonraker/tags")] = [tag("v0.11.0"), tag("v.08")]
         responses[("GET", "/repos/OctoPrint/OctoPrint/releases")] = [
-            gh_release("1.11.8"), gh_release("2.0.0rc7", prerelease=True)]
+            gh_release("2.0.0"), gh_release("2.0.0rc7", prerelease=True)]
         responses[("GET", "/repos/MarlinFirmware/Marlin/releases")] = [
-            gh_release("2.1.2.9"), gh_release("2.1.3-b3")]
+            gh_release("2.1.2.10"), gh_release("2.1.3-b3")]
         responses[("GET", "/repos/prusa3d/Prusa-Firmware-Buddy/releases")] = prusa_feed(
-            ["v6.10.3", "v6.8.1", "v6.5.7", "v6.4.2"])
+            ["v8.0.2"])
         for repo, tag_name in (("QIDI_Q1_Pro", "Q1_Pro_V4.4.24"),
                                ("QIDI_PLUS3", "Plus3_V4.2.15"),
                                ("QIDI_PLUS4", "Plus4_v1.7.1"),

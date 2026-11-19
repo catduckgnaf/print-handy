@@ -34,7 +34,8 @@ def _has_filament(lane: Mapping[str, Any]) -> bool:
 
 
 def summarize_backup_lanes(status: Any, used_tools: Iterable[int],
-                           tool_materials: Mapping[int, str] | None = None) -> dict[str, Any]:
+                           tool_materials: Mapping[int, str] | None = None,
+                           layout: afc.AfcLayout = afc.OPENCREATOR) -> dict[str, Any]:
     """Return display rows and advisory warnings for used tools.
 
     Lane and tool identities come only from ``afc.resolve_tool_map`` and
@@ -43,7 +44,7 @@ def summarize_backup_lanes(status: Any, used_tools: Iterable[int],
     labels; comparison is by the shared material-family normalizer.
     """
     materials = tool_materials if isinstance(tool_materials, Mapping) else {}
-    resolved, map_problems = afc.resolve_tool_map(status)
+    resolved, map_problems = afc.resolve_tool_map(status, layout=layout)
     lanes = afc.parse_lanes(status)
     rows: list[dict[str, Any]] = []
     warnings: list[str] = []

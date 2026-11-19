@@ -40,6 +40,31 @@ class TestConversionReport:
         assert classes == {"layer_height": "preserved", "wall_loops": "replaced",
                            "brim_width": "dropped", "mystery": "unknown"}
 
+    def test_a_setting_the_notes_say_was_carried_is_translated(self):
+        # #1681: a Cura setting carried under its Orca name is "translated",
+        # read from the record's own conversion notes, the shape
+        # source_descriptor writes ("cura <key> carried as <orca_key>=<value>").
+        conversion = dict(CONVERSION, conversion_notes=[
+            "cura wall_line_count carried as wall_loops=4",
+            "cura speed_print carried as outer_wall_speed=60"])
+        conversion["settings"] = dict(CONVERSION["settings"], **{
+            "wall_loops": {"project_value": "4", "selected_value": "4",
+                           "selected_reason": "designer", "origin": "designer"},
+            "outer_wall_speed": {"project_value": "60", "selected_value": "60",
+                                 "selected_reason": "unattributed", "origin": "unknown"}})
+        report = cr.build_report(conversion, job_id="j1")
+        classes = {row["setting"]: row["class"] for row in report["settings"]}
+        assert classes["wall_loops"] == "translated"
+        assert classes["outer_wall_speed"] == "translated"
+        assert classes["layer_height"] == "preserved"  # not named in the notes
+        assert report["counts"]["translated"] == 2
+
+    def test_a_carried_setting_the_destination_replaced_stays_replaced(self):
+        conversion = dict(CONVERSION, conversion_notes=["cura wall_line_count carried as wall_loops=3"])
+        report = cr.build_report(conversion)
+        classes = {row["setting"]: row["class"] for row in report["settings"]}
+        assert classes["wall_loops"] == "replaced"
+
     def test_text_and_html_render_the_same_rows(self):
         report = cr.build_report(CONVERSION, job_id="j1")
         text = cr.render_text(report)

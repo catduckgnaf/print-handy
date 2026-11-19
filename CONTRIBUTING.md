@@ -81,10 +81,10 @@ The one-line roasts come from a local corpus, never from a model (#1002). There 
 Roast lines live in `print_handy/data/roasts/`, one JSON file per bank:
 
 - `generic.json` and `one_liners.json` — lines for any completed print (one-liners must need no facts about the print at all).
-- `overnight.json`, `long_print.json`, `heavy_filament.json`, `repeat_print.json`, `short_print.json` — context banks, drawn only when the fact they talk about is known for that print.
+- `overnight.json`, `long_print.json`, `marathon.json`, `heavy_filament.json`, `light_filament.json`, `repeat_print.json`, `multi_copy.json`, `short_print.json` — context banks, drawn only when the fact they talk about is known for that print (marathon is 24 hours or longer, light filament is 25 grams or less, multi-copy is a batch of three or more).
 - `failed.json`, `cancelled.json`, `spaghetti.json` — status banks, drawn only for prints that ended that way. Keep these gentle: a costly failure is not the moment for the sharpest material, and success language never belongs in them.
 - `title_reactions.json` — a map from a title keyword (for example `benchy`) to its lines; every keyword keeps at least three.
-- `color_roasts.json`, `reprint_failed.json`, `history_callbacks.json` — keyed banks for color families, prints that follow earlier failures, and callbacks to earlier prints.
+- `color_roasts.json`, `material_roasts.json`, `milestone.json`, `reprint_failed.json`, `history_callbacks.json` — keyed banks for color families, material families (the most specific family wins: a carbon-fiber or wood-filled PLA draws from `carbon` or `wood`, not `pla`), print-number milestones (`first` is print #1, `milestone` is a round print number), prints that follow earlier failures, and callbacks to earlier prints.
 - `fragments.json` — openers, comparisons, verdicts and compliments the engine can frame a drawn line with. `dictionary.json` defines 3D printing terms (and the title keyword some of them route to). `blocklist.json` lists words no roast may contain.
 - `dark_humor.json` — an optional bank of edgier generic lines.
 

@@ -717,6 +717,15 @@ jobs:
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
         run: xvfb-run -a python -m pytest -v -s tests/slicer tests/corpus tests/pipeline/test_first_layer_workflow.py
+      # The cross-slicer contract smoke (#1525) runs as its own named,
+      # unsharded step so every shard leg of this required job executes
+      # it in full and the run log names it: the sharded step above
+      # collects the same module, but shard assignment alone never
+      # proved a given test ran. The module's real-Orca gate
+      # (PRINT_HANDY_REAL_SLICER) is this job's env, so a missing Orca
+      # binary fails the step instead of skipping silently.
+      - name: Cross-slicer contract smoke with real Orca (#1525)
+        run: xvfb-run -a python -m pytest -v -s tests/slicer/test_cross_slicer_real.py
 
   slicer-test-stable-result:
     if: always()
@@ -738,6 +747,9 @@ jobs:
     # Studio the home configuration uses. Templates still come from the pinned OrcaSlicer
     # bundle, exactly like production: profiles.install is identity-checked against the
     # OrcaSlicer tree, and Bambu Studio slices from the resolved profiles.
+    # It also slices the genuine Cura, PrusaSlicer, OrcaSlicer and Bambu Studio
+    # producer fixtures with Bambu Studio as the destination
+    # (tests/slicer/test_cross_slicer_bambu_real.py, #1525).
     # Flatpak plus xvfb requires a full system session and display; kept on the host
     # runner, same as the Orca legs.
     runs-on: ubuntu-24.04
@@ -786,7 +798,7 @@ jobs:
           test "$deployed" = "$BAMBU_FLATPAK_COMMIT"
           flatpak info --user "$BAMBU_FLATPAK_APP_ID" | grep -E 'Version|Ref'
       - name: Run slicer tests against Bambu Studio
-        run: xvfb-run -a python -m pytest -v -s tests/slicer/test_bambu_real_a1.py
+        run: xvfb-run -a python -m pytest -v -s tests/slicer/test_bambu_real_a1.py tests/slicer/test_cross_slicer_bambu_real.py
 
   spoolman:
     # spool_sync against a real, throwaway Spoolman.

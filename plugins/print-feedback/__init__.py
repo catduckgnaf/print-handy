@@ -118,6 +118,7 @@ _DISPATCH_HOOKS = (
     calibration_dispatch,
     typed_quantity_dispatch,
     upload_wait_dispatch,
+    cost_dispatch,
     upload_collection_dispatch,
     model_link_dispatch,
     color_selection_dispatch,
@@ -138,7 +139,9 @@ _DISPATCH_HOOKS = (
     bed_down_dispatch,
     live_dispatch,
     plate_calibrate_dispatch,
+    slice_result_dispatch,
     nozzle_dispatch,
+    stats_dispatch,
 )
 
 # The dispatch class of each command hook (#1153 item 10). A hook listed
@@ -153,6 +156,7 @@ _COMMAND_GATES = {
     maintenance_dispatch: ('/print-maintenance', True),
     coldpull_dispatch: ('/print-coldpull', False),
     lookup_dispatch: ('/print-lookup', True),
+    slice_result_dispatch: ('/print-slice-result', True),
     source_dispatch: ('/print-source', False),
     troubleshoot_dispatch: ('/print-troubleshoot', True),
     macros_dispatch: ('/print-macros', True),
@@ -168,6 +172,8 @@ _COMMAND_GATES = {
     live_dispatch: ('/print-live', True),
     plate_calibrate_dispatch: ('/print-plate-calibrate', True),
     nozzle_dispatch: ('/nozzle', True),
+    cost_dispatch: ('/print-cost', True),
+    stats_dispatch: ('/print-stats', True),
 }
 
 

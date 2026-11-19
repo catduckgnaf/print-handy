@@ -42,8 +42,16 @@ names out also drops every commentary line that mentions them.
 
 Hygiene: the renderers read only the known wrapped payload fields
 (``year``, ``headline``, ``highlights``, ``stats``, ``script``,
-``archetype``), so nothing else that rides along in a payload dict —
-settings, tokens, paths — can reach a bundle file.
+``archetype``, ``selection``), so nothing else that rides along in a
+payload dict — settings, tokens, paths — can reach a bundle file.
+
+A filtered Wrapped (#1647: one starter and/or one printer) carries a
+``selection`` naming its coverage, and the bundle names it too — on
+the page and on every card — so a subset is never shared as if it
+were the whole year. The selection's printer part is a printer name,
+so it follows the same rule as every printer name here: left out
+unless the export opts printer names in, and the page then says the
+recap is limited to one printer whose name was left out.
 
 Visibility modes:
 
@@ -181,11 +189,15 @@ def preview(payload):
 
     ``titles`` and ``printers`` are the exact names that would appear on
     the page and in the commentary, so the Share panel can show them
-    before anything is written.
+    before anything is written. ``selection`` is the coverage label of
+    a filtered Wrapped (#1647), or None for the whole year.
     """
     payload = payload or {}
+    selection = payload.get("selection")
     return {"titles": sorted(_title_strings(payload)),
-            "printers": sorted(_printer_strings(payload))}
+            "printers": sorted(_printer_strings(payload)),
+            "selection": (selection.get("label")
+                          if isinstance(selection, dict) else None)}
 
 
 def withheld_names(payload, *, include_titles=False, include_printers=False):
@@ -212,6 +224,13 @@ def redact_payload(payload, *, include_titles=False, include_printers=False):
     if banned:
         out["script"] = [line for line in (out.get("script") or [])
                          if not _mentions(str(line), banned)]
+    # A filtered Wrapped's selection (#1647): its printer part is a
+    # printer name, so it is rebuilt without the printer when printer
+    # names are left out, and marked partial — the bundle then says
+    # the recap is limited to one printer whose name was left out,
+    # instead of silently presenting a subset as the whole year.
+    selection = out.get("selection")
+    had_printer = bool(isinstance(selection, dict) and selection.get("printer"))
 
     def scrub(value):
         if isinstance(value, dict):
@@ -233,6 +252,21 @@ def redact_payload(payload, *, include_titles=False, include_printers=False):
                 scrub(item)
 
     scrub(out)
+    if isinstance(selection, dict) and selection.get("label"):
+        from ..core import print_stats
+        rebuilt = print_stats.selection_descriptor(
+            user_label=selection.get("user"),
+            printer=selection.get("printer") if include_printers else None)
+        if rebuilt is None:
+            out["selection"] = {"user": None, "printer": None,
+                                "label": None, "partial": True}
+        else:
+            entry = dict(rebuilt)
+            if had_printer and not include_printers:
+                entry["partial"] = True
+            out["selection"] = entry
+    else:
+        out["selection"] = None
     return out
 
 
@@ -240,6 +274,10 @@ def _payload_parts(payload):
     """The known wrapped payload fields, and nothing else."""
     payload = payload or {}
     stats = payload.get("stats") or {}
+    selection = payload.get("selection")
+    if not (isinstance(selection, dict) and (selection.get("label")
+                                             or selection.get("partial"))):
+        selection = None
     return {
         "year": payload.get("year"),
         "headline": payload.get("headline") or {},
@@ -250,6 +288,7 @@ def _payload_parts(payload):
         "script": [str(line) for line in (payload.get("script") or [])],
         "archetype": (payload.get("archetype")
                       or (payload.get("highlights") or {}).get("archetype") or {}),
+        "selection": selection,
     }
 
 
@@ -306,6 +345,17 @@ def render_share_page(payload, *, visibility="public", video_name=None):
         f"<h1>Your {year} in printing</h1>"
         f"<p>{plural(headline.get('total_prints', 0), 'print')}. Scroll the year.</p></section>",
     ]
+    selection = parts["selection"]
+    if selection:
+        if selection.get("label"):
+            note = f"This recap covers only {_esc(selection['label'])}."
+            if selection.get("partial"):
+                note += (" It is limited to one printer whose name was "
+                         "left out of this export.")
+        else:
+            note = ("This recap covers only one printer's prints; the "
+                    "printer's name was left out of this export.")
+        sections.append(f'<p class="selection-note">{note}</p>')
     cards = "".join(
         f'<section class="card"><p class="eyebrow">{_esc(label)}</p>'
         f"<h2>{_esc(value)}</h2></section>"
@@ -418,6 +468,11 @@ def share_card_lines(payload, *, withheld=()):
     lines = [("eyebrow", f"PASTA WRAPPED {parts['year']}")]
     if archetype.get("name"):
         lines.append(("title", str(archetype["name"])))
+    selection = parts["selection"]
+    if selection and selection.get("label"):
+        # A filtered Wrapped's card names its coverage (#1647), so a
+        # subset is never shared as if it were the whole year.
+        lines.append(("named", f"For {selection['label']}"))
     lines += [
         ("stat", plural(headline.get("total_prints", 0), "print")),
         ("stat", f"{hours_text(headline.get('total_hours', 0))} printing"),
@@ -619,6 +674,14 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
     else:
         notes.append("printer names were left out (the default), with every "
                      "commentary line that named one.")
+    if parts["selection"]:
+        if parts["selection"].get("label"):
+            notes.append(f"this export covers only {parts['selection']['label']}"
+                         + (" on one printer whose name was left out."
+                            if parts["selection"].get("partial") else "."))
+        else:
+            notes.append("this export covers only one printer's prints; "
+                         "the printer's name was left out.")
     if visibility == "link-only":
         notes.append("link-only is obscurity, not privacy: anyone with the "
                      "link can open this page. The folder name is unguessable "
@@ -643,6 +706,8 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
                 "exported_at": exported_at, "video_included": video_included,
                 "titles_included": bool(include_titles),
                 "printer_names_included": bool(include_printers),
+                "selection": (parts["selection"].get("label")
+                              if parts["selection"] else None),
                 "generator": GENERATOR_NOTE, "files": files, "notes": notes}
     (folder / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -654,7 +719,8 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
              "destination": str(destination_note or ""),
              "exported_at": exported_at, "video_included": video_included,
              "titles_included": bool(include_titles),
-             "printer_names_included": bool(include_printers)}
+             "printer_names_included": bool(include_printers),
+             "selection": manifest["selection"]}
     registry_note = _record_export(outputs_dir, entry)
     return {"ok": True, "path": str(folder), "folder": folder_name,
             "year": year, "visibility": visibility,

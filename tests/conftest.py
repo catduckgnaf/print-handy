@@ -1,7 +1,7 @@
-"""Test settings for the Hermes helpers, installed before any test module imports them.
+"""Test settings for the runtime helpers, installed before any test module imports them.
 
 print_handy.runtime reads its hosts and paths through print_handy.runtime._config. Here that is replaced by
-a copy of the checked-in home config with fake `.test` hosts and temp directories, so no suite (hermes or pipeline)
+a copy of the checked-in home config with fake `.test` hosts and temp directories, so no suite
 can read a live profile or reach a live service through those modules.
 """
 import os
@@ -69,6 +69,12 @@ def _test_settings():
     # rendered_active), so the fixture carries the mode its own services
     # imply, exactly as a real load of the same config would resolve.
     data["timelapse"]["mode"] = "rendered"
+    # The shipped default turns the local failure detector on. The suites'
+    # watch and listener fixtures were written for a camera watch with no
+    # judge (one "not running" notice, then the posts under test), and a CI
+    # host with onnxruntime installed would otherwise count the watch as
+    # ready. Tests of the detector turn it on themselves.
+    data["vision"]["local_detector_enabled"] = False
     return data
 
 
@@ -134,6 +140,13 @@ def _quiet_status_voice(request, monkeypatch):
         return
     from print_handy.core import status_voice
     monkeypatch.setattr(status_voice, "quip", lambda *args, **kwargs: "")
+
+
+@pytest.fixture(autouse=True)
+def _offline_screen_tip(monkeypatch):
+    """A roast never reaches a printer's screen from a test; screen_tip tests patch _post."""
+    from print_handy.runtime import screen_tip
+    monkeypatch.setattr(screen_tip, "_post", lambda url, value: None)
 
 
 @pytest.fixture(autouse=True)
@@ -308,3 +321,22 @@ def pytest_collection_modifyitems(config, items):
     if drop:
         config.hook.pytest_deselected(items=drop)
     items[:] = keep
+
+
+@pytest.fixture(autouse=True)
+def _wrapped_season_is_open(monkeypatch):
+    """Pin the Wrapped clock to mid-December of the real current year.
+
+    Pasta Wrapped seals the current year until December 1 and shows its tab
+    only in December and January. The Wrapped suites build records dated
+    "now" and expect an open Wrapped, so without this they would pass in
+    December and fail the other ten months. The reveal rules themselves are
+    tested with an explicit ``now`` in tests/webui/test_wrapped_reveal.py,
+    which this pin does not touch.
+    """
+    from datetime import datetime
+
+    from print_handy.webui import data as data_module
+
+    monkeypatch.setattr(data_module, "_now",
+                        lambda tz: datetime.now(tz).replace(month=12, day=15))

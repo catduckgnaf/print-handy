@@ -872,9 +872,10 @@ class RouteTests(unittest.TestCase):
             self.assertIn("Risk-flagged prints", raw)
             self.assertNotIn("Watchdog-flagged", raw)
             self.assertNotIn("It saw things", raw)
-            code, raw = self.request(port, "GET", "/")
+            code, raw = self.request(port, "GET", "/data")
             self.assertEqual(code, 200)
-            self.assertIn('href="/wrapped"', raw)
+            # In season, Wrapped sits under the Data tab's page strip.
+            self.assertIn('href="/wrapped"', raw.split('aria-label="Data pages"')[1])
 
     def test_wrapped_page_names_off_video_step(self):
         with tempfile.TemporaryDirectory() as tmp:

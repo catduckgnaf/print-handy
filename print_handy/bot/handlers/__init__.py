@@ -25,6 +25,7 @@ _MODULES = (
     'guided',
     'design',
     'color_selection',
+    'slice_result',
     'print_next',
     'runout_intake',
     'coldpull',
@@ -51,6 +52,8 @@ _MODULES = (
     'typed_quantity',
     'upload_collection',
     'edit',
+    'cost',
+    'stats',
 )
 _homes = tuple(importlib.import_module(f"{__name__}.{name}") for name in _MODULES)
 
@@ -68,6 +71,10 @@ HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'calibration',
     'typed_quantity',
     'upload_wait',
+    # Cost before the intake handlers (#1661): a file dropped with a
+    # cost ask is priced read-only and never enters intake; a bare
+    # file drop's gate does not match, so intake is untouched.
+    'cost',
     'upload_collection',
     'model_link',
     'color_selection',
@@ -88,7 +95,9 @@ HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'bed_down',
     'live',
     'plate_calibrate',
+    'slice_result',
     'nozzle',
+    'stats',
 ))
 _DISPATCH_HOOKS = tuple(module.handle for module in HANDLERS)
 _COMMAND_GATES = {module.handle: (module.match.command, module.match.with_args) for module in HANDLERS

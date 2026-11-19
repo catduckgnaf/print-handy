@@ -1242,7 +1242,7 @@ def _check_spoolman(st, warnings, facts):
                             "re-run set --spool if Spoolman is right")
     except Exception as e:
         warnings.append("Spoolman could not be reached, so the recorded spool was used instead; "
-                        "printing can continue (#235)")
+                        "printing can continue")
 
 
 def check(st=None, printer_id=None, adapter=None, *, live=True):

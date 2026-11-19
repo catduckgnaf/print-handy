@@ -163,19 +163,38 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page.locator('button[name="action"][value="skip"]').click()
         self.assertEqual(self.page.locator('input[name="step"]').input_value(), "chat")
 
-    def test_configuration_search_runs_javascript_and_restores_rows(self):
+    def test_settings_tabs_switch_in_place_without_reloading(self):
         self.login()
-        # Stage 3 renders one settings section at a time; the camera
-        # section carries enough real fields for the search contract.
-        self.page.goto(self.base + "/config?section=camera")
-        rows = self.page.locator(".field")
-        self.assertGreater(rows.count(), 5, "configuration must render real fields")
-        search = self.page.locator("#field-search")
-        self.assertEqual(search.count(), 1)
-        search.fill("zz-this-setting-does-not-exist-zz")
-        self.assertEqual(self.page.locator(".field:visible").count(), 0)
-        search.fill("")
-        self.assertEqual(self.page.locator(".field:visible").count(), rows.count())
+        self.page.goto(self.base + "/config?section=printers")
+        self.page.evaluate("window.__sameDocument = true")
+        self.assertTrue(self.page.locator("#group-printers").is_visible())
+        self.assertFalse(self.page.locator("#group-camera").is_visible())
+        self.page.locator('.config-tabs a[data-section="camera"]').click()
+        # Same document: no reload, so no jump back to the top of a new page.
+        self.assertTrue(self.page.evaluate("window.__sameDocument === true"))
+        self.assertTrue(self.page.locator("#group-camera").is_visible())
+        self.assertFalse(self.page.locator("#group-printers").is_visible())
+        self.assertTrue(self.page.url.endswith("/config?section=camera"), self.page.url)
+        self.assertEqual(self.page.locator(
+            '.config-tabs a[data-section="camera"]').get_attribute("aria-current"), "page")
+        self.assertEqual(self.page.locator("#field-search").count(), 0)
+
+    def test_settings_autosave_writes_a_change_and_shows_a_refusal_in_place(self):
+        self.login()
+        self.page.goto(self.base + "/config?section=spools")
+        self.page.locator('input[name="spool.prompt_brand"]').check()
+        status = self.page.locator("#row-spool\\.prompt_brand .save-state")
+        status.filter(has_text="Saved").wait_for()
+        self.assertTrue(self.page.locator(".restart-needed").is_visible())
+        self.assertIn("prompt_brand: true", (self.tmp / "local.yaml").read_text())
+
+        self.page.locator('.config-tabs a[data-section="camera"]').click()
+        sensitivity = self.page.locator('input[name="visual_watch.sensitivity"]')
+        sensitivity.fill("99")
+        sensitivity.press("Tab")
+        refusal = self.page.locator("#row-visual_watch\\.sensitivity .save-state")
+        refusal.filter(has_text="at most 5").wait_for()
+        self.assertNotIn("sensitivity: 99", (self.tmp / "local.yaml").read_text())
 
     def test_control_post_refuses_browser_cookie_without_api_header(self):
         self.login()
@@ -196,6 +215,57 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.assertEqual(response.body(), JPEG_BYTES)
         self.assertTrue(response.body().startswith(b"\xff\xd8"),
                         "the snapshot is a JPEG from the fake source")
+
+    def test_designs_page_is_one_conversation(self):
+        """#1636: one message box starts the design, the reply and the turn's
+        preview land in the thread (the page's own poll reloads into them),
+        a question's button answers in place, and the next message iterates.
+        The design pipeline is doubled as in tests/test_webui_design_workshop.py."""
+        from unittest import mock
+
+        from print_handy.bot.handlers import design as design_handler
+        from print_handy.core import design
+        from print_handy.runtime import _config
+
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_webui_design_workshop import GOOD, THICKER, _runner, _scripted
+
+        self.settings_data["design"] = {"enabled": True, "chat_url": "http://design.test/v1",
+                                        "model": "fake", "timeout_s": 30,
+                                        "repair_attempts": 1}
+        complete = _scripted([GOOD, THICKER])
+        engine = mock.patch.object(design_handler, "_design_engine", lambda cfg, _c:
+                                   design.DesignEngine(cfg["paths"]["cache"], complete,
+                                                       cfg=cfg, runner=_runner))
+        for patch in (engine, mock.patch.object(_config, "_override", self.settings_data)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.addCleanup(lambda: getattr(self.httpd, "chat_service", None)
+                        and self.httpd.chat_service.close())
+
+        self.login()
+        self.page.goto(self.base + "/designs")
+        self.assertEqual(self.page.locator("form.design-composer").count(), 1)
+        self.page.fill("#d-text", "a 40x20 plate with two holes")
+        self.page.locator("form.design-composer button[type=submit]").click()
+        # The poll reloads the page once the question is asked.
+        question = self.page.locator(".chat-prompt button", has_text="Change it")
+        question.wait_for(timeout=30000)
+        log = self.page.locator("ol.chat-log")
+        self.assertIn("a 40x20 plate with two holes", log.locator(".chat-op").first.inner_text())
+        self.assertIn("Design turn 1", log.inner_text())
+        image = log.locator('img[src*="/preview?turn=1"]')
+        self.assertEqual(image.count(), 1)
+        self.assertTrue(self.page.evaluate(
+            "img => img.complete && img.naturalWidth > 0", image.element_handle()))
+
+        question.click()
+        self.page.locator("ol.chat-log", has_text="Say the change").wait_for(timeout=30000)
+        self.page.fill("#d-text", "give it a 6 mm lip")
+        self.page.locator("form.design-composer button[type=submit]").click()
+        self.page.locator('ol.chat-log img[src*="/preview?turn=2"]').wait_for(timeout=30000)
+        self.assertIn("Design turn 2", self.page.locator("ol.chat-log").inner_text())
+        self.assertEqual(self.page.locator("form.design-composer").count(), 1)
 
 
 if __name__ == "__main__":

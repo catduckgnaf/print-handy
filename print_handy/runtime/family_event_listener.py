@@ -114,7 +114,13 @@ class FamilyListener:
         self._claim_fn = claim_fn
         self._start_poster = start_poster or family_control.post_family_event
         self._pause_poster = pause_poster or family_control.post_pause_alert
-        self._terminal_poster = terminal_poster or family_control.post_family_event
+        if terminal_poster is None:
+            # The default terminal poster carries this listener's own
+            # printer_id down to the roast helper (#1672); an injected
+            # poster keeps the two-argument (kind, filename) contract.
+            terminal_poster = lambda kind, fn: family_control.post_family_event(
+                kind, fn, printer_id=printer_id)
+        self._terminal_poster = terminal_poster
         if retirer is None:
             # The default retirer is scoped to this listener's printer
             # (P2-176); an injected retirer keeps the two-argument

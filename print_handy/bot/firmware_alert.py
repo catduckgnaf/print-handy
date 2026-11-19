@@ -1,12 +1,14 @@
-"""Deliver ZMod update alerts on the platform the bot runs on ([firmware] update_alerts).
+"""Deliver firmware update alerts on the platform the bot runs on ([firmware] update_alerts).
 
 The bot heartbeat (Discord, Telegram and Matrix clients alike) calls
 :meth:`FirmwareAlerter.tick`. A due printer is checked in a background
 task, so the heartbeat never waits on a printer or on GitHub:
 
-- only ZMod printers Print Handy may apply updates on (the registry's
-  ``zmod`` family and firmware_update.is_apply_eligible); every other
-  family gets no alert (see docs/FIRMWARE-UPDATE.md);
+- only printers Print Handy may apply updates on
+  (firmware_update.is_apply_eligible: the ZMod family and vanilla
+  Klipper — generic Klipper and the Sovol Klipper family — plus
+  Forge-X when ``[firmware] forgex_apply`` is on); every other family
+  gets no alert (see docs/FIRMWARE-UPDATE.md);
 - each printer once per ``update_check_hours`` (default 24), jittered
   so a restart or a roster of printers does not check in lockstep, and
   never while it prints: a printing, paused or unreadable printer is
@@ -64,6 +66,18 @@ def notice_firmwares(cfg) -> frozenset:
     return frozenset(str(n).lower() for n in names)
 
 
+def update_channel(cfg) -> str:
+    """The prerelease track the owner subscribes to ([firmware] update_channel).
+
+    Settings validation guarantees one of settings.FIRMWARE_UPDATE_CHANNELS;
+    anything else read here (a configuration built by hand in a test, say)
+    falls back to "stable", the default that hears about finals only.
+    """
+    value = str((cfg.get("firmware") or {}).get("update_channel") or "stable")
+    value = value.strip().lower()
+    return value if value in settings.FIRMWARE_UPDATE_CHANNELS else "stable"
+
+
 def interval_s(cfg) -> float:
     hours = (cfg.get("firmware") or {}).get("update_check_hours", 24)
     try:
@@ -75,14 +89,18 @@ def interval_s(cfg) -> float:
 def alert_printers(cfg):
     """(printer_id, registry entry) for every roster printer that gets alerts.
 
-    ZMod-family printers whose profile is apply-eligible: the AD5X, AD5M,
-    AD5M Pro, Creator 5 and Creator 5 Pro under ZMod. A roster entry whose
-    model is not registered, or is any other family, is left out.
+    Every apply-eligible printer (firmware_update.is_apply_eligible):
+    the ZMod family (AD5X, AD5M, AD5M Pro, Creator 5 and Creator 5 Pro
+    under ZMod), vanilla Klipper (generic Klipper and the Sovol Klipper
+    family), and Forge-X only when ``[firmware] forgex_apply`` is on.
+    Vendor forks, OpenCreator and every non-Moonraker family are left
+    out by the eligibility rule itself. A roster entry whose model is
+    not registered is left out.
     """
     out = []
     for row in settings.printers(cfg):
         entry = fw.printer_entry(row.get("model"))
-        if entry is not None and entry.firmware_family == "zmod" and fw.is_apply_eligible(entry):
+        if entry is not None and fw.is_apply_eligible(entry, cfg):
             out.append((str(row["id"]), entry))
     return out
 
@@ -199,7 +217,8 @@ class FirmwareAlerter:
             if not enabled(cfg) or getattr(getattr(self.core, "gateway", None), "setup_only", False):
                 return []
             now = self.clock()
-            zmod_ids = {printer_id for printer_id, _ in alert_printers(cfg)}
+            zmod_ids = {printer_id for printer_id, entry in alert_printers(cfg)
+                        if entry.firmware_family == "zmod"}
             started = []
             for printer_id, model, entry in feed_printers(cfg):
                 if printer_id in self._feed_checking:
@@ -256,7 +275,9 @@ class FirmwareAlerter:
                 return []
             release = await asyncio.to_thread(self.releases.get)
             try:
-                observation = await asyncio.to_thread(fa.observe, transport, release)
+                observation = await asyncio.to_thread(
+                    fa.observe, transport, release,
+                    vendor=entry.vendor if entry is not None else "")
             except fw.FirmwareError as exc:
                 self._fail(printer_id, exc)
                 self._store(printer_id, state_dir, self._next(now))
@@ -264,8 +285,8 @@ class FirmwareAlerter:
             self._failing.discard(printer_id)
             mem = self._announced_mem.setdefault(printer_id, set())
             fresh = [offer for offer in fa.to_announce(
-                         fa.offers(observation), state,
-                         skipped=fa.skipped_everywhere(state_dir))
+                         fa.offers(observation, channel=update_channel(self.core.cfg)),
+                         state, skipped=fa.skipped_everywhere(state_dir))
                      if (offer.key, offer.applicable) not in mem]
             announced = {}
             for offer in fresh:
@@ -315,7 +336,8 @@ class FirmwareAlerter:
             rows = [row for row in feed.for_model(model) if row.id.lower() in wanted]
             notices, seen = fa.feed_notices(
                 rows, state,
-                skip_ids=(fa.COMPONENT,) if owns_zmod else ())
+                skip_ids=(fa.COMPONENT,) if owns_zmod else (),
+                channel=update_channel(self.core.cfg))
             label = self._feed_label(printer_id, entry)
             delivered = []
             for notice in notices:
@@ -324,11 +346,11 @@ class FirmwareAlerter:
                 else:
                     # Not delivered: keep the previous record so the next
                     # check announces it again.
-                    before = (state.get(fa.FEED_SEEN) or {}).get(notice.firmware_id)
+                    before = (state.get(fa.FEED_SEEN) or {}).get(notice.seen_key)
                     if before is None:
-                        seen.pop(notice.firmware_id, None)
+                        seen.pop(notice.seen_key, None)
                     else:
-                        seen[notice.firmware_id] = before
+                        seen[notice.seen_key] = before
             self._feed_store(printer_id, state_dir, self._next(now), seen)
             return delivered
         except Exception as exc:
@@ -460,7 +482,8 @@ class FirmwareAlerter:
 
         try:
             transport = self.transport_for(printer_id)
-            return await fw.confirmed_update(transport, entry, component, ask)
+            return await fw.confirmed_update(transport, entry, component, ask,
+                                             self.core.cfg)
         except Exception:
             logger.exception("firmware update from an alert failed")
             return ("The firmware update stopped on an error. No confirmation was completed, "

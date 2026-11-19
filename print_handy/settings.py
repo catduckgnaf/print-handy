@@ -162,7 +162,10 @@ def _apply_key_aliases(layer):
 
 
 # Sections whose keys are names you choose, not a fixed set.
-OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material_tuning"}
+OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material_tuning",
+                 # [cost_printers] (#1625): per-printer cost profiles keyed by
+                 # the names the operator chooses, like material families.
+                 "cost_printers"}
 # Keys that can be optionally specified even if absent from base home.yaml.
 OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int,
                  ("printer", "zmod_delivery_format"): str,
@@ -216,12 +219,16 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("flashforge_stock", "host"): str,
                  ("notify", "mqtt_enabled"): bool, ("notify", "mqtt_host"): str,
                  ("notify", "mqtt_port"): int, ("notify", "mqtt_topic"): str,
-                 ("notify", "mqtt_username"): str,
+                 ("notify", "mqtt_username"): str, ("notify", "mqtt_roast"): bool,
                  ("notify", "ntfy_enabled"): bool, ("notify", "ntfy_url"): str,
                  ("notify", "ntfy_topic"): str,
                  ("firmware", "update_alerts"): bool,
                  ("firmware", "update_check_hours"): int,
+                 ("firmware", "update_channel"): str,
                  ("firmware", "forgex_apply"): bool,
+                 ("external_intake", "enabled"): bool,
+                 ("external_intake", "directory"): str,
+                 ("external_intake", "max_bytes"): int,
                  ("prusa", "link_host"): str, ("prusa", "api_key_env"): str,
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
@@ -241,7 +248,8 @@ ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "deny
              ("firmware", "notice_firmwares")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
 # is the word, so the type check accepts either shape; _validate_purge checks the content.
-MIXED_KEYS = {("zmod", "plugins")}
+# [ai] allowed_users is one ID string; a list (its older shape) still loads.
+MIXED_KEYS = {("zmod", "plugins"), ("ai", "allowed_users")}
 PURGE_MODES = ("auto", "printer_chute", "prime_tower", "slicer_chute")
 PURGE_TOWER_CHOICES = ("auto", "on", "off")
 # [[printers]] entry keys (#257 Stage 2a, #333; design docs/MULTI-PRINTER-DESIGN.md §2.1). The
@@ -1778,13 +1786,14 @@ def _validate_vision(data):
         raise SettingsError(f"[vision] roast_custom_bank must be a path string or empty, "
                             f"got {custom_bank!r}")
     vision["roast_custom_bank"] = custom_bank.strip()
-    # Local failure detector (#455): off by default. When on, the camera
-    # watchdog's verdicts can come from the built-in ONNX detector
-    # (hermes.local_vision) on installs with no vision endpoint route
-    # configured; endpoint routes keep precedence. local_model_path names
-    # the weights file when the operator supplies their own — empty uses
-    # the pinned model, downloaded once into the model directory.
-    local_detector = vision.setdefault("local_detector_enabled", False)
+    # Local failure detector (#455): on by default, so the camera watchdog
+    # judges frames with the built-in ONNX detector (runtime.local_vision)
+    # out of the box. Vision endpoint routes keep precedence only while
+    # ai_enabled is on (off by default). local_model_path names the
+    # weights file when the operator supplies their own; empty uses the
+    # pinned model, downloaded once into the model directory. False turns
+    # the detector off.
+    local_detector = vision.setdefault("local_detector_enabled", True)
     if not isinstance(local_detector, bool):
         raise SettingsError(f"[vision] local_detector_enabled must be true or false, "
                             f"got {local_detector!r}")
@@ -1812,7 +1821,7 @@ def _validate_vision(data):
     # Local empty-plate producer (#455 item 4, Stage 1): off by default,
     # and a separate switch from the failure detector — a different
     # mechanism (difference against a calibrated plate reference,
-    # hermes.local_empty) with a different failure mode. When on, idle
+    # runtime.local_empty) with a different failure mode. When on, idle
     # plate checks (auto light-off, the next-plate offer) can be answered
     # locally when no vision endpoint route is configured; it respects
     # vision.watch_source's routing rule and never feeds the in-print
@@ -1831,7 +1840,7 @@ def _validate_vision(data):
     # when the printer lists exactly one light object); on Bambu Lab
     # the target is the chamber light and on Elegoo SDCP its Cmd 403
     # light — light_object does not apply to either. The strict
-    # Moonraker name validation lives in hermes.light_control (the
+    # Moonraker name validation lives in runtime.light_control (the
     # listener refuses an unusable name there); here the shape is just
     # int / string.
     minutes = vision.setdefault("auto_light_off_minutes", 0)
@@ -1850,24 +1859,41 @@ FIRMWARE_CHECK_HOURS_MAX = 168
 # firmwares Print Handy supports on Flashforge printers. Forge-X follows its feed channel, which is
 # the 1.4.2 prerelease line until 1.4.2 ships stable. Ids are the firmware feed's (docs/firmware-feed.toml).
 FIRMWARE_NOTICE_DEFAULT = ("zmod", "opencreator", "forge-x")
+# Prerelease tracks an owner can subscribe to with [firmware] update_channel
+# (#1627), most stable first as written in a settings file. The value names
+# the least stable track wanted; firmware_alerts.TRACKS carries the same
+# words for the runtime gate (the two are pinned together by tests).
+FIRMWARE_UPDATE_CHANNELS = ("stable", "rc", "beta", "alpha")
 
 
 def _validate_firmware(data):
     """[firmware]: chat alerts when a printer firmware update is available.
 
-    ``update_alerts`` (default true) posts one alert per new ZMod or
-    HelixScreen release for each ZMod printer, with an Update button that
+    ``update_alerts`` (default true) posts one alert per new component
+    version for each apply-eligible printer (ZMod, vanilla Klipper, and
+    Forge-X's ``forge-x`` component when ``forgex_apply`` is on), with an
+    Update button that
     runs the same confirmed apply as ``/print-firmware update <component>``. Nothing is ever
     applied without that press and its confirmation. ``update_check_hours``
     is how often each printer is checked (1 to 168 hours, default 24).
     ``notice_firmwares`` lists the firmware feed lines whose new releases
     get a chat notice (default zmod, opencreator, forge-x); every other
     line stays in the feed and on the Web UI's Firmware page only.
+    ``update_channel`` (default "stable") is the least stable prerelease
+    track the owner subscribes to (#1627): "rc" adds release candidates,
+    "beta" adds betas, "alpha" adds every other prerelease a firmware
+    publishes. It changes what is surfaced, never what is applied: a
+    subscribed prerelease still goes through the same confirmed path.
     """
     firmware = data.setdefault("firmware", {})
     alerts = firmware.setdefault("update_alerts", True)
     if not isinstance(alerts, bool):
         raise SettingsError(f"[firmware] update_alerts must be true or false, got {alerts!r}")
+    channel = firmware.setdefault("update_channel", "stable")
+    if not isinstance(channel, str) or channel.strip().lower() not in FIRMWARE_UPDATE_CHANNELS:
+        raise SettingsError(f"[firmware] update_channel must be one of "
+                            f"{list(FIRMWARE_UPDATE_CHANNELS)}, got {channel!r}")
+    firmware["update_channel"] = channel.strip().lower()
     hours = firmware.setdefault("update_check_hours", 24)
     if isinstance(hours, bool) or not isinstance(hours, int)             or not 1 <= hours <= FIRMWARE_CHECK_HOURS_MAX:
         raise SettingsError(f"[firmware] update_check_hours must be a whole number of hours "
@@ -1880,6 +1906,37 @@ def _validate_firmware(data):
         raise SettingsError(f"[firmware] notice_firmwares must be a list of firmware feed ids, "
                             f"like {list(FIRMWARE_NOTICE_DEFAULT)!r}, got {names!r}")
     firmware["notice_firmwares"] = [n.strip().lower() for n in names if n.strip()]
+
+
+EXTERNAL_INTAKE_MAX_BYTES_CAP = 2 * 1024 * 1024 * 1024
+
+
+def _validate_external_intake(data):
+    """The [external_intake] section (#1525): the opt-in watched folder.
+
+    Off by default. While ``enabled`` is false or ``directory`` is empty,
+    nothing is scanned: the Web UI's External intake page shows the
+    disabled state and no draft cards are made. The directory is the one
+    allowlisted folder the intake may look in — the watcher never scans
+    anywhere else, and a draft card never prints or charges a spool on
+    its own (see core.external_intake). ``max_bytes`` bounds one intake
+    file (default 512 MiB, the library's own default).
+    """
+    intake = data.setdefault("external_intake", {})
+    enabled = intake.setdefault("enabled", False)
+    if not isinstance(enabled, bool):
+        raise SettingsError(f"[external_intake] enabled must be true or false, got {enabled!r}")
+    directory = intake.setdefault("directory", "")
+    if directory is None:
+        directory = ""
+    if not isinstance(directory, str):
+        raise SettingsError(f"[external_intake] directory must be a folder path, got {directory!r}")
+    intake["directory"] = directory.strip()
+    max_bytes = intake.setdefault("max_bytes", 512 * 1024 * 1024)
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) \
+            or not 1 <= max_bytes <= EXTERNAL_INTAKE_MAX_BYTES_CAP:
+        raise SettingsError(f"[external_intake] max_bytes must be a whole number of bytes "
+                            f"from 1 to {EXTERNAL_INTAKE_MAX_BYTES_CAP}, got {max_bytes!r}")
 
 
 def _validate_notify(data):
@@ -1900,6 +1957,11 @@ def _validate_notify(data):
         value = notify.setdefault(key, False)
         if not isinstance(value, bool):
             raise SettingsError(f"[notify] {key} must be true or false, got {value!r}")
+    # The last-roast MQTT sensor (#1672) defaults on: it rides the MQTT
+    # switch above, so an operator who never enables MQTT never sees it.
+    roast = notify.setdefault("mqtt_roast", True)
+    if not isinstance(roast, bool):
+        raise SettingsError(f"[notify] mqtt_roast must be true or false, got {roast!r}")
     host = notify.setdefault("mqtt_host", "")
     if not isinstance(host, str):
         raise SettingsError(f"[notify] mqtt_host must be a broker hostname or empty, got {host!r}")
@@ -1957,19 +2019,14 @@ def _validate_design(data):
     """The [design] section (#388 Stage 1; auto-on posture from the close-out ruling).
 
     ``enabled`` is tri-state. Absent (None here) means AUTO: design turns
-    on whenever a design/LLM endpoint is resolvable — every mode resolves
-    [design] inheriting [llm] first; Hermes mode additionally counts the
-    plugin's ``print_design`` auxiliary-task lane as available — the same
+    on whenever a design/LLM endpoint is resolvable — [design] inheriting
+    [llm] is the only lane there is — the same
     posture the camera checks have (on whenever an endpoint is available).
     ``enabled = true`` forces it on (an unconfigured endpoint is then a
     visible failure, not a silent off), and ``enabled = false`` turns it
     off in all cases. ``chat_url``, ``model`` and ``api_key_env`` are empty
     to inherit the [llm] values, so the common single-endpoint setup only
-    sets ``design.model`` (a stronger model for design turns). The Hermes
-    host's own LLM lane (with its registered ``print_design`` auxiliary
-    task, pinned in the profile's ``auxiliary.print_design`` block) is
-    only the fallback for a Hermes install with no endpoint configured
-    (#524 Stage 3; see docs/DESIGN.md). The shipped
+    sets ``design.model`` (a stronger model for design turns). The shipped
     config files deliberately carry no ``enabled`` line, so a config that
     never mentions it gets the auto posture; the effective state is
     resolved by ``print_handy.core.design.effective_enabled``.
@@ -1999,6 +2056,26 @@ def _validate_design(data):
     design["repair_attempts"] = attempts
 
 
+def ai_allowed_users(value) -> list[str]:
+    """The [ai] allowed_users IDs as a list, from the stored string or a list.
+
+    Entries split on commas and whitespace. Square brackets and quotes
+    around an entry are dropped: they are never part of a Discord,
+    Telegram or Matrix ID, and an earlier Web UI save could write the
+    list's printed form (``['[]']``) back into the file, which must read
+    as empty rather than as a user named "[]"."""
+    items = value if isinstance(value, (list, tuple)) else [value]
+    out = []
+    for item in items:
+        if item is None or isinstance(item, bool):
+            continue
+        for part in re.split(r"[\s,]+", str(item)):
+            part = part.strip("[]'\"")
+            if part and part not in out:
+                out.append(part)
+    return out
+
+
 def _validate_ai(data):
     """The [ai] section (#818): optional small, chat and heavy tiers, each a table.
 
@@ -2012,11 +2089,17 @@ def _validate_ai(data):
     # Who may use the AI edit lane (#902), and how often. Empty allowed_users keeps the
     # lane open to every user the gateway already authorizes; 0 requests per hour disables
     # the limit.
-    allowed = ai.setdefault("allowed_users", [])
-    if not isinstance(allowed, list) or any(isinstance(v, bool) or not isinstance(v, (str, int))
-                                            for v in allowed):
-        raise SettingsError(f"[ai] allowed_users must be a list of user IDs, got {allowed!r}")
-    ai["allowed_users"] = [str(v).strip() for v in allowed if str(v).strip()]
+    # The value is one comma- or space-separated string, like the other
+    # user ID settings; a list (the older shape) still loads. Either way
+    # it is stored back in the one canonical string form, so the Web UI
+    # text field shows and submits it unchanged.
+    allowed = ai.setdefault("allowed_users", "")
+    if isinstance(allowed, list):
+        if any(isinstance(v, bool) or not isinstance(v, (str, int)) for v in allowed):
+            raise SettingsError(f"[ai] allowed_users must be user IDs, got {allowed!r}")
+    elif isinstance(allowed, bool) or not isinstance(allowed, (str, int)):
+        raise SettingsError(f"[ai] allowed_users must be user IDs, got {allowed!r}")
+    ai["allowed_users"] = ", ".join(ai_allowed_users(allowed))
     per_hour = ai.setdefault("edit_requests_per_hour", 20)
     if isinstance(per_hour, bool) or not isinstance(per_hour, int) or per_hour < 0:
         raise SettingsError(f"[ai] edit_requests_per_hour must be a whole number 0 or more, got {per_hour!r}")
@@ -2286,6 +2369,37 @@ def validate(data):
                 raise SettingsError(f"[material_tuning] {family}.{key} must be between {low:g} and {high:g}, "
                                     f"got {value!r}")
             profile[key] = float(value)
+    # [cost] workspace defaults and [cost_printers] profiles (#1625).
+    # Cost is informational only; validation here only refuses values
+    # the engine cannot compute with, never a print.
+    cost_cfg = data.get("cost") or {}
+    if not isinstance(cost_cfg, dict):
+        raise SettingsError(f"[cost] must be a table, got {cost_cfg!r}")
+    for key in ("electricity_rate_per_kwh", "labor_rate_per_hour", "tax_rate",
+                "marketplace_fee_rate", "overhead_percent", "flat_fee_per_job",
+                "default_filament_cost_per_kg", "resin_ipa_per_print", "resin_ppe_per_print"):
+        value = cost_cfg.get(key)
+        if value is not None and (isinstance(value, bool)
+                                  or not isinstance(value, (int, float)) or value < 0):
+            raise SettingsError(f"[cost] {key} must be a number at or above 0, got {value!r}")
+    for key in ("failure_rate_fdm", "failure_rate_resin", "default_margin"):
+        value = cost_cfg.get(key)
+        if value is not None and (isinstance(value, bool)
+                                  or not isinstance(value, (int, float)) or not 0 <= value < 1):
+            raise SettingsError(f"[cost] {key} must be a fraction from 0 to under 1, got {value!r}")
+    if str(cost_cfg.get("pricing_mode", "margin")).lower() not in ("margin", "markup"):
+        raise SettingsError("[cost] pricing_mode must be margin or markup, "
+                            f"got {cost_cfg.get('pricing_mode')!r}")
+    if str(cost_cfg.get("cost_mode", "hobby")).lower() not in ("hobby", "seller"):
+        raise SettingsError("[cost] cost_mode must be hobby or seller, "
+                            f"got {cost_cfg.get('cost_mode')!r}")
+    if str(cost_cfg.get("tax_mode", "add_on_top")).lower() not in ("add_on_top", "included", "none"):
+        raise SettingsError("[cost] tax_mode must be add_on_top, included or none, "
+                            f"got {cost_cfg.get('tax_mode')!r}")
+    cost_printers = data.get("cost_printers") or {}
+    if not isinstance(cost_printers, dict) or not all(
+            isinstance(v, dict) for v in cost_printers.values()):
+        raise SettingsError("[cost_printers] must be a table of per-printer profile tables")
     bed = data.get("printer", {}).get("bed_mm")
     if (not isinstance(bed, list) or len(bed) != 2
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in bed)):
@@ -2412,6 +2526,7 @@ def validate(data):
     _validate_vision(data)
     _validate_spool(data)
     _validate_notify(data)
+    _validate_external_intake(data)
     _validate_firmware(data)
     _validate_logging(data)
     _validate_public_text(data)
@@ -2589,8 +2704,8 @@ def set_override(data):
     A listener instance process (#336) serves exactly one roster printer:
     the registry launcher resolves that printer's view (view_for) and
     installs it here, so every settings consumer in the process — adapters,
-    the Hermes _config fallback, the healthcheck — reads the printer it
-    serves. Tests use it the same way hermes._config.set_override is used.
+    the runtime _config fallback, the healthcheck — reads the printer it
+    serves. Tests use it the same way runtime._config.set_override is used.
     Pass None to clear.
     """
     global _override

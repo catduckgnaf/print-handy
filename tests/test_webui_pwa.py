@@ -122,14 +122,17 @@ class PWAFoundationUnitTests(unittest.TestCase):
         self.assertIn('rel="apple-touch-icon"', html)
         self.assertIn('<meta name="apple-mobile-web-app-capable" content="yes">', html)
         self.assertIn('<meta name="mobile-web-app-capable" content="yes">', html)
-        # Registration is guarded to secure contexts, requests
-        # persistent storage, and wires the install affordances.
+        # Registration is guarded to secure contexts and requests
+        # persistent storage. No install affordance is wired (#1623):
+        # no beforeinstallprompt button and no iOS note, on any page.
         self.assertIn("window.isSecureContext", html)
         self.assertIn("navigator.serviceWorker.register('/sw.js'", html)
         self.assertIn("navigator.storage.persist()", html)
-        self.assertIn("beforeinstallprompt", html)
-        self.assertIn("Install app", html)
-        self.assertIn("Add to Home Screen", html)
+        self.assertNotIn("beforeinstallprompt", html)
+        self.assertNotIn("Install app", html)
+        self.assertNotIn("Add to Home Screen", html)
+        self.assertNotIn("ph-install", html)
+        self.assertNotIn("ph-ios-install", html)
 
         # Bare pages (chrome=False) like /login carry the same head
         # tags and registration script.

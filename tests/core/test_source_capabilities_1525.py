@@ -20,9 +20,36 @@ def test_every_source_kind_has_a_cell_or_is_unknown_only():
 
 def test_gap_table_names_the_honest_gaps():
     text = " ".join(row["gap"] or "" for row in sc.gap_table()).lower()
-    assert "cura" in text and "genuine" in text
     assert "hardware" in text  # the U1 gap stays named
-    assert "not branch-protection-required" in text or "not a required" in text
+    # "Slicer test (bambu)" is a required branch-protection check (2026-11-18),
+    # so no gap may still call it advisory.
+    assert "not branch-protection-required" not in text and "not a required" not in text
+    # The Prusa rich-fidelity remainder stays named: the genuine fixture
+    # is geometry-only and the rich roles are proven on a spec-synthetic
+    # fixture, labeled as such.
+    assert "spec-synthetic" in text
+    # Genuine Cura, Orca and Bambu producer fixtures exist now, so no gap
+    # may still claim one of those is missing. (The Anycubic gap's "no
+    # genuine fixture is redistributed" is about that vendor's files and
+    # is not one of these claims.)
+    assert "not yet produced" not in text
+    for stale in ("no genuine cura", "no genuine prusa",
+                  "no genuine orca", "no genuine bambu"):
+        assert stale not in text
+
+
+def test_genuine_producer_cells_name_fixtures_the_provenance_manifest_calls_genuine():
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    provenance = {row["file"]: row["class"] for row in json.loads(
+        (root / "tests" / "corpus" / "producer-fixtures" / "PROVENANCE.json")
+        .read_text())["fixtures"]}
+    for cell in sc.cells():
+        if cell["evidence"] != "genuine-producer":
+            continue
+        name = Path(cell["fixture"]).name
+        assert provenance.get(name) == "genuine", cell["id"]
 
 
 def test_no_cell_claims_genuine_producer_without_a_gap_note():

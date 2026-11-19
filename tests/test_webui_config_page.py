@@ -7,6 +7,7 @@ PRINT_HANDY_CONFIG, with the server on an ephemeral loopback port.
 """
 import html as html_lib
 import http.client
+import json
 import re
 import tempfile
 import threading
@@ -47,6 +48,13 @@ def hidden_inputs(body):
 def row_segment(body, field_id):
     """The rendered row for one field, for error-placement assertions."""
     return body.split(f'id="row-{field_id}"', 1)[1].split("</div>", 1)[0]
+
+
+def section_shown(body, name):
+    """True when settings section ``name`` is rendered visible (not hidden)."""
+    tag = re.search(r'<section class="config-group" id="group-%s"[^>]*>' % re.escape(name), body)
+    assert tag, f"section {name} is not rendered"
+    return " hidden" not in tag.group(0)
 
 
 class ConfigPageTests(unittest.TestCase):
@@ -130,16 +138,18 @@ class ConfigPageTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(csrf)
         self.assertIn('action="/config/preview"', body)
-        # Stage 3 sub-tabs: the default page shows the first section
-        # only; every section is one server-side link away, and unshown
-        # sections ride along as hidden inputs, never as controls.
-        self.assertIn("<h2>Printers</h2>", body)
-        self.assertNotIn("<h2>Logging</h2>", body)
+        # Sub-tabs: the default page shows the first section; the others
+        # are rendered but hidden, and the tabs switch them in the browser
+        # (each tab is still a ?section= link for no-script and deep links).
+        self.assertTrue(section_shown(body, "printers"))
+        self.assertFalse(section_shown(body, "logging"))
         for name in section_names:
             self.assertIn(f'href="/config?section={name}"', body)
         self.assertIn('name="printer.model"', body)
-        self.assertIn('type="hidden" name="logging.level"', body)
-        self.assertNotIn('id="row-logging.level"', body)
+        # A hidden section's fields are real controls inside it, not
+        # hidden inputs: autosave and the no-script form both see them.
+        self.assertNotIn('type="hidden" name="logging.level"', body)
+        self.assertIn('id="row-logging.level"', body)
         for name, heading in (("printers", "Printers"),
                               ("platform", "Platform and chat"),
                               ("spools", "Spools"), ("ai", "AI and models"),
@@ -174,8 +184,10 @@ class ConfigPageTests(unittest.TestCase):
             self.assertIn(f'<option value="{choice}"', bodies["camera"])
         # No Moonraker URL is configured here, so the derived mode is off.
         self.assertIn('<option value="off" selected>', bodies["camera"])
-        for choice in ("auto", "moonraker", "bambu", "go2rtc", "none"):
+        for choice in ("auto", "moonraker", "go2rtc", "none"):
             self.assertIn(f'<option value="{choice}"', bodies["camera"])
+        # An AD5X install has no Bambu Lab printer, so the bambu pin is not offered.
+        self.assertNotIn('<option value="bambu"', bodies["camera"])
         self.assertIn('<option value="auto" selected>', bodies["camera"])
         # The sensitivity number input carries the catalog bounds.
         self.assertIn('min="1" max="5"', row_segment(bodies["camera"], "visual_watch.sensitivity"))
@@ -251,25 +263,18 @@ class ConfigPageTests(unittest.TestCase):
             self.assertNotIn("Set up Matrix", body)
 
     def test_save_from_a_non_first_tab_preserves_unshown_sections(self):
-        # Stage 3's required guard: a save submitted from the camera tab
-        # (the browser posts that tab's controls plus every hidden input
-        # the page rendered) changes the camera field and leaves an
-        # unshown section's file value exactly as it was.
+        # A no-script save submitted from the camera tab changes the camera
+        # field and leaves every other section's file value exactly as it
+        # was. Hidden sections are still form controls, so the browser
+        # submits their current values, which are no change.
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(
                 tmp, "discord:\n  chat_id: '12345'\nlogging:\n  level: debug\n")
             _code, body, csrf = self.get_config(port, section="camera")
-            form = [(k, v) for k, v in hidden_inputs(body)]
-            # The tab's own visible controls, as a browser submits them:
-            # browser_form values restricted to the camera group's fields,
-            # with the one edit applied.
-            from print_handy.webui.catalog import field_by_id
-            visible = [(k, v) for k, v in self.browser_form(environ, csrf)
-                       if k == "_csrf" or (field_by_id(k) is not None
-                                           and field_by_id(k).group == "camera")]
-            form += [(k, v) for k, v in visible if k != "_csrf"]
-            form = [(k, v) for k, v in form if k != "visual_watch.sensitivity"]
-            form.append(("visual_watch.sensitivity", "4"))
+            self.assertTrue(section_shown(body, "camera"))
+            self.assertFalse(section_shown(body, "logging"))
+            form = self.browser_form(environ, csrf, **{"visual_watch.sensitivity": "4"})
+            form.append(("_section", "camera"))
             code, body = self.post(port, "/config/preview", form)
             self.assertEqual(code, 200, body)
             code, body = self.post(port, "/config", hidden_inputs(body))
@@ -402,25 +407,19 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(local.read_bytes(), before)
 
     def test_env_overridden_field_in_an_unshown_group_is_never_written(self):
-        # The env-override test above shows the field on its own tab,
-        # where it renders as a disabled control (never submitted). In
-        # an unshown group the same field rides as a hidden input, which
-        # IS submitted — a save from another tab must still never write
-        # it (parse_form skips overridden fields entirely).
+        # An environment-set field renders as a disabled control in its
+        # section, shown or hidden, so it is never submitted; a crafted
+        # post naming it is still skipped (parse_form skips overridden
+        # fields entirely), so a save from another tab never writes it.
         environ = {"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": "4"}
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(tmp, environ=environ)
             _code, body, csrf = self.get_config(port, section="printers")
-            self.assertIn(
-                'type="hidden" name="visual_watch.sensitivity" value="4"', body)
-            from print_handy.webui.catalog import field_by_id
-            form = [(k, v) for k, v in hidden_inputs(body)]
-            visible = [(k, v) for k, v in self.browser_form(environ, csrf)
-                       if k == "_csrf" or (field_by_id(k) is not None
-                                           and field_by_id(k).group == "printers")]
-            form += [(k, v) for k, v in visible if k != "_csrf"]
-            form = [(k, v) for k, v in form if k != "printer.name"]
-            form.append(("printer.name", "Workshop"))
+            self.assertFalse(section_shown(body, "camera"))
+            self.assertNotIn('type="hidden" name="visual_watch.sensitivity"', body)
+            self.assertIn("disabled", row_segment(body, "visual_watch.sensitivity"))
+            form = self.browser_form(environ, csrf, **{"printer.name": "Workshop"})
+            form += [("visual_watch.sensitivity", "4"), ("_section", "printers")]
             code, body = self.post(port, "/config/preview", form)
             self.assertEqual(code, 200, body)
             code, body = self.post(port, "/config", hidden_inputs(body))
@@ -474,18 +473,17 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(code, 200, body)
             self.assertIn(("_section", "camera"), hidden_inputs(body))
 
-    def test_config_page_warns_before_a_tab_switch_discards_edits(self):
-        # Tab links are plain GETs: without a guard, clicking one throws
-        # away every edit made on the current tab (impossible before
-        # stage 3, when all groups shared one page).
+    def test_switching_tabs_never_discards_edits(self):
+        # Every change saves as it is made and the tabs switch sections in
+        # the browser, so there is nothing for a tab switch to throw away
+        # and no unsaved-changes guard to answer.
         with tempfile.TemporaryDirectory() as tmp:
             port, _local, _environ = self.start(tmp)
             _code, body, _csrf = self.get_config(port)
-        self.assertIn("Unsaved changes on this tab will be lost", body)
-        self.assertIn("config-tabs", body)
-        # The Set up links navigate away the same way, so the guard
-        # covers them too.
-        self.assertIn(".config-tabs a, .setup-reveal a", body)
+        self.assertNotIn("Unsaved changes", body)
+        self.assertIn("/config/field", body)
+        self.assertIn('class="pills config-tabs"', body)
+        self.assertIn('data-section="camera"', body)
 
     def test_revealed_platform_stays_revealed_after_a_validation_error(self):
         # ?setup= exists only on the GET: the form reposts it as _setup,
@@ -639,9 +637,11 @@ class ConfigPageTests(unittest.TestCase):
             self.assertIn('class="error"', row_segment(body, "visual_watch.sensitivity"))
             self.assertIn("at most 5", row_segment(body, "visual_watch.sensitivity"))
             self.assertEqual(dict(hidden_inputs(body)).get("_section"), "camera")
-            # The previously shown section now rides along as hidden
-            # inputs, so a corrected save still cannot clear it.
-            self.assertIn('type="hidden" name="printer.model"', body)
+            self.assertTrue(section_shown(body, "camera"))
+            # The previously shown section is still in the form, hidden,
+            # so a corrected save still cannot clear it.
+            self.assertFalse(section_shown(body, "printers"))
+            self.assertIn('name="printer.model"', body)
             self.assertEqual(local.read_bytes(), before)
 
     def test_unknown_form_keys_are_never_written(self):
@@ -782,6 +782,85 @@ class ConfigPageTests(unittest.TestCase):
             self.assertNotIn(OTHER_SECRET, body)
 
 
+class AutosaveFieldTests(unittest.TestCase):
+    """POST /config/field: the Settings page saves one setting as it changes."""
+
+    start = ConfigPageTests.start
+    request = ConfigPageTests.request
+    get_config = ConfigPageTests.get_config
+    post = ConfigPageTests.post
+
+    def save(self, port, csrf, field_id, *values, confirmed=False):
+        pairs = [("_csrf", csrf), ("_field", field_id)] + [(field_id, v) for v in values]
+        if confirmed:
+            pairs.append(("_confirmed", "yes"))
+        code, body = self.post(port, "/config/field", pairs)
+        return code, json.loads(body)
+
+    def test_a_change_is_written_and_a_repeat_is_no_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, _environ = self.start(tmp)
+            _code, _body, csrf = self.get_config(port)
+            code, out = self.save(port, csrf, "spool.prompt_brand", "true")
+            self.assertEqual((code, out["ok"], out["changed"]), (200, True, True))
+            self.assertEqual(out["saved"], ["spool.prompt_brand"])
+            self.assertIn("prompt_brand: true", local.read_text())
+            code, out = self.save(port, csrf, "spool.prompt_brand", "true")
+            self.assertEqual((code, out["changed"]), (200, False))
+
+    def test_an_unchecked_toggle_saves_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, _environ = self.start(tmp, extra="spool:\n  prompt_brand: true\n")
+            _code, _body, csrf = self.get_config(port)
+            code, out = self.save(port, csrf, "spool.prompt_brand")  # no value: unchecked
+            self.assertEqual((code, out["changed"]), (200, True))
+            self.assertIn("prompt_brand: false", local.read_text())
+
+    def test_an_invalid_value_is_refused_and_nothing_is_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, _environ = self.start(tmp)
+            before = local.read_bytes()
+            _code, _body, csrf = self.get_config(port)
+            code, out = self.save(port, csrf, "visual_watch.sensitivity", "99")
+            self.assertEqual((code, out["ok"]), (400, False))
+            self.assertIn("at most 5", out["error"])
+            self.assertEqual(local.read_bytes(), before)
+
+    def test_unknown_and_environment_set_fields_are_refused(self):
+        environ = {"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": "4"}
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, _environ = self.start(tmp, environ=environ)
+            before = local.read_bytes()
+            _code, _body, csrf = self.get_config(port)
+            code, out = self.save(port, csrf, "no.such_setting", "1")
+            self.assertEqual(code, 404)
+            code, out = self.save(port, csrf, "visual_watch.sensitivity", "2")
+            self.assertEqual(code, 409)
+            self.assertIn("environment", out["error"])
+            self.assertEqual(local.read_bytes(), before)
+
+    def test_a_change_that_needs_a_yes_asks_first_then_saves_on_confirm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, _environ = self.start(tmp)
+            _code, _body, csrf = self.get_config(port)
+            code, out = self.save(port, csrf, "webui.cookie_secure", "true")
+            self.assertEqual((code, out["ok"]), (409, False))
+            self.assertIn("plain HTTP", out["confirm"])
+            self.assertNotIn("cookie_secure: true", local.read_text())
+            code, out = self.save(port, csrf, "webui.cookie_secure", "true", confirmed=True)
+            self.assertEqual((code, out["changed"]), (200, True))
+            self.assertIn("cookie_secure: true", local.read_text())
+
+    def test_a_save_without_the_page_token_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, _environ = self.start(tmp)
+            before = local.read_bytes()
+            code, _body = self.post(port, "/config/field",
+                                    [("_field", "spool.prompt_brand"), ("spool.prompt_brand", "true")])
+            self.assertEqual(code, 403)
+            self.assertEqual(local.read_bytes(), before)
+
+
 class ResultPageWarningTests(unittest.TestCase):
     """Review of #1103: the save-result page must name every tolerated
     closed-table key and say the next restart will fail until it is
@@ -909,7 +988,8 @@ class UnnamedGroupTests(unittest.TestCase):
         self.assertIn("<h2>Other</h2>", body)
         self.assertIn('id="row-misc.thing"', body)
         self.assertIn('id="row-misc.other_thing"', body)
-        self.assertNotIn('id="row-logging.level"', body)
+        self.assertTrue(section_shown(body, "other"))
+        self.assertFalse(section_shown(body, "logging"))
 
     def test_error_in_unnamed_group_lands_on_it(self):
         body = self.render(section="logging",
@@ -984,3 +1064,32 @@ class SectionLinkEncodingTests(unittest.TestCase):
         selected = self._page("Q #1", section=section)
         self.assertIn('aria-current="page"', selected)
         self.assertIn('id="row-logging.level"', selected)
+
+
+class OneNavigationTests(unittest.TestCase):
+    """Every page shows the same header tabs (they used to differ per page,
+    so the header changed height and Data and Wrapped came and went)."""
+
+    start = ConfigPageTests.start
+    request = ConfigPageTests.request
+
+    @staticmethod
+    def nav(body):
+        return re.search(r'<nav class="pills" aria-label="Web UI pages">(.*?)</nav>', body, re.S).group(1)
+
+    def test_every_page_carries_the_same_tabs_including_data_and_wrapped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            navs = {}
+            for path in ("/", "/config", "/printers", "/sliced", "/workflow", "/chat"):
+                code, body = self.request(port, "GET", path)
+                self.assertEqual(code, 200, path)
+                navs[path] = re.sub(r' class="active"', "", self.nav(body))
+            self.assertIn('href="/data"', navs["/"])
+            self.assertEqual(len(set(navs.values())), 1, navs)
+            # Wrapped (in season) and the other grouped pages live in their
+            # tab's page strip, not as tabs of their own.
+            for grouped in ("/wrapped", "/sliced", "/workflow", "/printer-settings", "/firmware"):
+                self.assertNotIn(f'href="{grouped}"', navs["/"])
+            code, body = self.request(port, "GET", "/data")
+            self.assertIn('href="/wrapped"', body.split('aria-label="Data pages"')[1])

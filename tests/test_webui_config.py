@@ -79,7 +79,7 @@ class WebUISettingsTests(unittest.TestCase):
 class CatalogTests(unittest.TestCase):
     def test_every_guided_setup_field_is_in_the_catalog(self):
         step_keys = {step.key for step in guided.steps()}
-        self.assertEqual(set(GUIDED_FIELDS) | {"token_stored", "webui_login",
+        self.assertEqual(set(GUIDED_FIELDS) | {"brand", "token_stored", "webui_login",
                                                "webui_username", "webui_password",
                                                "webui_confirm"}, step_keys)
         for step_key, field_id in GUIDED_FIELDS.items():
@@ -197,12 +197,26 @@ class CatalogTests(unittest.TestCase):
     def test_catalog_groups_cover_every_field_and_pin_the_slicing_group(self):
         # Stage 3 renders the catalog by group: every field has exactly one,
         # and the slicing group is exactly the vendor-choice pair plus the
-        # layout spacing preset (2.2.2 settings-surface fix).
+        # layout spacing preset (2.2.2 settings-surface fix), the
+        # external-intake watched-folder fields (#1525), and the part
+        # gaps, prime tower, ZMod purge, Klipper macro and Flash Studio
+        # fields the slicer reads.
         for field in CATALOG:
             with self.subTest(field=field.id):
                 self.assertTrue(field.group)
         slicing = {field.id for field in CATALOG if field.group == "slicing"}
-        self.assertEqual(slicing, {"printer.slicer", "delivery.methods", "layout.spacing"})
+        self.assertEqual(slicing, {"printer.slicer", "delivery.methods", "layout.spacing",
+                                   "external_intake.enabled", "external_intake.directory",
+                                   "external_intake.max_bytes",
+                                   "layout.arrange_gap_mm", "layout.arrange_edge_mm",
+                                   "layout.merge_spacing_mm", "layout.merge_edge_margin_mm",
+                                   "layout.single_copy_edge_mm", "layout.multi_copy_edge_mm",
+                                   "layout.max_merged_hours",
+                                   "prime_tower.size_mm", "prime_tower.part_clearance_mm",
+                                   "prime_tower.edge_mm", "prime_tower.merge_slack_mm",
+                                   "purge.mode", "purge.prime_tower",
+                                   "printer.start_macro", "printer.end_macro",
+                                   "slicer.flash_studio_path"})
         self.assertEqual(field_by_id("timelapse.mode").group, "camera")
         self.assertEqual(field_by_id("services.camera_source").group, "camera")
         self.assertEqual(field_by_id("printer.model").group, "printers")
@@ -382,7 +396,9 @@ class CatalogTests(unittest.TestCase):
             tuple(sorted(printers.MODELS, key=lambda key: (printers.MODELS[key].label.casefold(), key))),
         )
         self.assertEqual(choices_for(field_by_id("bot.platform")), tuple(KNOWN_PLATFORMS))
-        self.assertEqual(choices_for(field_by_id("bot.mode")), tuple(settings.BOT_MODES))
+        # bot.mode has one legal value (standalone), so it is no field.
+        self.assertEqual(settings.BOT_MODES, ("standalone",))
+        self.assertIsNone(field_by_id("bot.mode"))
         self.assertEqual(choices_for(field_by_id("printer.slicer"), model_key="bambulab.a1"),
                          printers.MODELS["bambulab.a1"].vendor.slicers)
         self.assertEqual(choices_for(field_by_id("delivery.methods"), model_key="bambulab.a1"),
@@ -483,14 +499,15 @@ class WriteAPITests(unittest.TestCase):
         # A Matrix ID is not numeric: @user:server must pass the same
         # load/validate path the ai.allowed_users catalog field uses and
         # come back unchanged.
-        changed = write_changes({"ai.allowed_users": ["@name:matrix.org"]},
+        # The value is one ID string (the form the text field submits).
+        changed = write_changes({"ai.allowed_users": "@name:matrix.org"},
                                 config_path=self.local, environ={},
                                 timestamp="20261026-120000")
         self.assertEqual(changed, [("ai", "allowed_users")])
         data = settings.load(local=self.local, environ={})
-        self.assertEqual(data["ai"]["allowed_users"], ["@name:matrix.org"])
+        self.assertEqual(data["ai"]["allowed_users"], "@name:matrix.org")
         values = values_by_id(local=self.local, environ={})
-        self.assertEqual(values["ai.allowed_users"].value, ["@name:matrix.org"])
+        self.assertEqual(values["ai.allowed_users"].value, "@name:matrix.org")
         self.assertEqual(values["ai.allowed_users"].provenance, SETTINGS_FILE)
 
     def test_write_creates_the_file_and_preserves_uncatalogued_data(self):
