@@ -21,6 +21,18 @@ from .test_launch_state import leases, make_job, upload_ok, uploads
 from .test_launch_state import mapped, printer  # noqa: F401  (fixtures shared with the lease tests)
 
 
+
+def _assert_one_pause(mock, **kw):
+    """Exactly one pause POST, with Print Handy's M117 pause reason sent just before it
+    (helixscreen#2130): the reason never replaces or repeats the pause."""
+    from unittest.mock import call as _call
+    calls = mock.call_args_list
+    pauses = [c for c in calls if c.args[:1] == ("/printer/print/pause",)]
+    assert pauses == [_call("/printer/print/pause", method="POST", timeout=15, **kw)]
+    reasons = [c for c in calls if c.args[:1] == ("/printer/gcode/script",)
+               and c.kwargs["data"]["script"].startswith("M117 Paused by Print Handy: ")]
+    assert len(reasons) == 1 and calls.index(reasons[0]) < calls.index(pauses[0])
+
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -591,7 +603,7 @@ def test_ad5x_pin_pause_sends_one_moonraker_pause_and_reads_back():
             mock.patch("print_handy.runtime.print_control._call") as call:
         out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode"}, pause_wait_s=2, pause_poll_s=0.01)
     assert out == "Paused. Printer now reports paused."
-    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    _assert_one_pause(call)
 
 
 def test_ad5x_pin_force_restart_ladder_on_the_default_printer_is_unchanged():

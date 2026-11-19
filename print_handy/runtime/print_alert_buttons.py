@@ -1919,16 +1919,21 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
             # readback (never resending) and let the observed state
             # choose the reply: paused, still printing, a terminal
             # state, or unknown when no usable readback was obtained.
-            send_error: Exception | None = None
-            try:
-                control.send_pause()
-            except Exception as exc:
-                send_error = exc
             # A typed /print-pause (#1524 review) carries ``command``: it has
             # no alert message whose buttons need replacing, and a fresh
             # camera alert would land in the home Discord chat, not where
             # the command was typed. Its reply says how to try again instead.
             from_command = bool(alert.get("command"))
+            # The reason the printer's own screen shows (helixscreen#2130):
+            # the auto-pause names its verdict; a tap or a typed pause says chat.
+            from . import pause_reason
+            reason = alert.get("pause_reason") or (
+                pause_reason.CHAT_REASON if from_command else pause_reason.ALERT_REASON)
+            send_error: Exception | None = None
+            try:
+                control.send_pause(reason)
+            except Exception as exc:
+                send_error = exc
             again = ("Say /print-pause to try again." if from_command
                      else "A fresh alert with a Pause button is posted above.")
             repost = (lambda *_a, **_k: "") if from_command else _repost_alert

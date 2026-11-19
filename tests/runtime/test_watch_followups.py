@@ -289,9 +289,9 @@ def test_moonraker_auto_pause_names_the_listeners_printer(monkeypatch):
     seen = []
     monkeypatch.setattr(pab, "handle_click", lambda action, alert: seen.append(alert) or "ok")
     monkeypatch.setattr(mel, "_watch_printer_id", lambda: "second")
-    mel._auto_pause_early("risky.gcode", "ident")
+    mel._auto_pause_early("risky.gcode", "ident", verdict="spaghetti")
     assert seen == [{"kind": "visual", "filename": "risky.gcode", "identity": "ident",
-                     "printer_id": "second"}]
+                     "pause_reason": "possible spaghetti", "printer_id": "second"}]
 
 
 def test_bambu_alerts_carry_the_launched_printer(monkeypatch):

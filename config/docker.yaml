@@ -60,6 +60,9 @@ services:
 printer:
   # Override with PRINT_HANDY__PRINTER__MODEL=sovol.sv06 etc.
   model: klipper.generic
+  # Also pop up the pause reason as a Klipper prompt, for screens that never show
+  # the printer message (Guppy Screen). PRINT_HANDY__PRINTER__PAUSE_PROMPT
+  pause_prompt: false
 spool:
   # Ask for brand/vendor in the new-spool walkthrough (#512); off by default.
   prompt_brand: false

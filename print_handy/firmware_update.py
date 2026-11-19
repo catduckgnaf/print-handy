@@ -1606,6 +1606,16 @@ def send_channel_switch(transport, files, prepared: PreparedChannelSwitch, *,
         except FirmwareError:
             last_status = None
             continue
+        except Exception as exc:  # noqa: BLE001 - logged; the restore below must run
+            # An unexpected read failure leaves the config write unproven, the
+            # same as a refused read: log the cause, keep retrying within the
+            # bounded attempts, and restore the saved config if it never
+            # verifies (#1684). A programming error here is logged with its
+            # traceback, not hidden, and never leaves the changed config live.
+            logger.warning("channel switch verification for %s failed: %s", name, exc,
+                           exc_info=True)
+            last_status = None
+            continue
         component = last_status.component(name)
         if component is not None and component.channel == prepared.target_channel:
             text = (f"Switched **{name}** to the {prepared.target_channel} channel — "

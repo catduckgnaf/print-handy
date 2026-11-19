@@ -108,6 +108,8 @@ NARRATION_VOLUME = 1.0
 # The one shipped music track, supplied by the maintainer for Wrapped.
 BUNDLED_MUSIC = Path(__file__).resolve().parents[1] / "data" / "audio" / "pole_position_nights.mp3"
 BUNDLED_MUSIC_TITLE = "Pole Position Nights"
+# Credited in print_handy/data/audio/CREDITS.md, which ships beside it.
+BUNDLED_MUSIC_CREDIT = "Preston Brown, CC BY 4.0"
 # Every music bed fades out over the video's last seconds, and a
 # repeated track fades out before each seam and back in after it.
 MUSIC_FADE_SECONDS = 2
@@ -756,7 +758,7 @@ def resolve_music(data):
                     "notes": [f"music: operator file {chosen}"]}
         notes.append(f"music: operator file not found at {setting}")
     if _readable(BUNDLED_MUSIC):
-        notes.append(f"music: bundled track ({BUNDLED_MUSIC_TITLE})")
+        notes.append(f"music: bundled track ({BUNDLED_MUSIC_TITLE} by {BUNDLED_MUSIC_CREDIT})")
         return {"kind": "bundled", "path": BUNDLED_MUSIC, "notes": notes}
     notes.append("music: synthesized bed (generated locally; the bundled track is missing)")
     return {"kind": "synthesized", "path": None, "notes": notes}

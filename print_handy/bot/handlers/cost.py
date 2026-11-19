@@ -135,14 +135,20 @@ def cost_answer(text, data=None, *, archive=None, spool_lookup=None):
     data = data if data is not None else _settings.current()
     workspace = _cost.WorkspaceCost.from_settings(data)
     grams, hours, material = _parse_ask(text)
-    if grams is not None:
+    if grams is not None or hours is not None:
+        # An hours-only ask prices the time (power, wear, labor) with no
+        # filament line, and the reply says no material was counted (#1677).
         profile, _ = _cost.printer_profile_for(data)
-        line = _cost.MaterialLine(name=material or "Filament", material=material or "",
-                                  grams=grams)
-        job = _cost.JobCostInput(lines=[line], print_hours=hours or 0.0,
+        lines = ([_cost.MaterialLine(name=material or "Filament", material=material or "",
+                                     grams=grams)] if grams is not None else [])
+        job = _cost.JobCostInput(lines=lines, print_hours=hours or 0.0,
                                  grams_source="manual entry in chat")
         result = _cost.compute(job, profile, workspace)
-        return _cost.format_chat_summary(result, title="estimate")
+        summary = _cost.format_chat_summary(result, title="estimate")
+        if grams is None:
+            summary += ("\nNo filament counted: the ask named hours only. Add the grams "
+                        "(for example \"50 g, 3 h\") to include material.")
+        return summary
     records = _records(data)
     if _MONTH.search(text):
         return _month_answer(records, workspace)
@@ -254,8 +260,8 @@ def _attachment_decides(text):
     """
     if _MONTH.search(text):
         return False
-    grams, _hours, _material = _parse_ask(text)
-    return grams is None
+    grams, hours, _material = _parse_ask(text)
+    return grams is None and hours is None
 
 
 def _dispatch_answer(text, event):

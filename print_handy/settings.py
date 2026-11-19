@@ -775,6 +775,22 @@ def _validate_forgex_timelapse(data, model):
         raise SettingsError("[printer] forgex_timelapse only applies to Flashforge printers on Forge-X firmware")
 
 
+def _validate_pause_prompt(data, model):
+    """[printer] pause_prompt (helixscreen#2130): also show Print Handy's pause reason as a
+    Klipper action:prompt dialog, for screens that never show the display message.
+
+    True or false, off by default. It is a Klipper prompt, so turning it on for a
+    printer that is not on Moonraker is refused, not ignored.
+    """
+    value = data["printer"].get("pause_prompt")
+    if value is None:
+        return
+    if not isinstance(value, bool):
+        raise SettingsError(f"[printer] pause_prompt must be true or false, got {value!r}")
+    if value and model.vendor.connection != "moonraker":
+        raise SettingsError("[printer] pause_prompt only applies to Klipper printers on Moonraker")
+
+
 def _validate_opencreator_overrides(data, model):
     """[printer] opencreator_* (#1490 tranche 5): per-print C5_PRINT_START overrides.
 
@@ -2461,6 +2477,7 @@ def validate(data):
     _validate_zmod_delivery_format(data, model)
     _validate_opencreator_overrides(data, model)
     _validate_forgex_timelapse(data, model)
+    _validate_pause_prompt(data, model)
     _validate_stock_lan(data, model)
     _validate_prusa_link(data, model)
     _validate_elegoo_sdcp(data, model)

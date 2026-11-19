@@ -10,6 +10,18 @@ LIVE = ("Nozzle hit bed or part detachment. Weight 1512>1500.0. Z=10. FIRMWARE_R
         "https://wiki.zmod.link/Global/#nozzle_control\nOnce the underlying issue is corrected, use the\n")
 
 
+
+def _assert_one_pause(mock, **kw):
+    """Exactly one pause POST, with Print Handy's M117 pause reason sent just before it
+    (helixscreen#2130): the reason never replaces or repeats the pause."""
+    from unittest.mock import call as _call
+    calls = mock.call_args_list
+    pauses = [c for c in calls if c.args[:1] == ("/printer/print/pause",)]
+    assert pauses == [_call("/printer/print/pause", method="POST", timeout=15, **kw)]
+    reasons = [c for c in calls if c.args[:1] == ("/printer/gcode/script",)
+               and c.kwargs["data"]["script"].startswith("M117 Paused by Print Handy: ")]
+    assert len(reasons) == 1 and calls.index(reasons[0]) < calls.index(pauses[0])
+
 def test_explain_nozzle_collision_live_text():
     out = pab.explain(LIVE)
     assert "1512 g" in out and "1500 g" in out and "Z=10 mm" in out and "blob" in out
@@ -281,7 +293,7 @@ def test_visual_pause_requires_current_matching_print():
         out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode"},
                                pause_wait_s=2, pause_poll_s=0.01)
     assert out.startswith("Paused.")
-    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    _assert_one_pause(call)
 
 
 def _no_discord_route():
@@ -305,7 +317,7 @@ def test_visual_pause_stays_printing_says_did_not_pause_and_records_a_fresh_aler
          patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=0.03, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
-    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    _assert_one_pause(call)
     assert "did not pause" in out and "still reports printing" in out
     assert len(rows) == 1 and rows[0]["filename"] == "f.gcode" and rows[0]["identity"] == "job:7"
 
@@ -343,7 +355,7 @@ def test_visual_pause_print_completes_during_confirmation_reports_actual_state(t
          patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=2, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
-    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    _assert_one_pause(call)
     assert "complete" in out
     assert "still reports printing" not in out and "still printing" not in out
     assert rows == []
@@ -387,7 +399,7 @@ def test_visual_pause_post_failure_but_readback_paused_reports_paused(tmp_path):
          patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=2, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
-    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    _assert_one_pause(call)
     assert out.startswith("Paused.") and "did not pause" not in out
     assert rows == []
 
@@ -415,7 +427,7 @@ def test_visual_pause_post_failure_and_unreadable_reports_unknown_outcome(tmp_pa
          patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=0.05, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
-    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    _assert_one_pause(call)
     assert "unknown" in out and "did not pause" not in out
     assert len(rows) == 1
     assert "still printing" not in repost.call_args[0][3]
@@ -940,7 +952,7 @@ def test_buttons_act_on_the_alerts_printer(action):
     if action == "pause":
         lan.assert_called_with(printer_id="printer-b")
         assert all(c.args == ("printer-b",) or c.kwargs == {"printer_id": "printer-b"} for c in status.call_args_list)
-        send.assert_called_once_with("/printer/print/pause", method="POST", timeout=15, printer_id="printer-b")
+        _assert_one_pause(send, printer_id="printer-b")
     elif action == "resume":
         resume.assert_called_once_with("f.gcode", printer_id="printer-b")
         status.assert_called_once_with(printer_id="printer-b")

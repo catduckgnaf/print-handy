@@ -5,6 +5,8 @@
 # PRINT_HANDY__PRINTERS__<ID>__<KEY>. See docs/SETTINGS.md, "Printers list".
 printer:
   model: flashforge.ad5x
+  # Also pop up the pause reason as a Klipper prompt (Guppy Screen and the like).
+  pause_prompt: false
 nozzle_temp_offsets:
   brass: 0.0
   hardened_steel: 5.0
