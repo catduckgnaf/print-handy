@@ -1411,7 +1411,7 @@ class BotCore(_RoutedAdapter):
             text = linked.text
             # Linked author text is source material; current requester intent wins.
             if requester_instruction:
-                urls = re.findall(r"https?://[^\\s<>\\)\\]]+", linked.text)
+                urls = re.findall(r"https?://[^\s<>\)\]]+", linked.text)
                 text = f"{urls[0] if urls else ''} {requester_instruction}".strip()
         media = await self.save_attachments(content_from)
         prov = self.provenance_for(addressed, message)
