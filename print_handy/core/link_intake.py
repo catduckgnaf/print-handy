@@ -27,12 +27,34 @@ def requested_authored_plate(text, manifest):
     instruction = str(text).replace(url, '', 1).strip(' <>\t\n.,!?')
     match = re.fullmatch(r'(?:please\s+)?print\s+(?:only\s+)?plate\s+([1-9][0-9]*)(?:\s*,?\s+please)?',
                          instruction, flags=re.IGNORECASE)
-    if not match:
-        return [] if re.search(r'\bprint\b.*\b(?:plates?|parts?)\b', instruction,
-                               flags=re.IGNORECASE | re.DOTALL) else None
-    plate_id = match[1]
-    plates = (manifest or {}).get('plate_usage') or {}
-    return [plate_id] if plate_id in {str(key) for key in plates} else []
+    if match:
+        plate_id = match[1]
+        plates = (manifest or {}).get('plate_usage') or {}
+        return [plate_id] if plate_id in {str(key) for key in plates} else []
+    part = re.fullmatch(
+        r'(?:please\s+)?print\s+(?:only\s+)?the\s+'
+        r'(first|second|third|fourth|fifth|[1-9][0-9]*)\s+part(?:\s*,?\s+please)?',
+        instruction, flags=re.IGNORECASE)
+    if part:
+        ordinals = {'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5}
+        ordinal = ordinals.get(part[1].lower(), int(part[1]) if part[1].isdigit() else None)
+        parts = (manifest or {}).get('parts') or []
+        usage = (manifest or {}).get('plate_usage') or {}
+        if ordinal is None or ordinal > len(parts):
+            return []
+        key = parts[ordinal - 1].get('key')
+        if not key:
+            return []
+        matches = [str(plate_id) for plate_id, details in usage.items()
+                   if key in (details.get('part_keys') or [])]
+        if len(matches) != 1:
+            return []
+        details = next(value for plate_id, value in usage.items() if str(plate_id) == matches[0])
+        return [matches[0]] if set(details.get('part_keys') or []) == {key} else []
+    if re.search(r'\bprint\b.*\b(?:plates?|parts?)\b', instruction,
+                 flags=re.IGNORECASE | re.DOTALL):
+        return []
+    return None
 
 
 def model_link(text):

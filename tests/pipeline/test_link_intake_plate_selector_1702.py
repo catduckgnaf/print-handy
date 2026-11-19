@@ -14,10 +14,26 @@ from tests.pipeline.test_multi_tool_intake import run_flow
     ("https://www.printables.com/model/1-ghost print plate 2, please", ["2"]),
     ("https://www.printables.com/model/1-ghost print plate 3", []),
     ("https://www.printables.com/model/1-ghost print plate 1 or 2", []),
+    ("https://www.printables.com/model/1-ghost print only the second part", ["2"]),
+    ("https://www.printables.com/model/1-ghost please print only the second part", ["2"]),
 ])
 def test_selector_resolves_only_existing_unambiguous_authored_plate(message, expected):
-    manifest = {"plate_usage": {"1": {"part_keys": ["a"]}, "2": {"part_keys": ["b"]}}}
+    manifest = {
+        "parts": [{"key": "a"}, {"key": "b"}],
+        "plate_usage": {"1": {"part_keys": ["a"]}, "2": {"part_keys": ["b"]}},
+    }
     assert requested_authored_plate(message, manifest) == expected
+
+
+def test_authored_part_selector_refuses_shared_plate_and_missing_ordinal():
+    message = "https://www.printables.com/model/1-ghost print only the second part"
+    manifest = {
+        "parts": [{"key": "a"}, {"key": "b"}],
+        "plate_usage": {"1": {"part_keys": ["a"]}, "2": {"part_keys": ["a", "b"]}},
+    }
+    assert requested_authored_plate(message, manifest) == []
+    assert requested_authored_plate(
+        "https://www.printables.com/model/1-ghost print only the third part", manifest) == []
 
 
 def test_bare_model_link_preserves_unselected_flow():
