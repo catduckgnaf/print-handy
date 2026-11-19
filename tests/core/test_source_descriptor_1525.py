@@ -346,3 +346,25 @@ def test_genuine_prusa_fixture_is_a_real_prusa_export():
     assert descriptor["kind"] == "prusa"
     assert descriptor["source_version"] == "2.8.1"
     assert descriptor["user_class"] == "geometry-only"
+
+
+@pytest.mark.parametrize("other_user", ["A_user", "Z_user"])
+def test_an_empty_order_stack_never_takes_another_stacks_layers(tmp_path, other_user):
+    """#1676: a stack with no [containers] falls back to the typed instances,
+    but only to those no other stack lists. Extruder 0 (applied last) has no
+    container order; extruder 1's own user layer must not leak into it and
+    override extruder 0's own choice, whichever way the files sort."""
+    members = {
+        **_base_members(),
+        "Cura/M.global.cfg": _stack("M", "machine", ["M_user"]),
+        "Cura/M_user.inst.cfg": _instance("user", {"layer_height": "0.16"}),
+        "Cura/E0.extruder.cfg": ("[general]\nversion = 6\nid = E0\n\n[metadata]\n"
+                                 "type = extruder_train\nposition = 0\n\n[containers]\n"),
+        "Cura/E0_user.inst.cfg": _instance("user", {"infill_pattern": "gyroid"}),
+        "Cura/E1.extruder.cfg": _stack("E1", "extruder_train", [other_user], position=1),
+        f"Cura/{other_user}.inst.cfg": _instance("user", {"infill_pattern": "cubic"}),
+    }
+    target = _write(tmp_path, "empty-order.3mf", members)
+    with zipfile.ZipFile(target) as archive:
+        raw = sd.parse_cura_settings(archive, archive.namelist())
+    assert raw == {"infill_pattern": "gyroid", "layer_height": "0.16"}

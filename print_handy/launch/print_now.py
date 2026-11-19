@@ -914,7 +914,20 @@ def _zmod_upload_artifact(adapter, st, g, sha, remote, mapping=None):
     version = _zmod_version(st) if setting == "auto" else None
     fmt, reason = gcode_3mf.resolve_format(setting, version)
     if fmt != "3mf":
-        return g, sha, remote, None
+        # Plain G-code delivery carries the slot choice too (#1679): the uploaded
+        # copy is relabeled exactly as the packaged one is, so a screen or
+        # HelixScreen reprint, which sends no slot map, still loads the chosen
+        # slots. The remote name keeps the archived G-code's stem+sha, so
+        # find_job/record binding is unchanged; the upload checksum is the
+        # relabeled copy's, the bytes Moonraker actually receives.
+        labeled, slot_labels = _slot_labeled_copy(adapter, g, mapping)
+        if slot_labels is None or labeled == g:
+            note = {"format": "gcode", "setting": setting, "reason": reason,
+                    "slot_labeled": slot_labels} if slot_labels is not None else None
+            return g, sha, remote, note
+        note = {"format": "gcode", "setting": setting, "reason": reason,
+                "upload_sha256": file_sha256(labeled), "slot_labeled": slot_labels}
+        return labeled, note["upload_sha256"], remote, note
     nozzle = (st.get("nozzle") or {}).get("diameter_mm")
     inner, slot_labels = _slot_labeled_copy(adapter, g, mapping)
     package = gcode_3mf.package(inner, gcode_3mf.package_path_for(g),

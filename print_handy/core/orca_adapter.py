@@ -1555,7 +1555,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             and color_decisions.get('mode') == 'per_part'):
         from . import purge
         purge_plan = purge.resolve(state=state, adapter=printer, live=True)
-        if purge_plan.refusal:
+        # A refusal is about how color changes purge. A slice measured towerless
+        # never changes tools (checked after the export below), so nothing purges
+        # and the refusal does not apply to it (#1680).
+        if purge_plan.refusal and not towerless:
             raise RuntimeError(purge_plan.refusal)
         tower_mm = purge.tower_mm(nozzle_dia, purge_plan)
     if towerless:
@@ -2110,7 +2113,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         mapped_profile = True
     elif mapping:
         import copy
-        purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
+        if towerless:
+            # One tool, no color change: no purge and no tower, whatever the
+            # printer's purge plan says about color changes (#1680).
+            purge_mode, purge_machine, purge_process = None, {}, {'purge_in_prime_tower': '0',
+                                                                  'enable_prime_tower': '0'}
+        else:
+            purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
         process.update({'enable_prime_tower': '1', **purge_process})
         _selected('job', ['enable_prime_tower', *purge_process])

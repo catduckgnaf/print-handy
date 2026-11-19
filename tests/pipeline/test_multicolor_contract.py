@@ -139,8 +139,11 @@ def test_public_prepare_verify_launch(tmp_path, n, mapping, bare_upload):
         assert len(submissions)==1
         command=submissions[0]['script']
         assert 'ALLOWED_TOOL_COUNT=' not in command
-        for tool,slot in mapping.items():
-            assert f'T{tool}={slot}' in command
+        # The upload is slot-labeled (#1679): logical tool Tn is renumbered to the
+        # tool of its slot, so a screen reprint loads the same slots, and the start
+        # map names those tool numbers (slot n is tool n-1).
+        for slot in mapping.values():
+            assert f'T{int(slot)-1}={slot}' in command
         assert 'AUTO_ASSIGN=0' in command and 'LEVELING=0' in command
         # A replay is refused before anything is sent (#693): a clean REFUSED line, not a traceback.
         with pytest.raises(SystemExit,match='REFUSED: mapped submission checkpoint exists.*Nothing started'):
@@ -550,8 +553,9 @@ def test_sparse_public_prepare_verify_launch(tmp_path):
         cli(['print-now', str(path)])
     assert len(submissions) == 1
     command = submissions[0]['script']
-    assert 'T0=1' in command and 'T2=4' in command
-    assert 'T1=' not in command and 'T3=' not in command
+    # Slot-labeled upload (#1679): tool 2 on slot 4 is uploaded as tool 3.
+    assert 'T0=1' in command and 'T3=4' in command
+    assert 'T1=' not in command and 'T2=' not in command
     assert 'AUTO_ASSIGN=0' in command
 
 

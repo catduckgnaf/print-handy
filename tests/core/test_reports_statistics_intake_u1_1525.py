@@ -40,6 +40,31 @@ class TestConversionReport:
         assert classes == {"layer_height": "preserved", "wall_loops": "replaced",
                            "brim_width": "dropped", "mystery": "unknown"}
 
+    def test_a_setting_the_notes_say_was_carried_is_translated(self):
+        # #1681: a Cura setting carried under its Orca name is "translated",
+        # read from the record's own conversion notes, the shape
+        # source_descriptor writes ("cura <key> carried as <orca_key>=<value>").
+        conversion = dict(CONVERSION, conversion_notes=[
+            "cura wall_line_count carried as wall_loops=4",
+            "cura speed_print carried as outer_wall_speed=60"])
+        conversion["settings"] = dict(CONVERSION["settings"], **{
+            "wall_loops": {"project_value": "4", "selected_value": "4",
+                           "selected_reason": "designer", "origin": "designer"},
+            "outer_wall_speed": {"project_value": "60", "selected_value": "60",
+                                 "selected_reason": "unattributed", "origin": "unknown"}})
+        report = cr.build_report(conversion, job_id="j1")
+        classes = {row["setting"]: row["class"] for row in report["settings"]}
+        assert classes["wall_loops"] == "translated"
+        assert classes["outer_wall_speed"] == "translated"
+        assert classes["layer_height"] == "preserved"  # not named in the notes
+        assert report["counts"]["translated"] == 2
+
+    def test_a_carried_setting_the_destination_replaced_stays_replaced(self):
+        conversion = dict(CONVERSION, conversion_notes=["cura wall_line_count carried as wall_loops=3"])
+        report = cr.build_report(conversion)
+        classes = {row["setting"]: row["class"] for row in report["settings"]}
+        assert classes["wall_loops"] == "replaced"
+
     def test_text_and_html_render_the_same_rows(self):
         report = cr.build_report(CONVERSION, job_id="j1")
         text = cr.render_text(report)
@@ -143,6 +168,53 @@ class TestExternalIntake:
         assert len(cards) == 1 and cards[0]["status"] == "planned"
         cards, state = ei.scan(watched, enabled=True, state=state)
         assert cards == []  # deduped by hash + path
+
+    def test_concurrent_confirmations_charge_once_per_identity(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier, Event, Lock
+
+        card = {"sha256": "concurrent", "status": "planned", "path": "x"}
+        ledger = set()
+        start = Barrier(8)
+        charge_lock = Lock()
+        calls = []
+        others_arrived = Event()
+
+        class CountingLedger(set):
+            # Every caller's ledger check counts; the first charge waits until
+            # every other caller has at least reached the lock, so without the
+            # per-identity lock they all pass the check before anyone records.
+            def __contains__(self, item):
+                with charge_lock:
+                    seen.append(item)
+                    if len(seen) >= 8:
+                        others_arrived.set()
+                return super().__contains__(item)
+
+        seen = []
+        ledger = CountingLedger()
+
+        def charge(**kw):
+            with charge_lock:
+                calls.append(kw)
+            others_arrived.wait(0.5)
+            return "charged"
+
+        def confirm():
+            start.wait()
+            try:
+                return ei.confirm_mark_printed(
+                    card, printer_id="ad5x", print_id="p1", ledger=ledger,
+                    charge=lambda **kw: charge(**kw))
+            except ei.IntakeRefused:
+                return None
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: confirm(), range(8)))
+        assert sum(result is not None for result in results) == 1
+        assert len(calls) == 1
+        assert len(ledger) == 1
+        assert ei._CONFIRM_LOCKS == {}  # no lock outlives its confirmations
 
     def test_confirm_charges_once_and_never_twice(self, tmp_path):
         card = {"sha256": "abc", "status": "planned", "path": "x"}
