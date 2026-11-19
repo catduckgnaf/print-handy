@@ -232,7 +232,8 @@ class FlowAdapter:
         if len(kw.get('choices') or []) == 1:
             self.log.append(kw['question'])
         want = self.wants.pop(0)
-        answer = next(c for c in kw['choices'] if want in c)
+        answer = next((c for c in kw['choices'] if want in c), None)
+        assert answer is not None, f"wanted {want!r} in choices {kw['choices']!r}"
         import tools.clarify_gateway as cm
         cm.resolve_gateway_clarify(kw['clarify_id'], answer)
         return S(success=True)
@@ -270,9 +271,11 @@ def flow_env(creator, tmp_path, monkeypatch):
     monkeypatch.setattr(prepared_intake, '_heavy', thread_heavy)
 
     sliced = []
+    slice_scopes = []
 
     def fake_slice(job_path, recipe_sha256=None):
         data = json.loads(Path(job_path).read_text())
+        slice_scopes.append(data.get('selected_plates'))
         picks = sorted({sel['slot'] for sel in (data.get('color_decisions') or {}).get('choices', {}).values()})
         data['printer_model'] = creator
         data['tool_mapping'] = {str(slot - 1): slot for slot in picks}
@@ -299,13 +302,13 @@ def flow_env(creator, tmp_path, monkeypatch):
                                                  {'gcode': str(Path(filename)), 'plate': 1, 'parts': ['Ghost Stand'],
                                                   'slot': 2, 'color': 'black', 'material': 'PLA',
                                                   'filament_g': None, 'seconds': 3600}))
-    return S(root=root, sliced=sliced, model=creator, holder=holder)
+    return S(root=root, sliced=sliced, slice_scopes=slice_scopes, model=creator, holder=holder)
 
 
-def run_flow(flow_env, src_bytes, wants):
+def run_flow(flow_env, src_bytes, wants, text='https://www.printables.com/model/1-ghost'):
     flow_env.holder['bytes'] = src_bytes
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
-              message_id='m1', text='https://www.printables.com/model/1-ghost')
+              message_id='m1', text=text)
     adapter = FlowAdapter(wants)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, tool_state(), flow_env.root, timeout=1))
     receipt = json.loads(next(flow_env.root.glob('*.json')).read_text())

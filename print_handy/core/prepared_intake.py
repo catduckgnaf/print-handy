@@ -37,7 +37,7 @@ from ..intake.fit_flow import (  # moved in 2.3.0 (#1323); old path kept for one
 FILAMENT_SLOTS = settings.current()['printer']['filament_slots']
 print_summary = _external.lazy('discord_print_summary')
 print_next = _external.lazy('print_next')
-from .link_intake import ask, model_link, has_duration_question  # noqa: E402
+from .link_intake import ask, model_link, has_duration_question, requested_authored_plate  # noqa: E402
 from .quantity_selection import quantity_options, parse_quantity  # noqa: E402
 from .threemf_canonical import intake_working_copy  # noqa: E402
 from .background_slice import drop_runner, runner_for, slice_binding  # noqa: E402
@@ -2791,6 +2791,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if not manifest.get('source_sha256'):
             manifest.update(source_sha256=await asyncio.to_thread(mj.file_sha256, path))
         job['color_manifest'] = manifest
+        # An explicit plate request applies only to authored plate IDs from
+        # this exact inspected source. An unknown or ambiguous request must
+        # not widen to all plates.
+        requested_plates = requested_authored_plate(getattr(event, 'text', '') or '', manifest)
+        if requested_plates == []:
+            raise ValueError('That plate selection does not identify exactly one authored plate. '
+                             'Nothing was sliced or started.')
+        if requested_plates is not None:
+            job['selected_plates'] = requested_plates
         job['color_schema'] = 'part_slots_v1'
         from . import support_clearance
         # The job's own printer's nozzle and the project's first layer (#1373 review:
@@ -2808,9 +2817,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         fit_state = _fit_state(state, job)
         receipt.update(job_json=str(jp), source_sha256=manifest['source_sha256'], status='AWAITING_COLOR')
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-        if not reuse:
-            # The same bytes sliced before for this printer (#1648 item 7): one
-            # choice between last time's decisions and asking them all again.
+        if not reuse and requested_plates is None:
+            # Reusing a prior whole-project decision slice must not replace
+            # an explicit plate scope from this intake.
             reused = await _offer_previous_decisions(adapter, source, key, timeout, job, state, folder,
                                                      receipts_root=root)
             if reused is not None:
