@@ -4,7 +4,6 @@ Moved verbatim from ``plugins/print-feedback/__init__.py`` (#1323). The plugin f
 loads the same handlers for one release.
 """
 import logging
-from pathlib import Path
 
 from .common import (
     _EditHost, _INTAKE_UNAVAILABLE_REASON, _adapter_for, _ask_which_printer, _busy_label,
