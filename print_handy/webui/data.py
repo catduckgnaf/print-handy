@@ -772,7 +772,7 @@ def _wrapped_for_video(data, year, records_vault):
     return summary["wrapped"], summary["records"]
 
 
-def video_status(data, year, *, records_vault=None, jobs=None):
+def video_status(data, year, *, records_vault=None, jobs=None, now=None):
     """(code, body) for GET /api/wrapped/video-status?year=: the page's poll."""
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
@@ -780,6 +780,10 @@ def video_status(data, year, *, records_vault=None, jobs=None):
         year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    if not wrapped_revealed(data, year, now):
+        # Sealed like every other Wrapped surface: no compile state or video
+        # availability for a year that has not opened (#1678).
+        return 403, {"ok": False, "reason": _sealed_reason(year)}
     status = (jobs or video_module.JOBS).status(year)
     return 200, {"ok": True, **status,
                  "available": wrapped_video_path(

@@ -298,6 +298,29 @@ def test_apply_starts_a_job_and_the_status_page_follows_it(monkeypatch, tmp_path
     assert "Updated" in body and "refresh" not in body
 
 
+def test_failed_update_keeps_the_observed_offer(monkeypatch, tmp_path):
+    transport = StatefulTransport()
+    _wire(monkeypatch, transport)
+    data = _data(tmp_path)
+    notifications.record_observation(
+        data, "kl1", "Garage Klipper",
+        _status(fw.Component("klipper", current="v0.12.0-289",
+                             remote="v0.12.0-310")))
+    monkeypatch.setattr(fw, "send_update",
+                        lambda *_args, **_kwargs: "The update failed; still available.")
+    handler = FakeHandler(data)
+    firmware_handlers.update_apply_route(
+        handler, {"printer": ["kl1"], "component": ["klipper"]})
+    job_id = handler.redirects[0].split("job=")[1]
+    job = update_jobs.get_job(job_id)
+    deadline = time.time() + 10
+    while job.running and time.time() < deadline:
+        time.sleep(0.05)
+    notices = notifications.current_notifications(data)
+    assert len(notices) == 1 and notices[0].kind == "update"
+    assert "Update available" == notices[0].title
+
+
 def test_status_page_for_a_running_job_refreshes(monkeypatch, tmp_path):
     transport = StatefulTransport()
     prepared = fw.prepare_update(transport, GENERIC, "klipper", None)

@@ -1181,6 +1181,66 @@ def test_1648_mapped_3mf_package_is_slot_labeled_for_screen_reprints(mapped, mon
     assert out["delivery_format"]["slot_labeled"] == {"from": {"0": 3}, "to": {"2": 3}}
 
 
+def _launch_plain_on_slot3(mapped, monkeypatch, name, gcode_bytes, mapping=None):
+    """Launch ``gcode_bytes`` with plain G-code delivery and ``mapping``; (result, archived, upload cmd, uploaded bytes)."""
+    adapter = model_job.printers.current()
+    adapter.config = {"printer": {"zmod_delivery_format": "gcode"}}
+    adapter.model.vendor_key = "flashforge"
+    adapter.slot_count = 4
+    mapping = mapping or {"0": 3}
+    slot = next(iter(mapping.values()))
+    mapped.native.used_tools.side_effect = flashforge.zmod.used_tools
+    mapped.native.normalize_mapping.side_effect = lambda m, st: dict(mapping)
+    mapped.st["filament_slots"][str(slot)] = {"material": "PLA", "hex": "#000000"}
+    original = model_job._mr.side_effect
+
+    def named(st, path, data=None, timeout=30):
+        out = original(st, path, data, timeout)
+        for item in (((out.get("result") or {}).get("status") or {}).get("zmod_color") or {}).get("slots", []):
+            item["ID"] = slot
+        return out
+    model_job._mr.side_effect = named
+    jp, g = make_job(mapped.root, name)
+    g.write_bytes(gcode_bytes)
+    job = json.loads(jp.read_text())
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, dict(mapping), job, jp, 0, False)
+    assert g.read_bytes() == gcode_bytes  # the archived G-code is untouched
+    upload = next(c.args[0] for c in mapped.run.call_args_list
+                  if len(c.args[0]) >= 4 and c.args[0][1] == "upload")
+    return out, g, upload, Path(upload[2]).read_bytes()
+
+
+_PLAIN_SLICE = (b'; hermes_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
+                b"; filament_colour = #161616\nM104 S215 T0\nSTART_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nG1 X1\n")
+
+
+def test_1679_plain_gcode_upload_is_slot_labeled_for_screen_reprints(mapped, monkeypatch):
+    """#1679: plain G-code delivery must carry the slot choice like the 3MF
+    package does, so a screen or HelixScreen reprint (no slot map, ZMod's
+    default T0 -> slot 1) still loads slot 3. The remote name stays bound to
+    the archived G-code; the upload checksum is the relabeled bytes'."""
+    import hashlib
+    out, g, upload, sent = _launch_plain_on_slot3(mapped, monkeypatch, "plain-slot3", _PLAIN_SLICE)
+    text = sent.decode()
+    assert '; hermes_tool_slots = {"2":{"physical_slot":3}}' in text
+    assert "; zmod_color_data = 2|#161616|PLA" in text
+    assert "M104 S215 T0" in text  # the heater's T0 is never relabeled
+    assert Path(upload[2]).name.endswith(".slots.gcode") and Path(upload[2]) != g
+    assert upload[3].endswith(".gcode")  # the remote stays plain G-code
+    assert mapped.scripts[0].endswith(" T2=3"), mapped.scripts[0]
+    note = out["delivery_format"]
+    assert note["format"] == "gcode" and note["slot_labeled"] == {"from": {"0": 3}, "to": {"2": 3}}
+    assert note["upload_sha256"] == hashlib.sha256(sent).hexdigest()
+
+
+def test_1679_plain_gcode_default_map_uploads_the_archived_file(mapped, monkeypatch):
+    """A map that is already ZMod's default (T0 -> slot 1) needs no copy: the
+    archived G-code is uploaded exactly as before."""
+    sliced = _PLAIN_SLICE.replace(b'"physical_slot":3', b'"physical_slot":1')
+    _out, g, upload, sent = _launch_plain_on_slot3(mapped, monkeypatch, "plain-slot1", sliced, mapping={"0": 1})
+    assert Path(upload[2]) == g and sent == sliced
+
+
 AD5X_SLICE = Path(__file__).resolve().parents[1] / "fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.gcode.txt"
 
 

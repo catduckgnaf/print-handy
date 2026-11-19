@@ -1069,6 +1069,15 @@ def _post_upgrade(transport, name) -> None:
         transport("POST", UPDATE_UPGRADE_PATH, {"name": name})
 
 
+class UpdateVerified(str):
+    """send_update's outcome text when the re-read proved the update landed (#1683).
+
+    A plain ``str`` everywhere it is shown; callers that must act only on a
+    verified update (clearing its notification) check the type, not the
+    wording.
+    """
+
+
 def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
                 verify_delay_s=5.0, sleep=time.sleep) -> str:
     """Re-check idle, POST the one confirmed upgrade, then verify by re-reading.
@@ -1117,8 +1126,8 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
             continue
         component = last_status.component(name)
         if component is not None and _update_verified(prepared.component, component):
-            return (f"Updated **{name}** to {component.current or 'its latest version'} — "
-                    "verified by re-reading the printer's firmware state after the update.")
+            return UpdateVerified(f"Updated **{name}** to {component.current or 'its latest version'} — "
+                                  "verified by re-reading the printer's firmware state after the update.")
     uncertain = (f" The update request itself did not finish ({post_error}), so it is "
                  "not known whether the printer started updating."
                  ) if post_error is not None else ""
