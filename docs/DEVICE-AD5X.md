@@ -196,6 +196,12 @@ printer, web UI metadata, timelapse markers). If a packaged print
 misbehaves on your printer, set `gcode` to go back to the long-standing
 path, and report what you saw in the support Discord or as a GitHub issue.
 
+Both formats carry your slot choice. When a print maps a tool to a slot
+other than ZMod's default (T0 to slot 1), Print Handy uploads a copy whose
+tool numbers already name the chosen slots, so a reprint from the printer
+screen or HelixScreen, which sends no slot map, loads the same spools. The
+archived G-code stays as sliced.
+
 ## Spools, IFS slots and Spoolman
 
 - Load and unload through the IFS normally; Print Handy follows slot
