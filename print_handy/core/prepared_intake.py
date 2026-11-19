@@ -687,12 +687,10 @@ def _filament_note(job, state):
         return None
 
 
-async def send_preview(adapter, source, job, row, metadata, state=None, voice_key=None):
+async def send_preview(adapter, source, job, row, metadata, state=None):
     """Best effort, display only: no printer, Moonraker, Spoolman, HA or persistence I/O."""
     try:
         text = preview_sentence(job, row, _filament_note(job, state) if state is not None else None)
-        if text and voice_key and (job or {}).get('site') != 'upload':
-            text = _voiced(text, 'link_intake', source, voice_key)  # the link lookup really ran
         if text:
             await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
     except Exception:
@@ -2738,7 +2736,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             if len(picked) > 1:
                 parts = picked
                 chosen = {'kind': 'parts', 'title': _parts_title(parts)}
-        await send_preview(adapter, source, job, chosen, metadata, state=state, voice_key=iid)
+        await send_preview(adapter, source, job, chosen, metadata, state=state)
         folder = mj.intake_folder(mj.ARCHIVE, job['slug'], iid)
         folder.mkdir(parents=True, exist_ok=False)
         mj.front_bind(folder / 'JOB.json')  # buffered front stages land in TIMING.jsonl (#1476)
