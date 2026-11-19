@@ -2804,11 +2804,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 adapter, source, key, metadata,
                 _voiced(large_model_notice(path), 'model_audit', source, iid),
                 _heavy(mj.audit, path))
-            # Preserve owned-worker isolation: cache writes are small and independent.
-            await asyncio.to_thread(intake_inspection_cache.put, cache_root, 'audit', actual_sha,
-                                    inspection_scope, job['audit'])
         if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during audit; retry intake.')
+        if audit_cache_key is None:
+            # Never persist results if the source changed while inspection ran.
+            await asyncio.to_thread(intake_inspection_cache.put, cache_root, 'audit', actual_sha,
+                                    inspection_scope, job['audit'])
         if isinstance(job['audit'], dict):
             job['audit'] = intake_inspection_cache.bind_audit_to_path(job['audit'], path)
         if isinstance(job['audit'], dict) and job['audit'].get('no_printable_volume'):
@@ -2860,17 +2861,19 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # The job's own printer's nozzle and the project's first layer (#1373 review:
         # the default printer's profile was read on multi-printer installs).
         clearance_first_layer = support_clearance.profile_first_layer_mm(printer_id, source=path)
-        clearance_rep = await asyncio.to_thread(
+        clearance_cache_key = await asyncio.to_thread(
             intake_inspection_cache.get, cache_root, 'clearance', actual_sha, inspection_scope,
             inputs={'first_layer_mm': clearance_first_layer})
+        clearance_rep = clearance_cache_key
         if clearance_rep is None:
             clearance_rep = await asyncio.to_thread(
                 support_clearance.safe_analyze, path, first_layer_mm=clearance_first_layer)
+        if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
+            raise ValueError('Model source changed during inspection; retry intake.')
+        if clearance_cache_key is None:
             await asyncio.to_thread(intake_inspection_cache.put, cache_root, 'clearance', actual_sha,
                                     inspection_scope, clearance_rep,
                                     inputs={'first_layer_mm': clearance_first_layer})
-        if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
-            raise ValueError('Model source changed during inspection; retry intake.')
         if clearance_rep:
             job['support_clearance'] = clearance_rep
         mj.front_mark('inspection_done')  # audit, color manifest and clearance are done (#1476)
