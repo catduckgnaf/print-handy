@@ -295,7 +295,7 @@ class FirmwareAlerter:
                     offers, state, skipped=fa.skipped_everywhere(state_dir))
                 if (offer.key, offer.applicable) not in mem]
             announced = {}
-            zmod = bool(observation.current) or getattr(entry, "firmware_family", None) == "zmod"
+            zmod = getattr(entry, "firmware_family", None) == "zmod"
             if fresh and await self.announce_digest(printer_id, entry, fresh, zmod=zmod):
                 for offer in fresh:
                     mem.add((offer.key, offer.applicable))

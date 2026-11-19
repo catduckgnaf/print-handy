@@ -225,6 +225,7 @@ def test_one_alert_per_version_survives_a_restart(cfg):
     assert {o.component for o in run(flow(first))} == {
         "klipper", "moonraker", "fluidd"}
     assert len(first.core.adapter.questions) == 1
+    assert "(ZMod)" not in first.core.adapter.questions[0]["question"]
     state = fa.load(settings.printer_state_dir(PID, cfg))
     assert state["announced"]["klipper:0.13.0"]["available"] == "v0.13.0"
     # A restart: a new alerter, the same state folder, the same updates.

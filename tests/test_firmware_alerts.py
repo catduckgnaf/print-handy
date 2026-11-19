@@ -23,7 +23,6 @@ from print_handy import firmware_alerts as fa
 from print_handy import firmware_update as fw
 from print_handy import knowledge, settings
 from print_handy.bot import firmware_alert as fal
-from print_handy.bot import routing
 from print_handy.bot.platform import SendResult
 from print_handy.core import prompts
 from print_handy.runtime import _config
