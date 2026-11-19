@@ -1212,6 +1212,31 @@ def test_bundled_update_policy_respects_printer_family(model, stack, expected):
     assert not transport.posts
 
 
+def test_live_forgex_requires_the_explicit_profile_in_reports_and_apply():
+    # The live Update Manager identifies Forge-X but the registry still says
+    # generic Klipper. Live status may veto an offer, never authorize one.
+    payload = {"result": {"version_info": {
+        "forge-x": {"version": "1.4.2-beta-1", "remote_version": "1.4.2-beta-2"},
+        "klipper": {"version": "1.0", "remote_version": "2.0"},
+    }}}
+    status = fw.parse_update_status(payload)
+    assert fw.flashforge_custom_firmware(GENERIC, status) == "Forge-X"
+    report = fw.firmware_report(FakeTransport(status=payload), GENERIC)
+    assert "Forge-X was detected" in report
+    assert "update with `/print-firmware update forge-x`" not in report
+
+    transport = ApplyTransport(status=payload)
+    with pytest.raises(fw.FirmwareRefusal, match="Configure the printer's Forge-X profile"):
+        fw.prepare_update(transport, GENERIC, "forge-x", {
+            "firmware": {"forgex_apply": True}})
+    assert transport.posts == []
+
+    # The explicit Forge-X profile remains eligible only with its opt-in.
+    forgex = entry("flashforge_forgex.ad5m")
+    assert not fw.is_apply_eligible(forgex)
+    assert fw.is_apply_eligible(forgex, {"firmware": {"forgex_apply": True}})
+
+
 def test_an_exact_live_name_wins_over_an_alias_and_aliases_never_invent_one():
     status = fw.parse_update_status(STATUS)  # vanilla names: klipper, moonraker
     assert status.component("klipper").name == "klipper"

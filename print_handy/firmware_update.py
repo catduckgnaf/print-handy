@@ -218,6 +218,20 @@ def apply_block_reason(entry, cfg=None) -> str | None:
     return None
 
 
+def live_identity_block_reason(entry, status) -> str | None:
+    """Why live firmware identity overrides a registry-based apply offer.
+
+    A live Forge-X signature is not enough to authorize an update: the
+    operator must configure the explicit Forge-X registry profile, whose
+    model-specific compatibility is the basis for the allowlist.
+    """
+    if (flashforge_custom_firmware(entry, status) == "Forge-X"
+            and getattr(entry, "vendor", None) != FORGEX_VENDOR):
+        return ("Forge-X was detected. Configure the printer's Forge-X profile "
+                "before applying an update.")
+    return None
+
+
 def is_apply_eligible(entry, cfg=None) -> bool:
     return apply_block_reason(entry, cfg) is None
 
@@ -812,10 +826,14 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
     label = entry.label if entry is not None else "your printer"
     lines = [f"**Firmware on {label}** (read live from Moonraker's Update Manager):"]
     stack = flashforge_custom_firmware(entry, status)
+    live_block = live_identity_block_reason(entry, status)
+    eligible = eligible and live_block is None
     lines += [_component_line(c, eligible=eligible and not custom_update_block(c.name, stack))
               for c in status.components
               if not (stack == "ZMod" and hide_bundled_updates(cfg)
                       and component_hidden_on_zmod(c.name))]
+    if live_block is not None:
+        lines.append(f"\n{live_block} Nothing was sent.")
     if stack == "ZMod":
         lines.append("ZMod bundles Klipper, Moonraker, Fluidd and Mainsail. "
                      "Print Handy does not offer these as independent updates.")
@@ -1021,6 +1039,8 @@ def prepare_update(transport, entry, component_token, cfg=None) -> PreparedUpdat
         status = fetch_status(transport)
     except FirmwareError:
         raise FirmwareError(UPDATE_COULD_NOT_READ_TEXT) from None
+    if reason := live_identity_block_reason(entry, status):
+        raise FirmwareRefusal(reason + " Nothing was sent.")
     stack = flashforge_custom_firmware(entry, status)
     if reason := custom_update_block(component_token, stack):
         raise FirmwareRefusal(reason)

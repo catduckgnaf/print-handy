@@ -178,6 +178,9 @@ def _update_actions(printer_id, entry, status, *, controls, cfg):
         return ""
     parts = ["<h3>Updates available</h3>"]
     block = fw.apply_block_reason(entry, cfg)
+    live_block = fw.live_identity_block_reason(entry, status)
+    if live_block is not None:
+        block = live_block
     for component in updates:
         parts.append(
             f"<p><strong>{_esc(component.name)}</strong> "
