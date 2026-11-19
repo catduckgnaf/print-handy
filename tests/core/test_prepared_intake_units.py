@@ -24,6 +24,18 @@ def _cube(size=1.0, offset=(0.0, 0.0, 0.0)):
     return [[p[i] for i in face] for face in faces]
 
 
+def test_source_platform_name_normalizes_string_and_enum_sources():
+    from enum import Enum
+    from types import SimpleNamespace
+
+    class Platform(Enum):
+        DISCORD = 'discord'
+
+    assert prepared_intake._source_platform_name(SimpleNamespace(platform=' discord ')) == 'discord'
+    assert prepared_intake._source_platform_name(SimpleNamespace(platform=Platform.DISCORD)) == 'discord'
+    assert prepared_intake._source_platform_name(SimpleNamespace(platform=None)) is None
+
+
 def _write_stl(path, triangles):
     with open(path, 'wb') as f:
         f.write(b'test mesh'.ljust(80, b' '))

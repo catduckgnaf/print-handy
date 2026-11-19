@@ -1338,6 +1338,13 @@ def _owner_alive(root, owner):
         os.close(fd)
 
 
+def _source_platform_name(source):
+    """Normalize enum-backed and string-backed request platform values."""
+    platform = getattr(source, 'platform', None)
+    value = getattr(platform, 'value', None) or platform
+    return str(value).strip() if value is not None else None
+
+
 def _receipt_platform_matches(receipt, platform):
     """Whether this process's platform announces this receipt.
 
@@ -5372,7 +5379,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         picked_plate = 0
         if split:
             scope_values = {
-                'platform': getattr(getattr(source, 'platform', None), 'value', None),
+                'platform': _source_platform_name(source),
                 'requester_id': str(getattr(source, 'user_id', '') or '').strip(),
                 'channel_id': str(getattr(source, 'chat_id', '') or '').strip(),
                 'printer_id': str(sliced.get('printer_id') or '').strip(),
