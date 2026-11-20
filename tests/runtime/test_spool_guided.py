@@ -266,11 +266,12 @@ def test_guided_new_typed_number_and_grams():
 
 
 def test_guided_new_new_type_never_asks_hex():
-    # Brand is not asked by default (#512: spool.prompt_brand is off), so the
-    # answers go straight to material.
+    # Brand is pinned off here (#512: spool.prompt_brand; on by default
+    # since #1718), so the answers go straight to material.
     answers = ["New filament type", "PETG", "Sky Blue", "500", "Create spool",
                "Leave it on the shelf"]
-    out, adapter, fake = _run("/spool add", answers)
+    with mock.patch.object(plugin, "_prompt_brand", return_value=False):
+        out, adapter, fake = _run("/spool add", answers)
     questions = _questions(adapter)
     assert not any("hex" in q.lower() for q in questions)
     assert not any("brand" in q.lower() for q in questions)
@@ -306,13 +307,14 @@ def test_guided_new_with_no_saved_types_skips_type_question():
     fake = FakeSpoolman()
     real_create = spool_sync.create_spool
     with mock.patch.object(cm, "wait_for_response", side_effect=wait), \
+            mock.patch.object(plugin, "_prompt_brand", return_value=False), \
             mock.patch.object(spool_sync, "filament_types", return_value=[]), \
             mock.patch.object(spool_sync, "next_spool_id", return_value=1), \
             mock.patch.object(spool_sync, "create_spool",
                               side_effect=lambda spec: real_create(spec, client=fake)):
         asyncio.run(plugin.spool_dispatch(_event("/spool new"), _gateway(adapter)))
     # The first question promises no spool number (#1063: a predicted id
-    # can be wrong by creation time) and, with brand off by default,
+    # can be wrong by creation time) and, with brand pinned off,
     # asks the material directly.
     assert _questions(adapter)[0].startswith("Preparing a new spool")
     assert "#" not in _questions(adapter)[0]
@@ -332,7 +334,8 @@ def test_guided_new_typed_multi_color_gets_confirm_or_correct():
     # before anything is created (#792 part 2), naming what was understood.
     answers = ["New filament type", "PLA", "Rose Red Blue Green", "That is exactly as labeled",
                "1000", "Create spool", "Leave it on the shelf"]
-    out, adapter, fake = _run("/spool new", answers)
+    with mock.patch.object(plugin, "_prompt_brand", return_value=False):
+        out, adapter, fake = _run("/spool new", answers)
     questions = _questions(adapter)
     assert any("more than one color" in q and "Rose Red Blue Green" in q for q in questions)
     filament_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/filament"]
@@ -343,7 +346,8 @@ def test_guided_new_typed_multi_color_gets_confirm_or_correct():
 def test_guided_new_typed_fragment_color_can_be_corrected():
     answers = ["New filament type", "PLA+", "term No...", "Type it again", "Black",
                "1000", "Create spool", "Leave it on the shelf"]
-    out, adapter, fake = _run("/spool new", answers)
+    with mock.patch.object(plugin, "_prompt_brand", return_value=False):
+        out, adapter, fake = _run("/spool new", answers)
     questions = _questions(adapter)
     assert any("term No" in q for q in questions)
     filament_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/filament"]

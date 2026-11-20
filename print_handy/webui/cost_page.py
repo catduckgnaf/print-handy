@@ -22,15 +22,15 @@ FIELDS = (
     ("amount", "Material amount (grams for FDM, milliliters for resin)", "number"),
     ("hours", "Print time (hours)", "number"),
     ("parts", "Parts per build", "number"),
-    ("price_per_kg", "Material price per kilogram (blank: Spoolman, slicer, then default)", "number"),
-    ("printer_price", "Printer purchase price (blank: profile)", "number"),
-    ("watts", "Average watts (blank: profile or preset)", "number"),
+    ("price_per_kg", "Material price per kilogram", "number"),
+    ("printer_price", "Printer purchase price", "number"),
+    ("watts", "Average watts", "number"),
     ("prep_minutes", "Prep minutes per build", "number"),
     ("post_minutes", "Post minutes per part", "number"),
     ("pack_minutes", "Pack minutes per build", "number"),
     ("hardware", "Hardware cost", "number"),
     ("packaging", "Packaging cost", "number"),
-    ("failure_percent", "Failure rate percent (blank: workspace default)", "number"),
+    ("failure_percent", "Failure rate percent", "number"),
 )
 
 ADVANCED = {"printer_price", "watts", "prep_minutes", "post_minutes", "pack_minutes",
@@ -43,15 +43,65 @@ def _value(form, key, default=""):
     return str(default)
 
 
+def _fmt(value):
+    return f"{float(value):g}"
+
+
 def defaults_for(data):
+    """The form's starting values: every default filled in (#1718).
+
+    The material price, watts, printer price and failure rate used to
+    start blank — the engine's fallback applied invisibly. They now
+    start at the exact values the engine would fall back to (the Print
+    cost settings and the printer's cost profile), so what is shown is
+    what is charged, and each field's note on the page names its
+    default.
+    """
     workspace = cost_module.WorkspaceCost.from_settings(data)
+    profile, _ = cost_module.printer_profile_for(data)
     return {
         "technology": "fdm", "amount": "", "hours": "", "parts": "1",
-        "price_per_kg": "", "printer_price": "", "watts": "",
+        "price_per_kg": _fmt(workspace.default_filament_cost_per_kg),
+        "printer_price": _fmt(profile.purchase_price) if profile.purchase_price else "",
+        "watts": _fmt(profile.watts),
         "prep_minutes": "5", "post_minutes": "10", "pack_minutes": "0",
-        "hardware": "0", "packaging": "0", "failure_percent": "",
+        "hardware": "0", "packaging": "0",
+        "failure_percent": _fmt(workspace.failure_rate_fdm * 100),
         "_workspace": workspace,
+        "_profile": profile,
     }
+
+
+def default_notes(data):
+    """One "Default: …" note per field that has a default (#1718).
+
+    Shown under the field on the calculator page, so a default is never
+    a blank the operator has to guess at.
+    """
+    workspace = cost_module.WorkspaceCost.from_settings(data)
+    profile, _ = cost_module.printer_profile_for(data)
+    notes = {
+        "price_per_kg": (f"Default: {_fmt(workspace.default_filament_cost_per_kg)} per "
+                         "kilogram, from the Print cost settings (default filament cost)."),
+        "watts": (f"Default: {_fmt(profile.watts)} W average "
+                  f"({profile.watts_basis}), from the {profile.name} cost profile."),
+        "failure_percent": (f"Default: {_fmt(workspace.failure_rate_fdm * 100)}% for FDM, "
+                            f"{_fmt(workspace.failure_rate_resin * 100)}% for resin, "
+                            "from the Print cost settings."),
+        "prep_minutes": "Default: 5 minutes.",
+        "post_minutes": "Default: 10 minutes.",
+        "pack_minutes": "Default: 0 minutes.",
+        "hardware": "Default: 0.",
+        "packaging": "Default: 0.",
+        "parts": "Default: 1.",
+    }
+    if profile.purchase_price:
+        notes["printer_price"] = (f"Default: {_fmt(profile.purchase_price)}, from the "
+                                  f"{profile.name} cost profile.")
+    else:
+        notes["printer_price"] = (f"No printer price in the {profile.name} cost profile "
+                                  "yet: 0 until one is set in the Print cost settings.")
+    return notes
 
 
 def job_from_form(form, data):
@@ -120,6 +170,7 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
     if form:
         for key, _label, _kind in FIELDS:
             values[key] = _value(form, key, values.get(key, ""))
+    notes = default_notes(data)
     rows = []
     for key, label, kind in FIELDS:
         advanced = " data-advanced" if key in ADVANCED else ""
@@ -131,7 +182,9 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
         else:
             control = (f'<input name="{key}" inputmode="decimal" '
                        f'value="{_esc(values[key])}">')
-        rows.append(f'<p{advanced}><label>{_esc(label)}<br>{control}</label></p>')
+        note = notes.get(key)
+        hint = f'<br><span class="help">{_esc(note)}</span>' if note else ""
+        rows.append(f'<p{advanced}><label>{_esc(label)}<br>{control}</label>{hint}</p>')
     presets = "".join(
         f"<li>{_esc(entry['label'])}: {entry['watts']:g} W average "
         f"({_esc(entry['basis'])})</li>"
@@ -147,8 +200,14 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
         "amount and time; an unsliced file says so instead of costing "
         "zero. Cost is information only and never blocks a print.</p>"
         f'<form method="post" action="/cost"><input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+        # Calculate sits at the top right of the form (#1718), not at
+        # the bottom under every field.
+        + '<div class="design-head"><p>Defaults are filled in and named '
+          'under each field; change any of them to price this job '
+          'differently.</p>'
+          '<button type="submit" class="accent">Calculate cost</button></div>'
         + "".join(rows)
-        + '<p><button type="submit">Calculate cost</button></p></form>'
+        + '</form>'
         f'<form method="post" action="/cost" enctype="multipart/form-data">'
         f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
         '<p><label>Auto-fill from a file<br>'

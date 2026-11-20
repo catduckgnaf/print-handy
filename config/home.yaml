@@ -217,9 +217,9 @@ listener:
   start_claim_ttl_s: 1800
 spool:
   # Ask for the brand/vendor during the conversational new-spool
-  # walkthrough (#512). Off by default: the walkthrough skips brand and
-  # the spool is created without one. Set true if you track brands.
-  prompt_brand: false
+  # walkthrough (#512). On by default (#1718). Set false to skip the
+  # brand question; the spool is then created without one.
+  prompt_brand: true
 cost:
   # Print cost calculator (#1625): workspace defaults for the one cost
   # engine every surface uses (chat, the Web UI calculator page, the
@@ -378,14 +378,16 @@ timelapse:
   # Wrapped video (#956): the on-demand local video compile, with the
   # local commentary (no AI model). The pre-rename spelling
   # wrapped_ai_video is still accepted as an alias (#1157).
-  # Off by default, and it needs wrapped_enabled above on.
-  wrapped_video: false
-  # Wrapped narration (#981): none (default, no narration) or piper (the
-  # local Piper binary, paths.piper + paths.piper_model). No AI model and
-  # no cloud service: nothing is sent anywhere.
-  wrapped_tts_engine: none
+  # On by default (#1718), and it needs wrapped_enabled above on.
+  wrapped_video: true
+  # Wrapped narration (#981): piper (the default, #1718: the local Piper
+  # binary, paths.piper + paths.piper_model, used when available) or
+  # none (no narration). No AI model and no cloud service: nothing is
+  # sent anywhere.
+  wrapped_tts_engine: piper
   # Wrapped music file (#981): an audio file you supply, used as the
-  # video music bed instead of the synthesized bed. Empty = synthesized.
+  # video music bed instead of the bundled track. Empty (the default)
+  # keeps the bundled track.
   wrapped_music_file: ''
   # In-container timelapse capture (#246): off by default; existing behaviour
   # (printer-rendered timelapses only) is unchanged while this is false.

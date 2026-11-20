@@ -877,7 +877,7 @@ def render_spools_error(printer_id, code, reason, *, theme=shell.DEFAULT_THEME):
         # Not set up is a state to explain, not an error to alarm about.
         body = (f'<div class="card"><h2>Set up Spoolman to manage spools</h2>'
                 f'<p>{_esc(reason)}</p>'
-                '<p>In Settings, open the Spools tab and enter the Spoolman URL '
+                '<p>In Settings, open the Spoolman tab and enter the Spoolman URL '
                 '(the address you open Spoolman at in a browser, for example <code>http://spoolman.local:7912</code>), then come back '
                 'here.</p>' + settings_link + '</div>')
     elif code == 502:

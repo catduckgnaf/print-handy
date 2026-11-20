@@ -90,8 +90,15 @@ def prefill_text(raw):
 
 
 def render_chat_page(service, *, form_token, notice=None, error=None,
-                     theme=shell.DEFAULT_THEME, nav=None, prefill=""):
-    """The GET /chat page for a WebChatService."""
+                     theme=shell.DEFAULT_THEME, nav=None, prefill="",
+                     ask_ai_default=False):
+    """The GET /chat page for a WebChatService.
+
+    ``ask_ai_default`` is the state of the Ask AI checkbox: checked by
+    default while chat AI replies are switched on (#1718), so a plain
+    message goes to the conversational AI without an extra tick; the
+    operator can untick it per message. Off while AI replies are off,
+    where the checkbox cannot do anything."""
     # The refresh exists so asynchronously arriving replies show up,
     # but a timed reload also wipes a half-typed message. It is emitted
     # only while a reply is actually pending — the bot is mid-turn and
@@ -118,8 +125,8 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
     # reply arrives.
     parts.append(transcript.render_log(
         entries, open_prompt=prompt, working=pending,
-        empty="<p>Nothing here yet. Paste a model link, type <code>/print-help</code>, "
-              "or describe something to design. Chat does everything the Discord bot "
+        empty="<p>Nothing here yet. Paste a model link, or describe something "
+              "to design. Chat does everything the Discord bot "
               "does, including printing, through the same confirmation questions.</p>"))
     parts.append(transcript.render_prompt(prompt, action="/chat/choice", form_token=form_token))
     parts.append(
@@ -128,9 +135,10 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         '<div class="field"><label for="c-text">Message</label>'
         '<input id="c-text" name="text" autocomplete="off" '
         + (f'value="{_esc(prefill_text(prefill))}" autofocus ' if prefill_text(prefill) else "")
-        + 'placeholder="A model link, /print-help, or describe a design"></div>'
+        + 'placeholder="A model link, or describe a design"></div>'
         '<div class="field"><label for="c-ask-ai">'
-        '<input id="c-ask-ai" type="checkbox" name="ask_ai" value="1"> '
+        '<input id="c-ask-ai" type="checkbox" name="ask_ai" value="1"'
+        + (" checked" if ask_ai_default else "") + '> '
         'Ask AI — send this message to the conversational AI (only when '
         'chat AI is switched on)</label></div>'
         '<button type="submit" class="accent">Send</button></form>')

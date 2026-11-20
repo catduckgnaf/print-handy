@@ -72,7 +72,10 @@ def test_chat_is_in_the_nav_inside_the_designs_group():
         assert ("/chat", "Chat") in data_module.nav_for(load(tmp))
     html = shell.page("chat", "", path="/chat")
     top = html.split('aria-label="Web UI pages"')[1].split("</nav>")[0]
-    assert '<a href="/designs" class="active">' in top  # the group's tab lights up
+    # Chat is first in the nav (#1718), so the group's tab is Chat itself
+    # and it lights up on the chat page.
+    assert shell.NAV[0] == ("/chat", "Chat")
+    assert '<a href="/chat" class="active">' in top
     sub = html.split('aria-label="Designs pages"')[1].split("</nav>")[0]
     assert 'href="/chat" class="active" aria-current="page">Chat</a>' in sub
 

@@ -49,8 +49,8 @@ model = "klipper.generic"
 pause_prompt = false
 
 [spool]
-# Ask for brand/vendor in the new-spool walkthrough (#512); off by default.
-prompt_brand = false
+# Ask for brand/vendor in the new-spool walkthrough (#512); on by default.
+prompt_brand = true
 
 [timelapse]
 # Mode (#246/#295): rendered, container or off. Empty derives: rendered

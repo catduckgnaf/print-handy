@@ -84,7 +84,7 @@ REVEAL_FIELD = "_setup"
 GROUPS = (
     ("printers", "Printers"),
     ("platform", "Platform and chat"),
-    ("spools", "Spools"),
+    ("spools", "Spoolman"),
     ("cost", "Print cost"),
     ("ai", "AI and models"),
     ("camera", "Camera, timelapse and images"),
@@ -331,6 +331,8 @@ tabs.forEach(function(tab){tab.addEventListener('click',function(event){
   event.preventDefault();show(tab.dataset.section);
   history.replaceState(null,'','/config?section='+encodeURIComponent(tab.dataset.section));
 });});
+var restartSetup=document.querySelector('[data-restart-setup]');
+if(restartSetup)restartSetup.hidden=name!=='printers';
 var banner=document.querySelector('.restart-needed');
 function rowOf(el){return el.closest('.field')||el.parentNode;}
 function status(row,text,kind){
@@ -492,13 +494,18 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     # whole-form save: preview, then confirm.
     parts.append('<noscript><p><button type="submit">Review and save changes</button>'
                  '</p></noscript></form>')
+    # Restart setup lives under Printers only (#1718): the block is
+    # rendered once, hidden unless the Printers section is the selected
+    # one, and the config script above unhides it only for that section.
     parts.append(
+        '<div data-restart-setup'
+        + ("" if selected == "printers" else " hidden") + '>'
         '<h2 id="restart-setup">Setup</h2><form method="post" action="/walkthrough">'
         f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
         '<input type="hidden" name="action" value="restart">'
         '<p>Run the guided setup again from the first step. Nothing is reset: '
         'every step starts from the current settings.</p>'
-        '<button type="submit">Restart setup</button></form>')
+        '<button type="submit">Restart setup</button></form></div>')
     parts.append(_CONFIG_SCRIPT)
     return _page("configuration", "".join(parts), theme=theme, path="/config")
 

@@ -152,7 +152,7 @@ class ConfigPageTests(unittest.TestCase):
         self.assertIn('id="row-logging.level"', body)
         for name, heading in (("printers", "Printers"),
                               ("platform", "Platform and chat"),
-                              ("spools", "Spools"), ("ai", "AI and models"),
+                              ("spools", "Spoolman"), ("ai", "AI and models"),
                               ("camera", "Camera, timelapse and images"),
                               ("wrapped", "Wrapped"),
                               ("slicing", "Slicing and delivery"),
@@ -799,7 +799,9 @@ class AutosaveFieldTests(unittest.TestCase):
 
     def test_a_change_is_written_and_a_repeat_is_no_change(self):
         with tempfile.TemporaryDirectory() as tmp:
-            port, local, _environ = self.start(tmp)
+            # prompt_brand defaults on (#1718), so the change case starts
+            # from an explicit false in the local file.
+            port, local, _environ = self.start(tmp, extra="spool:\n  prompt_brand: false\n")
             _code, _body, csrf = self.get_config(port)
             code, out = self.save(port, csrf, "spool.prompt_brand", "true")
             self.assertEqual((code, out["ok"], out["changed"]), (200, True, True))

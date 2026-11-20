@@ -278,7 +278,7 @@ class SettingsSurfaceTests(unittest.TestCase):
     def test_new_settings_defaults_env_and_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = settings.load(local=False, environ={})
-            self.assertEqual(data["timelapse"]["wrapped_tts_engine"], "none")
+            self.assertEqual(data["timelapse"]["wrapped_tts_engine"], "piper")
             self.assertEqual(data["timelapse"]["wrapped_music_file"], "")
             self.assertEqual(str(data["paths"]["piper"]), "piper")
             self.assertEqual(str(data["paths"]["piper_model"]), "")

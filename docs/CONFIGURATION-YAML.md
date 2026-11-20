@@ -28,9 +28,9 @@ Named variants within a family adjust the fallback: Silk PLA resolves +10 °C ov
 ```yaml
 spool:
   # Ask for the brand/vendor during the conversational new-spool
-  # walkthrough. Default false: brand is skipped and spools are created
-  # without one. Set true only if you track brands.
-  prompt_brand: false
+  # walkthrough. Default true. Set false to skip brand; spools are then
+  # created without one.
+  prompt_brand: true
 ```
 
 The walkthrough's photo label step has no setting of its own: it is offered when any label-reading route is available, the label's barcode/QR code (zxing-cpp), a vision endpoint (`PRINT_VISION_URL`, or `services.vision_chat_url` with its key, the camera watchdog's rule), or local OCR (a tesseract binary; installed in the container image), and the photo's label temperatures are recorded on the Spoolman filament, where they win over the material defaults above for every material.

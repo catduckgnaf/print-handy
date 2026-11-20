@@ -64,8 +64,8 @@ printer:
   # the printer message (Guppy Screen). PRINT_HANDY__PRINTER__PAUSE_PROMPT
   pause_prompt: false
 spool:
-  # Ask for brand/vendor in the new-spool walkthrough (#512); off by default.
-  prompt_brand: false
+  # Ask for brand/vendor in the new-spool walkthrough (#512); on by default.
+  prompt_brand: true
 timelapse:
   # Mode (#246/#295): rendered, container or off. Empty derives: rendered
   # when a Moonraker URL is configured, else container when capture_enabled
