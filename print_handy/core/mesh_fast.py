@@ -413,7 +413,7 @@ def bounds(triangles):
     if isinstance(triangles, IndexedTriangles) and len(triangles) >= 32768:
         # Float conversion can collapse distinct int64 coordinates above 2**53.
         # Preserve the scalar path's exact comparisons for integer-backed data.
-        if triangles.vertices.dtype.kind in "iu":
+        if (triangles.vertices.dtype.kind != "f" or triangles.vertices.dtype.itemsize > 8):
             return _scalar_bounds(triangles)
         if not len(triangles):
             raise ValueError('empty triangle table')
@@ -433,7 +433,7 @@ def bounds(triangles):
     if isinstance(triangles, MeshTable) and len(triangles) >= 32768:
         # Integer coordinates above 2**53 can collapse after float64 conversion.
         # Keep exact scalar comparisons, matching the indexed-mesh guard above.
-        if triangles.vertices.dtype.kind in "iu":
+        if (triangles.vertices.dtype.kind != "f" or triangles.vertices.dtype.itemsize > 8):
             return _scalar_bounds(triangles)
         lo = [float('inf')] * 3
         hi = [float('-inf')] * 3

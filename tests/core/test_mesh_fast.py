@@ -326,3 +326,20 @@ def test_part_bounds_fast_matches_elementtree_reference(tmp_path, monkeypatch):
     expected = _annotated_bounds(tmp_path, monkeypatch, use_fast=False)
     assert expected == [9.9, 4.3, 3.1]  # hand computed: |-3.291*3|, 2.137*2, 1.573*1*2
     assert _annotated_bounds(tmp_path, monkeypatch, use_fast=True) == expected
+
+
+def test_large_object_integer_bounds_preserve_scalar_precision():
+    import numpy as np
+    from print_handy.core.compact_geometry import IndexedTriangles
+
+    base = 2**53
+    vertices = np.asarray([(base, 0, 0), (base + 1, 1, 0),
+                           (base + 2, 0, 1)], dtype=object)
+    faces = np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1))
+    indexed = IndexedTriangles(np.asarray(vertices, dtype=np.float64), faces)
+    indexed.vertices = vertices
+    for table in (indexed, mesh_fast.MeshTable(vertices, faces)):
+        actual = mesh_fast.bounds(table)
+        assert actual == mesh_fast._scalar_bounds(table)
+        assert actual[0][0] == base
+        assert actual[1][0] == base + 2
