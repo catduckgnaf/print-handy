@@ -1098,14 +1098,14 @@ class _Handler(BaseHTTPRequestHandler):
     def _designs_page(self, notice=None, error=None):
         return design_handlers_module.designs_page(self, notice, error)
 
-    def _designs_post(self, form):
-        return design_handlers_module.designs_post(self, form)
+    def _designs_post(self, form, route="/designs"):
+        return design_handlers_module.designs_post(self, form, route=route)
 
-    def _designs_upload_post(self, form):
-        return design_handlers_module.designs_upload_post(self, form)
+    def _designs_upload_post(self, form, route="/designs"):
+        return design_handlers_module.designs_upload_post(self, form, route=route)
 
-    def _designs_choice_post(self, form):
-        return design_handlers_module.designs_choice_post(self, form)
+    def _designs_choice_post(self, form, route="/designs"):
+        return design_handlers_module.designs_choice_post(self, form, route=route)
 
     def _designs_state(self):
         return design_handlers_module.designs_state(self)
@@ -1402,7 +1402,15 @@ class _Handler(BaseHTTPRequestHandler):
     def _chat_upload_post(self, form):
         return chat_handlers_module.chat_upload_post(self, form)
 
+    def _chat_design_new_post(self, form):
+        return design_handlers_module.designs_new_post(self, form, route="/chat")
+
     def _chat_choice_post(self, form):
+        data = self.server.settings_data
+        view = self._design_view(issue=False)
+        model = designs_module.workshop_model(data, view)
+        if model.get("session") is not None or view.busy() or view.entries():
+            return design_handlers_module.designs_choice_post(self, form, route="/chat")
         return chat_handlers_module.chat_choice_post(self, form)
 
     # -- workflow (#1450) ---------------------------------------------------

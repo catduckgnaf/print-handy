@@ -92,7 +92,7 @@ def prefill_text(raw):
 
 def render_chat_page(service, *, form_token, notice=None, error=None,
                      theme=shell.DEFAULT_THEME, nav=None, prefill="",
-                     ask_ai_default=False):
+                     ask_ai_default=False, active_design=None):
     """The GET /chat page for a WebChatService.
 
     The AI lane is selected by server configuration, not a per-message
@@ -119,6 +119,12 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
+    if active_design is not None:
+        from . import designs as designs_module
+        return designs_module.render_designs_page(
+            designs_module.catalog_rows(active_design["data"]),
+            theme=theme, nav=nav, workshop=active_design["workshop"],
+            form_token=form_token, notice=notice, error=error, route="/chat")
     # The working line is the browser's typing indicator: the turn is
     # running, so the operator sees the message was taken before the first
     # reply arrives.

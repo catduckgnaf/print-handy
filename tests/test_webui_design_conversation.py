@@ -311,8 +311,8 @@ def test_a_print_feed_post_never_appears_in_the_design_thread(server, flow_cfg, 
     asyncio.run_coroutine_threadsafe(
         service._in_scope("", lambda: service.adapter.send(web.CHAT_ID, feed)),
         service._loop).result(10)
-    assert feed in browser.page("/chat")  # the Chat page still shows the feed
-    page = browser.page()
+    assert feed in browser.page("/chat")  # regular Chat remains separately reachable
+    page = browser.page("/chat?view=design")
     assert "Duck Bookends" not in page and "Design turn 1" in page
     session = current_session(flow_cfg, browser)
     saved = json.dumps(design.load_thread(design.sessions_root_for(flow_cfg), session["id"]))
@@ -326,7 +326,7 @@ def test_a_print_feed_post_never_appears_in_the_design_thread(server, flow_cfg, 
         web.CHAT_ID, alert, ["Resume", "Cancel the print"], "webalert-test",
         "listener-alert:webui:1")), service._loop).result(10)
     assert "Print paused" in browser.page("/chat")
-    page = browser.page()
+    page = browser.page("/chat?view=design")
     assert "Print paused" not in page and "What next for this design?" in page
     assert service.view(browser.thread_scope, shared=False).answer("webalert-test", 0) is None
 
@@ -340,6 +340,8 @@ def test_workflow_and_chat_no_longer_show_design_traffic(server, flow_cfg, pipel
     assert "Current step" not in workflow
     chat = browser.page("/chat")
     assert "Design turn 1" not in chat and DESCRIPTION not in chat
+    design_page = browser.page("/chat?view=design")
+    assert "Design turn 1" in design_page and DESCRIPTION in design_page
 
 
 # ------------------------------------------------------------ saved threads

@@ -50,13 +50,26 @@ def chat_page(handler, notice=None, error=None):
             "text/html; charset=utf-8")
         return
     ft = handler._form_token()
+    data = handler.server.settings_data
+    query = parse_qs(urlparse(handler.path).query)
+    if (query.get("view") or [""])[0] == "design":
+        design_view = handler._design_view()
+        workshop = designs_module.workshop_model(data, design_view)
+        headers = design_handlers_module._design_cookie_headers(handler)
+        handler._send(200, designs_module.render_designs_page(
+            designs_module.catalog_rows(data), theme=handler._theme(),
+            nav=data_module.nav_for(data), workshop=workshop,
+            form_token=ft, notice=notice, error=error, route="/chat?view=design"),
+            "text/html; charset=utf-8", headers=headers)
+        return
+    headers = handler._chat_cookie_headers()
     view = handler._chat_view()
     prefill = (parse_qs(urlparse(handler.path).query).get("text") or [""])[0]
     handler._send(200, chat_module.render_chat_page(
         view, form_token=ft, notice=notice, error=error,
         theme=handler._theme(), prefill=prefill,
-        nav=data_module.nav_for(handler.server.settings_data)),
-        "text/html; charset=utf-8", headers=handler._chat_cookie_headers())
+        nav=data_module.nav_for(data)),
+        "text/html; charset=utf-8", headers=headers)
 
 def cookie_value(handler, name):
     raw = handler.headers.get("Cookie") or ""
@@ -107,6 +120,11 @@ def chat_post(handler, form):
     if not handler._web_chat_enabled():
         handler._chat_page()  # the disabled page, with the explanation
         return
+    design_mode = (parse_qs(urlparse(handler.path).query).get("view") or [""])[0] == "design"
+    if design_mode:
+        handler._designs_post(form, route="/chat?view=design")
+        return
+    data = handler.server.settings_data
     text = (form.get("text") or [""])[0].strip()
     if not text:
         handler._redirect("/chat")
@@ -140,7 +158,11 @@ def chat_upload_post(handler, form):
     if not ready:
         handler._chat_page(error=reason)
         return
-    view = handler._chat_view()
+    data = handler.server.settings_data
+    design_view = handler._design_view()
+    model = designs_module.workshop_model(data, design_view)
+    view = (design_view if model.get("session") is not None or design_view.busy()
+            or design_view.entries() else handler._chat_view())
 
     def handle(fields, files):
         if not files:
