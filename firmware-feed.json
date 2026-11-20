@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-19T20:50:07Z",
+ "generated_at": "2026-11-20T20:34:36Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -141,16 +141,16 @@
    "stock_models": [],
    "update": "Run /print-firmware: a Klipper component your Moonraker reports with a real version updates from chat behind a confirmation.",
    "latest": {
-    "version": "0.13.0",
-    "tag": "v0.13.0",
+    "version": "0.14.0",
+    "tag": "v0.14.0",
     "published_at": null,
-    "url": "https://github.com/Klipper3d/klipper/tree/v0.13.0"
+    "url": "https://github.com/Klipper3d/klipper/tree/v0.14.0"
    },
    "latest_stable": {
-    "version": "0.13.0",
-    "tag": "v0.13.0",
+    "version": "0.14.0",
+    "tag": "v0.14.0",
     "published_at": null,
-    "url": "https://github.com/Klipper3d/klipper/tree/v0.13.0"
+    "url": "https://github.com/Klipper3d/klipper/tree/v0.14.0"
    },
    "latest_prerelease": null,
    "audited": "0.13.0",
