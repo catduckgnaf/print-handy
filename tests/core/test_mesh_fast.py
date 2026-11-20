@@ -212,8 +212,9 @@ def test_bounds_large_array_tables_match_scalar_nan_min_max():
             table = table_type(vertices, faces)
             expected = mesh_fast._scalar_bounds(table)
             actual = mesh_fast.bounds(table)
-            for actual_axis, expected_axis in zip(actual, expected):
-                for actual_value, expected_value in zip(actual_axis, expected_axis):
+            for actual_axis, expected_axis in zip(actual, expected, strict=True):
+                assert actual_axis is not None and expected_axis is not None
+                for actual_value, expected_value in zip(actual_axis, expected_axis, strict=True):
                     if math.isnan(expected_value):
                         assert math.isnan(actual_value)
                     else:
