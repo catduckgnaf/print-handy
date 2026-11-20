@@ -9,7 +9,7 @@ on:
       - 'native/paint_census/**'
       - 'print_handy/**'
       - 'tests/**'
-      - 'scripts/benchmark_paint_census.py'
+      - 'tests/perf/benchmark_native_paint_census_1715.py'
       - 'MANIFEST.in'
       - 'setup.py'
       - 'pyproject.toml'
@@ -57,4 +57,9 @@ jobs:
           python -m pip install -c constraints.txt "$wheel[test]"
           PURELIB="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
           cp "$PURELIB"/print_handy/core/_paint_census_native*.so print_handy/core/
-          python -m pytest tests/core/test_paint_census.py -q -rs
+          python -m pytest tests/core/test_paint_census.py tests/core/test_paint_census_manifest_1715.py -q -rs
+      - name: Benchmark the two scaled inventories
+        if: matrix.python == '3.12'
+        run: |
+          set -o pipefail
+          PYTHONPATH=. python tests/perf/benchmark_native_paint_census_1715.py | tee -a "$GITHUB_STEP_SUMMARY"

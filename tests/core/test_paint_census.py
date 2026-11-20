@@ -43,6 +43,7 @@ def census_backend(request, monkeypatch):
 
 def test_census_preserves_prefixed_meshes_paint_precedence_and_ranges(tmp_path, census_backend):
     source = _source(
+        tmp_path,
         '<p:triangle paint_color="0fC" slic3rpe:mmu_segmentation="8"/>'
         '<p:triangle slic3rpe:mmu_segmentation="849"/>'
         '<p:triangle/>',
@@ -61,7 +62,7 @@ def test_native_prefixed_mesh_does_not_decode_in_python(tmp_path, monkeypatch):
         if os.environ.get('PRINT_HANDY_PAINT_CENSUS_REQUIRE_NATIVE') == '1':
             pytest.fail('the native paint census must import in this job')
         pytest.skip('the optional native paint census is not built')
-    source = _source('<p:triangle paint_color="849"/>')
+    source = _source(tmp_path, '<p:triangle paint_color="849"/>')
 
     def unexpected_decode(code):
         pytest.fail(f'native census fell back to Python for {code}')
@@ -71,7 +72,7 @@ def test_native_prefixed_mesh_does_not_decode_in_python(tmp_path, monkeypatch):
 
 
 def test_whole_mesh_uses_one_native_census_and_ranges_use_python(tmp_path, monkeypatch):
-    source = _source('<p:triangle paint_color="4"/>', '<p:triangle paint_color="8"/>')
+    source = _source(tmp_path, '<p:triangle paint_color="4"/>', '<p:triangle paint_color="8"/>')
     calls = []
 
     def census(data, blocks):
@@ -102,7 +103,7 @@ def test_whole_mesh_uses_one_native_census_and_ranges_use_python(tmp_path, monke
 
 
 def test_native_error_falls_back_once_per_member(tmp_path, monkeypatch):
-    source = _source('<p:triangle paint_color="4"/>', '<p:triangle paint_color="8"/>')
+    source = _source(tmp_path, '<p:triangle paint_color="4"/>', '<p:triangle paint_color="8"/>')
     calls = []
 
     def census(*args):
@@ -118,7 +119,7 @@ def test_native_error_falls_back_once_per_member(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(('code', 'error'), [('FC', 'truncated paint_color'), ('44', 'trailing paint_color data')])
 def test_bad_paint_does_not_change_the_census_of_another_mesh(tmp_path, code, error):
-    source = _source(f'<p:triangle paint_color="{code}"/>', '<p:triangle paint_color="8"/>')
+    source = _source(tmp_path, f'<p:triangle paint_color="{code}"/>', '<p:triangle paint_color="8"/>')
     with pg.decode_scope():
         with pytest.raises(ValueError, match=f'^{error}$'):
             pg.leaf_states(source, _part(1))
