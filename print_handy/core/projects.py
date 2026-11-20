@@ -44,9 +44,11 @@ def discover_source_checkpoints(*, platform: str, requester_id: str, channel_id:
                 continue
             source = Path(checkpoint.get("source_path") or "").resolve()
             archived = Path(job.get("downloaded_file") or "").resolve()
+            digest = checkpoint.get("source_sha256")
             if (source != archived or not source.is_file()
                     or not source.is_relative_to(path.parent.resolve())
-                    or not re.fullmatch(r"[a-f0-9]{64}", str(checkpoint.get("source_sha256") or ""))):
+                    or not re.fullmatch(r"[a-f0-9]{64}", str(digest or ""))
+                    or job.get("source_sha256") not in (None, digest)):
                 continue
             matches.append({"job_json": str(path), "job": job, "checkpoint": checkpoint})
         except (OSError, ValueError, TypeError, AttributeError):

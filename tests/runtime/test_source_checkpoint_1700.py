@@ -108,8 +108,15 @@ def test_checkpoint_discovery_reads_all_jobs_but_hashes_only_selected_record(tmp
     monkeypatch.setattr(Path, "read_text", count_read)
     monkeypatch.setattr(model_job, "file_sha256", count_hash)
 
+    # Discovery must omit internally inconsistent legacy job-level digests.
+    inconsistent = json.loads(paths[3][0].read_text())
+    inconsistent["source_sha256"] = "f" * 64
+    paths[3][0].write_text(json.dumps(inconsistent))
+    reads.clear()
+
     candidates = projects.discover_source_checkpoints(**scope, archive=archive)
-    assert len(candidates) == 4
+    assert len(candidates) == 3
+    assert all(row["job_json"] != str(paths[3][0]) for row in candidates)
     assert len(reads) == 4
     assert hashes == []
     selected = candidates[2]
