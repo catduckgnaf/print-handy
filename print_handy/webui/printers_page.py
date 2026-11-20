@@ -130,6 +130,7 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
                 f'<div style="position:relative"><img data-printer-screen '
                 f'data-touch-url="/printers/{pid}/screen/touch" '
                 f'data-csrf-id="printer-preview-csrf-{pid}" '
+                'role="button" tabindex="0" aria-keyshortcuts="Enter Space" '
                 f'src="/api/printers/{pid}/screen/snapshot" '
                 f'alt="Interactive printer screen of {esc(entry.get("name") or entry["id"])}" '
                 'style="width:100%;display:block;touch-action:manipulation;cursor:pointer">'
@@ -198,10 +199,10 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             "var base=img.src.split('?')[0];var failures=0;"
             "var touchUrl=img.getAttribute('data-touch-url');"
             "var note=img.closest('.printer-screen-col').querySelector('[role=status]');"
-            "img.addEventListener('click',function(e){"
+            "function sendTap(clientX,clientY){"
             "var rect=img.getBoundingClientRect();if(!rect.width||!rect.height){return;}"
-            "var x=Math.max(0,Math.min(799,Math.round((e.clientX-rect.left)/rect.width*800)));"
-            "var y=Math.max(0,Math.min(479,Math.round((e.clientY-rect.top)/rect.height*480)));"
+            "var x=Math.max(0,Math.min(799,Math.round((clientX-rect.left)/rect.width*800)));"
+            "var y=Math.max(0,Math.min(479,Math.round((clientY-rect.top)/rect.height*480)));"
             "var marker=img.parentElement.querySelector('.printer-tap-marker');"
             "if(marker){marker.style.left=(x/800*100)+'%';marker.style.top=(y/480*100)+'%';marker.style.display='block';}"
             "if(!touchUrl){if(note){note.textContent=\"Preview only. No printer action was sent. Use the Open the full printer screen view link to interact.\";}return;}"
@@ -209,7 +210,14 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             "fetch(touchUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'_csrf='+encodeURIComponent(csrf?csrf.value:'')+'&x='+x+'&y='+y})"
             ".then(function(r){return r.json();}).then(function(j){if(note){note.textContent=j.ok?(j.detail||'Tap sent.'):'Tap refused: '+(j.reason||'not sent');}if(j.ok){img.src=base+'?t='+Date.now();}})"
             ".catch(function(){if(note){note.textContent='Could not reach the Web UI; tap was not confirmed.';}});"
-            "});"
+            "}"
+            "var gesture=null;"
+            "img.addEventListener('pointerdown',function(e){if(e.button!==0){return;}gesture={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,started:Date.now()};});"
+            "img.addEventListener('pointermove',function(e){if(gesture&&e.pointerId===gesture.id){gesture.lastX=e.clientX;gesture.lastY=e.clientY;}});"
+            "img.addEventListener('pointercancel',function(e){if(gesture&&e.pointerId===gesture.id){gesture=null;}});"
+            "img.addEventListener('pointerup',function(e){if(!gesture||e.pointerId!==gesture.id){return;}var g=gesture;gesture=null;"
+            "if(Date.now()-g.started>500||Math.hypot(e.clientX-g.x,e.clientY-g.y)>10){return;}sendTap(e.clientX,e.clientY);});"
+            "img.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();var r=img.getBoundingClientRect();sendTap(r.left+r.width/2,r.top+r.height/2);}});"
             "function next(){setTimeout(tick,Math.min(2000*Math.pow(2,failures),60000));}"
             "function tick(){if(document.hidden){next();return;}img.src=base+'?t='+Date.now();}"
             "img.onload=function(){failures=0;next();};"

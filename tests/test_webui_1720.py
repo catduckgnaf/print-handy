@@ -276,6 +276,14 @@ class PrintersPageScreenTests(unittest.TestCase):
         self.assertIn("encodeURIComponent(csrf?csrf.value:'')", page)
         self.assertIn("'&x='+x+'&y='+y", page)
         self.assertIn("touch-action:manipulation", page)
+        self.assertIn('role="button" tabindex="0"', page)
+        self.assertIn("addEventListener('pointerdown'", page)
+        self.assertIn("addEventListener('pointerup'", page)
+        self.assertIn("addEventListener('pointercancel'", page)
+        self.assertIn("Date.now()-g.started>500", page)
+        self.assertIn("Math.hypot(e.clientX-g.x,e.clientY-g.y)>10", page)
+        self.assertIn("addEventListener('keydown'", page)
+        self.assertNotIn("img.addEventListener('click'", page)
 
     def test_touch_disabled_embedded_screen_stays_preview_only(self):
         page = printers_page.render(
