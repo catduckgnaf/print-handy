@@ -431,6 +431,10 @@ def bounds(triangles):
                 hi[axis] = max(hi[axis], float(chunk_hi[axis]))
         return lo, hi
     if isinstance(triangles, MeshTable) and len(triangles) >= 32768:
+        # Integer coordinates above 2**53 can collapse after float64 conversion.
+        # Keep exact scalar comparisons, matching the indexed-mesh guard above.
+        if triangles.vertices.dtype.kind in "iu":
+            return _scalar_bounds(triangles)
         lo = [float('inf')] * 3
         hi = [float('-inf')] * 3
         for start in range(0, len(triangles), 8192):

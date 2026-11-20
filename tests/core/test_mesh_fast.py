@@ -229,7 +229,8 @@ def test_large_indexed_integer_bounds_preserve_scalar_precision():
     base = 2**53
     vertices = np.asarray([(base, 0, 0), (base + 1, 1, 0), (base + 2, 0, 1)],
                           dtype=np.int64)
-    table = IndexedTriangles(vertices, np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1)))
+    faces = np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1))
+    table = IndexedTriangles(vertices, faces)
     # IndexedTriangles normally stores float64 geometry; emulate integer-backed
     # indexed data to cover callers that supply/retain exact integer arrays.
     table.vertices = vertices
@@ -237,6 +238,26 @@ def test_large_indexed_integer_bounds_preserve_scalar_precision():
     assert mesh_fast.bounds(table) == mesh_fast._scalar_bounds(table)
     assert mesh_fast.bounds(table)[0][0] == base
     assert mesh_fast.bounds(table)[1][0] == base + 2
+    lo, hi, volume = mesh_fast.bounds_and_volume(table)
+    assert lo is not None and hi is not None
+    assert lo[0] == base and hi[0] == base + 2
+    assert np.isfinite(volume)
+
+
+def test_large_mesh_table_integer_bounds_preserve_scalar_precision():
+    import numpy as np
+
+    base = 2**53
+    vertices = np.asarray([(base, 0, 0), (base + 1, 1, 0), (base + 2, 0, 1)],
+                          dtype=np.int64)
+    faces = np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1))
+    table = mesh_fast.MeshTable(vertices, faces)
+    actual = mesh_fast.bounds(table)
+    expected = mesh_fast._scalar_bounds(table)
+    assert actual[0] is not None and actual[1] is not None
+    assert actual == expected
+    assert actual[0][0] == base
+    assert actual[1][0] == base + 2
     lo, hi, volume = mesh_fast.bounds_and_volume(table)
     assert lo is not None and hi is not None
     assert lo[0] == base and hi[0] == base + 2
