@@ -28,6 +28,8 @@ history reads, never what was recorded.
 
 ## Asking in chat
 
+Start with the question in ordinary language; exact slash-command syntax is available when you want it. For example, “How much will this print cost?” prices the newest sliced job that has not printed yet, while “What did that print cost?” asks for the last finished print's frozen record. You can also ask “What did I spend this month?” for recorded monthly spend. These natural-language examples use the ordinary deterministic chat path, not the optional conversational AI lane.
+
 - "How much will this cost" and "price this print" price the file in
   hand: the newest sliced job that has not printed yet, per slot at each
   assigned spool's price. With nothing sliced, the answer says so
