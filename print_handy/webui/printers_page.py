@@ -127,7 +127,11 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             screen_col = (
                 '<div class="printer-screen-col"><h3>Printer screen</h3>'
                 f'<img data-printer-screen src="/api/printers/{pid}/screen/snapshot" '
-                f'alt="Printer screen of {esc(entry.get("name") or entry["id"])}">'
+                f'alt="Printer screen of {esc(entry.get("name") or entry["id"])}" '
+                f'aria-describedby="printer-preview-note-{pid}">'
+                f'<p class="muted" id="printer-preview-note-{pid}" role="status" '
+                f'aria-live="polite">Preview only. Tap or click to learn how to open the full screen; '
+                'this preview does not send touches to the printer.</p>'
                 '<p class="muted">This is the printer\'s own display, not '
                 'the bed camera. '
                 f'<a href="/printers/{pid}/screen">Open the full printer '
@@ -172,6 +176,8 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             "<script>"
             "document.querySelectorAll('img[data-printer-screen]').forEach(function(img){"
             "var base=img.src.split('?')[0];var failures=0;"
+            "var note=document.getElementById(img.getAttribute('aria-describedby'));"
+            "img.addEventListener('click',function(){if(note){note.textContent=\"Preview only. No printer action was sent. Use the Open the full printer screen view link to interact.\";}});"
             "function next(){setTimeout(tick,Math.min(2000*Math.pow(2,failures),60000));}"
             "function tick(){if(document.hidden){next();return;}img.src=base+'?t='+Date.now();}"
             "img.onload=function(){failures=0;next();};"

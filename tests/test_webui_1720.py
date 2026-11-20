@@ -253,6 +253,13 @@ class PrintersPageScreenTests(unittest.TestCase):
         self.assertIn('data-printer-screen src="/api/printers/ad5x/screen/snapshot"',
                       page)
         self.assertIn("not the bed camera", page)
+        self.assertIn('aria-describedby="printer-preview-note-ad5x"', page)
+        self.assertIn('id="printer-preview-note-ad5x" role="status" aria-live="polite"', page)
+        self.assertIn("Preview only. Tap or click", page)
+        self.assertIn("this preview does not send touches to the printer", page)
+        self.assertIn("img.addEventListener('click'", page)
+        self.assertIn("No printer action was sent", page)
+        self.assertNotIn("/screen/touch", page)
         self.assertIn('href="/printer-settings?printer=ad5x"', page)
         # The non-Moonraker printer gets no screen column.
         self.assertEqual(page.count('class="printer-screen-col"'), 1)
