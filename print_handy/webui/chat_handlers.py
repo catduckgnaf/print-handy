@@ -52,7 +52,6 @@ def chat_page(handler, notice=None, error=None):
     ft = handler._form_token()
     view = handler._chat_view()
     prefill = (parse_qs(urlparse(handler.path).query).get("text") or [""])[0]
-    from ..bot.web import chat_llm_enabled
     handler._send(200, chat_module.render_chat_page(
         view, form_token=ft, notice=notice, error=error,
         theme=handler._theme(), prefill=prefill,
