@@ -127,7 +127,7 @@ MEMBERS = [
     ("an unclosed object swallows the inner close",
      b'<object id="1"><mesh><triangles><triangle paint_color="4"/></triangles></mesh>'
      b'<object id="2"><mesh><triangles><triangle paint_color="8"/></triangles></mesh></object>'),
-    ("greater-than inside an attribute value ends the tag scan",
+    ("regex semantics stop at greater-than even inside a quoted value",
      b'<object data-x="a>b" id="4"><mesh><triangles><triangle paint_color="4"/></triangles></mesh></object>'),
     ("no objects at all",
      b'<model><resources></resources></model>'),
