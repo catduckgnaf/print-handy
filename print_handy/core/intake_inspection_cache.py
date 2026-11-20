@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 ALGORITHM_VERSION = "inspection-v1"
@@ -68,9 +71,9 @@ def _write(path, source_sha, kind, inputs, payload):
             try:
                 os.unlink(temp)
             except FileNotFoundError:
-                pass
+                logger.debug("temporary inspection cache file already removed")
     except (OSError, TypeError, ValueError):
-        return
+        logger.debug("could not write inspection cache entry", exc_info=True)
 
 
 _MAX_ENTRIES = 256
@@ -85,7 +88,7 @@ def get(root, kind, source_sha, scope, *, inputs=None):
     try:
         os.utime(path, None)
     except OSError:
-        pass
+        logger.debug("could not update inspection cache access time", exc_info=True)
     return payload
 
 
@@ -100,9 +103,9 @@ def _prune(root):
             try:
                 item.unlink()
             except OSError:
-                pass
+                logger.debug("could not evict inspection cache entry %s", item, exc_info=True)
     except OSError:
-        return
+        logger.debug("could not enumerate inspection cache entries", exc_info=True)
 
 
 def put(root, kind, source_sha, scope, payload, *, inputs=None):
