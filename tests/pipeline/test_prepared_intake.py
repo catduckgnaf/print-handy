@@ -565,9 +565,12 @@ def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypat
             self.questions.append(kw)
             import tools.clarify_gateway as cm
             if list(kw.get('choices') or []) == [prepared_intake.STOP_LABEL]:
-                cm.resolve_gateway_clarify(kw['clarify_id'], prepared_intake.STOP_LABEL)
+                answer = (prepared_intake.STOP_LABEL
+                          if kw['question'].startswith('Waiting for the background slice')
+                          else cm.CANCELLED)
             else:
-                cm.resolve_gateway_clarify(kw['clarify_id'], kw['choices'][next(self._picks)])
+                answer = kw['choices'][next(self._picks)]
+            cm.resolve_gateway_clarify(kw['clarify_id'], answer)
             return S(success=True)
 
         async def send(self, chat_id, content, reply_to=None, metadata=None):
@@ -579,6 +582,8 @@ def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypat
     adapter = StopAdapter([2, 0, 0])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=5))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    # Stop the intake during the background-slice wait after clearance's Stop prompt.
+    assert any(q['question'].startswith('Checking support clearance.') for q in adapter.questions)
     assert any(q['question'].startswith('Waiting for the background slice') for q in adapter.questions)
     assert result == {'action': 'skip', 'reason': 'cancelled by operator'}
     assert receipt['status'] == 'CANCELLED'
