@@ -60,7 +60,7 @@ NAV = (
 )
 
 NAV_GROUPS = {
-    "/designs": ("Chat / Design pages", ("/designs", "/chat", "/sliced", "/workflow")),
+    "/designs": ("Designs pages", ("/designs", "/chat", "/sliced", "/workflow")),
     # A printer's own settings open from its card on the Printers page,
     # which keeps the Printers tab highlighted, so they are not in the strip.
     "/printers": ("Printer pages", ("/printers", "/firmware")),

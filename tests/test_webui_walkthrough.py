@@ -613,7 +613,7 @@ class ThemeTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_pages_default_to_dark_with_the_shared_stylesheet(self):
+    def test_pages_default_to_light_with_the_shared_stylesheet(self):
         with tempfile.TemporaryDirectory() as tmp:
             port = self.start(tmp, host="127.0.0.1")
             code, _, body = self.request(port, "GET", "/config")
