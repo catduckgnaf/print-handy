@@ -188,6 +188,38 @@ def test_the_chat_tier_still_sends_without_a_key_to_a_hosted_endpoint():
     assert endpoint.requests[0]["auth"] is None
 
 
+def test_legacy_chat_endpoint_credentials_are_ignored_without_secondary_egress(monkeypatch):
+    monkeypatch.setenv("RETIRED_CHAT_KEY", "must-not-be-sent")
+    config = cfg(
+        llm={"chat_url": URL, "model": "shared", "api_key_env": "", "timeout_s": 31},
+        ai={"small": {}, "heavy": {}, "chat": {
+            "chat_url": OTHER_URL, "model": "tier-model", "api_key_env": "RETIRED_CHAT_KEY",
+            "fallback_model": "retired-fallback", "fallback_url": OTHER_URL + "/backup",
+            "fallback_api_key_env": "RETIRED_CHAT_KEY", "timeout_s": 7,
+        }},
+    )
+    endpoint = Endpoint(fail={"tier-model"})
+
+    with pytest.raises(OSError):
+        ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
+
+    assert [request["url"] for request in endpoint.requests] == [URL]
+    assert [request["auth"] for request in endpoint.requests] == [None]
+    assert [request["timeout"] for request in endpoint.requests] == [7]
+
+
+def test_legacy_chat_model_and_timeout_override_shared_endpoint():
+    config = cfg(
+        llm={"chat_url": URL, "model": "shared", "timeout_s": 31},
+        ai={"small": {}, "heavy": {}, "chat": {"model": "tier-model", "timeout_s": 7}},
+    )
+    endpoint = Endpoint()
+
+    assert ai_routes.call("chat", MSG, cfg=config, opener=endpoint) == ("hello", "tier-model")
+    assert endpoint.requests[0]["url"] == URL
+    assert endpoint.requests[0]["timeout"] == 7
+
+
 def test_images_ride_on_the_last_user_message():
     config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m"}})
     endpoint = Endpoint()

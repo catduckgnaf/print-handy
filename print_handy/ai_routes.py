@@ -121,7 +121,16 @@ def _tier_settings(tier, cfg) -> dict[str, Any]:
     if tier not in TIERS:
         raise ValueError(f"unknown AI tier {tier!r}; expected one of {', '.join(TIERS)}")
     values = ((cfg or {}).get("ai") or {}).get(tier) or {}
-    return values if isinstance(values, dict) else {}
+    if not isinstance(values, dict):
+        return {}
+    if tier == "chat":
+        # The chat lane has one shared endpoint: [llm]. Tolerate retired
+        # endpoint credentials in legacy [ai.chat] configs, but never route
+        # to them or send their keys. Model selection and timeout remain tier-local.
+        values = {key: value for key, value in values.items()
+                  if key not in {"chat_url", "api_key_env", "fallback_model", "fallback_url",
+                                 "fallback_api_key_env"}}
+    return values
 
 
 def _default_route(tier, cfg, purpose) -> Compat:
