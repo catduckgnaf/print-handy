@@ -1,5 +1,24 @@
 # Print Handy Internal Release Notes
 
+# Version 2.3.6
+
+**Release Date:** 2026-11-20 (prepared; not published)
+**Range:** 2.3.5..main (#1566 to #1732; 100 merged PRs; pre-release checklist #1729).
+**Live checks performed for this release:** none by this version-bump PR.
+**Not verified live:** Hardware-specific and real-install proof items are tracked on [release checklist #1729](https://github.com/catduckgnaf/print-handy/issues/1729); no hardware verification is claimed here.
+
+- Intake and projects: choose authored plates explicitly from links or Discord replies, continue with a selected remaining plate or archived project, and resume archived sources with validation and safe checkpoints (PR #1700, #1704, #1706, #1709, #1710, #1711, #1713).
+- Costs and history: calculate estimated and actual print cost, keep completed costs stable in print history and Pasta Wrapped, handle resin containers and other historical records, and share cost estimates with HelixScreen (PR #1632, #1640, #1643, #1647, #1652, #1657, #1660, #1661, #1663, #1668, #1693, #1694).
+- Web UI: reorganize printer, design, spool, cost and data views; add model upload/editing, diagnostics download, configuration controls and printer cost publishing (PR #1642, #1664, #1666, #1718, #1719, #1721, #1722, #1723, #1724, #1725).
+- Firmware: grouped update notices with a seven-day defer; bundled updates hidden by default; refuse unsafe stock firmware paths and avoid implying an update when versions cannot be compared (PR #1705, #1707, #1716).
+- Cross-slicer and model handling: translate supported foreign 3MF settings with a report, preserve destination profile authority, and fix Cura stack selection, painted-fit mapping, purge plans, package reuse and ZMod slot choices (PR #1578, #1621, #1653, #1665, #1670, #1685, #1686, #1689, #1699).
+- Community details: local-corpus roasts and terminal quips, Pasta Cam, and Pasta Wrapped soundtrack credit (PR #1654, #1658, #1672, #1673, #1674, #1696).
+- Diagnostics and reliability: bounded mesh audits, repeat-inspection caching, safer external-intake confirmation, verified firmware-update state and several slicer, API and firmware recovery fixes (PR #1688, #1691, #1708, #1712, #1714, #1727, #1728).
+- PR #1728 is merged and its Discord free-text AI fallback removal is included in this release range.
+- Upgrade: no mandatory configuration migration is identified in the public release notes. The removed `discord.chat_llm_enabled` setting and `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED` override are ignored on load, so existing configuration loads without them; see PR #1728.
+
+Merged PRs covered by this release range: #1566, #1567, #1568, #1569, #1572, #1573, #1574, #1575, #1576, #1577, #1578, #1580, #1581, #1582, #1591, #1594, #1597, #1602, #1604, #1605, #1606, #1607, #1609, #1611, #1613, #1614, #1618, #1619, #1620, #1621, #1628, #1629, #1630, #1631, #1632, #1633, #1635, #1639, #1640, #1641, #1642, #1644, #1645, #1646, #1649, #1650, #1652, #1653, #1654, #1655, #1656, #1657, #1658, #1659, #1662, #1663, #1664, #1665, #1666, #1667, #1668, #1669, #1670, #1671, #1673, #1674, #1685, #1686, #1688, #1689, #1690, #1691, #1692, #1693, #1694, #1695, #1696, #1698, #1699, #1701, #1704, #1705, #1706, #1707, #1708, #1709, #1710, #1711, #1712, #1713, #1714, #1716, #1722, #1723, #1724, #1725, #1727, #1728, #1730, #1732.
+
 # Unreleased
 
 # Version 2.3.5

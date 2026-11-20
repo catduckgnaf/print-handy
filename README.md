@@ -13,7 +13,7 @@ Ask for what you need in ordinary words: “How much purple PLA do I have?”, �
 
 The goal is a high Wife Approval Factor (WAF): when someone asks for a drawer divider, turn the request into a print, not a lesson in slicer settings. Check filament and cost in chat, approve the plate, and get on with dinner. If the print turns into spaghetti, Pasta Cam can flag it. If you like a little commentary, turn on the optional roasts. Printing should be fun.
 
-Current release: **2.3.5** · [What’s coming in 2.3.6](docs/RELEASE-2.3.6.md)
+Current release: **2.3.6** · [What’s coming in 2.3.6](docs/RELEASE-2.3.6.md)
 
 [Install](#get-started) · [See it work](#from-link-to-print) · [Printer support](#find-your-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
