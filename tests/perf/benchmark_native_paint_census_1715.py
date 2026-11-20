@@ -89,15 +89,23 @@ def _write_sample(path: Path, triangle_count: int, part_count: int,
 
 def _time_inventory(path: Path, native: bool):
     loader = pg._load_native_paint_census
-    if native and loader() is None:
+    native_census = loader() if native else None
+    if native and native_census is None:
         raise RuntimeError("native paint census is unavailable; build the extension first")
-    pg._load_native_paint_census = (lambda: loader()) if native else (lambda: None)
+    pg._load_native_paint_census = lambda: native_census
+    decode = pg.decode_states
+    if native:
+        def unexpected_decode(code):
+            raise AssertionError(f"benchmark fell back to Python for paint code {code}")
+
+        pg.decode_states = unexpected_decode
     try:
         started = time.perf_counter()
         manifest = sc.inventory(path)
         return time.perf_counter() - started, manifest
     finally:
         pg._load_native_paint_census = loader
+        pg.decode_states = decode
 
 
 def benchmark(rounds: int = 5) -> list[dict]:
