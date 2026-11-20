@@ -44,7 +44,55 @@ env:
   ORCA_RUNTIME_COMMIT: 4337a389125f814785bd83f4ace01da5b6baa80fdcf5a9c81e60dcd03896c067
 
 jobs:
+  scope:
+    # Release-bump PRs (version line and release notes only, scripts/ci_scope.py) skip the slicer,
+    # corpus, image and offline shards and run release-bump-tests instead. The 2.3.6 bump PR spent
+    # about 40 minutes per push on shards a version string cannot affect. The full suite still runs on
+    # the push to main, which the docker-publish guard requires before a tag can publish. Fails safe:
+    # any other event, file or error is full=true.
+    name: CI scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the change
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ci_scope.py >> "$GITHUB_OUTPUT"
+
+  release-bump-tests:
+    # The lightweight suite for a release-bump PR: every offline test whose name says it reads the
+    # docs, README, release notes or version, which is what a bump edits.
+    needs: scope
+    if: needs.scope.outputs.full == 'false'
+    name: Release bump tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -c constraints.txt ".[test]"
+      - name: Docs, README, release and version tests
+        run: python -m pytest -q -rs tests -k "docs or readme or release or version"
+
   edit-corpus-offline:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     name: Edit corpus offline (shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -68,15 +116,21 @@ jobs:
 
   edit-corpus-offline-result:
     if: always()
-    needs: edit-corpus-offline
+    needs: [scope, edit-corpus-offline]
     name: Edit corpus (offline)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: All offline edit corpus shards passed
-        run: test "${{ needs.edit-corpus-offline.result }}" = success
+        # Skipped is a pass only when the scope job decided this is a release bump.
+        run: |
+          test "${{ needs.edit-corpus-offline.result }}" = success || {
+            test "${{ needs.edit-corpus-offline.result }}" = skipped && test "${{ needs.scope.outputs.full }}" = false; }
 
   edit-corpus-real:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     name: Edit corpus (stable, shard ${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -115,6 +169,9 @@ jobs:
         run: xvfb-run -a python -m pytest -v -s tests/corpus/edit
 
   offline-tests:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     # Three shards per Python run in parallel (tests/conftest.py, PRINT_HANDY_TEST_SHARD). The
     # offline-tests-result job reports the per-Python check names branch protection requires.
     name: offline-tests (${{ matrix.python-version }}, shard ${{ matrix.shard }})
@@ -262,7 +319,7 @@ jobs:
     # Keeps the required check names "offline-tests (3.12)" and "offline-tests (3.14)": passes only when
     # every offline shard passed.
     if: always()
-    needs: offline-tests
+    needs: [scope, offline-tests, release-bump-tests]
     name: offline-tests (${{ matrix.python-version }})
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -271,7 +328,11 @@ jobs:
         python-version: ["3.12", "3.14"]
     steps:
       - name: All offline shards passed
-        run: test "${{ needs.offline-tests.result }}" = success
+        # On a release bump (scope full=false) the shards are skipped and release-bump-tests stands in.
+        run: |
+          test "${{ needs.offline-tests.result }}" = success || {
+            test "${{ needs.offline-tests.result }}" = skipped && test "${{ needs.scope.outputs.full }}" = false &&
+              test "${{ needs.release-bump-tests.result }}" = success; }
 
   pyright:
     # #1589: type check, reporting only. Pyright in basic mode over
@@ -299,6 +360,9 @@ jobs:
         run: python -m pyright print_handy/runtime
 
   bounds-image-stage:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     # Builds the Dockerfile's bounds-build stage on PRs (#952 phase 2): no
     # other PR check builds the image, so the pinned rustup-init checksum,
     # the toolchain and the maturin wheel build were first exercised at
@@ -330,6 +394,9 @@ jobs:
           echo "extension: $so"
 
   runtime-image-build:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     # Builds the FULL runtime image on PRs (follow-up to the
     # bounds-image-stage job above): that job exercises the bounds-build
     # stage and the wheel layout, but the runtime stage itself was only
@@ -366,6 +433,9 @@ jobs:
             -c "import print_handy.core._bounds_native as m; print('site-packages copy imports, API_VERSION', m.API_VERSION)"
 
   native-bounds:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     # Builds the Rust/PyO3 bounds extension (#952, D1) and runs the
     # equivalence corpus against the native path. The wheel's extension
     # is mirrored into the source package (as the Dockerfile does for
@@ -414,6 +484,9 @@ jobs:
         run: python -m pytest tests/pipeline/test_native_bounds.py tests/pipeline/test_native_bed_scan.py -q -rs
 
   discord-timing:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     # A required status check on main (the owner added it; #1196). Keep the job name.
     # Fake Discord flow timing on both transports, mock slicer, 3 repeats; medians must stay within
     # tests/corpus/timing_baseline.json (+10% + max(0.35 s, 10% of the baseline), #734). Raising a baseline needs
@@ -456,6 +529,9 @@ jobs:
           path: timing/
 
   slicer-timing-real:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     name: Slicer timing (real Orca, reporting only)
     # #734 real-slicer leg: a small fixed set of corpus cases goes end to end through the fake Discord
     # flow with the pinned Orca (same install as Slicer test (stable)), 3 repeats, medians compared to
@@ -674,6 +750,9 @@ jobs:
           "/tmp/clean/bin/python" -I -m print_handy.bot check
 
   slicer-test-stable:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     name: Slicer test (stable, shard ${{ matrix.shard }})
     # Three corpus shards run in parallel (tests/conftest.py, PRINT_HANDY_TEST_SHARD); the
     # slicer-test-stable-result job reports the "Slicer test (stable)" check branch protection requires.
@@ -729,15 +808,20 @@ jobs:
 
   slicer-test-stable-result:
     if: always()
-    needs: slicer-test-stable
+    needs: [scope, slicer-test-stable]
     name: Slicer test (stable)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: All stable slicer shards passed
-        run: test "${{ needs.slicer-test-stable.result }}" = success
+        run: |
+          test "${{ needs.slicer-test-stable.result }}" = success || {
+            test "${{ needs.slicer-test-stable.result }}" = skipped && test "${{ needs.scope.outputs.full }}" = false; }
 
   slicer-test-bambu:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     name: Slicer test (bambu)
     # Bambu Studio is the Bambu Lab vendor default slicer and the one-shot fallback when
     # Orca execution fails, but it stays out of the published image (the image
@@ -888,6 +972,9 @@ jobs:
         run: python -m pytest -v -rs "tests/test_entrypoint_layout_matrix.py::test_mounted_state_volume_copies_instead_of_symlinking"
 
   webui-browser-smoke:
+    needs: scope
+    # Skipped only on a release-bump PR (scripts/ci_scope.py); a failed scope check runs it.
+    if: ${{ !cancelled() && needs.scope.outputs.full != 'false' }}
     # #1052 shipped browser tests but never executed them. This separate gate
     # runs Chromium against the actual loopback server and fails on skipped
     # tests, instead of accepting five dormant skips as a green job.

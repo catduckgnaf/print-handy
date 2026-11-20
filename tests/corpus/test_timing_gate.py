@@ -256,6 +256,17 @@ def test_cumulative_drift_fails_even_when_each_step_was_small():
     assert check([small(3.3, "mid")], base) == []
 
 
+def test_cumulative_limit_never_gates_a_sub_floor_first_recording_tighter_than_noise():
+    """2.3.6: parts-512-four-color fit_check_s was first recorded at 0.01 s and read 0.37 s against a
+    0.365 s cumulative limit (0.01 * 1.5 + 0.35) while its own baseline limit was 0.57 s. Below the
+    slack floor the percentage is taken from the floor, so the 2.3.6 reading passes."""
+    base = {"cases": {"tiny/direct": {"wall_s": 0.2, "original": {"wall_s": 0.01}, "raised_from": {"wall_s": 0.01},
+                                      "reason": "A long enough reason to count as an explanation."}}}
+    assert check([small(0.37, "tiny")], base) == []
+    # Past the floor-based limit (0.35 * 1.5 + 0.35 = 0.875) it still fails, from both checks.
+    assert any("cumulative limit 0.87s" in p for p in check([small(0.9, "tiny")], base))
+
+
 def test_drift_past_the_warning_tolerance_is_reported_but_does_not_fail():
     from tests.corpus.timing_gate import drift_notes
     base = {"cases": {"mid/direct": {"wall_s": 3.0, "original": {"wall_s": 2.0}}}}

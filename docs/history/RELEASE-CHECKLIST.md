@@ -50,6 +50,12 @@ before merging; it fails closed.
 - [ ] Draft GitHub release notes cover **every** merged PR in the
   range, grouped user-first. The PR list comes from the tag range's
   ancestry (`git log`), never from dates or memory (audit A2/A12).
+  Do not copy the range by hand: run
+  `python3 scripts/check_release.py --version X.Y.Z --from-ref <previous tag> --notes .github/release-notes-draft.md --fill`
+  before pushing the bump. It writes the "Merged PRs covered by this
+  release range" line in both notes files from the ancestry, lists the
+  PRs the prose never mentions, then runs the full check. The 2.3.6 bump
+  PR's first push failed the Release check with 99 PRs missing (A16).
 - [ ] `docs/history/INTERNAL_RELEASE_NOTES.md` gains a `# Version X.Y.Z`
   section covering the same PRs; the `Unreleased` bullets move into it.
 - [ ] Any PR that changes behavior for existing installs gets an
@@ -67,7 +73,16 @@ before merging; it fails closed.
 - [ ] `docs/history/INTERNAL_RELEASE_NOTES.md`: the `# Version X.Y.Z` section,
   dated.
 - [ ] Release check workflow green on the bump PR's exact head; all
-  other required checks green; review threads resolved.
+  other required checks green; review threads resolved. A PR that only
+  changes these surfaces (and `docs/RELEASE-X.Y.Z.md`) runs the
+  lightweight CI (`scripts/ci_scope.py`: the docs, README, release and
+  version tests instead of the slicer, corpus, image and offline
+  shards); the push to `main` runs the full suite, which the publish
+  guard requires. Anything else in the PR runs the full suite.
+- [ ] Keep the bump PR to those files, and do not merge `main` into it
+  for an unrelated fix: every merge restarts its CI, and 2.3.6 lost
+  about 45 minutes that way (A16). Merge the fix to `main` first, then
+  update the bump branch once.
 - [ ] Docs sync: the docs in `docs/` are the source of truth. The Pages
   site (print-handy-docs) is synced by its Docs auto-sync workflow —
   if its Actions cannot open the sync PR, dispatch it by hand and hand
@@ -86,13 +101,25 @@ before merging; it fails closed.
    Never move a published tag; a re-cut needs catduck's explicit call
    (audit A6).
 3. Dispatch `docker-publish.yml` with `version=X.Y.Z`,
-   `publish=false` (candidate) and read the result — especially the
-   lifecycle gate, which is a warning in candidate mode and the only
-   mount-realistic exercise of the entrypoint (audit A6).
+   `publish=false` (candidate) **on the tag** (or on `main` at the bump
+   merge commit before tagging) and read the result, especially the
+   lifecycle gate, the only mount-realistic exercise of the entrypoint
+   (audit A6). A candidate on `main` or a tag pushes its accepted
+   images by digest, untagged, so step 5 can reuse them. Do not run
+   candidates on the bump branch: that commit is not the one that gets
+   tagged, so its build can never be reused, and 2.3.6 built the same
+   image three times (A16).
 4. If the surfaces gate stops the publish, run its printed remedy
    (docs sync), merge the sync, and re-dispatch (audit A1).
-5. Dispatch `docker-publish.yml` again with `publish=true`,
-   `--ref X.Y.Z`.
+5. Close the `Release checklist: X.Y.Z` issue only after
+   `python3 scripts/check_issue_closure.py --issue <number>` reports 0
+   unticked items: the closure guard reopens it otherwise, and a
+   publication dispatched meanwhile fails its checklist check (A16).
+   Then dispatch `docker-publish.yml` again with `publish=true`,
+   `--ref X.Y.Z`. When step 3's candidate ran on this commit with this
+   version, the surfaces gate's "Candidate reuse" summary names its run,
+   the build job is skipped, and the manifest job tags the candidate's
+   digests. Otherwise it builds and accepts the image as before.
 6. Create the GitHub Release with the §2 notes plus a provenance block
    (tag commit, publish run IDs, image digests).
 
@@ -199,3 +226,4 @@ release checklist issues and the release workflows.
 | A13 | 2.2.6 | At the 2.2.6 freeze the internal `Unreleased` section covered only 8 of 25 merged PRs — A12 live again. Found by the 2.2.6 pre-flight sweep; fixed in the bump PR. | `check_release.py` fails closed on exactly this. |
 | A14 | 2.2.6 | Timing baselines were last re-recorded for 2.2.5. | §1 baselines step, done for 2.2.6 from main CI run 42346828094. |
 | A15 | 2.2.5 | The digest pin lands only after publish and needed its own follow-up PR; forgetting it strands the template on the old digest. | Superseded: templates follow `:latest` and never pin (#1266); §6 keeps only the DOCKER.md digest PR. |
+| A16 | 2.3.6 | The release took about 2.5 hours of active time for a five-file bump: the Release check failed because the draft notes were missing 99 range PRs, every push and a merge from `main` restarted the full CI, `discord-timing` blocked on a 0.01 s first recording (0.37 s against a 0.365 s cumulative limit, inside runner noise), the same image was built three times, and the checklist was closed with boxes open so the guard reopened it and the first publication failed. | `check_release.py --fill` (§2); release-bump CI scope (§3, `scripts/ci_scope.py`); cumulative limit measured from max(first, slack floor) (`tests/corpus/timing_gate.py`); candidate on the tag reused by publication (§4, `scripts/reuse_candidate.py`); `check_issue_closure.py --issue` before closing (§4). |

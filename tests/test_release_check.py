@@ -104,6 +104,38 @@ class ReleaseCheckBehaviour(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("color", result.stdout)
 
+    def test_fill_writes_the_coverage_line_and_then_passes(self):
+        """2.3.6: the bump PR first failed with 99 range PRs missing from hand-copied notes."""
+        self.notes.write_text("# Draft\n\nCovers #10.\n\n## References\n\n- links\n")
+        internal = self.root / "docs" / "history" / "INTERNAL_RELEASE_NOTES.md"
+        internal.write_text("# Notes\n\n# Version 1.2.3\n\n- a #10\n\n# Version 1.2.2\n\n- old #5\n")
+        self.assertEqual(self.run_cli().returncode, 1)
+        result = self.run_cli("--fill")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        line = "Merged PRs covered by this release range: #10, #20."
+        notes = self.notes.read_text()
+        self.assertIn(line + "\n\n## References", notes)
+        self.assertIn("coverage line of the draft notes", result.stdout)
+        self.assertIn("#20", result.stdout.split("coverage line of the draft")[1])
+        text = internal.read_text()
+        self.assertIn("- a #10\n\n" + line + "\n\n# Version 1.2.2\n\n- old #5\n", text)
+        # Rerunning is a no-op, and a stale line is rewritten in place, not duplicated.
+        self.assertEqual(self.run_cli("--fill").returncode, 0)
+        self.assertEqual(self.notes.read_text(), notes)
+        self.assertEqual(internal.read_text(), text)
+        self.range_file.write_text("feat: a (#10)\nfix: b (#20)\nfix: c (#30)\n")
+        self.assertEqual(self.run_cli("--fill").returncode, 0)
+        self.assertEqual(self.notes.read_text().count("covered by this release range"), 1)
+        self.assertIn("#10, #20, #30.", internal.read_text())
+
+    def test_fill_never_invents_a_missing_internal_section(self):
+        self.write_tree(version="1.2.3", internal_has_section=False)
+        result = self.run_cli("--fill")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no '# Version 1.2.3' section", result.stdout)
+        internal = self.root / "docs" / "history" / "INTERNAL_RELEASE_NOTES.md"
+        self.assertNotIn("covered by this release range", internal.read_text())
+
     def test_empty_range_fails_closed(self):
         self.range_file.write_text("no numbers here\n")
         result = self.run_cli()
