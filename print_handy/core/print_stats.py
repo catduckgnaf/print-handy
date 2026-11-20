@@ -1025,7 +1025,10 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     # provably ended counts by its recorded outcome (or as unrecorded),
     # so the page never claims old prints are still printing.
     # counts_by_status above stays the raw record count, named as such.
-    resolved_outcomes = _resolved_outcomes(rows)
+    # Reconcile against the full history: a later print outside the selected
+    # year still proves an earlier "printing" record on that printer ended.
+    # Only the selected rows contribute to this year's counts.
+    resolved_outcomes = _resolved_outcomes(records)
     resolved_counts: dict[str, int] = {}
     for record in rows:
         outcome = resolved_outcomes[id(record)]
