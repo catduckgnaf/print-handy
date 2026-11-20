@@ -266,6 +266,7 @@ MODEL_IMPORT_ALLOWLIST = {
     "print_handy/bot/runtime.py": "conversational lane dispatch",
     "print_handy/bot/__main__.py": "status reporting only",
     "print_handy/bot/natural_language.py": "typed read-only tools for the conversational lane",
+    "print_handy/core/ai_fix.py": "edit repair via shared AI transport",
     "print_handy/core/design.py": "design generation via shared AI transport",
     "print_handy/runtime/visual_watch.py": "vision",
     "print_handy/runtime/moonraker_event_listener.py": "vision/watchdog orchestration",
