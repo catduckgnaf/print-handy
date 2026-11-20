@@ -117,10 +117,9 @@ def mesh_audit(path, printer_model=None):
     triangles = source_triangles(path)
     if not triangles:
         raise RuntimeError("model has no printable geometry")
-    # One bounded pass replaces six full Python-level min/max scans for list-backed
-    # meshes; indexed meshes use the same established geometry helper as before.
-    from ..core.mesh_fast import bounds_and_volume
-    lo, hi, _ = bounds_and_volume(triangles)
+    # Bounds only: audit does not need volume, and should not do its arithmetic.
+    from ..core.mesh_fast import bounds
+    lo, hi = bounds(triangles)
     source_sha256 = file_sha256(path)
     from ..core.orca_adapter import placement_candidates
     return {"schema_version": 1, "sha256": source_sha256,

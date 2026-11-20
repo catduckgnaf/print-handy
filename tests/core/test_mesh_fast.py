@@ -184,6 +184,48 @@ def test_bounds_and_volume_accepts_plain_list_triangles_after_audit_fast_path():
     assert mesh_fast.bounds_and_volume(triangles) == _old_bounds_and_volume(triangles)
 
 
+@pytest.mark.parametrize("triangles", [
+    [[(-8.0, -3.0, -4.0), (-1.0, -3.0, -4.0), (-8.0, -1.0, -4.0)]],
+    [[(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (4.0, 0.0, 0.0)]],
+    [[(-1e150, -2e150, -3e150), (1e150, 2e150, 3e150), (0.0, 1e150, -1e150)]],
+    [[(0.0, 0.0, 0.0), (1.0, 2.0, 3.0), (4.0, 5.0, 6.0)],
+     [(-1.0, -2.0, -3.0), (0.0, 1.0, 2.0), (5.0, 6.0, 7.0)]],
+])
+def test_bounds_matches_original_min_max_for_list_triangle_edge_cases(triangles):
+    old_lo, old_hi, _ = _old_bounds_and_volume(triangles)
+    assert mesh_fast.bounds(triangles) == (old_lo, old_hi)
+
+
+def test_bounds_does_not_evaluate_volume():
+    class Coordinate:
+        def __init__(self, value):
+            self.value = value
+
+        def __lt__(self, other):
+            return self.value < getattr(other, "value", other)
+
+        def __gt__(self, other):
+            return self.value > getattr(other, "value", other)
+
+        def __add__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+        def __sub__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+        def __mul__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+        def __truediv__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+    triangles = [[tuple(Coordinate(v) for v in point) for point in
+                  ((-1, 2, 3), (4, -5, 6), (7, 8, -9))]]
+    lo, hi = mesh_fast.bounds(triangles)
+    assert [value.value for value in lo] == [-1, -5, -9]
+    assert [value.value for value in hi] == [7, 8, 6]
+
+
 def test_bounds_and_volume_known_tetrahedron():
     a, b, c, d = (0., 0., 0.), (6., 0., 0.), (0., 6., 0.), (0., 0., 6.)
     tris = [[a, c, b], [a, b, d], [a, d, c], [b, c, d]]
