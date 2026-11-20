@@ -123,7 +123,6 @@ GROUP_OF = {
     "discord.approval_user_id": "platform",
     "discord.approval_all_users": "platform",
     "discord.timezone": "platform",
-    "discord.chat_llm_enabled": "platform",
     "discord.mention_starter": "platform",
     "discord.ask_which_parts": "platform",
     "telegram.chat_id": "platform",
@@ -497,13 +496,6 @@ CATALOG = (
     _field("discord", "timezone", "Timezone", "picker",
            "IANA timezone name used for display and the daily reset.",
            choices_source=SOURCE_TIMEZONES),
-    _field("discord", "chat_llm_enabled", "Discord chat LLM", "toggle",
-           "Free-text chat replies from the [llm] model (or the [agent] lane, when "
-           "configured) on Discord. Off by default: Discord runs as a pure bot "
-           "(unmatched text gets the short not-understood reply) while [llm] stays "
-           "configured for /print-design. On brings the chat AI back. Camera checks "
-           "keep their own switches either way.",
-           validator="settings discord check"),
     _field("discord", "mention_starter", "Mention who started the print", "toggle",
            "On by default: when a print needs its starter (Discord, Telegram or Matrix), the post @mentions "
            "only the user who started that print — the post that ends it (complete, "
