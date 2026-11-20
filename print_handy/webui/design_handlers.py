@@ -8,6 +8,7 @@ route-table names; behavior and output are unchanged.
 """
 from __future__ import annotations
 
+import html
 import logging
 import re
 import secrets
@@ -18,6 +19,8 @@ from . import chat as chat_module
 from . import controls as controls_module
 from . import data as data_module
 from . import designs as designs_module
+from . import shell
+from . import upload as upload_module
 from . import editable_download as editable_download_module
 from . import external_intake_page as external_intake_module
 from . import slice_result as slice_result_module
@@ -126,6 +129,81 @@ def designs_post(handler, form):
                                  "give the bot a moment to catch up.")
         return
     handler._redirect("/designs", headers=_design_cookie_headers(handler))
+
+
+def submit_uploaded_part(view, saved, change):
+    """Submit one saved part upload to a chat view as a design edit (#1721).
+
+    The message is the /print-design command (designs.upload_message)
+    with the file riding it as the event's media, exactly the event a
+    file dropped in Discord produces: the design dispatch seeds an
+    edit session from the file, runs the change as its first turn when
+    one was given, and otherwise shows the part as it is. Shared by the
+    Designs page's upload form and the Chat page's, which differ only
+    in the view (the design thread, or the browser's chat).
+    """
+    return view.submit(designs_module.upload_message(change),
+                       media_urls=[str(saved)],
+                       shown=designs_module.upload_shown(change, saved.name))
+
+
+def part_upload_refused(handler, refused, back):
+    """Render a refused part-upload receive the workflow upload's way.
+
+    True when the receive was refused (the answer has been sent): the
+    plain error page for ``back``, with Retry-After on a busy 503.
+    """
+    if not refused:
+        return False
+    headers = [("Retry-After", "30")] if refused[0] == 503 else []
+    handler._send(refused[0], shell.page(
+        "error", f'<p class="error">{html.escape(refused[1])}</p>'
+                 f'<p><a href="{back}">Back</a></p>',
+        path=back, theme=handler._theme()),
+        "text/html; charset=utf-8", headers=headers)
+    return True
+
+
+def designs_upload_post(handler, form):
+    """POST /designs/upload: receive a part and start editing it here (#1721).
+
+    The receive is the Upload page's own (_receive_upload: streamed to
+    a spool file, size and quota checked before a byte lands); the save
+    is save_upload into the inbox, with .scad allowed as the extra type
+    a design source needs; then the saved file is submitted to this
+    browser's design thread as a /print-design edit, the same flow the
+    message box starts from a description.
+    """
+    if not handler._web_chat_enabled():
+        handler._designs_page()
+        return
+    data = handler.server.settings_data
+    ready, reason = designs_module.design_availability(data)
+    if not ready:
+        handler._designs_page(error=reason)
+        return
+    view = handler._design_view()
+
+    def handle(fields, files):
+        if not files:
+            handler._html_refusal(400, "no file was attached", "/designs")
+            return
+        change = (fields.get("change") or [""])[0].strip()
+        saved, reason = upload_module.save_upload(
+            data, files[0][0], files[0][1],
+            extra_exts=designs_module.EDIT_UPLOAD_EXTS)
+        if saved is None:
+            handler._html_refusal(507 if reason.startswith(upload_module.INBOX_FULL)
+                                  else 400, reason, "/designs")
+            return
+        if not submit_uploaded_part(view, saved, change):
+            handler._designs_page(error=f"{saved.name} is in the inbox, but the "
+                                   "edit could not be started (too many messages "
+                                   "in the last minute). Try again in a moment.")
+            return
+        handler._redirect("/designs", headers=_design_cookie_headers(handler))
+
+    part_upload_refused(handler, handler._receive_upload(handle), "/designs")
 
 
 def designs_new_post(handler, form):
