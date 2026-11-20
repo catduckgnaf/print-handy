@@ -56,7 +56,6 @@ def chat_page(handler, notice=None, error=None):
     handler._send(200, chat_module.render_chat_page(
         view, form_token=ft, notice=notice, error=error,
         theme=handler._theme(), prefill=prefill,
-        ask_ai_default=chat_llm_enabled(handler.server.settings_data),
         nav=data_module.nav_for(handler.server.settings_data)),
         "text/html; charset=utf-8", headers=handler._chat_cookie_headers())
 
@@ -113,10 +112,10 @@ def chat_post(handler, form):
     if not text:
         handler._redirect("/chat")
         return
-    # The Ask AI checkbox is read here, on the authenticated POST,
-    # and passed as a server-side flag — never parsed out of the
-    # message text (#1524).
-    ask_ai = (form.get("ask_ai") or [""])[0] in ("1", "true", "on")
+    # The configured chat AI lane is automatic. The bot still handles
+    # deterministic commands and print confirmations through its normal pipeline.
+    from ..bot.web import chat_llm_enabled
+    ask_ai = chat_llm_enabled(handler.server.settings_data)
     if not handler._chat_view().submit(text, ask_ai=ask_ai):
         handler._chat_page(error="Too many messages in the last minute; "
                               "give the bot a moment to catch up.")

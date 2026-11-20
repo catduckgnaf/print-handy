@@ -109,8 +109,9 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
         # Moonraker, so only Moonraker printers carry the screen; the
         # full view itself explains when no screen is published.
         moonraker = model is not None and model.vendor.connection == "moonraker"
-        screen_link = (f' <a class="button" href="/printers/{pid}/screen">'
-                       'Printer screen</a>' if moonraker else "")
+        # The screen is already embedded on this card; avoid a redundant
+        # action competing with settings and spool links on narrow screens.
+        screen_link = ""
         settings_col = (
             '<div class="printer-settings-col">'
             f'<h3>{esc(entry.get("name") or entry["id"])}{default}</h3>'

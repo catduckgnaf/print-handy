@@ -57,20 +57,20 @@ DEFAULT_THEME = "dark"
 # themselves, and the numbers. The group's
 # own pages appear as a strip under the header while you are in it.
 NAV = (
-    ("/chat", "Chat"),
     ("/", "Status"),
-    ("/designs", "Designs"),
+    ("/designs", "Chat / Design"),
     ("/sliced", "Sliced files"),
     ("/workflow", "Workflow"),
     ("/printers", "Printers"),
     ("/firmware", "Firmware"),
     ("/spools", "Spools"),
-    ("/cost", "Cost"),
+    ("/cost", "Print COST"),
     ("/config", "Settings"),
+    ("/notifications", "Notifications"),
 )
 
 NAV_GROUPS = {
-    "/designs": ("Designs pages", ("/designs", "/sliced", "/workflow", "/chat")),
+    "/designs": ("Chat / Design pages", ("/designs", "/chat", "/sliced", "/workflow")),
     # A printer's own settings open from its card on the Printers page,
     # which keeps the Printers tab highlighted, so they are not in the strip.
     "/printers": ("Printer pages", ("/printers", "/firmware")),
@@ -88,23 +88,23 @@ SOURCE_URL = "https://github.com/catduckgnaf/print-handy"
 
 CSS = """
 :root {
-  --color-bg: #12110f;
-  --color-surface: #1c1a17;
-  --color-ink: #f3efe6;
-  --color-muted: #a89b8c;
-  --color-line: #34302b;
-  --color-accent: #e07a3d;
-  --color-accent-ink: #1a100c;
-  --color-ok: #8dcea8;
-  --color-ok-bg: #1a3326;
-  --color-warn: #e4c07a;
-  --color-warn-bg: #3a2e14;
-  --color-bad: #f0a8a2;
-  --color-bad-bg: #3a1c1c;
+  --color-bg: #f3efe6;
+  --color-surface: #fffcf7;
+  --color-ink: #1a1814;
+  --color-muted: #6b645b;
+  --color-line: #e3dcd0;
+  --color-accent: #c45c26;
+  --color-accent-ink: #fff8f3;
+  --color-ok: #1f6b45;
+  --color-ok-bg: #e5f2ea;
+  --color-warn: #8a5a12;
+  --color-warn-bg: #f8efd8;
+  --color-bad: #8f2d2d;
+  --color-bad-bg: #f8e6e4;
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --radius-card: 0.75rem;
-  color-scheme: dark;
+  color-scheme: light;
 }
 html[data-theme="light"] {
   --color-bg: #f3efe6;
@@ -386,6 +386,15 @@ img { max-width: 100%; }
      squeezing every column into a strip of single letters. */
   .table-scroll th { white-space: nowrap; }
   .table-scroll td { min-width: 7rem; }
+  /* Keep wide tables readable instead of squeezing words into columns. */
+  .table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  body { overflow-wrap: anywhere; }
+  input, select, textarea, button { max-width: 100%; }
+  .printer-layout { grid-template-columns: minmax(0, 1fr); }
+  .printer-settings-col, .printer-screen-col { min-width: 0; }
+  .printer-settings-col p .button { display: inline-flex; margin: 0.2rem 0.2rem 0.2rem 0; }
+  nav.pills { width: 100%; }
+  nav.pills a { white-space: normal; }
   .table-scroll form.inline label { white-space: nowrap; }
   .table-scroll form.inline select { max-width: 13rem; }
   /* Phone header: the brand and theme toggle share the top row in the
