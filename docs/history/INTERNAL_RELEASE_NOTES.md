@@ -3,7 +3,7 @@
 # Version 2.3.6
 
 **Release Date:** 2026-11-20 (prepared; not published)
-**Range:** 2.3.5..main (#1566 to #1730; 99 merged PRs; pre-release checklist #1729).
+**Range:** 2.3.5..main (#1566 to #1732; 100 merged PRs; pre-release checklist #1729).
 **Live checks performed for this release:** none by this version-bump PR.
 **Not verified live:** Hardware-specific and real-install proof items are tracked on [release checklist #1729](https://github.com/catduckgnaf/print-handy/issues/1729); no hardware verification is claimed here.
 
@@ -17,7 +17,7 @@
 - PR #1728 is merged and its Discord free-text AI fallback removal is included in this release range.
 - Upgrade: no mandatory configuration migration is identified in the public release notes. The removed `discord.chat_llm_enabled` setting and `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED` override are ignored on load, so existing configuration loads without them; see PR #1728.
 
-Merged PRs covered by this release range: #1566, #1567, #1568, #1569, #1572, #1573, #1574, #1575, #1576, #1577, #1578, #1580, #1581, #1582, #1591, #1594, #1597, #1602, #1604, #1605, #1606, #1607, #1609, #1611, #1613, #1614, #1618, #1619, #1620, #1621, #1628, #1629, #1630, #1631, #1632, #1633, #1635, #1639, #1640, #1641, #1642, #1644, #1645, #1646, #1649, #1650, #1652, #1653, #1654, #1655, #1656, #1657, #1658, #1659, #1662, #1663, #1664, #1665, #1666, #1667, #1668, #1669, #1670, #1671, #1673, #1674, #1685, #1686, #1688, #1689, #1690, #1691, #1692, #1693, #1694, #1695, #1696, #1698, #1699, #1701, #1704, #1705, #1706, #1707, #1708, #1709, #1710, #1711, #1712, #1713, #1714, #1716, #1722, #1723, #1724, #1725, #1727, #1728, #1730.
+Merged PRs covered by this release range: #1566, #1567, #1568, #1569, #1572, #1573, #1574, #1575, #1576, #1577, #1578, #1580, #1581, #1582, #1591, #1594, #1597, #1602, #1604, #1605, #1606, #1607, #1609, #1611, #1613, #1614, #1618, #1619, #1620, #1621, #1628, #1629, #1630, #1631, #1632, #1633, #1635, #1639, #1640, #1641, #1642, #1644, #1645, #1646, #1649, #1650, #1652, #1653, #1654, #1655, #1656, #1657, #1658, #1659, #1662, #1663, #1664, #1665, #1666, #1667, #1668, #1669, #1670, #1671, #1673, #1674, #1685, #1686, #1688, #1689, #1690, #1691, #1692, #1693, #1694, #1695, #1696, #1698, #1699, #1701, #1704, #1705, #1706, #1707, #1708, #1709, #1710, #1711, #1712, #1713, #1714, #1716, #1722, #1723, #1724, #1725, #1727, #1728, #1730, #1732.
 
 # Unreleased
 
