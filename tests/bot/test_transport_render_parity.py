@@ -273,15 +273,12 @@ def _exploding_llm(monkeypatch):
     return calls
 
 
-def test_llm_fallback_is_a_discord_only_capability(cfg, monkeypatch):
-    """With [llm] fully configured, only the Discord-shaped core may use
-    it; Telegram and Matrix cores report use_llm False (#73 posture)."""
+def test_llm_fallback_is_disabled_on_discord_and_other_pure_bot_transports(cfg, monkeypatch):
+    """Discord stray chat is disabled; pure-bot transports remain disabled too."""
     cfg["llm"].update(chat_url="http://llm.invalid/v1", model="m")
-    # Chat AI is off by default (#1376); on, it still reaches Discord only.
-    cfg["discord"]["chat_llm_enabled"] = True
     discord_core = runtime.BotCore(_FakeClient(), cfg, adapter=_FakeAdapter(["1"]),
-                                   router=Router())
-    assert discord_core.use_llm is True
+                                   router=Router(), use_llm=True)
+    assert discord_core.use_llm is False
 
     tg_cfg = copy.deepcopy(cfg)
     tg_cfg["bot"].update(mode="standalone", platform="telegram")

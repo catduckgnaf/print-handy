@@ -890,20 +890,6 @@ def denied_users(cfg, section="discord"):
     return settings.user_ids(cfg[section].get("denied_user_ids"), key="denied_user_ids")
 
 
-def discord_chat_llm_enabled(cfg):
-    """Discord's operator-facing chat-LLM switch (#466): [discord] chat_llm_enabled.
-
-    Off by default since #1376 (AI is for designing models): Discord runs
-    as a pure bot (unmatched text gets the short not-understood reply,
-    #467) while [llm] stays configured for the features that inherit it —
-    /print-design resolves its endpoint from [design]/[llm] independently,
-    and the camera checks keep their own vision.ai_enabled gate — so the
-    chat switch changes none of them. True brings the stray-chat lanes back.
-    """
-    discord = (cfg or {}).get("discord") or {}
-    return bool(discord.get("chat_llm_enabled", False))
-
-
 def platform_name_of(source):
     """The platform name a source came from ('discord' for sources that do not say)."""
     value = getattr(getattr(source, "platform", None), "value", None) or getattr(source, "platform", None)
@@ -1201,20 +1187,12 @@ class BotCore(_RoutedAdapter):
         if client is not None and hasattr(client, "add_listener") and hasattr(self.adapter, "handle_click"):
             client.add_listener(self.on_interaction, "on_interaction")
         self.upload_dir = Path(self.cfg["paths"]["cache"]) / f"{self.platform_name}-uploads"
-        # Pure-bot platforms (the adapter reports uses_llm=False: Telegram
-        # and Matrix, #164 stages 2-3) never reach the LLM fallback, even
-        # when [llm] is configured: their unmatched text gets the short
-        # unmatched reply only (#73, #467). Discord has the operator-facing
-        # version of the same choice (#466): [discord] chat_llm_enabled,
-        # off by default since #1376, keeps Discord a pure bot too without
-        # unconfiguring [llm] for design. Web chat passes its own
-        # [webui] chat_llm_enabled in as use_llm.
-        # The switch gates every stray-chat model call (#524 stage 3): the
-        # bounded [llm] call and the [agent] lane alike — use_llm is the one
-        # gate the fallback checks for both.
-        self.chat_llm_enabled = discord_chat_llm_enabled(self.cfg) if self.platform_name == "discord" else True
-        self.use_llm = (bool(getattr(self.adapter, "uses_llm", True)) and self.chat_llm_enabled) \
-            if use_llm is None else bool(use_llm)
+        # Platforms that do not expose the AI lane remain deterministic. Discord
+        # is intentionally included even when use_llm=True; WebChatService passes
+        # its explicit choice through use_llm for its own AI capability.
+        self.use_llm = (bool(getattr(self.adapter, "uses_llm", True)) and
+                        self.platform_name != "discord") if use_llm is None else (
+                            bool(use_llm) and self.platform_name != "discord")
         self.llm_opener = llm_opener
         self.agent_opener = agent_opener
         # #1524 tranche 6: the conversational lane's per-user rate limit
