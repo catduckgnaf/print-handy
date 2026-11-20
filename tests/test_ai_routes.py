@@ -208,7 +208,6 @@ def test_llm_is_unconfigured_until_the_endpoint_exists():
 def test_the_roast_never_goes_through_the_endpoint(monkeypatch, tmp_path):
     """Roasts are local since #1002: a fully configured endpoint is never
     called for one."""
-    config = mel._config.cfg()
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
     monkeypatch.setattr(mel, "log", lambda line: None)
     monkeypatch.setattr(mel, "warn", lambda line: None)

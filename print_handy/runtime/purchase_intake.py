@@ -39,14 +39,13 @@ from __future__ import annotations
 import html as _html
 import json
 import logging
-import os
 import re
 import urllib.request
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from ..core import link_intake, printer_state
-from . import _config, spool_label, spool_sync
+from . import spool_label, spool_sync
 
 logger = logging.getLogger(__name__)
 
