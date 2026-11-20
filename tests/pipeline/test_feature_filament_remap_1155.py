@@ -11,6 +11,7 @@ and it is named in the export report.
 
 Offline: Orca is faked where a slice runs.
 """
+import contextlib
 import io
 import json
 import re
@@ -391,6 +392,8 @@ def test_one_slice_reads_each_model_member_once_and_decodes_paint_once(tmp_path)
     manifest = source_colors.inventory(source)
     assert manifest["painted"]
     _manifest, decisions = _decisions(source, {1: 1, 2: 3})
+    with zipfile.ZipFile(source) as archive:
+        member_bytes = archive.read("3D/3dmodel.model")
     reads, decodes = [], []
     real_read, real_blocks = zipfile.ZipFile.read, painted_geometry._object_blocks
 
@@ -401,14 +404,38 @@ def test_one_slice_reads_each_model_member_once_and_decodes_paint_once(tmp_path)
         return real_read(self, name, *args, **kwargs)
 
     def blocks(model_bytes):
-        decodes.append(len(model_bytes))
+        if model_bytes == member_bytes:
+            decodes.append(len(model_bytes))
         return real_blocks(model_bytes)
+
+    # The paint decode runs on one of two engines (#1715): the Python
+    # block index above, or the native census when the extension is
+    # installed (the offline CI legs install it). Count a decode of
+    # this member on either engine; the invariant is one decode of the
+    # member per slice, and the census self-check inputs are not the
+    # member, so they never count.
+    native = None
+    try:
+        from print_handy.core import _bounds_native as native
+    except Exception:
+        native = None
     captured = {}
     spool = io.BytesIO(json.dumps({"archived": False, "filament": {"material": "PLA"}}).encode())
-    with patch.object(zipfile.ZipFile, "read", read), \
-            patch.object(painted_geometry, "_object_blocks", blocks), \
-            patch.object(orca_adapter.subprocess, "run", side_effect=_fake_orca(captured)), \
-            patch.object(urllib.request, "urlopen", return_value=spool):
+    stack = contextlib.ExitStack()
+    stack.enter_context(patch.object(zipfile.ZipFile, "read", read))
+    stack.enter_context(patch.object(painted_geometry, "_object_blocks", blocks))
+    stack.enter_context(patch.object(orca_adapter.subprocess, "run", side_effect=_fake_orca(captured)))
+    stack.enter_context(patch.object(urllib.request, "urlopen", return_value=spool))
+    if native is not None:
+        real_census = native.paint_census
+
+        def census(model_bytes):
+            if model_bytes == member_bytes:
+                decodes.append(len(model_bytes))
+            return real_census(model_bytes)
+
+        stack.enter_context(patch.object(native, "paint_census", census))
+    with stack:
         _out, provenance, _configs = orca_adapter.slice_model(source, tmp_path / "out", state,
                                                               color_decisions=decisions)
     # inventory (twice), the export's parse and per-part paint, and the
