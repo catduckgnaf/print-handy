@@ -355,9 +355,15 @@ img { max-width: 100%; }
   .table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   body { overflow-wrap: anywhere; }
   input, select, textarea, button { max-width: 100%; }
-  .printer-layout { grid-template-columns: minmax(0, 1fr); }
+  .printer-layout { display: grid; grid-template-columns: minmax(0, 1fr); }
   .printer-settings-col, .printer-screen-col { min-width: 0; }
-  .printer-settings-col p .button { display: inline-flex; margin: 0.2rem 0.2rem 0.2rem 0; }
+  .printer-settings-col p { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+  .printer-settings-col p .button { display: inline-flex; margin: 0; }
+  .printer-card h3 { overflow-wrap: anywhere; }
+  .firmware-table-scroll th, .firmware-table-scroll td { white-space: nowrap; }
+  .slot-link { display: flex; flex-direction: column; align-items: center; min-height: 10rem; }
+  .slot-link .slot-action { margin-top: auto; white-space: normal; }
+  .slots { align-items: stretch; }
   nav.pills { width: 100%; }
   nav.pills a { white-space: normal; }
   .table-scroll form.inline label { white-space: nowrap; }

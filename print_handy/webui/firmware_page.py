@@ -133,8 +133,9 @@ def _grouped_tables(rows, heading, model_key=None, channel="stable"):
         title = firmware_feed.KIND_TITLES[kind]
         head = _FIRMWARE_HEAD.replace("<th>Firmware</th>",
                                       f"<th>{'Plugin' if kind == 'plugin' else 'Firmware'}</th>")
-        out.append(f"<{heading}>{_esc(title)}</{heading}>" + head
-                   + _firmware_rows(group, channel) + "</table>")
+        out.append(f"<{heading}>{_esc(title)}</{heading}>"
+                   + '<div class="table-scroll firmware-table-scroll">' + head
+                   + _firmware_rows(group, channel) + "</table></div>")
     return "".join(out)
 
 
