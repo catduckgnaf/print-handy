@@ -15,7 +15,8 @@ from ..core import owned_worker
 logger = logging.getLogger("print_handy.core.prepared_intake")
 
 
-_OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors', 'inventory'),
+_OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('support_clearance', 'safe_analyze'),
+            ('source_colors', 'inventory'),
             ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
             ('orca_adapter', 'largest_fitting_fraction'),
             ('model_job', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
@@ -39,7 +40,7 @@ _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory':
                 'inspect_geometry': 'the geometry check', 'arrange_and_export': 'the layout',
                 'probe_single_plate_rearrange': 'the layout check', 'combine': 'combining the files',
                 'check_source_against_split_plan': 'the split check', 'prepare_cad_split': 'the split',
-                'painted_fit_for_job': 'the bed fit check'}
+                'painted_fit_for_job': 'the bed fit check', 'safe_analyze': 'the support clearance check'}
 
 
 async def _await_background_slice(runner, binding):
