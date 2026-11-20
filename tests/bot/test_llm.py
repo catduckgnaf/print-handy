@@ -12,7 +12,7 @@ from unittest import mock
 import pytest
 
 from corpus import fake_discord
-from print_handy.bot import llm, runtime
+from print_handy.bot import adapter as discord_adapter, llm, mention, runtime
 from print_handy.bot.adapter import parse_custom_id
 from print_handy.core import prompts
 from print_handy.runtime import discord_print_summary as summary
@@ -50,9 +50,8 @@ def isolated_llm_history():
 
 @pytest.fixture(autouse=True)
 def _chat_ai_on(cfg):
-    """These tests exercise the stray-chat lanes, which run only with
-    discord.chat_llm_enabled on (off by default since #1376)."""
-    cfg["discord"]["chat_llm_enabled"] = True
+    """These tests exercise the shared Web chat AI lane."""
+    cfg.setdefault("webui", {})["chat_llm_enabled"] = True
 
 
 @pytest.fixture
@@ -61,10 +60,19 @@ def llm_cfg(cfg):
     return cfg
 
 
-def make(cfg, opener):
+def make(cfg, opener, *, router=None):
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
-    return discord, runtime.BotCore(discord.client, cfg, llm_opener=opener)
+    # Shared AI-lane tests keep FakeDiscord's trusted mention/addressing and
+    # delivery semantics while exercising Web UI's independent enable flag.
+    transport = discord_adapter.StandaloneAdapter(
+        discord.client, [str(cfg["discord"]["allowed_user_ids"])])
+    core = runtime.BotCore(discord.client, cfg, platform_name="discord", adapter=transport,
+                           llm_opener=opener, router=router)
+    core.addressed = lambda text, message=None: mention.address(
+        text, mention.identity_for("discord", core.client, core.configured_bot_name, message))
+    core.use_llm = bool(cfg["webui"]["chat_llm_enabled"])
+    return discord, core
 
 
 @pytest.mark.parametrize(("command", "allowed"), [
@@ -300,9 +308,7 @@ def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
 
     opener = FakeLLM("Editing it now.",
                      proposal={"capability": "print_design", "slots": {"prompt": "make it taller"}})
-    discord = fake_discord.FakeDiscord(auto=False, chat_id=int(llm_cfg["discord"]["chat_id"]),
-                                       operator_id=int(llm_cfg["discord"]["allowed_user_ids"]))
-    core = runtime.BotCore(discord.client, llm_cfg, llm_opener=opener, router=Router(plugin=_Plugin()))
+    discord, core = make(llm_cfg, opener, router=Router(plugin=_Plugin()))
     source = runtime.make_source(discord.operator.id, discord.channel.id)
     # #1524: the conversational lane needs a trusted invocation — this
     # event carries the platform-entity provenance a real mention stamps.
