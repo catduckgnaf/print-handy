@@ -9,6 +9,7 @@ before these run, and every status code and page output is unchanged.
 """
 from __future__ import annotations
 
+import logging
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .. import settings
@@ -17,6 +18,8 @@ from . import controls as controls_module
 from . import printers_page as printers_page_module
 from . import screen as screen_module
 from . import spools as spools_module
+
+log = logging.getLogger(__name__)
 
 
 def printer_status_route(handler, rest):
@@ -158,7 +161,9 @@ def printers_page(handler, notice=None, error=None, code=200):
         try:
             available, _reason = screen_module.probe(
                 data, printer_id, discover=screen_module._cached_discover)
-        except Exception:  # a failed probe is no screen, never a broken page
+        except Exception as exc:  # a failed probe is no screen, never a broken page
+            log.warning("printer screen probe failed for %s: %s",
+                        printer_id, exc)
             return False
         return bool(available)
 
