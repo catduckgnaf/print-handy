@@ -1,9 +1,10 @@
 """The Web UI chat page: the bot, in the browser.
 
 Renders the web chat service's transcript (operator messages, bot
-replies, button questions) and the two forms that feed it: a message
-form (``POST /chat``) and, while a question is open, one button per
-choice (``POST /chat/choice``). While a bot reply is pending the page
+replies, button questions) and the forms that feed it: a message
+form (``POST /chat``), an upload-a-part-to-edit form
+(``POST /chat/upload``, #1721), and, while a question is open, one
+button per choice (``POST /chat/choice``). While a bot reply is pending the page
 refreshes itself every few seconds, because replies arrive
 asynchronously — a sliced print's confirmation question appears here
 the same way it would in Discord — but an idle page never reloads, so
@@ -134,6 +135,25 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         'Ask AI — send this message to the conversational AI (only when '
         'chat AI is switched on)</label></div>'
         '<button type="submit" class="accent">Send</button></form>')
+    # Upload a part to edit it (#1721): the file rides a /print-design
+    # message into this chat, the same edit a dropped file starts on
+    # Discord. The change is optional — with none, the part is shown as
+    # it is and the next message here makes the change. (Uploading a
+    # file to print it, without editing, stays on the Upload and
+    # Workflow pages.)
+    parts.append(
+        '<form method="post" action="/chat/upload" '
+        'enctype="multipart/form-data" class="chat-upload">'
+        f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+        '<div class="field"><label for="c-file">Upload a part to edit '
+        '(.stl, .3mf or .scad)</label>'
+        '<input id="c-file" type="file" name="file" '
+        'accept=".stl,.3mf,.scad"></div>'
+        '<div class="field"><label for="c-change">Change to make '
+        '(optional)</label>'
+        '<input id="c-change" name="change" autocomplete="off" '
+        'placeholder="make it 5 mm taller"></div>'
+        '<button type="submit" class="accent">Upload and edit</button></form>')
     return shell.page("chat", "".join(parts), path="/chat", theme=theme,
                       heading="Chat", nav=nav)
 

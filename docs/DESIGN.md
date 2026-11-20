@@ -287,6 +287,16 @@ run as in Discord, Telegram or Matrix, and it needs web chat on
 model is configured, the page says why, in the same terms the chat
 handler uses, and shows no message box.
 
+To edit a part you already have, use the workshop's **Upload a part to
+edit** form (.stl, .3mf or .scad, with an optional change): the file is
+saved to the Web UI inbox and submitted as a `/print-design` edit, so
+the conversation starts from that part: the change, when given, runs
+as the first turn, and with no change the part is shown as it is and
+the next message makes the change. The Chat page has the same upload
+form, starting the edit in the chat conversation instead. Editing a
+file dropped in Discord, Telegram or Matrix works the way it always
+has; the forms are the Web UI's way of dropping the file.
+
 Below the workshop, the page is a catalog of the design sessions on the
 machine, newest first: what each one is (created from a description, or
 an edit with its source named), its state, how many turns it took, when
