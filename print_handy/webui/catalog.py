@@ -175,6 +175,7 @@ GROUP_OF = {
     "firmware.update_channel": "notifications",
     "firmware.notice_firmwares": "notifications",
     "firmware.forgex_apply": "notifications",
+    "firmware.hide_bundled_updates": "notifications",
     "llm.chat_url": "ai",
     "llm.model": "ai",
     "design.chat_url": "ai",
@@ -721,6 +722,10 @@ CATALOG = (
            "through the confirmed update path. Forge-X follows its beta line "
            "whatever this says.",
            choices=tuple(settings.FIRMWARE_UPDATE_CHANNELS),
+           validator="settings firmware check"),
+    _field("firmware", "hide_bundled_updates", "Hide bundled component updates", "toggle",
+           "On by default for all printers. Off shows bundled components in reports only. "
+           "It does not allow independent installs or bypass stock firmware compatibility checks.",
            validator="settings firmware check"),
     _field("firmware", "forgex_apply", "Forge-X: install updates from chat", "toggle",
            "Off by default. On lets /print-firmware update forge-x install a Forge-X "

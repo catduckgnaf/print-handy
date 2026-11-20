@@ -10,7 +10,7 @@ from pathlib import Path
 from .common import (
     SPOOL_CHANGED, USE_LOADED_SPOOL, _adapter_for, _announce_command_start, _channel_printer_id,
     _confirm, _failure_post, _is_bot_platform, _is_hosting_profile, _live_key_for,
-    _offer_force_restart, _pkw, _printer_label, _routed_form, _routed_printer_id, _seen,
+    _offer_force_restart, _platform_value, _pkw, _printer_label, _routed_form, _routed_printer_id, _seen,
     _spool_change_text, _start_refused_needs_restart, _undecided_printer_ids,
     intake_plain_start_failure,
 )
@@ -119,7 +119,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
     plan_id = args[0] if args else ''
     part_id = args[1] if len(args) > 1 else None
     pid = _routed_printer_id(source, gateway)
-    key = ('print-next', plan_id)
+    key = ('print-next', plan_id or f'{source.chat_id}:{source.user_id}')
     if key in _seen:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content='A start prompt for this plan is already open. Nothing started.')
@@ -127,8 +127,74 @@ async def print_next_dispatch(event, gateway, **kwargs):
     _seen[key] = time.monotonic()
     try:
         if not plan_id:
-            raise print_next.NextPlateError('usage: /print-next <plan_id> [part_id]')
-        plan = print_next.load_plan(plan_id)
+            platform = _platform_value(source)
+            if not platform:
+                raise print_next.NextPlateError('request platform is unavailable; use `/print-next <plan_id>`')
+            scope_printer = pid or _channel_printer_id(source, gateway)
+            if not scope_printer:
+                raise print_next.NextPlateError('no routed printer is known for this request; use `/print-next <plan_id>`')
+            candidates = print_next.find_scoped_plans(
+                platform=platform, requester_id=str(source.user_id), channel_id=str(source.chat_id),
+                printer_id=str(scope_printer))
+            if not candidates:
+                raise print_next.NextPlateError('no remaining sliced plans match your requester, channel and printer; use `/print-next <plan_id>` for a legacy plan')
+            if len(candidates) > 24:
+                raise print_next.NextPlateError(
+                    f'{len(candidates)} sliced projects match this request, exceeding the picker limit; '
+                    'use `/print-next <plan_id>` to choose one explicitly')
+            if len(candidates) > 1:
+                labels = [f"{str(p.get('title') or '')[:65]} · {p.get('plan_id')}"[:100]
+                          for p in candidates]
+                if len(set(labels)) != len(labels):
+                    raise print_next.NextPlateError(
+                        'matching sliced projects have indistinguishable picker labels; '
+                        'use `/print-next <plan_id>` to choose explicitly')
+                choices = labels + [print_next.CANCEL_LABEL]
+                selected = await _confirm(adapter, source, metadata, 'print-next-plan',
+                                          'Which sliced project should continue?', choices,
+                                          (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
+                                          live_key=gateway._session_key_for_source(source))
+                if selected not in labels:
+                    raise print_next.NextPlateError('no project was picked (cancelled or expired)')
+                selected_plan_id = str(candidates[labels.index(selected)].get('plan_id') or '')
+                if not selected_plan_id:
+                    raise print_next.NextPlateError(
+                        'the selected sliced project has no valid plan ID; use `/print-next <plan_id>`')
+                # The picker awaits user input; its candidate may have changed or
+                # become ineligible while the prompt was open. Reload persisted state.
+                plan = print_next.load_plan(selected_plan_id)
+                scope = plan.get('request_scope')
+                expected_scope = {
+                    'platform': platform, 'requester_id': str(source.user_id),
+                    'channel_id': str(source.chat_id), 'printer_id': str(scope_printer),
+                }
+                if (not isinstance(scope, dict)
+                        or any(not isinstance(scope.get(key), str) or not scope[key].strip()
+                               for key in expected_scope)
+                        or any(scope.get(key) != value for key, value in expected_scope.items())
+                        or not print_next.remaining_parts(plan)):
+                    raise print_next.NextPlateError(
+                        'the selected sliced project is no longer eligible for this request; nothing started')
+            else:
+                selected_plan_id = str(candidates[0].get('plan_id') or '')
+                if not selected_plan_id:
+                    raise print_next.NextPlateError(
+                        'the sliced project has no valid plan ID; use `/print-next <plan_id>`')
+                plan = print_next.load_plan(selected_plan_id)
+                scope = plan.get('request_scope')
+                expected_scope = {
+                    'platform': platform, 'requester_id': str(source.user_id),
+                    'channel_id': str(source.chat_id), 'printer_id': str(scope_printer),
+                }
+                if (not isinstance(scope, dict)
+                        or any(not isinstance(scope.get(key), str) or not scope[key].strip()
+                               for key in expected_scope)
+                        or any(scope.get(key) != value for key, value in expected_scope.items())
+                        or not print_next.remaining_parts(plan)):
+                    raise print_next.NextPlateError(
+                        'the sliced project is no longer eligible for this request; nothing started')
+        else:
+            plan = print_next.load_plan(plan_id)
         target = print_next.resolve_next(plan) if part_id is None else print_next.resolve_next(plan, part_id=part_id)
         channel_pid = _channel_printer_id(source, gateway)
         if channel_pid is not None:

@@ -809,3 +809,36 @@ def test_live_idle_check_routed_moonraker_uses_the_routed_printers_native_flag(m
                          lambda st, native=None: seen.append(native) or ('standby', '', 'Ready'))
     print_next.live_idle_check('bench')
     assert seen == [False]
+
+
+def test_scoped_plan_discovery_is_exact_and_survives_reload(tmp_path):
+    folder, rows = make_job(tmp_path)
+    plans = make_plan(tmp_path, folder, rows)
+    data = json.loads((plans / 'ghost.json').read_text())
+    data['request_scope'] = {'platform': 'discord', 'requester_id': 'u1',
+                             'channel_id': 'c1', 'printer_id': 'p1'}
+    (plans / 'ghost.json').write_text(json.dumps(data))
+    # Re-read from disk to model a process restart; no in-memory plan registry.
+    found = print_next.find_scoped_plans(platform='discord', requester_id='u1',
+                                         channel_id='c1', printer_id='p1', plans_dir=plans)
+    assert [p['plan_id'] for p in found] == ['ghost']
+    for field, value in [('requester_id', 'u2'), ('channel_id', 'c2'), ('printer_id', 'p2'), ('platform', 'telegram')]:
+        scope = dict(data['request_scope'], **{field: value})
+        data['request_scope'] = scope
+        (plans / 'ghost.json').write_text(json.dumps(data))
+        assert print_next.find_scoped_plans(platform='discord', requester_id='u1',
+                                            channel_id='c1', printer_id='p1', plans_dir=plans) == []
+    for field, value in [('requester_id', ''), ('channel_id', '  '), ('printer_id', None), ('platform', 1)]:
+        scope = dict(data['request_scope'], **{field: value})
+        data['request_scope'] = scope
+        (plans / 'ghost.json').write_text(json.dumps(data))
+        assert print_next.find_scoped_plans(platform='discord', requester_id='u1',
+                                            channel_id='c1', printer_id='p1', plans_dir=plans) == []
+
+
+def test_scoped_discovery_ignores_legacy_and_discarded_plans(tmp_path):
+    folder, rows = make_job(tmp_path)
+    plans = make_plan(tmp_path, folder, rows)
+    (plans / 'legacy.json').write_text(json.dumps({'plan_id': 'legacy', 'parts': []}))
+    assert print_next.find_scoped_plans(platform='discord', requester_id='u1',
+                                        channel_id='c1', printer_id='p1', plans_dir=plans) == []

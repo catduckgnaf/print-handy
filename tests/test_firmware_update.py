@@ -57,6 +57,10 @@ STATUS = {
     }
 }
 
+STATUS_VANILLA = {"result": {**STATUS["result"], "version_info": {
+    key: row for key, row in STATUS["result"]["version_info"].items() if key != "zmod"
+}}}
+
 STATUS_UP_TO_DATE = {
     "result": {
         "version_info": {
@@ -185,11 +189,10 @@ def test_read_wraps_transport_failures_and_malformed_payloads():
 # ------------------------------------------------------------------- report
 
 def test_report_shows_current_to_available_and_the_update_command():
-    text = fw.firmware_report(FakeTransport(), AD5X)
+    text = fw.firmware_report(FakeTransport(status=STATUS_VANILLA), GENERIC)
     assert "**klipper**: v0.12.0-289 -> v0.12.0-310 available" in text
     assert "`/print-firmware update klipper`" in text
     assert "moonraker: v0.9.3-10 (up to date)" in text
-    assert "Not covered by this check" in text  # the ZMod base + stock layers are named
 
 
 def test_report_says_up_to_date_when_nothing_is_available():
@@ -199,7 +202,7 @@ def test_report_says_up_to_date_when_nothing_is_available():
 
 
 def test_report_for_a_fork_is_information_only_with_no_update_command():
-    text = fw.firmware_report(FakeTransport(), NEPTUNE4)
+    text = fw.firmware_report(FakeTransport(status=STATUS_VANILLA), NEPTUNE4)
     assert "-> v0.12.0-310 available" in text
     assert "`/print-firmware update" not in text
     assert "does not apply updates on vendor forks" in text
@@ -365,7 +368,8 @@ def test_dispatch_reports_the_firmware_state_with_a_check_refresh():
         out = asyncio.run(plugin.firmware_dispatch(_event("/print-firmware"), _gateway(adapter)))
     assert out == {"action": "skip", "reason": "print firmware handled"}
     assert transport.calls[0] == ("POST", fw.UPDATE_REFRESH_PATH, None)
-    assert "**klipper**: v0.12.0-289 -> v0.12.0-310 available" in adapter.sent[-1]
+    assert "ZMod bundles Klipper" in adapter.sent[-1]
+    assert "update klipper`" not in adapter.sent[-1]
 
 
 def test_dispatch_explains_non_moonraker_printers_without_calling_out():
@@ -462,8 +466,8 @@ def test_eligibility_comes_from_the_registry_profile():
 
 
 def test_prepare_resolves_the_component_against_the_live_status():
-    transport = ApplyTransport(system_info=SYSTEM_INFO_194)
-    prepared = fw.prepare_update(transport, AD5X, "KLIPPER")
+    transport = ApplyTransport(status=STATUS_VANILLA, system_info=SYSTEM_INFO_194)
+    prepared = fw.prepare_update(transport, GENERIC, "KLIPPER")
     assert prepared.name == "klipper"
     assert prepared.component.current == "v0.12.0-289"
     assert prepared.component.remote == "v0.12.0-310"
@@ -479,22 +483,22 @@ def test_prepare_refuses_a_component_the_printer_does_not_list():
 
 def test_prepare_refuses_a_component_with_no_update_available():
     with pytest.raises(fw.FirmwareRefusal) as excinfo:
-        fw.prepare_update(ApplyTransport(), AD5X, "moonraker")
+        fw.prepare_update(ApplyTransport(status=STATUS_VANILLA), GENERIC, "moonraker")
     assert "already up to date" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("state", ["printing", "paused"])
 def test_prepare_refuses_while_printing_or_paused(state):
-    transport = ApplyTransport(states=(state,))
+    transport = ApplyTransport(status=STATUS_VANILLA, states=(state,))
     with pytest.raises(fw.FirmwareRefusal) as excinfo:
-        fw.prepare_update(transport, AD5X, "klipper")
+        fw.prepare_update(transport, GENERIC, "klipper")
     assert state in str(excinfo.value) and "Nothing was sent" in str(excinfo.value)
     assert transport.posts == []
 
 
 def test_prepare_refuses_an_unrecognised_state_fail_closed():
     with pytest.raises(fw.FirmwareRefusal):
-        fw.prepare_update(ApplyTransport(states=("warming_up",)), AD5X, "klipper")
+        fw.prepare_update(ApplyTransport(status=STATUS_VANILLA, states=("warming_up",)), GENERIC, "klipper")
 
 
 def test_prepare_refuses_the_neptune_4_before_reading_anything():
@@ -514,23 +518,23 @@ def test_prepare_refuses_a_bambu_before_reading_anything():
 
 
 def test_prepare_is_blocked_by_a_zmod_pairing_mismatch():
-    transport = ApplyTransport(system_info=SYSTEM_INFO_180)
+    transport = ApplyTransport(status=ZMOD_LIVE_STATUS, system_info=SYSTEM_INFO_180)
     with pytest.raises(fw.FirmwareRefusal) as excinfo:
-        fw.prepare_update(transport, AD5X, "klipper")
+        fw.prepare_update(transport, AD5X, "helixscreen")
     assert "guide zmod" in str(excinfo.value)
     assert transport.posts == []
 
 
 def test_update_prompt_shows_the_exact_version_change():
-    prepared = fw.prepare_update(ApplyTransport(system_info=SYSTEM_INFO_194), AD5X, "klipper")
+    prepared = fw.prepare_update(ApplyTransport(status=STATUS_VANILLA, system_info=SYSTEM_INFO_194), GENERIC, "klipper")
     text = fw.update_prompt_text(prepared)
     assert "**klipper**: v0.12.0-289 -> v0.12.0-310" in text
     assert "Only this one component updates" in text
 
 
 def test_send_posts_exactly_one_upgrade_and_verifies_by_rereading():
-    transport = ApplyTransport(system_info=SYSTEM_INFO_194, post_status=STATUS_AFTER)
-    prepared = fw.prepare_update(transport, AD5X, "klipper")
+    transport = ApplyTransport(status=STATUS_VANILLA, system_info=SYSTEM_INFO_194, post_status=STATUS_AFTER)
+    prepared = fw.prepare_update(transport, GENERIC, "klipper")
     calls_before = len(transport.calls)
     message = fw.send_update(transport, prepared, verify_delay_s=0, sleep=_no_sleep)
     assert transport.posts == [(fw.UPDATE_UPGRADE_PATH, {"name": "klipper"})]
@@ -542,8 +546,8 @@ def test_send_posts_exactly_one_upgrade_and_verifies_by_rereading():
 
 def test_send_rechecks_idle_and_sends_nothing_when_a_print_started():
     # prepare sees standby; by send time the printer is printing.
-    transport = ApplyTransport(states=("standby", "printing"), post_status=STATUS_AFTER)
-    prepared = fw.prepare_update(transport, AD5X, "klipper")
+    transport = ApplyTransport(status=STATUS_VANILLA, states=("standby", "printing"), post_status=STATUS_AFTER)
+    prepared = fw.prepare_update(transport, GENERIC, "klipper")
     with pytest.raises(fw.FirmwareRefusal) as excinfo:
         fw.send_update(transport, prepared, verify_delay_s=0, sleep=_no_sleep)
     assert "re-check" in str(excinfo.value)
@@ -746,8 +750,8 @@ async def _confirm_no(*args, **kwargs):
 
 def test_dispatch_update_applies_one_component_after_confirmation():
     adapter = FakeAdapter()
-    transport = ApplyTransport(system_info=SYSTEM_INFO_194, post_status=STATUS_AFTER)
-    with _configured("flashforge.ad5x", "moonraker"), \
+    transport = ApplyTransport(status=STATUS_VANILLA, system_info=SYSTEM_INFO_194, post_status=STATUS_AFTER)
+    with _configured("klipper.generic", "moonraker"), \
             mock.patch.object(spool_sync, "moonraker", transport), \
             mock.patch.object(plugin, "_confirm", _confirm_yes):
         out = asyncio.run(plugin.firmware_dispatch(
@@ -759,8 +763,8 @@ def test_dispatch_update_applies_one_component_after_confirmation():
 
 def test_dispatch_update_sends_nothing_when_the_operator_cancels():
     adapter = FakeAdapter()
-    transport = ApplyTransport(system_info=SYSTEM_INFO_194, post_status=STATUS_AFTER)
-    with _configured("flashforge.ad5x", "moonraker"), \
+    transport = ApplyTransport(status=STATUS_VANILLA, system_info=SYSTEM_INFO_194, post_status=STATUS_AFTER)
+    with _configured("klipper.generic", "moonraker"), \
             mock.patch.object(spool_sync, "moonraker", transport), \
             mock.patch.object(plugin, "_confirm", _confirm_no):
         asyncio.run(plugin.firmware_dispatch(
@@ -1091,8 +1095,7 @@ def test_issue_1295_an_invalid_zmod_repo_is_reported_with_the_fix_not_offered():
     assert "Moonraker will not apply it" in zline and "moonraker.conf" in zline
     assert "/print-firmware update Z-Mod" not in text
     assert "`mod_data/user.moonraker.conf`" in text and "HelixScreen" in text
-    # A valid component on the same printer is still offered.
-    assert "`/print-firmware update klippy`" in text
+    assert "`/print-firmware update klippy`" not in text
 
 
 def test_issue_1295_an_invalid_component_is_refused_before_anything_is_sent():
@@ -1102,8 +1105,7 @@ def test_issue_1295_an_invalid_component_is_refused_before_anything_is_sent():
     assert "invalid" in str(refused.value) and "user.moonraker.conf" in str(refused.value)
     assert "Nothing was sent" in str(refused.value)
     assert transport.posts == []
-    assert fw.prepare_update(transport, AD5X, "klippy").name == "klippy"
-    assert transport.posts == []
+
 
 
 def test_issue_1295_a_spent_github_budget_is_named_with_its_reset_time():
@@ -1150,12 +1152,99 @@ def test_aliases_resolve_against_the_live_zmod_names(typed, live):
     assert status.component(typed).name == live
 
 
+def test_zmod_bundled_components_are_not_offered_or_applicable():
+    status = fw.parse_update_status(ZMOD_LIVE_STATUS)
+    offered = fw.offered_updates(status, AD5X)
+    assert [component.name for component in offered] == ["helixscreen"]
+    transport = ApplyTransport(status=ZMOD_LIVE_STATUS, system_info=SYSTEM_INFO_176)
+    for component in ("klipper", "klippy", "moonraker", "moon", "fluidd", "mainsail"):
+        with pytest.raises(fw.FirmwareRefusal, match="bundled with ZMod"):
+            fw.prepare_update(transport, AD5X, component)
+    assert transport.posts == []
+
+
+@pytest.mark.parametrize("token", ["stock", "flashforge_stock", "flashforge_firmware"])
+def test_zmod_stock_update_is_refused_without_compatibility(token):
+    transport = ApplyTransport(status={"result": {"version_info": {
+        **ZMOD_LIVE_STATUS["result"]["version_info"],
+        token: {"version": "1.0", "remote_version": "2.0"},
+    }}})
+    with pytest.raises(fw.FirmwareRefusal, match="compatibility.*not verified"):
+        fw.prepare_update(transport, GENERIC, token)
+    assert transport.posts == []
+
+
+@pytest.mark.parametrize("model,stack,expected", [
+    ("flashforge.ad5x", "ZMod", {"helixscreen"}),
+    ("flashforge_forgex.ad5m", "Forge-X", {"forge-x"}),
+    ("flashforge_opencreator.creator5", "OpenCreator", set()),
+    ("flashforge_reforge.creator5", "Reforge", set()),
+    ("klipper.generic", None, {"klipper", "helixscreen"}),
+])
+def test_bundled_update_policy_respects_printer_family(model, stack, expected):
+    printer = entry(model)
+    extras = {"forge-x": {"version": "1.4.2-beta-1", "remote_version": "1.4.2-beta-2"}}
+    live = {"klipper": {"version": "1.0", "remote_version": "2.0"},
+            "helixscreen": {"version": "1.0", "remote_version": "2.0"},
+            "stock_firmware": {"version": "1.0", "remote_version": "2.0"}}
+    if stack == "Forge-X":
+        live.update(extras)
+    payload = {"result": {"version_info": live}}
+    status = fw.parse_update_status(payload)
+    assert fw.flashforge_custom_firmware(printer, status) == stack
+    assert {c.name for c in fw.offered_updates(status, printer)} == expected
+    default_report = fw.firmware_report(FakeTransport(status=payload), printer)
+    assert ("klipper**: 1.0 -> 2.0" in default_report) == (stack != "ZMod")
+    if stack == "Forge-X":
+        # Read-only standalone components remain visible although the install
+        # guard blocks applying them; visibility is distinct from eligibility.
+        assert "helixscreen**: 1.0 -> 2.0" in default_report
+        assert "update with `/print-firmware update helixscreen`" not in default_report
+    cfg = {"firmware": {"hide_bundled_updates": False, "forgex_apply": True}}
+    report = fw.firmware_report(FakeTransport(status=payload), printer, cfg=cfg)
+    assert "klipper**: 1.0 -> 2.0" in report
+    assert "update stock_firmware`" not in report
+    if stack:
+        assert "update klipper`" not in report
+    transport = ApplyTransport(status=payload)
+    with pytest.raises(fw.FirmwareRefusal):
+        fw.prepare_update(transport, printer, "stock_firmware", cfg)
+    assert not transport.posts
+
+
+def test_live_forgex_requires_the_explicit_profile_in_reports_and_apply():
+    # The live Update Manager identifies Forge-X but the registry still says
+    # generic Klipper. Live status may veto an offer, never authorize one.
+    payload = {"result": {"version_info": {
+        "forge-x": {"version": "1.4.2-beta-1", "remote_version": "1.4.2-beta-2"},
+        "klipper": {"version": "1.0", "remote_version": "2.0"},
+    }}}
+    status = fw.parse_update_status(payload)
+    assert fw.flashforge_custom_firmware(GENERIC, status) == "Forge-X"
+    assert fw.offered_updates(status, GENERIC) == ()
+    assert [c.name for c in fw.offered_updates(status, entry("flashforge_forgex.ad5m"))] == ["forge-x"]
+    report = fw.firmware_report(FakeTransport(status=payload), GENERIC)
+    assert "Forge-X was detected" in report
+    assert "update with `/print-firmware update forge-x`" not in report
+
+    transport = ApplyTransport(status=payload)
+    with pytest.raises(fw.FirmwareRefusal, match="Configure the printer's Forge-X profile"):
+        fw.prepare_update(transport, GENERIC, "forge-x", {
+            "firmware": {"forgex_apply": True}})
+    assert transport.posts == []
+
+    # The explicit Forge-X profile remains eligible only with its opt-in.
+    forgex = entry("flashforge_forgex.ad5m")
+    assert not fw.is_apply_eligible(forgex)
+    assert fw.is_apply_eligible(forgex, {"firmware": {"forgex_apply": True}})
+
+
 def test_an_exact_live_name_wins_over_an_alias_and_aliases_never_invent_one():
     status = fw.parse_update_status(STATUS)  # vanilla names: klipper, moonraker
     assert status.component("klipper").name == "klipper"
     assert status.component("klippy").name == "klipper"
     assert status.component("moon").name == "moonraker"
-    assert status.component("helix") is None  # this host lists no HelixScreen
+    assert status.component("helix") is None
     assert status.component("guppy") is None
     assert status.component("") is None
 

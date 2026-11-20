@@ -99,6 +99,19 @@ def _status(*components):
     return fw.UpdateStatus(tuple(components))
 
 
+def test_record_observation_hides_zmod_bundled_updates(tmp_path):
+    data = _data(tmp_path)
+    notifications.record_observation(
+        data, "z1", "ZMod", _status(
+            fw.Component("Z-Mod", current="1.7.6", remote="1.7.7"),
+            fw.Component("klippy", current="1", remote="2"),
+            fw.Component("moon", current="1", remote="2"),
+            fw.Component("fluidd", current="1", remote="2"),
+            fw.Component("mainsail", current="1", remote="2"),
+            fw.Component("helixscreen", current="1", remote="2")))
+    assert [n.body.split()[0] for n in notifications.current_notifications(data)] == ["Z-Mod", "helixscreen"]
+
+
 def test_recorded_observation_becomes_a_toast(tmp_path):
     data = _data(tmp_path)
     notifications.record_observation(
@@ -173,7 +186,7 @@ def _page(monkeypatch, tmp_path, *, controls):
         data, feed=None, checked="kl1",
         transport_for=lambda pid: transport,
         controls=controls,
-        observe=lambda pid, name, status: observed.append((pid, status)))
+        observe=lambda pid, name, status, entry: observed.append((pid, status)))
     return page, observed
 
 

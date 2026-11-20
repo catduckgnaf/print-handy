@@ -67,6 +67,32 @@ def test_parse_message_link_takes_only_a_bare_message_link():
     assert runtime.parse_message_link(MODEL) is None
 
 
+def test_reply_to_source_message_accepts_exact_plate_selector(cfg):
+    discord, core, post = setup(cfg)
+    source = post(MODEL)
+    reply = post("print plate 2")
+    reply.reference = S(channel_id=source.channel.id, message_id=source.id)
+    seen = intake(core, reply)
+    assert seen == [(f"{MODEL} print plate 2", "200000000000000002", str(reply.id))]
+
+
+def test_reply_to_source_message_accepts_authored_part_ordinal(cfg):
+    discord, core, post = setup(cfg)
+    source = post(MODEL)
+    reply = post("print only the second part")
+    reply.reference = S(channel_id=source.channel.id, message_id=source.id)
+    seen = intake(core, reply)
+    assert seen == [(f"{MODEL} print only the second part", "200000000000000002", str(reply.id))]
+
+
+def test_reply_selector_does_not_fetch_across_channels(cfg):
+    discord, core, post = setup(cfg)
+    source = post(MODEL)
+    reply = post("print plate 2")
+    reply.reference = S(channel_id=source.channel.id + 5, message_id=source.id)
+    assert intake(core, reply) == []
+
+
 def test_a_link_to_an_earlier_model_message_runs_it_again_as_the_paster(cfg):
     discord, core, post = setup(cfg)
     first = post(MODEL)
@@ -75,6 +101,62 @@ def test_a_link_to_an_earlier_model_message_runs_it_again_as_the_paster(cfg):
     seen = intake(core, again)
     assert seen == [(MODEL, str(paster.id), str(again.id))]
     assert not any("didn't understand" in text for text in discord.sent)
+
+
+def test_message_link_preserves_requester_plate_selection_not_source_instruction(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print plate 1")
+    paster = fake_discord.FakeUser(200000000000000777, "member")
+    request = post(f"{link(discord.channel.id, source.id)} print plate 2", author=paster)
+    seen = intake(core, request)
+    assert seen == [(f"{MODEL} print plate 2", str(paster.id), str(request.id))]
+
+
+def test_message_link_preserves_requester_part_selection_not_source_instruction(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print only the first part")
+    paster = fake_discord.FakeUser(200000000000000777, "member")
+    request = post(f"{link(discord.channel.id, source.id)} print only the second part", author=paster)
+    seen = intake(core, request)
+    assert seen == [(f"{MODEL} print only the second part", str(paster.id), str(request.id))]
+
+
+def test_reply_part_selection_overrides_source_author_instruction(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print only the first part")
+    reply = post("print only the second part")
+    reply.reference = S(channel_id=source.channel.id, message_id=source.id)
+    seen = intake(core, reply)
+    assert seen == [(f"{MODEL} print only the second part", "200000000000000002", str(reply.id))]
+
+
+def test_message_link_requester_instruction_keeps_model_url_not_unrelated_url(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"https://example.com/info {MODEL}")
+    request = post(f"{link(discord.channel.id, source.id)} print plate 2")
+    seen = intake(core, request)
+    assert seen == [(f"{MODEL} print plate 2", "200000000000000002", mock.ANY)]
+
+
+def test_message_link_requester_instruction_fails_closed_for_multiple_model_urls(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} https://www.printables.com/model/123456-other")
+    request = post(f"{link(discord.channel.id, source.id)} print plate 2")
+    sent = []
+
+    async def fake_send(**kwargs):
+        sent.append(kwargs["content"])
+
+    with mock.patch.object(core.adapter, "send", fake_send):
+        assert intake(core, request) == []
+    assert any("exactly one model link" in text for text in sent)
+
+
+def test_message_link_without_requester_instruction_replays_source_text(cfg):
+    discord, core, post = setup(cfg)
+    source = post(f"{MODEL} print plate 1")
+    seen = intake(core, post(link(discord.channel.id, source.id)))
+    assert seen == [(f"{MODEL} print plate 1", "200000000000000002", mock.ANY)]
 
 
 def test_a_link_to_a_bot_post_says_so_and_runs_nothing(cfg):

@@ -13,11 +13,122 @@ transform and collision checks for want of placement data.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from pathlib import Path
 
 SCHEMA = "project_v1"
+SOURCE_CHECKPOINT_SCHEMA = "source_checkpoint_v1"
+
+
+def find_source_checkpoints(*, platform: str, requester_id: str, channel_id: str,
+                            printer_id: str, archive: Path | None = None) -> list[dict]:
+    """Discover intact, scoped pre-slice checkpoints after restart.
+
+    Read only JOB.json records; the source file must still match its recorded
+    SHA256. The returned record includes its archived job and checkpoint.
+    """
+    from . import model_job as mj
+    directory = Path(archive or mj.ARCHIVE)
+    expected = {"platform": platform, "requester_id": requester_id,
+                "channel_id": channel_id, "printer_id": printer_id}
+    if any(not isinstance(value, str) or not value.strip() for value in expected.values()):
+        return []
+    matches = []
+    for path in directory.glob("*/JOB.json"):
+        try:
+            job = json.loads(path.read_text(encoding="utf-8"))
+            checkpoint = job.get("source_checkpoint")
+            scope = checkpoint.get("request_scope")
+            source = Path(checkpoint.get("source_path") or "").resolve()
+            archived = Path(job.get("downloaded_file") or "").resolve()
+            if (checkpoint.get("schema") != SOURCE_CHECKPOINT_SCHEMA
+                    or checkpoint.get("status") != "available"
+                    or scope != expected or not source.is_file()
+                    or source != archived or not source.is_relative_to(path.parent.resolve())
+                    or not path.resolve().is_relative_to(directory.resolve())
+                    or not re.fullmatch(r"[a-f0-9]{64}", str(checkpoint.get("source_sha256") or ""))
+                    or mj.file_sha256(source) != checkpoint["source_sha256"]
+                    or job.get("source_sha256") not in (None, checkpoint["source_sha256"])):
+                continue
+            matches.append({"job_json": str(path), "job": job, "checkpoint": checkpoint})
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return sorted(matches, key=lambda row: (str(row["checkpoint"].get("title") or ""), row["job_json"]))
+
+
+def source_checkpoint(job: dict, manifest: dict, scope: dict | None) -> dict:
+    """Build a durable, pre-slice source checkpoint; never carry launch approval.
+
+    This snapshot binds the inventoried authored source identity and routing
+    scope so a later runtime can decide whether resumption is safe. It is not
+    a multipart completion tracker and contains no slice/start approvals.
+    """
+    if not isinstance(job, dict) or not isinstance(manifest, dict):
+        raise ValueError("job and source manifest are required")
+    source_sha = manifest.get("source_sha256")
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", source_sha):
+        raise ValueError("a SHA256-bound source manifest is required")
+    source_path = job.get("downloaded_file")
+    if not isinstance(source_path, str) or not source_path.strip():
+        raise ValueError("a durable source path is required")
+    safe_scope = {}
+    if isinstance(scope, dict):
+        safe_scope = {key: str(scope.get(key) or "").strip()
+                      for key in ("platform", "requester_id", "channel_id", "printer_id")}
+    # Unscoped checkpoints remain explicitly non-discoverable; do not infer
+    # provenance from legacy or ambient runtime state.
+    # Some historical/audit manifests expose a plate count here rather than
+    # the authored plate records. Preserve authored identity only when the
+    # shape is actually a sequence of plate mappings.
+    plates = manifest.get("plates")
+    if not isinstance(plates, (list, tuple)):
+        plates = []
+    usage = manifest.get("plate_usage")
+    if isinstance(usage, dict) and usage:
+        labels = {str(plate.get("id")): plate.get("name") for plate in plates if isinstance(plate, dict)}
+        plates = [{"id": str(plate_id), "name": labels.get(str(plate_id)) or f"Plate {plate_id}"}
+                  for plate_id in usage]
+    return {
+        "schema": SOURCE_CHECKPOINT_SCHEMA,
+        "source_sha256": source_sha.lower(),
+        "source_path": source_path,
+        "title": str(job.get("title") or ""),
+        "status": "available",
+        "request_scope": safe_scope if all(safe_scope.values()) else None,
+        "authored_plates": [
+            {key: plate[key] for key in ("id", "name", "object_ids") if key in plate}
+            for plate in plates if isinstance(plate, dict)
+        ],
+        "authored_parts": [
+            {key: part[key] for key in ("key", "name", "source_extruder", "object_id") if key in part}
+            for part in manifest.get("parts", []) if isinstance(part, dict)
+        ],
+        "color_manifest": manifest,
+        "checkpoint": "source_inventoried",
+        "launch_approval": None,
+    }
+def checkpoint_part_plate(checkpoint: dict, ordinal: str) -> str | None:
+    """Resolve an authored part ordinal only when that plate contains it alone."""
+    parts = checkpoint.get("authored_parts") or []
+    if not re.fullmatch(r"[1-9][0-9]{0,5}", ordinal):
+        return None
+    index = int(ordinal) - 1
+    if index >= len(parts):
+        return None
+    part_key = parts[index].get("key")
+    if not part_key:
+        return None
+    usage = (checkpoint.get("color_manifest") or {}).get("plate_usage") or {}
+    matches = [str(plate_id) for plate_id, details in usage.items()
+               if part_key in (details.get("part_keys") or [])]
+    if len(matches) != 1:
+        return None
+    plate = next(details for plate_id, details in usage.items() if str(plate_id) == matches[0])
+    return matches[0] if set(plate.get("part_keys") or []) == {part_key} else None
+
+
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9_-]+")
 
 # Roles a source may declare for a component (#1017 item 3). The first three
