@@ -66,16 +66,16 @@ These screenshots are **mockups based on real bot text and controls**, not proof
 
 Everyday questions and supported workflow requests do not need slash commands. In the print channel or Web UI chat, try:
 
-- “How much purple PLA do I have?”
-- “What’s loaded?” / “What’s in slot two?”
-- “How much will this print cost?” / “What did I spend this month?”
-- “Are there ZMod updates?” / “What firmware am I on?”
-- “My first layer won’t stick.”
-- “Print only the second part” (when the source identifies an unambiguous part/plate).
+- "How much purple PLA do I have?"
+- "What's loaded?" / "What's in slot 2?"
+- "Are there ZMod updates?" / "What firmware am I on?"
+- "My first layer won't stick"
+
+See [print cost questions](docs/COST.md) and [continuing a multipart project](docs/PROJECTS.md) for more phrases.
 
 For ordinary questions, deterministic routing and local data answer what the system knows. Typo-tolerant fuzzy matching can help understand a misspelling; it does not mean every vague message is understood, nor does a match itself authorize a printer action. Intake still asks the normal questions and preserves its confirmation gates. Details and slash-command forms remain in the [command reference](docs/PROJECT-REFERENCE.md).
 
-The optional AI paths are separate: AI design requires its configured design endpoint; Web Chat AI is an opt-in setting; vision features use their own configured endpoint and switches. Roasts come from local text and need no LLM. See [AI/chat behavior](docs/STANDALONE.md), [Design](docs/DESIGN.md) and [camera watch](docs/DOCKER.md#camera-watch-visual_watch).
+**Normal chat is local.** The optional AI paths are separate: **Web Chat AI is opt-in** and has its own Ask AI control; **designing is its own AI path** and needs a configured design endpoint. Vision features use their own configured endpoint and switches. Roasts come from local text and need no LLM. See [AI/chat behavior](docs/STANDALONE.md), [Design](docs/DESIGN.md) and [camera watch](docs/DOCKER.md#camera-watch-visual_watch).
 
 
 ## Get started
