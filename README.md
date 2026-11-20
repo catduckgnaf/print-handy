@@ -129,7 +129,7 @@ One brand, five firmware routes. A printer can appear under more than one route;
 
 A Creator 5 running OpenCreator is not running ZMod, a Creator 5 running Reforge is running neither, and a stock AD5X is not secretly a Moonraker printer. Same shell, different brains: pick the firmware yours actually runs, and Print Handy will say so if you guessed wrong.
 
-**Hardware validation:** See the [live proof checklist #1082](https://github.com/catduckgnaf/print-handy/issues/1082) and the [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) for model-specific results.
+**Hardware validation:** See the [Reforge verification status](docs/REFORGE.md#verification-status-built-from-published-config-not-hardware-verified), the [live proof checklist #1082](https://github.com/catduckgnaf/print-handy/issues/1082) and the [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) for model-specific results.
 
 ### Creality
 
