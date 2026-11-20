@@ -95,7 +95,8 @@ class RealSlicerBambuWorkflowContract(unittest.TestCase):
         jobs = load_workflow()["jobs"]
         # The stable leg is sharded; its result job carries the required check name.
         self.assertEqual(jobs["slicer-test-stable-result"]["name"], "Slicer test (stable)")
-        self.assertEqual(jobs["slicer-test-stable-result"]["needs"], "slicer-test-stable")
+        # scope: a release-bump PR skips the shards (tests/test_ci_scope.py).
+        self.assertEqual(jobs["slicer-test-stable-result"]["needs"], ["scope", "slicer-test-stable"])
         self.assertEqual(jobs["slicer-test-bambu"]["name"], "Slicer test (bambu)")
         for job_id in jobs:
             self.assertNotIn("alpha", job_id)

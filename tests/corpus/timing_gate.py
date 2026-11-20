@@ -37,7 +37,11 @@ recorded before this field existed). A median over
 
     original * (1 + CUMULATIVE_TOLERANCE) + slack(original)
 
-fails the gate even when each individual raise was small and explained (+50%). Past the lower
+fails the gate even when each individual raise was small and explained (+50%). The percentage applies to
+max(original, slack floor): a first recording below the floor (a 0.01 s fit check) is itself runner noise, so
++50% of it would be a limit tighter than the noise the per-baseline check already allows. Before this rule
+2.3.6 was blocked by parts-512-four-color's fit_check_s reading 0.37 s against a 0.365 s cumulative limit
+derived from a 0.01 s first recording, while its own baseline limit was 0.57 s. Past the lower
 CUMULATIVE_WARN_TOLERANCE (+25%) the gate only reports a "timing drift" warning and a summary note, so the
 trend is visible before it blocks. Every summary and every --record proposal also prints the cumulative
 drift of every raised entry, however small, so a raise never hides its own total (#1142). The blocking limit is +50% with real headroom: no checked-in entry stands past the +25% warning
@@ -115,6 +119,15 @@ def slack_for(base, baseline, absolute=False):
     return max(floor, float(baseline.get("slack_rel", SLACK_REL)) * base)
 
 
+def cumulative_limit(first, baseline, tolerance=CUMULATIVE_TOLERANCE):
+    """The cumulative-drift ceiling for a metric first recorded at ``first`` seconds.
+
+    The tolerance is measured from max(first, slack floor): below the floor a first recording is
+    indistinguishable from runner noise, and gating +50% of noise is a coin toss, not a drift check."""
+    floor = float(baseline.get("slack_floor_s", SLACK_FLOOR_S))
+    return max(first, floor) * (1 + tolerance) + slack_for(first, baseline)
+
+
 def original_of(entry):
     """First values on record for a case: ``original``, else the oldest value the file still has."""
     return entry.get("original") or entry.get("raised_from") or {}
@@ -144,8 +157,8 @@ def drift_notes(rows, baseline):
             first, got = original_of(entry).get(metric), row.get(metric)
             if first is None or got is None:
                 continue
-            warn = first * (1 + CUMULATIVE_WARN_TOLERANCE) + slack_for(first, baseline)
-            hard = first * (1 + CUMULATIVE_TOLERANCE) + slack_for(first, baseline)
+            warn = cumulative_limit(first, baseline, CUMULATIVE_WARN_TOLERANCE)
+            hard = cumulative_limit(first, baseline)
             if warn < got <= hard:
                 notes.append(f"{key(row)}: {metric} {got:.2f}s is {(got - first) / first:+.0%} over the first "
                              f"recorded {first:.2f}s (warns past {warn:.2f}s, fails past {hard:.2f}s)")
@@ -204,7 +217,7 @@ def check(rows, baseline, absolute_slack=False):
                                 f"(baseline {limit_base:.2f}s, +{tol:.0%} +{slack:.2f}s)")
             first = original_of(entry).get(metric)
             if first is not None and not absolute_slack:
-                cumulative = first * (1 + CUMULATIVE_TOLERANCE) + slack_for(first, baseline)
+                cumulative = cumulative_limit(first, baseline)
                 if got > cumulative:
                     problems.append(f"{k}: {metric} {got:.2f}s > cumulative limit {cumulative:.2f}s "
                                     f"(first recorded {first:.2f}s, +{CUMULATIVE_TOLERANCE:.0%} over all raises)")

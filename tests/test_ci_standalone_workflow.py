@@ -134,7 +134,8 @@ class OfflineTestsWorkflowContract(unittest.TestCase):
         jobs = load_workflow()["jobs"]
         self.assertEqual(jobs["offline-tests"]["strategy"]["matrix"]["shard"], ["0", "1", "2"])
         result = jobs["offline-tests-result"]
-        self.assertEqual(result["needs"], "offline-tests")
+        # scope and release-bump-tests: a release-bump PR runs the light suite instead (tests/test_ci_scope.py).
+        self.assertEqual(result["needs"], ["scope", "offline-tests", "release-bump-tests"])
         self.assertEqual(result["name"], "offline-tests (${{ matrix.python-version }})")
         self.assertEqual(result["strategy"]["matrix"]["python-version"],
                          jobs["offline-tests"]["strategy"]["matrix"]["python-version"])

@@ -506,7 +506,11 @@ before the field existed; the #1142 review stored it explicitly on every entry, 
 parts-512-four-color's seed to its first recording, 4.74 s — the 3.77 s previously carried as its
 `raised_from` appears in no recorded baseline in the file's history, and the +38% drift printed for that
 case came from the seed, not from the code). Past +25% over `original` the gate prints a warning; past +50% it fails, even
-when each individual raise was small. Every job summary and every `--record` proposal prints the cumulative
+when each individual raise was small. Both percentages apply to max(`original`, slack floor): a first
+recording under the 0.35 s floor is itself runner noise, so +50% of it would be tighter than the noise the
+per-baseline check allows. 2.3.6 was blocked by exactly that: parts-512-four-color's `fit_check_s`, first
+recorded at 0.01 s, read 0.37 s against a 0.365 s cumulative limit while its own baseline limit was 0.57 s.
+Every job summary and every `--record` proposal prints the cumulative
 drift of every raised entry, however small, so a re-record shows its own total before anyone merges it.
 
 Two mock-leg cases are not file drops (#1142). `typed-setup-walkthrough` (`[entry] kind = "typed"`) times a
