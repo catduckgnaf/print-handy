@@ -299,7 +299,9 @@ def test_design_routes_keep_suffix_before_query_and_reach_handlers(server, flow_
     assert 'action="/chat/new?view=design"' in page
     assert 'action="/chat/choice?view=design"' in page
     assert 'action="/chat/upload?view=design"' in page
-    assert '"/chat/state?view=design"' in page
+    status, state = browser.request("GET", "/chat/state?view=design")
+    assert status == 200
+    assert json.loads(state)["pending"] is False  # an open question pauses polling
     browser.post("/chat/choice?view=design", clarify_id=prompt["clarify_id"],
                  index=str(design.CHOICES.index(design.SLICE_LABEL)))
     _wait_for(lambda: bool(handed), "the query-suffixed choice handler")
