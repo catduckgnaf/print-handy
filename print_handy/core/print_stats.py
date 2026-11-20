@@ -841,6 +841,9 @@ def _resolved_outcomes(rows):
         if parsed is None:
             continue
         name = _label(record.get("printer"))
+        # A missing printer label is a display bucket, not a shared identity.
+        if name == UNKNOWN:
+            continue
         if name not in latest_started or parsed > latest_started[name]:
             latest_started[name] = parsed
     resolved = {}

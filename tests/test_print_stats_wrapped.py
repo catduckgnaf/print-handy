@@ -348,6 +348,15 @@ class OutcomesTests(unittest.TestCase):
         self.assertEqual(stats["outcomes"]["in_progress"], 1)
         self.assertEqual(stats["stale_printing_records"], 0)
 
+    def test_missing_printer_identity_does_not_reconcile_unrelated_records(self):
+        older = {"print_number": 1, "status": "printing", "success": None,
+                 "started_at": "2024-12-20T12:00:00Z"}
+        later = {"print_number": 2, "status": "completed", "success": True,
+                 "started_at": "2025-01-02T12:00:00Z", "printer": " "}
+        stats = print_stats.aggregate([older, later], year=2024)
+        self.assertEqual(stats["outcomes"]["in_progress"], 1)
+        self.assertEqual(stats["stale_printing_records"], 0)
+
     def test_three_numbers_stay_separate(self):
         stats = print_stats.aggregate(RECORDS, year=2025)
         outcomes = stats["outcomes"]
