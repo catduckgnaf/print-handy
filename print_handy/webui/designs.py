@@ -472,6 +472,12 @@ def _hidden_token(form_token):
     return f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
 
 
+def _route_action(route, suffix):
+    """Append a route suffix before its query string."""
+    path, separator, query = route.partition("?")
+    return f"{path}{suffix}{separator}{query}" if separator else f"{path}{suffix}"
+
+
 def _render_workshop(workshop, *, form_token, route="/designs"):
     """The design conversation at the top of GET /designs (#1636).
 
@@ -497,7 +503,8 @@ def _render_workshop(workshop, *, form_token, route="/designs"):
         return "".join(parts)
     session = workshop["session"]
     entries = workshop["entries"]
-    new_action = "/designs/new" if route == "/chat" else f"{route}/new"
+    new_action = ("/designs/new" if route == "/chat" else
+                  _route_action(route, "/new"))
     new_form = (f'<form method="post" action="{_esc(new_action)}" class="inline">'
                 f'{_hidden_token(form_token)}'
                 '<button type="submit" class="secondary">New design</button></form>')
@@ -517,11 +524,12 @@ def _render_workshop(workshop, *, form_token, route="/designs"):
         # chat page (this page's own state route) until the reply lands.
         parts.append(f'<noscript><meta http-equiv="refresh" '
                      f'content="{chat_module.REFRESH_SECONDS}"></noscript>')
-        parts.append(chat_module.poll_script(workshop["seq"], f"{_esc(route)}/state"))
+        parts.append(chat_module.poll_script(workshop["seq"], _route_action(route, "/state")))
     parts.append(transcript.render_log(entries, open_prompt=workshop["prompt"],
                                        working=workshop["pending"], empty=INTRO))
-    parts.append(transcript.render_prompt(workshop["prompt"], action=f"{_esc(route)}/choice",
-                                          form_token=form_token))
+    parts.append(transcript.render_prompt(
+        workshop["prompt"], action=_esc(_route_action(route, "/choice")),
+        form_token=form_token))
     if workshop["failed"]:
         parts.append('<div class="chat-prompt" role="group" aria-label="Try again">'
                      '<div class="chat-body"><p>That design did not come out. Send it '
@@ -551,7 +559,7 @@ def _render_workshop(workshop, *, form_token, route="/designs"):
     # of a new design conversation, the same edit a dropped file starts
     # in chat. The change is optional — with none, the part is shown as
     # it is and the next message in the box above makes the change.
-    parts.append(f'<form method="post" action="{_esc(route)}/upload" '
+    parts.append(f'<form method="post" action="{_esc(_route_action(route, "/upload"))}" '
                  'enctype="multipart/form-data" class="design-upload">'
                  f'{_hidden_token(form_token)}'
                  '<div class="field"><label for="d-file">Upload a part to edit '

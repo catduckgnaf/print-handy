@@ -287,6 +287,25 @@ def test_a_clarifying_question_is_asked_in_the_thread_and_answered_there(
         < page.index("Design turn 1")
 
 
+def test_design_routes_keep_suffix_before_query_and_reach_handlers(server, flow_cfg, pipeline):
+    _complete, handed = pipeline
+    browser = Browser(server)
+    browser.page()
+    browser.post("/chat/new?view=design")
+    assert "Describe a part" in thread_text(browser.page("/chat?view=design"))
+    browser.say(DESCRIPTION)
+    prompt = open_question(server, browser)
+    page = browser.page("/chat?view=design")
+    assert 'action="/chat/new?view=design"' in page
+    assert 'action="/chat/choice?view=design"' in page
+    assert 'action="/chat/upload?view=design"' in page
+    assert '"/chat/state?view=design"' in page
+    browser.post("/chat/choice?view=design", clarify_id=prompt["clarify_id"],
+                 index=str(design.CHOICES.index(design.SLICE_LABEL)))
+    _wait_for(lambda: bool(handed), "the query-suffixed choice handler")
+    assert current_session(flow_cfg, browser)["status"] == "handed_off"
+
+
 def test_slice_it_by_button_hands_off(server, flow_cfg, pipeline):
     _complete, handed = pipeline
     browser = Browser(server)
