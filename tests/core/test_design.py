@@ -138,6 +138,15 @@ def test_resolve_http_config_inherits_llm_then_prefers_design():
     assert design.resolve_http_config({"design": {"chat_url": "http://x"}, "llm": {}}) is None
 
 
+def test_legacy_design_route_survives_unmodeled_shared_llm_url():
+    cfg = {"design": {"chat_url": "http://design/v1", "model": "design-model",
+                      "api_key_env": "DESIGN_KEY", "timeout_s": 90},
+           "llm": {"chat_url": "http://chat/v1", "model": "", "api_key_env": "LLM_KEY"}}
+    assert design.resolve_http_config(cfg) == {
+        "chat_url": "http://design/v1", "model": "design-model", "api_key_env": "DESIGN_KEY",
+        "timeout_s": 90, "slot": "design.chat_url"}
+
+
 def test_design_only_deployment_inherits_the_llm_key_name():
     cfg = {"design": {"chat_url": "http://d/v1", "model": "sol", "api_key_env": ""},
            "llm": {"chat_url": "", "model": "", "api_key_env": "PAIRED_KEY"}}
