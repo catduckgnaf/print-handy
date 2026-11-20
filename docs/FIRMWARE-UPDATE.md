@@ -263,9 +263,10 @@ reports (#1280 section I). The printers covered are the ones Print
 Handy may apply updates on: ZMod (above), generic Klipper
 (`klipper.generic`), the Sovol Klipper family (`sovol.*` over
 Moonraker), and Forge-X when `[firmware] forgex_apply` is on. Print
-Handy checks them on the same schedule and posts one alert per
-component with a real available version: Klipper, Moonraker, Fluidd,
-Mainsail, GuppyScreen where the printer lists one, and any other
+Handy checks them on the same schedule and posts one grouped alert per
+printer for eligible components with a real available version, rather than
+a separate alert for each component. These can include Klipper, Moonraker,
+Fluidd, Mainsail, GuppyScreen where the printer lists one, and any other
 component the printer's own `moonraker.conf` names. On ZMod, Klipper,
 Moonraker, Fluidd and Mainsail are bundled and are not offered or
 installable separately through Print Handy. HelixScreen and separately
