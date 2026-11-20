@@ -96,7 +96,7 @@ def test_may_approve_names_the_check():
 # ---------------------------------------------------------------------- the Discord button path
 
 def test_discord_approval_button_refuses_a_member_and_takes_the_approver(cfg):
-    cfg["discord"].update(allowed_user_ids="", approval_user_id=APPROVER)
+    cfg["discord"].update(allowed_user_ids="", approval_user_id=APPROVER, approval_all_users=False)  # #1718: anyone-can-approve is the new default; pin it off to test the restriction
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(OPERATOR))
     core = runtime.BotCore(discord.client, cfg)
@@ -218,7 +218,7 @@ def test_telegram_typed_approval_refuses_a_member():
 
 
 def test_discord_typed_approval_is_refused_with_a_notice_and_the_prompt_stays_open(cfg):
-    cfg["discord"].update(allowed_user_ids="", approval_user_id=APPROVER)
+    cfg["discord"].update(allowed_user_ids="", approval_user_id=APPROVER, approval_all_users=False)  # #1718: anyone-can-approve is the new default; pin it off to test the restriction
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(OPERATOR))
     core = runtime.BotCore(discord.client, cfg)

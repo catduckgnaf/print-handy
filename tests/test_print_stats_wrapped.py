@@ -481,7 +481,8 @@ class SettingsTests(unittest.TestCase):
             # data_enabled follows wrapped_enabled while unset.
             self.assertIs(data["timelapse"]["wrapped_enabled"], True)
             self.assertIs(data["timelapse"]["data_enabled"], True)
-            self.assertIs(data["timelapse"]["wrapped_video"], False)
+            # #1718: the Wrapped video is on by default.
+            self.assertIs(data["timelapse"]["wrapped_video"], True)
             env_data = load_settings(
                 tmp, environ={"PRINT_HANDY__TIMELAPSE__WRAPPED_ENABLED": "true",
                               "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": "true"})
@@ -880,7 +881,10 @@ class RouteTests(unittest.TestCase):
     def test_wrapped_page_names_off_video_step(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_vault(tmp)
-            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            # #1718: the video is on by default now, so pin it off to
+            # exercise the named off step.
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
+                                    "  wrapped_video: false\n")
             port = httpd.server_address[1]
             code, raw = self.request(port, "GET", "/wrapped?year=2025")
             self.assertEqual(code, 200)
@@ -903,7 +907,10 @@ class RouteTests(unittest.TestCase):
     def test_video_post_requires_form_token_and_ai_toggle(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_vault(tmp)
-            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            # #1718: the video is on by default now, so pin it off; the
+            # refusal below is the video-off refusal.
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
+                                    "  wrapped_video: false\n")
             port = httpd.server_address[1]
             body = "_csrf=" + httpd.form_token + "&year=2025"
             code, raw = self.request(
