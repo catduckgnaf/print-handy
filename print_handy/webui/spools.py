@@ -759,9 +759,38 @@ def _esc(value):
     return html.escape(str(value), quote=True)
 
 
-def _page(title, body, *, theme=shell.DEFAULT_THEME):
+# The #1719 card layout: loaded slots and spools as Home Assistant
+# style cards — a big color disc, the name, a remaining bar — instead
+# of wide tables. Scoped to .spools-page and riding in the page head,
+# so the shared stylesheet is untouched (the data_page pattern).
+CSS = """
+.spools-page .sp-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem; margin: 0.75rem 0;
+}
+.spools-page .sp-card {
+  background: var(--color-surface); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); padding: 0.875rem 1rem; min-width: 0;
+}
+.spools-page .sp-card .sp-head { display: flex; align-items: center; gap: 0.75rem; }
+.spools-page .sp-card .sp-name { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.spools-page .sp-card .sp-where { color: var(--color-muted); font-size: 0.8125rem; }
+.spools-page .sp-card .sp-amount { margin: 0.5rem 0 0; }
+.spools-page .sp-bar {
+  height: 0.5rem; border-radius: 999px; background: var(--color-line);
+  overflow: hidden; margin: 0.375rem 0 0;
+}
+.spools-page .sp-bar > i { display: block; height: 100%; background: var(--color-ok); }
+.spools-page .sp-bar.low > i { background: var(--color-warn, #d97706); }
+.spools-page .sp-card .sp-actions { margin-top: 0.5rem; }
+.spools-page .sp-card .sp-actions form { margin: 0.25rem 0; }
+.spools-page .sp-card.empty { border-style: dashed; }
+"""
+
+
+def _page(title, body, *, theme=shell.DEFAULT_THEME, head_extra=""):
     """Through the one shell (#813); the header chrome carries the nav."""
-    return shell.page(title, body, path="/spools", theme=theme)
+    return shell.page(title, body, path="/spools", theme=theme, head_extra=head_extra)
 
 
 def render_spools_index(entries, *, theme=shell.DEFAULT_THEME):
@@ -794,9 +823,27 @@ def _picker_label(spool):
                               spool.get("id"), spool.get("remaining_weight"))
 
 
-def _spool_label_html(spool):
-    """The spool's label with its color swatch in front (escaped)."""
-    return swatch_module.labeled(spool.get("color_hex"), _picker_label(spool))
+def _remaining_bar(spool):
+    """The remaining-filament bar for one spool card, or "" when the
+    percent is not recorded (the amount text already says so)."""
+    percent = spool.get("remaining_percent")
+    if not isinstance(percent, (int, float)) or isinstance(percent, bool):
+        return ""
+    width = max(0, min(100, round(percent)))
+    low = " low" if width <= 20 else ""
+    return (f'<div class="sp-bar{low}" role="img" '
+            f'aria-label="{width}% remaining"><i style="width:{width}%"></i></div>')
+
+
+def _spool_card(spool, *, where_text, actions):
+    """One spool as a card: big disc, name, where it is, amount, bar, actions."""
+    disc = swatch_module.swatch(spool.get("color_hex"), size="large", empty=True)
+    return (f'<article class="sp-card"><div class="sp-head">{disc}'
+            f'<div><div class="sp-name">{_esc(_picker_label(spool))}</div>'
+            f'<div class="sp-where">{_esc(where_text)}</div></div></div>'
+            f'<p class="sp-amount">{_esc(_amount_text(spool))}</p>'
+            f'{_remaining_bar(spool)}'
+            f'<div class="sp-actions">{actions}</div></article>')
 
 
 def _options(items, *, selected=None):
@@ -916,13 +963,13 @@ def _replace_form(form_token, pid, slot, shelf_options, *, label):
                  '<button type="submit" class="secondary">Load</button>', attrs='class="inline"')
 
 
-def _spool_rows(view, form_token, pid, slot_options, *, show_archived):
-    """The Spools table: every spool, where it is, and its one-step actions."""
+def _spool_cards(view, form_token, pid, slot_options, *, show_archived):
+    """Every spool as a card (#1719): where it is, and its one-step actions."""
     esc = _esc
     where = {int(row["spool"]["id"]): row["slot"] for row in view["slots"]
              if row["spool"] and row["spool"].get("id") is not None}
     shelf = {spool["id"] for spool in view["shelf"]}
-    rows = []
+    cards = []
     for spool in view["spools"]:
         if spool["archived"] and not show_archived:
             continue
@@ -944,9 +991,8 @@ def _spool_rows(view, form_token, pid, slot_options, *, show_archived):
                              attrs='class="inline"')
         elif sid in shelf:
             actions += _load_form(form_token, pid, sid, slot_options)
-        rows.append(f"<tr><td>{_spool_label_html(spool)}</td><td>{esc(place)}</td>"
-                    f"<td>{esc(_amount_text(spool))}</td><td>{actions}</td></tr>")
-    return rows
+        cards.append(_spool_card(spool, where_text=place, actions=actions))
+    return cards
 
 
 def render_spools_page(view, *, form_token, notice=None, error=None, proposed=None,
@@ -984,15 +1030,13 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
     shelf_options = [(spool["id"], _picker_label(spool)) for spool in view["shelf"]]
     all_options = [(spool["id"], _picker_label(spool) + (" (archived)" if spool["archived"] else ""))
                    for spool in view["spools"] if show_archived or not spool["archived"]]
-    loaded_rows = []
+    loaded_cards = []
     for row in view["slots"]:
         spool = row["spool"]
-        slot_anchor = f'id="slot-{row["slot"]}"'
         if spool:
-            cell = f"{_spool_label_html(spool)}<br>{esc(_amount_text(spool))}"
             actions = _weight_form(form_token, pid, spool) if spool.get("id") is not None else ""
         else:
-            cell, actions = "empty", ""
+            actions = ""
         if controls_enabled and shelf_options:
             actions += _replace_form(form_token, pid, row["slot"], shelf_options,
                                      label="Replace with" if spool else "Load")
@@ -1008,13 +1052,30 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
                 f'<input type="hidden" name="spool_id" value="{esc(spool["id"])}">'
                 '<input type="hidden" name="archived" value="true">'
                 '<button type="submit" class="secondary">Archive</button>', attrs='class="inline"')
-        loaded_rows.append(f'<tr id="slot-{row["slot"]}"><th>Slot {row["slot"]}</th><td>{cell}</td><td>{actions}</td></tr>')
+        if spool:
+            disc = swatch_module.swatch(spool.get("color_hex"), size="large", empty=True)
+            loaded_cards.append(
+                f'<article class="sp-card" id="slot-{row["slot"]}">'
+                f'<div class="sp-head">{disc}<div>'
+                f'<div class="sp-name">Slot {row["slot"]}</div>'
+                f'<div class="sp-where">{_esc(_picker_label(spool))}</div></div></div>'
+                f'<p class="sp-amount">{esc(_amount_text(spool))}</p>'
+                f'{_remaining_bar(spool)}'
+                f'<div class="sp-actions">{actions}</div></article>')
+        else:
+            disc = swatch_module.swatch(None, size="large", empty=True)
+            loaded_cards.append(
+                f'<article class="sp-card empty" id="slot-{row["slot"]}">'
+                f'<div class="sp-head">{disc}<div>'
+                f'<div class="sp-name">Slot {row["slot"]}</div>'
+                f'<div class="sp-where">empty</div></div></div>'
+                f'<div class="sp-actions">{actions}</div></article>')
     picker_help = (" Replace with loads a shelf spool into the slot; the spool that was there "
                    "goes back on the shelf. Rename gives this one spool a nickname (other spools of the same filament keep theirs), Put back on shelf "
                    "empties the slot and keeps the spool, and Archive retires it."
                    if controls_enabled else
                    " Printer controls are off ([webui] controls_enabled), so slots are read only.")
-    parts.append(f'<h2>Loaded</h2><div class="table-scroll"><table>{"".join(loaded_rows)}</table></div>'
+    parts.append(f'<h2>Loaded</h2><div class="sp-grid">{"".join(loaded_cards)}</div>'
                  '<p class="help">Set corrects the grams left on the spool in Spoolman.'
                  f"{picker_help}</p>")
     archived_count = sum(1 for spool in view["spools"] if spool["archived"])
@@ -1025,11 +1086,10 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         toggle = f'<a href="{base}?archived=1">Show archived spools ({archived_count})</a>'
     else:
         toggle = ""
-    spool_rows = _spool_rows(view, form_token, pid, slot_options, show_archived=show_archived)
+    spool_cards = _spool_cards(view, form_token, pid, slot_options, show_archived=show_archived)
     parts.append("<h2>Spools</h2>" + (f"<p>{toggle}</p>" if toggle else ""))
-    if spool_rows:
-        parts.append('<div class="table-scroll"><table><tr><th>Spool</th><th>Where</th>'
-                     f'<th>Left</th><th>Actions</th></tr>{"".join(spool_rows)}</table></div>')
+    if spool_cards:
+        parts.append(f'<div class="sp-grid">{"".join(spool_cards)}</div>')
     else:
         parts.append("<p>(no spools yet: add one below)</p>")
     if view.get("conflicts"):
@@ -1133,7 +1193,9 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
                         "<p>Nothing is created until you press Create.</p>"))
     else:
         parts.append(f"<p>{esc(NO_AI_REASON)}</p>")
-    return _page(f"spools — {view.get('name') or pid}", "".join(parts), theme=theme)
+    return _page(f"spools — {view.get('name') or pid}",
+                 f'<div class="spools-page">{"".join(parts)}</div>',
+                 theme=theme, head_extra=f"<style>{CSS}</style>")
 
 
 # ------------------------------------------------------------------ form posts

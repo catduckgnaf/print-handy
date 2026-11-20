@@ -944,7 +944,7 @@ class RouteTests(unittest.TestCase):
             self.assertIn("dataset.confirm", raw)
             self.assertIn('data-busy="Syncing', raw)      # Sync
             self.assertIn("data-confirm", raw)            # Unassign / Swap forms
-            self.assertIn('class="table-scroll"', raw)    # the shelf/loaded wrap
+            self.assertIn('class="sp-grid"', raw)    # the shelf/loaded card grid (#1719)
 
     def test_unknown_browser_get_is_an_html_refusal_api_stays_json(self):
         with tempfile.TemporaryDirectory() as tmp:

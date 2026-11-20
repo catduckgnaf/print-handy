@@ -563,7 +563,11 @@ ValueError, `NextPlateError`, `DesignError`).
    included), printer/roster summary, doctor output and a bounded
    recent-log tail. The bug-report issue form asks for the bundle. The
    bundle is only ever written to a local file the operator chooses to
-   attach; nothing is uploaded.
+   attach; nothing is uploaded. The Web UI serves the same bundle as a
+   download (`GET /diagnostics/download`, linked as **Download
+   diagnostics** under the Logging section of Settings, #1719): the
+   assembled text is sanitized before it is served, exactly as for the
+   file the CLI writes.
 4. **Stage 4 (done):** structured logging consistency, per-subsystem
    verbosity via `[logging] levels` (see [Settings](SETTINGS.md)),
    `printer_id` bound on every log line of a per-printer listener

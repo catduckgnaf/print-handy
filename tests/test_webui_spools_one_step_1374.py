@@ -91,9 +91,10 @@ class OneStepPageTests(unittest.TestCase):
     def test_controls_disabled_hides_slot_picker_actions(self):
         self.data["webui"]["controls_enabled"] = False
         raw = self.page()
-        # The slot table only; the page's own Edit form further down has an
+        # The loaded slot cards only (#1719: cards, not a table); the
+        # page's own Edit form further down has an
         # "Archived" checkbox and is refused at POST time like every control.
-        loaded = raw[raw.index("<h2>Loaded</h2>"):raw.index("</table>", raw.index("<h2>Loaded</h2>"))]
+        loaded = raw[raw.index("<h2>Loaded</h2>"):raw.index("<h2>Spools</h2>", raw.index("<h2>Loaded</h2>"))]
         for label in ("Replace with", "Rename", "Put back on shelf", "Archive"):
             self.assertNotIn(label, loaded)
         self.assertIn('id="slot-1"', raw)

@@ -498,6 +498,21 @@ def render_config_page(field_values, *, data, form_token, errors=None,
                     f'<p class="setup-reveal">{label} is not set up. '
                     f'<a href="/config?section=platform&setup={platform}">'
                     f'Set up {label}</a></p>')
+        if name == "logging":
+            # The sanitized diagnostics download (#1719): one file to
+            # attach to an issue, built by diagnostics_bundle and
+            # sanitized before it is served — no tokens, keys or
+            # passwords. A plain download link, not a form field: it
+            # changes no setting.
+            parts.append(
+                '<h3>Diagnostics</h3><p>Download a sanitized diagnostic '
+                'file to attach to an issue: versions, a redacted '
+                'summary of these settings, the doctor output and a '
+                'bounded log tail. Tokens, keys, passwords, addresses '
+                'and local paths are removed before the file is '
+                'built.</p>'
+                '<p><a class="button" href="/diagnostics/download" '
+                'download>Download diagnostics</a></p>')
         note = GROUP_FILE_ONLY_NOTES.get(name)
         if note:
             parts.append(f'<p class="file-only-note">{_esc(note)}</p>')

@@ -138,6 +138,11 @@ ROUTES = (
     # The cheap printer roster (#1400): configuration only, no doctor run.
     _get("/api/printers", SESSION, "_api_printers"),
     _get("/data", SESSION, "_data_route", pass_path=True),
+    # The sanitized diagnostics bundle as a download (#1719), linked
+    # from the Settings page's Logging section. Read-only and behind
+    # the same session rule as every page: the bundle is sanitized,
+    # but it still describes this install.
+    _get("/diagnostics/download", SESSION, "_diagnostics_download_route"),
     _get("/wrapped", SESSION, "_data_route", pass_path=True),
     _get("/api/data", SESSION, "_data_route", pass_path=True),
     _get("/api/wrapped", SESSION, "_data_route", pass_path=True),
