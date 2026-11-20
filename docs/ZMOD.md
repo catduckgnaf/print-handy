@@ -169,7 +169,7 @@ the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)
   never followed, the same rule as any other unexpected shape. A
   HelixScreen screen was shown but never pressed from Print Handy
   until #1720: with controls on it is now pressed through the
-  sharing server's own protocol — Print Handy pairs once from its
+  sharing server's own protocol: Print Handy pairs once from its
   screen page (the six-digit code from that same Screen Sharing
   settings page, exchanged for a pairing token that is kept in a
   0600 state file, never in the settings file), and a tap is a
