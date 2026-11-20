@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace as S
 
@@ -72,6 +73,90 @@ def test_natural_part_two_reopens_checkpoint_and_slices_only_that_plate(flow_env
     assert receipt['uploaded'] is False
 
 
+def test_selected_checkpoint_revalidation_accepts_relative_expected_source(flow_env, tmp_path):
+    from print_handy.core import projects
+
+    archive = tmp_path / 'archive'
+    folder = archive / 'job-relative'
+    folder.mkdir(parents=True)
+    source = folder / 'source.3mf'
+    source.write_bytes(b'relative source')
+    relative_source = Path(os.path.relpath(source, Path.cwd()))
+    checkpoint = {
+        'schema': projects.SOURCE_CHECKPOINT_SCHEMA,
+        'status': 'available',
+        'request_scope': {'platform': 'discord', 'requester_id': 'u',
+                          'channel_id': 'c1', 'printer_id': 'printer-1'},
+        'source_path': str(relative_source),
+        'source_sha256': mj.file_sha256(source),
+    }
+    job_path = folder / 'JOB.json'
+    job_path.write_text(json.dumps({'downloaded_file': str(relative_source),
+                                    'source_checkpoint': checkpoint}))
+
+    loaded = projects.load_source_checkpoint(
+        job_path, platform='discord', requester_id='u', channel_id='c1',
+        printer_id='printer-1', archive=archive, expected_source=str(relative_source),
+        expected_sha256=checkpoint['source_sha256'])
+
+    assert loaded is not None
+    assert Path(loaded['checkpoint']['source_path']) == relative_source
+
+
+def test_single_candidate_is_revalidated_before_resume(flow_env, monkeypatch, tmp_path):
+    from print_handy.core import projects
+
+    printer_id = 'printer-1'
+    archive = tmp_path / 'archive'
+    folder = archive / 'job-1'
+    folder.mkdir(parents=True)
+    source = folder / 'source.3mf'
+    source.write_bytes(b'original source')
+    checkpoint = {
+        'schema': projects.SOURCE_CHECKPOINT_SCHEMA,
+        'status': 'available',
+        'request_scope': {'platform': 'discord', 'requester_id': 'u',
+                          'channel_id': 'c1', 'printer_id': printer_id},
+        'source_path': str(source),
+        'source_sha256': mj.file_sha256(source),
+        'title': 'Only archived project',
+        'authored_plates': [{'id': '1', 'name': 'Only plate'}],
+    }
+    job_path = folder / 'JOB.json'
+    job_path.write_text(json.dumps({'downloaded_file': str(source),
+                                    'source_checkpoint': checkpoint}))
+    original_discover = projects.discover_source_checkpoints
+
+    def discover_then_mutate(**kwargs):
+        rows = original_discover(**kwargs)
+        source.write_bytes(b'mutated source')
+        return rows
+
+    monkeypatch.setattr(projects, 'discover_source_checkpoints', discover_then_mutate)
+    monkeypatch.setattr(model_link, '_adapter_for', lambda *_args: harness.FlowAdapter([]))
+    monkeypatch.setattr(model_link, '_channel_printer_id', lambda *_args: printer_id)
+    monkeypatch.setattr(model_link, '_routed_printer_id', lambda *_args: printer_id)
+    monkeypatch.setattr(model_link, '_state_dir', lambda: flow_env.root)
+    monkeypatch.setattr(model_link, '_undecided_printer_ids', lambda *_args: [])
+    monkeypatch.setattr(printer_state, 'load', lambda *_args, **_kwargs: harness.tool_state())
+
+    prepared = []
+    async def capture_prepare(*_args, **kwargs):
+        prepared.append(kwargs)
+        return {'action': 'skip', 'reason': 'unexpected resume'}
+    monkeypatch.setattr(prepared_intake, 'prepare_link', capture_prepare)
+
+    gateway = S(_is_user_authorized_for_source=lambda _source: True,
+                _session_key_for_source=lambda _source: 'resume-session')
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+                       platform=S(value='discord'), printer_id=printer_id),
+              message_id='resume-single', text='/resume-model', metadata={})
+    result = asyncio.run(model_link.model_link_dispatch(event, gateway))
+
+    assert result['action'] == 'skip'
+    assert not prepared
+
+
 @pytest.mark.parametrize('utterance,outcome', [
     ('print part 2', 'select'), ('/resume-model', 'select'),
     ('print part 2', 'cancel'), ('print part 2', 'changed'),
@@ -111,7 +196,9 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
     monkeypatch.setattr(model_link, '_state_dir', lambda: flow_env.root)
     monkeypatch.setattr(model_link, '_undecided_printer_ids', lambda *_args: [])
     monkeypatch.setattr(printer_state, 'load', lambda *_args, **_kwargs: harness.tool_state())
-    monkeypatch.setattr(projects, 'find_source_checkpoints', lambda **_kwargs: candidates)
+    monkeypatch.setattr(projects, 'discover_source_checkpoints', lambda **_kwargs: candidates)
+    monkeypatch.setattr(projects, 'load_source_checkpoint', lambda job_json, **_kwargs:
+                        next((row for row in candidates if row['job_json'] == str(job_json)), None))
 
     questions = []
     async def confirm(_adapter, _source, _metadata, _prefix, question, choices, _timeout,
@@ -120,7 +207,9 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
         if outcome == 'cancel':
             return 'Cancel'
         if outcome == 'changed':
-            monkeypatch.setattr(projects, 'find_source_checkpoints', lambda **_kwargs: candidates[:1])
+            monkeypatch.setattr(projects, 'load_source_checkpoint', lambda job_json, **_kwargs:
+                                next((row for row in candidates[:1]
+                                      if row['job_json'] == str(job_json)), None))
         return next(choice for choice in choices if choice.startswith('Beta assembly · plate 2'))
 
     monkeypatch.setattr(model_link, '_confirm', confirm)

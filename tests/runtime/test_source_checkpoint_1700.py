@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -72,7 +73,69 @@ def test_scoped_checkpoint_lookup_survives_restart_and_rejects_changed_source(tm
                                             channel_id="c1", printer_id="p1", archive=tmp_path / "archive") == []
 
 
-def test_part_ordinal_is_not_an_authored_plate_number():
+def test_checkpoint_discovery_reads_all_jobs_but_hashes_only_selected_record(tmp_path, monkeypatch):
+    from print_handy.core import model_job
+
+    archive = tmp_path / "archive"
+    scope = {"platform": "discord", "requester_id": "u1",
+             "channel_id": "c1", "printer_id": "p1"}
+    paths = []
+    for index in range(4):
+        folder = archive / f"job-{index}"
+        folder.mkdir(parents=True)
+        source = folder / "source.3mf"
+        source.write_bytes(f"source {index}".encode())
+        digest = model_job.file_sha256(source)
+        job = {"downloaded_file": str(source), "source_checkpoint": {
+            "schema": projects.SOURCE_CHECKPOINT_SCHEMA, "status": "available",
+            "request_scope": scope, "source_path": str(source), "source_sha256": digest,
+            "title": f"Project {index}", "authored_plates": [{"id": "1"}]}}
+        job_path = folder / "JOB.json"
+        job_path.write_text(json.dumps(job))
+        paths.append((job_path, source, digest))
+
+    reads = []
+    original_read_text = Path.read_text
+    def count_read(path, *args, **kwargs):
+        if path.name == "JOB.json":
+            reads.append(str(path))
+        return original_read_text(path, *args, **kwargs)
+    hashes = []
+    original_hash = model_job.file_sha256
+    def count_hash(path):
+        hashes.append(str(path))
+        return original_hash(path)
+    monkeypatch.setattr(Path, "read_text", count_read)
+    monkeypatch.setattr(model_job, "file_sha256", count_hash)
+
+    # Discovery must omit internally inconsistent legacy job-level digests.
+    inconsistent = json.loads(paths[3][0].read_text())
+    inconsistent["source_sha256"] = "f" * 64
+    paths[3][0].write_text(json.dumps(inconsistent))
+    reads.clear()
+
+    candidates = projects.discover_source_checkpoints(**scope, archive=archive)
+    assert len(candidates) == 3
+    assert all(row["job_json"] != str(paths[3][0]) for row in candidates)
+    assert len(reads) == 4
+    assert hashes == []
+    selected = candidates[2]
+    loaded = projects.load_source_checkpoint(selected["job_json"], **scope, archive=archive,
+        expected_source=selected["checkpoint"]["source_path"],
+        expected_sha256=selected["checkpoint"]["source_sha256"])
+    assert loaded and loaded["checkpoint"]["authored_plates"] == [{"id": "1"}]
+    assert len(reads) == 5
+    assert hashes == [str(paths[2][1])]
+
+    # Revalidation rejects both disappearance and a changed source, still hashing
+    # only the one explicitly selected record per attempt.
+    paths[2][1].unlink()
+    assert projects.load_source_checkpoint(selected["job_json"], **scope, archive=archive) is None
+    paths[2][1].write_bytes(b"changed")
+    assert projects.load_source_checkpoint(selected["job_json"], **scope, archive=archive) is None
+    assert hashes == [str(paths[2][1]), str(paths[2][1])]
+
+
     checkpoint = {
         'authored_parts': [{'key': 'a'}, {'key': 'b'}],
         'color_manifest': {'plate_usage': {'2': {'part_keys': ['a']}, '7': {'part_keys': ['b']}}},

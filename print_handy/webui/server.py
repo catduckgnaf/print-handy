@@ -1100,6 +1100,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _designs_post(self, form):
         return design_handlers_module.designs_post(self, form)
 
+    def _designs_upload_post(self, form):
+        return design_handlers_module.designs_upload_post(self, form)
+
     def _designs_choice_post(self, form):
         return design_handlers_module.designs_choice_post(self, form)
 
@@ -1388,6 +1391,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _chat_post(self, form):
         return chat_handlers_module.chat_post(self, form)
+
+    def _chat_upload_post(self, form):
+        return chat_handlers_module.chat_upload_post(self, form)
 
     def _chat_choice_post(self, form):
         return chat_handlers_module.chat_choice_post(self, form)

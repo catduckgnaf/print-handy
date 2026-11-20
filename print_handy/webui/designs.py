@@ -28,6 +28,13 @@ choice number reach the design exactly as they do in chat. The thread
 reads its own entries only, never the shared print feed, so Chat and
 Workflow traffic and print posts stay out of it.
 
+An uploaded part (.stl, .3mf or .scad) starts the same conversation
+as an edit (#1721): the upload form saves the file through the upload
+inbox and submits it to the thread as a ``/print-design`` message with
+the file riding it, so the design dispatch seeds an edit session from
+it — with the form's change as the first turn, or, with no change, the
+part shown as it is, ready for the next message's change.
+
 The conversation is saved beside its session (``core.design``'s thread
 file, written by the web chat service), so it survives a reload and a
 restart and reopens from the catalog. "New design" starts a new thread
@@ -251,6 +258,31 @@ def start_message(description):
     had waiting), exactly as typing the command in chat does.
     """
     return f"/print-design {description}"
+
+
+# The file types an uploaded part can be edited from: the design
+# engine's own edit sources (core.design.start_edit_session). The
+# print intake's upload accepts .stl/.3mf; a .scad is a design source
+# only, so the design upload saves it as an extra type (webui.upload).
+EDIT_UPLOAD_EXTS = frozenset({".scad"})
+
+
+def upload_message(change):
+    """The web chat message an uploaded part rides: /print-design + the change.
+
+    With a change, the dispatch starts an edit session from the file
+    and runs the change as its first turn; with none, the bare command
+    plus the file starts the edit session and shows the part as it is
+    (the engine's baseline turn), ready for the next message's change.
+    """
+    change = " ".join(str(change or "").split())
+    return start_message(change) if change else "/print-design"
+
+
+def upload_shown(change, filename):
+    """How an uploaded part shows in the thread: the file, then the change."""
+    change = " ".join(str(change or "").split())
+    return f"📎 {filename} — {change}" if change else f"📎 {filename}"
 
 
 def thread_of(session):
@@ -514,6 +546,22 @@ def _render_workshop(workshop, *, form_token):
                  '<input id="d-text" name="text" autocomplete="off" '
                  f'placeholder="{_esc(placeholder)}"></div>'
                  '<button type="submit" class="accent">Send</button></form>')
+    # Upload a part to edit it (#1721): the file becomes the base part
+    # of a new design conversation, the same edit a dropped file starts
+    # in chat. The change is optional — with none, the part is shown as
+    # it is and the next message in the box above makes the change.
+    parts.append('<form method="post" action="/designs/upload" '
+                 'enctype="multipart/form-data" class="design-upload">'
+                 f'{_hidden_token(form_token)}'
+                 '<div class="field"><label for="d-file">Upload a part to edit '
+                 '(.stl, .3mf or .scad)</label>'
+                 '<input id="d-file" type="file" name="file" '
+                 'accept=".stl,.3mf,.scad"></div>'
+                 '<div class="field"><label for="d-change">Change to make '
+                 '(optional)</label>'
+                 '<input id="d-change" name="change" autocomplete="off" '
+                 'placeholder="make it 5 mm taller"></div>'
+                 '<button type="submit" class="accent">Upload and edit</button></form>')
     parts.append("</section>")
     return "".join(parts)
 
@@ -619,10 +667,11 @@ def render_design_detail(session, scad_text, *, has_stl, has_preview, has_base=F
 
 
 __all__ = [
-    "FILE_KINDS", "catalog_rows", "composer_message", "continue_state",
-    "design_availability", "designs_root", "file_for", "load_detail",
-    "owner_for_scope", "render_design_detail", "render_designs_page",
-    "resume_lost", "retry_message", "session_kind", "session_name",
-    "session_state", "session_thread", "start_message", "thread_of",
-    "turn_preview_for", "workshop_model",
+    "EDIT_UPLOAD_EXTS", "FILE_KINDS", "catalog_rows", "composer_message",
+    "continue_state", "design_availability", "designs_root", "file_for",
+    "load_detail", "owner_for_scope", "render_design_detail",
+    "render_designs_page", "resume_lost", "retry_message", "session_kind",
+    "session_name", "session_state", "session_thread", "start_message",
+    "thread_of", "turn_preview_for", "upload_message", "upload_shown",
+    "workshop_model",
 ]

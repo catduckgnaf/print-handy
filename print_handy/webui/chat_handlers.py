@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, urlparse
 
 from . import chat as chat_module
 from . import data as data_module
+from . import design_handlers as design_handlers_module
+from . import designs as designs_module
 from . import shell
 from . import upload as upload_module
 from . import workflow as workflow_module
@@ -118,6 +120,49 @@ def chat_post(handler, form):
                               "give the bot a moment to catch up.")
         return
     handler._redirect("/chat", headers=handler._chat_cookie_headers())
+
+def chat_upload_post(handler, form):
+    """POST /chat/upload: receive a part and start editing it in this chat (#1721).
+
+    The Designs page upload's twin, in the browser's chat scope: the
+    receive and the save are the upload machinery's own (save_upload
+    into the inbox, .scad allowed as the design-source extra type),
+    and the saved file is submitted as a /print-design edit through
+    design_handlers.submit_uploaded_part, so the conversation, the
+    Slice it / Change it / Cancel question and the intake hand-off all
+    happen here in the chat, as they do for a file dropped on Discord.
+    """
+    if not handler._web_chat_enabled():
+        handler._chat_page()  # the disabled page, with the explanation
+        return
+    data = handler.server.settings_data
+    ready, reason = designs_module.design_availability(data)
+    if not ready:
+        handler._chat_page(error=reason)
+        return
+    view = handler._chat_view()
+
+    def handle(fields, files):
+        if not files:
+            handler._html_refusal(400, "no file was attached", "/chat")
+            return
+        change = (fields.get("change") or [""])[0].strip()
+        saved, reason = upload_module.save_upload(
+            data, files[0][0], files[0][1],
+            extra_exts=designs_module.EDIT_UPLOAD_EXTS)
+        if saved is None:
+            handler._html_refusal(507 if reason.startswith(upload_module.INBOX_FULL)
+                                  else 400, reason, "/chat")
+            return
+        if not design_handlers_module.submit_uploaded_part(view, saved, change):
+            handler._chat_page(error=f"{saved.name} is in the inbox, but the "
+                                "edit could not be started (too many messages "
+                                "in the last minute). Try again in a moment.")
+            return
+        handler._redirect("/chat", headers=handler._chat_cookie_headers())
+
+    design_handlers_module.part_upload_refused(
+        handler, handler._receive_upload(handle), "/chat")
 
 def chat_choice_post(handler, form):
     if not handler._web_chat_enabled():

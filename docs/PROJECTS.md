@@ -142,6 +142,37 @@ by its number keeps working; the plate label is a field inside the record.
 These fields are additive. Old `JOB.json` and print records without
 `project_id` still load; their integer IDs are never renumbered.
 
+## Choosing a linked plate and resuming archived sources
+
+If a model site provides multiple authored plates, include an explicit choice
+with the link, for example `https://www.printables.com/model/123-example
+print plate 2`. An unambiguous phrase such as `print only the second part`
+can also select a plate when that part belongs to exactly one authored plate.
+Unavailable or ambiguous requests do not silently fall back to a different
+plate.
+
+On Discord, reply in the same channel to the original model-link message with
+`print plate 2` or `print only the second part` to make a fresh request using
+your selection. The replyer's instruction is used rather than the original
+message author's part/plate instruction. A message link can also be reposted
+with the requester's plate or part instruction.
+
+When more than one remaining plate is available, `/print-next <plan id>` asks
+which plate to continue with; `/print-next <plan id> <plate>` selects one
+explicitly. A requester's eligible sliced projects are matched to the same
+requester, chat and printer. If several projects match, the picker lets the
+requester disambiguate instead of silently taking the first project. Choosing
+a plate is not approval: the selected plate still requires its own bed-clear
+confirmation, and `Later` starts nothing.
+
+For source files archived from a previous intake, `/resume-model` can offer a
+picker when several eligible archived projects match. `print part 2` narrows
+the request to source projects containing that authored part; if multiple
+projects or plates still match, the picker identifies the intended one. A
+specific authored plate may be requested as `/resume-model <plate_id>`. These
+commands resume the source workflow for the same requester, chat and printer;
+they do not bypass slicing, fit checks, the normal questions or print approval.
+
 ## Completing the project
 
 When a project produces two or more sliced G-code files, it uses Print

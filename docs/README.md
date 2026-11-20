@@ -17,7 +17,7 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 ## Everyday printing
 
 - [Project reference](PROJECT-REFERENCE.md): commands and everyday workflows.
-- [Multi-part projects](PROJECTS.md): upload several STL/3MF files together, trace project/plate JSON IDs and print the next plate.
+- [Multi-part projects](PROJECTS.md): collect parts, print and resume plate projects, and see the supported archived-source workflow.
 - [Settings](SETTINGS.md) · [YAML configuration](CONFIGURATION-YAML.md): settings, precedence and environment overrides.
 - [Outside Spoolman](OUTSIDE-SPOOLMAN.md): run Print Handy against a Spoolman on another host, or the one a printer's Moonraker already points at, with one accounting authority per printer.
 - [Slicer warnings](SLICER-WARNINGS.md): OrcaSlicer warnings after slicing.
@@ -59,7 +59,7 @@ Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find yo
 ## Contributors and history
 
 - [Contribution workflow](../CONTRIBUTING.md) · [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md)
-- [Branding guide](BRANDING.md) · [Release notes guide](RELEASE-NOTES-GUIDE.md) · [Release checklist](history/RELEASE-CHECKLIST.md) · [Release notes template](history/RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
+- [Branding guide](BRANDING.md) · [Release notes guide](RELEASE-NOTES-GUIDE.md) · [Draft 2.3.6 release notes](RELEASE-2.3.6.md) · [Release checklist](history/RELEASE-CHECKLIST.md) · [Release notes template](history/RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
 - Historical and internal records, not setup instructions, live in [`history/`](history/). They are kept as written, so older ones still use the project's earlier names (Print Buddy, the Hermes plugin) and describe setups that no longer exist; for anything current, follow the guides above. The records: [operator live-proof protocol](history/PHASE2-LIVE-PROOFS.md), [rename migration](history/RENAME-MIGRATION.md), [Docker acceptance](history/DOCKER-117-ACCEPTANCE.md), [Docker progress](history/DOCKER-117-PROGRESS.md), [timelapse record](history/ISSUE-126-TIMELAPSE.md), [hardcoded values inventory](history/hardcoded-inventory.md), [CAD evaluation](history/KICAD-EVALUATION.md), [reuse map](history/REUSE-MAP.md), [multi-printer design](history/MULTI-PRINTER-DESIGN.md), the [AD5X implementation contract](history/AD5X-CONTRACT.md) and the [recovered testing lane](history/RECOVERY-TESTING.md).
 - [3MF remap inventory](history/3MF-REMAP-INVENTORY.md): which 3MF references a conversion remaps, and where each one lives.
 - [Documentation audit, 15 November 2026](history/DOCUMENTATION-AUDIT-2026-11-15.md): the README and printer-guide accuracy pass behind 2.3.4.
