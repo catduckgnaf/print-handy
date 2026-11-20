@@ -264,6 +264,27 @@ class PrintersPageScreenTests(unittest.TestCase):
         # The non-Moonraker printer gets no screen column.
         self.assertEqual(page.count('class="printer-screen-col"'), 1)
 
+    def test_touch_enabled_embedded_screen_uses_guarded_touch_route(self):
+        page = printers_page.render(
+            self.ROSTER, form_token="session-csrf-token",
+            screen_for=lambda printer_id: True, screen_touch=True)
+        self.assertIn('data-touch-url="/printers/ad5x/screen/touch"', page)
+        self.assertIn('data-csrf-id="printer-preview-csrf-ad5x"', page)
+        self.assertIn('value="session-csrf-token"', page)
+        self.assertIn('class="printer-tap-marker"', page)
+        self.assertIn("fetch(touchUrl", page)
+        self.assertIn("encodeURIComponent(csrf?csrf.value:'')", page)
+        self.assertIn("'&x='+x+'&y='+y", page)
+        self.assertIn("touch-action:manipulation", page)
+
+    def test_touch_disabled_embedded_screen_stays_preview_only(self):
+        page = printers_page.render(
+            self.ROSTER, form_token="session-csrf-token",
+            screen_for=lambda printer_id: True, screen_touch=False)
+        self.assertNotIn('data-touch-url="/printers/ad5x/screen/touch"', page)
+        self.assertNotIn('id="printer-preview-csrf-ad5x"', page)
+        self.assertIn("Preview only. No printer action was sent", page)
+
     def test_no_published_screen_renders_the_note(self):
         page = printers_page.render(
             self.ROSTER, form_token="tok",

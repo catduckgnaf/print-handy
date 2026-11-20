@@ -81,7 +81,7 @@ def add(form, roster, *, environ=None):
 
 
 def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_THEME,
-           screen_for=None):
+           screen_for=None, screen_touch=False):
     """The Printers page: one card per printer, settings on the left
     and the printer screen itself on the right (#1720).
 
@@ -123,7 +123,27 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             cards.append(f'<div class="card printer-card">{settings_col}</div>')
             continue
         published = True if screen_for is None else bool(screen_for(entry["id"]))
-        if published:
+        if published and screen_touch:
+            screen_col = (
+                '<div class="printer-screen-col"><h3>Printer screen</h3>'
+                f'<input type="hidden" id="printer-preview-csrf-{pid}" value="{_esc(form_token)}">'
+                f'<div style="position:relative"><img data-printer-screen '
+                f'data-touch-url="/printers/{pid}/screen/touch" '
+                f'data-csrf-id="printer-preview-csrf-{pid}" '
+                f'src="/api/printers/{pid}/screen/snapshot" '
+                f'alt="Interactive printer screen of {esc(entry.get("name") or entry["id"])}" '
+                'style="width:100%;display:block;touch-action:manipulation;cursor:pointer">'
+                '<span class="printer-tap-marker" aria-hidden="true" style="display:none;'
+                'position:absolute;width:22px;height:22px;border:3px solid #d22;border-radius:50%;'
+                'box-sizing:border-box;transform:translate(-50%,-50%);pointer-events:none;'
+                'box-shadow:0 0 0 5px #fff8"></span></div>'
+                f'<p class="muted" id="printer-preview-note-{pid}" role="status" '
+                'aria-live="polite">Tap to send one screen press. Drags and long presses are not sent.</p>'
+                '<p class="muted">This is the printer\'s own display, not '
+                'the bed camera. '
+                f'<a href="/printers/{pid}/screen">Open the full printer '
+                'screen view</a>.</p></div>')
+        elif published:
             screen_col = (
                 '<div class="printer-screen-col"><h3>Printer screen</h3>'
                 f'<img data-printer-screen src="/api/printers/{pid}/screen/snapshot" '
@@ -176,8 +196,20 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             "<script>"
             "document.querySelectorAll('img[data-printer-screen]').forEach(function(img){"
             "var base=img.src.split('?')[0];var failures=0;"
-            "var note=document.getElementById(img.getAttribute('aria-describedby'));"
-            "img.addEventListener('click',function(){if(note){note.textContent=\"Preview only. No printer action was sent. Use the Open the full printer screen view link to interact.\";}});"
+            "var touchUrl=img.getAttribute('data-touch-url');"
+            "var note=img.closest('.printer-screen-col').querySelector('[role=status]');"
+            "img.addEventListener('click',function(e){"
+            "var rect=img.getBoundingClientRect();if(!rect.width||!rect.height){return;}"
+            "var x=Math.max(0,Math.min(799,Math.round((e.clientX-rect.left)/rect.width*800)));"
+            "var y=Math.max(0,Math.min(479,Math.round((e.clientY-rect.top)/rect.height*480)));"
+            "var marker=img.parentElement.querySelector('.printer-tap-marker');"
+            "if(marker){marker.style.left=(x/800*100)+'%';marker.style.top=(y/480*100)+'%';marker.style.display='block';}"
+            "if(!touchUrl){if(note){note.textContent=\"Preview only. No printer action was sent. Use the Open the full printer screen view link to interact.\";}return;}"
+            "var csrf=document.getElementById(img.getAttribute('data-csrf-id'));if(note){note.textContent='Sending tap...';}"
+            "fetch(touchUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'_csrf='+encodeURIComponent(csrf?csrf.value:'')+'&x='+x+'&y='+y})"
+            ".then(function(r){return r.json();}).then(function(j){if(note){note.textContent=j.ok?(j.detail||'Tap sent.'):'Tap refused: '+(j.reason||'not sent');}if(j.ok){img.src=base+'?t='+Date.now();}})"
+            ".catch(function(){if(note){note.textContent='Could not reach the Web UI; tap was not confirmed.';}});"
+            "});"
             "function next(){setTimeout(tick,Math.min(2000*Math.pow(2,failures),60000));}"
             "function tick(){if(document.hidden){next();return;}img.src=base+'?t='+Date.now();}"
             "img.onload=function(){failures=0;next();};"
