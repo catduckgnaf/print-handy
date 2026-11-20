@@ -548,7 +548,7 @@ def _content_size(content) -> int:
         return 0
 
 
-def _upload_refusal(data, filename, content):
+def _upload_refusal(data, filename, content, *, extra_exts=()):
     """Why this upload would be refused, or None if it may be saved.
 
     Checks only — the cleaned name, the file type, the sizes, the inbox
@@ -556,10 +556,16 @@ def _upload_refusal(data, filename, content):
     save_upload_for_link counts the link use before the write, and a
     file refused for one of these reasons must not be counted.
     ``content`` is the file's bytes or the spool file holding them.
+    ``extra_exts`` names further suffixes this one caller accepts (the
+    design upload's ``.scad``, a design source the print intake cannot
+    use); the default upload keeps the print intake's file types only.
     """
     name = clean_name(filename)
     suffix = Path(name).suffix.lower()
-    if suffix not in model_sources.DIRECT_FILE_EXTS:
+    allowed = model_sources.DIRECT_FILE_EXTS | {str(ext).lower() for ext in extra_exts}
+    if suffix not in allowed:
+        if extra_exts:
+            return "only .stl, .3mf and .scad files can be uploaded here"
         return "only .stl and .3mf files can be uploaded"
     if not Path(name).stem:
         return "the file needs a name"
@@ -574,7 +580,7 @@ def _upload_refusal(data, filename, content):
     return quota_refusal(data, size, already_counted=0 if _is_bytes(content) else size)
 
 
-def save_upload(data, filename, content):
+def save_upload(data, filename, content, *, extra_exts=()):
     """Save one uploaded file into the inbox.
 
     ``content`` is the file's bytes, or the spool file
@@ -584,8 +590,9 @@ def save_upload(data, filename, content):
     name clash gets a numeric suffix instead of overwriting the file
     already there. The quota is checked again under the save lock, so
     two uploads arriving together cannot both squeeze past it.
+    ``extra_exts`` is forwarded to :func:`_upload_refusal`.
     """
-    refusal = _upload_refusal(data, filename, content)
+    refusal = _upload_refusal(data, filename, content, extra_exts=extra_exts)
     if refusal is not None:
         return None, refusal
     name = clean_name(filename)
