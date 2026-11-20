@@ -79,8 +79,8 @@ class Field:
 # Spoolman with spools, MQTT under Home Assistant, Wrapped on its own,
 # and the camera, timelapse, image and live-stream fields in one camera
 # group — instead of by the settings section they happen to live in.
-# Stage 2 gathered every AI surface into the ai group: the chat, design
-# and agent endpoints, the vision endpoint's on/off switch
+# Stage 2 gathered every AI surface into the ai group: the chat and design
+# endpoints, the vision endpoint's on/off switch
 # (vision.ai_enabled), and the [ai] edit gate. The vision endpoint URL
 # and model themselves are file-only (#1718, see
 # GROUP_FILE_ONLY_NOTES below), as are the [ai] tier tables.
@@ -180,8 +180,6 @@ GROUP_OF = {
     "llm.model": "ai",
     "design.chat_url": "ai",
     "design.model": "ai",
-    "agent.chat_url": "ai",
-    "agent.model": "ai",
     "ai.allowed_users": "ai",
     "ai.edit_requests_per_hour": "ai",
     "services.camera_source": "camera",
@@ -791,12 +789,6 @@ CATALOG = (
            validator="settings design check"),
     _field("design", "model", "Design model", "text",
            "Model the design endpoint uses; also the heavy tier's default model."),
-    _field("agent", "chat_url", "Agent endpoint URL", "url",
-           "OpenAI-compatible endpoint for the agent lane; empty leaves the "
-           "agent lane unconfigured. Its API key stays in the environment.",
-           validator="settings agent check"),
-    _field("agent", "model", "Agent model", "text",
-           "Model the agent endpoint uses."),
     _field("ai", "allowed_users", "AI edit users", "id_list",
            "Who may use the AI edit lane: user IDs in the form your platform "
            "uses — numeric IDs on Discord and Telegram, full Matrix IDs like "
