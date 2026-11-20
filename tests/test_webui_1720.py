@@ -490,6 +490,76 @@ class PairRouteTests(unittest.TestCase):
             self.assertTrue(json.loads(raw)["ok"])
             self.assertEqual(paired, [(pid, "123456")])
 
+    def test_touch_route_requires_session_and_page_csrf_token(self):
+        import re
+        import threading
+        from urllib.parse import urlencode
+
+        from print_handy.webui import server
+
+        touched = []
+
+        def fake_touch(printer_id, x, y):
+            touched.append((printer_id, x, y))
+            return 200, {"ok": True, "detail": "Tap sent."}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.yaml"
+            local.write_text(
+                f"paths:\n  state_home: {tmp}/hermes\n"
+                "webui:\n  enabled: true\n  port: 8765\n"
+                "  controls_enabled: true\n")
+            environ = {"WEBUI_ACCESS_TOKEN": "touch-route-token"}
+            data = settings.load(local=local, environ=environ)
+            httpd = server.make_server(
+                data, environ=environ, port=0,
+                screen_probe_func=lambda printer_id: (True, "", screen.SOURCE_ZMOD),
+                screen_touch_func=fake_touch)
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            self.addCleanup(httpd.server_close)
+            self.addCleanup(httpd.shutdown)
+            port = httpd.server_address[1]
+            pid = settings.default_printer_id(data)
+            form = {"Content-Type": "application/x-www-form-urlencoded"}
+            path = f"/printers/{pid}/screen/touch"
+
+            code, _raw = self.call(
+                port, "POST", path,
+                body=urlencode({"x": "12", "y": "34"}), headers=form)
+            self.assertIn(code, (401, 403))
+            self.assertEqual(touched, [])
+
+            import http.client
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            try:
+                conn.request("POST", "/login",
+                             body=urlencode({"token": "touch-route-token"}),
+                             headers=form)
+                response = conn.getresponse()
+                response.read()
+                cookie = {"Cookie": response.getheader("Set-Cookie").split(";")[0]}
+            finally:
+                conn.close()
+            code, page = self.call(port, "GET", f"/printers/{pid}/screen",
+                                   headers=cookie)
+            self.assertEqual(code, 200)
+            csrf = re.search(r'id="printer-screen-csrf" value="([^"]*)"', page)
+            self.assertIsNotNone(csrf, page)
+            assert csrf is not None
+            code, _raw = self.call(
+                port, "POST", path,
+                body=urlencode({"_csrf": "stale", "x": "12", "y": "34"}),
+                headers={**form, **cookie})
+            self.assertEqual(code, 403)
+            self.assertEqual(touched, [])
+            code, raw = self.call(
+                port, "POST", path,
+                body=urlencode({"_csrf": csrf.group(1), "x": "12", "y": "34"}),
+                headers={**form, **cookie})
+            self.assertEqual(code, 200)
+            self.assertTrue(json.loads(raw)["ok"])
+            self.assertEqual(touched, [(pid, "12", "34")])
+
     def test_paired_helixscreen_page_is_tappable(self):
         page = screen.render_page(
             "AD5X", "ad5x", ok=True, reason="", touch=True,
@@ -498,6 +568,14 @@ class PairRouteTests(unittest.TestCase):
         self.assertIn("addEventListener('click'", page)
         self.assertIn("/printers/ad5x/screen/touch", page)
         self.assertNotIn('id="printer-screen-pair"', page)
+
+    def test_screen_page_has_one_visible_title(self):
+        page = screen.render_page(
+            "AD5X", "ad5x", ok=True, reason="", touch=True,
+            form_token="tok", source=screen.SOURCE_ZMOD)
+        self.assertIn("<title>Print Handy — Printer screen</title>", page)
+        self.assertIn("<h2>Printer screen — AD5X</h2>", page)
+        self.assertNotIn("<h1>Print Handy Printer screen</h1>", page)
 
 
 class LoginSavePasswordTests(unittest.TestCase):
