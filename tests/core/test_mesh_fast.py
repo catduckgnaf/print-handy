@@ -178,6 +178,121 @@ def test_bounds_and_volume_bit_identical_to_original_loops():
         assert mesh_fast.bounds_and_volume(tris) == _old_bounds_and_volume(tris)
 
 
+def test_bounds_and_volume_accepts_plain_list_triangles_after_audit_fast_path():
+    triangles = [[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+                 [(0.0, 0.0, 1.0), (1.0, 0.0, 1.0), (0.0, 1.0, 1.0)]]
+    assert mesh_fast.bounds_and_volume(triangles) == _old_bounds_and_volume(triangles)
+
+
+@pytest.mark.parametrize("triangles", [
+    [[(-8.0, -3.0, -4.0), (-1.0, -3.0, -4.0), (-8.0, -1.0, -4.0)]],
+    [[(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (4.0, 0.0, 0.0)]],
+    [[(-1e150, -2e150, -3e150), (1e150, 2e150, 3e150), (0.0, 1e150, -1e150)]],
+    [[(0.0, 0.0, 0.0), (1.0, 2.0, 3.0), (4.0, 5.0, 6.0)],
+     [(-1.0, -2.0, -3.0), (0.0, 1.0, 2.0), (5.0, 6.0, 7.0)]],
+])
+def test_bounds_matches_original_min_max_for_list_triangle_edge_cases(triangles):
+    old_lo, old_hi, _ = _old_bounds_and_volume(triangles)
+    assert mesh_fast.bounds(triangles) == (old_lo, old_hi)
+
+
+def test_bounds_large_array_tables_match_scalar_nan_min_max():
+    import math
+    import numpy as np
+    from print_handy.core.compact_geometry import IndexedTriangles
+
+    finite = [(1.0, 2.0, 3.0), (-4.0, 5.0, 6.0), (7.0, -8.0, 9.0)]
+    nan_point = (float('nan'), 20.0, -30.0)
+    for table_type in (IndexedTriangles, mesh_fast.MeshTable):
+        for nan_first in (False, True):
+            vertices = np.asarray(([nan_point] + finite) if nan_first else (finite + [nan_point]),
+                                  dtype=np.float64)
+            face = (0, 1, 2) if nan_first else (0, 1, 3)
+            faces = np.tile(np.asarray(face, dtype=np.int32), (32768, 1))
+            table = table_type(vertices, faces)
+            expected = mesh_fast._scalar_bounds(table)
+            actual = mesh_fast.bounds(table)
+            for actual_axis, expected_axis in zip(actual, expected, strict=True):
+                assert actual_axis is not None and expected_axis is not None
+                for actual_value, expected_value in zip(actual_axis, expected_axis, strict=True):
+                    if math.isnan(expected_value):
+                        assert math.isnan(actual_value)
+                    else:
+                        assert actual_value == expected_value
+
+
+
+def test_large_indexed_integer_bounds_preserve_scalar_precision():
+    import numpy as np
+    from print_handy.core.compact_geometry import IndexedTriangles
+
+    base = 2**53
+    vertices = np.asarray([(base, 0, 0), (base + 1, 1, 0), (base + 2, 0, 1)],
+                          dtype=np.int64)
+    faces = np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1))
+    table = IndexedTriangles(vertices, faces)
+    # IndexedTriangles normally stores float64 geometry; emulate integer-backed
+    # indexed data to cover callers that supply/retain exact integer arrays.
+    table.vertices = vertices
+    assert table.vertices.dtype == np.int64
+    assert mesh_fast.bounds(table) == mesh_fast._scalar_bounds(table)
+    assert mesh_fast.bounds(table)[0][0] == base
+    assert mesh_fast.bounds(table)[1][0] == base + 2
+    lo, hi, volume = mesh_fast.bounds_and_volume(table)
+    assert lo is not None and hi is not None
+    assert lo[0] == base and hi[0] == base + 2
+    assert np.isfinite(volume)
+
+
+def test_large_mesh_table_integer_bounds_preserve_scalar_precision():
+    import numpy as np
+
+    base = 2**53
+    vertices = np.asarray([(base, 0, 0), (base + 1, 1, 0), (base + 2, 0, 1)],
+                          dtype=np.int64)
+    faces = np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1))
+    table = mesh_fast.MeshTable(vertices, faces)
+    actual = mesh_fast.bounds(table)
+    expected = mesh_fast._scalar_bounds(table)
+    assert actual[0] is not None and actual[1] is not None
+    assert actual == expected
+    assert actual[0][0] == base
+    assert actual[1][0] == base + 2
+    lo, hi, volume = mesh_fast.bounds_and_volume(table)
+    assert lo is not None and hi is not None
+    assert lo[0] == base and hi[0] == base + 2
+    assert np.isfinite(volume)
+
+def test_bounds_does_not_evaluate_volume():
+    class Coordinate:
+        def __init__(self, value):
+            self.value = value
+
+        def __lt__(self, other):
+            return self.value < getattr(other, "value", other)
+
+        def __gt__(self, other):
+            return self.value > getattr(other, "value", other)
+
+        def __add__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+        def __sub__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+        def __mul__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+        def __truediv__(self, other):
+            raise AssertionError("bounds must not calculate volume")
+
+    triangles = [[tuple(Coordinate(v) for v in point) for point in
+                  ((-1, 2, 3), (4, -5, 6), (7, 8, -9))]]
+    lo, hi = mesh_fast.bounds(triangles)
+    assert [value.value for value in lo] == [-1, -5, -9]
+    assert [value.value for value in hi] == [7, 8, 6]
+
+
 def test_bounds_and_volume_known_tetrahedron():
     a, b, c, d = (0., 0., 0.), (6., 0., 0.), (0., 6., 0.), (0., 0., 6.)
     tris = [[a, c, b], [a, b, d], [a, d, c], [b, c, d]]
@@ -211,3 +326,20 @@ def test_part_bounds_fast_matches_elementtree_reference(tmp_path, monkeypatch):
     expected = _annotated_bounds(tmp_path, monkeypatch, use_fast=False)
     assert expected == [9.9, 4.3, 3.1]  # hand computed: |-3.291*3|, 2.137*2, 1.573*1*2
     assert _annotated_bounds(tmp_path, monkeypatch, use_fast=True) == expected
+
+
+def test_large_object_integer_bounds_preserve_scalar_precision():
+    import numpy as np
+    from print_handy.core.compact_geometry import IndexedTriangles
+
+    base = 2**53
+    vertices = np.asarray([(base, 0, 0), (base + 1, 1, 0),
+                           (base + 2, 0, 1)], dtype=object)
+    faces = np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1))
+    indexed = IndexedTriangles(np.asarray(vertices, dtype=np.float64), faces)
+    indexed.vertices = vertices
+    for table in (indexed, mesh_fast.MeshTable(vertices, faces)):
+        actual = mesh_fast.bounds(table)
+        assert actual == mesh_fast._scalar_bounds(table)
+        assert actual[0][0] == base
+        assert actual[1][0] == base + 2
