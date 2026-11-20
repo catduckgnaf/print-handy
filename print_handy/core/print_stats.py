@@ -25,6 +25,16 @@ file (``<records vault>/Watchdog/events.jsonl``, written always-on by
 :func:`load_watchdog_events` and pass the events to :func:`aggregate`;
 when no events file exists the aggregate keeps the honest
 ``not_recorded`` pasta state, and risk flags are never read as pasta.
+
+Two #1719 reconciliations live in :func:`aggregate`. Outcomes are
+resolved by :func:`_resolved_outcomes`: a record left at status
+"printing" whose print provably ended (a terminal native state, a
+recorded end time, or a later print on the same printer) counts by its
+recorded outcome — or as unrecorded — never as still printing. And the
+``by_source`` breakdown names where each print came from from the
+record's own ``source_platform`` / ``source_url`` (or the intake join's
+URL); a print with neither recorded lands in the explicit unknown
+bucket, because prints started outside intake carry no source.
 """
 from __future__ import annotations
 
@@ -716,7 +726,54 @@ def _top(rows, key, limit=5):
 
 _OUTCOME_OF_STATUS = {"completed": "finished", "failed": "failed", "canceled": "stopped",
                       "cancelled": "stopped", "printing": "printing"}
+# The native printer state a record also carries (``moonraker_state``,
+# written by print_records.build_record_data from the same stats the
+# status came from): a second, independent statement of how the print
+# ended, used only when the status itself still says "printing".
+_OUTCOME_OF_NATIVE_STATE = {"complete": "finished", "completed": "finished",
+                            "cancelled": "stopped", "canceled": "stopped",
+                            "error": "failed", "failed": "failed"}
 _NO_REASON = "No reason recorded"
+
+# Where a print came from (#1719): the record's ``source_platform`` is
+# the intake job's site (print_records copies it from the job), where
+# "upload" is a file the user uploaded and "direct" is a direct file
+# link the user shared. The display names are the sites' own names.
+_SOURCE_LABELS = {"upload": "Uploaded files", "direct": "Direct links",
+                  "makerworld": "MakerWorld", "printables": "Printables",
+                  "thingiverse": "Thingiverse", "myminifactory": "MyMiniFactory",
+                  "cults3d": "Cults3D", "crealitycloud": "Creality Cloud",
+                  "thangs": "Thangs", "nexprint": "Nexprint",
+                  "makeronline": "MakerOnline"}
+_SOURCE_HOSTS = {"makerworld.com": "MakerWorld", "printables.com": "Printables",
+                 "thingiverse.com": "Thingiverse", "myminifactory.com": "MyMiniFactory",
+                 "cults3d.com": "Cults3D", "crealitycloud.com": "Creality Cloud",
+                 "thangs.com": "Thangs", "nexprint.com": "Nexprint",
+                 "makeronline.com": "MakerOnline"}
+
+
+def _source_label(record, enriched_url=None):
+    """Where one print came from, from what its record actually carries.
+
+    The recorded platform wins. With no platform, a recorded source URL
+    (the record's own, or the intake join's) names the site by its host.
+    With neither, the print lands in the UNKNOWN bucket: prints started
+    outside intake (on the printer itself, or before source recording)
+    carry no source, and none is invented for them.
+    """
+    platform = str(record.get("source_platform") or "").strip().lower()
+    if platform:
+        return _SOURCE_LABELS.get(
+            platform, platform.replace("_", " ").replace("-", " ").title())
+    url = record.get("source_url") or enriched_url
+    if isinstance(url, str) and url.strip():
+        from urllib.parse import urlsplit
+        host = (urlsplit(url.strip()).hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if host:
+            return _SOURCE_HOSTS.get(host, host)
+    return UNKNOWN
 
 # Plain-language failure causes for the Data tab. Each rule is (cause,
 # tip, lowercase fragments that name it in a printer's stop reason). The
@@ -749,6 +806,60 @@ def _record_title(record):
 
 def _outcome(record):
     return _OUTCOME_OF_STATUS.get(_status(record), "unknown")
+
+
+def _resolved_outcomes(rows):
+    """id(record) -> outcome for a whole history, reconciling stale
+    "printing" records (#1719).
+
+    A start record is written when a print starts and finalized when
+    its completion is recorded; when that finalization never happens
+    (the completion was missed), the record says "printing" forever and
+    the Data tab showed every such print as still printing. A record
+    like that is only still printing when nothing contradicts it:
+
+    - a terminal native state (``moonraker_state``) or a recorded
+      ``completed_at`` on the record itself proves the print ended, and
+      the recorded success flag names the verdict when there is one;
+    - one printer prints one job at a time, so a later-started record
+      on the same printer proves this print had ended — its outcome
+      was never recorded, so it resolves to "unknown", never to an
+      invented verdict.
+
+    A "printing" record with neither contradiction (the newest record
+    on its printer, no end evidence) stays "printing": it may really
+    be the print running now.
+    """
+    latest_started: dict[str, object] = {}
+    for record in rows:
+        parsed = _parse_started(record.get("started_at"))
+        if parsed is None:
+            continue
+        name = _label(record.get("printer"))
+        if name not in latest_started or parsed > latest_started[name]:
+            latest_started[name] = parsed
+    resolved = {}
+    for record in rows:
+        outcome = _outcome(record)
+        if outcome != "printing":
+            resolved[id(record)] = outcome
+            continue
+        native = str(record.get("moonraker_state") or "").strip().lower()
+        if native in _OUTCOME_OF_NATIVE_STATE:
+            resolved[id(record)] = _OUTCOME_OF_NATIVE_STATE[native]
+            continue
+        if record.get("completed_at"):
+            success = record.get("success")
+            resolved[id(record)] = ("finished" if success is True else
+                                    "failed" if success is False else "unknown")
+            continue
+        parsed = _parse_started(record.get("started_at"))
+        latest = latest_started.get(_label(record.get("printer")))
+        if parsed is not None and latest is not None and latest > parsed:
+            resolved[id(record)] = "unknown"
+            continue
+        resolved[id(record)] = "printing"
+    return resolved
 
 
 def failure_cause(reason):
@@ -795,7 +906,7 @@ def _record_cost(record):
     return value, str(cost.get("currency_code") or "USD")
 
 
-def _recent_prints(rows, limit=10):
+def _recent_prints(rows, limit=10, outcomes=None):
     """The newest dated prints first, with what a person reads in a history list."""
     dated = [(parsed, r) for r in rows if (parsed := _parse_started(r.get("started_at"))) is not None]
     dated.sort(key=lambda item: item[0], reverse=True)
@@ -807,7 +918,8 @@ def _recent_prints(rows, limit=10):
         out.append({
             "title": _record_title(record), "print_number": record.get("print_number"),
             "printer": _label(record.get("printer")), "status": _status(record),
-            "outcome": _outcome(record), "started_at": record.get("started_at"),
+            "outcome": (outcomes or {}).get(id(record), _outcome(record)),
+            "started_at": record.get("started_at"),
             "seconds": _num(record.get("print_duration_seconds")),
             "filament_used_g": _num(record.get("filament_used_g")),
             "material": None if material == UNKNOWN else material,
@@ -817,7 +929,7 @@ def _recent_prints(rows, limit=10):
     return out
 
 
-def _printer_summaries(rows):
+def _printer_summaries(rows, outcomes=None):
     """One summary per printer: how much it printed and how it went, busiest first."""
     table: dict[str, dict] = {}
     for record in rows:
@@ -826,7 +938,7 @@ def _printer_summaries(rows):
                                         "stopped": 0, "printing": 0, "seconds": 0.0,
                                         "filament_used_g": 0.0, "last_started_at": None})
         entry["prints"] += 1
-        outcome = _outcome(record)
+        outcome = (outcomes or {}).get(id(record), _outcome(record))
         if outcome in ("finished", "failed", "stopped", "printing"):
             entry[outcome] += 1
         seconds = _num(record.get("print_duration_seconds"))
@@ -849,7 +961,7 @@ def _printer_summaries(rows):
     return sorted(out, key=lambda e: (-e["prints"], e["printer"]))
 
 
-def _monthly_outcomes(rows, resolved):
+def _monthly_outcomes(rows, resolved, outcomes=None):
     """Per month (display timezone): prints, finished, failed, stopped and the success rate."""
     months: dict[str, dict] = {}
     for record in rows:
@@ -859,7 +971,7 @@ def _monthly_outcomes(rows, resolved):
         key = _local(parsed, resolved).strftime("%Y-%m")
         entry = months.setdefault(key, {"prints": 0, "finished": 0, "failed": 0, "stopped": 0})
         entry["prints"] += 1
-        outcome = _outcome(record)
+        outcome = (outcomes or {}).get(id(record), _outcome(record))
         if outcome in ("finished", "failed", "stopped"):
             entry[outcome] += 1
     for entry in months.values():
@@ -908,10 +1020,23 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     for record in rows:
         status = _status(record)
         counts_by_status[status] = counts_by_status.get(status, 0) + 1
-    completed = counts_by_status.get("completed", 0)
-    failed = counts_by_status.get("failed", 0)
-    canceled = counts_by_status.get("canceled", 0) + counts_by_status.get("cancelled", 0)
-    in_progress = counts_by_status.get("printing", 0)
+    # The headline outcome counts read the reconciled outcomes (#1719),
+    # not the raw statuses: a record left at "printing" whose print
+    # provably ended counts by its recorded outcome (or as unrecorded),
+    # so the page never claims old prints are still printing.
+    # counts_by_status above stays the raw record count, named as such.
+    resolved_outcomes = _resolved_outcomes(rows)
+    resolved_counts: dict[str, int] = {}
+    for record in rows:
+        outcome = resolved_outcomes[id(record)]
+        resolved_counts[outcome] = resolved_counts.get(outcome, 0) + 1
+    completed = resolved_counts.get("finished", 0)
+    failed = resolved_counts.get("failed", 0)
+    canceled = resolved_counts.get("stopped", 0)
+    in_progress = resolved_counts.get("printing", 0)
+    stale_printing = sum(
+        1 for record in rows
+        if _status(record) == "printing" and resolved_outcomes[id(record)] != "printing")
     finished = completed + failed + canceled
     # The success rate is out of prints that ran to a verdict: finished or
     # failed. A print the user stopped (canceled) is not a failure of the
@@ -939,8 +1064,18 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
 
     breakdowns = {}
     starter_labels = _starter_labels(rows)
+    # The intake join's source URLs by print number (#1719): a record
+    # that carries no source of its own can still be named by the job
+    # it came from. A number two jobs share names neither (the join's
+    # own rule), so those records stay in the unrecorded bucket.
+    enriched_urls = {}
+    if isinstance(enrichments, dict):
+        for number, entry in (enrichments.get("per_print") or {}).items():
+            if isinstance(entry, dict) and entry.get("source_url"):
+                enriched_urls[number] = entry["source_url"]
     dimensions = {
         "by_starter": lambda r: starter_labels.get(starter_key(r), UNATTRIBUTED),
+        "by_source": lambda r: _source_label(r, enriched_urls.get(r.get("print_number"))),
         "by_printer": lambda r: _label(r.get("printer")),
         "by_printer_profile": lambda r: _label(r.get("printer_profile")),
         "by_material": lambda r: _label(r.get("filament_material")),
@@ -1097,6 +1232,14 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         "failed": failed,
         "canceled": canceled,
         "in_progress": in_progress,
+        # Records still marked "printing" that the reconciliation above
+        # proved had ended (#1719), with the note the page shows for them.
+        "stale_printing_records": stale_printing,
+        "stale_printing_note": (
+            f"{stale_printing} older records were left marked printing after "
+            "their prints ended; they are counted by the outcome their record "
+            "proves, or as not recorded where the record proves only that the "
+            "print ended." if stale_printing else ""),
         "finished": finished,
         "decided": decided,
         "success_rate": success_rate,
@@ -1194,9 +1337,9 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         # The Data tab's everyday views: newest prints first, each
         # printer's share and record, the month-by-month success trend and
         # the failure causes in plain words.
-        "recent_prints": _recent_prints(rows),
-        "printers": _printer_summaries(rows),
-        "monthly_outcomes": _monthly_outcomes(rows, resolved),
+        "recent_prints": _recent_prints(rows, outcomes=resolved_outcomes),
+        "printers": _printer_summaries(rows, outcomes=resolved_outcomes),
+        "monthly_outcomes": _monthly_outcomes(rows, resolved, outcomes=resolved_outcomes),
         "failure_causes": _failure_causes(rows),
     }
 

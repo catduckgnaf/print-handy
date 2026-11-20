@@ -195,6 +195,7 @@ from . import walkthrough as walkthrough_module
 from . import sessions as sessions_module
 from . import status_handlers as status_handlers_module
 from . import data_handlers as data_handlers_module
+from . import diagnostics as diagnostics_module
 from . import printer_handlers as printer_handlers_module
 from . import design_handlers as design_handlers_module
 from . import firmware_handlers as firmware_handlers_module
@@ -1206,6 +1207,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _data_route(self, path):
         return data_handlers_module.data_route(self, path)
+
+    def _diagnostics_download_route(self):
+        return diagnostics_module.diagnostics_route(self)
 
     def _wrapped_video_file_route(self):
         return data_handlers_module.wrapped_video_file_route(self)

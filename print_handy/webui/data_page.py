@@ -76,6 +76,9 @@ _OUTCOME_LABELS = {
     "failed": ("Failed", "bad"),
     "stopped": ("Stopped", "warn"),
     "printing": ("Printing", ""),
+    # A print the reconciliation proved had ended, with no outcome
+    # recorded: it is not still printing, and no verdict is invented.
+    "unknown": ("Not recorded", "warn"),
 }
 
 
@@ -226,6 +229,58 @@ def _outcome_line(payload):
     if payload.get("in_progress"):
         bits.append(f"{payload['in_progress']} printing now")
     return ", ".join(bits)
+
+
+def highlights(payload):
+    """The #1719 highlights: pasta, where prints came from, most popular files.
+
+    Every number here reads a field the records already carry: pasta is
+    the watchdog count (with its not-recorded state shown honestly),
+    sources are the records' own recorded platform or source address,
+    and popular files are the prints made more than once. A print with
+    no source recorded is counted as exactly that, never guessed.
+    """
+    outcomes = payload.get("outcomes") or {}
+    parts = []
+    if outcomes.get("pasta_state") == "recorded" and outcomes.get("pasta") is not None:
+        pasta = outcomes["pasta"]
+        line = (f"You made pasta {print_stats.plural(pasta, 'time')}: the camera "
+                f"caught {print_stats.plural(pasta, 'print')} turning into spaghetti")
+        if outcomes.get("pasta_events"):
+            line += f" ({print_stats.plural(outcomes['pasta_events'], 'spaghetti event')} in all)"
+        parts.append(f'<p class="dp-lede">{_esc(line)}.</p>')
+    else:
+        parts.append('<p class="dp-lede">Pasta is not counted yet: the camera '
+                     "watchdog's spaghetti events are not recorded, so there is "
+                     "no pasta count to show.</p>")
+    if payload.get("stale_printing_note"):
+        parts.append(f'<p class="note">{_esc(payload["stale_printing_note"])}</p>')
+    sources = (payload.get("breakdowns") or {}).get("by_source") or {}
+    if sources:
+        total = sum(row.get("count", 0) for row in sources.values()) or 1
+        items = []
+        for label, row in list(sources.items())[:6]:
+            count = row.get("count", 0)
+            share = round(count * 100 / total)
+            items.append(
+                f'<li><span class="t">{_esc(_name(label, "Source not recorded"))}</span>'
+                f'<span class="m">{_esc(print_stats.plural(count, "print"))} · {share}%</span>'
+                f'<span class="dp-bar" style="flex-basis:100%" aria-hidden="true">'
+                f'<i style="width:{share}%"></i></span></li>')
+        parts.append('<h3>Where your prints came from</h3>'
+                     f'<ul class="dp-list">{"".join(items)}</ul>')
+    popular = [entry for entry in
+               ((payload.get("repeats") or {}).get("most_reprinted") or [])
+               if entry.get("count", 0) > 1][:5]
+    if popular:
+        items = "".join(
+            f'<li><span class="t">{_esc(entry.get("title") or "Untitled print")}</span>'
+            f'<span class="m">{_esc(entry.get("count"))} times</span></li>'
+            for entry in popular)
+        parts.append('<h3>Most popular files</h3>'
+                     f'<ul class="dp-list">{items}</ul>')
+    return ('<section id="data-highlights"><h2>Highlights</h2>'
+            + "".join(parts) + "</section>")
 
 
 def trend(payload, months=6):
@@ -426,8 +481,9 @@ def render_sections(payload):
     if not payload.get("total_prints"):
         parts.append(empty_state(payload))
         return "".join(parts)
-    parts.extend([overview(payload), trend(payload), recent(payload), failures(payload),
-                  printers(payload), materials(payload), favorites(payload)])
+    parts.extend([overview(payload), highlights(payload), trend(payload), recent(payload),
+                  failures(payload), printers(payload), materials(payload),
+                  favorites(payload)])
     return "".join(part for part in parts if part)
 
 

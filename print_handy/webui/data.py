@@ -1178,7 +1178,8 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     for title, key in (("Starter", "by_starter"),
                        ("Printer", "by_printer"), ("Printer profile", "by_printer_profile"),
                        ("Material", "by_material"), ("Color", "by_color"),
-                       ("Vendor", "by_vendor"), ("Spool", "by_spool"), ("Nozzle", "by_nozzle")):
+                       ("Vendor", "by_vendor"), ("Spool", "by_spool"), ("Nozzle", "by_nozzle"),
+                       ("Source", "by_source")):
         parts.append(_breakdown_table(title, stats["breakdowns"][key]))
     monthly = "".join(f"<tr><td>{_esc(month)}</td><td>{count}</td></tr>"
                       for month, count in stats["monthly"].items())

@@ -104,10 +104,12 @@ def test_spools_page_shows_a_swatch_beside_each_spool():
             "shelf": [dict(SPOOL, id=9, color_hex="1E64C8")],
             "spools": [SPOOL, dict(SPOOL, id=9, color_hex="1E64C8")], "conflicts": []}
     page = spools.render_spools_page(view, form_token="t")
-    loaded = page.split('id="slot-1"')[1].split("</tr>")[0]
+    loaded = page.split('id="slot-1"')[1].split('id="slot-2"')[0]
     assert 'data-color="#FF7A00"' in loaded
-    table = page.split("<th>Spool</th>")[1].split("</table>")[0]
-    assert 'data-color="#FF7A00"' in table and 'data-color="#1E64C8"' in table
+    # #1719: the spool list is cards, not a table; each spool's card
+    # still carries its color disc.
+    cards = page.split("<h2>Spools</h2>")[1]
+    assert 'data-color="#FF7A00"' in cards and 'data-color="#1E64C8"' in cards
 
 
 def test_slice_result_shows_a_swatch_beside_the_color_code():
