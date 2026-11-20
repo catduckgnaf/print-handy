@@ -111,12 +111,16 @@ def confirm_env():
     _config.set_override(previous)
 
 
-async def _wait_for_prompt(stub, count):
+async def _wait_for_prompt(stub, count, adapter=None):
     for _ in range(600):
-        if stub.prompt_count() >= count:
+        delivered = stub.prompt_count() >= count
+        # Matrix sends the room message before recording its prompt in the
+        # adapter. A send is not yet answerable during that short interval.
+        ready = adapter is None or adapter.open_prompt(LIVE_KEY) is not None
+        if delivered and ready:
             return
         await asyncio.sleep(0.05)
-    raise AssertionError(f"prompt {count} never reached the room")
+    raise AssertionError(f"prompt {count} never became answerable in the room")
 
 
 # ------------------------------------------------------------- direct dispatch: macros
@@ -153,7 +157,7 @@ def test_macros_prompt_answers_a_numbered_reply_through_the_real_matrix_adapter(
                 mock.patch.object(core_prompts, "gateway", return_value=core_prompts):
             task = asyncio.create_task(plugin.macros_dispatch(
                 _event("/print-macros run WIPE_NOZZLE_CUSTOM"), _gateway(adapter)))
-            await _wait_for_prompt(stub, 1)
+            await _wait_for_prompt(stub, 1, adapter)
             answered = await adapter.answer_typed(LIVE_KEY, "1")
             out = await asyncio.wait_for(task, 15)
             return answered, out
@@ -223,7 +227,7 @@ def test_print_stop_prompt_answers_a_numbered_reply_through_the_real_matrix_adap
                 mock.patch.object(print_summary, "format_event", lambda *a, **k: "Started: a.gcode"):
             task = asyncio.create_task(plugin.print_stop_dispatch(
                 _event("/print-stop"), _gateway(adapter)))
-            await _wait_for_prompt(stub, 1)
+            await _wait_for_prompt(stub, 1, adapter)
             answered = await adapter.answer_typed(LIVE_KEY, "1")
             out = await asyncio.wait_for(task, 15)
             return answered, out
@@ -266,7 +270,7 @@ def test_print_next_prompt_answers_a_numbered_reply_through_the_real_matrix_adap
                 mock.patch.object(print_summary, "_print_number", lambda job: 3):
             task = asyncio.create_task(plugin.print_next_dispatch(
                 _event("/print-next ghost"), _gateway(adapter)))
-            await _wait_for_prompt(stub, 1)
+            await _wait_for_prompt(stub, 1, adapter)
             answered = await adapter.answer_typed(LIVE_KEY, "1")
             out = await asyncio.wait_for(task, 15)
             return answered, out
@@ -298,9 +302,9 @@ def test_print_next_spool_change_prompt_answers_a_numbered_reply_through_the_rea
                 mock.patch.object(print_summary, "_print_number", lambda job: 3):
             task = asyncio.create_task(plugin.print_next_dispatch(
                 _event("/print-next ghost"), _gateway(adapter)))
-            await _wait_for_prompt(stub, 1)
+            await _wait_for_prompt(stub, 1, adapter)
             first = await adapter.answer_typed(LIVE_KEY, "1")
-            await _wait_for_prompt(stub, 2)
+            await _wait_for_prompt(stub, 2, adapter)
             second = await adapter.answer_typed(LIVE_KEY, "1")
             out = await asyncio.wait_for(task, 15)
             return first, second, out
@@ -333,9 +337,9 @@ def _material_scenario(confirm_env, answer):
                                   lambda gcode: ({"derived_plates": []}, {"seconds": 600})),                 mock.patch.object(print_summary, "_print_number", lambda job: 3):
             task = asyncio.create_task(plugin.print_next_dispatch(
                 _event("/print-next ghost"), _gateway(adapter)))
-            await _wait_for_prompt(stub, 1)
+            await _wait_for_prompt(stub, 1, adapter)
             await adapter.answer_typed(LIVE_KEY, "1")
-            await _wait_for_prompt(stub, 2)
+            await _wait_for_prompt(stub, 2, adapter)
             await adapter.answer_typed(LIVE_KEY, answer)
             return await asyncio.wait_for(task, 15)
 
