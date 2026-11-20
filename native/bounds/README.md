@@ -63,7 +63,10 @@ that mesh only. Its contract is the Python decode in
 (version handshake, golden self-check, Python fallback, the same
 `PRINT_HANDY_BOUNDS_IMPL` setting), with one permanent exception: parts
 with `triangle_ranges` always take the Python counting, because a
-whole-mesh census cannot answer for a subset of triangles.
+whole-mesh census cannot answer for a subset of triangles. Trees deeper
+than the safe recursion budget are also delegated to Python per mesh, so
+its context-dependent `RecursionError` remains authoritative rather than
+being replaced by the iterative native decoder's broader acceptance.
 `tests/pipeline/test_native_paint_census.py` holds the two to the same
 answers, manifests included; the CI job sets
 `PRINT_HANDY_PAINT_REQUIRE_NATIVE=1` for it too.

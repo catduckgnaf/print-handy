@@ -59,6 +59,9 @@ pub const PAINT_CENSUS_VERSION: u32 = 1;
 pub enum CensusRow {
     Counts { states: BTreeMap<u64, u64>, unpainted: u64 },
     Error(&'static str),
+    /// The recursive Python oracle must handle this mesh to preserve its
+    /// context-dependent RecursionError behavior.
+    PythonFallback,
 }
 
 fn is_word(b: u8) -> bool {
@@ -206,7 +209,10 @@ fn hex_val(b: u8) -> u32 {
 
 /// Decode one paint code into state -> leaf count, with Python's exact
 /// error messages. Iterative form of the recursive `_parse` + `_states`.
-fn decode_states(code: &[u8]) -> Result<BTreeMap<u64, u64>, &'static str> {
+/// Codes whose tree would exceed Python's recursion budget return None so
+/// the dispatcher can use the oracle rather than accepting them natively.
+fn decode_states(code: &[u8]) -> Result<Option<BTreeMap<u64, u64>>, &'static str> {
+    const PYTHON_RECURSION_SAFE_DEPTH: usize = 900;
     // Nibbles in parse order = the code's hex chars read from the end.
     let nib: Vec<u32> = code.iter().rev().map(|&b| hex_val(b)).collect();
     let mut pos = 0usize;
@@ -222,6 +228,9 @@ fn decode_states(code: &[u8]) -> Result<BTreeMap<u64, u64>, &'static str> {
         let split = c & 3;
         if split > 0 {
             stack.push(split + 1);
+            if stack.len() >= PYTHON_RECURSION_SAFE_DEPTH {
+                return Ok(None);
+            }
         } else {
             let mut state = (c >> 2) as u64;
             if state == 3 {
@@ -262,7 +271,7 @@ fn decode_states(code: &[u8]) -> Result<BTreeMap<u64, u64>, &'static str> {
     if pos != nib.len() {
         return Err("trailing paint_color data");
     }
-    Ok(counts)
+    Ok(Some(counts))
 }
 
 /// Count one object block's span (the slice the Python code counts).
@@ -281,11 +290,12 @@ fn count_span(body: &[u8]) -> CensusRow {
         let tag = &body[lt..=gt];
         match paint_code(tag) {
             Some(code) => match decode_states(code) {
-                Ok(counts) => {
+                Ok(Some(counts)) => {
                     for (s, n) in counts {
                         *states.entry(s).or_insert(0) += n;
                     }
                 }
+                Ok(None) => return CensusRow::PythonFallback,
                 Err(msg) => return CensusRow::Error(msg),
             },
             None => unpainted += 1,
@@ -317,6 +327,7 @@ mod tests {
         match row {
             CensusRow::Counts { states, unpainted } => (states.clone(), *unpainted),
             CensusRow::Error(msg) => panic!("unexpected error row: {msg}"),
+            CensusRow::PythonFallback => panic!("unexpected Python fallback row"),
         }
     }
 

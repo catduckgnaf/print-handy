@@ -138,6 +138,27 @@ MEMBERS = [
 ]
 
 
+def test_deep_paint_tree_uses_python_fallback_and_preserves_recursion_error():
+    module = _native_module()
+    if module is None:
+        pytest.skip("native bounds extension not built")
+
+    # Each trailing 1 is a split with two children; the first branch stays
+    # open until the final leaf, producing recursion depth beyond Python's
+    # usual limit while remaining a syntactically valid selector tree.
+    depth = sys.getrecursionlimit() + 50
+    nibbles = [1] * depth + [0] * (depth + 1)
+    code = ''.join(format(nibble, 'X') for nibble in reversed(nibbles))
+    member = (b'<object id="1"><mesh><triangles><triangle paint_color="'
+              + code.encode() + b'"/></triangles></mesh></object>')
+    census = module.paint_census(member)
+    assert census['1'] == {'python_fallback': True}
+
+    # The Python oracle's refusal is context-sensitive and remains authoritative.
+    with pytest.raises(RecursionError):
+        pg.decode_states(code)
+
+
 def test_census_matches_python_on_crafted_members():
     module = _native_module()
     if module is None:

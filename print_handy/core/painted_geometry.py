@@ -455,6 +455,9 @@ def _census_shape_ok(census):
         if set(row) == {'error'}:
             if not isinstance(row['error'], str):
                 return False
+        elif set(row) == {'python_fallback'}:
+            if row['python_fallback'] is not True:
+                return False
         elif set(row) == {'states', 'unpainted'}:
             if not isinstance(row['states'], dict) or not isinstance(row['unpainted'], int):
                 return False
@@ -542,6 +545,10 @@ def leaf_states(source, part):
     if str(mesh_id) not in census:
         raise RuntimeError(f'painted part mesh {mesh_id} not found in {model_path}')
     row = census[str(mesh_id)]
+    if 'python_fallback' in row:
+        # Preserve Python's context-sensitive recursion refusal: do not
+        # silently substitute the native iterative acceptance.
+        return _leaf_states_python(source, part)
     if 'error' in row:
         raise ValueError(row['error'])
     if key is not None:

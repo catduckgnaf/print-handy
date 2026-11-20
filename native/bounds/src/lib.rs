@@ -561,8 +561,9 @@ fn first_off_bed(py: Python<'_>, text: &str, bed_x: f64, bed_y: f64) -> PyResult
 
 /// The paint census of one `.model` member (#1715; the contract is in
 /// `paint.rs`): `{object_id: {"states": {state: leaves},
-/// "unpainted": n}}`, or `{"error": message}` for a mesh whose paint
-/// decode fails, carrying the Python implementation's exact message.
+/// "unpainted": n}}`, `{"error": message}` for a mesh whose paint
+/// decode fails, or `{"python_fallback": true}` when Python's recursive
+/// decoder must decide its context-dependent recursion behavior.
 /// Any internal error raises `ValueError`, on which the Python
 /// dispatcher falls back.
 #[pyfunction]
@@ -590,6 +591,9 @@ fn paint_census(py: Python<'_>, model: &[u8]) -> PyResult<Py<PyDict>> {
             }
             paint::CensusRow::Error(message) => {
                 entry.set_item("error", message)?;
+            }
+            paint::CensusRow::PythonFallback => {
+                entry.set_item("python_fallback", true)?;
             }
         }
         dict.set_item(id, entry)?;
