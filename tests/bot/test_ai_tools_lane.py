@@ -12,7 +12,7 @@ import json
 import pytest
 
 from corpus import fake_discord
-from print_handy.bot import ai_tools, llm, natural_language as nl, runtime
+from print_handy.bot import ai_tools, adapter as discord_adapter, llm, mention, natural_language as nl, runtime, web
 
 LLM_URL = "http://llm.test/v1/chat/completions"
 MENTION = "<@300000000000000003>"
@@ -35,7 +35,7 @@ class ScriptedLLM:
 
 @pytest.fixture
 def llm_cfg(cfg):
-    cfg["discord"]["chat_llm_enabled"] = True
+    cfg.setdefault("webui", {})["chat_llm_enabled"] = True
     cfg["llm"].update(chat_url=LLM_URL, model="small-model")
     return cfg
 
@@ -44,7 +44,17 @@ def make(cfg, opener):
     discord = fake_discord.FakeDiscord(
         auto=False, chat_id=int(cfg["discord"]["chat_id"]),
         operator_id=int(cfg["discord"]["allowed_user_ids"]))
-    return discord, runtime.BotCore(discord.client, cfg, llm_opener=opener)
+    # Explicit test adapter: FakeDiscord transport exercises the shared Web AI
+    # lane without enabling any lane on a real Discord BotCore.
+    transport = discord_adapter.StandaloneAdapter(
+        discord.client, [str(discord.operator.id)])
+    core = runtime.BotCore(discord.client, cfg, platform_name="discord", adapter=transport,
+                           llm_opener=opener)
+    # Test-only switch models the shared Web lane; Discord BotCore is still off.
+    core.use_llm = web.chat_llm_enabled(cfg)
+    core.addressed = lambda text, message=None: mention.address(
+        text, mention.identity_for("discord", core.client, core.configured_bot_name, message))
+    return discord, core
 
 
 def run(coro):

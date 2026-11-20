@@ -155,6 +155,9 @@ def _apply_key_aliases(layer):
             del values[old_key]  # both spellings in one layer: the current name wins
         else:
             target[new_key] = values.pop(old_key)
+    discord = layer.get("discord")
+    if isinstance(discord, dict):
+        discord.pop("chat_llm_enabled", None)  # Removed in #1721; keep old configs readable.
     services = layer.get("services")
     if isinstance(services, dict):
         services.pop("openviking_url", None)  # Drop retired configuration without disrupting upgrades.
@@ -232,7 +235,6 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("external_intake", "max_bytes"): int,
                  ("prusa", "link_host"): str, ("prusa", "api_key_env"): str,
                  ("discord", "denied_user_ids"): str,
-                 ("discord", "chat_llm_enabled"): bool,
                  ("discord", "approval_all_users"): bool,
                  ("discord", "mention_starter"): bool,
                  ("discord", "ask_which_parts"): bool,
@@ -530,6 +532,9 @@ def _split_list(raw):
 
 def _from_env(home, environ, declared=None):
     out = {}
+    # Ignore the retired Discord AI override on upgrade.
+    environ = {name: raw for name, raw in environ.items()
+               if name != "PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED"}
     # Deprecated environment spellings (#672, KEY_ALIASES): when both spellings of
     # a renamed key are set, the current name wins, so the old one is dropped
     # before anything reads it. The surviving old spelling is folded onto the
@@ -2241,14 +2246,6 @@ def _validate_bot(data):
     approval_all = discord.setdefault("approval_all_users", False)
     if not isinstance(approval_all, bool):
         raise SettingsError(f"[discord] approval_all_users must be true or false, got {approval_all!r}")
-    # Discord's chat-LLM switch (#466): off by default since #1376 (AI is
-    # for designing models), so Discord runs as a pure bot — unmatched
-    # text gets the short reply — while [llm] stays configured for the
-    # features that inherit it (/print-design). True brings back the
-    # [agent]/[llm] stray-chat lanes; vision keeps its own switch.
-    chat_llm_enabled = discord.setdefault("chat_llm_enabled", False)
-    if not isinstance(chat_llm_enabled, bool):
-        raise SettingsError(f"[discord] chat_llm_enabled must be true or false, got {chat_llm_enabled!r}")
     # Mention the starter when a print needs them: on by default, so a
     # terminal post (complete / cancelled / error) and an alert post that
     # needs a person (watchdog, error pause, runout) on Discord @mention

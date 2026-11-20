@@ -20,7 +20,7 @@ from types import SimpleNamespace as S
 import pytest
 
 from corpus import fake_discord
-from print_handy.bot import mention, provenance, runtime, web
+from print_handy.bot import adapter as discord_adapter, mention, provenance, runtime, web
 
 BOT_ID = 300000000000000003
 ROOT = Path(__file__).resolve().parents[2]
@@ -129,7 +129,15 @@ def test_telegram_command_suffix_provenance():
 def make(cfg, llm_opener=None, agent_opener=None):
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
-    core = runtime.BotCore(discord.client, cfg, llm_opener=llm_opener, agent_opener=agent_opener)
+    # Use the Web UI AI policy with a trusted test-only Discord transport,
+    # retaining FakeDiscord's entity mention semantics without a Web adapter.
+    transport = discord_adapter.StandaloneAdapter(
+        discord.client, [str(cfg["discord"]["allowed_user_ids"])])
+    core = runtime.BotCore(discord.client, cfg, platform_name="discord", adapter=transport,
+                           llm_opener=llm_opener, agent_opener=agent_opener)
+    core.addressed = lambda text, message=None: mention.address(
+        text, mention.identity_for("discord", core.client, core.configured_bot_name, message))
+    core.use_llm = bool(cfg["webui"]["chat_llm_enabled"])
     return discord, core
 
 
@@ -145,7 +153,7 @@ class FakeLLM:
 
 @pytest.fixture
 def llm_cfg(cfg):
-    cfg["discord"]["chat_llm_enabled"] = True
+    cfg.setdefault("webui", {})["chat_llm_enabled"] = True
     cfg["llm"].update(chat_url="http://llm.test/v1/chat/completions", model="m")
     return cfg
 

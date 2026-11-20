@@ -66,14 +66,14 @@ def stock_cfg(cfg):
 
 def test_stock_settings_load_with_chat_ai_and_vision_ai_off():
     data = settings.load(local=False, environ={})
-    assert data["discord"]["chat_llm_enabled"] is False
+    assert "chat_llm_enabled" not in data["discord"]
     assert data["webui"]["chat_llm_enabled"] is False
     assert data["vision"]["ai_enabled"] is False
     # The operator can still turn each one back on, from the environment too.
     data = settings.load(local=False, environ={"PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED": "true",
                                                "PRINT_HANDY__WEBUI__CHAT_LLM_ENABLED": "true",
                                                "PRINT_HANDY__VISION__AI_ENABLED": "true"})
-    assert data["discord"]["chat_llm_enabled"] is True
+    assert "chat_llm_enabled" not in data["discord"]
     assert data["webui"]["chat_llm_enabled"] is True
     assert data["vision"]["ai_enabled"] is True
     with pytest.raises(settings.SettingsError, match="AI_ENABLED must be true or false"):
@@ -83,7 +83,7 @@ def test_stock_settings_load_with_chat_ai_and_vision_ai_off():
 @pytest.mark.parametrize("name", ["docker.toml", "docker.yaml"])
 def test_shipped_docker_configs_keep_chat_ai_and_vision_ai_off(name):
     data = settings.load(local=ROOT / "config" / name, environ={})
-    assert data["discord"]["chat_llm_enabled"] is False
+    assert "chat_llm_enabled" not in data["discord"]
     assert data["webui"]["chat_llm_enabled"] is False
     assert data["vision"]["ai_enabled"] is False
 
@@ -105,7 +105,7 @@ def test_discord_unmatched_text_makes_no_model_call_by_default(stock_cfg):
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(stock_cfg["discord"]["chat_id"]),
                                        operator_id=int(stock_cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, stock_cfg, router=Router())
-    assert core.chat_llm_enabled is False and core.use_llm is False
+    assert core.use_llm is False
     calls = []
     with mock.patch.object(runtime.llm, "ask", exploding(calls, "llm.ask")), \
             mock.patch.object(agent, "ask", exploding(calls, "agent.ask")):
@@ -115,12 +115,12 @@ def test_discord_unmatched_text_makes_no_model_call_by_default(stock_cfg):
     assert discord.sent == [core.unmatched]
 
 
-def test_discord_chat_ai_comes_back_when_turned_on(stock_cfg):
+def test_discord_chat_ai_stays_off_with_legacy_config(stock_cfg):
     stock_cfg["discord"]["chat_llm_enabled"] = True
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(stock_cfg["discord"]["chat_id"]),
                                        operator_id=int(stock_cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, stock_cfg, router=Router())
-    assert core.chat_llm_enabled is True and core.use_llm is True
+    assert core.use_llm is False
 
 
 def test_web_chat_unmatched_text_makes_no_model_call_by_default(stock_cfg, monkeypatch):
@@ -147,9 +147,9 @@ def test_telegram_and_matrix_never_use_a_chat_model():
 def test_bot_check_names_the_chat_switch_off_by_default(stock_cfg, monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "x" * 20)
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(stock_cfg)}
-    assert rows["llm"] == (True, "off (discord.chat_llm_enabled is false: no chat LLM; "
-                                 "unmatched messages get the short not-understood reply)")
-    assert rows["agent"][1].startswith("off (discord.chat_llm_enabled is false")
+    for lane in ("llm", "agent"):
+        assert rows[lane][0] is True
+        assert rows[lane][1].startswith("off (Discord stray-chat fallback is disabled;")
 
 
 # ---------------------------------------------------------------------- /print-design keeps AI

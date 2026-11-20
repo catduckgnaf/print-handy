@@ -88,27 +88,16 @@ webui:
   require_auth: true
   # Printer control routes (#708); off by default (403, nothing sent). See docs/WEBUI.md.
   controls_enabled: false
-  # When true, marks the Web UI session cookie Secure so browsers only transmit
-  # it over HTTPS. Keep false for plain-HTTP LAN access so browsers accept the
-  # cookie; set true when exposing the Web UI through an HTTPS reverse proxy.
+  # Mark the session cookie Secure when exposing the Web UI only over HTTPS.
   cookie_secure: false
-  # Web chat's stray-chat model switch. Off by default (AI is for designing
-  # models): web chat is a pure bot, commands still work and no model call
-  # is made for web chat text. true lets the [llm]/[agent] lane answer it.
+  # Web chat's model lane remains configurable; see docs/SETTINGS.md.
   chat_llm_enabled: false
   # The Web UI chat page switch: off shows a disabled page and web chat
-  # processes nothing. Separate from chat_llm_enabled above, which only
-  # governs web chat's stray-chat model lane.
+  # processes nothing at all.
   chat_enabled: true
 agent:
-  # Stray-chat agent lane (#524 stage 3): an agent endpoint — any
-  # OpenAI-compatible chat completions URL, e.g. a Hermes agent behind
-  # its API — that answers Discord free text the handlers did not take,
-  # ahead of the [llm] call. Empty chat_url: no agent lane. The endpoint
-  # answers in its own voice; its replies are posted as-is and can never
-  # run a command. model is optional: empty omits it from the request.
-  # The lane only runs with discord.chat_llm_enabled (or webui.chat_llm_enabled)
-  # set to true; both are off by default.
+  # Optional agent endpoint for unmatched Web UI chat text, ahead of the [llm] call.
+  # Replies cannot run commands.
   chat_url: ""
   model: ""
   api_key_env: "AGENT_API_KEY"

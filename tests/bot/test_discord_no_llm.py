@@ -74,30 +74,27 @@ async def press(discord, label):
 # ---------------------------------------------------------------------- the switch itself
 
 
-def test_discord_adapter_can_use_the_llm_and_the_setting_defaults_off(cfg):
-    """Unlike Telegram/Matrix, the Discord adapter itself stays uses_llm=True:
-    the operator's per-install choice is [discord] chat_llm_enabled (#466),
-    off by default since #1376 and on only when the operator says so."""
+def test_discord_adapter_never_uses_llm_even_when_legacy_config_enables_it(cfg):
+    """Retired file/env options are ignored; manual opt-in cannot dispatch AI."""
     assert StandaloneAdapter.uses_llm is True
-    assert runtime.discord_chat_llm_enabled(cfg) is False
-    assert runtime.discord_chat_llm_enabled({"discord": {}}) is False
     cfg["discord"]["chat_llm_enabled"] = True
-    assert runtime.discord_chat_llm_enabled(cfg) is True
     cfg["llm"].update(chat_url=LLM_URL, model="m")
     discord, core = make(cfg)
-    assert core.use_llm is True and core.chat_llm_enabled is True
-    assert core.status(True)["llm"] is True
+    assert core.use_llm is False
+    assert core.status(True)["llm"] is False
+    calls = []
+    with mock.patch.object(runtime.llm, "ask", exploding_ask(calls)):
+        out = run(core.handle_message(discord.message("hello there")))
+    assert calls == []
+    assert out == {"action": "skip", "reason": "command list"}
+    assert discord.sent == [core.unmatched]
 
 
-def test_discord_chat_llm_setting_loads_from_env_and_validates():
-    data = settings.load(local=False, environ={})
-    assert data["discord"]["chat_llm_enabled"] is False  # off by default (#1376)
+def test_discord_legacy_file_and_environment_options_are_ignored():
     data = settings.load(local=False, environ={"PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED": "true"})
-    assert data["discord"]["chat_llm_enabled"] is True
-    data = settings.load(local=False, environ={"PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED": "false"})
-    assert data["discord"]["chat_llm_enabled"] is False
-    with pytest.raises(settings.SettingsError, match="CHAT_LLM_ENABLED must be true or false"):
-        settings.load(local=False, environ={"PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED": "sometimes"})
+    assert "chat_llm_enabled" not in data["discord"]
+    data = settings.load(local=False, environ={"PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED": "not-a-boolean"})
+    assert "chat_llm_enabled" not in data["discord"]
 
 
 # ---------------------------------------------------------------------- no [llm] configured
@@ -112,7 +109,7 @@ def test_discord_no_llm_configured_never_calls_the_llm(cfg):
     # fires, which status() reports and the exploding stub below proves.
     cfg["discord"]["chat_llm_enabled"] = True
     discord, core = make(cfg)
-    assert core.use_llm is True and core.status(True)["llm"] is False
+    assert core.use_llm is False and core.status(True)["llm"] is False
     calls = []
     with mock.patch.object(runtime.llm, "ask", exploding_ask(calls)), \
             mock.patch("print_handy.runtime.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
@@ -138,7 +135,7 @@ def no_llm_cfg(cfg):
 def test_discord_chat_llm_off_never_calls_the_llm_even_when_configured(no_llm_cfg):
     discord, core = make(no_llm_cfg)
     assert core.platform_name == "discord"
-    assert core.chat_llm_enabled is False and core.use_llm is False
+    assert core.use_llm is False
     status = core.status(True)
     assert status["platform"] == "discord" and status["llm"] is False
     calls = []
@@ -179,16 +176,12 @@ def test_discord_chat_llm_off_typed_answers_and_buttons_still_work(no_llm_cfg):
 
 def test_discord_bot_check_llm_row_pins_every_mode(cfg, monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "x" * 20)
-    cfg["discord"]["chat_llm_enabled"] = True  # off by default (#1376); on, the rows follow [llm]
-    rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["llm"] == (True, "off (unmatched messages get the short not-understood reply)")
+    cfg["discord"]["chat_llm_enabled"] = True  # Retired override must not restore either lane.
     cfg["llm"].update(chat_url=LLM_URL, model="m")
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["llm"] == (True, f"m at {LLM_URL}")
-    cfg["discord"]["chat_llm_enabled"] = False
-    rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["llm"] == (True, "off (discord.chat_llm_enabled is false: no chat LLM; "
-                                 "unmatched messages get the short not-understood reply)")
+    for lane in ("llm", "agent"):
+        assert rows[lane][0] is True
+        assert rows[lane][1].startswith("off (Discord stray-chat fallback is disabled;")
     # The roast row is a separate gate and does not follow the chat switch.
     assert rows["roast"][0] is True and rows["roast"][1].startswith("on (local corpus, ")
 

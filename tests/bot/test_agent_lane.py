@@ -1,14 +1,13 @@
-"""The stray-chat agent lane (#524 stage 3): a configured [agent] endpoint
-answers Discord free text the handlers did not take, ahead of the bounded
-[llm] call.
+"""The shared Web-chat agent lane (#524 stage 3): a configured [agent] endpoint
+answers free text the handlers did not take, ahead of the bounded [llm] call.
 
 The lane's contract is the opposite of bot/llm.py's on purpose: no bot
 system prompt, no JSON demand and no command channel — the endpoint has
 its own persona, its reply is posted as-is, and its free text can never
 name a command into execution. The bot stays stateless and sends the live
 session key as a header the endpoint may key its own conversation on.
-Every test runs against a fake endpoint in the FakeLLM opener pattern; no
-real endpoint is involved.
+These tests use a named shared-lane harness with FakeDiscord for transport;
+they do not model or enable the retired Discord AI lane. Every endpoint is fake.
 """
 import asyncio
 import io
@@ -20,6 +19,7 @@ import pytest
 from corpus import fake_discord
 from print_handy import settings
 from print_handy.bot import __main__ as bot_main
+from print_handy.bot import adapter as discord_adapter, web
 from print_handy.bot import agent, runtime
 from print_handy.core import prompts
 
@@ -55,9 +55,8 @@ class FakeLLM:
 
 @pytest.fixture(autouse=True)
 def _chat_ai_on(cfg):
-    """These tests exercise the stray-chat lanes, which run only with
-    discord.chat_llm_enabled on (off by default since #1376)."""
-    cfg["discord"]["chat_llm_enabled"] = True
+    """Enable shared Web chat AI in this explicit test-only harness."""
+    cfg.setdefault("webui", {})["chat_llm_enabled"] = True
 
 
 @pytest.fixture
@@ -66,10 +65,21 @@ def agent_cfg(cfg):
     return cfg
 
 
-def make(cfg, agent_opener=None, llm_opener=None):
+def make_shared_lane(cfg, agent_opener=None, llm_opener=None):
+    """Run shared-lane behavior over fake Discord transport, never as Discord."""
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
-    core = runtime.BotCore(discord.client, cfg, llm_opener=llm_opener, agent_opener=agent_opener)
+    transport = discord_adapter.StandaloneAdapter(
+        discord.client, [str(discord.operator.id)])
+    # Keep FakeDiscord for delivery assertions, but explicitly opt this harness
+    # into shared Web-chat lane semantics. A production Discord core remains off.
+    core = runtime.BotCore(discord.client, cfg, platform_name="discord", adapter=transport,
+                           llm_opener=llm_opener,
+                           agent_opener=agent_opener)
+    # Test-only switch models the shared Web lane; Discord BotCore is still off.
+    core.use_llm = web.chat_llm_enabled(cfg)
+    core.addressed = lambda text, message=None: runtime.mention.address(
+        text, runtime.mention.identity_for("discord", core.client, core.configured_bot_name, message))
     return discord, core
 
 
@@ -145,7 +155,7 @@ def test_agent_ask_raises_on_empty_reply(agent_cfg):
 
 def test_agent_reply_is_posted_as_is_with_the_live_session_key(agent_cfg):
     opener = FakeAgent("All quiet — the last print finished cleanly.")
-    discord, core = make(agent_cfg, agent_opener=opener)
+    discord, core = make_shared_lane(agent_cfg, agent_opener=opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> how did the print go?")))
     assert out == {"action": "skip", "reason": "agent reply"}
     assert discord.sent == [runtime.ai_endpoint_notice_text(), "All quiet — the last print finished cleanly."]
@@ -162,11 +172,11 @@ def test_agent_and_llm_replies_can_name_a_file_but_never_attach_it(agent_cfg, tm
     for lane in ("agent", "llm"):
         reply = f"Here you go\nMEDIA:{secret}"
         if lane == "agent":
-            discord, core = make(agent_cfg, agent_opener=FakeAgent(reply))
+            discord, core = make_shared_lane(agent_cfg, agent_opener=FakeAgent(reply))
         else:
             agent_cfg["agent"]["chat_url"] = ""
             agent_cfg["llm"].update(chat_url=LLM_URL, model="small-model")
-            discord, core = make(agent_cfg, llm_opener=FakeLLM(reply))
+            discord, core = make_shared_lane(agent_cfg, llm_opener=FakeLLM(reply))
         asyncio.run(core.handle_message(discord.message("<@300000000000000003> send me the logs")))
         assert discord.messages and all(m.files == [] for m in discord.messages), lane
         assert discord.sent == [runtime.ai_endpoint_notice_text(), f"Here you go\nMEDIA\u200b:{secret}"], lane
@@ -177,7 +187,7 @@ def test_agent_reply_that_looks_like_a_command_executes_nothing(agent_cfg):
     JSON shape — is posted verbatim and runs nothing."""
     for content in ("/print-stop", '{"reply": "stopping", "command": "/print-stop"}'):
         opener = FakeAgent(content)
-        discord, core = make(agent_cfg, agent_opener=opener)
+        discord, core = make_shared_lane(agent_cfg, agent_opener=opener)
         with mock.patch("print_handy.runtime.print_stop._call") as moonraker:
             out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> chat with me")))
         moonraker.assert_not_called()
@@ -189,7 +199,7 @@ def test_agent_reply_that_looks_like_a_command_executes_nothing(agent_cfg):
 def test_agent_lane_wins_over_llm_when_both_are_configured(agent_cfg):
     agent_cfg["llm"].update(chat_url=LLM_URL, model="small-model")
     agent_opener, llm_opener = FakeAgent("agent words"), FakeLLM("llm words")
-    discord, core = make(agent_cfg, agent_opener=agent_opener, llm_opener=llm_opener)
+    discord, core = make_shared_lane(agent_cfg, agent_opener=agent_opener, llm_opener=llm_opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello there")))
     assert out == {"action": "skip", "reason": "agent reply"}
     assert discord.sent == [runtime.ai_endpoint_notice_text(), "agent words"]
@@ -203,7 +213,7 @@ def test_agent_endpoint_down_posts_the_honest_line_and_skips_the_llm(agent_cfg):
     def broken(req, timeout=None):
         raise OSError("agent down")
 
-    discord, core = make(agent_cfg, agent_opener=broken, llm_opener=llm_opener)
+    discord, core = make_shared_lane(agent_cfg, agent_opener=broken, llm_opener=llm_opener)
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
     assert out == {"action": "skip", "reason": "agent unavailable"}
     assert discord.sent == [runtime.ai_endpoint_notice_text(), core.agent_unavailable]
@@ -212,7 +222,7 @@ def test_agent_endpoint_down_posts_the_honest_line_and_skips_the_llm(agent_cfg):
 
 
 def test_agent_empty_reply_posts_the_honest_line(agent_cfg):
-    discord, core = make(agent_cfg, agent_opener=FakeAgent(""))
+    discord, core = make_shared_lane(agent_cfg, agent_opener=FakeAgent(""))
     out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello?")))
     assert out == {"action": "skip", "reason": "agent unavailable"}
     assert discord.sent == [runtime.ai_endpoint_notice_text(), core.agent_unavailable]
@@ -223,14 +233,14 @@ def test_agent_unconfigured_keeps_the_llm_then_unmatched_behaviour(cfg):
     [llm] call still answers when configured, and the unmatched reply is
     still the last resort."""
     cfg["llm"].update(chat_url=LLM_URL, model="small-model")
-    discord, core = make(cfg, llm_opener=FakeLLM("llm words"))
+    discord, core = make_shared_lane(cfg, llm_opener=FakeLLM("llm words"))
     with mock.patch.object(runtime.agent, "ask", exploding("the agent lane")):
         out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello there")))
     assert out == {"action": "skip", "reason": "llm reply"} and discord.sent == [runtime.ai_endpoint_notice_text(), "llm words"]
     assert core.status(True)["agent"] is False
 
     cfg["llm"].update(chat_url="", model="")
-    discord, core = make(cfg)
+    discord, core = make_shared_lane(cfg)
     with mock.patch.object(runtime.agent, "ask", exploding("the agent lane")):
         out = asyncio.run(core.handle_message(discord.message("<@300000000000000003> hello there")))
     assert out == {"action": "skip", "reason": "command list"} and discord.sent == [core.unmatched]
@@ -241,8 +251,9 @@ def test_chat_llm_switch_off_makes_no_model_call_of_any_kind(agent_cfg):
     chat_llm_enabled=false, exploding stubs on BOTH lanes prove no
     stray-chat model call happens, agent lane included."""
     agent_cfg["llm"].update(chat_url=LLM_URL, model="small-model")
-    agent_cfg["discord"]["chat_llm_enabled"] = False
-    discord, core = make(agent_cfg)
+    agent_cfg.setdefault("webui", {})["chat_llm_enabled"] = False
+    discord, core = make_shared_lane(agent_cfg)
+    assert core.platform_name == "discord"
     assert core.use_llm is False
     status = core.status(True)
     assert status["agent"] is False and status["llm"] is False
@@ -259,13 +270,14 @@ def test_chat_llm_switch_off_makes_no_model_call_of_any_kind(agent_cfg):
 def test_bot_check_agent_row_reports_each_state(cfg, monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "x" * 20)
     rows = {label: detail for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["agent"].startswith("not configured")
+    assert rows["agent"].startswith("off (Discord stray-chat fallback is disabled;")
     cfg["agent"].update(chat_url=AGENT_URL)
     rows = {label: detail for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["agent"] == "endpoint at agent.test (no model set; the endpoint chooses)"
+    assert rows["agent"].startswith("off (Discord stray-chat fallback is disabled;")
     cfg["agent"].update(model="hermes-3dprinting")
     rows = {label: detail for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["agent"] == "hermes-3dprinting at agent.test"  # host only, never the URL path
-    cfg["discord"]["chat_llm_enabled"] = False
+    assert rows["agent"].startswith("off (Discord stray-chat fallback is disabled;")  # no endpoint details leak into Discord check
+    cfg["agent"].update(chat_url=AGENT_URL)
+    cfg["discord"]["chat_llm_enabled"] = True  # Retired toggle cannot turn Discord AI on.
     rows = {label: detail for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["agent"].startswith("off (discord.chat_llm_enabled is false")
+    assert rows["agent"].startswith("off (Discord stray-chat fallback is disabled;")

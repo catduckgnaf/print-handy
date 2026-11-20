@@ -297,7 +297,7 @@ class OverrideTests(unittest.TestCase):
             "discord": {"chat_id", "approval_user_id", "upload_max_bytes",
                         "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",
-                        "token_env", "allowed_user_ids", "denied_user_ids", "chat_llm_enabled",
+                        "token_env", "allowed_user_ids", "denied_user_ids",
                         "approval_all_users", "mention_starter",
                         "ask_which_parts"},
             "telegram": {"token_env", "chat_id", "allowed_user_ids", "approval_user_id", "upload_max_bytes"},
