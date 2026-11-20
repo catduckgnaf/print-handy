@@ -132,9 +132,9 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `ai.chat` | file only | empty | Optional chat AI tier: questions the scripted handlers cannot answer. Same keys as `ai.small`; empty keeps `llm.*` |
 | `ai.heavy` | file only | empty | Optional heavy AI tier: model-file editing and repair, deep image work. Same keys as `ai.small`; empty uses `design.*`, which inherits `llm.*`. The "fix this" repair you ask for in chat calls this tier; intakes never offer it as a button (#1373), and with no AI configured anywhere in the chain a repair request says AI is not set up |
 | `design.enabled` | `PRINT_HANDY__DESIGN__ENABLED` | unset (auto) | `/print-design` / `/design` AI design. Unset = auto: on whenever a design/LLM endpoint is configured; `false` forces off (the command answers "not set up"); `true` forces on (an unconfigured endpoint is then reported, not silent) |
-| `design.chat_url` | `PRINT_HANDY__DESIGN__CHAT_URL` | empty (inherit) | Design model endpoint; empty uses `llm.chat_url` |
+| `design.chat_url` | `PRINT_HANDY__DESIGN__CHAT_URL` | empty (legacy fallback) | Legacy design-only endpoint; when `llm.chat_url` is set, design uses that shared endpoint instead. See [Model endpoints](#model-endpoints) |
 | `design.model` | `PRINT_HANDY__DESIGN__MODEL` | empty (inherit) | Design model name; empty uses `llm.model`. Point this at a stronger model than chat if the endpoint offers one |
-| `design.api_key_env` | `PRINT_HANDY__DESIGN__API_KEY_ENV` | empty (inherit) | Environment variable holding the design endpoint's key; empty uses `llm.api_key_env` |
+| `design.api_key_env` | `PRINT_HANDY__DESIGN__API_KEY_ENV` | empty (legacy fallback) | Environment variable for the legacy design-only endpoint; with `llm.chat_url` configured, design uses `llm.api_key_env` instead |
 | `design.timeout_s` | `PRINT_HANDY__DESIGN__TIMEOUT_S` | `180` | Design model-call timeout in seconds; also the OpenSCAD render wall-clock limit |
 | `design.repair_attempts` | `PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS` | `3` | How many times a failed render, a reply with no OpenSCAD code, or a failed check (wrong size, separate pieces, off the bed, too big for the printer) is sent back to the model before the turn gives up; a turn makes at most this many plus one model calls. A value below 0 counts as 0 and a non-number as 3 |
 | `listener.tick_s` | `PRINT_HANDY__LISTENER__TICK_S` | `600` | Listener housekeeping interval |
@@ -275,7 +275,7 @@ reads these settings directly.
 | Feature | URL | Model | Key |
 | --- | --- | --- | --- |
 | Plain-language chat (Discord) | `llm.chat_url` | `llm.model` | the variable named by `llm.api_key_env` (default `LLM_API_KEY`), optional |
-| AI design (`/print-design`) | `design.chat_url`, else `llm.chat_url` | `design.model`, else `llm.model` | `design.api_key_env`, else `llm.api_key_env` |
+| AI design (`/print-design`) | `llm.chat_url` (legacy `design.chat_url` only when no LLM URL exists) | `design.model`, else `llm.model` | when using `llm.chat_url`, `llm.api_key_env` (default `LLM_API_KEY`); legacy design-only deployments use `design.api_key_env`, falling back to `llm.api_key_env` |
 | Camera watchdog, spool label photos (only with `vision.ai_enabled: true`) | `services.vision_chat_url` | `vision.model` | `CLIPROXY_API_KEY` |
 
 ### AI tiers

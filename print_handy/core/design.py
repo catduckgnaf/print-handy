@@ -1190,31 +1190,36 @@ def validate_stl(stl_path: Path) -> dict:
 # --------------------------------------------------------------------- transports
 
 def resolve_http_config(cfg) -> dict | None:
-    """Resolve the design endpoint, keeping its URL and credential paired (#1731).
+    """Resolve design on the shared ``[llm]`` endpoint, with legacy fallback.
 
-    An explicit [design] chat_url uses [design] api_key_env. When that is empty
-    the [llm] key setting is inherited only if [llm] names no competing URL (a
-    design-only deployment) or the same one; a different [llm] URL never lends
-    its key. With no [design] URL, the [llm] URL and key are inherited together.
+    ``[llm]`` owns the canonical URL and its credential. ``[design]`` may
+    override the model, but never the host/key pairing. When no shared URL is
+    configured, preserve the historical design-only endpoint and credential.
+    A key from a different legacy ``[llm]`` URL is never borrowed.
     """
     design = (cfg or {}).get("design") or {}
     llm = (cfg or {}).get("llm") or {}
-    d_url = str(design.get("chat_url") or "").strip()
     l_url = str(llm.get("chat_url") or "").strip()
-    chat_url = d_url or l_url
-    model = str(design.get("model") or llm.get("model") or "").strip()
-    if not chat_url or not model:
+    d_url = str(design.get("chat_url") or "").strip()
+    if l_url:
+        model = str(design.get("model") or llm.get("model") or "").strip()
+        if not model:
+            return None
+        return {"chat_url": l_url, "model": model,
+                "api_key_env": str(llm.get("api_key_env") or "LLM_API_KEY").strip(),
+                "timeout_s": int(design.get("timeout_s") or 180),
+                "slot": "llm.chat_url"}
+    if not d_url:
         return None
-    d_env = str(design.get("api_key_env") or "").strip()
-    l_env = str(llm.get("api_key_env") or "").strip()
-    if d_env:
-        env = d_env
-    elif not d_url or not l_url or l_url.rstrip("/") == d_url.rstrip("/"):
-        env = l_env or "LLM_API_KEY"
-    else:
-        env = ""  # a competing [llm] endpoint: do not guess, and never send its key here
-    return {"chat_url": chat_url, "model": model, "api_key_env": env,
-            "timeout_s": int(design.get("timeout_s") or 180)}
+    model = str(design.get("model") or llm.get("model") or "").strip()
+    if not model:
+        return None
+    env = (str(design.get("api_key_env") or "").strip()
+           or str(llm.get("api_key_env") or "").strip() or "LLM_API_KEY")
+    return {"chat_url": d_url, "model": model, "api_key_env": env,
+            "timeout_s": int(design.get("timeout_s") or 180), "slot": "design.chat_url"}
+
+
 
 
 def endpoint_configured(cfg) -> bool:
@@ -1260,13 +1265,13 @@ def http_complete(cfg, messages, *, opener=None):
         raise DesignError("design is enabled but no model endpoint is configured: "
                           "set [design] chat_url and model, or the [llm] values they inherit")
     # The key is bound to the host of the setting the address came from (#1192).
-    slot = ("design.chat_url" if str(((cfg or {}).get("design") or {}).get("chat_url") or "").strip()
-            else "llm.chat_url")
+    slot = resolved.get("slot", "design.chat_url" if str(((cfg or {}).get("design") or {}).get("chat_url") or "").strip()
+                        else "llm.chat_url")
     compat = ai_routes.Compat(resolved["chat_url"], resolved["model"],
                               ai_routes._secret(resolved["api_key_env"]),
                               float(resolved["timeout_s"]), slot)
     try:
-        # cfg without [ai]: design keeps its own endpoint rules; [ai.heavy] is not consulted here.
+        # The shared [llm] URL and key are resolved together; legacy design-only remains compatible.
         answer, _served_by = ai_routes.call(
             "heavy", messages, cfg={"ai": {}}, compat=compat, max_tokens=4000,
             temperature=0.3, timeout=float(resolved["timeout_s"]), opener=opener)
