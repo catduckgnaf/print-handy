@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[project]
+name = "print-handy-paint-census-native"
+version = "0.1.0"
+description = "Native 3MF paint census for Print Handy"
+license = { text = "AGPL-3.0-only" }
+requires-python = ">=3.12"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "print_handy.core._paint_census_native"

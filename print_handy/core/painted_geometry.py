@@ -25,6 +25,8 @@ import contextlib
 import contextvars
 import functools
 import hashlib
+import importlib
+import logging
 import re
 import zipfile
 from pathlib import Path
@@ -338,6 +340,31 @@ def paint_states_in(data):
     return dict(counter)
 
 
+@functools.lru_cache(maxsize=1)
+def _load_native_paint_census():
+    try:
+        native = importlib.import_module('._paint_census_native', __package__)
+        if native.API_VERSION == 1:
+            return native.census
+    except (ImportError, OSError, AttributeError):
+        logging.getLogger(__name__).debug('Native paint census unavailable', exc_info=True)
+    return None
+
+
+def _native_paint_census(model, blocks):
+    census = _load_native_paint_census()
+    return None if census is None else census(model, blocks)
+
+
+def _member_census(model, blocks) -> dict[str, tuple[dict[int, int], int]] | None:
+    try:
+        return _native_paint_census(model, blocks)
+    except Exception:
+        logging.getLogger(__name__).debug('Native paint census failed; using Python', exc_info=True)
+        return None
+
+
+@decode_scoped
 def leaf_states(source, part):
     """{'states': {state: leaves}, 'unpainted': n} for one inventory part's mesh.
 
@@ -348,20 +375,31 @@ def leaf_states(source, part):
     model_path, mesh_id = part['ancestry'][-1]
     ranges = tuple(tuple(r) for r in part.get('triangle_ranges') or ())
     cache = _SCOPE.get()
-    key = ('leaf', _file_key(source), model_path, str(mesh_id), ranges) if cache is not None else None
-    if key is not None and key in cache:
-        row = cache[key]
-        return {'states': dict(row['states']), 'unpainted': row['unpainted']}
+    assert cache is not None  # @decode_scoped always establishes a scope.
+    file_key = _file_key(source)
+    mesh_id = str(mesh_id)
+    key = ('leaf', file_key, model_path, mesh_id, ranges)
+    if key in cache:
+        return _copy_leaf_row(cache[key])
     model = model_member(source, model_path)
-    if cache is not None:
-        blocks_key = ('blocks', _file_key(source), model_path)
-        if blocks_key not in cache:
-            cache[blocks_key] = _object_blocks(model)
-        span = cache[blocks_key].get(str(mesh_id))
-    else:
-        span = _object_blocks(model).get(str(mesh_id))
+    blocks_key = ('blocks', file_key, model_path)
+    if blocks_key not in cache:
+        cache[blocks_key] = _object_blocks(model)
+    blocks = cache[blocks_key]
+    span = blocks.get(mesh_id)
     if span is None:
         raise RuntimeError(f'painted part mesh {mesh_id} not found in {model_path}')
+    # Prusa volume ranges need triangle indices; the whole-mesh census
+    # cannot answer these queries, so the Python path owns them.
+    if not ranges:
+        census_key = ('paint_census', file_key, model_path)
+        if census_key not in cache:
+            cache[census_key] = _member_census(model, blocks)
+        native_row = (cache[census_key] or {}).get(mesh_id)
+        if native_row is not None:
+            states, unpainted = native_row
+            cache[key] = {'states': states, 'unpainted': unpainted}
+            return _copy_leaf_row(cache[key])
     body = model[slice(*span)]
     counter, unpainted = collections.Counter(), 0
     for index, tri in enumerate(re.finditer(rb'<(?:\w+:)?triangle\b[^>]*>', body)):
@@ -373,7 +411,9 @@ def leaf_states(source, part):
         else:
             unpainted += 1
     row = {'states': dict(counter), 'unpainted': unpainted}
-    if key is not None:
-        cache[key] = row
-        return {'states': dict(row['states']), 'unpainted': row['unpainted']}
-    return row
+    cache[key] = row
+    return _copy_leaf_row(row)
+
+
+def _copy_leaf_row(row):
+    return {'states': dict(row['states']), 'unpainted': row['unpainted']}

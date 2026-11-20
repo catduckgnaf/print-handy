@@ -1,0 +1,14 @@
+[package]
+name = "print_handy_paint_census"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Native 3MF paint census for Print Handy"
+rust-version = "1.85"
+
+[lib]
+name = "_paint_census_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27", features = ["abi3-py312", "extension-module"] }
