@@ -403,7 +403,7 @@ def _start_print(monkeypatch, *, ready, reason="the local failure detector is no
     monkeypatch.setattr(mel, "post_exclude_objects", lambda name: None)
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_vision_ready", lambda: ready)
-    monkeypatch.setattr(vw, "watch_unavailable_reason", lambda api_key: reason)
+    monkeypatch.setattr(vw, "watch_unavailable_reason", lambda *a, **k: reason)
     listener = mel.Listener()
 
     async def noop(*a, **k):
@@ -435,12 +435,11 @@ def test_print_start_is_quiet_when_the_watch_runs(monkeypatch):
 
 def test_reason_names_the_misconfigured_source(monkeypatch):
     from print_handy.runtime import local_vision as lv
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(lv, "watch_source", lambda cfg=None: "endpoint")
-    monkeypatch.setattr(vw._config, "service_url", lambda key: "")
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda route: False)
+    monkeypatch.setitem(vw._config.cfg(), "llm",
+                        {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 20})
     monkeypatch.setattr(vw.local_empty, "reference_ready", lambda: False)
-    assert "watch_source is endpoint" in vw.watch_unavailable_reason(lambda: "")
+    assert "watch_source is endpoint" in vw.watch_unavailable_reason()
 
 
 # -- 4. camera failures and a missing camera ----------------------------------

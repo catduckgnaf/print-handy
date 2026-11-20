@@ -121,7 +121,7 @@ class CameraCheckDefaultTests(unittest.TestCase):
         self.assertEqual(switch.group, "ai")
         self.assertEqual(switch.kind, "toggle")
         self.assertNotIn("AI camera checks", switch.label)
-        self.assertIn("vision endpoint", switch.label)
+        self.assertIn("AI endpoint", switch.label)
         self.assertIn("local failure detector", switch.help)
         for field in CATALOG:
             with self.subTest(field=field.id):

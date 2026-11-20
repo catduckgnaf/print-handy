@@ -65,7 +65,7 @@ import json
 import logging
 from urllib.parse import quote
 
-from .. import credential_binding, settings
+from .. import settings
 from ..runtime import purchase_intake, spool_sync
 from . import controls as controls_module
 from . import shell
@@ -78,8 +78,8 @@ PURCHASE_ACTIONS = ("purchase/propose", "purchase/create")
 SLOTS = spool_sync.SLOTS
 
 NO_AI_REASON = ("purchase link intake needs an AI route, and none is configured: "
-                "set vision.ai_enabled to true and PRINT_VISION_URL or "
-                "services.vision_chat_url to use it. Nothing was created.")
+                "set vision.ai_enabled to true and configure the one AI endpoint "
+                "([llm] chat_url and model) to use it. Nothing was created.")
 
 
 class SpoolsError(Exception):
@@ -597,59 +597,37 @@ def sync(data, printer_id, body=None, *, client=None, mr=None,
 # ------------------------------------------------------------------ #801 hook
 
 def _default_ai_call():
-    """The AI call for purchase intake, on the #514 vision route.
+    """The AI call for purchase intake, on the one AI endpoint.
 
-    The Web UI twin of the chat plugin's ``_purchase_ai_call``: page
-    text goes to the configured chat endpoint (or PRINT_VISION_URL),
-    with the listener's configured values.
+    The Web UI twin of the chat handler's ``_purchase_ai_call``: a
+    screenshot goes through the shared vision extraction; page text goes
+    to the same endpoint as a text-only call on ai_routes' small tier
+    (#1731) — ai_routes.call is the only code that posts to a model
+    endpoint. An unconfigured endpoint or a missing key reads as no
+    answer (None), exactly as the old route's missing-key case did.
     """
-    import urllib.request
-
-    from ..runtime import moonraker_event_listener as listener
+    from .. import ai_routes
     from ..runtime import visual_watch
 
     def call(*, prompt, image=None, text=None):
         if image is not None:
             return visual_watch.visual_extract(
-                image, prompt, chat_url=listener._vision_chat_url,
-                model=listener._VISION_MODEL,
-                api_key=lambda: listener._profile_env_value("CLIPROXY_API_KEY"),
+                image, prompt,
                 context="Filament purchase screenshot or order. Reply with JSON only.")
         full = prompt if text is None else f"{prompt}\n\nPage text:\n{text}"
-        endpoint = _os_environ_vision_url()
-        if endpoint:
-            import base64 as _b64
-            payload = json.dumps({"image": _b64.b64encode(b"").decode(),
-                                  "prompt": full}).encode()
-            req = urllib.request.Request(endpoint, data=payload,
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=30) as response:
-                return json.loads(response.read())
-        url = listener._vision_chat_url()
-        key = listener._profile_env_value("CLIPROXY_API_KEY")
-        if not key and not visual_watch.keyless_ok(url):
+        try:
+            content, _served_by = ai_routes.call(
+                "small", [{"role": "user", "content": full}],
+                max_tokens=800, temperature=0)
+        except (ai_routes.AINotConfigured, ai_routes.AIKeyMissing):
             return None
-        body = {"model": listener._VISION_MODEL, "temperature": 0, "max_tokens": 800,
-                "messages": [{"role": "user", "content": full}]}
-        headers = {"Content-Type": "application/json"}
-        key = credential_binding.key_for("services.vision_chat_url", url, key)
-        if key:
-            headers["Authorization"] = f"Bearer {key}"
-        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as response:
-            result = json.loads(response.read())
-        content = visual_watch._strip_json_fence(result["choices"][0]["message"]["content"])
+        content = visual_watch._strip_json_fence(content)
         try:
             return json.loads(content)
         except ValueError:
             return content
 
     return call
-
-
-def _os_environ_vision_url():
-    import os
-    return os.environ.get("PRINT_VISION_URL")
 
 
 def purchase_available(*, ai_configured=None):

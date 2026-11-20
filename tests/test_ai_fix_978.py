@@ -20,10 +20,9 @@ URL = "http://127.0.0.1:11434/v1/chat/completions"
 
 def cfg(answer=None):
     return {"ai": {"small": {}, "chat": {},
-                   "heavy": {"chat_url": URL, "model": "heavy-model"}},
-            "llm": {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 5},
-            "design": {}, "services": {"vision_chat_url": ""},
-            "vision": {"model": "", "roast_model": ""}}
+                   "heavy": {"model": "heavy-model"}},
+            "llm": {"chat_url": URL, "model": "chat-model", "api_key_env": "", "timeout_s": 5},
+            "design": {}, "vision": {"roast_model": ""}}
 
 
 class Endpoint:
@@ -146,20 +145,19 @@ def test_propose_fix_uses_the_heavy_tier_and_validates_plans():
     assert "support coverage failed" in sent["messages"][1]["content"]
 
 
-def test_propose_fix_with_fallback_model():
+def test_propose_fix_failure_is_not_retried_on_another_model():
+    """Since #1731 there is no fallback leg: a failed heavy call fails
+    honestly after exactly one attempt, as a FixError."""
+    calls = []
+
     class Flaky:
         def __call__(self, req, timeout=None):
-            body = json.loads(req.data)
-            if body["model"] == "heavy-model":
-                raise OSError("timed out")
-            return io.BytesIO(json.dumps({"choices": [{"message": {"content": json.dumps(
-                {"plans": [{"kind": "scale_percent", "percent": 90}]})}}]}).encode())
+            calls.append(json.loads(req.data)["model"])
+            raise OSError("timed out")
 
-    config = cfg()
-    config["ai"]["heavy"]["fallback_model"] = "backup-model"
-    proposal = ai_fix.propose_fix("does not fit the bed", {}, cfg=config, opener=Flaky())
-    assert proposal.served_by == "backup-model"  # the tier fallback served the repair call
-    assert proposal.plans == [{"kind": "scale_percent", "percent": 90.0}]
+    with pytest.raises(ai_fix.FixError):
+        ai_fix.propose_fix("does not fit the bed", {}, cfg=cfg(), opener=Flaky())
+    assert calls == ["heavy-model"]
 
 
 def test_validate_proposal_rejects_out_of_vocabulary_and_empty():
@@ -178,11 +176,11 @@ def test_validate_proposal_rejects_out_of_vocabulary_and_empty():
 def test_propose_fix_unconfigured_raises_fix_error():
     with pytest.raises(ai_fix.FixError):
         ai_fix.propose_fix("anything", {}, cfg={"ai": {"heavy": {}}, "llm": {},
-                                                "design": {}, "services": {}, "vision": {}},
+                                                "design": {}, "vision": {}},
                            opener=Endpoint("{}"))
     assert ai_fix.heavy_ready(cfg()) is True
     assert ai_fix.heavy_ready({"ai": {"heavy": {}}, "llm": {}, "design": {},
-                               "services": {}, "vision": {}}) is False
+                               "vision": {}}) is False
 
 
 def test_build_fixed_copy_applies_geometry_then_mesh(tmp_path):

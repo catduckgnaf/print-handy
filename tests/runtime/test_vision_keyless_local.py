@@ -1,9 +1,10 @@
 """A local OpenAI-compatible vision server needs no key; a hosted one still does.
 
 Ollama, LM Studio or llama.cpp on this machine or the LAN usually take no
-API key, so services.vision_chat_url pointed there must work without
-CLIPROXY_API_KEY. A hosted endpoint without its key would fail every check
-and post a false alert each time, so the watch stays off there as before.
+API key, so the one AI endpoint (``llm.chat_url``, #1731) pointed there
+must work without its key. A hosted endpoint without its key would fail
+every check and post a false alert each time, so the watch stays off
+there as before.
 """
 import json
 import threading
@@ -43,17 +44,21 @@ def test_hosted_or_missing_endpoints_still_need_a_key(url):
     assert not vw.keyless_ok(url)
 
 
+def _point_endpoint(monkeypatch, url, model="m"):
+    cfg = vw._config.cfg()
+    monkeypatch.setitem(cfg, "llm", {"chat_url": url, "model": model,
+                                     "api_key_env": "LLM_API_KEY", "timeout_s": 20})
+
+
 def test_vision_ready_follows_the_endpoint(monkeypatch):
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.setattr(vw.local_vision, "detector_ready", lambda: False)
-    no_key = lambda: ""  # noqa: E731
-    monkeypatch.setattr(vw._config, "service_url",
-                        lambda name: "http://192.168.1.20:11434/v1/chat/completions")
-    assert vw.vision_ready(no_key)
-    monkeypatch.setattr(vw._config, "service_url",
-                        lambda name: "https://api.openai.com/v1/chat/completions")
-    assert not vw.vision_ready(no_key)
-    assert vw.vision_ready(lambda: "sk-test")
+    _point_endpoint(monkeypatch, "http://192.168.1.20:11434/v1/chat/completions")
+    assert vw.vision_ready()
+    _point_endpoint(monkeypatch, "https://api.openai.com/v1/chat/completions")
+    assert not vw.vision_ready()
+    monkeypatch.setenv("LLM_API_KEY", "sk-test")
+    assert vw.vision_ready()
 
 
 def test_keyless_local_request_sends_no_authorization_header(monkeypatch):
@@ -76,10 +81,10 @@ def test_keyless_local_request_sends_no_authorization_header(monkeypatch):
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
-        monkeypatch.delenv("PRINT_VISION_URL", raising=False)
         url = f"http://127.0.0.1:{httpd.server_address[1]}/v1/chat/completions"
-        answer = vw._vision_answer(b"\xff\xd8\xff\xd9", "prompt", chat_url=lambda: url,
-                                   model="llava", api_key=lambda: "", context="")
+        _point_endpoint(monkeypatch, url, model="llava")
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        answer = vw._vision_answer(b"\xff\xd8\xff\xd9", "prompt", context="")
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -88,7 +93,7 @@ def test_keyless_local_request_sends_no_authorization_header(monkeypatch):
 
 
 def test_hosted_endpoint_without_a_key_still_raises(monkeypatch):
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    _point_endpoint(monkeypatch, "https://api.openai.com/v1/chat/completions")
     with pytest.raises(vw._VisionKeyMissing):
-        vw._vision_answer(b"x", "p", chat_url=lambda: "https://api.openai.com/v1/chat/completions",
-                          model="m", api_key=lambda: "", context="")
+        vw._vision_answer(b"x", "p", context="")

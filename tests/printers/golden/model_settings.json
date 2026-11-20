@@ -141,8 +141,7 @@
       "moonraker_url": "",
       "moonraker_ws_url": "",
       "spoolman_url": "",
-      "stock_api_port": 8898,
-      "vision_chat_url": ""
+      "stock_api_port": 8898
     },
     "timelapse": {
       "archive_dir": "",
@@ -154,9 +153,7 @@
       "render_wait_s": 900,
       "ssh_key": ""
     },
-    "vision": {
-      "model": "gemini-latest"
-    },
+    "vision": {},
     "visual_watch": {
       "enabled": true,
       "sensitivity": 3
@@ -304,8 +301,7 @@
       "moonraker_url": "",
       "moonraker_ws_url": "",
       "spoolman_url": "",
-      "stock_api_port": 8898,
-      "vision_chat_url": ""
+      "stock_api_port": 8898
     },
     "timelapse": {
       "archive_dir": "",
@@ -317,9 +313,7 @@
       "render_wait_s": 900,
       "ssh_key": ""
     },
-    "vision": {
-      "model": "gemini-latest"
-    },
+    "vision": {},
     "visual_watch": {
       "enabled": true,
       "sensitivity": 3
@@ -467,8 +461,7 @@
       "moonraker_url": "",
       "moonraker_ws_url": "",
       "spoolman_url": "",
-      "stock_api_port": 8898,
-      "vision_chat_url": ""
+      "stock_api_port": 8898
     },
     "timelapse": {
       "archive_dir": "",
@@ -480,9 +473,7 @@
       "render_wait_s": 900,
       "ssh_key": ""
     },
-    "vision": {
-      "model": "gemini-latest"
-    },
+    "vision": {},
     "visual_watch": {
       "enabled": true,
       "sensitivity": 3
@@ -630,8 +621,7 @@
       "moonraker_url": "",
       "moonraker_ws_url": "",
       "spoolman_url": "",
-      "stock_api_port": 8898,
-      "vision_chat_url": ""
+      "stock_api_port": 8898
     },
     "timelapse": {
       "archive_dir": "",
@@ -643,9 +633,7 @@
       "render_wait_s": 900,
       "ssh_key": ""
     },
-    "vision": {
-      "model": "gemini-latest"
-    },
+    "vision": {},
     "visual_watch": {
       "enabled": true,
       "sensitivity": 3

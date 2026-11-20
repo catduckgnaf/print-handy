@@ -38,7 +38,6 @@ moonraker_ws_url = ""
 camera_source = "auto"
 camera_snapshot_url = ""
 spoolman_url = "http://127.0.0.1:8000"
-vision_chat_url = ""
 stock_api_port = 8898
 
 [printer]
@@ -84,22 +83,15 @@ chat_llm_enabled = false
 # The Web UI chat page switch; false disables the page and message handling.
 chat_enabled = true
 
-[agent]
-# Optional agent endpoint for unmatched Web UI chat text, ahead of the [llm] call.
-# Replies cannot run commands.
-chat_url = ""
-model = ""
-api_key_env = "AGENT_API_KEY"
-timeout_s = 120
-
 [natural_language]
 # The deterministic plain-language layer (#1524). shadow_mode = true makes
 # it log disagreements locally and answer nothing itself (the previous
 # behavior answers instead). unmatched_log_enabled keeps a sanitized,
 # local-only log of phrases nothing matched (never transmitted; exportable
-# from the bot's diagnostics). ai_rate_limit_per_hour caps conversational
-# AI lane calls per user. ai_disabled_channel_ids switches the AI lane off
-# per channel (plain questions and commands still work there).
+# from the bot's diagnostics). ai_rate_limit_per_hour caps the one
+# remaining conversational AI lane (Web Chat's bounded [llm] lane) per
+# user. ai_disabled_channel_ids switches that lane off per channel (plain
+# questions and commands still work there).
 shadow_mode = false
 unmatched_log_enabled = false
 ai_rate_limit_per_hour = 20
@@ -107,12 +99,10 @@ ai_disabled_channel_ids = []
 
 [design]
 # AI design with OpenSCAD (#388): no enabled key on purpose — unset is
-# AUTO (on whenever a design/LLM endpoint is configured, like roasts).
-# Empty chat_url/model/api_key_env inherit the [llm] values. Force off
+# AUTO (on whenever the one AI endpoint ([llm]) is configured, like
+# roasts). model is a model-name override on that endpoint. Force off
 # with PRINT_HANDY__DESIGN__ENABLED=false, or force on with =true.
-chat_url = ""
 model = ""
-api_key_env = ""
 timeout_s = 180
 repair_attempts = 3
 

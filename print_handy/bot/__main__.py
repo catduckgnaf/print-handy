@@ -5,7 +5,6 @@ check   validate settings, token, channel, users and handlers offline. Exit 1 on
 health  exit 0 only while a running bot reports a fresh heartbeat.
 """
 import logging
-import os
 import sys
 
 from .. import __version__, ai_routes, logs, settings
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 def checks(cfg):
     """[(label, ok, detail)]. Offline: nothing here contacts the chat platform."""
     from ..runtime import _config
-    from . import agent, llm, platform
+    from . import llm, platform
     from .runtime import allowed_users
     rows = []
 
@@ -96,29 +95,15 @@ def checks(cfg):
         # fallback is never wired for them, whatever [llm] says elsewhere.
         add("llm", True, f"off ({name.capitalize()} is a pure bot: no LLM; unmatched messages get the short not-understood reply)")
     elif name == "discord":
-        add("llm", True, "off (Discord stray-chat fallback is disabled; unmatched messages get the short not-understood reply)")
+        # Discord is a pure bot too (#1731): its adapter says uses_llm =
+        # False, so no Discord message ever reaches a model call. The one
+        # conversational lane lives in Web Chat, behind
+        # [webui] chat_llm_enabled.
+        add("llm", True, "off (Discord is a pure bot: no model call of any kind; "
+                         "unmatched messages get the short not-understood reply)")
     else:
         add("llm", True, ai_routes.describe("chat", cfg) if llm.configured(cfg)
             else "off (unmatched messages get the short not-understood reply)")
-    # The stray-chat agent lane (#524 stage 3): a configured [agent]
-    # endpoint answers Discord free text ahead of the [llm] call above.
-    # Like the llm row it is a healthy-off row in every unconfigured or
-    # disabled state — the lane ships dark until an operator sets it.
-    if name in ("telegram", "matrix"):
-        add("agent", True, f"off ({name.capitalize()} is a pure bot: no agent lane; "
-                           "unmatched messages get the short not-understood reply)")
-    elif name == "discord":
-        add("agent", True, "off (Discord stray-chat fallback is disabled; no model call of any kind, agent lane included)")
-    elif agent.configured(cfg):
-        from urllib.parse import urlparse
-        agent_cfg = cfg.get("agent") or {}
-        host = urlparse(str(agent_cfg.get("chat_url") or "")).hostname or agent_cfg.get("chat_url")
-        model = str(agent_cfg.get("model") or "").strip()
-        add("agent", True, f"{model} at {host}" if model else
-            f"endpoint at {host} (no model set; the endpoint chooses)")
-    else:
-        add("agent", True, "not configured (set [agent] chat_url to let an agent endpoint "
-                           "answer stray chat; unmatched messages use the llm row above)")
     # Question rendering: the bot always draws its own questions — there
     # is no host renderer anymore (the Hermes mode that drew them is gone).
     if name == "discord":
@@ -129,24 +114,22 @@ def checks(cfg):
     # alert, and on request ("roast my last print"), on every platform.
     # vision.roast_enabled (on by default) is the only switch.
     vision = cfg.get("vision") or {}
-    # The vision endpoint the camera rows below need ([ai.small] is one too, #818).
-    vision_url = str((cfg.get("services") or {}).get("vision_chat_url") or "")
-    if ai_routes.explicit("small", cfg):
-        vision_url = vision_url or cfg["ai"]["small"]["chat_url"]
-    env_vision_url = os.environ.get("PRINT_VISION_URL") or ""
+    # The one AI endpoint, as the small tier resolves it: the URL the
+    # camera rows below need (#1731).
+    vision_url = ai_routes.endpoint_url("small", cfg)
     # AI camera checks (#1376): off by default, and while off no endpoint
     # counts for the rows below, however it is configured.
     from ..runtime import visual_watch as _vw_gate
     if _vw_gate.vision_ai_enabled(cfg):
         add("vision ai", True, "on (vision.ai_enabled: camera checks and label reads may use "
-                               "the vision endpoint)")
+                               "the AI endpoint)")
     else:
-        if vision_url or env_vision_url:
-            add("vision ai", True, f"off ({_vw_gate.VISION_AI_OFF}: the configured vision "
+        if vision_url:
+            add("vision ai", True, f"off ({_vw_gate.VISION_AI_OFF}: the configured AI "
                                    "endpoint is not used; set vision.ai_enabled to true to use it)")
         else:
             add("vision ai", True, f"off ({_vw_gate.VISION_AI_OFF})")
-        vision_url, env_vision_url = "", ""
+        vision_url = ""
     if not vision.get("roast_enabled", True):
         add("roast", True, "off (vision.roast_enabled is false)")
     else:
@@ -196,13 +179,12 @@ def checks(cfg):
     # vision.watch_source that cannot work fails the row instead of the
     # watch silently doing nothing.
     from ..runtime import visual_watch as _visual_watch
-    for _watch_ok, _watch_detail in _visual_watch.coverage_report(
-            cfg, lambda: os.environ.get("CLIPROXY_API_KEY", "")):
+    for _watch_ok, _watch_detail in _visual_watch.coverage_report(cfg):
         add("camera watch", _watch_ok, _watch_detail)
     # Auto light-off (#516): the listener turns the printer's light on at
     # print start and off again after the camera verdict has seen an empty
     # plate for vision.auto_light_off_minutes. Off by default (0). Like
-    # the watchdog it needs a vision endpoint (PRINT_VISION_URL counts);
+    # the watchdog it can use the one AI endpoint;
     # the light target is the named vision.light_object, or the printer's
     # single light object auto-discovered by the listener — bot check is
     # offline, so an unnamed target is reported as unresolved here rather
@@ -236,28 +218,25 @@ def checks(cfg):
                                 f"{light_connection!r} has no light control (auto "
                                 f"light-off covers Moonraker, Bambu Lab and Elegoo "
                                 f"SDCP printers); the setting has no effect here")
-    elif _ref_state == "ready" and not vision_url \
-            and not env_vision_url:
+    elif _ref_state == "ready" and not vision_url:
         add("auto light", True, f"on (the local plate reference certifies the empty "
                                 f"plate for the idle check; light off after the plate "
                                 f"has been seen empty for {light_minutes} minutes; set "
                                 f"vision.auto_light_off_minutes=0 to turn auto light off)")
-    elif vision.get("local_detector_enabled") and not vision_url \
-            and not env_vision_url:
+    elif vision.get("local_detector_enabled") and not vision_url:
         add("auto light", True, "on, but the local failure detector cannot certify an "
                                 "empty plate (it never answers empty_idle), so the light "
                                 "will stay on; auto light-off needs a calibrated plate "
-                                "reference (vision.local_empty_enabled) or a vision endpoint "
+                                "reference (vision.local_empty_enabled) or the AI endpoint "
                                 "with vision.ai_enabled")
-    elif not vision_url and not env_vision_url and not _vw_gate.vision_ai_enabled(cfg):
-        add("auto light", True, "on, but the empty-plate check has no route: vision endpoint camera "
+    elif not vision_url and not _vw_gate.vision_ai_enabled(cfg):
+        add("auto light", True, "on, but the empty-plate check has no route: AI endpoint camera "
                                 "checks are off (vision.ai_enabled is false) and no plate "
                                 "reference is calibrated (vision.local_empty_enabled, then "
                                 "/print-plate-calibrate)")
-    elif not vision_url and not env_vision_url:
-        add("auto light", True, "on, but no vision endpoint is available "
-                                "(services.vision_chat_url is empty and PRINT_VISION_URL "
-                                "is not set); the empty-plate check needs one")
+    elif not vision_url:
+        add("auto light", True, "on, but the AI endpoint is not configured "
+                                "([llm] chat_url is empty); the empty-plate check needs it")
     elif light_connection == "bambulab_lan":
         add("auto light", True, f"on (Bambu chamber light; light off after the plate has been "
                                 f"seen empty for {light_minutes} minutes; a model whose own "
@@ -275,12 +254,13 @@ def checks(cfg):
                                 "printer has exactly one light object — set "
                                 "vision.light_object to name the target for sure")
     # AI design (#388): tri-state enable — explicit design.enabled=false is
-    # off; explicit true is on; unset is auto (on whenever a design/LLM
+    # off; explicit true is on; unset is auto (on whenever the one AI
     # endpoint resolves — the roast posture). When on it needs OpenSCAD (the
-    # design engine) and a model: the [design] endpoint inheriting [llm] is
-    # the path (#524 Stage 3). A forced-on-but-unusable design fails the
-    # check, like a missing token, so the misconfiguration is visible before
-    # a user hits it mid-conversation; auto with no endpoint is a healthy off.
+    # design engine) and a model: design posts to the [llm] endpoint
+    # through the heavy tier (#1731). A forced-on-but-unusable design fails
+    # the check, like a missing token, so the misconfiguration is visible
+    # before a user hits it mid-conversation; auto with no endpoint is a
+    # healthy off.
     import shutil as _shutil
     from ..core import design as _design
     design_cfg = cfg.get("design") or {}
@@ -290,16 +270,16 @@ def checks(cfg):
     if design_mode == "off":
         add("design", True, "off (design.enabled is false; /print-design and /design are unavailable)")
     elif design_mode == "auto-off":
-        add("design", True, "auto-off (no design/LLM endpoint configured; /print-design answers "
-                            "'not set up' until one is — set [design] or [llm] chat_url/model)")
+        add("design", True, "auto-off (the AI endpoint is not configured; /print-design answers "
+                            "'not set up' until it is — set [llm] chat_url and model)")
     elif not _shutil.which("openscad"):
         add("design", False, "enabled, but openscad is not on PATH; install OpenSCAD "
                              "(it is in the Docker image) or set design.enabled=false")
     elif resolved:
         add("design", True, f"{design_mode} ({resolved['model']} at {resolved['chat_url']})")
     else:
-        add("design", False, "enabled, but no model endpoint: set [design] chat_url and "
-                             "model, or the [llm] values they inherit")
+        add("design", False, "enabled, but no model endpoint: set [llm] chat_url and "
+                             "model (design.model may name a different model)")
     return rows
 
 

@@ -55,7 +55,6 @@ services:
   camera_source: "auto"
   camera_snapshot_url: ""
   spoolman_url: "http://127.0.0.1:8000"
-  vision_chat_url: ""
   stock_api_port: 8898
 printer:
   # Override with PRINT_HANDY__PRINTER__MODEL=sovol.sv06 etc.
@@ -95,33 +94,24 @@ webui:
   # The Web UI chat page switch: off shows a disabled page and web chat
   # processes nothing at all.
   chat_enabled: true
-agent:
-  # Optional agent endpoint for unmatched Web UI chat text, ahead of the [llm] call.
-  # Replies cannot run commands.
-  chat_url: ""
-  model: ""
-  api_key_env: "AGENT_API_KEY"
-  timeout_s: 120
 natural_language:
   # The deterministic plain-language layer (#1524): see docs/STANDALONE.md,
   # 'Plain words first'. shadow_mode logs disagreements locally and lets
   # the previous behavior answer; unmatched_log_enabled keeps a sanitized
   # local-only log of unmatched phrases; ai_rate_limit_per_hour caps the
-  # conversational AI lane per user; ai_disabled_channel_ids switches
-  # that lane off per channel.
+  # one remaining conversational AI lane (Web Chat's bounded [llm] lane)
+  # per user; ai_disabled_channel_ids switches that lane off per channel.
   shadow_mode: false
   unmatched_log_enabled: false
   ai_rate_limit_per_hour: 20
   ai_disabled_channel_ids: []
 design:
   # AI design with OpenSCAD (#388): no enabled key on purpose — unset is
-  # AUTO (on whenever a design/LLM endpoint is configured, like roasts).
-  # Empty chat_url/model/api_key_env inherit the [llm] values. Force off
-  # with PRINT_HANDY__DESIGN__ENABLED=false, or force on with =true plus a
-  # model endpoint.
-  chat_url: ""
+  # AUTO (on whenever the one AI endpoint ([llm]) is configured, like
+  # roasts). model is a model-name override on that endpoint. Force off
+  # with PRINT_HANDY__DESIGN__ENABLED=false, or force on with =true plus
+  # the endpoint set.
   model: ""
-  api_key_env: ""
   timeout_s: 180
   repair_attempts: 3
 live_stream:

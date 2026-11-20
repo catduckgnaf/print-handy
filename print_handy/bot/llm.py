@@ -83,7 +83,7 @@ ALLOWED = (
 
 
 def configured(cfg=None):
-    """Whether the chat tier has an endpoint: [ai.chat], else the [llm] settings."""
+    """Whether the chat tier resolves on the one endpoint ([llm], with [ai.chat]'s model name)."""
     return ai_routes.configured("chat", cfg or _config.cfg())
 
 
@@ -200,7 +200,8 @@ def _session_lock(key):
 def ask(text, help_text, *, session=None, cfg=None, opener=None, tool_runner=None):
     """(reply, proposal or None). Raises on transport errors; the caller falls back.
 
-    Goes through the chat tier (ai_routes), so [ai.chat] may add a fallback model.
+    Goes through the chat tier (ai_routes): the one [llm] endpoint, with
+    [ai.chat]'s model name when one is set.
     Asks for one session are serialized on that session's lock, so a follow-up
     always sees the previous turn and turns are stored in ask order; different
     sessions still run concurrently. When the model calls a tool and a

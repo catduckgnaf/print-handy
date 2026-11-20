@@ -164,21 +164,21 @@ class OverrideTests(unittest.TestCase):
         # follow this rule (docs/SETTINGS.md: "an empty value keeps the file
         # value"); string settings now do too. A supplied value still wins.
         path = self.toml(
-            "services:\n  vision_chat_url: http://vision.invalid/v1\n"
+            "services:\n  spoolman_url: http://spoolman.invalid:7912\n"
             "discord:\n  approval_user_id: '4242'\n  timezone: Europe/London\n"
             "llm:\n  chat_url: http://llm.invalid/v1\n  model: test-model\n", "local.yaml")
         data = settings.load(local=path, environ={
-            "PRINT_HANDY__SERVICES__VISION_CHAT_URL": "",
+            "PRINT_HANDY__SERVICES__SPOOLMAN_URL": "",
             "PRINT_HANDY__DISCORD__APPROVAL_USER_ID": "  ",
             "PRINT_HANDY__DISCORD__TIMEZONE": "",
             "PRINT_HANDY__LLM__CHAT_URL": ""})
-        self.assertEqual(data["services"]["vision_chat_url"], "http://vision.invalid/v1")
+        self.assertEqual(data["services"]["spoolman_url"], "http://spoolman.invalid:7912")
         self.assertEqual(data["discord"]["approval_user_id"], "4242")
         self.assertEqual(data["discord"]["timezone"], "Europe/London")
         self.assertEqual(data["llm"]["chat_url"], "http://llm.invalid/v1")
         supplied = settings.load(local=path, environ={
-            "PRINT_HANDY__SERVICES__VISION_CHAT_URL": "http://other.invalid/v1"})
-        self.assertEqual(supplied["services"]["vision_chat_url"], "http://other.invalid/v1")
+            "PRINT_HANDY__SERVICES__SPOOLMAN_URL": "http://other.invalid:7912"})
+        self.assertEqual(supplied["services"]["spoolman_url"], "http://other.invalid:7912")
 
     def test_blank_environment_value_preserves_optional_file_value(self):
         # Optional keys (not in the home template) follow the same rule.
@@ -189,9 +189,9 @@ class OverrideTests(unittest.TestCase):
     def test_blank_legacy_environment_value_preserves_file_configuration(self):
         # Legacy variable names resolve to the same settings, so the same
         # blank-is-unset rule applies to them.
-        path = self.toml("services:\n  vision_chat_url: http://vision.invalid/v1\n", "local.yaml")
-        data = settings.load(local=path, environ={"PRINT_VISION_CHAT_URL": ""})
-        self.assertEqual(data["services"]["vision_chat_url"], "http://vision.invalid/v1")
+        path = self.toml("services:\n  spoolman_url: http://spoolman.invalid:7912\n", "local.yaml")
+        data = settings.load(local=path, environ={"SPOOLMAN_URL": ""})
+        self.assertEqual(data["services"]["spoolman_url"], "http://spoolman.invalid:7912")
 
     def test_blank_environment_value_for_a_number_still_errors(self):
         # The blank-is-unset rule is for strings only: a blank number or
@@ -293,7 +293,7 @@ class OverrideTests(unittest.TestCase):
             "paths": {"state_home", "archive", "records_vault", "cache", "ffmpeg",
                       "piper", "piper_model"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
-                         "spoolman_url", "vision_chat_url", "stock_api_port"},
+                         "spoolman_url", "stock_api_port"},
             "discord": {"chat_id", "approval_user_id", "upload_max_bytes",
                         "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",
@@ -305,10 +305,9 @@ class OverrideTests(unittest.TestCase):
                        "approval_user_id", "bot_user_id", "upload_max_bytes"},
             "bot": {"mode", "platform", "health_port", "health_stale_s", "sync_commands"},
             "llm": {"chat_url", "model", "api_key_env", "timeout_s"},
-            "agent": {"chat_url", "model", "api_key_env", "timeout_s"},
-            "design": {"enabled", "chat_url", "model", "api_key_env", "timeout_s", "repair_attempts"},
+            "design": {"enabled", "model", "timeout_s", "repair_attempts"},
             "listener": {"tick_s", "ifs_presence_poll_s", "spool_nag_s", "start_claim_ttl_s"},
-            "vision": {"model", "ai_enabled", "roast_enabled", "roast_custom_bank", "local_detector_enabled",
+            "vision": {"ai_enabled", "roast_enabled", "roast_custom_bank", "local_detector_enabled",
                        "local_model_path", "watch_source", "local_empty_enabled",
                        "auto_light_off_minutes", "light_object"},
             "spool": {"prompt_brand", "accounting"},
@@ -609,9 +608,8 @@ class OverrideTests(unittest.TestCase):
         # Tri-state (#388 close-out): no enabled line anywhere means AUTO
         # (None here) — design resolves on iff an endpoint is configured.
         data = settings.load(local=False, environ={})
-        self.assertEqual(data["design"], {"enabled": None, "chat_url": "", "model": "",
-                                          "api_key_env": "", "timeout_s": 180,
-                                          "repair_attempts": 3})
+        self.assertEqual(data["design"], {"enabled": None, "model": "",
+                                          "timeout_s": 180, "repair_attempts": 3})
         from print_handy.core import design as _design
         self.assertEqual(_design.mode_name(data), "auto-off")
         self.assertFalse(_design.effective_enabled(data))
@@ -651,9 +649,7 @@ class OverrideTests(unittest.TestCase):
     def test_design_bad_values_are_refused(self):
         for env, message in (({"PRINT_HANDY__DESIGN__ENABLED": "sometimes"}, "true or false"),
                              ({"PRINT_HANDY__DESIGN__TIMEOUT_S": "0"}, "positive"),
-                             ({"PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS": "99"}, "0 to 10"),
-                             ({"PRINT_HANDY__DESIGN__CHAT_URL": "ftp://x"}, "must be a URL"),
-                             ({"PRINT_HANDY__DESIGN__API_KEY_ENV": "not a name"}, "environment variable name")):
+                             ({"PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS": "99"}, "0 to 10")):
             with self.subTest(env=env):
                 with self.assertRaisesRegex(settings.SettingsError, message):
                     settings.load(local=False, environ=env)

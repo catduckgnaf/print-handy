@@ -33,10 +33,9 @@ URL = "http://127.0.0.1:11434/v1/chat/completions"
 
 def cfg(answer=None):
     return {"ai": {"small": {}, "chat": {},
-                   "heavy": {"chat_url": URL, "model": "heavy-model"}},
-            "llm": {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 5},
-            "design": {}, "services": {"vision_chat_url": ""},
-            "vision": {"model": "", "roast_model": ""}}
+                   "heavy": {"model": "heavy-model"}},
+            "llm": {"chat_url": URL, "model": "chat-model", "api_key_env": "", "timeout_s": 5},
+            "design": {}, "vision": {"roast_model": ""}}
 
 
 class Endpoint:

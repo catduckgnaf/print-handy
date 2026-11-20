@@ -198,7 +198,10 @@ def test_ai_disabled_gate_has_no_fix_button_and_the_note_instead(env, monkeypatc
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
-    # heavy_ready is NOT patched: the test config configures no heavy tier.
+    # heavy_ready is NOT patched: with the one endpoint blanked, no tier
+    # is ready (#1731: tiers are model names over the [llm] endpoint).
+    from print_handy.runtime import _config
+    monkeypatch.setitem(_config.cfg()["llm"], "chat_url", "")
     assert ai_fix.heavy_ready() is False
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     q = adapter.questions[-1]

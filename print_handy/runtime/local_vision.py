@@ -1,8 +1,7 @@
 """Built-in local failure detector for the camera watchdog (#455, Stage 1).
 
-The watchdog's verdicts normally come from a vision endpoint:
-``PRINT_VISION_URL`` or the OpenAI-compatible chat route
-(``services.vision_chat_url``). An install with neither configured used to
+The watchdog's verdicts normally come from the one AI endpoint (the
+[ai.small] tier over [llm]). An install with it not configured used to
 get no detection at all — ``vision_ready`` kept the watch off. This module
 is the strictly-local third route from the #455 verdict: an ONNX failure
 detector that runs on this machine, so a no-LLM, no-cloud install still
@@ -906,7 +905,7 @@ def detector_status(cfg=None) -> tuple[str, str]:
     cfg = _config.cfg() if cfg is None else cfg
     if not watch_uses_detector(cfg):
         return "off", ("vision.local_detector_enabled is false; the camera watchdog "
-                       "needs a vision endpoint, PRINT_VISION_URL or this detector")
+                       "needs the AI endpoint or this detector")
     try:
         _runtime()
     except LocalVisionError as exc:

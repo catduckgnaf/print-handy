@@ -59,14 +59,10 @@ Use one bot token for one bot. Two live connections on one token both answer eve
 | `discord.approval_user_id` | empty | Always allowed as well; setting one does not restrict anyone else |
 | `discord.token_env` | `DISCORD_BOT_TOKEN` | Name of the environment variable that holds the bot token |
 | `logging.format` | `text` | `text` is one readable line per event. `json` is one JSON object per line for a log shipper |
-| `llm.chat_url` | empty | Optional OpenAI-compatible chat completions URL. Empty: unmatched text gets the short “didn't understand” reply |
+| `llm.chat_url` | empty | The one AI endpoint: an optional OpenAI-compatible chat completions URL every model call posts to. Empty: no AI features, and unmatched Web UI chat text gets the short “didn't understand” reply. Discord, Telegram and Matrix never call it |
 | `llm.model` | empty | Model name, required when `chat_url` is set |
-| `llm.api_key_env` | `LLM_API_KEY` | Name of the environment variable that holds the LLM API key, if it needs one |
-| `llm.timeout_s` | `20` | LLM request timeout |
-| `agent.chat_url` | empty | Optional agent endpoint for unmatched Web UI chat text, ahead of the `[llm]` call |
-| `agent.model` | empty | Agent model name; optional, empty omits `model` from the request |
-| `agent.api_key_env` | `AGENT_API_KEY` | Name of the environment variable that holds the agent endpoint's API key, if it needs one |
-| `agent.timeout_s` | `120` | Agent request timeout (one attempt, no retries) |
+| `llm.api_key_env` | `LLM_API_KEY` | Name of the environment variable that holds the endpoint's API key, if it needs one |
+| `llm.timeout_s` | `20` | AI request timeout |
 | `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint. `false` turns roasts off; camera checks are unaffected |
 | `vision.roast_model` | `luna-latest` | Legacy, unused since #1002 (roasts are local); kept so older configs load |
 
@@ -238,26 +234,18 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 * A typed reply answers your own open question ("2" for two copies, "split", "cancel"). It
   never answers another allowed user's question, even in the same channel or thread. Buttons are shared: any
   allowed user may press an open question's button, and the message then shows who chose.
-* Anything else is tried, in order, with the deterministic natural-language layer and then a
-  model lane; the `[agent]` lane when an agent endpoint is
-  configured, else the LLM when `[llm]` is set, and only falls back to the short
-  “didn't understand” reply when
-  nothing answers it. The agent lane is different in kind from the LLM call below: the bot
-  sends your text once, with no bot system prompt, and posts the endpoint's reply as-is; the
-  endpoint (a Hermes agent behind its API, say) answers in its own voice, and its reply can never
-  name a command into execution. The bot keeps no conversation history; it sends the live session
-  key as an `X-Print-Handy-Session` header the endpoint may key its own conversation on. If a
-  configured agent endpoint does not answer, the reply says so (“The chat agent didn't answer…”)
-  instead of pretending the message was not understood. The order is: explicit commands, deterministic phrases (like "print 57" above),
-  links/files and typed answers to an open question run first and are never rerouted through the model;
-  then the natural-language layer answers plain questions from local data (see the next section);
-  only what is left reaches a model lane, and only when the message actually invoked it (next section).
+* Anything else is tried by the deterministic natural-language layer, and only falls back to the short
+  “didn't understand” reply when nothing answers it. The order is: explicit commands, deterministic phrases (like "print 57" above),
+  links/files and typed answers to an open question run first and are never rerouted through a model;
+  then the natural-language layer answers plain questions from local data (see the next section).
+  On Discord, Telegram and Matrix that is the end of the road: no message on those platforms ever
+  reaches a model call. Only Web UI chat has a bounded model lane behind it (the next section), and
+  only when `[webui] chat_llm_enabled` is on and the message actually invoked it.
   The model never writes command text: it may call one typed read-only tool (inventory facts,
   the firmware report, printer status, doc lookup) and may propose an action as a capability plus
   typed slots, which the bot turns into the normal command and confirmation. It can never run
   `/spool change`, `/spool new`, `/spool sync`, `/print-colors` or
-  `/print-again stop`, and it never sees links, files or the printer. With no `[llm]` configured, unmatched
-  text gets that short reply as before, and Telegram and Matrix never use the LLM at all (see above).
+  `/print-again stop`, and it never sees links, files or the printer.
 
 ## Plain words first: the three routes
 
@@ -269,16 +257,16 @@ Print Handy is natural-language first, with three separate routes that never blu
    called, mentioned or not: a mentioned "how much purple PLA" gets the same Spoolman answer.
    The capability list behind these answers is one registry; "What can you do?" prints it,
    generated from the same example phrases the tests run.
-2. **The conversational AI is opt-in per message.** It runs only when the message carries a
-   trusted invocation: a real platform @mention of this bot (not @everyone, a role, a quoted
-   mention, an edited message, or another bot's mention), a Telegram command suffix for this
-   bot, a typed "ask ai:"/"ai:"/"hey ai" **in a direct message only**, or the Web UI chat's
-   Ask AI checkbox (set by the authenticated form post, never parsed from message text).
-   A reply to one of the bot's messages is not an invocation. The first time a user's message
-   goes to the endpoint, the bot posts a one-time notice saying so. The lane is rate-limited
-   per user (`natural_language.ai_rate_limit_per_hour`, default 20), can be switched off per
-   channel (`natural_language.ai_disabled_channel_ids`), and its model gets only the typed
-   read-only tools above. A mention is never consent to change anything.
+2. **The conversational AI is Web UI chat only, and opt-in per message.** It runs only when
+   the message carries a trusted invocation: a typed "ask ai:"/"ai:"/"hey ai" ask, or the
+   Web UI chat's Ask AI checkbox (set by the authenticated form post, never parsed from
+   message text), and only with `[webui] chat_llm_enabled` on. A reply to one of the bot's
+   messages is not an invocation. The first time a user's message goes to the endpoint, the
+   bot posts a one-time notice saying so. The lane is rate-limited per user
+   (`natural_language.ai_rate_limit_per_hour`, default 20), can be switched off per channel
+   (`natural_language.ai_disabled_channel_ids`), and its model gets only the typed read-only
+   tools above. An ask is never consent to change anything. Discord, Telegram and Matrix
+   have no conversational lane at all.
 3. **Design is a dedicated AI path.** Asking for a new or edited model uses the design engine
    with no mention required, as before. Specialized AI paths keep their own gates and are
    unchanged: Pasta Cam vision, spool-label and purchase photos, and edit repair.
@@ -328,10 +316,9 @@ is refused at load with a message naming the removal. Moving an existing install
    (`discord.allowed_user_ids` is optional), and put `DISCORD_BOT_TOKEN` in the
    environment or the data folder's `.env`.
 4. Run `python3 -m print_handy.bot check`, then `scripts/install-standalone.sh` and enable both units.
-5. Optional, keep agent answers for stray chat: point `[agent] chat_url` (and
-   `api_key_env`) at an agent API endpoint (a Hermes agent behind its API works). Without
-   it, stray chat uses the `[llm]` endpoint if one is configured, else the short bounded
-   reply.
+5. There is no agent lane to keep: stray chat on Discord gets the short bounded reply, and
+   Web UI chat's bounded lane uses the `[llm]` endpoint when `[webui] chat_llm_enabled`
+   is on. An old `[agent]` section in the config is ignored on load.
 6. If the profile pinned a design model (`auxiliary.print_design`), set the same model
    under `[design]` (or `[llm]`): design resolves only its HTTP endpoint now.
 
@@ -350,6 +337,6 @@ limits live on the adapter, not in callers. No handler or core change should be 
 ## Not covered yet
 
 * Free-form agent work has no equivalent: filament photo inventory, incident write-ups, mesh routines from chat
-  and free-form troubleshooting. With an LLM configured you get a short reply, not an agent.
+  and free-form troubleshooting. In Web UI chat with the model lane on you get a short reply, not an agent.
 * Button questions asked by a running intake live in memory. After a bot restart an old question's buttons answer
   "That question already closed"; send the link again. Listener alert buttons do survive restarts.

@@ -59,8 +59,8 @@ EXEMPTIONS = {
     # The [public_text] denylist (#1020) is an operator's private machine
     # names: file-only by design, never rendered on a settings page.
     ("public_text", "denylist"): (frozenset({"webui"}), "#1020"),
-    ("agent", "api_key_env"): (frozenset({"webui"}), "#286"),
-    ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
+    # The [agent] section's exemptions went with the lane itself in
+    # #1731: the settings no longer exist, so nothing needs exempting.
     # The AI tier tables (#818) are file-only: model routes and key names
     # are set in the settings file, not from a page click.
     ("ai", "chat"): (frozenset({"webui"}), "#818"),
@@ -75,7 +75,8 @@ EXEMPTIONS = {
     ("bot", "health_port"): (frozenset({"webui"}), "#657"),
     ("bot", "health_stale_s"): (frozenset({"webui"}), "#657"),
     ("bot", "sync_commands"): (frozenset({"webui"}), "#657"),
-    ("design", "api_key_env"): (frozenset({"webui"}), "#286"),
+    # design.api_key_env's exemption went with the key in #1731: design
+    # has no endpoint fields left, only its model name and behavior keys.
     ("design", "enabled"): (frozenset({"webui"}), "#657"),
     ("design", "repair_attempts"): (frozenset({"webui"}), "#657"),
     ("design", "timeout_s"): (frozenset({"webui"}), "#657"),
@@ -145,11 +146,10 @@ EXEMPTIONS = {
     # ("vision", "roast_model") was removed outright in #1146: the LLM roast
     # model retired by #1002 is no longer a setting at all, so it needs no
     # exemption here; a config still carrying it gets the unknown-setting warning.
-    # services.vision_chat_url and vision.model are file-only since #1718:
-    # the Web UI must not show the vision endpoint URL or a model name, so
-    # neither has a catalog field; both stay working settings-file keys.
-    ("services", "vision_chat_url"): (frozenset({"webui"}), "#1718"),
-    ("vision", "model"): (frozenset({"webui"}), "#1718"),
+    # services.vision_chat_url and vision.model were file-only since
+    # #1718; #1731 removed both settings outright (the camera checks use
+    # the one [llm] endpoint and the [ai.small] model name), so their
+    # exemptions are gone with them, per the ratchet.
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
     # webui.trusted_proxies (#1145) decides whose X-Forwarded-For the
     # failed-login limit believes: a trust boundary set by whoever deploys

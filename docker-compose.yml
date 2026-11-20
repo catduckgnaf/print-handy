@@ -30,12 +30,10 @@ services:
       # Feature-enabling variables (#252): empty means not supplied here, so
       # the config file's value stands (for the shipped docker config that is
       # off). Secrets
-      # (CLIPROXY_API_KEY, AD5X_SERIAL, AD5X_CHECK_CODE, BAMBU_LAN_PASSWORD,
+      # (AD5X_SERIAL, AD5X_CHECK_CODE, BAMBU_LAN_PASSWORD,
       # MOONRAKER_API_KEY, LLM_API_KEY) are not listed here; they reach the container
       # through the .env env_file above, like DISCORD_BOT_TOKEN.
-      PRINT_HANDY__SERVICES__VISION_CHAT_URL: ${PRINT_HANDY__SERVICES__VISION_CHAT_URL:-}
       PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL: ${PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL:-}
-      PRINT_HANDY__VISION__MODEL: ${PRINT_HANDY__VISION__MODEL:-gemini-latest}
       PRINT_HANDY__VISION__ROAST_ENABLED: ${PRINT_HANDY__VISION__ROAST_ENABLED:-true}
       PRINT_HANDY__VISION__ROAST_CUSTOM_BANK: ${PRINT_HANDY__VISION__ROAST_CUSTOM_BANK:-}
       # Local failure detector (#455): built-in ONNX detector for the camera
@@ -91,12 +89,11 @@ services:
       PRINT_HANDY__LLM__CHAT_URL: ${PRINT_HANDY__LLM__CHAT_URL:-}
       PRINT_HANDY__LLM__MODEL: ${PRINT_HANDY__LLM__MODEL:-}
       # AI design (#388) has no ENABLED line here on purpose: unset is AUTO
-      # (on whenever a design/LLM endpoint above is configured, like roasts).
+      # (on whenever the one LLM endpoint above is configured, like roasts).
       # To force it off or on, set PRINT_HANDY__DESIGN__ENABLED=false/true in
-      # the .env env_file.
-      PRINT_HANDY__DESIGN__CHAT_URL: ${PRINT_HANDY__DESIGN__CHAT_URL:-}
+      # the .env env_file. Design has no endpoint of its own (#1731): MODEL
+      # below is only a model-name override on the [llm] endpoint.
       PRINT_HANDY__DESIGN__MODEL: ${PRINT_HANDY__DESIGN__MODEL:-}
-      PRINT_HANDY__DESIGN__API_KEY_ENV: ${PRINT_HANDY__DESIGN__API_KEY_ENV:-}
       PRINT_HANDY__DESIGN__TIMEOUT_S: ${PRINT_HANDY__DESIGN__TIMEOUT_S:-180}
       PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS: ${PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS:-3}
       # Web UI (#286, docs/DOCKER.md "Web UI"): served inside the

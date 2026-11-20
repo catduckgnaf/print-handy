@@ -54,22 +54,18 @@ def test_local_detector_row_on_but_runtime_missing(cfg, monkeypatch):
 def test_auto_light_row_names_the_local_detector_limit(cfg, monkeypatch):
     cfg["vision"].update(auto_light_off_minutes=30, light_object="led chamber_led",
                          local_detector_enabled=True, local_model_path=str(FIXTURE))
-    cfg["services"]["vision_chat_url"] = ""
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     ok, detail = rows(cfg, monkeypatch)["auto light"]
     assert ok is True
     assert detail.startswith("on, but the local failure detector cannot certify an empty plate")
-    assert "vision endpoint" in detail
+    assert "AI endpoint" in detail
 
 
 def test_auto_light_row_without_local_detector_keeps_the_endpoint_text(cfg, monkeypatch):
     cfg["vision"].update(auto_light_off_minutes=30, light_object="led chamber_led",
                          local_detector_enabled=False)
-    cfg["services"]["vision_chat_url"] = ""
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     ok, detail = rows(cfg, monkeypatch)["auto light"]
     assert ok is True
-    assert detail.startswith("on, but no vision endpoint is available")
+    assert detail.startswith("on, but the AI endpoint is not configured")
 
 
 def test_local_detector_row_waiting_for_the_first_download_is_not_a_failure(cfg, monkeypatch, tmp_path):

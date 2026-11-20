@@ -58,15 +58,10 @@ class Slot:
 
 
 SLOTS = {slot.setting: slot for slot in (
-    Slot("llm.chat_url", "chat endpoint",
+    # The one AI endpoint (#1731): every model call posts to [llm], so its
+    # key has exactly one binding slot.
+    Slot("llm.chat_url", "AI endpoint",
          lambda cfg: (_setting(cfg, "llm", "api_key_env") or "LLM_API_KEY",)),
-    Slot("design.chat_url", "design endpoint",
-         lambda cfg: (_setting(cfg, "design", "api_key_env")
-                      or _setting(cfg, "llm", "api_key_env") or "LLM_API_KEY",),
-         inherits="llm.chat_url"),
-    Slot("agent.chat_url", "agent endpoint",
-         lambda cfg: tuple(n for n in (_setting(cfg, "agent", "api_key_env"),) if n)),
-    Slot("services.vision_chat_url", "vision endpoint", lambda cfg: ("CLIPROXY_API_KEY",)),
     Slot("notify.ntfy_url", "ntfy", lambda cfg: ("NTFY_ACCESS_TOKEN",)),
     Slot("notify.mqtt_host", "MQTT broker", lambda cfg: ("MQTT_PASSWORD",)),
     Slot("matrix.homeserver_url", "Matrix",

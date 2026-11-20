@@ -217,12 +217,9 @@ def test_visual_verdict_idle_consults_the_reference_when_no_endpoint_route(
     answer, when one exists, always wins (see the next test)."""
     calibrate(cfg)
     monkeypatch.setattr(vw, "_local_verdict", lambda image, streak=None: None)
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda tier: False)
-    monkeypatch.setattr(vw._config, "service_url", lambda name: "")
+    # The fixture config has no [llm] endpoint at all: no endpoint route.
     verdict, detail = vw.visual_verdict(
-        EMPTY, vw.IDLE_CHECK_PROMPT_TEXT, chat_url="", model="m",
-        api_key=lambda: "", context="", idle=True)
+        EMPTY, vw.IDLE_CHECK_PROMPT_TEXT, context="", idle=True)
     assert verdict == "empty_idle"
     assert "reference" in detail
 
@@ -236,12 +233,7 @@ def test_visual_verdict_print_watch_never_consults_the_reference(cfg, monkeypatc
     calibrate(cfg)
     monkeypatch.setattr(vw, "_detector_verdict",
                         lambda image, streak=None: ("uncertain", "no route"))
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda tier: False)
-    monkeypatch.setattr(vw._config, "service_url", lambda name: "")
-    verdict, _detail = vw.visual_verdict(
-        EMPTY, "watch prompt", chat_url="", model="m",
-        api_key=lambda: "", context="")
+    verdict, _detail = vw.visual_verdict(EMPTY, "watch prompt", context="")
     assert verdict == "uncertain"
 
 
@@ -252,13 +244,13 @@ def test_visual_verdict_idle_endpoint_answer_wins(cfg, monkeypatch):
     # production once the watch reports ready.
     from print_handy.runtime import local_vision
     assert local_vision.prefetch_model(cfg, wait=True)
+    cfg["vision"]["watch_source"] = "auto"  # the endpoint route goes first
     monkeypatch.setattr(vw, "_vision_answer",
                         lambda *a, **k: {"verdict": "ok", "reason": "part there"})
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("uncertain", "x"))
     verdict, _detail = vw.visual_verdict(
-        PART_BIG, vw.IDLE_CHECK_PROMPT_TEXT, chat_url="http://vision.test",
-        model="m", api_key=lambda: "k", context="", idle=True)
+        PART_BIG, vw.IDLE_CHECK_PROMPT_TEXT, context="", idle=True)
     assert verdict == "ok"
 
 
@@ -272,32 +264,23 @@ def test_visual_verdict_idle_part_present_falls_through_to_detector(
     # production once the watch reports ready.
     from print_handy.runtime import local_vision
     assert local_vision.prefetch_model(cfg, wait=True)
+    cfg["vision"]["watch_source"] = "auto"  # no endpoint route: local routes stand in
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("ok", "detector: no failure"))
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda tier: False)
-    monkeypatch.setattr(vw._config, "service_url", lambda name: "")
     verdict, _detail = vw.visual_verdict(
-        PART_BIG, vw.IDLE_CHECK_PROMPT_TEXT, chat_url="", model="m",
-        api_key=lambda: "", context="", idle=True)
+        PART_BIG, vw.IDLE_CHECK_PROMPT_TEXT, context="", idle=True)
     assert verdict == "ok"
 
 
 def test_vision_ready_counts_a_calibrated_reference(cfg, monkeypatch):
     calibrate(cfg)
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda tier: False)
-    monkeypatch.setattr(vw._config, "service_url", lambda name: "")
     monkeypatch.setattr(vw.local_vision, "detector_ready", lambda cfg=None: False)
-    assert vw.vision_ready(lambda: "") is True
+    assert vw.vision_ready() is True
 
 
 def test_vision_ready_without_reference_or_routes_stays_false(cfg, monkeypatch):
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda tier: False)
-    monkeypatch.setattr(vw._config, "service_url", lambda name: "")
     monkeypatch.setattr(vw.local_vision, "detector_ready", lambda cfg=None: False)
-    assert vw.vision_ready(lambda: "") is False
+    assert vw.vision_ready() is False
 
 
 # ------------------------------------------------------- accuracy gates

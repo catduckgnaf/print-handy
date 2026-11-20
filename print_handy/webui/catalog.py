@@ -79,11 +79,11 @@ class Field:
 # Spoolman with spools, MQTT under Home Assistant, Wrapped on its own,
 # and the camera, timelapse, image and live-stream fields in one camera
 # group — instead of by the settings section they happen to live in.
-# Stage 2 gathered every AI surface into the ai group: the chat, design
-# and agent endpoints, the vision endpoint's on/off switch
-# (vision.ai_enabled), and the [ai] edit gate. The vision endpoint URL
-# and model themselves are file-only (#1718, see
-# GROUP_FILE_ONLY_NOTES below), as are the [ai] tier tables.
+# Stage 2 gathered every AI surface into the ai group: the one AI
+# endpoint ([llm]), design's model-name override on it, the vision
+# endpoint's on/off switch (vision.ai_enabled), and the [ai] edit gate.
+# The [ai] tier tables (per-purpose model names only, #1731) are
+# file-only (see GROUP_FILE_ONLY_NOTES below).
 GROUP_OF = {
     "printer.name": "printers",
     "printer.model": "printers",
@@ -178,10 +178,7 @@ GROUP_OF = {
     "firmware.hide_bundled_updates": "notifications",
     "llm.chat_url": "ai",
     "llm.model": "ai",
-    "design.chat_url": "ai",
     "design.model": "ai",
-    "agent.chat_url": "ai",
-    "agent.model": "ai",
     "ai.allowed_users": "ai",
     "ai.edit_requests_per_hour": "ai",
     "services.camera_source": "camera",
@@ -270,17 +267,11 @@ GROUP_FILE_ONLY_NOTES = {
             "or printer name. It is a table of tables, so it is edited in the "
             "settings file only; the workspace defaults above are fields.",
     "ai": "File-only in this section: the [ai] tier tables — [ai.small], "
-          "[ai.chat] and [ai.heavy], each with chat_url, model, "
-          "fallback_model, fallback_url, api_key_env, "
-          "fallback_api_key_env and timeout_s — are edited in the "
-          "settings file only; there are no fields for them here. The "
-          "vision endpoint URL (services.vision_chat_url) and the vision "
-          "model (vision.model) are file-only too: they are edited in the "
-          "settings file only, and the switch that turns endpoint camera "
-          "checks on is the field above. The "
-          "*_api_key_env settings (for llm, design, agent and each tier) "
-          "stay file-only too: they name an environment variable, never "
-          "a key value.",
+          "[ai.chat] and [ai.heavy] — hold a per-purpose model name only "
+          "and are edited in the settings file only; there are no fields "
+          "for them here. Every model call posts to the one endpoint "
+          "above ([llm]). The llm.api_key_env setting stays file-only "
+          "too: it names an environment variable, never a key value.",
     "slicing": "File-only in this section: the per-material tables "
                "[material_temps], [material_tuning], [nozzle_temp_offsets] "
                "and [cold_pull] (you choose their keys, so there is no "
@@ -765,38 +756,26 @@ CATALOG = (
     _field("external_intake", "max_bytes", "External intake max file size (bytes)", "number",
            "Largest single file the intake accepts, in bytes.",
            validator="settings external intake check", minimum=1, maximum=2147483648),
-    # AI and models: every OpenAI-compatible endpoint in one group. Only
-    # URLs and model names are fields — an endpoint's API key stays in
-    # the environment, like every other secret. The inheritance chain is
-    # stated once, on the chat endpoint: the design endpoint reuses the
-    # chat endpoint when its own URL is empty, the vision endpoint is the
-    # default route for the small [ai] tier, the chat endpoint for the
-    # chat tier and the design endpoint (inheriting chat) for the heavy
-    # tier — and an [ai] tier value set in the settings file wins over
-    # the matching default one field at a time.
-    _field("llm", "chat_url", "Chat endpoint URL", "url",
-           "OpenAI-compatible chat endpoint for plain-language replies; empty "
-           "leaves the chat lane off. Its API key stays in the environment. "
-           "This endpoint is the root of the AI inheritance chain stated in "
-           "this section: design reuses it when empty, it is the chat "
-           "tier's default route, and a tier value in the settings file "
-           "wins over it one field at a time.",
+    # AI and models: the one OpenAI-compatible endpoint in one group.
+    # Only the URL and model names are fields — the endpoint's API key
+    # stays in the environment, like every other secret. Every model
+    # call posts here (#1731): Web Chat replies, design, camera and
+    # image checks, label and purchase reads and model-file edits. A
+    # per-purpose model name (design.model, or the file-only [ai] tier
+    # tables) overrides the model for that purpose only.
+    _field("llm", "chat_url", "AI endpoint URL", "url",
+           "The one OpenAI-compatible endpoint every model call posts to: "
+           "Web Chat replies, design, camera and image checks, label and "
+           "purchase reads and model-file edits. Empty leaves every AI "
+           "feature off. Its API key stays in the environment.",
            validator="settings llm check"),
-    _field("llm", "model", "Chat model", "text",
-           "Model the chat endpoint uses; also the chat tier's default model."),
-    _field("design", "chat_url", "Design endpoint URL", "url",
-           "OpenAI-compatible endpoint /print-design uses when it differs from "
-           "the chat endpoint; empty reuses the chat endpoint. Its API key "
-           "stays in the environment.",
-           validator="settings design check"),
+    _field("llm", "model", "AI model", "text",
+           "Model the AI endpoint uses, unless a per-purpose model name "
+           "(design model below, or a file-only [ai] tier table) overrides "
+           "it for that purpose."),
     _field("design", "model", "Design model", "text",
-           "Model the design endpoint uses; also the heavy tier's default model."),
-    _field("agent", "chat_url", "Agent endpoint URL", "url",
-           "OpenAI-compatible endpoint for the agent lane; empty leaves the "
-           "agent lane unconfigured. Its API key stays in the environment.",
-           validator="settings agent check"),
-    _field("agent", "model", "Agent model", "text",
-           "Model the agent endpoint uses."),
+           "Model name /print-design uses on the AI endpoint; empty uses "
+           "the AI model. Also the heavy tier's default model name."),
     _field("ai", "allowed_users", "AI edit users", "id_list",
            "Who may use the AI edit lane: user IDs in the form your platform "
            "uses — numeric IDs on Discord and Telegram, full Matrix IDs like "
@@ -808,23 +787,17 @@ CATALOG = (
            "How many AI edit requests each authorized user may make per "
            "hour; 20 by default. 0 disables the limit.",
            validator="settings ai check", minimum=0),
-    # The vision endpoint URL and model are deliberately not fields
-    # (#1718): they are file-only settings (see the group note above),
-    # so no provider or proxy implementation name and no internal model
-    # alias is ever shown on this page.
-    _field("vision", "ai_enabled", "Send camera frames to a vision endpoint", "toggle",
+    _field("vision", "ai_enabled", "Send camera frames to the AI endpoint", "toggle",
            "Off by default: camera checks run on this machine with the local "
            "failure detector (Camera, timelapse and images), and no frame or "
-           "photo leaves it. On sends camera frames and photos to the vision "
-           "endpoint (PRINT_VISION_URL, the file-only vision endpoint or [ai.small]) "
-           "for the camera watchdog, the idle plate checks, spool label reads and "
-           "purchase reads. With an endpoint configured it is tried before the "
-           "local detector.",
+           "photo leaves it. On sends camera frames and photos to the one AI "
+           "endpoint (the [ai.small] tier over [llm]) for the camera watchdog, "
+           "the idle plate checks, spool label reads and purchase reads. With "
+           "an endpoint configured it is tried before the local detector.",
            validator="settings vision check"),
-    # Images (the camera source type, the snapshot URL and the vision
-    # endpoint the watchdog uses; visual_watch itself is the next group.
-    # API keys stay in the environment: vision_chat_url names no secret,
-    # and there is no key field.)
+    # Images (the camera source type and the snapshot URL the watchdog
+    # uses; visual_watch itself is the next group. The endpoint's API key
+    # stays in the environment, and there is no key field.)
     _field("services", "camera_source", "Camera source", "picker",
            "Which camera still images come from: auto follows the configured "
            "printer vendor's rule, or pin one source — moonraker = the Moonraker "
@@ -1117,8 +1090,9 @@ CATALOG = (
            validator="settings webui check"),
     _field("webui", "chat_llm_enabled", "Web chat AI replies", "toggle",
            "Off by default. On: text in the Web UI chat page that no command or handler "
-           "takes may be answered by the configured [llm] or [agent] lane, like "
-           "Discord chat. Off: web chat is a pure bot — commands, design and the "
+           "takes may be answered by the configured [llm] lane — the one "
+           "conversational model lane; Discord, Telegram and Matrix are pure "
+           "bots. Off: web chat is a pure bot — commands, design and the "
            "print flow still work, but no model call is made for web chat text "
            "and unmatched text gets the short not-understood reply. If the Web UI "
            "is left open on the LAN with no password or token, anyone who can "

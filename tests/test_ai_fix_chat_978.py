@@ -79,10 +79,11 @@ def fix_env(tmp_path, monkeypatch, request):
         {"chat_id": "c", "thread_id": None, "job_json": str(job_path), "status": "SLICED"}))
     monkeypatch.setattr(plugin, "_state_dir", lambda: tmp_path)
     from print_handy.runtime import _config
-    cfg = {"agent": {}, "design": {}, "llm": {}, "discord": {"question_timeout_s": 5},
+    cfg = {"design": {}, "discord": {"question_timeout_s": 5},
            "paths": {"cache": tmp_path / "cache"},
-           "ai": {"heavy": {"chat_url": "http://127.0.0.1:11434/v1/chat/completions",
-                            "model": "heavy-model"}}}
+           "llm": {"chat_url": "http://127.0.0.1:11434/v1/chat/completions",
+                   "model": "heavy-model", "api_key_env": "LLM_API_KEY"},
+           "ai": {"heavy": {"model": "heavy-model"}}}
     previous = _config.cfg()
     _config.set_override(cfg)
     request.addfinalizer(lambda: _config.set_override(previous))
@@ -139,7 +140,7 @@ def test_uploaded_nonmanifold_stl_fix_this_is_repaired_and_previewed(fix_env):
 def test_fix_this_with_ai_not_configured_notes_and_changes_nothing(fix_env, monkeypatch):
     from print_handy.runtime import _config
     cfg = dict(fix_env.cfg)
-    cfg["ai"] = {"heavy": {}}
+    cfg["llm"] = {}  # no endpoint configured (#1731: tiers hold no endpoint)
     _config.set_override(cfg)
     result = asyncio.run(plugin.edit_dispatch(_event("fix this"), fix_env.gateway))
     assert result["reason"] == "repair: AI not configured"

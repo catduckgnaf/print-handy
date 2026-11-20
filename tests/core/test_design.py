@@ -121,16 +121,19 @@ def test_sandbox_scan_refuses_oversize_source():
 
 # --------------------------------------------------------------------- transports
 
-def test_resolve_http_config_inherits_llm_then_prefers_design():
-    cfg = {"design": {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 180},
+def test_resolve_http_config_uses_the_one_endpoint_with_design_overrides():
+    """#1731: design resolves the one [llm] endpoint; design.model is a
+    model-name override and design.timeout_s design's own budget. Retired
+    design.chat_url / design.api_key_env values in a dict are inert."""
+    cfg = {"design": {"model": "", "timeout_s": 180},
            "llm": {"chat_url": "http://llm/v1", "model": "luna", "api_key_env": "K1"}}
     assert design.resolve_http_config(cfg) == {
         "chat_url": "http://llm/v1", "model": "luna", "api_key_env": "K1", "timeout_s": 180}
     cfg["design"].update(chat_url="http://design/v1", model="sol", api_key_env="K2",
                          timeout_s=90)
     resolved = design.resolve_http_config(cfg)
-    assert resolved["chat_url"] == "http://design/v1" and resolved["model"] == "sol"
-    assert resolved["api_key_env"] == "K2" and resolved["timeout_s"] == 90
+    assert resolved["chat_url"] == "http://llm/v1" and resolved["model"] == "sol"
+    assert resolved["api_key_env"] == "K1" and resolved["timeout_s"] == 90
     assert design.resolve_http_config({"design": {}, "llm": {}}) is None
     assert design.resolve_http_config({"design": {"chat_url": "http://x"}, "llm": {}}) is None
 

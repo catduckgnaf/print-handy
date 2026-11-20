@@ -1075,16 +1075,9 @@ def _default_verdict(adapter, streak=None):
     with the print; the auto light-off driver passes none — idle plate
     checks judge single frames.
     """
-    # The shared vision route (listener_common, #1320): the Bambu Lab
-    # listener's auto light-off builds this too, and it must not import the
-    # Moonraker listener to reach it.
-    from . import listener_common as common
-
     def verdict(image, prompt):
         return _vw.visual_verdict(
-            image, prompt, chat_url=common._vision_chat_url, model=common._VISION_MODEL,
-            api_key=lambda: common._profile_env_value("CLIPROXY_API_KEY"), context=vision_context(adapter),
-            local_streak=streak)
+            image, prompt, context=vision_context(adapter), local_streak=streak)
 
     return verdict
 
@@ -1120,9 +1113,7 @@ def _default_watch_mode(filename):
 def _post_watch_not_running(filename, post):
     """One notice at the launch: the camera watch is on but cannot run, and why. Never raises."""
     try:
-        from . import moonraker_event_listener as mel
-        reason = _vw.watch_unavailable_reason(
-            lambda: mel._profile_env_value("CLIPROXY_API_KEY")) or "no vision route is ready"
+        reason = _vw.watch_unavailable_reason() or "no vision route is ready"
         log(f"bambu camera watch not running for {filename!r}: {reason}")
         post(f"Camera watch is on but not running for "
              f"{print_summary.safe_label(filename, 'print')}: {reason}. This print is not "

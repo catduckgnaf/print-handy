@@ -216,8 +216,8 @@ def design_availability(data):
 
     The same three postures the chat design handler answers with,
     resolved the same way: ``design.enabled`` false is off; an endpoint
-    that resolves through :func:`design.resolve_http_config` ([design]
-    inheriting [llm], the resolver the design transport itself uses)
+    that resolves through :func:`design.resolve_http_config` (the one
+    [llm] endpoint, the resolver the design transport itself uses)
     is ready; explicit true with no endpoint, and auto with no
     endpoint, are the two not-configured reasons.
     """
@@ -231,11 +231,11 @@ def design_availability(data):
         return True, ""
     if raw is True:
         return False, ("Design is enabled, but no design model is configured: set "
-                       "[design] chat_url and model (or the [llm] values they "
-                       "inherit), then reload this page.")
+                       "[llm] chat_url and model (design.model may name a different "
+                       "model), then reload this page.")
     return False, ("Design is not set up yet: configure a design model by setting "
-                   "[design] chat_url and model (or the [llm] values they "
-                   "inherit), then reload this page.")
+                   "[llm] chat_url and model (design.model may name a different "
+                   "model), then reload this page.")
 
 
 def owner_for_scope(scope):

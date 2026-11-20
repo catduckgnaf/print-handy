@@ -13,14 +13,12 @@ VisualPrintWatch only decides when a check is due.
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
 import os
 import threading
 import time
-import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
@@ -146,10 +144,10 @@ def write_frame(filename, image):
 # printer whether it runs) lives in the camera-watch core (#1320); these
 # names stay for existing callers. camera_watch imports this module, so the
 # delegation is lazy.
-def coverage_report(cfg, api_key):
+def coverage_report(cfg):
     """``[(ok, detail)]``: the camera watch per configured printer (camera_watch.coverage_report)."""
     from . import camera_watch
-    return camera_watch.coverage_report(cfg, api_key)
+    return camera_watch.coverage_report(cfg)
 
 
 def watch_coverage(connection):
@@ -570,15 +568,15 @@ VISION_AI_OFF = "Vision endpoint camera checks are off (vision.ai_enabled is fal
 
 
 def vision_ai_enabled(cfg=None) -> bool:
-    """Whether frames and photos may be sent to a vision model endpoint (#1376).
+    """Whether frames and photos may be sent to the AI endpoint (#1376).
 
     ``vision.ai_enabled``, off by default: AI is for designing models. While
-    it is off, every endpoint route (PRINT_VISION_URL, services.vision_chat_url,
-    [ai.small]) counts as not configured for the camera watchdog, the idle
-    plate checks, label reads and purchase reads, and ``_vision_answer``
-    sends nothing. The local failure detector and the local plate reference
-    are not model endpoints and keep their own switches. A config that
-    cannot be read means off.
+    it is off, the one endpoint route (the [ai.small] tier over [llm])
+    counts as not configured for the camera watchdog, the idle plate
+    checks, label reads and purchase reads, and ``_vision_answer`` sends
+    nothing. The local failure detector and the local plate reference are
+    not model endpoints and keep their own switches. A config that cannot
+    be read means off.
     """
     try:
         cfg = _config.cfg() if cfg is None else cfg
@@ -591,32 +589,29 @@ def vision_ai_enabled(cfg=None) -> bool:
 keyless_ok = ai_routes.keyless_ok
 
 
-def chat_key_ready(api_key) -> bool:
-    """Whether the chat route has what it needs: its key, or a local endpoint.
+def chat_key_ready() -> bool:
+    """Whether the AI endpoint route has what it needs: its key, or a local endpoint.
 
     Never while AI camera checks are off (#1376): the route is not used.
     """
     if not vision_ai_enabled():
         return False
-    if ai_routes.overrides_route("small"):
-        return ai_routes.ready("small")
-    if keyless_ok(_config.service_url("vision_chat_url")):
-        return True
-    return bool(api_key())
+    return ai_routes.ready("small")
 
 
-def watch_unavailable_reason(api_key, *, prefetch=True):
+def watch_unavailable_reason(*, prefetch=True):
     """Why no frame can be judged right now, in plain words; "" when one can.
 
-    The judging routes are PRINT_VISION_URL, vision_chat_url with its key,
-    or the built-in local failure detector (#455). ``vision.watch_source``
-    narrows what counts (#455): "local" counts the detector (plus a
-    calibrated plate reference for the idle checks), "endpoint" counts
-    only the endpoint routes, and "auto" (the default) counts any of them.
-    When the detector would be the route and its model is missing, this
-    also starts the background model download (local_vision.prefetch_model),
-    so the download never happens inside a camera check. ``prefetch=False``
-    (the offline ``bot check``) only reports.
+    The judging routes are the one AI endpoint (the [ai.small] tier over
+    [llm], with its key) or the built-in local failure detector (#455).
+    ``vision.watch_source`` narrows what counts (#455): "local" counts
+    the detector (plus a calibrated plate reference for the idle checks),
+    "endpoint" counts only the endpoint route, and "auto" (the default)
+    counts either. When the detector would be the route and its model is
+    missing, this also starts the background model download
+    (local_vision.prefetch_model), so the download never happens inside
+    a camera check. ``prefetch=False`` (the offline ``bot check``) only
+    reports.
     """
     if not prefetch:
         def _start_download():
@@ -636,13 +631,10 @@ def watch_unavailable_reason(api_key, *, prefetch=True):
         _start_download()
         return ("vision.watch_source is local but the local failure detector is not "
                 f"ready: {local_vision.detector_status()[1]}")
-    # AI camera checks off (#1376, the default): the endpoint routes do
-    # not count, however they are configured; only the local routes can.
+    # AI camera checks off (#1376, the default): the endpoint route does
+    # not count, however it is configured; only the local routes can.
     ai_on = vision_ai_enabled()
-    if ai_on and os.environ.get("PRINT_VISION_URL"):
-        return ""
-    if ai_on and (ai_routes.overrides_route("small") or _config.service_url("vision_chat_url")) \
-            and chat_key_ready(api_key):
+    if ai_on and ai_routes.configured("small") and chat_key_ready():
         return ""
     if source == "auto" and local_vision.detector_ready():
         return ""
@@ -654,23 +646,21 @@ def watch_unavailable_reason(api_key, *, prefetch=True):
         if not ai_on:
             return ("vision.watch_source is endpoint but vision endpoint camera checks are off "
                     "(vision.ai_enabled is false); set "
-                    "vision.ai_enabled to true to use the vision endpoint")
-        return ("vision.watch_source is endpoint but no vision endpoint is configured "
-                "(set services.vision_chat_url with CLIPROXY_API_KEY, which a local or "
-                "LAN endpoint does not need, or PRINT_VISION_URL)")
+                    "vision.ai_enabled to true to use the AI endpoint")
+        return ("vision.watch_source is endpoint but the AI endpoint is not configured "
+                "(set [llm] chat_url and model; a local or LAN endpoint does not need a key)")
     if local_vision.enabled():
         _start_download()
         return f"the local failure detector is not ready: {local_vision.detector_status()[1]}"
     if not ai_on:
         return (f"{VISION_AI_OFF} and no local route is on (enable the local detector "
                 "with vision.local_detector_enabled, or set vision.ai_enabled to true "
-                "to use a vision endpoint)")
-    return ("no vision endpoint (set services.vision_chat_url with CLIPROXY_API_KEY, which a "
-            "local or LAN endpoint does not need, or PRINT_VISION_URL, or enable the local "
-            "detector with vision.local_detector_enabled)")
+                "to use the AI endpoint)")
+    return ("the AI endpoint is not configured (set [llm] chat_url and model, or enable "
+            "the local detector with vision.local_detector_enabled)")
 
 
-def vision_ready(api_key, log=None):
+def vision_ready(log=None):
     """True when a frame can actually be judged (see :func:`watch_unavailable_reason`).
 
     Without a route, every verdict degrades to "uncertain", and "uncertain"
@@ -679,7 +669,7 @@ def vision_ready(api_key, log=None):
     per outage: the log line repeats only after the watch was ready again.
     """
     global _vision_missing_logged
-    reason = watch_unavailable_reason(api_key)
+    reason = watch_unavailable_reason()
     if not reason:
         _vision_missing_logged = False
         return True
@@ -697,51 +687,29 @@ class _VisionAIOff(Exception):
     """AI camera checks are off (vision.ai_enabled, #1376): nothing was sent."""
 
 
-def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
-    """One vision call: POST ``image`` + ``prompt`` and return the endpoint's answer.
+def _vision_answer(image, prompt, *, context):
+    """One vision call: POST ``image`` + ``prompt`` to the one AI endpoint and return its answer.
 
     This is the one transport both vision consumers share (#294's rule):
     ``visual_verdict`` judges a frame with it, and ``visual_extract`` reads a
-    spool label with it (#514). ``chat_url`` and ``api_key`` are zero-argument
-    callables (so a missing setting fails inside the call exactly as the
-    verdict path has always behaved), ``model`` and ``context`` are the
-    caller's strings. A PRINT_VISION_URL endpoint, when set, takes the simple
-    {image, prompt} shape (the operator-facing contract is documented in
-    docs/SETTINGS.md, "Custom vision endpoint") and its response body is
-    parsed as JSON; otherwise the OpenAI-compatible chat endpoint is used
-    with the env-named key and its message content is parsed as JSON when it
-    parses, else returned as the raw string. Transport and parse failures
-    raise; a missing chat key raises _VisionKeyMissing. With AI camera checks
-    off (vision.ai_enabled, #1376) it raises _VisionAIOff before any
-    endpoint is contacted.
+    spool label with it (#514). The call goes through ai_routes' small tier
+    (#1731) — the [llm] endpoint with the small tier's model name — and its
+    message content is parsed as JSON when it parses, else returned as the
+    raw string. Transport and parse failures raise; a hosted endpoint
+    without its key (or no endpoint at all) raises _VisionKeyMissing. With
+    AI camera checks off (vision.ai_enabled, #1376) it raises _VisionAIOff
+    before any endpoint is contacted.
     """
     if not vision_ai_enabled():
         raise _VisionAIOff(VISION_AI_OFF)
-    endpoint = os.environ.get("PRINT_VISION_URL")
-    if endpoint:
-        payload = json.dumps({"image": base64.b64encode(image).decode(), "prompt": prompt}).encode()
-        req = urllib.request.Request(endpoint, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=30) as response:
-            return json.loads(response.read())
-    key = api_key()
-    try:
-        url = chat_url()
-    except Exception:
-        # An unset services.vision_chat_url: [ai.small] may still name the
-        # endpoint, and the call reports a missing one itself.
-        url = ""
-    if not ai_routes.overrides_route("small") and not key and not keyless_ok(url):
-        # The long-standing rule for the legacy vision settings: no key for a hosted
-        # (or unset) endpoint is the missing-key result, before any route lookup.
-        raise _VisionKeyMissing("vision key is not configured")
     try:
         content, served_by = ai_routes.call(
             "small", [{"role": "user", "content": context + str(prompt)}], images=[image],
-            compat=ai_routes.Compat(url, model, key, timeout_s=60,
-                                   slot="services.vision_chat_url"), purpose="vision",
-            max_tokens=200, temperature=0)
+            max_tokens=200, temperature=0, timeout=60)
     except ai_routes.AIKeyMissing as exc:
         raise _VisionKeyMissing("vision key is not configured") from exc
+    except ai_routes.AINotConfigured as exc:
+        raise _VisionKeyMissing("vision endpoint is not configured") from exc
     logger.debug("vision answer served by %s", served_by)
     content = _strip_json_fence(content)
     try:
@@ -780,20 +748,13 @@ def _local_verdict(image, streak=None):
     return _detector_verdict(image, streak)
 
 
-def _chat_route_configured(api_key):
-    """Whether the chat endpoint route is fully configured — the URL set
-    and its key present, the same rule ``vision_ready`` applies. Every
-    caller injects a chat_url built on ``services.vision_chat_url``, so
-    the setting is the honest test; a key that cannot even be read counts
-    as configured (endpoint semantics win ties)."""
+def _chat_route_configured():
+    """Whether the AI endpoint route is fully configured for vision — the
+    small tier resolves and its key rule passes, the same test
+    ``vision_ready`` applies."""
     if not vision_ai_enabled():
         return False
-    if not (ai_routes.overrides_route("small") or _config.service_url("vision_chat_url")):
-        return False
-    try:
-        return chat_key_ready(api_key)
-    except Exception:
-        return True
+    return ai_routes.ready("small")
 
 
 def _local_fallback_verdict(image, streak=None):
@@ -824,19 +785,17 @@ def _local_fallback_verdict(image, streak=None):
 IDLE_CHECK_PROMPT_TEXT = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
 
 
-def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_streak=None,
+def visual_verdict(image, prompt, *, context, local_streak=None,
                    local_fallback=False, idle=False):
     """Judge one frame. Returns (verdict, detail).
 
-    Route order: PRINT_VISION_URL, then the chat endpoint
-    (``services.vision_chat_url``), then — only when neither endpoint
-    route is configured — the built-in local failure detector (#455).
-    With ``vision.ai_enabled`` false (the default, #1376) neither endpoint
-    route counts as configured and only the local routes can answer.
-    This is the listener's verdict call with its process-specific values
-    injected (see ``_vision_answer`` for the shared transport). Any failure
-    degrades to ("uncertain", ...) — an uncertain frame alerts, it never
-    silently passes. Label reads (``visual_extract``) never use the local
+    Route order: the one AI endpoint (the [ai.small] tier over [llm]),
+    then — only when the endpoint route is not configured — the built-in
+    local failure detector (#455). With ``vision.ai_enabled`` false (the
+    default, #1376) the endpoint route does not count as configured and
+    only the local routes can answer. Any failure degrades to
+    ("uncertain", ...) — an uncertain frame alerts, it never silently
+    passes. Label reads (``visual_extract``) never use the local
     detector: it detects failures, it cannot read.
 
     ``local_streak`` is the calling print watch's per-print temporal
@@ -864,10 +823,8 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
             if empty is not None:
                 return empty
         return _detector_verdict(image, local_streak)
-    endpoint = os.environ.get("PRINT_VISION_URL")
     try:
-        parsed = _vision_answer(image, prompt, chat_url=chat_url, model=model,
-                                api_key=api_key, context=context)
+        parsed = _vision_answer(image, prompt, context=context)
         if not isinstance(parsed, dict):
             raise TypeError(f"vision answer is not a JSON object ({type(parsed).__name__})")
     except _VisionAIOff:
@@ -893,12 +850,11 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
                 return local
         return "uncertain", "vision key is not configured"
     except Exception as exc:
-        # The chat route can also fail simply by being half-configured
-        # (its URL unset raises inside the call when a key exists): that
-        # is "no endpoint route configured", so the local detector stands
-        # in (auto source only — "endpoint" never consults it). A
+        # The endpoint route can also fail simply by being unconfigured:
+        # that is "no endpoint route configured", so the local detector
+        # stands in (auto source only — "endpoint" never consults it). A
         # configured endpoint that fails does NOT fall through.
-        if source == "auto" and not endpoint and not _chat_route_configured(api_key):
+        if source == "auto" and not _chat_route_configured():
             if idle:
                 empty = local_empty.idle_verdict(image)
                 if empty is not None:
@@ -909,18 +865,16 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         elif local_fallback and source == "auto":
             # #913: in early-layer mode a failed or timed-out endpoint call
             # falls back to the local detector when its model is present.
-            logger.warning("vision check failed via %s: %s: %s; trying the local detector",
-                           "PRINT_VISION_URL" if endpoint else "services.vision_chat_url",
+            logger.warning("vision check failed via the AI endpoint: %s: %s; trying the local detector",
                            type(exc).__name__, exc)
             local = _local_fallback_verdict(image, local_streak)
             if local is not None:
                 return local
         # The returned detail stays generic on purpose (#467: raw error text
         # does not belong in a chat alert), but the underlying error is
-        # logged: without it a mis-configured endpoint — above all a custom
-        # PRINT_VISION_URL (#501) — is undiagnosable from the alert alone.
-        logger.warning("vision check failed via %s: %s: %s",
-                       "PRINT_VISION_URL" if endpoint else "services.vision_chat_url",
+        # logged: without it a mis-configured endpoint is undiagnosable
+        # from the alert alone.
+        logger.warning("vision check failed via the AI endpoint: %s: %s",
                        type(exc).__name__, exc)
         return "uncertain", VISION_FAILED_DETAIL
     verdict = str(parsed.get("verdict", "uncertain")).casefold()
@@ -932,27 +886,24 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
     return verdict, str(parsed.get("reason", ""))[:300]
 
 
-def visual_extract(image, prompt, *, chat_url, model, api_key, context):
-    """Ask the configured vision endpoint to extract data from one image (#514).
+def visual_extract(image, prompt, *, context):
+    """Ask the AI endpoint to extract data from one image (#514).
 
     The same call shape as ``visual_verdict`` — image bytes plus a JSON-only
-    prompt, with the caller's values injected — but the answer is data, not a
-    verdict: the endpoint's parsed JSON (a dict when it answered a JSON
-    object, the raw string when its answer was not JSON), or None when the
-    call could not be completed at all. Never raises; the failure is logged
-    with its route, like the verdict path. Interpreting the answer — and
-    refusing it when it is unusable — is the caller's job (spool_label).
+    prompt — but the answer is data, not a verdict: the endpoint's parsed
+    JSON (a dict when it answered a JSON object, the raw string when its
+    answer was not JSON), or None when the call could not be completed at
+    all. Never raises; the failure is logged, like the verdict path.
+    Interpreting the answer — and refusing it when it is unusable — is the
+    caller's job (spool_label).
     """
     try:
-        return _vision_answer(image, prompt, chat_url=chat_url, model=model,
-                              api_key=api_key, context=context)
+        return _vision_answer(image, prompt, context=context)
     except _VisionAIOff:
         logger.info("vision extraction skipped: %s", VISION_AI_OFF)
         return None
     except Exception as exc:
-        logger.warning("vision extraction failed via %s: %s: %s",
-                       "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL")
-                       else "services.vision_chat_url",
+        logger.warning("vision extraction failed via the AI endpoint: %s: %s",
                        type(exc).__name__, exc)
         return None
 

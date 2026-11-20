@@ -1190,21 +1190,28 @@ def validate_stl(stl_path: Path) -> dict:
 # --------------------------------------------------------------------- transports
 
 def resolve_http_config(cfg) -> dict | None:
-    """The effective design endpoint (the normal path in every mode): [design] first, [llm] as the fallback."""
+    """The effective design endpoint: the one AI endpoint, resolved for design.
+
+    Design has no endpoint of its own (#1731): the URL and key come from
+    [llm] through ai_routes' heavy tier, and the model is the heavy
+    tier's — [ai.heavy] model, else design.model, else the [llm] model.
+    The returned dict keeps the shape callers and `bot check` read;
+    timeout_s is design's own call and render budget.
+    """
+    from .. import ai_routes
     design = (cfg or {}).get("design") or {}
     llm = (cfg or {}).get("llm") or {}
-    chat_url = str(design.get("chat_url") or llm.get("chat_url") or "").strip()
-    model = str(design.get("model") or llm.get("model") or "").strip()
+    chat_url = ai_routes.endpoint_url("heavy", cfg)
+    model = ai_routes.model_for("heavy", cfg)
     if not chat_url or not model:
         return None
     return {"chat_url": chat_url, "model": model,
-            "api_key_env": str(design.get("api_key_env") or llm.get("api_key_env")
-                               or "LLM_API_KEY"),
+            "api_key_env": str(llm.get("api_key_env") or "LLM_API_KEY"),
             "timeout_s": int(design.get("timeout_s") or 180)}
 
 
 def endpoint_configured(cfg) -> bool:
-    """True when a design endpoint resolves ([design] inheriting [llm])."""
+    """True when the design endpoint resolves (the one [llm] endpoint)."""
     return resolve_http_config(cfg) is not None
 
 
@@ -1239,33 +1246,22 @@ def mode_name(cfg, *, endpoint_available=None) -> str:
 
 
 def http_complete(cfg, messages, *, opener=None):
-    """One design model call over an OpenAI-compatible endpoint. Returns the reply text."""
-    import urllib.request
+    """One design model call, through ai_routes on the heavy tier. Returns the reply text."""
+    from .. import ai_routes
     resolved = resolve_http_config(cfg)
     if resolved is None:
         raise DesignError("design is enabled but no model endpoint is configured: "
-                          "set [design] chat_url and model, or the [llm] values they inherit")
-    from .. import credential_binding
-    # The key is bound to the host of the setting the address came from (#1192).
-    slot = ("design.chat_url" if str(((cfg or {}).get("design") or {}).get("chat_url") or "").strip()
-            else "llm.chat_url")
-    key = credential_binding.key_for(slot, resolved["chat_url"],
-                                     os.environ.get(resolved["api_key_env"]) or "")
-    headers = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    body = json.dumps({"model": resolved["model"], "messages": messages,
-                       "max_tokens": 4000, "temperature": 0.3}).encode()
-    req = urllib.request.Request(resolved["chat_url"], data=body, headers=headers, method="POST")
+                          "set [llm] chat_url and model")
     try:
-        with (opener or urllib.request.urlopen)(req, timeout=float(resolved["timeout_s"])) as resp:
-            data = json.loads(resp.read())
-    except Exception as exc:
+        answer, _served_by = ai_routes.call(
+            "heavy", messages, cfg=cfg, opener=opener, max_tokens=4000,
+            temperature=0.3, timeout=float(resolved["timeout_s"]))
+    except ai_routes.AINotConfigured:
+        raise DesignError("design is enabled but no model endpoint is configured: "
+                          "set [llm] chat_url and model") from None
+    except Exception:
         raise DesignError("the design service did not answer — wait a moment and try again") from None
-    try:
-        return str(data["choices"][0]["message"]["content"] or "")
-    except (KeyError, IndexError, TypeError):
-        raise DesignError("the design model returned a reply with no message content") from None
+    return answer
 
 
 # --------------------------------------------------------------------- the engine

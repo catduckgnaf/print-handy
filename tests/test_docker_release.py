@@ -39,7 +39,7 @@ DEPLOYMENT_FILES = [".env.example", "docker-compose.yml", "Dockerfile",
                     "docker/entrypoint.sh", "docker/orca-build-jobs.sh", "docker/orca-prebuilt.sh", "docker/unraid/print-handy.xml",
                     "docker/supervise.sh", "docker/healthcheck.py", "config/docker.yaml", "config/docker.toml",
                     "docs/DOCKER.md", "docs/SETTINGS.md", "tests/docker/compose.acceptance.yml"]
-SECRETS = {"DISCORD_BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "MATRIX_ACCESS_TOKEN", "LLM_API_KEY", "AGENT_API_KEY", "OCTOPRINT_API_KEY", "MOONRAKER_API_KEY", "CLIPROXY_API_KEY",
+SECRETS = {"DISCORD_BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "MATRIX_ACCESS_TOKEN", "LLM_API_KEY", "OCTOPRINT_API_KEY", "MOONRAKER_API_KEY",
            "BAMBU_LAN_PASSWORD", "AD5X_SERIAL", "AD5X_CHECK_CODE", "WEBUI_ACCESS_TOKEN",
            "MQTT_PASSWORD", "NTFY_ACCESS_TOKEN",
            "DISCORD_CLIENT_SECRET", "LIVE_STREAM_SESSION_SECRET", "TUNNEL_TOKEN",
@@ -52,7 +52,7 @@ COMPOSE_VARS = {"PRINT_HANDY_IMAGE", "PRINT_HANDY_DATA", "PRINT_HANDY_SPOOLMAN_D
 # the image carries the NVIDIA_DRIVER_CAPABILITIES default, so they are not
 # Compose vars.
 UNRAID_GPU_VARS = {"NVIDIA_VISIBLE_DEVICES": "", "NVIDIA_DRIVER_CAPABILITIES": "compute,video,utility"}
-RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
+RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK"}
 # The slimmed Unraid template's whole Config surface: the Web UI port, the
 # two paths, bundled/external Spoolman and bundled firmware visibility choices,
 # timezone and GPU entries. Everything else is set in the mounted config file,
@@ -1335,9 +1335,7 @@ class CameraWatchVisibilityTests(unittest.TestCase):
 
 
 FEATURE_SETTINGS = {
-    "PRINT_HANDY__SERVICES__VISION_CHAT_URL": "",
     "PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL": "",
-    "PRINT_HANDY__VISION__MODEL": "gemini-latest",
     "PRINT_HANDY__VISION__ROAST_ENABLED": "true",
     "PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES": "0",
     "PRINT_HANDY__VISION__LIGHT_OBJECT": "",
@@ -1361,7 +1359,7 @@ FEATURE_SETTINGS = {
     "PRINT_HANDY__LIVE_STREAM__EMPTY_TIMEOUT_S": "300",
     "PRINT_HANDY__LIVE_STREAM__ACTIVITY_ORIGIN": "",
 }
-FEATURE_SECRETS = {"CLIPROXY_API_KEY", "AD5X_SERIAL", "AD5X_CHECK_CODE",
+FEATURE_SECRETS = {"AD5X_SERIAL", "AD5X_CHECK_CODE",
                    "BAMBU_LAN_PASSWORD", "MOONRAKER_API_KEY", "LLM_API_KEY",
                    "DISCORD_CLIENT_SECRET", "LIVE_STREAM_SESSION_SECRET", "TUNNEL_TOKEN",
            "CREALITYCLOUD_TOKEN", "THANGS_TOKEN", "NEXPRINT_TOKEN",

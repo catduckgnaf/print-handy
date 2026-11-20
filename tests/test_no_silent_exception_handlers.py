@@ -326,7 +326,7 @@ BROAD_NO_LOG_ALLOWANCE = {
         "Pre-existing broad no-log handlers in runtime watchers and listeners, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
     "print_handy/runtime/timelapse_encode.py": (8,
         "Pre-existing broad no-log handlers in runtime watchers and listeners, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
-    "print_handy/runtime/visual_watch.py": (6,
+    "print_handy/runtime/visual_watch.py": (4,
         "Pre-existing broad no-log handlers in runtime watchers and listeners, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
     "print_handy/setup_state.py": (1,
         "Pre-existing broad no-log handlers in shipped code, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),

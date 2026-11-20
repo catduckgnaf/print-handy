@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 import pytest
 
 from print_handy import ai_routes, credential_binding, notify, settings
-from print_handy.bot import agent, matrix_rest
+from print_handy.bot import matrix_rest
 from print_handy.core import design
 from print_handy.webui import config as config_api
 from print_handy.webui import pages as pages_module
@@ -178,12 +178,14 @@ def test_keyless_service_save_is_unchanged(monkeypatch):
         {"notify.ntfy_url": "https://evil.example/a"}, old, {}, {}) == []
 
 
-def test_design_inherits_the_chat_endpoint_binding():
-    credential_binding.key_for("llm.chat_url", "https://llm.example/v1", KEY)
-    old = {"llm.chat_url": "https://llm.example/v1", "design.chat_url": ""}
-    [move] = credential_binding.pending_rebinds(
-        {"design.chat_url": "https://evil.example/v1"}, old, {}, {})
-    assert move.old_host == "llm.example"
+def test_the_one_ai_endpoint_has_exactly_one_binding_slot():
+    """#1731: the retired lanes' slots are gone; llm.chat_url is the only
+    AI slot, so there is one host a model key can ever be bound to."""
+    ai_slots = {name for name in credential_binding.SLOTS
+                if "chat_url" in name or name.startswith("ai.")}
+    assert ai_slots == {"llm.chat_url"}
+    for retired in ("design.chat_url", "agent.chat_url", "services.vision_chat_url"):
+        assert retired not in credential_binding.SLOTS
 
 
 # ---------------------------------------------------------------- each client
@@ -238,21 +240,26 @@ def test_ai_routes_uses_the_binding(listener, monkeypatch):
     assert listener.seen == [None, f"Bearer {KEY}"]
 
 
-def test_ai_routes_tier_url_has_its_own_binding(listener, monkeypatch):
+def test_ai_routes_tier_model_override_keeps_the_one_binding(listener, monkeypatch):
+    """A tier's model name is not an endpoint: the call still posts to
+    llm.chat_url under its one binding (#1731)."""
     monkeypatch.setenv("TEST_LLM_KEY", KEY)
-    cfg = {"ai": {"chat": {"chat_url": listener.url(), "model": "m",
-                           "api_key_env": "TEST_LLM_KEY"}}}
-    _bind_elsewhere("ai.chat.chat_url")
+    cfg = {"llm": {"chat_url": listener.url(), "model": "m", "api_key_env": "TEST_LLM_KEY"},
+           "ai": {"chat": {"model": "other-model"}}}
+    _bind_elsewhere("llm.chat_url")
     ai_routes.call("chat", [{"role": "user", "content": "hi"}], cfg=cfg)
     assert listener.seen == [None]
 
 
 def test_design_client_uses_the_binding(listener, monkeypatch):
+    """Design posts through ai_routes' heavy tier, so the one endpoint's
+    binding governs its key too (#1731)."""
     monkeypatch.setenv("TEST_LLM_KEY", KEY)
-    cfg = {"design": {"chat_url": listener.url(), "model": "m", "api_key_env": "TEST_LLM_KEY"}}
-    _bind_elsewhere("design.chat_url")
+    cfg = {"llm": {"chat_url": listener.url(), "model": "m", "api_key_env": "TEST_LLM_KEY"},
+           "design": {}}
+    _bind_elsewhere("llm.chat_url")
     design.http_complete(cfg, [{"role": "user", "content": "hi"}])
-    _rebind_here("design.chat_url", listener)
+    _rebind_here("llm.chat_url", listener)
     design.http_complete(cfg, [{"role": "user", "content": "hi"}])
     assert listener.seen == [None, f"Bearer {KEY}"]
 
@@ -265,16 +272,6 @@ def test_design_inheriting_the_chat_url_uses_its_binding(listener, monkeypatch):
     assert listener.seen == [None]
 
 
-def test_agent_client_uses_the_binding(listener, monkeypatch):
-    monkeypatch.setenv("TEST_AGENT_KEY", KEY)
-    cfg = {"agent": {"chat_url": listener.url(), "api_key_env": "TEST_AGENT_KEY"}}
-    _bind_elsewhere("agent.chat_url")
-    agent.ask("hi", "s1", cfg=cfg)
-    _rebind_here("agent.chat_url", listener)
-    agent.ask("hi", "s1", cfg=cfg)
-    assert listener.seen == [None, f"Bearer {KEY}"]
-
-
 def test_matrix_client_uses_the_binding(listener):
     homeserver = listener.url("")
     _bind_elsewhere("matrix.homeserver_url")
@@ -284,38 +281,48 @@ def test_matrix_client_uses_the_binding(listener):
     assert listener.seen == [None, f"Bearer {KEY}"]
 
 
-def test_vision_text_call_uses_the_binding(listener, monkeypatch):
-    from print_handy.runtime import moonraker_event_listener as mel
+@pytest.fixture
+def endpoint_at(listener):
+    """Point the runtime config's one AI endpoint at the test listener."""
+    import copy
+
+    from print_handy.runtime import _config
+    previous = _config.cfg()
+    cfg = copy.deepcopy(previous)
+    cfg["llm"] = {"chat_url": listener.url(), "model": "m",
+                  "api_key_env": "TEST_LLM_KEY", "timeout_s": 20}
+    _config.set_override(cfg)
+    yield cfg
+    _config.set_override(previous)
+
+
+def test_purchase_text_call_uses_the_binding(listener, endpoint_at, monkeypatch):
+    """The Web UI purchase-intake text call posts through ai_routes' small
+    tier, so the one endpoint's binding governs its key (#1731)."""
     from print_handy.webui import spools
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(mel, "_vision_chat_url", listener.url)
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: KEY)
+    monkeypatch.setenv("TEST_LLM_KEY", KEY)
     call = spools._default_ai_call()
-    _bind_elsewhere("services.vision_chat_url")
+    _bind_elsewhere("llm.chat_url")
     call(prompt="p", text="t")
-    _rebind_here("services.vision_chat_url", listener)
+    _rebind_here("llm.chat_url", listener)
     call(prompt="p", text="t")
     assert listener.seen == [None, f"Bearer {KEY}"]
 
 
-def test_purchase_image_call_reaches_the_endpoint_with_its_key(listener, monkeypatch):
-    # The image branch of the Web UI purchase-intake call hands visual_extract
-    # an api_key that visual_watch calls; it must be a callable, not the key itself.
-    from print_handy.runtime import moonraker_event_listener as mel
+def test_purchase_image_call_reaches_the_endpoint_with_its_key(listener, endpoint_at, monkeypatch):
+    # The image branch of the Web UI purchase-intake call goes through
+    # visual_extract on the same endpoint and binding.
     from print_handy.webui import spools
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(mel, "_vision_chat_url", listener.url)
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: KEY)
-    assert spools._default_ai_call()(prompt="p", image=b"img") == "ok"
+    monkeypatch.setenv("TEST_LLM_KEY", KEY)
+    spools._default_ai_call()(prompt="p", image=b"img")
     assert listener.seen == [f"Bearer {KEY}"]
 
 
-def test_vision_image_route_uses_the_binding(listener, monkeypatch):
+def test_vision_image_route_uses_the_binding(listener, endpoint_at, monkeypatch):
     from print_handy.runtime import visual_watch
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    _bind_elsewhere("services.vision_chat_url")
-    visual_watch._vision_answer(b"img", "p", chat_url=listener.url, model="m",
-                                api_key=lambda: KEY, context="")
+    monkeypatch.setenv("TEST_LLM_KEY", KEY)
+    _bind_elsewhere("llm.chat_url")
+    visual_watch._vision_answer(b"img", "p", context="")
     assert listener.seen == [None]
 
 

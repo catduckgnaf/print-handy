@@ -419,7 +419,7 @@ def coverage(connection, *, enabled=True, unavailable_reason=""):
     return {"family": family, "watched": watched, "active": not why, "why": why}
 
 
-def listener_coverage(connection, cfg, api_key, *, camera_reason=""):
+def listener_coverage(connection, cfg, *, camera_reason=""):
     """:func:`coverage` for a listener from its configuration, offline.
 
     ``camera_reason`` is the listener's own "no camera" reason (the
@@ -430,7 +430,7 @@ def listener_coverage(connection, cfg, api_key, *, camera_reason=""):
     reason = ""
     if enabled and watch_coverage(connection)[0]:
         try:
-            reason = camera_reason or _vw.watch_unavailable_reason(api_key, prefetch=False)
+            reason = camera_reason or _vw.watch_unavailable_reason(prefetch=False)
         except Exception as exc:
             reason = f"the vision route could not be checked ({exc})"
     return coverage(connection, enabled=enabled, unavailable_reason=reason)
@@ -492,7 +492,7 @@ def live_coverage(data=None, printer_id=None):
     return entry if isinstance(entry, dict) else None
 
 
-def coverage_report(cfg, api_key, *, live=None):
+def coverage_report(cfg, *, live=None):
     """``[(ok, detail)]``: the camera watch per configured printer, for ``bot check``.
 
     Each printer's family coverage (:func:`watch_coverage`) and whether the
@@ -509,7 +509,7 @@ def coverage_report(cfg, api_key, *, live=None):
     if section.get("enabled") is False:
         return [(True, "off (visual_watch.enabled is false)")]
     try:
-        reason = _vw.watch_unavailable_reason(api_key, prefetch=False)
+        reason = _vw.watch_unavailable_reason(prefetch=False)
     except Exception as exc:
         reason = f"the vision route could not be checked ({exc})"
     pinned = local_vision.watch_source(cfg) in ("endpoint", "local")

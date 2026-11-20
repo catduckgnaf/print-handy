@@ -261,10 +261,10 @@ class CatalogTests(unittest.TestCase):
             "notify.ntfy_topic": ("notifications", "text"),
             "llm.chat_url": ("ai", "url"),
             "llm.model": ("ai", "text"),
-            "design.chat_url": ("ai", "url"),
             "design.model": ("ai", "text"),
-            "agent.chat_url": ("ai", "url"),
-            "agent.model": ("ai", "text"),
+            # design.chat_url and the agent.* fields left this list with
+            # their lanes in #1731: there is one endpoint ([llm]) now,
+            # and design.model is a model-name override on it.
         }
         for field_id, (group, kind) in expected.items():
             with self.subTest(field=field_id):
@@ -274,11 +274,12 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(field.kind, kind)
     def test_ai_section_fields_groups_and_gate(self):
         # Settings restructure stage 2: every AI surface lives in the ai
-        # group — the three endpoint pairs and the [ai] edit gate as
-        # ordinary fields (#902). The tier tables stay file-only: no
-        # field exists for them. The vision endpoint URL and model are
-        # file-only too (#1718): no field exists for them, so no
-        # provider or proxy name and no internal model alias is shown.
+        # group — the one endpoint ([llm], #1731) and the [ai] edit gate
+        # as ordinary fields (#902). The tier tables stay file-only: no
+        # field exists for them. The retired vision endpoint URL and
+        # model settings (#1718, removed in #1731) have no field either,
+        # so no provider or proxy name and no internal model alias is
+        # shown.
         expected = {
             "ai.allowed_users": ("ai", "id_list"),
             "ai.edit_requests_per_hour": ("ai", "number"),

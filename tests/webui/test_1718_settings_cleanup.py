@@ -24,8 +24,12 @@ def test_flipped_defaults_load():
 def test_vision_endpoint_and_model_are_not_webui_fields():
     assert catalog.field_by_id("services.vision_chat_url") is None
     assert catalog.field_by_id("vision.model") is None
+    # Since #1731 the retired lanes have no fields either: the one
+    # endpoint is [llm], and the [ai] tier tables are model names only.
+    assert catalog.field_by_id("design.chat_url") is None
+    assert catalog.field_by_id("agent.chat_url") is None
     note = catalog.GROUP_FILE_ONLY_NOTES["ai"]
-    assert "vision_chat_url" in note and "vision.model" in note
+    assert "[ai.small]" in note and "model name" in note
     # No catalog text shown on the page names a proxy or an internal
     # model alias.
     for field in catalog.CATALOG:

@@ -75,7 +75,7 @@ def test_listener_helper_paths_never_load_the_moonraker_listener():
         "from print_handy.runtime import family_event_listener, family_control, start_claims, camera_watch\n"
         "from print_handy.printers.bambulab import listener\n"
         "helpers = family_control._mel()\n"
-        "helpers.classify_pause('Filament runout'); helpers._buttonless_standalone(); helpers._vision_chat_url\n"
+        "helpers.classify_pause('Filament runout'); helpers._buttonless_standalone()\n"
         "start_claims.start_claimed('x.gcode'); start_claims.AbandonedStartWatch()\n"
         "family_control.LaunchLeaseSettler('p1')._watch_for()\n"
         "camera_watch.coverage('prusalink')\n"
@@ -90,13 +90,12 @@ def test_the_moonraker_listener_keeps_every_moved_name():
     from print_handy.runtime import listener_common, moonraker_event_listener as mel, start_claims
     for name in ("post", "_post_rest", "_post_rest_discord", "_bot_token", "_buttonless_standalone",
                  "_telegram_standalone", "_matrix_standalone", "_profile_env_value", "_vision_ready",
-                 "_vision_chat_url", "start_claim_time", "start_claimed", "claimed_start_filenames",
+                 "start_claim_time", "start_claimed", "claimed_start_filenames",
                  "release_start_claim"):
         assert callable(getattr(mel, name)), name
     assert mel.classify_pause is listener_common.classify_pause
     assert mel.AbandonedStartWatch is start_claims.AbandonedStartWatch
     assert mel.ABANDONED_START_COLD_S == start_claims.ABANDONED_START_COLD_S == 60.0
-    assert mel._VISION_MODEL == listener_common._VISION_MODEL
 
 
 def test_moonraker_seams_still_steer_the_shared_post_path(monkeypatch):
@@ -242,12 +241,12 @@ def test_coverage_records_active_or_off_and_why():
 def test_listener_coverage_uses_the_camera_reason_first_and_never_prefetches(monkeypatch):
     calls = []
     monkeypatch.setattr(vw, "watch_unavailable_reason",
-                        lambda api_key, prefetch=True: calls.append(prefetch) or "no route")
+                        lambda prefetch=True: calls.append(prefetch) or "no route")
     cfg = {"visual_watch": {"enabled": True}}
-    assert cw.listener_coverage("moonraker", cfg, lambda: "", camera_reason="no camera")["why"] == "no camera"
-    assert cw.listener_coverage("moonraker", cfg, lambda: "")["why"] == "no route"
+    assert cw.listener_coverage("moonraker", cfg, camera_reason="no camera")["why"] == "no camera"
+    assert cw.listener_coverage("moonraker", cfg)["why"] == "no route"
     assert calls == [False]
-    assert cw.listener_coverage("moonraker", {"visual_watch": {"enabled": False}}, lambda: "")["why"] == (
+    assert cw.listener_coverage("moonraker", {"visual_watch": {"enabled": False}})["why"] == (
         "visual_watch.enabled is false")
 
 
@@ -270,16 +269,16 @@ def test_coverage_reporter_caches_and_survives_a_failing_compute():
 
 
 def test_coverage_report_adds_what_each_listener_reported(monkeypatch):
-    monkeypatch.setattr(vw, "watch_unavailable_reason", lambda api_key, prefetch=True: "")
+    monkeypatch.setattr(vw, "watch_unavailable_reason", lambda prefetch=True: "")
     cfg = {"visual_watch": {"enabled": True},
            "printers": [{"id": "k1", "model": _model_for("moonraker")},
                         {"id": "mk4", "model": _model_for("prusalink")}]}
     live = {"k1": cw.coverage("moonraker", unavailable_reason="no camera snapshot URL is configured"),
             "mk4": None}
-    rows = cw.coverage_report(cfg, lambda: "", live=live.get)
+    rows = cw.coverage_report(cfg, live=live.get)
     assert rows[0][1].endswith("; listener reports: off (no camera snapshot URL is configured)")
     assert rows[1][1] == "mk4: PrusaLink: no in-print watch (idle plate checks only)"
-    assert vw.coverage_report(cfg, lambda: "")[1][1] == rows[1][1]
+    assert vw.coverage_report(cfg)[1][1] == rows[1][1]
 
 
 def test_live_coverage_reads_the_heartbeat(monkeypatch, tmp_path):

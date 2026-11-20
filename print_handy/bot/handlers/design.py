@@ -329,14 +329,14 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     if complete is None and not model_free:
         if design_raw is True:
             await say('Design is enabled but no design model is configured: set '
-                      '[design] chat_url/model (or the [llm] values they inherit). '
+                      '[llm] chat_url and model (design.model may name a different model). '
                       'Nothing was designed.')
             return {'action': 'skip', 'reason': 'design model not configured'}
         # Auto posture with nothing configured anywhere: the same "not set
         # up" answer the command has always given (#422).
-        await say('Design is not set up: configure a design model — set [design] chat_url/model '
-                  '(or the [llm] values they inherit), or PRINT_HANDY__DESIGN__ENABLED=true with '
-                  'a design endpoint — see docs/DESIGN.md. Nothing was designed.')
+        await say('Design is not set up: configure a design model — set [llm] chat_url/model, '
+                  'or PRINT_HANDY__DESIGN__ENABLED=true with the AI endpoint set '
+                  '— see docs/DESIGN.md. Nothing was designed.')
         return {'action': 'skip', 'reason': 'design not enabled'}
     note = ''
     try:

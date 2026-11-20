@@ -293,14 +293,23 @@ def test_purchase_comment_still_reads_as_print_handy_made():
 # ------------------------------------------------------------- gate + routing
 
 def test_ai_route_gate_follows_the_vision_configuration(monkeypatch):
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(pi._config, "service_url", lambda name: "")
+    """The gate is the one AI endpoint as the small tier resolves it
+    (#1731): vision.ai_enabled (the vision_ai_on fixture) plus a ready
+    endpoint. The retired PRINT_VISION_URL no longer opens it."""
+    cfg = pi._config.cfg()
+    monkeypatch.setitem(cfg, "llm", {"chat_url": "", "model": "",
+                                     "api_key_env": "LLM_API_KEY", "timeout_s": 20})
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
     assert pi.ai_route_configured() is False
-    monkeypatch.setattr(pi._config, "service_url", lambda name: "http://vision.test/v1")
+    monkeypatch.setitem(cfg, "llm", {"chat_url": "http://vision.test/v1", "model": "m",
+                                     "api_key_env": "LLM_API_KEY", "timeout_s": 20})
+    assert pi.ai_route_configured() is False  # hosted endpoint, key still missing
+    monkeypatch.setenv("LLM_API_KEY", "key")
     assert pi.ai_route_configured() is True
-    monkeypatch.setattr(pi._config, "service_url", lambda name: "")
+    monkeypatch.setitem(cfg, "llm", {"chat_url": "", "model": "",
+                                     "api_key_env": "LLM_API_KEY", "timeout_s": 20})
     monkeypatch.setenv("PRINT_VISION_URL", "http://vision.test/extract")
-    assert pi.ai_route_configured() is True
+    assert pi.ai_route_configured() is False  # retired: the variable alone is not a route
 
 
 def test_model_link_is_never_a_purchase_offer():
@@ -357,10 +366,12 @@ def _dispatch(text, answers, monkeypatch, fake=None, media_urls=None, route=True
 
     monkeypatch.setattr(cm, "wait_for_response", wait)
     if route:
-        monkeypatch.setenv("PRINT_VISION_URL", "http://vision.test/extract")
+        # The one endpoint (TEST_SETTINGS' llm) with its key: the small
+        # tier is ready, so the purchase route counts as configured.
+        monkeypatch.setenv("LLM_API_KEY", "key")
     else:
-        monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-        monkeypatch.setattr(pi._config, "service_url", lambda name: "")
+        monkeypatch.setitem(pi._config.cfg(), "llm",
+                             {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 20})
     monkeypatch.setattr(pi, "fetch_page", _fetcher(200, JSONLD_PAGE))
     monkeypatch.setattr(plugin, "_purchase_ai_call", lambda: _ai(ORDER_ANSWER))
     monkeypatch.setattr(spool_sync, "create_spool", _create(fake))

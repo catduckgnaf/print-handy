@@ -31,10 +31,12 @@ to the transcript of the scope it was made for. Two sessions never see
 or answer each other's messages and questions; a post that belongs to
 no session (a startup notice) is shown to all of them.
 
-``[webui] chat_llm_enabled`` mirrors ``[discord] chat_llm_enabled``
-and like it is off by default (#1376): with it off, web chat is a pure bot — commands, design's deterministic
-parts and every handler still run, but no stray-chat model lane
-(``[llm]`` or ``[agent]``) is ever called for web chat text.
+``[webui] chat_llm_enabled`` is Web Chat's own stray-chat switch, off
+by default (#1376): with it off, web chat is a pure bot — commands,
+design's deterministic parts and every handler still run, but the
+bounded [llm] lane is never called for web chat text. Web Chat is the
+one surface with a conversational model lane (#1731): Discord,
+Telegram and Matrix are pure bots.
 
 ``[webui] chat_enabled`` (default true) is the page's own switch
 (PR #1106 review): off, the chat page shows a disabled state and this

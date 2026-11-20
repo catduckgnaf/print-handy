@@ -1,22 +1,24 @@
-"""Discord's own no-LLM proofs (#466), mirroring the Telegram/Matrix ones.
+"""Discord's own no-LLM proofs (#466, completed by #1731).
 
-Telegram and Matrix are pure bots by adapter (``uses_llm = False``); Discord
-is the platform whose chat *may* use the LLM, so its no-LLM proofs come in
-two configurations, both Discord-named and both driven through the real
-Discord adapter on a fake discord.py client:
+Discord is a pure bot by adapter (``uses_llm = False``), exactly like
+Telegram and Matrix: no Discord message ever reaches a model call. The
+proofs are driven through the real Discord adapter on a fake discord.py
+client, in both configurations:
 
 * no ``[llm]`` configured at all, and
-* ``[llm]`` configured (for /print-design, which inherits it) with the
-  operator switch ``[discord] chat_llm_enabled`` set false.
+* ``[llm]`` configured (for /print-design and the camera checks, which
+  use the same one endpoint) — with a legacy config that still carries
+  the retired ``[discord] chat_llm_enabled`` switch and an ``[agent]``
+  section, neither of which can restore a lane.
 
 In both, an exploding stub stands in for ``llm.ask``: any chat-LLM call
 fails the test. Deterministic work — commands, links, typed answers,
 button flows, ``print <number>`` (#436) — must be unchanged, unmatched
-text gets the short not-understood reply (#467), and ``bot check`` / ``status()``
-state the chat-LLM state in both modes. Turning chat off must not touch
-the separately gated model touchpoints: design (its own endpoint
-inheritance and switch), the roast (``vision.roast_enabled``) and the
-camera watchdog (``visual_watch.enabled`` on the vision endpoint).
+text gets the short not-understood reply (#467), and ``bot check`` /
+``status()`` state the pure-bot state in both modes. The separately
+gated model touchpoints keep their own gates: design (the one endpoint
+plus ``design.enabled``), the roast (``vision.roast_enabled``) and the
+camera watchdog (``visual_watch.enabled`` plus ``vision.ai_enabled``).
 """
 import asyncio
 import json
@@ -75,8 +77,9 @@ async def press(discord, label):
 
 
 def test_discord_adapter_never_uses_llm_even_when_legacy_config_enables_it(cfg):
-    """Retired file/env options are ignored; manual opt-in cannot dispatch AI."""
-    assert StandaloneAdapter.uses_llm is True
+    """The adapter declares the pure-bot truth (#1731); retired file/env
+    options are ignored and no manual opt-in can dispatch AI."""
+    assert StandaloneAdapter.uses_llm is False
     cfg["discord"]["chat_llm_enabled"] = True
     cfg["llm"].update(chat_url=LLM_URL, model="m")
     discord, core = make(cfg)
@@ -104,9 +107,9 @@ def test_discord_no_llm_configured_never_calls_the_llm(cfg):
     """Discord-named version of the generic proof: no [llm], exploding stub,
     a deterministic command still answers, unmatched text gets the command
     list exactly once and no second reply follows."""
-    # Chat AI on (it is off by default, #1376): use_llm is the platform/
-    # operator capability; with nothing configured the fallback still never
-    # fires, which status() reports and the exploding stub below proves.
+    # A legacy config's retired switch, set here in memory, changes
+    # nothing: the adapter's uses_llm decides, status() reports it, and
+    # the exploding stub below proves the fallback never fires.
     cfg["discord"]["chat_llm_enabled"] = True
     discord, core = make(cfg)
     assert core.use_llm is False and core.status(True)["llm"] is False
@@ -126,7 +129,8 @@ def test_discord_no_llm_configured_never_calls_the_llm(cfg):
 
 @pytest.fixture
 def no_llm_cfg(cfg):
-    """[llm] configured (as a /print-design setup leaves it), Discord chat LLM off by name."""
+    """[llm] configured (as a /print-design setup leaves it); Discord is a
+    pure bot regardless, and a retired switch left in the dict is inert."""
     cfg["llm"].update(chat_url=LLM_URL, model="m")
     cfg["discord"]["chat_llm_enabled"] = False
     return cfg
@@ -176,31 +180,31 @@ def test_discord_chat_llm_off_typed_answers_and_buttons_still_work(no_llm_cfg):
 
 def test_discord_bot_check_llm_row_pins_every_mode(cfg, monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "x" * 20)
-    cfg["discord"]["chat_llm_enabled"] = True  # Retired override must not restore either lane.
+    cfg["discord"]["chat_llm_enabled"] = True  # Retired override must not restore a lane.
     cfg["llm"].update(chat_url=LLM_URL, model="m")
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
-    for lane in ("llm", "agent"):
-        assert rows[lane][0] is True
-        assert rows[lane][1].startswith("off (Discord stray-chat fallback is disabled;")
-    # The roast row is a separate gate and does not follow the chat switch.
+    assert "agent" not in rows  # the agent lane is gone entirely (#1731)
+    assert rows["llm"][0] is True
+    assert rows["llm"][1].startswith("off (Discord is a pure bot")
+    # The roast row is a separate gate and does not follow the chat state.
     assert rows["roast"][0] is True and rows["roast"][1].startswith("on (local corpus, ")
 
 
-def test_chat_llm_off_leaves_design_roast_and_watchdog_gates_alone(no_llm_cfg):
-    """The LLM touchpoint inventory, pinned: each keeps its own gate when
-    Discord's chat fallback is turned off.
+def test_pure_bot_discord_leaves_design_roast_and_watchdog_gates_alone(no_llm_cfg):
+    """The model touchpoint inventory, pinned: each keeps its own gate
+    while Discord itself never reaches a model call.
 
-    * chat fallback — [discord] chat_llm_enabled (this issue), off here;
-    * /print-design — [design] inheriting [llm], resolved independently;
+    * /print-design — the one [llm] endpoint, resolved independently;
     * the roast — vision.roast_enabled, local corpus, no endpoint (#1002);
-    * the camera watchdog — visual_watch.enabled on the vision endpoint.
+    * the camera watchdog — visual_watch.enabled on the same endpoint.
     """
     resolved = design.resolve_http_config(no_llm_cfg)
     assert resolved is not None and resolved["chat_url"] == LLM_URL and resolved["model"] == "m"
     assert design.effective_enabled(no_llm_cfg) is True
     assert mel.roast_enabled(no_llm_cfg) is True  # on by default; its own switch turns it off
     assert no_llm_cfg["visual_watch"]["enabled"] is True
-    assert no_llm_cfg["services"]["vision_chat_url"]  # the vision endpoint both of them read
+    from print_handy import ai_routes
+    assert ai_routes.endpoint_url("small", no_llm_cfg) == LLM_URL  # the watchdog's route
 
 
 # ---------------------------------------------------------------------- #436 stays deterministic

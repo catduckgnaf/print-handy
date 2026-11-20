@@ -20,7 +20,7 @@ import pytest
 from corpus import fake_discord
 from print_handy import ai_routes, settings
 from print_handy.bot import __main__ as bot_main
-from print_handy.bot import agent, runtime, web
+from print_handy.bot import runtime, web
 from print_handy.bot.matrix import StandaloneAdapter as MatrixAdapter
 from print_handy.bot.router import Router
 from print_handy.bot.telegram import StandaloneAdapter as TelegramAdapter
@@ -30,7 +30,7 @@ from print_handy.runtime import moonraker_event_listener as mel
 
 ROOT = Path(__file__).parents[2]
 LLM_URL = "http://llm.invalid/v1"
-VISION_URL = "http://vision.invalid/v1/chat/completions"
+VISION_URL = LLM_URL  # since #1731 the vision route is the one [llm] endpoint
 
 
 def run(coro):
@@ -46,15 +46,14 @@ def exploding(calls, what):
 
 @pytest.fixture
 def stock_cfg(cfg):
-    """The test settings with every model endpoint configured and no AI switch touched.
+    """The test settings with the one AI endpoint configured and no AI switch touched.
 
-    [llm] and [agent] are set (as a /print-design install leaves them),
-    and so is the vision endpoint: the defaults alone must keep chat and
-    camera checks away from them.
+    [llm] is set (as a /print-design install leaves it); a legacy
+    [agent] section rides along inert. The defaults alone must keep
+    chat and camera checks away from the endpoint.
     """
     cfg["llm"].update(chat_url=LLM_URL, model="luna")
-    cfg.setdefault("agent", {}).update(chat_url="http://agent.invalid/v1/chat/completions", model="a")
-    cfg["services"]["vision_chat_url"] = VISION_URL
+    cfg["agent"] = {"chat_url": "http://agent.invalid/v1/chat/completions", "model": "a"}
     for section, key in (("discord", "chat_llm_enabled"), ("webui", "chat_llm_enabled"),
                          ("vision", "ai_enabled")):
         cfg.setdefault(section, {}).pop(key, None)
@@ -107,8 +106,7 @@ def test_discord_unmatched_text_makes_no_model_call_by_default(stock_cfg):
     core = runtime.BotCore(discord.client, stock_cfg, router=Router())
     assert core.use_llm is False
     calls = []
-    with mock.patch.object(runtime.llm, "ask", exploding(calls, "llm.ask")), \
-            mock.patch.object(agent, "ask", exploding(calls, "agent.ask")):
+    with mock.patch.object(runtime.llm, "ask", exploding(calls, "llm.ask")):
         out = run(core.handle_message(discord.message("can you make my printer go brrr")))
     assert calls == []
     assert out == {"action": "skip", "reason": "command list"}
@@ -128,8 +126,7 @@ def test_web_chat_unmatched_text_makes_no_model_call_by_default(stock_cfg, monke
     service = web.WebChatService(stock_cfg)
     assert service.core.use_llm is False and web.chat_llm_enabled(stock_cfg) is False
     calls = []
-    with mock.patch.object(runtime.llm, "ask", exploding(calls, "llm.ask")), \
-            mock.patch.object(agent, "ask", exploding(calls, "agent.ask")):
+    with mock.patch.object(runtime.llm, "ask", exploding(calls, "llm.ask")):
         assert service.submit("can you make my printer go brrr") is True
         deadline = time.time() + 10
         while time.time() < deadline and not any(
@@ -147,9 +144,9 @@ def test_telegram_and_matrix_never_use_a_chat_model():
 def test_bot_check_names_the_chat_switch_off_by_default(stock_cfg, monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "x" * 20)
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(stock_cfg)}
-    for lane in ("llm", "agent"):
-        assert rows[lane][0] is True
-        assert rows[lane][1].startswith("off (Discord stray-chat fallback is disabled;")
+    assert "agent" not in rows  # the agent lane is gone entirely (#1731)
+    assert rows["llm"][0] is True
+    assert rows["llm"][1].startswith("off (Discord is a pure bot")
 
 
 # ---------------------------------------------------------------------- /print-design keeps AI
@@ -182,10 +179,10 @@ def test_print_design_reaches_its_ai_route_with_chat_and_vision_ai_off(stock_cfg
 
 @pytest.fixture
 def vision_endpoint(stock_cfg, monkeypatch):
-    """A fully configured vision endpoint (URL, key and PRINT_VISION_URL) with the default switch."""
+    """The one AI endpoint fully configured (URL, model and key) with the
+    default vision switch: the defaults alone must keep frames home."""
     monkeypatch.setattr(_config, "_override", stock_cfg)
-    monkeypatch.setenv("PRINT_VISION_URL", "http://detector.invalid/judge")
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "key" if name == "CLIPROXY_API_KEY" else "")
+    monkeypatch.setenv("LLM_API_KEY", "key")
     monkeypatch.setattr(visual_watch, "_vision_missing_logged", False)
     monkeypatch.setattr(local_vision, "prefetch_model", lambda *a, **k: None)
     return stock_cfg
@@ -203,17 +200,15 @@ def test_camera_watch_is_off_and_sends_nothing_with_vision_ai_off(vision_endpoin
     assert visual_watch.vision_ai_enabled() is False
     # The listener's own gate: the watch does not run on the configured endpoint.
     assert mel._vision_ready() is False
-    reason = visual_watch.watch_unavailable_reason(lambda: "key", prefetch=False)
+    reason = visual_watch.watch_unavailable_reason(prefetch=False)
     assert visual_watch.VISION_AI_OFF in reason
     calls = []
     urlopen_patch, post_patch = _no_network(calls)
     with urlopen_patch, post_patch:
         verdict = visual_watch.visual_verdict(
-            b"jpeg", visual_watch.IDLE_CHECK_PROMPT_TEXT, chat_url=mel._vision_chat_url,
-            model="m", api_key=lambda: "key", context="")
+            b"jpeg", visual_watch.IDLE_CHECK_PROMPT_TEXT, context="")
         extracted = visual_watch.visual_extract(
-            b"jpeg", "read the label", chat_url=mel._vision_chat_url, model="m",
-            api_key=lambda: "key", context="")
+            b"jpeg", "read the label", context="")
     assert calls == []
     assert verdict == ("uncertain", visual_watch.VISION_AI_OFF)
     assert extracted is None
@@ -228,11 +223,8 @@ def test_local_routes_still_answer_with_vision_ai_off(vision_endpoint, monkeypat
     monkeypatch.setattr(local_empty, "idle_verdict", lambda image: ("empty_idle", "reference"))
     urlopen_patch, post_patch = _no_network(calls)
     with urlopen_patch, post_patch:
-        watch = visual_watch.visual_verdict(b"jpeg", "p", chat_url=mel._vision_chat_url,
-                                            model="m", api_key=lambda: "key", context="")
-        idle = visual_watch.visual_verdict(b"jpeg", "p", chat_url=mel._vision_chat_url,
-                                           model="m", api_key=lambda: "key", context="",
-                                           idle=True)
+        watch = visual_watch.visual_verdict(b"jpeg", "p", context="")
+        idle = visual_watch.visual_verdict(b"jpeg", "p", context="", idle=True)
     assert calls == []
     assert watch == ("ok", "local")
     assert idle == ("empty_idle", "reference")
@@ -240,15 +232,13 @@ def test_local_routes_still_answer_with_vision_ai_off(vision_endpoint, monkeypat
 
 def test_vision_endpoint_is_used_again_when_vision_ai_is_on(vision_endpoint, monkeypatch):
     vision_endpoint["vision"]["ai_enabled"] = True
-    monkeypatch.delenv("PRINT_VISION_URL")
-    assert visual_watch.watch_unavailable_reason(lambda: "key", prefetch=False) == ""
+    assert visual_watch.watch_unavailable_reason(prefetch=False) == ""
     assert mel._vision_ready() is True
     assert purchase_intake.ai_route_configured() is True
     sent = []
     monkeypatch.setattr(ai_routes, "_post", lambda leg, messages, images, *a: sent.append(leg.url)
                         or '{"verdict": "ok", "reason": "fine"}')
-    verdict = visual_watch.visual_verdict(b"jpeg", "p", chat_url=mel._vision_chat_url,
-                                          model="m", api_key=lambda: "key", context="")
+    verdict = visual_watch.visual_verdict(b"jpeg", "p", context="")
     assert verdict == ("ok", "fine")
     assert sent == [VISION_URL]
 

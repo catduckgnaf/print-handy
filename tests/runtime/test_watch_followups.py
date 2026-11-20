@@ -625,13 +625,13 @@ def _model_for(connection):
 
 
 def test_coverage_report_names_each_printers_watch(monkeypatch):
-    monkeypatch.setattr(vw, "watch_unavailable_reason", lambda api_key, prefetch=True: "")
+    monkeypatch.setattr(vw, "watch_unavailable_reason", lambda prefetch=True: "")
     cfg = {"visual_watch": {"enabled": True},
            "printers": [{"id": "k1", "model": _model_for("moonraker")},
                         {"id": "x1", "model": _model_for("bambulab_lan")},
                         {"id": "mk4", "model": _model_for("prusalink")},
                         {"id": "ff", "model": _model_for("flashforge_stock")}]}
-    rows = vw.coverage_report(cfg, lambda: "")
+    rows = vw.coverage_report(cfg)
     assert all(ok for ok, _ in rows)
     text = [detail for _, detail in rows]
     assert text[0].startswith("k1: Moonraker (Klipper): in-print watch for every print")
@@ -653,15 +653,14 @@ def test_docs_list_every_family_and_the_pause_rule():
 
 
 def test_bot_check_fails_a_pinned_source_that_cannot_work(monkeypatch):
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(lv, "watch_source", lambda cfg=None: "endpoint")
-    monkeypatch.setattr(vw._config, "service_url", lambda key: "")
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda route: False)
+    monkeypatch.setitem(vw._config.cfg(), "llm",
+                        {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 20})
     monkeypatch.setattr(vw.local_empty, "reference_ready", lambda: False)
     started = []
     monkeypatch.setattr(lv, "prefetch_model", lambda *a, **k: started.append(1))
     cfg = {"visual_watch": {"enabled": True}, "printers": [{"id": "k1", "model": _model_for("moonraker")}]}
-    [(ok, detail)] = vw.coverage_report(cfg, lambda: "")
+    [(ok, detail)] = vw.coverage_report(cfg)
     assert ok is False and "watch_source is endpoint" in detail and "not running" in detail
     assert started == []  # bot check never starts a download
 
@@ -778,6 +777,5 @@ def test_settings_doc_says_where_camera_frames_go():
     text = (ROOT / "docs" / "SETTINGS.md").read_text(encoding="utf-8")
     assert "### Camera frames and privacy" in text
     note = text.split("### Camera frames and privacy", 1)[1].split("\n#", 1)[0]
-    for phrase in ("[ai.small]", "services.vision_chat_url", "PRINT_VISION_URL",
-                   "local failure detector", "leave"):
+    for phrase in ("[ai.small]", "[llm]", "local failure detector", "leave"):
         assert phrase in note, phrase
