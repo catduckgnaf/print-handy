@@ -386,6 +386,27 @@ def _bounds_and_volume_arrays(vertices, faces):
     return lo, hi, volume
 
 
+def _scalar_bounds(triangles):
+    """Match the historical Python min/max behavior, including NaNs."""
+    source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
+    lo = hi = None
+    found = False
+    for triangle in source:
+        for point in triangle:
+            if lo is None:
+                lo, hi = list(point), list(point)
+            else:
+                for axis in range(3):
+                    if point[axis] < lo[axis]:
+                        lo[axis] = point[axis]
+                    if point[axis] > hi[axis]:
+                        hi[axis] = point[axis]
+            found = True
+    if not found:
+        raise ValueError('empty triangle table')
+    return lo, hi
+
+
 def bounds(triangles):
     """Return exact (lo, hi) bounds without doing signed-volume arithmetic."""
     from .compact_geometry import IndexedTriangles
@@ -397,6 +418,8 @@ def bounds(triangles):
         for start in range(0, len(triangles), 8192):
             pts = np.asarray(triangles.vertices[triangles.faces[start:start + 8192].ravel()],
                              dtype=np.float64).reshape((-1, 3, 3))
+            if not np.isfinite(pts).all():
+                return _scalar_bounds(triangles)
             chunk_lo = pts.min(axis=(0, 1))
             chunk_hi = pts.max(axis=(0, 1))
             for axis in range(3):
@@ -409,6 +432,8 @@ def bounds(triangles):
         for start in range(0, len(triangles), 8192):
             pts = np.asarray(triangles.vertices[triangles.triangles[start:start + 8192].ravel()],
                              dtype=np.float64).reshape((-1, 3, 3))
+            if not np.isfinite(pts).all():
+                return _scalar_bounds(triangles)
             chunk_lo = pts.min(axis=(0, 1))
             chunk_hi = pts.max(axis=(0, 1))
             for axis in range(3):

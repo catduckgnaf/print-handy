@@ -196,6 +196,30 @@ def test_bounds_matches_original_min_max_for_list_triangle_edge_cases(triangles)
     assert mesh_fast.bounds(triangles) == (old_lo, old_hi)
 
 
+def test_bounds_large_array_tables_match_scalar_nan_min_max():
+    import math
+    import numpy as np
+    from print_handy.core.compact_geometry import IndexedTriangles
+
+    finite = [(1.0, 2.0, 3.0), (-4.0, 5.0, 6.0), (7.0, -8.0, 9.0)]
+    nan_point = (float('nan'), 20.0, -30.0)
+    for table_type in (IndexedTriangles, mesh_fast.MeshTable):
+        for nan_first in (False, True):
+            vertices = np.asarray(([nan_point] + finite) if nan_first else (finite + [nan_point]),
+                                  dtype=np.float64)
+            face = (0, 1, 2) if nan_first else (0, 1, 3)
+            faces = np.tile(np.asarray(face, dtype=np.int32), (32768, 1))
+            table = table_type(vertices, faces)
+            expected = mesh_fast._scalar_bounds(table)
+            actual = mesh_fast.bounds(table)
+            for actual_axis, expected_axis in zip(actual, expected):
+                for actual_value, expected_value in zip(actual_axis, expected_axis):
+                    if math.isnan(expected_value):
+                        assert math.isnan(actual_value)
+                    else:
+                        assert actual_value == expected_value
+
+
 def test_bounds_does_not_evaluate_volume():
     class Coordinate:
         def __init__(self, value):
