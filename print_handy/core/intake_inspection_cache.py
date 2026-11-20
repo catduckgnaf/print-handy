@@ -116,8 +116,14 @@ def put(root, kind, source_sha, scope, payload, *, inputs=None):
                                 and isinstance(payload.get("color_manifest"), dict)
                                 and payload["color_manifest"].get("source_sha256") == source_sha):
         return
+    stored_payload = payload
+    if kind == "audit" and "path" in payload:
+        # The filename belongs to this intake, not the source-bound result.
+        # Never persist it; bind_audit_to_path restores the current path later.
+        stored_payload = dict(payload)
+        stored_payload.pop("path", None)
     path = _path(root, kind, source_sha, scope, inputs)
-    _write(path, source_sha, kind, inputs, payload)
+    _write(path, source_sha, kind, inputs, stored_payload)
     _prune(root)
 
 
