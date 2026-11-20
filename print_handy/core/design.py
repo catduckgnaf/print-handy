@@ -1190,16 +1190,30 @@ def validate_stl(stl_path: Path) -> dict:
 # --------------------------------------------------------------------- transports
 
 def resolve_http_config(cfg) -> dict | None:
-    """The effective design endpoint (the normal path in every mode): [design] first, [llm] as the fallback."""
+    """Resolve the design endpoint, keeping its URL and credential paired (#1731).
+
+    An explicit [design] chat_url uses [design] api_key_env. When that is empty
+    the [llm] key setting is inherited only if [llm] names no competing URL (a
+    design-only deployment) or the same one; a different [llm] URL never lends
+    its key. With no [design] URL, the [llm] URL and key are inherited together.
+    """
     design = (cfg or {}).get("design") or {}
     llm = (cfg or {}).get("llm") or {}
-    chat_url = str(design.get("chat_url") or llm.get("chat_url") or "").strip()
+    d_url = str(design.get("chat_url") or "").strip()
+    l_url = str(llm.get("chat_url") or "").strip()
+    chat_url = d_url or l_url
     model = str(design.get("model") or llm.get("model") or "").strip()
     if not chat_url or not model:
         return None
-    return {"chat_url": chat_url, "model": model,
-            "api_key_env": str(design.get("api_key_env") or llm.get("api_key_env")
-                               or "LLM_API_KEY"),
+    d_env = str(design.get("api_key_env") or "").strip()
+    l_env = str(llm.get("api_key_env") or "").strip()
+    if d_env:
+        env = d_env
+    elif not d_url or not l_url or l_url.rstrip("/") == d_url.rstrip("/"):
+        env = l_env or "LLM_API_KEY"
+    else:
+        env = ""  # a competing [llm] endpoint: do not guess, and never send its key here
+    return {"chat_url": chat_url, "model": model, "api_key_env": env,
             "timeout_s": int(design.get("timeout_s") or 180)}
 
 
@@ -1239,33 +1253,28 @@ def mode_name(cfg, *, endpoint_available=None) -> str:
 
 
 def http_complete(cfg, messages, *, opener=None):
-    """One design model call over an OpenAI-compatible endpoint. Returns the reply text."""
-    import urllib.request
+    """One design model call through the shared transport (``ai_routes``)."""
+    from .. import ai_routes
     resolved = resolve_http_config(cfg)
     if resolved is None:
         raise DesignError("design is enabled but no model endpoint is configured: "
                           "set [design] chat_url and model, or the [llm] values they inherit")
-    from .. import credential_binding
     # The key is bound to the host of the setting the address came from (#1192).
     slot = ("design.chat_url" if str(((cfg or {}).get("design") or {}).get("chat_url") or "").strip()
             else "llm.chat_url")
-    key = credential_binding.key_for(slot, resolved["chat_url"],
-                                     os.environ.get(resolved["api_key_env"]) or "")
-    headers = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    body = json.dumps({"model": resolved["model"], "messages": messages,
-                       "max_tokens": 4000, "temperature": 0.3}).encode()
-    req = urllib.request.Request(resolved["chat_url"], data=body, headers=headers, method="POST")
+    compat = ai_routes.Compat(resolved["chat_url"], resolved["model"],
+                              ai_routes._secret(resolved["api_key_env"]),
+                              float(resolved["timeout_s"]), slot)
     try:
-        with (opener or urllib.request.urlopen)(req, timeout=float(resolved["timeout_s"])) as resp:
-            data = json.loads(resp.read())
-    except Exception as exc:
+        # cfg without [ai]: design keeps its own endpoint rules; [ai.heavy] is not consulted here.
+        answer, _served_by = ai_routes.call(
+            "heavy", messages, cfg={"ai": {}}, compat=compat, max_tokens=4000,
+            temperature=0.3, timeout=float(resolved["timeout_s"]), opener=opener)
+        return answer
+    except ai_routes.AIRouteError as exc:
+        raise DesignError(str(exc)) from None
+    except Exception:
         raise DesignError("the design service did not answer — wait a moment and try again") from None
-    try:
-        return str(data["choices"][0]["message"]["content"] or "")
-    except (KeyError, IndexError, TypeError):
-        raise DesignError("the design model returned a reply with no message content") from None
 
 
 # --------------------------------------------------------------------- the engine

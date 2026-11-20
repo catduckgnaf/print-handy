@@ -135,6 +135,48 @@ def test_resolve_http_config_inherits_llm_then_prefers_design():
     assert design.resolve_http_config({"design": {"chat_url": "http://x"}, "llm": {}}) is None
 
 
+def test_design_only_deployment_inherits_the_llm_key_name():
+    cfg = {"design": {"chat_url": "http://d/v1", "model": "sol", "api_key_env": ""},
+           "llm": {"chat_url": "", "model": "", "api_key_env": "PAIRED_KEY"}}
+    assert design.resolve_http_config(cfg)["api_key_env"] == "PAIRED_KEY"
+
+
+def test_competing_llm_endpoint_never_lends_its_key_to_design():
+    cfg = {"design": {"chat_url": "http://d/v1", "model": "sol", "api_key_env": ""},
+           "llm": {"chat_url": "http://other/v1", "model": "luna", "api_key_env": "LLM_KEY"}}
+    resolved = design.resolve_http_config(cfg)
+    assert resolved["chat_url"] == "http://d/v1" and resolved["api_key_env"] == ""
+
+
+def test_http_complete_sends_the_paired_key_through_the_shared_transport(monkeypatch):
+    monkeypatch.setenv("PAIRED_KEY", "paired-secret")
+    monkeypatch.setenv("LLM_KEY", "other-secret")
+    seen = []
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode()
+
+    def opener(req, timeout=None):
+        seen.append((req.full_url, req.get_header("Authorization")))
+        return Resp()
+
+    paired = {"design": {"chat_url": "http://d.lan/v1", "model": "sol", "api_key_env": ""},
+              "llm": {"chat_url": "", "model": "", "api_key_env": "PAIRED_KEY"}}
+    assert design.http_complete(paired, [{"role": "user", "content": "x"}], opener=opener) == "ok"
+    competing = {"design": {"chat_url": "http://d.lan/v1", "model": "sol", "api_key_env": ""},
+                 "llm": {"chat_url": "http://other.lan/v1", "model": "luna", "api_key_env": "LLM_KEY"}}
+    design.http_complete(competing, [{"role": "user", "content": "x"}], opener=opener)
+    assert seen[0] == ("http://d.lan/v1", "Bearer paired-secret")
+    assert seen[1] == ("http://d.lan/v1", None)
+
+
 def test_http_complete_sends_design_budgets_and_reads_the_reply():
     cfg = {"design": {"chat_url": "", "model": "sol", "api_key_env": "", "timeout_s": 90},
            "llm": {"chat_url": "http://llm/v1/chat", "model": "luna", "api_key_env": "LLM_API_KEY"}}
