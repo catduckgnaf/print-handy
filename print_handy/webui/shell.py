@@ -49,18 +49,19 @@ THEMES = ("dark", "light")
 _THEME_ICONS = {"dark": "☾", "light": "☀"}
 DEFAULT_THEME = "dark"
 
-# The surfaces the header navigates to: only pages that exist, in the
-# order people use them. Pages that belong together share one header tab
+# The surfaces the header navigates to: only pages that exist, with
+# Chat first (#1718: chat is the primary way to drive Print Handy).
+# Pages that belong together share one header tab
 # (NAV_GROUPS): making a print (a design, its sliced file, the workflow
 # that prints it, and the chat that drives the same flows), the printers
 # themselves, and the numbers. The group's
 # own pages appear as a strip under the header while you are in it.
 NAV = (
+    ("/chat", "Chat"),
     ("/", "Status"),
     ("/designs", "Designs"),
     ("/sliced", "Sliced files"),
     ("/workflow", "Workflow"),
-    ("/chat", "Chat"),
     ("/printers", "Printers"),
     ("/firmware", "Firmware"),
     ("/spools", "Spools"),
@@ -134,7 +135,7 @@ body {
 }
 a { color: var(--color-accent); }
 code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
-.wrap { max-width: 64rem; margin: 0 auto; padding: 0 1rem; }
+.wrap { max-width: 56rem; margin: 0 auto; padding: 0 1rem; }
 header.site {
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-line);
@@ -159,7 +160,7 @@ nav.pills a {
   padding: 0.5rem 0.75rem; border-radius: var(--radius-card);
   color: var(--color-ink); text-decoration: none; font-size: 0.875rem; font-weight: 500;
 }
-nav.pills a:hover { background: var(--color-bg); }
+nav.pills a:hover { background: var(--color-line); color: var(--color-ink); }
 nav.pills a.active, .config-tabs a[aria-current="page"] { background: var(--color-ink); color: var(--color-bg); }
 .subnav-bar { border-bottom: 1px solid var(--color-line); background: var(--color-surface); }
 nav.subnav { display: flex; flex-wrap: wrap; gap: 0.25rem; }
@@ -181,10 +182,10 @@ nav.subnav a.active { color: var(--color-ink); border-bottom-color: var(--color-
   color: var(--color-muted); text-decoration: none; font-size: 0.875rem;
 }
 .theme-toggle a.active { background: var(--color-ink); color: var(--color-bg); }
-main .wrap { padding-top: 1.5rem; padding-bottom: 3rem; }
-h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 1rem; }
-h2 { font-size: 1.125rem; font-weight: 600; margin: 1.75rem 0 0.75rem; }
-h3 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+main .wrap { padding-top: 1rem; padding-bottom: 2rem; }
+h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 0.75rem; }
+h2 { font-size: 1.125rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+h3 { font-size: 1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
 p { margin: 0.5rem 0; }
 .eyebrow {
   font-size: 0.75rem; font-weight: 500; text-transform: uppercase;
@@ -219,7 +220,7 @@ form.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; 
 form.inline label { display: inline-flex; align-items: center; gap: 0.375rem; margin: 0; }
 form.inline label > input:not([type=checkbox]), form.inline label > select { width: auto; margin-top: 0; }
 form.inline input[type=number] { max-width: 7rem; }
-.field { margin: 0 0 1.25rem; }
+.field { margin: 0 0 0.75rem; }
 .field > label, .field .flabel { display: block; font-weight: 500; margin-bottom: 0.375rem; }
 .badge {
   display: inline-block; padding: 0.1rem 0.5rem; margin-left: 0.375rem;
@@ -281,7 +282,7 @@ button:disabled { opacity: 0.55; cursor: default; }
   border-radius: var(--radius-card); padding: 0.75rem 1rem; margin: 1rem 0;
 }
 .banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
-.toasts { max-width: 64rem; margin: 0 auto; padding: 1rem 1rem 0; display: grid; gap: 0.5rem; }
+.toasts { max-width: 56rem; margin: 0 auto; padding: 1rem 1rem 0; display: grid; gap: 0.5rem; }
 .toast {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
   background: var(--color-surface); border: 1px solid var(--color-accent);

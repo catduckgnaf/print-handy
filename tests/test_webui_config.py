@@ -109,8 +109,6 @@ class CatalogTests(unittest.TestCase):
                                # A path only, never key contents (see catalog comment).
                                ("timelapse.ssh_key", "text"),
                                ("services.camera_snapshot_url", "url"),
-                               ("services.vision_chat_url", "url"),
-                               ("vision.model", "text"),
                                
                                ("vision.roast_enabled", "toggle")):
             with self.subTest(field=field_id):
@@ -276,15 +274,17 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(field.kind, kind)
     def test_ai_section_fields_groups_and_gate(self):
         # Settings restructure stage 2: every AI surface lives in the ai
-        # group — the three endpoint pairs, the vision endpoint and
-        # model, and the [ai] edit gate as ordinary fields (#902). The
-        # tier tables stay file-only: no field exists for them.
+        # group — the three endpoint pairs and the [ai] edit gate as
+        # ordinary fields (#902). The tier tables stay file-only: no
+        # field exists for them. The vision endpoint URL and model are
+        # file-only too (#1718): no field exists for them, so no
+        # provider or proxy name and no internal model alias is shown.
         expected = {
-            "services.vision_chat_url": ("ai", "url"),
-            "vision.model": ("ai", "text"),
             "ai.allowed_users": ("ai", "id_list"),
             "ai.edit_requests_per_hour": ("ai", "number"),
         }
+        self.assertIsNone(field_by_id("services.vision_chat_url"))
+        self.assertIsNone(field_by_id("vision.model"))
         for field_id, (group, kind) in expected.items():
             with self.subTest(field=field_id):
                 field = field_by_id(field_id)
@@ -553,11 +553,9 @@ class WriteAPITests(unittest.TestCase):
              "timelapse.plan_clip_retention_days": 7,
              "timelapse.archive_host": "nas.local", "timelapse.archive_dir": "/backups/prints",
              "timelapse.ssh_key": "/data/keys/timelapse_ed25519",
-             "services.camera_snapshot_url": "http://cam.local/snapshot.jpg",
-             "services.vision_chat_url": "http://vision.local/v1/chat",
-             "vision.model": "vision-test-model"},
+             "services.camera_snapshot_url": "http://cam.local/snapshot.jpg"},
             config_path=self.local, environ={}, timestamp="20261026-120000")
-        self.assertEqual(len(changed), 11)
+        self.assertEqual(len(changed), 9)
         data = settings.load(local=self.local, environ={})
         self.assertEqual(data["timelapse"]["render_wait_s"], 600)
         self.assertEqual(data["timelapse"]["render_poll_s"], 5)
@@ -569,8 +567,6 @@ class WriteAPITests(unittest.TestCase):
         self.assertEqual(data["timelapse"]["ssh_key"], "/data/keys/timelapse_ed25519")
         self.assertEqual(data["services"]["camera_snapshot_url"],
                          "http://cam.local/snapshot.jpg")
-        self.assertEqual(data["services"]["vision_chat_url"], "http://vision.local/v1/chat")
-        self.assertEqual(data["vision"]["model"], "vision-test-model")
         values = values_by_id(local=self.local, environ={})
         self.assertEqual(values["timelapse.render_wait_s"].provenance, SETTINGS_FILE)
         self.assertEqual(values["services.camera_snapshot_url"].provenance, SETTINGS_FILE)

@@ -1582,7 +1582,7 @@ def _validate_timelapse(data):
         raise SettingsError(f"[timelapse] mode must be one of {', '.join(TIMELAPSE_MODES)}, got {raw!r}")
     timelapse["mode"] = mode
     for key, default in (("vertical_short", False), ("vertical_short_overlay", True),
-                         ("wrapped_enabled", True), ("wrapped_video", False)):
+                         ("wrapped_enabled", True), ("wrapped_video", True)):
         value = timelapse.setdefault(key, default)
         if not isinstance(value, bool):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")
@@ -1602,12 +1602,13 @@ def _validate_timelapse(data):
             f"[timelapse] data_enabled must be true or false, got {timelapse['data_enabled']!r}")
     timelapse["data_enabled_explicit"] = "data_enabled" in timelapse
     timelapse.setdefault("data_enabled", timelapse["wrapped_enabled"])
-    # Wrapped narration (#981 step 4): the TTS engine choice. "none" is
-    # the default and keeps the video exactly as it was before narration
-    # existed; "piper" is the local Piper binary under [paths]. There is
-    # deliberately no cloud or AI-model engine: narration never leaves
-    # this machine.
-    engine = str(timelapse.setdefault("wrapped_tts_engine", "none") or "").strip().lower()
+    # Wrapped narration (#981 step 4): the TTS engine choice. "piper" is
+    # the default (#1718): the local Piper binary under [paths], used
+    # when it is available — a missing binary or voice model is named in
+    # the video result and the video is still made, without narration.
+    # "none" turns narration off. There is deliberately no cloud or
+    # AI-model engine: narration never leaves this machine.
+    engine = str(timelapse.setdefault("wrapped_tts_engine", "piper") or "").strip().lower()
     if engine not in WRAPPED_TTS_ENGINES:
         raise SettingsError(
             f"[timelapse] wrapped_tts_engine must be one of {', '.join(WRAPPED_TTS_ENGINES)}, "
@@ -1996,13 +1997,14 @@ def _validate_notify(data):
 def _validate_spool(data):
     """The [spool] section (#512): new-spool intake preferences.
 
-    ``prompt_brand`` is off by default: the conversational new-spool
-    walkthrough skips the brand/vendor question entirely (the spool is
-    created with no brand) unless the operator sets it true because they
-    track brands. Absent in an older config means the default (off).
+    ``prompt_brand`` is on by default (#1718): the conversational new-spool
+    walkthrough asks the brand/vendor question; an operator who does not
+    track brands sets it false and the walkthrough skips the question
+    entirely (the spool is created with no brand). Absent in an older
+    config means the default (on).
     """
     spool = data.setdefault("spool", {})
-    prompt_brand = spool.setdefault("prompt_brand", False)
+    prompt_brand = spool.setdefault("prompt_brand", True)
     if not isinstance(prompt_brand, bool):
         raise SettingsError(f"[spool] prompt_brand must be true or false, got {prompt_brand!r}")
     # Who counts filament usage (#1536): "auto" (or empty) follows the
@@ -2234,8 +2236,8 @@ def _validate_bot(data):
     user_ids(discord.setdefault("denied_user_ids", ""), key="denied_user_ids")
     discord["approval_user_id"] = ", ".join(
         user_ids(discord.setdefault("approval_user_id", ""), key="approval_user_id"))
-    # Anyone who may act in the print channel may also approve a print. Off by
-    # default: with approval users listed, only they approve.
+    # Broad print approval is opt-in. Keep the restricted default for installs
+    # that have never explicitly configured this setting.
     approval_all = discord.setdefault("approval_all_users", False)
     if not isinstance(approval_all, bool):
         raise SettingsError(f"[discord] approval_all_users must be true or false, got {approval_all!r}")

@@ -137,14 +137,19 @@ EXEMPTIONS = {
     ("services", "stock_api_port"): (frozenset({"webui"}), "#657"),
     ("telegram", "token_env"): (frozenset({"webui"}), "#286"),
     ("telegram", "upload_max_bytes"): (frozenset({"webui"}), "#657"),
-    ("timelapse", "capture_encoder"): (frozenset({"webui"}), "#657"),
-    ("timelapse", "encoder"): (frozenset({"webui"}), "#657"),
-    ("timelapse", "vertical_short"): (frozenset({"webui"}), "#657"),
-    ("timelapse", "vertical_short_mode"): (frozenset({"webui"}), "#657"),
-    ("timelapse", "vertical_short_overlay"): (frozenset({"webui"}), "#657"),
+    # timelapse.capture_encoder, timelapse.encoder, timelapse.vertical_short,
+    # timelapse.vertical_short_mode and timelapse.vertical_short_overlay
+    # carried webui exemptions until #1718 gave all five catalog fields
+    # (pickers and toggles); the exemptions were removed with the fields,
+    # per the ratchet.
     # ("vision", "roast_model") was removed outright in #1146: the LLM roast
     # model retired by #1002 is no longer a setting at all, so it needs no
     # exemption here; a config still carrying it gets the unknown-setting warning.
+    # services.vision_chat_url and vision.model are file-only since #1718:
+    # the Web UI must not show the vision endpoint URL or a model name, so
+    # neither has a catalog field; both stay working settings-file keys.
+    ("services", "vision_chat_url"): (frozenset({"webui"}), "#1718"),
+    ("vision", "model"): (frozenset({"webui"}), "#1718"),
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
     # webui.trusted_proxies (#1145) decides whose X-Forwarded-For the
     # failed-login limit believes: a trust boundary set by whoever deploys

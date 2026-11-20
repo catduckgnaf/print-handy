@@ -425,7 +425,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | `firmware` | `update_alerts`, `update_check_hours` | `true`, `24` | One chat alert per new ZMod release on ZMod printers, with an Update button into the confirmed `/print-firmware update zmod` path; hours between checks (1 to 168) |
 | `nozzle_temp_offsets` | supported nozzle type | steel types `5.0`, others `0.0` | Temperature compensation from −10 to +15 °C for a known nozzle type; the per-type default applies generically to every filament baseline, and a value here overrides that type's default |
 | `material_temps` | PLA, PETG, ABS, ASA, TPU, PA, PC (`nozzle`, `bed`; PCTG falls back to 250/80 °C unless set) | see `config/home.yaml` | Configurable fallback temperatures in °C; explicit Spoolman filament settings take precedence. Named variants adjust the fallback: Silk PLA +10 °C and 0.7× outer-wall speed, PLA+ / Matte PLA / *-CF / *-GF +5 °C (PA-CF +10 °C), Matte PLA 0.9× outer-wall speed. Variants stack ("PLA+ Silk", "Silk PLA-CF"): the larger nozzle delta and the smaller outer-wall factor apply. A Spoolman temperature of 0 means not set. PET resolves to PETG; PA6 / PA12 / PAHT to PA; "TPU 95A" to TPU; PLA-S / PA-S (Bambu support grades) and HS / HF speed grades stay refused |
-| `spool` | `prompt_brand` | `false` | Ask for brand/vendor in the new-spool walkthrough; off by default, brand is skipped |
+| `spool` | `prompt_brand` | `true` | Ask for brand/vendor in the new-spool walkthrough; on by default, set false to skip brand |
 | `cold_pull` | profile name | `pla_trial = [220, 90]`, `petg = [245, 100]` | Hot and cold temperatures in °C; profile names are configurable |
 
 ## Install and update

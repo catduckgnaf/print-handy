@@ -80,9 +80,10 @@ class Field:
 # and the camera, timelapse, image and live-stream fields in one camera
 # group — instead of by the settings section they happen to live in.
 # Stage 2 gathered every AI surface into the ai group: the chat, design
-# and agent endpoints, the vision endpoint, its model and its on/off
-# switch (vision.ai_enabled), and the [ai] edit gate. The [ai] tier tables themselves stay file-only (see
-# GROUP_FILE_ONLY_NOTES below).
+# and agent endpoints, the vision endpoint's on/off switch
+# (vision.ai_enabled), and the [ai] edit gate. The vision endpoint URL
+# and model themselves are file-only (#1718, see
+# GROUP_FILE_ONLY_NOTES below), as are the [ai] tier tables.
 GROUP_OF = {
     "printer.name": "printers",
     "printer.model": "printers",
@@ -187,8 +188,6 @@ GROUP_OF = {
     "services.camera_source": "camera",
     "services.camera_snapshot_url": "camera",
     "timelapse.capture_source_url": "camera",
-    "services.vision_chat_url": "ai",
-    "vision.model": "ai",
     # The vision endpoint's own switch sits with the endpoint it gates;
     # the camera group leads with the local failure detector, the
     # default camera check.
@@ -196,8 +195,10 @@ GROUP_OF = {
     "vision.local_detector_enabled": "camera",
     "vision.watch_source": "camera",
     "vision.local_model_path": "camera",
-    "vision.roast_enabled": "camera",
-    "vision.roast_custom_bank": "camera",
+    # Roasts are chat posts, not camera checks: their switch lives with
+    # the chat platform fields so it can be found (#1718).
+    "vision.roast_enabled": "platform",
+    "vision.roast_custom_bank": "platform",
     "vision.local_empty_enabled": "camera",
     "vision.auto_light_off_minutes": "camera",
     "vision.light_object": "camera",
@@ -225,11 +226,16 @@ GROUP_OF = {
     "timelapse.archive_host": "camera",
     "timelapse.archive_dir": "camera",
     "timelapse.ssh_key": "camera",
+    "timelapse.encoder": "camera",
+    "timelapse.capture_encoder": "camera",
     "timelapse.wrapped_enabled": "wrapped",
     "timelapse.data_enabled": "wrapped",
     "timelapse.wrapped_video": "wrapped",
     "timelapse.wrapped_tts_engine": "wrapped",
     "timelapse.wrapped_music_file": "wrapped",
+    "timelapse.vertical_short": "wrapped",
+    "timelapse.vertical_short_mode": "wrapped",
+    "timelapse.vertical_short_overlay": "wrapped",
     "logging.level": "logging",
     "logging.format": "logging",
     "logging.retention_days": "logging",
@@ -269,6 +275,10 @@ GROUP_FILE_ONLY_NOTES = {
           "fallback_model, fallback_url, api_key_env, "
           "fallback_api_key_env and timeout_s — are edited in the "
           "settings file only; there are no fields for them here. The "
+          "vision endpoint URL (services.vision_chat_url) and the vision "
+          "model (vision.model) are file-only too: they are edited in the "
+          "settings file only, and the switch that turns endpoint camera "
+          "checks on is the field above. The "
           "*_api_key_env settings (for llm, design, agent and each tier) "
           "stay file-only too: they name an environment variable, never "
           "a key value.",
@@ -481,7 +491,8 @@ CATALOG = (
            validator="settings.user_ids"),
     _field("discord", "approval_all_users", "Anyone in the channel can approve", "toggle",
            "When on, every user allowed to use the bot in the print channel can approve prints, "
-           "and the approval users above are no longer required for that. Off by default.",
+           "and the approval users above are no longer required for that. Off by default; "
+           "leave it off to restrict approval to the approval users above.",
            validator="settings approval check"),
     _field("discord", "timezone", "Timezone", "picker",
            "IANA timezone name used for display and the daily reset.",
@@ -578,17 +589,21 @@ CATALOG = (
            validator="settings spool check"),
     _field("spool", "prompt_brand", "Ask brand for new spools", "toggle",
            "Ask for the brand/vendor during the conversational new-spool "
-           "walkthrough. Off by default: the walkthrough skips brand "
-           "and the spool is created without one; on inserts the brand step "
-           "for operators who track brands.",
+           "walkthrough. On by default: the brand step is part of the "
+           "walkthrough; off skips brand and the spool is created "
+           "without one.",
            validator="settings spool check"),
     # Print cost calculator (#1625): the workspace defaults the one cost
     # engine reads. Every field here is consumed by core.cost; per-printer
     # profiles are the file-only [cost_printers] table (see the group note).
-    _field("cost", "currency_code", "Cost currency code", "text",
-           "ISO currency code for every cost figure and stored quote "
-           "(for example USD or EUR). Historical records keep the currency "
+    _field("cost", "currency_code", "Cost currency code", "picker",
+           "ISO currency code for every cost figure and stored quote. "
+           "Historical records keep the currency "
            "they were stored with; they are never converted.",
+           choices=("USD", "EUR", "GBP", "JPY", "CAD", "AUD", "NZD", "CHF",
+                    "CNY", "HKD", "SGD", "SEK", "NOK", "DKK", "PLN", "CZK",
+                    "HUF", "KRW", "INR", "BRL", "MXN", "ZAR", "TRY", "ILS",
+                    "AED"),
            validator="settings cost check"),
     _field("cost", "electricity_rate_per_kwh", "Electricity rate per kWh", "number",
            "Your electricity price per kilowatt hour. Print energy is "
@@ -801,23 +816,15 @@ CATALOG = (
            "How many AI edit requests each authorized user may make per "
            "hour; 20 by default. 0 disables the limit.",
            validator="settings ai check", minimum=0),
-    _field("services", "vision_chat_url", "Vision chat URL", "url",
-           "OpenAI-compatible chat endpoint for camera checks, used only while "
-           "Send camera frames to a vision endpoint (below) is on; it is also the "
-           "default route for the small AI tier. Empty means no endpoint camera "
-           "checks. Its API key stays in the environment, never here.",
-           validator="settings services check"),
-    _field("vision", "model", "Vision model", "text",
-           "Model the vision endpoint uses for camera checks, only while camera "
-           "frames go to a vision endpoint (below); also the small AI tier's "
-           "default model. The default, gemini-latest, is a CLIProxyAPI alias: "
-           "set your own server's vision model name. The local failure detector "
-           "needs no model name."),
+    # The vision endpoint URL and model are deliberately not fields
+    # (#1718): they are file-only settings (see the group note above),
+    # so no provider or proxy implementation name and no internal model
+    # alias is ever shown on this page.
     _field("vision", "ai_enabled", "Send camera frames to a vision endpoint", "toggle",
            "Off by default: camera checks run on this machine with the local "
            "failure detector (Camera, timelapse and images), and no frame or "
            "photo leaves it. On sends camera frames and photos to the vision "
-           "endpoint (PRINT_VISION_URL, the vision chat URL above or [ai.small]) "
+           "endpoint (PRINT_VISION_URL, the file-only vision endpoint or [ai.small]) "
            "for the camera watchdog, the idle plate checks, spool label reads and "
            "purchase reads. With an endpoint configured it is tried before the "
            "local detector.",
@@ -872,11 +879,13 @@ CATALOG = (
            "data folder) and the pinned model; name a model file you "
            "placed yourself to run fully offline.",
            validator="settings vision check"),
-    _field("vision", "roast_enabled", "Roast", "toggle",
+    _field("vision", "roast_enabled", "Roasts", "toggle",
            "The one-line roast: one per print on the completion post, and on "
            "request in chat (\"roast my last print\"), on every platform. "
            "On by default; it comes from the local roast corpus and needs no "
-           "LLM or endpoint. Off turns roasts off without disabling camera checks.",
+           "LLM or endpoint. Off turns roasts off everywhere — chat posts, "
+           "the printer screen tip and the Home Assistant roast sensor — "
+           "without disabling camera checks.",
            validator="settings vision check"),
     _field("vision", "roast_custom_bank", "Roast custom bank", "text",
            "Path to a JSON file of your own roast lines, drawn alongside the "
@@ -966,6 +975,18 @@ CATALOG = (
            "rendered when a Moonraker URL is configured, else container when "
            "in-container capture is on, else off.",
            choices=tuple(settings.TIMELAPSE_MODES), validator="settings timelapse check"),
+    _field("timelapse", "encoder", "Timelapse encoder", "picker",
+           "ffmpeg encoder for the timelapse sizing shrink: cpu (libx264), "
+           "vaapi, qsv or nvenc. Hardware choices need the GPU passed "
+           "through to the container; a hardware encode that fails falls "
+           "back to cpu automatically.",
+           choices=tuple(settings.TIMELAPSE_ENCODERS), validator="settings timelapse check"),
+    _field("timelapse", "capture_encoder", "Capture encoder", "picker",
+           "Encoder preference for the in-container capture assembly "
+           "encode: cpu (libx264, no GPU probing), auto (VAAPI, then "
+           "NVENC, then QSV, then CPU), vaapi, nvenc or qsv. A failing or "
+           "unavailable hardware encoder falls back to CPU.",
+           choices=tuple(settings.CAPTURE_ENCODERS), validator="settings timelapse check"),
     _field("timelapse", "render_wait_s", "Timelapse render wait", "number",
            "How long to wait for a printer-rendered timelapse to appear after a print "
            "finishes, in seconds.",
@@ -1031,16 +1052,31 @@ CATALOG = (
            "year's slides, the local commentary and the year's timelapses. No "
            "AI model is used; the setting was renamed from wrapped_ai_video "
            "and the old spelling is still accepted in config files "
-           "and the environment. Off by "
+           "and the environment. On by "
            "default, and it needs the Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
-           "Spoken narration for the Wrapped video: none (default; no "
-           "narration) or piper (the local Piper binary, paths.piper with the "
-           "voice model at paths.piper_model). No AI model and no cloud "
-           "service: the narration never leaves this machine.",
+           "Spoken narration for the Wrapped video: piper (the default; the "
+           "local Piper binary, paths.piper with the voice model at "
+           "paths.piper_model, used when it is available — a missing binary "
+           "or model is named in the video result and the video is still "
+           "made, without narration) or none (no narration). No AI model "
+           "and no cloud service: the narration never leaves this machine.",
            choices=tuple(settings.WRAPPED_TTS_ENGINES),
+           validator="settings timelapse check"),
+    _field("timelapse", "vertical_short", "Vertical short timelapse", "toggle",
+           "Also post a 9:16 vertical version of each finished timelapse, "
+           "alongside the timelapse itself. Off by default.",
+           validator="settings timelapse check"),
+    _field("timelapse", "vertical_short_mode", "Vertical short fill", "picker",
+           "How a vertical short fills its 9:16 frame: pad fills it with a "
+           "blurred background; crop center-crops.",
+           choices=tuple(settings.VERTICAL_SHORT_MODES),
+           validator="settings timelapse check"),
+    _field("timelapse", "vertical_short_overlay", "Vertical short overlay", "toggle",
+           "Burn the print title, printer, filament and time overlay into "
+           "the vertical short. On by default.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_music_file", "Wrapped music file", "text",
            "An audio file you supply, used as the music bed of the Wrapped "
