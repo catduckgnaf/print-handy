@@ -415,8 +415,11 @@ jobs:
 
   discord-timing:
     # A required status check on main (the owner added it; #1196). Keep the job name.
-    # Fake Discord flow timing on both transports, mock slicer, 3 repeats; medians must stay within
-    # tests/corpus/timing_baseline.json (+10% + max(0.35 s, 10% of the baseline), #734). Raising a baseline needs
+    # Fake Discord flow timing on both transports, mock slicer, 5 repeats; medians must stay within
+    # tests/corpus/timing_baseline.json (+10% + max(0.35 s, 10% of the baseline), #734). Five repeats, not
+    # three, since #1734: a single case can spike in the post-slice prompt tail in 2 of 3 repeats on an
+    # otherwise at-speed run, and a median of 3 turns two spiked repeats into a failure; a median of 5
+    # needs a majority of repeats slow, which is what a real regression looks like. Raising a baseline needs
     # a fresh "reason", and the total drift from the first recording is limited (tests/corpus/timing_gate.py).
     # The baseline is re-recorded from this job's artifact on every release (tests/README.md, Slicing-speed gate).
     runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 on 2026-10-19
@@ -429,25 +432,26 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - run: python -m pip install -c constraints.txt ".[test]"
-      - name: Time the corpus (3 repeats, both transports)
+      - name: Time the corpus (5 repeats, both transports)
         run: |
           mkdir -p timing
-          for i in 1 2 3; do python -m tests.corpus.time_corpus --transport both --json timing/run-$i.json; done
+          for i in 1 2 3 4 5; do python -m tests.corpus.time_corpus --transport both --json timing/run-$i.json; done
       - name: Timing gate against the reviewed baseline
         run: >-
           python -m tests.corpus.timing_gate timing/run-1.json timing/run-2.json timing/run-3.json
+          timing/run-4.json timing/run-5.json
           --summary "$GITHUB_STEP_SUMMARY" --title "Discord flow timing (mock slicer, required)"
       - name: Proposed baseline from this runner (for review, never applied automatically)
         if: always()
         run: >-
           python -m tests.corpus.timing_gate timing/run-*.json --record
-          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 3"
+          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 5"
           > timing/proposed-baseline.json || true
       - name: Proposed per-CPU baseline from this runner (the whole file with this CPU's profile, for review)
         if: always()
         run: >-
           python -m tests.corpus.timing_gate timing/run-*.json --record --per-cpu
-          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 3"
+          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 5"
           > timing/proposed-baseline-per-cpu.json || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()

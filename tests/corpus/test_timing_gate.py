@@ -51,6 +51,38 @@ def test_median_of_repeats_ignores_one_noisy_sample():
     assert median_rows([[row(4.0)], [row(4.0, result="FAIL")]])[0]["result"] == "FAIL"
 
 
+# The #1734 evidence, with the case's real baseline: on main run 44754362261 the runner was at
+# speed overall, but islands-144-four-color/direct spiked in the post-slice prompt tail in two of
+# the three repeats (1.57 s, 1.61 s, 0.80 s against a 0.94 s baseline). A median of three turns
+# two spiked repeats into a failed required gate on a commit that does not touch the intake path.
+ISLANDS_BASE = {"tolerance": 0.10,
+                "cases": {"islands-144-four-color/direct": {"wall_s": 0.94,
+                                                             "original": {"wall_s": 0.77}}}}
+
+
+def islands(wall):
+    return {"case": "islands-144-four-color", "transport": "direct", "result": "PASS",
+            "wall_s": wall}
+
+
+def test_median_of_three_turns_two_spiked_repeats_into_a_failure():
+    from tests.corpus.timing_gate import median_rows
+    merged = median_rows([[islands(1.57)], [islands(1.61)], [islands(0.80)]])
+    problems = check(merged, ISLANDS_BASE)
+    assert any("wall_s 1.57s > limit 1.38s" in p for p in problems)
+    assert any("wall_s 1.57s > cumulative limit 1.50s" in p for p in problems)
+
+
+def test_median_of_five_needs_a_majority_of_slow_repeats():
+    from tests.corpus.timing_gate import median_rows
+    # The same two spikes plus two typical repeats: the median is a typical repeat, gate passes.
+    merged = median_rows([[islands(w)] for w in (1.57, 1.61, 0.80, 0.82, 0.79)])
+    assert merged[0]["wall_s"] == 0.82 and check(merged, ISLANDS_BASE) == []
+    # A real regression slows most repeats, and the median of five still fails the gate.
+    merged = median_rows([[islands(w)] for w in (1.57, 1.61, 1.55, 0.82, 0.79)])
+    assert any("wall_s 1.55s > limit 1.38s" in p for p in check(merged, ISLANDS_BASE))
+
+
 def fit_row(fit, wall=4.0):
     return dict(row(wall), fit_check_s=fit)
 
@@ -329,6 +361,11 @@ def test_mock_leg_stays_a_blocking_gate():
     assert not job.get("continue-on-error")
     gate = next(s["run"] for s in job["steps"] if s.get("name", "").startswith("Timing gate"))
     assert "--warn-only" not in gate and "timing/run-3.json" in gate
+    # Five repeats since #1734: a median of three fails when two repeats spike on one case;
+    # the gate step must name all five files the timing step writes.
+    assert "timing/run-5.json" in gate
+    timed = next(s["run"] for s in job["steps"] if s.get("name", "").startswith("Time the corpus"))
+    assert "for i in 1 2 3 4 5" in timed
 
 
 def test_real_slicer_leg_is_reporting_only_and_skips_the_slow_case():

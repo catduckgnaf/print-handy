@@ -82,7 +82,9 @@ def median_rows(runs):
     """Merge repeated runs: per case/transport, the median of each metric; any failed repeat wins.
 
     One sample is not a measurement on a shared runner (a single 0.2 s flow was seen at 8.5 s while
-    another job held the CPU), so the gate compares medians of at least three repeats."""
+    another job held the CPU), so the gate compares medians of at least three repeats. The mock leg
+    runs five (#1734): one case spiking in two of three repeats failed the gate on an otherwise
+    at-speed run, and a median of five needs a majority of repeats slow before it calls a case slow."""
     import statistics
     merged = {}
     for rows in runs:
