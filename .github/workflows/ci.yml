@@ -361,9 +361,9 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --entrypoint python3 print-handy-runtime:ci \
-            -c "from print_handy.core import _bounds_native as m; print('working copy imports, API_VERSION', m.API_VERSION)"
+            -c "from print_handy.core import _bounds_native as m; assert callable(m.paint_census); print('working copy imports, API_VERSION', m.API_VERSION, 'PAINT_CENSUS_VERSION', m.PAINT_CENSUS_VERSION)"
           docker run --rm --workdir / --entrypoint python3 print-handy-runtime:ci \
-            -c "import print_handy.core._bounds_native as m; print('site-packages copy imports, API_VERSION', m.API_VERSION)"
+            -c "import print_handy.core._bounds_native as m; assert callable(m.paint_census); print('site-packages copy imports, API_VERSION', m.API_VERSION, 'PAINT_CENSUS_VERSION', m.PAINT_CENSUS_VERSION)"
 
   native-bounds:
     # Builds the Rust/PyO3 bounds extension (#952, D1) and runs the
@@ -411,7 +411,8 @@ jobs:
       - name: Run the bounds corpus against the native path
         env:
           PRINT_HANDY_BOUNDS_REQUIRE_NATIVE: "1"
-        run: python -m pytest tests/pipeline/test_native_bounds.py tests/pipeline/test_native_bed_scan.py -q -rs
+          PRINT_HANDY_PAINT_REQUIRE_NATIVE: "1"
+        run: python -m pytest tests/pipeline/test_native_bounds.py tests/pipeline/test_native_bed_scan.py tests/pipeline/test_native_paint_census.py -q -rs
 
   discord-timing:
     # A required status check on main (the owner added it; #1196). Keep the job name.

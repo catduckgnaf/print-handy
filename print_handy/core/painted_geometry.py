@@ -25,9 +25,13 @@ import contextlib
 import contextvars
 import functools
 import hashlib
+import logging
+import os
 import re
 import zipfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # One read per call (#1155): a slice, an export or an inventory runs inside a
 # decode scope, and inside it each .model member of a source is decompressed
@@ -338,8 +342,215 @@ def paint_states_in(data):
     return dict(counter)
 
 
+# --- Native acceleration (#1715) ---------------------------------------
+# The Rust/PyO3 census in the bounds extension (native/bounds/src/
+# paint.rs) counts every mesh object of a .model member in one pass —
+# the per-triangle paint decode below is 78% of a cold painted
+# inventory (the #1715 profile), and the census runs it well over an
+# order of magnitude faster. It is an accelerator only, never load bearing:
+# _leaf_states_python stays forever as the fallback and the test
+# oracle, and every install without the built extension (pip-from-
+# clone, raw checkouts) runs it exactly as before. The dispatcher uses
+# the native path only when ALL of these hold:
+#   * the PRINT_HANDY_BOUNDS_IMPL setting allows it ("auto"/"native";
+#     "python" forces the fallback; unset means "auto") — the same
+#     setting and rules as the bounds parser and the bed scan, whose
+#     crate this shares,
+#   * the extension imports, its PAINT_CENSUS_VERSION matches
+#     PAINT_CENSUS_VERSION, and a golden self-check (known members
+#     with known censuses, a per-mesh decode error included) passes
+#     on first use.
+# A mesh whose paint decode fails carries the Python decode's exact
+# error message in its census row, and leaf_states raises it as the
+# same ValueError, for that mesh only — a bad mesh never poisons the
+# member's other meshes, exactly as the per-mesh Python decode behaves.
+# Any other native error falls back to the Python counting for that
+# member, is logged, and disables the native path for the rest of the
+# process. Parts with triangle_ranges always take the Python path (see
+# leaf_states): that is the documented design, not a fallback.
+# The paint census semantics version. It is the native handshake
+# version (a native build of any other version is never used). Bump it
+# on any semantic change to the census contract.
+PAINT_CENSUS_VERSION = 1
+_PAINT_SELF_CHECK = (
+    (b'<model><resources>'
+     b'<object id="1"><mesh><triangles>'
+     b'<triangle v1="0" v2="1" v3="2" paint_color="4"/>'
+     b'<triangle v1="0" v2="1" v3="2" paint_color="8"/>'
+     b'<triangle v1="0" v2="1" v3="2"/>'
+     b'</triangles></mesh></object>'
+     b'<object id="2"><mesh><triangles>'
+     b'<triangle v1="0" v2="1" v3="2" paint_color="1"/>'
+     b'</triangles></mesh></object>'
+     b'</resources></model>',
+     {'1': {'states': {1: 1, 2: 1}, 'unpainted': 1},
+      '2': {'error': 'truncated paint_color'}}),
+    (b'<model><resources>'
+     b'<p:object id="7"><mesh><triangles>'
+     b'<p:triangle v1="0" v2="1" v3="2" paint_color="841"/>'
+     b'<p:triangle v1="0" v2="1" v3="2" paint_color="0FC"/>'
+     b'<p:triangle v1="0" v2="1" v3="2" slic3rpe:mmu_segmentation="8"/>'
+     b'</triangles></mesh></p:object>'
+     b'</resources></model>',
+     {'7': {'states': {1: 1, 2: 2, 18: 1}, 'unpainted': 0}}),
+)
+_native_paint_module = None
+_native_paint_broken = False
+# A Rust panic inside the extension reaches Python as PyO3's
+# PanicException, which derives from BaseException, not Exception: the
+# fallback must catch it too, or a native defect would escape instead
+# of degrading to the Python counting. Only these are never swallowed.
+_PAINT_NEVER_SWALLOW = (KeyboardInterrupt, SystemExit, GeneratorExit)
+
+
+def _paint_impl_setting():
+    return os.environ.get("PRINT_HANDY_BOUNDS_IMPL", "auto").strip().lower()
+
+
+def _load_native_paint():
+    """Return the verified native module, or None when unavailable.
+
+    The result is cached after the first successful verification; a
+    module that fails the import, the version handshake or the golden
+    self-check is never retried in this process.
+    """
+    global _native_paint_module, _native_paint_broken
+    if _native_paint_module is not None or _native_paint_broken:
+        return _native_paint_module
+    try:
+        from . import _bounds_native as module
+        if getattr(module, "PAINT_CENSUS_VERSION", None) != PAINT_CENSUS_VERSION:
+            raise ValueError(
+                f"native paint census version {getattr(module, 'PAINT_CENSUS_VERSION', None)!r} "
+                f"!= expected {PAINT_CENSUS_VERSION}")
+        for member, expected in _PAINT_SELF_CHECK:
+            if module.paint_census(member) != expected:
+                raise ValueError("native paint census self-check mismatch")
+    except BaseException as exc:
+        if isinstance(exc, _PAINT_NEVER_SWALLOW):
+            raise
+        _native_paint_broken = True
+        if _paint_impl_setting() == "native":
+            raise RuntimeError(f"native paint census required but unavailable: {exc}") from exc
+        logger.debug("native paint census unavailable, using Python counting: %s", exc)
+        return None
+    _native_paint_module = module
+    return module
+
+
+def _reset_native_paint_cache():
+    """Forget the cached native module (tests only)."""
+    global _native_paint_module, _native_paint_broken
+    _native_paint_module = None
+    _native_paint_broken = False
+
+
+def _census_shape_ok(census):
+    """True when a native census result has exactly the contract shape."""
+    if not isinstance(census, dict):
+        return False
+    for mesh_id, row in census.items():
+        if not isinstance(mesh_id, str) or not isinstance(row, dict):
+            return False
+        if set(row) == {'error'}:
+            if not isinstance(row['error'], str):
+                return False
+        elif set(row) == {'states', 'unpainted'}:
+            if not isinstance(row['states'], dict) or not isinstance(row['unpainted'], int):
+                return False
+            if any(not isinstance(state, int) or not isinstance(count, int)
+                   for state, count in row['states'].items()):
+                return False
+        else:
+            return False
+    return True
+
+
+def _member_census(source, model_path):
+    """The native census of one .model member, or None when unavailable.
+
+    {mesh_id: {'states': {state: leaves}, 'unpainted': n} or
+    {'error': message}}. Inside a decode scope the census is computed
+    once per (source, member) and shared by every leaf_states call in
+    the scope, so a flow that asks about many parts of one member pays
+    one native pass; outside a scope it is computed per call and
+    nothing is kept, exactly like the member bytes themselves.
+    """
+    global _native_paint_broken
+    setting = _paint_impl_setting()
+    required = setting == "native"
+    if setting == "python":
+        return None
+    if _native_paint_broken:
+        if required:
+            raise RuntimeError("native paint census required but unavailable: "
+                               "disabled after an earlier failure in this process")
+        return None
+    module = _load_native_paint()
+    if module is None:
+        return None
+    cache = _SCOPE.get()
+    key = ('census', _file_key(source), model_path) if cache is not None else None
+    if key is not None and key in cache:
+        return cache[key]
+    model = model_member(source, model_path)
+    try:
+        census = module.paint_census(model)
+    except BaseException as exc:
+        if isinstance(exc, _PAINT_NEVER_SWALLOW):
+            raise
+        _native_paint_broken = True
+        if required:
+            raise RuntimeError(f"native paint census required but failed: {exc!r}") from exc
+        logger.warning("native paint census failed (%r); using the Python counting", exc)
+        return None
+    if not _census_shape_ok(census):
+        _native_paint_broken = True
+        if required:
+            raise RuntimeError("native paint census required but returned a malformed result")
+        logger.warning("native paint census returned a malformed result; using the Python counting")
+        return None
+    if key is not None:
+        cache[key] = census
+    return census
+
+
 def leaf_states(source, part):
     """{'states': {state: leaves}, 'unpainted': n} for one inventory part's mesh.
+
+    part['ancestry'] ends at the mesh object: [[model_path, object_id], ...].
+    A row with 'triangle_ranges' (a PrusaSlicer volume split out of its
+    object's one mesh, #1260) counts only the triangles in those ranges:
+    a whole-mesh census cannot answer for a subset, so ranges parts
+    always take the Python counting — the documented design (#1715),
+    not a fallback from a fault. Every other part is served from the
+    native member census when it is verified available, and from the
+    Python counting otherwise; the two are held to identical results
+    by the differential tests.
+    """
+    model_path, mesh_id = part['ancestry'][-1]
+    if part.get('triangle_ranges'):
+        return _leaf_states_python(source, part)
+    cache = _SCOPE.get()
+    key = ('leaf', _file_key(source), model_path, str(mesh_id), ()) if cache is not None else None
+    if key is not None and key in cache:
+        row = cache[key]
+        return {'states': dict(row['states']), 'unpainted': row['unpainted']}
+    census = _member_census(source, model_path)
+    if census is None:
+        return _leaf_states_python(source, part)
+    if str(mesh_id) not in census:
+        raise RuntimeError(f'painted part mesh {mesh_id} not found in {model_path}')
+    row = census[str(mesh_id)]
+    if 'error' in row:
+        raise ValueError(row['error'])
+    if key is not None:
+        cache[key] = {'states': dict(row['states']), 'unpainted': row['unpainted']}
+    return {'states': dict(row['states']), 'unpainted': row['unpainted']}
+
+
+def _leaf_states_python(source, part):
+    """leaf_states counted in Python: the permanent fallback and oracle.
 
     part['ancestry'] ends at the mesh object: [[model_path, object_id], ...].
     A row with 'triangle_ranges' (a PrusaSlicer volume split out of its

@@ -537,8 +537,11 @@ class NativeBoundsStageTests(unittest.TestCase):
         self.assertLess(mkdir_at, cp_at)
         # The placed /app copy is import-checked inside the stage itself,
         # so a placement the loader cannot use fails the build, not the
-        # first publish that happens to exercise it.
-        self.assertIn('python -c "from print_handy.core import _bounds_native"', runtime)
+        # first publish that happens to exercise it. The check also
+        # asserts the paint census surface (#1715), so an extension
+        # built without it fails here too.
+        self.assertIn('python -c "from print_handy.core import _bounds_native as m; '
+                      'assert callable(m.paint_census) and m.PAINT_CENSUS_VERSION >= 1"', runtime)
         # The rustup installer is checksum-pinned per architecture, never piped to sh.
         self.assertNotIn("sh.rustup.rs", stage)
         self.assertIn("rustup/archive/1.28.2/$target/rustup-init", stage)
