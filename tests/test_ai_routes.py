@@ -99,6 +99,27 @@ def test_a_tier_setting_wins_one_field_at_a_time():
     assert served == "better-model" and endpoint.requests[0]["url"] == URL
 
 
+def test_heavy_uses_shared_llm_endpoint_with_model_timeout_and_same_host_fallback(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "shared-secret")
+    monkeypatch.setenv("TIER_KEY", "retired-secret")
+    config = cfg(llm={"chat_url": URL, "model": "standard", "api_key_env": "LLM_API_KEY", "timeout_s": 20},
+                 design={"model": "repair-model", "timeout_s": 71,
+                         "chat_url": OTHER_URL, "api_key_env": "TIER_KEY"},
+                 ai={"small": {}, "chat": {}, "heavy": {
+                     "chat_url": OTHER_URL, "api_key_env": "TIER_KEY", "model": "heavy-model",
+                     "timeout_s": 91, "fallback_model": "repair-backup", "fallback_url": OTHER_URL,
+                     "fallback_api_key_env": "TIER_KEY"}})
+    endpoint = Endpoint(fail={"heavy-model"})
+
+    answer, served = ai_routes.call("heavy", MSG, cfg=config, opener=endpoint)
+
+    assert (answer, served) == ("hello", "repair-backup")
+    assert [request["url"] for request in endpoint.requests] == [URL, URL]
+    assert endpoint.models == ["heavy-model", "repair-backup"]
+    assert [request["auth"] for request in endpoint.requests] == ["Bearer shared-secret"] * 2
+    assert [request["timeout"] for request in endpoint.requests] == [91, 91]
+
+
 def test_a_failed_primary_retries_once_on_the_fallback_model_and_reports_who_served():
     config = cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "big", "fallback_model": "small"}})
     endpoint = Endpoint(fail={"big"})
