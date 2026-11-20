@@ -159,6 +159,12 @@ COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py
 COPY README.md ./README.md
 RUN mkdir -p /out && cd native/bounds && \
     maturin build --release --locked -i python3 --out /out
+# Share only the pinned build toolchain, not the package stubs or wheels.
+COPY native/paint_census/ ./native/paint_census/
+COPY print_handy/__init__.py ./native/paint_census/print_handy/__init__.py
+COPY print_handy/core/__init__.py ./native/paint_census/print_handy/core/__init__.py
+RUN mkdir -p /paint-out && cd native/paint_census && \
+    maturin build --release --locked -i python3 --out /paint-out
 
 FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runtime
 ARG WITH_GO2RTC=true
@@ -221,7 +227,7 @@ LABEL org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.source="https://github.com/catduckgnaf/print-handy" \
       org.opencontainers.image.description="Print Handy: local-first chat-guided slicing, spool matching and confirmed printing for 3D printers"
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml setup.py README.md ./
 COPY print_handy/__init__.py ./print_handy/__init__.py
 RUN pip install --no-cache-dir .
 # GPU inference flavors for the local failure detector (#455): the
@@ -257,6 +263,7 @@ RUN case "$ORT_FLAVOR" in \
 # The native bounds wheel (#952) installs the compiled extension into
 # the venv's site-packages; only the .so ships, no build toolchain.
 COPY --from=bounds-build /out/*.whl /tmp/bounds-wheel/
+COPY --from=bounds-build /paint-out/*.whl /tmp/paint-wheel/
 COPY . .
 # The license, the notice and the third-party components table travel with the image (docs/ is otherwise
 # dockerignored; .dockerignore re-includes only docs/COMPONENTS.md).
@@ -281,6 +288,12 @@ RUN set -e; cd /tmp/bounds-wheel && python -m zipfile -e *.whl x && \
     cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/ && \
     cd /app && python -c "from print_handy.core import _bounds_native" && \
     cd / && rm -rf /tmp/bounds-wheel
+RUN set -e; cd /tmp/paint-wheel && python -m zipfile -e *.whl x && \
+    so=$(ls x/print_handy/core/_paint_census_native*.so) && \
+    site=$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') && \
+    cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/ && \
+    cd /app && python -c 'from print_handy.core import _paint_census_native as m; assert m.API_VERSION == 1' && \
+    cd / && rm -rf /tmp/paint-wheel
 # Bytecode for the working copy (#1153). .dockerignore keeps every
 # __pycache__ out of the context, /app is root-owned and the processes run
 # as handy, so without this step nothing can write bytecode and every bot

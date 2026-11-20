@@ -8,7 +8,7 @@
 # print_handy/__init__.py (__version__), read dynamically below.
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "wheel", "setuptools-rust>=1.11,<2"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -47,6 +47,7 @@ test = [
     "pip-audit>=2.7",
     # tests/test_package_data_parity.py builds the sdist and wheels with the real backend (#1322).
     "setuptools>=68",
+    "setuptools-rust>=1.11,<2",
 ]
 
 [tool.setuptools.dynamic]

@@ -357,13 +357,13 @@ jobs:
           df -h /
       - name: Build the full image
         run: docker build -t print-handy-runtime:ci .
-      - name: The native bounds extension imports at both install locations
+      - name: Both native extensions import at both install locations
         run: |
           set -euo pipefail
           docker run --rm --entrypoint python3 print-handy-runtime:ci \
-            -c "from print_handy.core import _bounds_native as m; print('working copy imports, API_VERSION', m.API_VERSION)"
-          docker run --rm --workdir / --entrypoint python3 print-handy-runtime:ci \
-            -c "import print_handy.core._bounds_native as m; print('site-packages copy imports, API_VERSION', m.API_VERSION)"
+            -c "from print_handy.core import _bounds_native, _paint_census_native; assert _paint_census_native.API_VERSION == 1; print(_bounds_native.__file__, _paint_census_native.__file__)"
+          docker run --rm --workdir / --env PYTHONPATH= --entrypoint python3 print-handy-runtime:ci \
+            -c "from print_handy.core import _bounds_native, _paint_census_native; assert _paint_census_native.API_VERSION == 1; print(_bounds_native.__file__, _paint_census_native.__file__)"
 
   native-bounds:
     # Builds the Rust/PyO3 bounds extension (#952, D1) and runs the

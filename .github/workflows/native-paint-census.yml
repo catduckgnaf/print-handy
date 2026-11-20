@@ -1,0 +1,60 @@
+name: Native paint census
+
+on:
+  push:
+    branches: [perf/1715-native-paint-census]
+  pull_request:
+    paths:
+      - '.github/workflows/native-paint-census.yml'
+      - 'native/paint_census/**'
+      - 'print_handy/**'
+      - 'tests/**'
+      - 'scripts/benchmark_paint_census.py'
+      - 'MANIFEST.in'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - 'constraints.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  native-paint-census:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            python: '3.12'
+          - runner: ubuntu-24.04-arm
+            python: '3.14'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      PRINT_HANDY_BUILD_REQUIRE_PAINT_CENSUS: '1'
+      PRINT_HANDY_PAINT_CENSUS_REQUIRE_NATIVE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build the wheel and source distribution
+        run: |
+          rustup default 1.99.1
+          python -m pip install build
+          python -m build --wheel --sdist --outdir "$RUNNER_TEMP/direct"
+          python -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/rebuilt" "$RUNNER_TEMP"/direct/*.tar.gz
+      - name: Verify both installed wheels outside the source tree
+        working-directory: ${{ runner.temp }}
+        run: |
+          for output in direct rebuilt; do
+            python -m pip install --force-reinstall --no-deps "$output"/*-cp312-abi3-*.whl
+            python -c "from print_handy.core import _paint_census_native as m; data = b'<p:triangle paint_color=\"8\"/>'; assert m.API_VERSION == 1; assert m.census(data, {'1': (0, len(data))}) == {'1': ({2: 1}, 0)}"
+          done
+      - name: Run census parity against the installed extension
+        run: |
+          wheel=$(printf '%s\n' "$RUNNER_TEMP"/rebuilt/*.whl)
+          python -m pip install -c constraints.txt "$wheel[test]"
+          PURELIB="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          cp "$PURELIB"/print_handy/core/_paint_census_native*.so print_handy/core/
+          python -m pytest tests/core/test_paint_census.py -q -rs

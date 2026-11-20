@@ -29,9 +29,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "print_handy"
-NATIVE = re.compile(r"_bounds_native[^/]*\.(?:so|pyd|dylib)$")
-# Files the build needs beside the package: metadata, the MANIFEST includes, the plugin handlers.
-BUILD_FILES = ("pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "NOTICE",
+NATIVE = re.compile(r"_(?:bounds_native|paint_census_native)[^/]*\.(?:so|pyd|dylib)$")
+# This parity check isolates the Python runtime data. The strict native job
+# builds from the full source tree and from the sdist with Rust enabled.
+BUILD_FILES = ("pyproject.toml", "setup.py", "MANIFEST.in", "README.md", "LICENSE", "NOTICE",
                "plugins/print-feedback/__init__.py")
 _BUILD = ("import sys\nfrom setuptools import build_meta as backend\n"
           "print(backend.build_sdist(sys.argv[1]) if sys.argv[2] == 'sdist' else backend.build_wheel(sys.argv[1]))\n")
@@ -45,7 +46,8 @@ def _copy_tree(dest):
     for name in BUILD_FILES:
         (dest / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, dest / name)
-    shutil.copytree(ROOT / PACKAGE, dest / PACKAGE, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(ROOT / PACKAGE, dest / PACKAGE,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "_paint_census_native*.so"))
 
 
 def _build(source, out, kind):
