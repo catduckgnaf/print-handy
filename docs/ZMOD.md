@@ -167,14 +167,20 @@ the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)
   pairing-code setup instead registers an absolute address on the
   screen device's own port; that address is refused by name and
   never followed, the same rule as any other unexpected shape. A
-  HelixScreen screen is shown but never pressed from Print Handy,
-  at either controls setting: its remote control is HelixScreen's
-  own screen sharing page, behind its pairing code or Moonraker
-  authorization, and Print Handy neither proxies nor embeds that
-  page nor links the printer's address. This support is built
-  against HelixScreen 1.1's registration, a beta line Print Handy
-  is not on yet; live verification on a real printer is still to
-  come.
+  HelixScreen screen was shown but never pressed from Print Handy
+  until #1720: with controls on it is now pressed through the
+  sharing server's own protocol: Print Handy pairs once from its
+  screen page (the six-digit code from that same Screen Sharing
+  settings page, exchanged for a pairing token that is kept in a
+  0600 state file, never in the settings file), and a tap is a
+  down/up touch event pair carrying that token, sent only when the
+  server's info answer says remote control is allowed and the
+  pairing is honored. Print Handy still neither proxies nor embeds
+  HelixScreen's page nor links the printer's address. This support
+  is built against HelixScreen 1.1's registration and its served
+  page's protocol, a beta line Print Handy is not on yet; live
+  verification on a real printer is still to come (recorded on
+  #1082).
 
 Verified support per model:
 

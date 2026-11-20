@@ -251,8 +251,11 @@ def render_login_page(error=None, password=False, *, username=False,
     (see server.py). ``error`` is a fixed message chosen by the server;
     the submitted token is never reflected here. ``password`` is true
     when the credential is the password chosen in the walkthrough;
-    ``username`` adds the username field (#875), named and autocompleted
-    so a browser or password manager can save and fill the pair.
+    ``username`` is true when a saved username is checked (#875).
+    The username field itself renders in every mode (#1720), named
+    and autocompleted so a browser or password manager can save and
+    fill the pair: without a username field to save against, the
+    token and legacy password modes were never offered a save.
     """
     remembered = (' This browser stays signed in for 12 hours; tick '
                   '<strong>Keep me signed in on this browser</strong> below to '
@@ -271,10 +274,19 @@ def render_login_page(error=None, password=False, *, username=False,
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
     label = "Password" if password else "Access token"
+    # Every mode carries the username field (#1720): a browser or
+    # password manager saves a credential against a username, so the
+    # modes without one (the access token, and a saved password from
+    # before usernames existed) were never offered a save and the
+    # password had to be typed on every visit. matches_login accepts
+    # any name in those modes, exactly as its docstring promises, so
+    # the field is optional there and required only when a saved
+    # username is actually checked.
+    user_required = " required" if username else ""
     user_row = (f'<p><label for="f-{LOGIN_USER_FIELD}">Username</label> '
                 f'<input type="text" id="f-{LOGIN_USER_FIELD}" name="{LOGIN_USER_FIELD}" '
-                'autocomplete="username" autocapitalize="none" spellcheck="false" '
-                'required></p>') if password and username else ""
+                'autocomplete="username" autocapitalize="none" spellcheck="false"'
+                f'{user_required}></p>')
     parts.append(
         f'<form method="post" action="/login">{user_row}'
         f'<p><label for="f-{LOGIN_TOKEN_FIELD}">{label}</label> '
