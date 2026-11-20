@@ -30,9 +30,7 @@ No mandatory configuration migration is identified in the changes summarized her
 
 Hardware-specific validation is tracked in the [live-proof checklist #1082](https://github.com/catduckgnaf/print-handy/issues/1082). Consult that checklist for its open items; this document does not claim a hardware check was performed.
 
-## Work not yet merged
-
-[PR #1728](https://github.com/catduckgnaf/print-handy/pull/1728), which proposes removing the Discord free-text AI fallback, remains pending. It is not included as a completed 2.3.6 change unless and until it merges.
+Merged PRs covered by this release range: #1566, #1567, #1568, #1569, #1572, #1573, #1574, #1575, #1576, #1577, #1578, #1580, #1581, #1582, #1591, #1594, #1597, #1602, #1604, #1605, #1606, #1607, #1609, #1611, #1613, #1614, #1618, #1619, #1620, #1621, #1628, #1629, #1630, #1631, #1632, #1633, #1635, #1639, #1640, #1641, #1642, #1644, #1645, #1646, #1649, #1650, #1652, #1653, #1654, #1655, #1656, #1657, #1658, #1659, #1662, #1663, #1664, #1665, #1666, #1667, #1668, #1669, #1670, #1671, #1673, #1674, #1685, #1686, #1688, #1689, #1690, #1691, #1692, #1693, #1694, #1695, #1696, #1698, #1699, #1701, #1704, #1705, #1706, #1707, #1708, #1709, #1710, #1711, #1712, #1713, #1714, #1716, #1722, #1723, #1724, #1725, #1727, #1728, #1730.
 
 ## References
 
