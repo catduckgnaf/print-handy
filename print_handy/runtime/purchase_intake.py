@@ -45,6 +45,7 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from ..core import link_intake, printer_state
+from . import _config  # noqa: F401  (re-exported: tests read the live config through this module)
 from . import spool_label, spool_sync
 
 logger = logging.getLogger(__name__)
