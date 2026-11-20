@@ -14,7 +14,7 @@ from functools import lru_cache
 
 from .flows import Flow, FlowError, FlowSession, Node, Step
 from .registry import (ROOT, FirmwareEntry, Match, PrinterEntry, Registry,
-                       RegistryError, Symptom, ThermalCapabilities, _norm, load_registry)
+                       RegistryError, Symptom, ThermalCapabilities, load_registry)
 from .thermal import (thermal_assumptions_lines, thermal_entry_for_model,
                       thermal_lines_for_model, thermal_setup_questions,
                       unknown_thermal_fields)
