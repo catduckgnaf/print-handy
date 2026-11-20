@@ -578,8 +578,9 @@ class ScreenHelixScreenTests(unittest.TestCase):
     built from the printer's configured host; the pairing-code
     registration (an absolute address on the screen device) is
     refused by name and never followed. The ZMod registration keeps
-    precedence when both are present. Touch is ZMod-only: a
-    HelixScreen screen refuses by name and sends nothing.
+    precedence when both are present. Since #1720 a HelixScreen
+    screen is also pressable, through its own sharing protocol once
+    paired — see tests/test_webui_screen_helix_1720.py.
     """
 
     def setUp(self):
@@ -658,14 +659,23 @@ class ScreenHelixScreenTests(unittest.TestCase):
         self.assertEqual(reason, "")
         self.assertEqual(source, screen.SOURCE_HELIXSCREEN)
 
-    def test_touch_refuses_a_helixscreen_screen_by_name(self):
+    def test_touch_refuses_an_unpaired_helixscreen_screen_by_name(self):
+        # #1720: a HelixScreen tap goes through its screen sharing,
+        # but only once paired — an unpaired tap refuses by name and
+        # sends no touch event. (Before #1720 every HelixScreen tap
+        # refused; the paired path is covered in
+        # tests/test_webui_screen_helix_1720.py.)
         sent = []
         code, body = screen.touch(
             touch_data(), self.printer_id, 400, 240,
             discover=lambda url: [helix_entry()],
-            send=lambda url: sent.append(url))
-        self.assertEqual(code, 501)
-        self.assertIn("HelixScreen", body["reason"])
+            send=lambda url: sent.append(url),
+            helix_info=lambda url, token: (200, {"control": True,
+                                                 "paired": False}),
+            helix_post=lambda url, payload, token: sent.append(url) or (200, {}),
+            token_for=lambda data, printer_id: "")
+        self.assertEqual(code, 403)
+        self.assertIn("not paired", body["reason"])
         self.assertEqual(sent, [])
 
     def test_touch_still_uses_zmod_when_both_are_present(self):
@@ -678,15 +688,19 @@ class ScreenHelixScreenTests(unittest.TestCase):
         self.assertEqual(
             sent, [f"http://{HOST}/screen/click?x=400&y=240"])
 
-    def test_helixscreen_page_with_controls_on_is_not_tappable(self):
+    def test_helixscreen_page_with_controls_on_unpaired_offers_pairing(self):
+        # #1720: with controls on and no pairing stored, the page
+        # offers the one-time pairing form instead of a tappable
+        # still — and still never names the printer's address.
         page = screen.render_page(
             "AD5X", self.printer_id, ok=True, reason="",
             touch=True, form_token="tok",
             source=screen.SOURCE_HELIXSCREEN)
-        self.assertIn("HelixScreen's own screen sharing", page)
-        self.assertIn("not pressed from here", page)
+        self.assertIn("not paired with Print Handy yet", page)
+        self.assertIn(f"/printers/{self.printer_id}/screen/pair", page)
+        self.assertIn('name="code"', page)
         self.assertIn(f"/api/printers/{self.printer_id}/screen/snapshot", page)
-        self.assertNotIn("click", page.split("<main>", 1)[1].split("</main>")[0])
+        self.assertNotIn("addEventListener('click'", page)
         self.assertNotIn(HOST, page)
         self.assertNotIn("7130", page)
 

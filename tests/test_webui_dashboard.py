@@ -341,21 +341,21 @@ SCREEN_WEBCAMS = [
 
 
 def test_dashboard_shows_screen_panel_when_a_screen_is_published():
+    # #1720 moved the embedded screen back under Printers: the main
+    # page keeps a labeled link panel, not a second embedded still.
     with tempfile.TemporaryDirectory() as tmp:
         data = load(tmp)
         dash = dashboard.build_dashboard(
             data, status_for=status_fake(IDLE), spools_for=spools_fake(),
             screen_for=lambda printer_id: True)
         page = server.render_status_html(SNAP, dashboard=dash)
-    assert 'src="/api/printers/flashforge-ad5x/screen/snapshot"' in page
-    assert "data-dash-screen src=" in page
+    assert "data-dash-screen src=" not in page
+    assert "/screen/snapshot" not in page
     assert "<h3>Printer screen</h3>" in page
     # Labeled as the printer's own display, never as a camera, and
-    # linked to the dedicated screen page.
-    assert "not the bed camera" in page
+    # linked to the dedicated screen page under Printers.
+    assert "lives under Printers now" in page
     assert 'href="/printers/flashforge-ad5x/screen"' in page
-    # The refresh script covers the screen still beside the camera's.
-    assert "img[data-dash-cam],img[data-dash-screen]" in page
 
 
 def test_dashboard_omits_screen_panel_when_no_screen_is_published():
