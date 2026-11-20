@@ -221,6 +221,23 @@ def test_bounds_large_array_tables_match_scalar_nan_min_max():
                         assert actual_value == expected_value
 
 
+
+def test_large_indexed_integer_bounds_preserve_scalar_precision():
+    import numpy as np
+    from print_handy.core.compact_geometry import IndexedTriangles
+
+    base = 2**53
+    vertices = np.asarray([(base, 0, 0), (base + 1, 1, 0), (base + 2, 0, 1)],
+                          dtype=np.int64)
+    table = IndexedTriangles(vertices, np.tile(np.asarray((0, 1, 2), dtype=np.int32), (32768, 1)))
+    # IndexedTriangles normally stores float64 geometry; emulate integer-backed
+    # indexed data to cover callers that supply/retain exact integer arrays.
+    table.vertices = vertices
+    assert table.vertices.dtype == np.int64
+    assert mesh_fast.bounds(table) == mesh_fast._scalar_bounds(table)
+    assert mesh_fast.bounds(table)[0][0] == base
+    assert mesh_fast.bounds(table)[1][0] == base + 2
+
 def test_bounds_does_not_evaluate_volume():
     class Coordinate:
         def __init__(self, value):

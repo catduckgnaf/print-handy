@@ -411,6 +411,10 @@ def bounds(triangles):
     """Return exact (lo, hi) bounds without doing signed-volume arithmetic."""
     from .compact_geometry import IndexedTriangles
     if isinstance(triangles, IndexedTriangles) and len(triangles) >= 32768:
+        # Float conversion can collapse distinct int64 coordinates above 2**53.
+        # Preserve the scalar path's exact comparisons for integer-backed data.
+        if triangles.vertices.dtype.kind in "iu":
+            return _scalar_bounds(triangles)
         if not len(triangles):
             raise ValueError('empty triangle table')
         lo = [float('inf')] * 3
@@ -463,6 +467,10 @@ def bounds_and_volume(triangles):
     """(lo, hi, signed volume), without materializing a per-triangle point list."""
     from .compact_geometry import IndexedTriangles
     if isinstance(triangles, IndexedTriangles) and len(triangles) >= 32768:
+        # Float conversion can collapse distinct int64 coordinates above 2**53.
+        # Preserve the scalar path's exact comparisons for integer-backed data.
+        if triangles.vertices.dtype.kind in "iu":
+            return _scalar_bounds(triangles)
         if not len(triangles):
             raise ValueError('empty triangle table')
         return _bounds_and_volume_arrays(triangles.vertices, triangles.faces)
