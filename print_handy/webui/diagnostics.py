@@ -18,7 +18,11 @@ tokens, keys and passwords and assert none of them reach the download.
 """
 from __future__ import annotations
 
+import logging
+
 from .. import diagnostics_bundle
+
+log = logging.getLogger(__name__)
 
 FILENAME = diagnostics_bundle.BUNDLE_NAME
 
@@ -33,6 +37,7 @@ def build_download(data=None):
     try:
         return 200, diagnostics_bundle.build_bundle(data)
     except Exception:
+        log.exception("diagnostics bundle could not be built")
         return 500, ""
 
 

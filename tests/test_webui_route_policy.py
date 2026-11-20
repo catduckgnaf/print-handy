@@ -53,6 +53,7 @@ EXPECTED = [
     ("GET", "/api/status", S),
     ("GET", "/api/printers", S),
     ("GET", "/data", S),
+    ("GET", "/diagnostics/download", S),
     ("GET", "/wrapped", S),
     ("GET", "/api/data", S),
     ("GET", "/api/wrapped", S),
