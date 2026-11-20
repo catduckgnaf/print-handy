@@ -45,5 +45,6 @@ def test_readme_names_the_three_routes():
     readme = (ROOT / "README.md").read_text()
     section = readme.split("## Talk to it in plain words", 1)[1].split("\n## ", 1)[0]
     assert "Normal chat is local" in section
-    assert "@mention is the conversational AI" in section
-    assert "Designing is its own AI path" in section
+    assert "Web Chat AI is opt-in" in section
+    assert "designing is its own AI path" in section
+    assert "@mention is the conversational AI" not in section

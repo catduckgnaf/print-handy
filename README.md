@@ -9,11 +9,11 @@
 
 **Bambu Handy for every printer. Including Bambu printers. We're not petty.**
 
-Find a model, drop its link or STL/3MF into Discord, Telegram, Matrix or the Web UI, and let Print Handy deal with the fiddly bits: colors, copies, bed fit, slicing, spools and print updates. It runs on your own hardware. There's no Print Handy cloud, no mandatory AI subscription, and considerably fewer reasons to move your laptop next to a printer.
+Ask for what you need in ordinary words: “How much purple PLA do I have?”, “What’s loaded?”, “Are there ZMod updates?” or “How much will this print cost?” Print Handy answers from your printer, Spoolman, and saved print records. Supported phrases and fuzzy matching are built into the Python command layer. No LLM parses those requests; performance helpers such as the G-code scanner can use Rust. When it’s time to make something, drop a model link or STL/3MF into Discord, Telegram, Matrix or the Web UI. It guides colors, copies, bed fit and slicing, then keeps you posted while the printer works. No slicer window to open for the everyday flow, and no Print Handy cloud.
 
-It also has a personality problem. Your model might get roasted, your eleventh copy deserves a Spinal Tap reference, and Pasta Cam would very much like your printer to stop making spaghetti.
+The goal is a high Wife Approval Factor (WAF): when someone asks for a drawer divider, turn the request into a print, not a lesson in slicer settings. Check filament and cost in chat, approve the plate, and get on with dinner. If the print turns into spaghetti, Pasta Cam can flag it. If you like a little commentary, turn on the optional roasts. Printing should be fun.
 
-Current release: **2.3.5**
+Current release: **2.3.5** · [What’s coming in 2.3.6](docs/RELEASE-2.3.6.md)
 
 [Install](#get-started) · [See it work](#from-link-to-print) · [Printer support](#find-your-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
@@ -24,9 +24,10 @@ Current release: **2.3.5**
 - **Spoolman without the spreadsheet cosplay.** Track your filament, match spools to printer slots and get prompted when a spool runs out. A bundled Spoolman instance is included in the container; you can also connect your own. [Spools and commands](docs/PROJECT-REFERENCE.md).
 - **Pasta Cam (Camera watchdog).** Camera checks can flag spaghetti, detached parts and other suspicious print behavior, with alerts and controls. Coverage depends on printer family, camera setup and enabled monitoring. It's a watchdog, not a psychic. Tune it with `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` (1 to 5). [Camera watch and compatibility](docs/DOCKER.md#camera-watch-visual_watch).
 - **Print updates with attitude.** Progress, pauses, errors, finish posts, optional timelapses, model roasts and non-AI status quips. Some printer connections monitor only jobs Print Handy started. [Status voice](docs/STATUS-VOICE.md) · [Timelapses](docs/DOCKER.md#timelapse-capture-go2rtc).
+- **Everyday slicing, in the conversation.** Drop a model link or file, answer the questions, and Print Handy handles the slicer. Ask for supported changes in plain language; fuzzy matching helps with typos and misspellings, while deterministic intent handling routes supported requests without treating a guess as permission. You do not need to open OrcaSlicer for the normal flow. [Model editing](docs/EDITING.md) · [Plain-language chat examples](#talk-to-it-in-plain-words).
 - **A real Web UI.** Set up printers, work through a model link or upload, use chat in your browser, browse slices and print history, and view the **Pasta Wrapped** recap. Some recap/video features depend on the records and options available. [Web UI guide](docs/WEBUI.md).
 - **Firmware, without pretending every printer is the same.** Check firmware versions and available components, including ZMod and HelixScreen updates; eligible ZMod and vanilla Klipper printers can apply a reported component update with confirmation. Other firmware paths get guidance or read-only reporting. [Exactly what updates work](docs/FIRMWARE-UPDATE.md).
-- **Optional AI, not mandatory AI.** Describe a part to the design tool, iterate on it or use supported natural-language editing. Normal printing, filament tracking, roasts and status messages don't need an LLM. AI features require an endpoint you configure and have platform-specific limitations. [Design guide](docs/DESIGN.md) · [Chat platforms](docs/STANDALONE.md).
+- **Optional AI, with distinct jobs.** The everyday print flow, fuzzy typo handling, routine questions and local roast text don't require an LLM. AI design is optional and uses a configured design endpoint. Optional Web Chat AI and vision-endpoint features are separate, explicitly configured paths; vision can power camera analysis and other image features. [Design guide](docs/DESIGN.md) · [AI and chat behavior](docs/STANDALONE.md).
 
 - **Home Assistant.** The [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy) puts every printer in Home Assistant with live status and controls.
 
@@ -63,28 +64,19 @@ These screenshots are **mockups based on real bot text and controls**, not proof
 
 ## Talk to it in plain words
 
-You do not need slash commands. In the print channel or the Web UI chat, just ask:
+Everyday questions and supported workflow requests do not need slash commands. In the print channel or Web UI chat, try:
 
 - "How much purple PLA do I have?"
-- "What's loaded?"
-- "What's in slot 2?"
-- "Tell me about spool #12"
-- "Which spools are nearly empty?"
-- "Are there ZMod updates?"
-- "What firmware am I on?"
+- "What's loaded?" / "What's in slot 2?"
+- "Are there ZMod updates?" / "What firmware am I on?"
 - "My first layer won't stick"
-- "Where can I buy PLA?"
-- "What can you do?"
 
-Plain questions are answered **locally** from your own Spoolman, printer and firmware state. No AI is involved and nothing leaves the machine. Follow-ups work too: after an inventory answer, "Only Polymaker" or "What about black?" narrows it.
+See [print cost questions](docs/COST.md) and [continuing a multipart project](docs/PROJECTS.md) for more phrases.
 
-Three routes, on purpose:
+For ordinary questions, deterministic routing and local data answer what the system knows. Typo-tolerant fuzzy matching can help understand a misspelling; it does not mean every vague message is understood, nor does a match itself authorize a printer action. Intake still asks the normal questions and preserves its confirmation gates. Details and slash-command forms remain in the [command reference](docs/PROJECT-REFERENCE.md).
 
-1. **Normal chat is local.** Plain questions get deterministic answers from real data. Nothing is sent to a model.
-2. **@mention is the conversational AI.** Mention the bot (or use the Web UI's Ask AI checkbox, or `ask ai:` in a direct message) and, when a chat endpoint is configured and switched on, that message goes to it. The AI gets only typed read-only tools. It cannot start, stop or change anything itself; if it proposes an action, you still get the normal confirmation prompt. A mention is never consent to change anything.
-3. **Designing is its own AI path.** Asking for a new or edited model uses the dedicated design engine, exactly as before, no mention needed. A few specialized paths also use AI for their one job: camera watch (Pasta Cam), spool-label and purchase photos, and edit repair. Those are unchanged.
+**Normal chat is local.** The optional AI paths are separate: **Web Chat AI is opt-in** and has its own Ask AI control; **designing is its own AI path** and needs a configured design endpoint. Vision features use their own configured endpoint and switches. Roasts come from local text and need no LLM. See [AI/chat behavior](docs/STANDALONE.md), [Design](docs/DESIGN.md) and [camera watch](docs/DOCKER.md#camera-watch-visual_watch).
 
-Buying words stay separate from inventory words: "Where can I buy PLA?" is shopping guidance, "I bought purple PLA" records nothing by itself (send the product link or a photo and you will be asked first), and "Load spool 12 into slot 2" is the guided spool flow with its own confirmation.
 
 ## Get started
 
@@ -137,7 +129,7 @@ One brand, five firmware routes. A printer can appear under more than one route;
 
 A Creator 5 running OpenCreator is not running ZMod, a Creator 5 running Reforge is running neither, and a stock AD5X is not secretly a Moonraker printer. Same shell, different brains: pick the firmware yours actually runs, and Print Handy will say so if you guessed wrong.
 
-**What has actually been checked?** The ZMod AD5X has limited on-hardware checks, but its [ZMod guide](docs/ZMOD.md) does not claim a verified Print Handy-started print. The stock AD5X LAN upload/start path is implemented but [not yet hardware-confirmed](docs/FLASHFORGE-STOCK.md). OpenCreator's Creator profiles are [tested against documentation and offline contracts, not a real printer](docs/OPENCREATOR.md), and so are [Reforge's](docs/REFORGE.md), which are built from Reforge's published config and have not met a real printer yet. That's the useful difference between *profile exists* and *go on, bet your printer on it*. The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) covers specific checks; it does not imply every FlashForge combination has been printed successfully.
+**Hardware validation:** See the [Reforge verification status](docs/REFORGE.md#verification-status-built-from-published-config-not-hardware-verified), the [live proof checklist #1082](https://github.com/catduckgnaf/print-handy/issues/1082) and the [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) for model-specific results.
 
 ### Creality
 

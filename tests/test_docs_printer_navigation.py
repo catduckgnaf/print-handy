@@ -131,16 +131,19 @@ class PrinterNavigationContract(unittest.TestCase):
                     f"README's Find your printer section does not link "
                     f"docs/{guide}")
 
-    def test_flashforge_shows_five_profiled_routes_and_says_reforge_is_unverified(self):
+    def test_flashforge_shows_five_routes_and_links_reforge_verification(self):
         flashforge = section(self.find_section, "FlashForge", level="###")
         for guide in ("FLASHFORGE-STOCK.md", "ZMOD.md", "FORGEX.md", "OPENCREATOR.md", "REFORGE.md"):
             with self.subTest(guide=guide):
                 self.assertIn(f"docs/{guide}", flashforge)
         self.assertNotRegex(flashforge, re.compile(r"no dedicated Print Handy profile", re.I))
-        self.assertRegex(
-            flashforge, re.compile(r"Reforge.{0,200}(not met a real printer|not .{0,20}real printer)",
-                                   re.I | re.S),
-            "the README must say Reforge's profiles are not hardware verified")
+        heading = "Verification status: built from published config, not hardware verified"
+        reforge = (ROOT / "docs" / "REFORGE.md").read_text(encoding="utf-8")
+        self.assertIn(f"## {heading}", reforge)
+        self.assertIn(
+            "docs/REFORGE.md#verification-status-built-from-published-config-not-hardware-verified",
+            flashforge,
+        )
 
     def test_picker_keeps_named_brands_ahead_of_the_generic_rows(self):
         for brand in BRANDS:
