@@ -2,9 +2,13 @@
 
 `print-handy-ca.xml` is a byte-exact snapshot of the Community
 Applications (CA) template `templates/print-handy.xml` in the
-`catduckgnaf/catduck-unraid-templates` repository, taken from that
-repository's head for catduckgnaf/catduck-unraid-templates#38 (the
-`:latest` change) on 2026-11-11, for issue #1143.
+`catduckgnaf/catduck-unraid-templates` repository, refreshed from that
+repository's main head `d448e92bfb7b` on 2026-11-19, for issue #1143.
+The template itself last changed in `c78a08c`
+(catduckgnaf/catduck-unraid-templates#42, the current description) on
+2026-11-15; the original snapshot was taken from that repository's head
+for catduckgnaf/catduck-unraid-templates#38 (the `:latest` change) on
+2026-11-11.
 
 `UnraidCaTemplateParityTests` in `tests/test_docker_release.py` parses
 this snapshot and the in-repo template (`docker/unraid/print-handy.xml`)
