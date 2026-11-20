@@ -2236,10 +2236,9 @@ def _validate_bot(data):
     user_ids(discord.setdefault("denied_user_ids", ""), key="denied_user_ids")
     discord["approval_user_id"] = ", ".join(
         user_ids(discord.setdefault("approval_user_id", ""), key="approval_user_id"))
-    # Anyone who may act in the print channel may also approve a print. On by
-    # default (#1718); set it false to restrict approval to the approval
-    # users listed above.
-    approval_all = discord.setdefault("approval_all_users", True)
+    # Broad print approval is opt-in. Keep the restricted default for installs
+    # that have never explicitly configured this setting.
+    approval_all = discord.setdefault("approval_all_users", False)
     if not isinstance(approval_all, bool):
         raise SettingsError(f"[discord] approval_all_users must be true or false, got {approval_all!r}")
     # Discord's chat-LLM switch (#466): off by default since #1376 (AI is

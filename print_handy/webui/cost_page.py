@@ -47,7 +47,7 @@ def _fmt(value):
     return f"{float(value):g}"
 
 
-def defaults_for(data):
+def defaults_for(data, technology="fdm"):
     """The form's starting values: every default filled in (#1718).
 
     The material price, watts, printer price and failure rate used to
@@ -59,14 +59,17 @@ def defaults_for(data):
     """
     workspace = cost_module.WorkspaceCost.from_settings(data)
     profile, _ = cost_module.printer_profile_for(data)
+    failure_rate = (workspace.failure_rate_resin if technology == "resin"
+                    else workspace.failure_rate_fdm)
+    failure_percent = _fmt(failure_rate * 100)
     return {
-        "technology": "fdm", "amount": "", "hours": "", "parts": "1",
+        "technology": technology, "amount": "", "hours": "", "parts": "1",
         "price_per_kg": _fmt(workspace.default_filament_cost_per_kg),
         "printer_price": _fmt(profile.purchase_price) if profile.purchase_price else "",
         "watts": _fmt(profile.watts),
         "prep_minutes": "5", "post_minutes": "10", "pack_minutes": "0",
         "hardware": "0", "packaging": "0",
-        "failure_percent": _fmt(workspace.failure_rate_fdm * 100),
+        "failure_percent": failure_percent,
         "_workspace": workspace,
         "_profile": profile,
     }
@@ -166,7 +169,7 @@ def job_from_usage(usage, data):
 
 def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
                      notice="", error="", form_token="", history=""):
-    values = defaults_for(data)
+    values = defaults_for(data, _value(form, "technology", "fdm") if form else "fdm")
     if form:
         for key, _label, _kind in FIELDS:
             values[key] = _value(form, key, values.get(key, ""))

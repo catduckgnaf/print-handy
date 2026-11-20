@@ -14,7 +14,7 @@ from print_handy.webui import config as config_api
 def test_flipped_defaults_load():
     data = settings.load(local=False, environ={})
     assert data["spool"]["prompt_brand"] is True
-    assert data["discord"]["approval_all_users"] is True
+    assert data["discord"]["approval_all_users"] is False
     assert data["timelapse"]["wrapped_video"] is True
     assert data["timelapse"]["wrapped_tts_engine"] == "piper"
     # The default music is the bundled track: the file stays empty.
@@ -113,6 +113,22 @@ def test_cost_page_fills_and_names_defaults_and_calculate_is_top_right():
     profile, _workspace = cost_page.cost_module.printer_profile_for(data)
     assert values["watts"] == f"{profile.watts:g}"
     assert values["failure_percent"] == "5"
+    resin_values = cost_page.defaults_for(data, "resin")
+    assert resin_values["technology"] == "resin"
+    assert resin_values["failure_percent"] == "10"
+    resin_page = cost_page.render_cost_page(data, form={"technology": ["resin"]})
+    assert 'name="failure_percent" inputmode="decimal" value="10"' in resin_page
+    assert 'name="technology"><option value="fdm">Filament (FDM)</option><option value="resin" selected>' in resin_page
+    zero_form = {"technology": ["resin"], "failure_percent": ["0"]}
+    assert 'name="failure_percent" inputmode="decimal" value="0"' in cost_page.render_cost_page(
+        data, form=zero_form)
+    job, _profile, _workspace = cost_page.job_from_form(zero_form, data)
+    assert job.failure_rate == 0
+    override_form = {"technology": ["resin"], "failure_percent": ["12"]}
+    assert 'name="failure_percent" inputmode="decimal" value="12"' in cost_page.render_cost_page(
+        data, form=override_form)
+    job, _profile, _workspace = cost_page.job_from_form(override_form, data)
+    assert job.failure_rate == 0.12
     notes = cost_page.default_notes(data)
     assert notes["price_per_kg"].startswith("Default: 22")
     page = cost_page.render_cost_page(data, form_token="tok")

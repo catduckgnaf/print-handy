@@ -491,8 +491,8 @@ CATALOG = (
            validator="settings.user_ids"),
     _field("discord", "approval_all_users", "Anyone in the channel can approve", "toggle",
            "When on, every user allowed to use the bot in the print channel can approve prints, "
-           "and the approval users above are no longer required for that. On by default; "
-           "turn it off to restrict approval to the approval users above.",
+           "and the approval users above are no longer required for that. Off by default; "
+           "leave it off to restrict approval to the approval users above.",
            validator="settings approval check"),
     _field("discord", "timezone", "Timezone", "picker",
            "IANA timezone name used for display and the daily reset.",

@@ -93,7 +93,7 @@ Developer Portal and replace it locally. Never commit `.env` or `config/local.ya
 | `discord.allowed_user_ids` | Optional whitelist: numeric user IDs separated by commas or spaces. Empty (the default) lets everyone in the print channel use the bot |
 | `discord.denied_user_ids` | Optional deny list: numeric user IDs separated by commas or spaces. A denied user is refused even when whitelisted or the approval user |
 | `discord.approval_user_id` | Optional approval users: numeric user IDs separated by commas or spaces. Each is always allowed to act; setting them does not restrict anyone else |
-| `discord.approval_all_users` | `true` lets anyone allowed to use the bot approve prints (the Web UI checkbox "Anyone in the channel can approve"). A denied user is still refused. Default `true` |
+| `discord.approval_all_users` | `true` lets anyone allowed to use the bot approve prints (the Web UI checkbox "Anyone in the channel can approve"). A denied user is still refused. Default `false` |
 | `discord.token_env` | Environment variable name holding the secret, not the token itself |
 | `discord.bot_name` | Name in replies, and a name the bot answers to when mentioned; left at the default, the Discord account's name is used instead. Does not change the Discord account name |
 | `bot.mode` | `standalone`; the only mode |
