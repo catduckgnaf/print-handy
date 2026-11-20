@@ -239,6 +239,10 @@ ROUTES = (
     # The printer screen page's tap (#1626; same browser constraint).
     _post("/printers/*/screen/touch", SESSION_CSRF, "_screen_touch_post",
           back="/printers/{arg}/screen"),
+    # The printer screen page's HelixScreen pairing (#1720; same
+    # browser constraint, same controls gate inside screen.pair).
+    _post("/printers/*/screen/pair", SESSION_CSRF, "_screen_pair_post",
+          back="/printers/{arg}/screen"),
     # Header-token upload (#1548): multipart, the header only, like the
     # other API writes — a header client cannot use the session+CSRF
     # upload page or a minted link. Exact row, so it wins over the

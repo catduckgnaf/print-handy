@@ -1269,6 +1269,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _screen_touch_post(self, printer_id, form):
         return printer_handlers_module.screen_touch_post(self, printer_id, form)
 
+    def _screen_pair_post(self, printer_id, form):
+        return printer_handlers_module.screen_pair_post(self, printer_id, form)
+
     def _spools_page(self, printer_id):
         return printer_handlers_module.spools_page(self, printer_id)
 
@@ -1483,6 +1486,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
                 printer_status_func=None, printer_control_func=None,
                 camera_snapshot_func=None, screen_snapshot_func=None,
                 screen_probe_func=None, screen_touch_func=None,
+                screen_pair_func=None,
                 spools_view_func=None, spools_action_func=None,
                 readiness_func=None, roster_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
@@ -1573,6 +1577,8 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
         lambda printer_id: screen_module.probe_source(data, printer_id))
     server.screen_touch_func = screen_touch_func or (
         lambda printer_id, x, y: screen_module.touch(data, printer_id, x, y))
+    server.screen_pair_func = screen_pair_func or (
+        lambda printer_id, code: screen_module.pair(data, printer_id, code))
     server.spools_view_func = spools_view_func or (
         lambda printer_id: spools_module.spools_view(data, printer_id))
     server.spools_action_func = spools_action_func or (

@@ -13,15 +13,22 @@ already own each fact, and nothing else:
   Spoolman-backed view behind ``GET /api/printers/<id>/spools``);
 - recent prints from the print records (``core.print_stats``), the
   same records the Data and Wrapped pages aggregate;
-- the latest timelapse from the clip roots the Wrapped finder searches;
+- the latest timelapse from every local clip root (the Wrapped
+  finder's roots, the in-container capture root and the mounted
+  local archive — #1720);
+- the latest insults: the last five roast lines, re-derived from
+  the newest finished print records through the deterministic
+  roast corpus (#1720);
 - the camera still from the existing snapshot route, embedded as an
   image and refreshed in place (the screen page's pattern);
-- the printer's own display as a still from the existing screen
-  snapshot route (#1622), in its own labeled panel, only for a printer
-  that publishes a screen: availability comes from the screen module's
-  discovery through its cache, so a dashboard build adds no uncached
-  webcam-list read. The panel is never a camera: the bed camera keeps
-  its own source and the #1306 separation is unchanged;
+- a labeled link to the printer's own display, only for a printer
+  that publishes a screen: the embedded screen itself moved back
+  under Printers in #1720 (the Printers page carries the still),
+  so this page links instead of embedding a second copy.
+  Availability comes from the screen module's discovery through its
+  cache, so a dashboard build adds no uncached webcam-list read.
+  The link is never a camera: the bed camera keeps its own source
+  and the #1306 separation is unchanged;
 - the emergency stop, offered only while ``[webui] controls_enabled``
   is on. The button posts to ``POST /dashboard/estop/<id>``, a
   ``session+csrf`` route (a browser cannot send the API's
@@ -198,8 +205,38 @@ _TIMELAPSE_TTL_S = 60.0
 _timelapse_cache = {}
 
 
+def _timelapse_roots(data):
+    """Every local root a finished timelapse clip can live in (#1720).
+
+    The Wrapped finder's roots (archive first, then the announcements
+    cache and the plan clips) are only part of the story: the
+    in-container capture writes each session's assembled clip under
+    ``<paths.cache>/timelapse/<job>/timelapse.mp4``, and the encode
+    step keeps a finished copy in the mounted local archive
+    (``PRINT_TIMELAPSE_LOCAL_ARCHIVE_DIR``, or ``/data/timelapses``
+    when that mount exists). Before #1720 the dashboard searched
+    only the finder roots, so on an install whose recent prints were
+    captured in-container it found nothing newer than an old plan or
+    announcement clip — the "only one MP4 from 32 days ago" report.
+    """
+    roots = list(wrapped_video._clip_roots(data))
+    cache = str(((data or {}).get("paths") or {}).get("cache") or "").strip()
+    if cache:
+        roots.append(Path(cache) / "timelapse")
+    import os
+    archive = os.environ.get("PRINT_TIMELAPSE_LOCAL_ARCHIVE_DIR") \
+        or "/data/timelapses"
+    roots.append(Path(archive))
+    seen, unique = set(), []
+    for root in roots:
+        if str(root) not in seen:
+            seen.add(str(root))
+            unique.append(root)
+    return unique
+
+
 def latest_timelapse(data, *, now=None):
-    """The newest timelapse clip in the finder's roots, or None.
+    """The newest timelapse clip in the local clip roots, or None.
 
     Name, size and modification time only: the Web UI serves the
     compiled Wrapped video, not individual clips, so the dashboard
@@ -207,9 +244,13 @@ def latest_timelapse(data, *, now=None):
     (Wrapped is sealed most of the year, so it is no place to send
     someone looking for yesterday's clip.) The answer is cached per set of roots
     for ``_TIMELAPSE_TTL_S`` seconds.
+
+    A clip still being written is not a latest timelapse: hidden and
+    ``.partial`` files are skipped, as are zero-byte files, and the
+    extension match is case-insensitive (a ``.MP4`` is a clip too).
     """
     try:
-        roots = wrapped_video._clip_roots(data)
+        roots = _timelapse_roots(data)
     except Exception:  # a roots problem is no clip, never a broken page
         log.warning("dashboard could not resolve the timelapse roots", exc_info=True)
         return None
@@ -222,16 +263,88 @@ def latest_timelapse(data, *, now=None):
     for root in roots:
         if not root.is_dir():
             continue
-        for path in root.rglob("*.mp4"):
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() != ".mp4":
+                continue
+            if path.name.startswith(".") or ".partial" in path.name:
+                continue
             try:
                 stat = path.stat()
             except OSError:
+                continue
+            if stat.st_size <= 0:
                 continue
             if newest is None or stat.st_mtime > newest["mtime"]:
                 newest = {"name": path.name, "size": stat.st_size, "mtime": stat.st_mtime}
     _timelapse_cache.clear()  # one roots set per install; never grows
     _timelapse_cache[key] = (now, newest)
     return newest
+
+
+# ------------------------------------------------------------ latest insults
+
+_INSULT_LIMIT = 5
+_ROAST_STATUSES = {"completed": "completed", "failed": "failed",
+                   "canceled": "cancelled", "cancelled": "cancelled",
+                   "spaghetti": "spaghetti", "pasta": "spaghetti"}
+
+
+def latest_insults(data, limit=_INSULT_LIMIT, *, records_vault=None):
+    """The last few roasts: one line per newest finished print (#1720).
+
+    Roasts are deterministic in this codebase (the pasta reel draws
+    the same line for the same print every time), so the main page's
+    "latest insults" are re-derived from the newest finished print
+    records through ``core.roast`` with a per-print seed — no second
+    roast store is kept, and the line shown is the line that print
+    draws everywhere. Roasts off (``vision.roast_enabled``) is no
+    section at all. A records or roast problem is an empty list,
+    never a broken page.
+    """
+    if ((data or {}).get("vision") or {}).get("roast_enabled", True) is not True:
+        return []
+    try:
+        records, _skipped = print_stats.load_records(
+            data_module._vault(data, records_vault))
+    except Exception:  # a records problem is no list, never a broken page
+        log.warning("dashboard could not load print records for insults",
+                    exc_info=True)
+        return []
+    finished = []
+    for record in records:
+        status = str(record.get("status") or "").strip().lower()
+        if status not in _FINISHED and status not in ("spaghetti", "pasta"):
+            continue
+        when = _epoch(record.get("completed_at")) or _epoch(record.get("started_at"))
+        finished.append((when or 0, record, status))
+    finished.sort(key=lambda item: item[0], reverse=True)
+    from ..core import roast as roast_module
+    import random
+    rows = []
+    for when, record, status in finished:
+        if len(rows) >= limit:
+            break
+        duration = record.get("print_duration_seconds")
+        grams = record.get("filament_used_g")
+        ctx = roast_module.build_context(
+            record.get("title") or record.get("job_key"),
+            duration_s=float(duration) if isinstance(duration, (int, float))
+            and not isinstance(duration, bool) else None,
+            material=record.get("filament_material"),
+            color=record.get("filament_color"),
+            grams=float(grams) if isinstance(grams, (int, float))
+            and not isinstance(grams, bool) else None,
+            printer=record.get("printer"))
+        seed = f"dashboard-insult-{record.get('job_key') or record.get('title') or ''}-{when}"
+        line = roast_module.roast(
+            ctx, status=_ROAST_STATUSES.get(status, "completed"),
+            rng=random.Random(seed))
+        if not line:
+            continue
+        rows.append({
+            "title": print_stats.display_title(record.get("title")) or "untitled",
+            "when": when or None, "status": status, "line": line})
+    return rows
 
 
 def _camera_capable(entry, view):
@@ -436,7 +549,8 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
             card["spools_note"] = "Spoolman did not answer."
         cards.append(card)
     return {"cards": cards, "recent": recent_prints(data),
-            "timelapse": latest_timelapse(data)}
+            "timelapse": latest_timelapse(data),
+            "insults": latest_insults(data)}
 
 
 # ------------------------------------------------------------------ render
@@ -742,19 +856,21 @@ def _hardware_panels(card):
 
 
 def _screen_panel(card):
-    """The printer screen panel (#1622): the printer's own display as a
-    still from the existing screen snapshot route, labeled as the
-    screen and linked to the dedicated screen page. It is never the
+    """The printer screen link (#1622, moved in #1720): a compact
+    link in the card, not the embedded still.
+
+    The embedded screen itself moved back under Printers — the
+    Printers page carries the still on the right of each printer's
+    settings — so the main page no longer embeds a second copy of
+    the display here. The link names the screen for what it is and
+    points at its dedicated view under /printers; it is never the
     bed camera (#1306): the camera keeps its own block above."""
     printer_id = quote(str(card["id"]), safe="")
     return (
         '<div class="dash-panel dash-screen"><h3>Printer screen</h3>'
-        f'<img data-dash-screen src="/api/printers/{printer_id}/screen/snapshot" '
-        f'alt="Printer screen of {_esc(card["name"])}">'
-        '<p class="muted dash-screen-note"></p>'
-        '<p class="muted">This is the printer\'s own display, not the bed '
-        f'camera. <a href="/printers/{printer_id}/screen">Open the full '
-        'printer screen view</a>.</p></div>')
+        '<p class="muted">This printer\'s own display lives under '
+        'Printers now. <a href="/printers/' + printer_id + '/screen">'
+        'Open the full printer screen view</a>.</p></div>')
 
 
 def _card(card):
@@ -868,6 +984,23 @@ def _timelapse(dash, now):
             '</section>')
 
 
+def _insults(dash, now):
+    """The latest insults section (#1720): the last five roast lines,
+    each with the print it belongs to and its age."""
+    rows = dash.get("insults") or []
+    if not rows:
+        return ""
+    parts = ['<section class="card"><h2>Latest insults</h2>']
+    for row in rows:
+        meta = " · ".join(bit for bit in (row["title"], _age(row["when"], now)) if bit)
+        parts.append(
+            '<div class="recent-row"><div>'
+            f'<p class="job-line">{_esc(row["line"])}</p>'
+            f'<div class="muted">{_esc(meta)}</div></div></div>')
+    parts.append("</section>")
+    return "".join(parts)
+
+
 # The dashboard's one script: refresh each camera and printer screen
 # still in place (the screen page's backoff pattern) and wire the
 # E-stop buttons to the existing control route. The E-stop asks first
@@ -922,10 +1055,11 @@ def render_dashboard(dash, snap, *, now=None, form_token=""):
              f'<input type="hidden" id="dash-csrf" value="{_esc(form_token)}">']
     parts.extend(_card(card) for card in dash["cards"])
     parts.append(_timelapse(dash, now))
+    parts.append(_insults(dash, now))
     parts.append(_recent(dash, now))
     parts.append(_SCRIPT)
     return "".join(parts)
 
 
-__all__ = ["HISTORY", "TempHistory", "build_dashboard", "hardware_facts", "latest_timelapse",
-           "recent_prints", "render_dashboard"]
+__all__ = ["HISTORY", "TempHistory", "build_dashboard", "hardware_facts", "latest_insults",
+           "latest_timelapse", "recent_prints", "render_dashboard"]

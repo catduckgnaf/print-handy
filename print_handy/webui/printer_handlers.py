@@ -9,6 +9,7 @@ before these run, and every status code and page output is unchanged.
 """
 from __future__ import annotations
 
+import logging
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .. import settings
@@ -17,6 +18,8 @@ from . import controls as controls_module
 from . import printers_page as printers_page_module
 from . import screen as screen_module
 from . import spools as spools_module
+
+log = logging.getLogger(__name__)
 
 
 def printer_status_route(handler, rest):
@@ -145,11 +148,29 @@ def spools_error_page(handler, printer_id, code, reason):
         "text/html; charset=utf-8")
 
 def printers_page(handler, notice=None, error=None, code=200):
-    """GET /printers: the roster with actions and Add a printer (#875)."""
+    """GET /printers: the roster with actions and Add a printer (#875).
+
+    Each Moonraker printer's card also carries its printer screen
+    (#1720): availability is probed through the screen module's
+    cached discovery, fail-soft exactly like the dashboard's check,
+    so an unreachable printer simply renders the no-screen note."""
     done = (parse_qs(urlparse(handler.path).query).get("done") or [""])[0]
+    data = handler.server.settings_data
+
+    def screen_for(printer_id):
+        try:
+            available, _reason = screen_module.probe(
+                data, printer_id, discover=screen_module._cached_discover)
+        except Exception as exc:  # a failed probe is no screen, never a broken page
+            log.warning("printer screen probe failed for %s: %s",
+                        printer_id, exc)
+            return False
+        return bool(available)
+
     handler._send(code, printers_page_module.render(
         settings.printers(handler._walkthrough_data()), form_token=handler._form_token(),
-        notice=notice or done or None, error=error, theme=handler._theme()),
+        notice=notice or done or None, error=error, theme=handler._theme(),
+        screen_for=screen_for),
         "text/html; charset=utf-8")
 
 def printers_post(handler, form):
@@ -188,7 +209,9 @@ def screen_page(handler, printer_id):
         entry.get("name") or printer_id, printer_id,
         ok=ok, reason=reason, theme=handler._theme(),
         touch=controls_module.controls_enabled(handler.server.settings_data),
-        form_token=handler._form_token(), source=source),
+        form_token=handler._form_token(), source=source,
+        paired=bool(screen_module.load_pairing_token(
+            handler.server.settings_data, printer_id))),
         "text/html; charset=utf-8")
 
 def screen_touch_post(handler, printer_id, form):
@@ -209,6 +232,24 @@ def screen_touch_post(handler, printer_id, form):
     x = (form.get("x") or [""])[0]
     y = (form.get("y") or [""])[0]
     code, payload = handler.server.screen_touch_func(printer_id, x, y)
+    handler._json(code, payload)
+
+
+def screen_pair_post(handler, printer_id, form):
+    """POST /printers/<id>/screen/pair: pair with a HelixScreen screen.
+
+    ``session+csrf`` like the tap. The form carries only the six-digit
+    code the printer shows; ``screen.pair`` exchanges it for the
+    pairing token and keeps the token in the pairing store, so the
+    code is entered once, not on every visit. The printer's address
+    never reaches the browser."""
+    if not printer_id or "/" in printer_id:
+        handler._json(404, {"ok": False,
+                         "reason": "that printer id does not name a "
+                                   "printer screen page"})
+        return
+    code_value = (form.get("code") or [""])[0]
+    code, payload = handler.server.screen_pair_func(printer_id, code_value)
     handler._json(code, payload)
 
 def spools_page(handler, printer_id):

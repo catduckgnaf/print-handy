@@ -80,7 +80,20 @@ def add(form, roster, *, environ=None):
                   "Restart Print Handy to bring it live.")
 
 
-def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_THEME):
+def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_THEME,
+           screen_for=None):
+    """The Printers page: one card per printer, settings on the left
+    and the printer screen itself on the right (#1720).
+
+    The screen moved back under Printers here: for a Moonraker
+    printer that publishes a screen (``screen_for`` answers, through
+    the screen module's cached discovery), the right column carries
+    the live still from the screen snapshot route, labeled as the
+    printer's own display and linked to the full screen view; a
+    printer that publishes none gets the explanation in its place.
+    Without ``screen_for`` (a direct render in a test) every
+    Moonraker printer's column carries the still — discovery decides
+    on the real page, through the handler."""
     esc = _esc
     parts = []
     if notice:
@@ -93,19 +106,41 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
         default = ' <span class="badge ok">Default printer</span>' if entry.get("default") else ""
         model = printers.MODELS.get(entry.get("model") or "")
         # The printer screen view (#1303) discovers its screen through
-        # Moonraker, so only Moonraker printers carry the link; the page
-        # itself explains when no screen is published.
+        # Moonraker, so only Moonraker printers carry the screen; the
+        # full view itself explains when no screen is published.
+        moonraker = model is not None and model.vendor.connection == "moonraker"
         screen_link = (f' <a class="button" href="/printers/{pid}/screen">'
-                       'Printer screen</a>'
-                       if model is not None
-                       and model.vendor.connection == "moonraker" else "")
-        cards.append(
-            '<div class="card printer-card">'
+                       'Printer screen</a>' if moonraker else "")
+        settings_col = (
+            '<div class="printer-settings-col">'
             f'<h3>{esc(entry.get("name") or entry["id"])}{default}</h3>'
             f'<p class="mono">{esc(entry["id"])} · {esc(entry.get("model") or "")}</p>'
             f'<p><a class="button" href="/printer-settings?printer={pid}">Printer settings</a> '
             f'<a class="button" href="/spools/{pid}">Open spools</a>'
             f'{screen_link}</p></div>')
+        if not moonraker:
+            cards.append(f'<div class="card printer-card">{settings_col}</div>')
+            continue
+        published = True if screen_for is None else bool(screen_for(entry["id"]))
+        if published:
+            screen_col = (
+                '<div class="printer-screen-col"><h3>Printer screen</h3>'
+                f'<img data-printer-screen src="/api/printers/{pid}/screen/snapshot" '
+                f'alt="Printer screen of {esc(entry.get("name") or entry["id"])}">'
+                '<p class="muted">This is the printer\'s own display, not '
+                'the bed camera. '
+                f'<a href="/printers/{pid}/screen">Open the full printer '
+                'screen view</a>.</p></div>')
+        else:
+            screen_col = (
+                '<div class="printer-screen-col"><h3>Printer screen</h3>'
+                '<p class="muted">No printer screen is published on this '
+                'printer. '
+                f'<a href="/printers/{pid}/screen">The screen view</a> '
+                'says why.</p></div>')
+        cards.append(
+            '<div class="card printer-card"><div class="printer-layout">'
+            f'{settings_col}{screen_col}</div></div>')
     parts.append("<h2>Printers</h2>" + ("".join(cards) or "<p>No printers configured.</p>"))
     options = "".join(
         f'<option value="{esc(key)}">{esc(model.label)}</option>'
@@ -128,5 +163,19 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
         '<div class="field"><label for="p-serial">Serial number (Bambu only)</label>'
         '<input id="p-serial" name="serial"></div>'
         '<button type="submit" class="accent">Add printer</button></form>')
+    if any('data-printer-screen' in card for card in cards):
+        # Refresh each embedded screen still in place (the screen
+        # page's backoff pattern), so the Printers page shows the
+        # live display, not the frame from when it was opened.
+        parts.append(
+            "<script>"
+            "document.querySelectorAll('img[data-printer-screen]').forEach(function(img){"
+            "var base=img.src.split('?')[0];var failures=0;"
+            "function next(){setTimeout(tick,Math.min(2000*Math.pow(2,failures),60000));}"
+            "function tick(){if(document.hidden){next();return;}img.src=base+'?t='+Date.now();}"
+            "img.onload=function(){failures=0;next();};"
+            "img.onerror=function(){failures+=1;next();};"
+            "});"
+            "</script>")
     return shell.page("printers", "".join(parts), path="/printers", theme=theme,
                       heading="Printers")

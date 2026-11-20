@@ -305,6 +305,10 @@ button:disabled { opacity: 0.55; cursor: default; }
 .dash-cam { flex: 2 1 20rem; min-width: 0; }
 .dash-cam img { width: 100%; display: block; border-radius: var(--radius-card); }
 .dash-screen img { width: 100%; display: block; border-radius: var(--radius-card); }
+.printer-layout { display: flex; flex-wrap: wrap; gap: 1rem; }
+.printer-settings-col { flex: 1 1 15rem; min-width: 0; }
+.printer-screen-col { flex: 2 1 20rem; min-width: 0; }
+.printer-screen-col img { width: 100%; display: block; border-radius: var(--radius-card); }
 .dash-side { flex: 1 1 15rem; min-width: 0; }
 .ring-wrap { position: relative; width: 8.5rem; height: 8.5rem; }
 .ring-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
