@@ -58,12 +58,12 @@ Use one bot token for one bot. Two live connections on one token both answer eve
 | `discord.denied_user_ids` | empty | Optional deny list of Discord user IDs; a denied user is refused even when whitelisted or the approval user |
 | `discord.approval_user_id` | empty | Always allowed as well; setting one does not restrict anyone else |
 | `discord.token_env` | `DISCORD_BOT_TOKEN` | Name of the environment variable that holds the bot token |
-| `discord.chat_llm_enabled` | `true` | Discord's chat-LLM switch. `false` runs Discord as a pure bot, unmatched text gets the short “didn't understand” reply, while `[llm]` stays configured for `/print-design`. Roasts and camera checks keep their own vision switches |
+| `logging.format` | `text` | `text` is one readable line per event. `json` is one JSON object per line for a log shipper |
 | `llm.chat_url` | empty | Optional OpenAI-compatible chat completions URL. Empty: unmatched text gets the short “didn't understand” reply |
 | `llm.model` | empty | Model name, required when `chat_url` is set |
 | `llm.api_key_env` | `LLM_API_KEY` | Name of the environment variable that holds the LLM API key, if it needs one |
 | `llm.timeout_s` | `20` | LLM request timeout |
-| `agent.chat_url` | empty | Stray-chat agent lane: an agent endpoint, any OpenAI-compatible chat completions URL, e.g. a Hermes agent behind its API, answers Discord free text ahead of the `[llm]` call. Empty: no agent lane |
+| `agent.chat_url` | empty | Optional agent endpoint for unmatched Web UI chat text, ahead of the `[llm]` call |
 | `agent.model` | empty | Agent model name; optional, empty omits `model` from the request |
 | `agent.api_key_env` | `AGENT_API_KEY` | Name of the environment variable that holds the agent endpoint's API key, if it needs one |
 | `agent.timeout_s` | `120` | Agent request timeout (one attempt, no retries) |
@@ -297,25 +297,6 @@ answers instead), and `unmatched_log_enabled = true` keeps a sanitized, local-on
 phrases nothing matched, exportable from the bot's diagnostics (`status` carries the route
 counters and the recent unmatched phrases). Nothing in this layer is transmitted anywhere.
 
-## Running Discord with no chat LLM
-
-Discord runs as a pure bot by default, the way Telegram and Matrix always do: AI is for designing
-models, so `discord.chat_llm_enabled` is `false` unless you set it. To bring chat AI back, set it to
-`true` (or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=true`) and restart. With it off,
-unmatched text gets the short “didn't understand” reply, and no chat message is ever sent to a model, while everything
-deterministic (commands, links, files, typed answers, buttons, `print 57`) works exactly as before.
-The switch gates every stray-chat model call: the `[llm]` call and the `[agent]` lane alike.
-`bot check` says so on its llm and agent rows, naming the switch, and the bot's status reports `"llm": false`.
-
-You do not have to remove `[llm]` to do this, and you should not if you use `/print-design`: design
-inherits the `[llm]` endpoint when `[design]` is unset, and that inheritance keeps working with chat
-off, design has its own switch (`design.enabled`). Two other features use a model through the
-separate vision endpoint or need none, and keep their own gates: the **roast** (local, no LLM;
-`vision.roast_enabled`, on by default) and the **camera watchdog** (`visual_watch.enabled`; its
-model route, `services.vision_chat_url` or `PRINT_VISION_URL`, is used only with `vision.ai_enabled`
-set to `true`, which is off by default; the built-in local failure detector,
-`vision.local_detector_enabled`, on by default, needs no model endpoint). The chat switch changes none of them.
-A stock install makes no model call outside `/print-design`.
 
 ## How the bot is put together
 

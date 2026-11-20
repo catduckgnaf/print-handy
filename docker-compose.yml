@@ -74,11 +74,11 @@ services:
       PRINT_HANDY__BAMBU__LAN_SERIAL: ${PRINT_HANDY__BAMBU__LAN_SERIAL:-}
       PRINT_HANDY__DISCORD__APPROVAL_USER_ID: ${PRINT_HANDY__DISCORD__APPROVAL_USER_ID:-}
       PRINT_HANDY__DISCORD__TIMEZONE: ${PRINT_HANDY__DISCORD__TIMEZONE:-America/New_York}
-      # Discord chat LLM (#466) and AI camera checks (vision.ai_enabled),
+      # AI camera checks (vision.ai_enabled),
       # both off by default since #1376 (AI is for designing models), are
       # deliberately NOT listed here (the P2-88 rule below): a ${...:-x}
       # entry would be applied after the mounted config and silently undo
-      # the operator's own setting there. Set PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED
+      # the operator's own setting there.
       # or PRINT_HANDY__VISION__AI_ENABLED in .env (env_file above) to override.
       # Mention the starter when a print needs them (PRINT_HANDY__DISCORD__MENTION_STARTER,
       # true by default) is deliberately NOT listed here: a ${...:-true}

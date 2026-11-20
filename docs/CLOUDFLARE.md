@@ -6,7 +6,7 @@ Print Handy's AI features are optional, and each one talks to an endpoint you ch
 
 | Feature | What you set | Cloudflare piece |
 | --- | --- | --- |
-| AI design, and chat in plain language once `discord.chat_llm_enabled` is `true` | `llm.chat_url`, `llm.model`, `LLM_API_KEY` | Workers AI's OpenAI-compatible endpoint, no Worker needed |
+| AI design and optional Web UI chat | `llm.chat_url`, `llm.model`, `LLM_API_KEY` | Workers AI's OpenAI-compatible endpoint, no Worker needed |
 | Camera watchdog | `PRINT_VISION_URL` and `vision.ai_enabled: true` | [`examples/cloudflare/vision-verdict`](../examples/cloudflare/vision-verdict/README.md) Worker |
 | Lookup by meaning in `/print-lookup` | `PRINT_FUZZY_URL` | [`examples/cloudflare/fuzzy-lookup`](../examples/cloudflare/fuzzy-lookup/README.md) Worker |
 
@@ -43,7 +43,7 @@ Keep the token in the variable (`LLM_API_KEY`, or whatever `llm.api_key_env` nam
 
 - **Model choice.** [`@cf/meta/llama-3.3-70b-instruct-fp8-fast`](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/) is a large, fast Llama model and the better choice for design. `@cf/meta/llama-3.1-8b-instruct-fp8-fast` (listed on the [pricing page](https://developers.cloudflare.com/workers-ai/platform/pricing/)) costs about a sixth as much per token and is enough for turning chat into commands. The [model catalog](https://developers.cloudflare.com/workers-ai/models/) lists the rest.
 - **Design inherits.** `/print-design` uses `llm.chat_url`, `llm.model` and `llm.api_key_env` unless `design.chat_url`, `design.model` or `design.api_key_env` are set ([SETTINGS.md](SETTINGS.md)). A common split is the 8B model for chat and `design.model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"` for design. Design is on automatically once an endpoint is configured; `design.enabled: false` turns it off.
-- **Chat is off by default.** Design uses the endpoint as soon as it is configured. Chat in plain language is a Discord (and web chat) feature that stays off until you set `discord.chat_llm_enabled: true` (`webui.chat_llm_enabled: true` for web chat).
+- **Chat is off by default.** Design uses the endpoint as soon as it is configured. Web UI chat uses the model only when `webui.chat_llm_enabled` is `true`. Discord does not send unmatched chat to a model.
 - **Timeouts.** `llm.timeout_s` defaults to 20 seconds and `design.timeout_s` to 180. Raise `llm.timeout_s` if chat replies time out on the 70B model.
 - **Roasts need no endpoint.** Roasts come from the local roast corpus and never call a model, so nothing here affects them.
 
