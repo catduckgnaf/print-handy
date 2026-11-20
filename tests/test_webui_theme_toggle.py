@@ -1,35 +1,29 @@
-"""The header theme toggle: sun/moon labels in the top-right corner.
-
-The toggle stays two plain links to GET /theme (no script); this pins
-the icon labels, the active marking, and the corner placement rule, so
-a shell edit cannot quietly drop the toggle back into the nav flow.
-"""
+"""The header uses light-only styling and quick links, not a theme picker."""
 from print_handy.webui import shell
 
 
-def test_toggle_links_carry_sun_and_moon_icons():
-    out = shell.page("Status", "<p>body</p>", path="/")
-    assert '<span aria-hidden="true">☾</span>Dark</a>' in out
-    assert '<span aria-hidden="true">☀</span>Light</a>' in out
-    assert 'href="/theme?set=dark&amp;back=/"' in out
-    assert 'href="/theme?set=light&amp;back=/"' in out
+def test_shell_ignores_legacy_dark_preference():
+    assert shell.DEFAULT_THEME == "light"
+    assert shell.theme_from_cookies("ph-theme=dark") == "light"
+    assert shell.theme_from_cookies("ph-theme=light") == "light"
+    assert shell.theme_from_cookies("ph-theme=bogus") == "light"
+    out = shell.page("Status", "<p>body</p>", path="/", theme="dark")
+    assert '<html lang="en" data-theme="light">' in out
+    assert "data-theme=\"dark\"" not in out
 
 
-def test_toggle_marks_the_current_theme_active():
-    dark = shell.page("Status", "<p>body</p>", path="/", theme="dark")
-    assert 'class="active"><span aria-hidden="true">☾</span>Dark</a>' in dark
-    light = shell.page("Status", "<p>body</p>", path="/", theme="light")
-    assert 'class="active"><span aria-hidden="true">☀</span>Light</a>' in light
+def test_settings_and_notifications_are_quick_links_only():
+    out = shell.page("Settings", "<p>body</p>", path="/config")
+    assert '<nav class="header-quicklinks" aria-label="Quick links">' in out
+    assert out.count('href="/config"') == 1
+    assert out.count('href="/notifications"') == 1
+    assert 'class="active">Settings</a>' in out
+    assert "theme-toggle" not in out
+    assert "THEMES" not in shell.CSS
 
 
-def test_toggle_sits_in_the_headers_top_right_corner():
-    out = shell.page("Status", "<p>body</p>", path="/")
-    # The toggle is a direct child of the header wrap, outside the
-    # nav's .chrome-right flow, and the stylesheet pins it top-right.
-    brand_end = out.index('<div class="theme-toggle"')
-    nav_start = out.index('<div class="chrome-right">')
-    assert brand_end < nav_start
-    assert ".theme-toggle {\n  position: absolute; top: 0.75rem; right: 1rem;" in out
-    # The header reserves the corner's width, so the nav can never run
-    # underneath the absolutely positioned toggle on a wide screen.
-    assert "padding-right: 12rem;" in out
+def test_phone_header_rules_keep_quicklinks_and_tabs_in_flow():
+    assert "@media (max-width: 40rem)" in shell.CSS
+    assert ".header-quicklinks { margin-left: auto; }" in shell.CSS
+    assert "nav.pills { width: 100%; }" in shell.CSS
+    assert "position: absolute; top: 0.75rem; right: 1rem;" not in shell.CSS

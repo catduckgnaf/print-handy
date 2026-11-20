@@ -68,7 +68,8 @@ def test_spoolman_section_heading_and_hover_css():
 def test_unified_chat_design_navigation_and_header_destinations():
     assert shell.NAV[0] == ("/", "Status")
     assert ("/designs", "Chat / Design") in shell.NAV
-    assert shell.NAV[-1] == ("/notifications", "Notifications")
+    assert ("/config", "Settings") not in shell.NAV
+    assert ("/notifications", "Notifications") not in shell.NAV
 
 
 def _config_page(section):
@@ -107,7 +108,8 @@ def test_chat_page_ask_ai_default_and_no_print_help_suggestion():
     assert shell.NAV[0] == ("/", "Status")
     assert ("/designs", "Chat / Design") in shell.NAV
     assert ("/cost", "Print COST") in shell.NAV
-    assert ("/notifications", "Notifications") in shell.NAV
+    assert ("/config", "Settings") not in shell.NAV
+    assert ("/notifications", "Notifications") not in shell.NAV
 
 
 def test_cost_page_fills_and_names_defaults_and_calculate_is_top_right():

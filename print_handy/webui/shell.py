@@ -7,7 +7,7 @@ owns the single shell they all render through now: the document head
 with one inline ``<style>`` (the design tokens and component styles
 ported from the console prototype catduck supplied for #813), the
 header chrome (brand tile, pill navigation over the real surfaces, the
-Dark/Light theme toggle), and the theme rule.
+quick links to Settings and Notifications, and the light-only theme rule).
 
 The stylesheet is inline rather than a served file: the Web UI stays
 single-process, with no external request of any kind — the font stacks
@@ -17,16 +17,9 @@ PWA_HEAD_TAGS links the manifest the public PWA routes serve, and
 PWA_SCRIPT registers the service worker on secure contexts only
 (see :mod:`print_handy.webui.pwa`).
 
-Theme: dark is the default. The ``ph-theme`` cookie (``dark`` or
-``light``) is read by the server and stamped on ``<html>`` as
-``data-theme`` before anything renders, so there is no flash and the
-choice is correct with JavaScript disabled. The toggle sits in the
-header's top-right corner and is two plain links to ``GET /theme``
-(see server.py), labeled with a moon (dark) and a sun (light), which
-sets the cookie and redirects back — no script is involved anywhere in
-the theme flow.
-The cookie is a browser presentation preference only; it is not a
-setting and no environment variable mirrors it.
+The interface is light-only. The legacy ``ph-theme`` cookie and
+``/theme`` route remain harmless compatibility surfaces; stale dark
+preferences are ignored.
 
 Every page also carries a source footer (#1158): Print Handy is
 AGPL-3.0-only, and section 13 of that license expects a user
@@ -46,8 +39,7 @@ from .. import __version__
 
 THEME_COOKIE = "ph-theme"
 THEMES = ("dark", "light")
-_THEME_ICONS = {"dark": "☾", "light": "☀"}
-DEFAULT_THEME = "dark"
+DEFAULT_THEME = "light"
 
 # The surfaces the header navigates to: only pages that exist, with
 # Chat first (#1718: chat is the primary way to drive Print Handy).
@@ -65,8 +57,6 @@ NAV = (
     ("/firmware", "Firmware"),
     ("/spools", "Spools"),
     ("/cost", "Print COST"),
-    ("/config", "Settings"),
-    ("/notifications", "Notifications"),
 )
 
 NAV_GROUPS = {
@@ -104,22 +94,6 @@ CSS = """
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --radius-card: 0.75rem;
-  color-scheme: light;
-}
-html[data-theme="light"] {
-  --color-bg: #f3efe6;
-  --color-surface: #fffcf7;
-  --color-ink: #1a1814;
-  --color-muted: #6b645b;
-  --color-line: #e3dcd0;
-  --color-accent: #c45c26;
-  --color-accent-ink: #fff8f3;
-  --color-ok: #1f6b45;
-  --color-ok-bg: #e5f2ea;
-  --color-warn: #8a5a12;
-  --color-warn-bg: #f8efd8;
-  --color-bad: #8f2d2d;
-  --color-bad-bg: #f8e6e4;
   color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -170,18 +144,9 @@ nav.subnav a {
 }
 nav.subnav a:hover { color: var(--color-ink); }
 nav.subnav a.active { color: var(--color-ink); border-bottom-color: var(--color-accent); }
-.theme-toggle {
-  position: absolute; top: 0.75rem; right: 1rem;
-  display: flex; gap: 0.125rem; padding: 0.125rem;
-  border: 1px solid var(--color-line); border-radius: var(--radius-card);
-  background: var(--color-surface);
-}
-.theme-toggle a {
-  display: inline-flex; align-items: center; gap: 0.3rem;
-  padding: 0.375rem 0.625rem; border-radius: calc(var(--radius-card) - 0.125rem);
-  color: var(--color-muted); text-decoration: none; font-size: 0.875rem;
-}
-.theme-toggle a.active { background: var(--color-ink); color: var(--color-bg); }
+.header-quicklinks { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+.header-quicklinks a { padding: 0.375rem 0.625rem; border-radius: var(--radius-card); color: var(--color-ink); text-decoration: none; font-size: 0.875rem; }
+.header-quicklinks a:hover, .header-quicklinks a.active { background: var(--color-line); }
 main .wrap { padding-top: 1rem; padding-bottom: 2rem; }
 h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 0.75rem; }
 h2 { font-size: 1.125rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
@@ -397,13 +362,10 @@ img { max-width: 100%; }
   nav.pills a { white-space: normal; }
   .table-scroll form.inline label { white-space: nowrap; }
   .table-scroll form.inline select { max-width: 13rem; }
-  /* Phone header: the brand and theme toggle share the top row in the
-     normal flow (the toggle wraps below rather than overlapping a long
-     brand), and the tabs get the full width under them instead of a
-     narrow column. */
+  /* Keep the brand and quick destinations readable above full-width tabs. */
   header.site .wrap { padding-right: 1rem; gap: 0.5rem; }
-  .theme-toggle { position: static; }
-  .theme-toggle a { padding: 0.375rem 0.5rem; }
+  .header-quicklinks { margin-left: auto; }
+  .header-quicklinks a { padding: 0.375rem 0.5rem; }
   .chrome-right { flex-basis: 100%; }
   nav.pills a { padding: 0.4rem 0.6rem; }
   nav.subnav a { padding: 0.5rem 0.6rem; }
@@ -512,8 +474,7 @@ PWA_HEAD_TAGS = (
     '<meta name="apple-mobile-web-app-capable" content="yes">'
     '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
     '<meta name="apple-mobile-web-app-title" content="Print Handy">'
-    '<meta name="theme-color" content="#12110f" media="(prefers-color-scheme: dark)">'
-    '<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">'
+    '<meta name="theme-color" content="#f3efe6">'
     '<link rel="manifest" href="/manifest.webmanifest">'
 )
 
@@ -540,18 +501,7 @@ def _esc(value):
 
 
 def theme_from_cookies(cookie_header):
-    """The theme a Cookie header asks for; the dark default for anything else."""
-    raw = cookie_header or ""
-    if not raw:
-        return DEFAULT_THEME
-    jar = SimpleCookie()
-    try:
-        jar.load(raw)
-    except Exception:  # a malformed Cookie header carries no theme
-        return DEFAULT_THEME
-    morsel = jar.get(THEME_COOKIE)
-    if morsel is not None and morsel.value in THEMES:
-        return morsel.value
+    """Return the only supported theme; ignore legacy preferences."""
     return DEFAULT_THEME
 
 
@@ -618,16 +568,13 @@ def _header(path, theme, nav=None):
             sub = _subnav(path, tab)
         items.append(f'<a href="{target}"{" class=\"active\"" if active else ""}>'
                      f"{_esc(label)}</a>")
-    toggle = "".join(
-        f'<a href="/theme?set={name}&amp;back={quote(path or "/", safe="/")}"'
-        f'{" class=\"active\"" if theme == name else ""}>'
-        f'<span aria-hidden="true">{_THEME_ICONS[name]}</span>{name.capitalize()}</a>'
-        for name in THEMES)
     return ('<header class="site"><div class="wrap">'
             '<div class="brand"><span class="tile" aria-hidden="true">PH</span>'
             f'<div><div class="name">Print Handy</div>'
             f'<div class="sub">{_esc(__version__)}</div></div></div>'
-            f'<div class="theme-toggle" role="group" aria-label="Color theme">{toggle}</div>'
+            '<nav class="header-quicklinks" aria-label="Quick links">'
+            f'<a href="/config"{" class=\"active\"" if _at(path, '/config') else ''}>Settings</a>'
+            f'<a href="/notifications"{" class=\"active\"" if _at(path, '/notifications') else ''}>Notifications</a></nav>'
             '<div class="chrome-right">'
             f'<nav class="pills" aria-label="Web UI pages">{"".join(items)}</nav>'
             "</div></div></header>" + sub)
@@ -651,7 +598,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     page, with or without chrome. Every interpolated value here is escaped by
     the callers for body content; title and heading are escaped here.
     """
-    theme_attr = ' data-theme="light"' if theme == "light" else ""
+    theme_attr = ' data-theme="light"'
     parts = ["<!DOCTYPE html>\n<html lang=\"en\"", theme_attr, "><head><meta charset=\"utf-8\">"
              '<meta name="viewport" content="width=device-width, initial-scale=1">'
              f"{ICON_HEAD_TAGS}"

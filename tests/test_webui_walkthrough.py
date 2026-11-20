@@ -618,15 +618,15 @@ class ThemeTests(unittest.TestCase):
             port = self.start(tmp, host="127.0.0.1")
             code, _, body = self.request(port, "GET", "/config")
             self.assertEqual(code, 200)
-            self.assertIn('<html lang="en"><head>', body)  # no data-theme: dark
-            self.assertIn("--color-bg: #12110f", body)
+            self.assertIn('<html lang="en" data-theme="light"><head>', body)
+            self.assertIn("--color-bg: #f3efe6", body)
             self.assertIn('<nav class="pills"', body)
 
-    def test_the_light_cookie_switches_the_theme(self):
+    def test_legacy_dark_cookie_is_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             port = self.start(tmp, host="127.0.0.1")
             code, _, body = self.request(port, "GET", "/config",
-                                         headers={"Cookie": "ph-theme=light"})
+                                         headers={"Cookie": "ph-theme=dark"})
             self.assertEqual(code, 200)
             self.assertIn('<html lang="en" data-theme="light">', body)
 
@@ -685,10 +685,10 @@ class ThemeTests(unittest.TestCase):
 
     def test_shell_function_reads_the_cookie(self):
         self.assertEqual(shell.theme_from_cookies("ph-theme=light"), "light")
-        self.assertEqual(shell.theme_from_cookies("ph-theme=dark"), "dark")
-        self.assertEqual(shell.theme_from_cookies("ph-theme=bogus"), "dark")
-        self.assertEqual(shell.theme_from_cookies(""), "dark")
-        self.assertEqual(shell.theme_from_cookies(None), "dark")
+        self.assertEqual(shell.theme_from_cookies("ph-theme=dark"), "light")
+        self.assertEqual(shell.theme_from_cookies("ph-theme=bogus"), "light")
+        self.assertEqual(shell.theme_from_cookies(""), "light")
+        self.assertEqual(shell.theme_from_cookies(None), "light")
 
     def test_submit_script_restores_controls_on_a_bfcache_return(self):
         # A page restored from the back/forward cache keeps the DOM as
