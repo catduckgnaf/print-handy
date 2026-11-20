@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace as S
 
@@ -70,6 +71,36 @@ def test_natural_part_two_reopens_checkpoint_and_slices_only_that_plate(flow_env
     assert receipt['sliced'] is True
     assert receipt['started'] is False
     assert receipt['uploaded'] is False
+
+
+def test_selected_checkpoint_revalidation_accepts_relative_expected_source(flow_env, tmp_path):
+    from print_handy.core import projects
+
+    archive = tmp_path / 'archive'
+    folder = archive / 'job-relative'
+    folder.mkdir(parents=True)
+    source = folder / 'source.3mf'
+    source.write_bytes(b'relative source')
+    relative_source = Path(os.path.relpath(source, Path.cwd()))
+    checkpoint = {
+        'schema': projects.SOURCE_CHECKPOINT_SCHEMA,
+        'status': 'available',
+        'request_scope': {'platform': 'discord', 'requester_id': 'u',
+                          'channel_id': 'c1', 'printer_id': 'printer-1'},
+        'source_path': str(relative_source),
+        'source_sha256': mj.file_sha256(source),
+    }
+    job_path = folder / 'JOB.json'
+    job_path.write_text(json.dumps({'downloaded_file': str(relative_source),
+                                    'source_checkpoint': checkpoint}))
+
+    loaded = projects.load_source_checkpoint(
+        job_path, platform='discord', requester_id='u', channel_id='c1',
+        printer_id='printer-1', archive=archive, expected_source=str(relative_source),
+        expected_sha256=checkpoint['source_sha256'])
+
+    assert loaded is not None
+    assert Path(loaded['checkpoint']['source_path']) == relative_source
 
 
 def test_single_candidate_is_revalidated_before_resume(flow_env, monkeypatch, tmp_path):

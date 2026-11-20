@@ -78,7 +78,8 @@ def load_source_checkpoint(job_json: str | Path, *, platform: str, requester_id:
                 or not source.is_file() or not source.is_relative_to(path.parent.resolve())
                 or not re.fullmatch(r"[a-f0-9]{64}", str(digest or ""))
                 or job.get("source_sha256") not in (None, digest)
-                or (expected_source is not None and str(source) != expected_source)
+                or (expected_source is not None
+                    and source != Path(expected_source).expanduser().resolve())
                 or (expected_sha256 is not None and digest != expected_sha256)
                 or mj.file_sha256(source) != digest):
             return None
