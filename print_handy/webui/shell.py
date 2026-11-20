@@ -32,8 +32,6 @@ from __future__ import annotations
 
 import contextvars
 import html
-from http.cookies import SimpleCookie
-from urllib.parse import quote
 
 from .. import __version__
 

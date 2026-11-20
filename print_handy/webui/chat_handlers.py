@@ -124,7 +124,6 @@ def chat_post(handler, form):
     if design_mode:
         handler._designs_post(form, route="/chat?view=design")
         return
-    data = handler.server.settings_data
     text = (form.get("text") or [""])[0].strip()
     if not text:
         handler._redirect("/chat")

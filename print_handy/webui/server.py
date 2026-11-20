@@ -198,6 +198,7 @@ from . import data_handlers as data_handlers_module
 from . import diagnostics as diagnostics_module
 from . import printer_handlers as printer_handlers_module
 from . import design_handlers as design_handlers_module
+from . import designs as designs_module
 from . import firmware_handlers as firmware_handlers_module
 from . import notifications as notifications_module
 from . import config_handlers as config_handlers_module
