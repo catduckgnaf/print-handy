@@ -9,9 +9,9 @@
 
 **Bambu Handy for every printer. Including Bambu printers. We're not petty.**
 
-Ask for what you need in ordinary words: “How much purple PLA do I have?”, “What’s loaded?”, “Are there ZMod updates?” or “How much will this print cost?” Print Handy answers routine questions from your own printer, Spoolman and saved print records—no AI required. When it’s time to make something, drop a model link or STL/3MF into Discord, Telegram, Matrix or the Web UI. It guides colors, copies, bed fit and slicing, then keeps you posted while the printer works. No slicer window to open for the everyday flow, and no Print Handy cloud.
+Ask for what you need in ordinary words: “How much purple PLA do I have?”, “What’s loaded?”, “Are there ZMod updates?” or “How much will this print cost?” Print Handy answers from your printer, Spoolman, and saved print records. Supported phrases and fuzzy matching are built into the Python command layer. No LLM parses those requests; performance helpers such as the G-code scanner can use Rust. When it’s time to make something, drop a model link or STL/3MF into Discord, Telegram, Matrix or the Web UI. It guides colors, copies, bed fit and slicing, then keeps you posted while the printer works. No slicer window to open for the everyday flow, and no Print Handy cloud.
 
-And yes, it has a personality problem. Your model might get roasted, your eleventh copy deserves a Spinal Tap reference, and Pasta Cam would very much like your printer to stop making spaghetti.
+The goal is a high Wife Approval Factor (WAF): when someone asks for a drawer divider, turn the request into a print, not a lesson in slicer settings. Check filament and cost in chat, approve the plate, and get on with dinner. If the print turns into spaghetti, Pasta Cam can flag it. If you like a little commentary, turn on the optional roasts. Printing should be fun.
 
 Current release: **2.3.5** · [What’s coming in 2.3.6](docs/RELEASE-2.3.6.md)
 
@@ -129,7 +129,7 @@ One brand, five firmware routes. A printer can appear under more than one route;
 
 A Creator 5 running OpenCreator is not running ZMod, a Creator 5 running Reforge is running neither, and a stock AD5X is not secretly a Moonraker printer. Same shell, different brains: pick the firmware yours actually runs, and Print Handy will say so if you guessed wrong.
 
-**What has actually been checked?** Profiles and automated tests are evidence about definitions and code, not a promise that somebody has verified every listed printer in person. Where hardware-specific validation is required, see the [live-proof checklist #1082](https://github.com/catduckgnaf/print-handy/issues/1082) for the checks tracked there. The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) describes its specific scope; it does not imply every FlashForge combination has been printed successfully.
+**Hardware validation:** See the [live proof checklist #1082](https://github.com/catduckgnaf/print-handy/issues/1082) and the [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) for model-specific results.
 
 ### Creality
 
