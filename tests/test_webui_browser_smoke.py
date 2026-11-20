@@ -182,11 +182,13 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
     def test_settings_autosave_writes_a_change_and_shows_a_refusal_in_place(self):
         self.login()
         self.page.goto(self.base + "/config?section=spools")
-        self.page.locator('input[name="spool.prompt_brand"]').check()
+        # prompt_brand defaults on (#1718), so the change to autosave is
+        # switching it off.
+        self.page.locator('input[name="spool.prompt_brand"]').uncheck()
         status = self.page.locator("#row-spool\\.prompt_brand .save-state")
         status.filter(has_text="Saved").wait_for()
         self.assertTrue(self.page.locator(".restart-needed").is_visible())
-        self.assertIn("prompt_brand: true", (self.tmp / "local.yaml").read_text())
+        self.assertIn("prompt_brand: false", (self.tmp / "local.yaml").read_text())
 
         self.page.locator('.config-tabs a[data-section="camera"]').click()
         sensitivity = self.page.locator('input[name="visual_watch.sensitivity"]')
