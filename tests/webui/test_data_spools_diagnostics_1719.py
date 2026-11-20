@@ -117,6 +117,13 @@ def test_the_source_breakdown_falls_back_to_the_recorded_url_host():
     assert by_source["files.example.com"]["count"] == 1
 
 
+def test_the_source_breakdown_puts_malformed_urls_in_unknown_bucket():
+    records = [_rec(1, source_url="https://[bad"),
+               _rec(2, source_url="https://[")]
+    by_source = print_stats.aggregate(records)["breakdowns"]["by_source"]
+    assert by_source[print_stats.UNKNOWN]["count"] == 2
+
+
 def test_the_source_breakdown_uses_the_intake_join_url():
     records = [_rec(7)]
     enrichments = {"per_print": {7: {"source_url": "https://makerworld.com/en/models/9"}}}

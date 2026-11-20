@@ -768,7 +768,12 @@ def _source_label(record, enriched_url=None):
     url = record.get("source_url") or enriched_url
     if isinstance(url, str) and url.strip():
         from urllib.parse import urlsplit
-        host = (urlsplit(url.strip()).hostname or "").lower()
+        try:
+            host = (urlsplit(url.strip()).hostname or "").lower()
+        except ValueError:
+            # Malformed bracketed hosts make urlsplit().hostname raise.
+            # Bad provenance must not make the whole stats response fail.
+            return UNKNOWN
         if host.startswith("www."):
             host = host[4:]
         if host:

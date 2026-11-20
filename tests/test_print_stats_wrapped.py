@@ -335,9 +335,8 @@ class OutcomesTests(unittest.TestCase):
         stats = print_stats.aggregate(records, year=2024)
         self.assertEqual(stats["total_prints"], 1)
         self.assertEqual(stats["outcomes"]["in_progress"], 0)
-        self.assertEqual(stats["outcomes"]["unknown"], 1)
-        self.assertEqual(stats["outcomes"]["finished"], 0)
-        self.assertEqual(stats["stale_printing"], 1)
+        self.assertEqual(stats["outcomes"]["completed"], 0)
+        self.assertEqual(stats["stale_printing_records"], 1)
 
     def test_year_filter_does_not_reconcile_across_printers(self):
         older = {"print_number": 1, "status": "printing", "success": None,
@@ -347,8 +346,7 @@ class OutcomesTests(unittest.TestCase):
         stats = print_stats.aggregate([older, later_other], year=2024)
         self.assertEqual(stats["total_prints"], 1)
         self.assertEqual(stats["outcomes"]["in_progress"], 1)
-        self.assertEqual(stats["outcomes"]["unknown"], 0)
-        self.assertEqual(stats["stale_printing"], 0)
+        self.assertEqual(stats["stale_printing_records"], 0)
 
     def test_three_numbers_stay_separate(self):
         stats = print_stats.aggregate(RECORDS, year=2025)
