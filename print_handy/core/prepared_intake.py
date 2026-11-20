@@ -2868,8 +2868,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if clearance_rep is None:
             clearance_rep = await _with_stop(
                 adapter, source, key, metadata, 'Checking support clearance.',
-                asyncio.to_thread(support_clearance.safe_analyze, path,
-                                   first_layer_mm=clearance_first_layer),
+                _heavy(support_clearance.safe_analyze, path,
+                       first_layer_mm=clearance_first_layer),
                 allow_stop=True)
         if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during inspection; retry intake.')
