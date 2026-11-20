@@ -890,6 +890,11 @@ def denied_users(cfg, section="discord"):
     return settings.user_ids(cfg[section].get("denied_user_ids"), key="denied_user_ids")
 
 
+def agent_lane_configured(cfg, platform_name):
+    """Whether [agent] may serve this platform's conversational lane."""
+    return platform_name != "webui" and agent.configured(cfg)
+
+
 def platform_name_of(source):
     """The platform name a source came from ('discord' for sources that do not say)."""
     value = getattr(getattr(source, "platform", None), "value", None) or getattr(source, "platform", None)
@@ -1630,7 +1635,7 @@ class BotCore(_RoutedAdapter):
                 await self.adapter.send(chat_id=source.chat_id, content=det,
                                         reply_to=event.message_id, metadata=metadata)
                 return {"action": "skip", "reason": "natural language answer"}
-        if lane_allowed and (agent.configured(self.cfg) or llm.configured(self.cfg)):
+        if lane_allowed and (agent_lane_configured(self.cfg, self.platform_name) or llm.configured(self.cfg)):
             # #1524 tranche 6: per-user rate limit and the one-time
             # endpoint notice gate every conversational-lane call.
             if not self._ai_rate.allow(source.user_id):
@@ -1643,7 +1648,7 @@ class BotCore(_RoutedAdapter):
                                         content=ai_endpoint_notice_text(), metadata=metadata)
             from . import natural_language as _nl
             _nl.record_route("ai_lane")
-        if lane_allowed and agent.configured(self.cfg):
+        if lane_allowed and agent_lane_configured(self.cfg, self.platform_name):
             try:
                 reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
                                                 cfg=self.cfg, opener=self.agent_opener)
@@ -1736,7 +1741,7 @@ class BotCore(_RoutedAdapter):
                 natural_language.record_route("suggestion")
                 return await self._offer_suggestion_choice(event, candidates, metadata)
             if lane_unlocked:
-                if lane_allowed and (agent.configured(self.cfg) or llm.configured(self.cfg)):
+                if lane_allowed and (agent_lane_configured(self.cfg, self.platform_name) or llm.configured(self.cfg)):
                     await self.adapter.send(chat_id=source.chat_id, content=ai_no_answer_text(),
                                             reply_to=event.message_id, metadata=metadata)
                     return {"action": "skip", "reason": "ai no answer"}
@@ -2266,7 +2271,7 @@ class BotCore(_RoutedAdapter):
                 "access": self.adapter.access_description(),
                 "handlers": len(self.router.dispatch_hooks),
                 "llm": bool(self.use_llm and llm.configured(self.cfg)),
-                "agent": bool(self.use_llm and agent.configured(self.cfg)),
+                "agent": bool(self.use_llm and agent_lane_configured(self.cfg, self.platform_name)),
                 "open_prompts": prompts.open_count(),
                 # #1524: local route counters and the opt-in unmatched
                 # log's export — diagnostics only, never transmitted.
