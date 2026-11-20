@@ -290,7 +290,7 @@ handler uses, and shows no message box.
 To edit a part you already have, use the workshop's **Upload a part to
 edit** form (.stl, .3mf or .scad, with an optional change): the file is
 saved to the Web UI inbox and submitted as a `/print-design` edit, so
-the conversation starts from that part — the change, when given, runs
+the conversation starts from that part: the change, when given, runs
 as the first turn, and with no change the part is shown as it is and
 the next message makes the change. The Chat page has the same upload
 form, starting the edit in the chat conversation instead. Editing a
