@@ -237,6 +237,10 @@ def test_large_indexed_integer_bounds_preserve_scalar_precision():
     assert mesh_fast.bounds(table) == mesh_fast._scalar_bounds(table)
     assert mesh_fast.bounds(table)[0][0] == base
     assert mesh_fast.bounds(table)[1][0] == base + 2
+    lo, hi, volume = mesh_fast.bounds_and_volume(table)
+    assert lo is not None and hi is not None
+    assert lo[0] == base and hi[0] == base + 2
+    assert np.isfinite(volume)
 
 def test_bounds_does_not_evaluate_volume():
     class Coordinate:
