@@ -112,7 +112,7 @@ def _regions(rings, z):
         outer = uv[ring] + origin
         bounds = (*outer.min(axis=0).tolist(), *outer.max(axis=0).tolist())
         filled_triangles = tuple(tuple(map(tuple, tri + origin))
-                                 for tri, signed_area in zip(triangles, filled)
+                                 for tri, signed_area in zip(triangles, filled, strict=True)
                                  if signed_area > 0)
         regions.append(_Region(filled_triangles, area, bounds))
     return regions
@@ -123,10 +123,10 @@ def _intersection_area(subject, clip):
     origin = np.asarray(clip[0])
     out = [p - origin for p in subject]
     clip = np.asarray(clip) - origin
-    for a, b in zip(clip, np.roll(clip, -1, axis=0)):
+    for a, b in zip(clip, np.roll(clip, -1, axis=0), strict=True):
         edge = b - a
 
-        def side(p):
+        def side(p, a=a, edge=edge):
             d = p - a
             return edge[0] * d[1] - edge[1] * d[0]
 
