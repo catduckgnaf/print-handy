@@ -226,6 +226,35 @@ def test_a_losing_racer_reports_stale_and_the_winner_keeps_its_answer(rig):
     assert "Nothing changed" in clicked.replies[-1]["content"]
 
 
+def test_stale_batched_question_preserves_live_sibling_select(rig, monkeypatch):
+    discord, core, _state = rig
+
+    async def flow():
+        stale, live = "d" * 32, "e" * 32
+        prompts.register(stale, SESSION, "Pick colors", ["Red", "Blue"])
+        prompts.register(live, SESSION, "Pick colors", ["Red", "Blue"])
+        sent = await core.adapter.send_clarify_batch(
+            str(CHAT), "Pick colors", [
+                {"label": "Part A", "choices": ["Red", "Blue"], "clarify_id": stale},
+                {"label": "Part B", "choices": ["Red", "Blue"], "clarify_id": live},
+            ], f"model-link:{IID}")
+        assert sent.success
+        message = discord.last_question()
+        stale_cid = next(cid for _placeholder, cid, _options in message.selects()
+                         if parse_custom_id(cid) and parse_custom_id(cid)[0] == stale)
+        prompts._prompts.pop(stale, None)
+        prompts._approval_marks.pop(stale, None)
+        monkeypatch.setattr(prompt_ledger, "BOOT_ID", "another-boot")
+        clicked = await discord.press(message, stale_cid, user=fake_discord.FakeUser(OPERATOR))
+        return message, clicked, live
+
+    message, clicked, live = run(flow())
+    assert message.view is not None
+    assert len(message.selects()) == 2
+    assert prompts.is_open(live)
+    assert "Nothing changed" in clicked.replies[-1]["content"]
+
+
 def test_a_live_question_still_resolves_normally(rig):
     discord, core, state = rig
 

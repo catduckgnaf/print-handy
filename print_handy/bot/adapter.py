@@ -328,10 +328,19 @@ class StandaloneAdapter(BasePlatformAdapter):
             return
         restarted = entry.get("boot") != prompt_ledger.BOOT_ID
         with _prompts_guard(self):
+            row = self._prompts.get(cid)
+            batch = row.get("batch") if row else None
+            if batch is not None:
+                batch["pending"].discard(cid)
+                preserve_siblings = bool(batch["pending"])
+            else:
+                preserve_siblings = False
             self._prompts.pop(cid, None)
         prompt_ledger.forget(cid)
         try:
-            if message is not None:
+            # A batched select message is shared: removing its view while another
+            # select is live would strand that sibling question.
+            if message is not None and not preserve_siblings:
                 await message.edit(view=None)
         except Exception:
             logger.debug("could not retire the stale buttons", exc_info=True)
