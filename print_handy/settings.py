@@ -159,13 +159,16 @@ def _apply_key_aliases(layer):
     services = layer.get("services")
     if isinstance(services, dict):
         services.pop("openviking_url", None)  # Drop retired configuration without disrupting upgrades.
-        services.pop("vision_chat_url", None)  # Removed in #1731: vision uses the one [llm] endpoint.
+        _note_retired_endpoint("[services] vision_chat_url", services.pop("vision_chat_url", None))  # Removed in #1731: vision uses the one [llm] endpoint.
     # The legacy LLM cleanup (#1731): the [agent] lane, the per-lane and
     # per-tier endpoint keys and the vision model are retired. A config
     # carrying any of them still loads — the keys are dropped here, before
     # the unknown-key check, so they are inert rather than refused (some
     # are credential-shaped and would otherwise refuse the whole load).
-    layer.pop("agent", None)
+    agent = layer.pop("agent", None)
+    if isinstance(agent, dict):
+        for key in ("chat_url", "fallback_url"):
+            _note_retired_endpoint(f"[agent] {key}", agent.get(key))
     design = layer.get("design")
     if isinstance(design, dict):
         for key in ("chat_url", "api_key_env"):
@@ -183,7 +186,9 @@ def _apply_key_aliases(layer):
             if isinstance(table, dict):
                 for key in ("chat_url", "fallback_model", "fallback_url", "api_key_env",
                             "fallback_api_key_env", "timeout_s"):
-                    table.pop(key, None)
+                    value = table.pop(key, None)
+                    if key in ("chat_url", "fallback_url"):
+                        _note_retired_endpoint(f"[ai.{tier}] {key}", value)
     return layer
 
 
@@ -424,6 +429,36 @@ def _credential_shaped(key):
     """
     lowered = str(key).lower()
     return any(word in lowered for word in _CREDENTIAL_WORDS)
+
+
+# Retired endpoint settings seen by the current load (#1749): (name, URL).
+# The URL is kept only to compare against the effective [llm] endpoint and is
+# never written into a warning.
+_retired_endpoints = []
+
+
+def _note_retired_endpoint(name, value):
+    url = str(value or "").strip()
+    if url:
+        _retired_endpoints.append((name, url))
+
+
+def _warn_retired_endpoints(data):
+    """Warn by name when a retired endpoint differs from the [llm] endpoint now in use (#1749).
+
+    Camera frames and label photos go to [llm] since #1731. A retired key
+    that pointed somewhere else means those images now reach a different
+    provider than the operator configured. When [llm] is not configured the
+    tier is simply off (nothing is sent), so there is nothing to warn about.
+    """
+    llm_url = str((data.get("llm") or {}).get("chat_url") or "").strip()
+    if not llm_url:
+        return
+    for name, url in _retired_endpoints:
+        if url.rstrip("/") != llm_url.rstrip("/"):
+            _note_unknown(f"{name} is retired and differs from [llm] chat_url; camera and label "
+                          "images, and every other AI request, are now sent to the [llm] "
+                          "endpoint (see Retired settings in the settings guide)")
 
 
 def _note_unknown(entry):
@@ -2564,6 +2599,7 @@ def load(home=None, local=None, environ=None, user=None):
     """
     environ = os.environ if environ is None else environ
     _unknown_settings.clear()
+    _retired_endpoints.clear()
     if home is None:
         home = HOME if HOME.is_file() else LEGACY_HOME
     home_data = _apply_key_aliases(_read(home))
@@ -2626,6 +2662,7 @@ def load(home=None, local=None, environ=None, user=None):
     data = _merge(data, extra)
     env_layer = _from_env(base, environ, declared)
     data = _merge(data, env_layer)
+    _warn_retired_endpoints(data)
     _keep_legacy_path_defaults(data, _explicit_keys(extra, env_layer))
     # layout.spacing fills the gap/margin keys; a key the operator set anywhere wins.
     apply_spacing_preset(data, _explicit_keys(home_data, extra, env_layer))

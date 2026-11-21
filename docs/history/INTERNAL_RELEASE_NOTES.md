@@ -21,6 +21,8 @@ Merged PRs covered by this release range: #1566, #1567, #1568, #1569, #1572, #15
 
 # Unreleased
 
+- Upgrade, image routing (#1749, found in review #1751): since the one-endpoint cleanup (#1731) camera frames, label photos and every other AI request go to the single `[llm]` endpoint. The retired `services.vision_chat_url`, `[agent]` and `[ai.<tier>]` `chat_url` and `fallback_url` keys are still ignored, but the loader now warns by name (never the value) when one of them differs from `llm.chat_url`, so an install that used a local vision endpoint and a hosted `[llm]` learns the route changed. To keep images local, point `llm.chat_url` at the local endpoint or set `vision.ai_enabled: false`. See Retired settings in [SETTINGS.md](../SETTINGS.md). Status: unreleased; no live camera, hosted provider or printer was used (stub transport tests only).
+
 # Version 2.3.5
 
 **Release Date:** 2026-11-16
