@@ -33,7 +33,7 @@ on:
         type: string
         required: true
       publish:
-        description: Push by digest and publish manifests only after every leg passes acceptance (false is a no-push candidate)
+        description: Publish release tags and manifests. If false, candidates on main or a tag can still push untagged digests; other refs never push.
         type: boolean
         default: false
 
