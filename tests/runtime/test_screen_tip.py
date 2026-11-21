@@ -47,13 +47,14 @@ def test_the_screen_gets_the_exact_roast_the_post_carried(posts, monkeypatch):
     assert value["id"] and isinstance(value["posted_at"], float)
 
 
-def test_a_retried_post_resends_the_same_id(posts):
+def test_a_retried_post_writes_the_screen_once(posts):
+    # One roast per print job: the retried delivery repeats the line in the
+    # post, but the screen already has it.
     first = mel.generate_roast("Benchy", key="done:benchy.gcode")
     second = mel.generate_roast("Benchy", key="done:benchy.gcode")
     _drain()
     assert first == second
-    assert len(posts) == 2
-    assert posts[0][1]["id"] == posts[1][1]["id"]
+    assert len(posts) == 1
     assert posts[0][0] == "http://default:7125"
 
 

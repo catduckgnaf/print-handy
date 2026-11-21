@@ -97,9 +97,9 @@ def broker(monkeypatch):
     screen_tip._DISCOVERY_SENT.clear()
 
 
-def _publish(**kw):
+def _publish(key="completed:benchy.gcode", **kw):
     return screen_tip.publish_roast(
-        LINE, title="Benchy", status="completed", key="completed:benchy.gcode",
+        LINE, title="Benchy", status="completed", key=key,
         facts=FACTS, printer_id="bambu1", **kw)
 
 
@@ -119,8 +119,9 @@ def test_one_roast_publishes_a_retained_state_with_the_exact_line(broker):
 
 
 def test_discovery_goes_out_once_per_printer_then_only_state(broker):
-    _publish()
-    _publish()
+    _publish(key="completed:benchy.gcode")
+    _drain()
+    _publish(key="completed:dragon.gcode")
     _drain()
     pubs = _publishes(broker)
     discovery = [p for p in pubs if p[1].endswith("/config")]
@@ -264,16 +265,16 @@ def _recording_publisher(monkeypatch, *, fail_discovery=0, delay=0.0):
 
 
 def test_concurrent_roasts_send_discovery_exactly_once(monkeypatch):
-    # Each publish_roast starts its own MQTT thread; 20 roasts released
-    # together must still send the discovery config once.
+    # Each publish_roast starts its own MQTT thread; 20 different jobs'
+    # roasts released together must still send the discovery config once.
     calls = _recording_publisher(monkeypatch, delay=0.02)
     barrier = threading.Barrier(20)
 
-    def worker():
+    def worker(n):
         barrier.wait()
-        assert _publish() is True
+        assert _publish(key=f"completed:part-{n}.gcode") is True
 
-    threads = [threading.Thread(target=worker) for _ in range(20)]
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(20)]
     for t in threads:
         t.start()
     for t in threads:
@@ -290,15 +291,15 @@ def test_concurrent_roasts_send_discovery_exactly_once(monkeypatch):
 def test_a_failed_discovery_is_retried_on_the_next_roast(monkeypatch):
     calls = _recording_publisher(monkeypatch, fail_discovery=1)
     try:
-        _publish()
+        _publish(key="completed:a.gcode")
         _drain()
         assert "bambu1" not in screen_tip._DISCOVERY_SENT
         # The state still goes out when discovery fails.
         assert calls.count("print-handy/bambu1/last_roast") == 1
-        _publish()
+        _publish(key="completed:b.gcode")
         _drain()
         assert "bambu1" in screen_tip._DISCOVERY_SENT
-        _publish()
+        _publish(key="completed:c.gcode")
         _drain()
         assert sum(c.endswith("/config") for c in calls) == 2
         assert calls.count("print-handy/bambu1/last_roast") == 3
@@ -316,3 +317,38 @@ def test_a_raising_discovery_gives_the_claim_back(monkeypatch):
     assert _publish() is True
     _drain()
     assert "bambu1" not in screen_tip._DISCOVERY_SENT
+
+
+def test_one_print_job_is_roasted_once(broker, monkeypatch):
+    # One roast per print job: a retried delivery of the same job does not
+    # write the screen or publish the state again.
+    sent = []
+    monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "http://voron:7125")
+    monkeypatch.setattr(screen_tip, "_post", lambda url, value: sent.append(value))
+    assert _publish() is True
+    assert _publish() is False
+    _drain()
+    assert len(sent) == 1
+    states = [p for p in _publishes(broker) if p[1] == "print-handy/bambu1/last_roast"]
+    assert len(states) == 1
+    # The next job on the same printer goes out as usual.
+    assert _publish(key="completed:dragon.gcode") is True
+    _drain()
+    assert len(sent) == 2
+
+
+def test_the_same_job_on_two_printers_roasts_each(broker):
+    assert _publish() is True
+    assert screen_tip.publish_roast(
+        LINE, title="Benchy", status="completed", key="completed:benchy.gcode",
+        facts=FACTS, printer_id="prusa1") is True
+    _drain()
+    topics = {p[1] for p in _publishes(broker)}
+    assert {"print-handy/bambu1/last_roast", "print-handy/prusa1/last_roast"} <= topics
+
+
+def test_a_roast_no_sink_took_is_not_remembered(monkeypatch):
+    monkeypatch.setattr(settings, "current", lambda: _cfg(mqtt_enabled=False))
+    monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "")
+    assert _publish() is False
+    assert "bambu1" not in screen_tip._LAST_ROAST

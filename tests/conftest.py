@@ -150,6 +150,7 @@ def _offline_screen_tip(monkeypatch):
     """A roast never reaches a printer's screen from a test; screen_tip tests patch _post."""
     from print_handy.runtime import screen_tip
     monkeypatch.setattr(screen_tip, "_post", lambda url, value: None)
+    monkeypatch.setattr(screen_tip, "_LAST_ROAST", {})
 
 
 @pytest.fixture(autouse=True)

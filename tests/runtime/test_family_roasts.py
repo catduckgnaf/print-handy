@@ -160,7 +160,8 @@ def test_a_reposted_terminal_notice_repeats_the_same_line(rig):
     family_control.post_family_event("complete", REMOTE, printer_id="prusa1")
     _drain()
     assert posts[0][0] == posts[1][0]
-    assert sent[0][1]["id"] == sent[1][1]["id"]
+    # One roast per print job: the screen gets it once.
+    assert len(sent) == 1
 
 
 def test_the_screen_write_goes_to_the_posting_printers_own_id(rig):

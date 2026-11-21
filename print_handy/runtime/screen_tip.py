@@ -46,6 +46,11 @@ TIMEOUT_S = 5
 _DISCOVERY_SENT: set[str] = set()
 _DISCOVERY_LOCK = threading.Lock()
 
+# Each printer's last roast that went out, by event id: one roast per print
+# job, so a retried delivery of the same job does not publish it again.
+_LAST_ROAST: dict[str, str] = {}
+_LAST_ROAST_LOCK = threading.Lock()
+
 # How each roast bank's print ended, for the line behind the tap.
 _ENDINGS = {
     "completed": "finished",
@@ -291,6 +296,9 @@ def publish_roast(line: str, *, title: str, status: str = "completed", key: str 
                   facts: Mapping[str, Any] | None = None, printer_id: str | None = None) -> bool:
     """Queue a print's roast for that printer's displays. True when a sink queued it.
 
+    One roast per print job: the same job's roast (same event id) for the
+    same printer is queued once, and a repeat returns False.
+
     ``printer_id`` is the roster id of the printer the print ran on; None is
     the default printer. The sinks are independent: the Moonraker /
     HelixScreen write and the MQTT last-roast publish each go out (or
@@ -300,10 +308,19 @@ def publish_roast(line: str, *, title: str, status: str = "completed", key: str 
     try:
         if not line:
             return False
-        value = record(event_id=event_id(status, key, line), title=line,
-                       details=details(title, status, facts))
+        eid = event_id(status, key, line)
+        pid = str(printer_id or "default")
+        with _LAST_ROAST_LOCK:
+            if _LAST_ROAST.get(pid) == eid:
+                return False
+            _LAST_ROAST[pid] = eid
+        value = record(event_id=eid, title=line, details=details(title, status, facts))
         queued = _publish_moonraker(value, printer_id)
         queued = _publish_mqtt(value, status, printer_id) or queued
+        if not queued:
+            with _LAST_ROAST_LOCK:
+                if _LAST_ROAST.get(pid) == eid:
+                    del _LAST_ROAST[pid]
         return queued
     except Exception:
         logger.debug("screen tip unavailable", exc_info=True)
