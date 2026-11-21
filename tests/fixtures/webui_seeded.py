@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import struct
 import tempfile
 import threading
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -120,6 +122,18 @@ class SeededWebUI:
         payload = {"title": "Long synthetic archive job title for multi-plate populated page", "gcode": plates[0]["gcode"], "derived_plates": plates[1:]}
         (job / "JOB.json").write_text(json.dumps(payload), encoding="utf-8")
 
+    def _png_preview(self):
+        preview = bytearray(b"\x89PNG\r\n\x1a\n")
+        for chunk_type, payload in (
+            (b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)),
+            (b"IDAT", zlib.compress(bytes(4))),
+            (b"IEND", b""),
+        ):
+            preview.extend(struct.pack(">I", len(payload)))
+            preview.extend(chunk_type + payload)
+            preview.extend(struct.pack(">I", zlib.crc32(chunk_type + payload) & 0xFFFFFFFF))
+        return bytes(preview)
+
     def _seed_designs(self):
         now = 1_795_277_000.0
         for number in range(1, 4):
@@ -138,12 +152,7 @@ class SeededWebUI:
             (folder / "session.json").write_text(json.dumps(session), encoding="utf-8")
             (folder / "turn-1.scad").write_text("// synthetic fixture\ncube([40, 20, 3]);\n", encoding="utf-8")
             (folder / "turn-1.stl").write_bytes(b"solid fixture\nendsolid fixture\n")
-            (folder / "turn-1.png").write_bytes(
-                b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR"
-                b"\x00\x00\x00\x01\x00\x00\x00\x01"
-                b"\x08\x02\x00\x00\x00\x90wS\xde"
-                b"\x00\x00\x00\x0bIDAT\x08\xd7c````\x00\x00\x00\x05\x00\x01"
-                b"\xa5\xf6E\x40\x00\x00\x00\x00IEND\xaeB`\x82")
+            (folder / "turn-1.png").write_bytes(self._png_preview())
 
     def _seed_chat(self):
         self.chat_entries = [

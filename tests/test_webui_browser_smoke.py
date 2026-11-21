@@ -38,6 +38,7 @@ import os
 import sys
 import threading
 import unittest
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -150,8 +151,19 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         from print_handy.core import design
         sessions = design.list_sessions(design.sessions_root(self.seed.cache))
         self.assertEqual(len(sessions), 3)
-        self.assertTrue(all(design.session_file(design.sessions_root(self.seed.cache), row["id"], "preview")
-                            for row in sessions))
+        png = (design.sessions_root(self.seed.cache) / sessions[0]["id"] / "turn-1.png").read_bytes()
+        self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+        offset = 8
+        chunks = []
+        while offset < len(png):
+            length = int.from_bytes(png[offset:offset + 4], "big")
+            chunk_type = png[offset + 4:offset + 8]
+            payload = png[offset + 8:offset + 8 + length]
+            crc = int.from_bytes(png[offset + 8 + length:offset + 12 + length], "big")
+            self.assertEqual(crc, zlib.crc32(chunk_type + payload) & 0xFFFFFFFF)
+            chunks.append(chunk_type)
+            offset += 12 + length
+        self.assertEqual(chunks, [b"IHDR", b"IDAT", b"IEND"])
         self.assertEqual(len(list((self.seed.archive / "seeded-multiplate").glob("*.gcode"))), 3)
         self.assertTrue(all(str(self.seed.root) in str(path)
                             for path in (self.seed.prints, self.seed.archive, self.seed.cache)))
