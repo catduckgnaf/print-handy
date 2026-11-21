@@ -249,22 +249,46 @@ def job_aware_reply(job, count=1):
     return text
 
 
-async def handle_owner_text(adapter, source, text, metadata=None):
-    """Route the owner's plain text to their running job, if one is live.
-
-    Returns ``"cancel"``, ``"status"`` or ``"other"`` when the text was
-    answered here, else None: no running job, a job past its cancel
-    point, another user's text, or empty text all fall through to the
-    caller's fallback exactly as today.
-    """
+def _owned_job(source):
+    """The running, still-cancellable job this source's user owns, else None."""
     job = lookup_for_source(source)
     if job is None or not job.cancellable:
         return None
     owner = str(getattr(source, "user_id", "") or "")
     if not owner or owner != job.owner_user_id:
         return None
+    return job
+
+
+def unmatched_reply_for(source):
+    """The job-aware reply that replaces the generic unmatched reply, or None (#1793 review).
+
+    Only the generic "I didn't understand that" reply is replaced: the
+    owner's other text still goes through the normal fallback first
+    (natural-language answers, the AI lane, did-you-mean), so chatting
+    with the bot keeps working while a job prepares.
+    """
+    job = _owned_job(source)
+    if job is None:
+        return None
+    return job_aware_reply(job, len(lookup_all(job.platform, job.chat_id, job.thread_id)))
+
+
+async def handle_owner_text(adapter, source, text, metadata=None, *, answer_other=True):
+    """Route the owner's plain text to their running job, if one is live.
+
+    Returns ``"cancel"``, ``"status"`` or ``"other"`` when the text was
+    answered here, else None: no running job, a job past its cancel
+    point, another user's text, or empty text all fall through to the
+    caller's fallback exactly as today. With ``answer_other=False`` (the
+    chat router) "other" text is not answered here either, so it reaches
+    the normal fallback; ``unmatched_reply_for`` covers its last resort.
+    """
+    job = _owned_job(source)
+    if job is None:
+        return None
     kind = classify_owner_text(text)
-    if kind is None:
+    if kind is None or (kind == "other" and not answer_other):
         return None
     count = len(lookup_all(job.platform, job.chat_id, job.thread_id))
     if kind == "cancel":

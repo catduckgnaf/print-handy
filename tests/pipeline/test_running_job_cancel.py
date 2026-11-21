@@ -72,6 +72,67 @@ def test_typed_cancel_stops_a_slow_step_with_a_stop_button():
     asyncio.run(main())
 
 
+def test_a_step_that_finishes_inside_its_quiet_window_posts_nothing():
+    """#1793 review: a fast step posts no Stop prompt and returns its result."""
+    adapter = _StopAdapter()
+    _job()
+
+    async def main():
+        return await prepared_intake._with_stop(
+            adapter, _source(), "model-link:i1", None, "Downloading the model.",
+            _slow("file.stl", delay=0.01), allow_stop=True, quiet_s=1.0)
+
+    assert asyncio.run(main()) == "file.stl"
+    assert adapter.clarifies == [] and adapter.sent == []
+
+
+def test_a_step_still_running_after_its_quiet_window_posts_its_stop_prompt():
+    adapter = _StopAdapter()
+    _job()
+
+    async def main():
+        return await prepared_intake._with_stop(
+            adapter, _source(), "model-link:i1", None, "Downloading the model.",
+            _slow("file.stl", delay=0.3), allow_stop=True, quiet_s=0.05)
+
+    assert asyncio.run(main()) == "file.stl"
+    assert [c["question"] for c in adapter.clarifies] == ["Downloading the model."]
+
+
+def test_a_typed_cancel_inside_the_quiet_window_stops_the_step_without_a_prompt():
+    adapter = _StopAdapter()
+    job = _job()
+
+    async def main():
+        task = asyncio.create_task(prepared_intake._with_stop(
+            adapter, _source(), "model-link:i1", None, "Downloading the model.",
+            _slow(delay=30.0), allow_stop=True, quiet_s=10.0))
+        await asyncio.sleep(0.05)
+        job.request_cancel()
+        with pytest.raises(Stopped):
+            await asyncio.wait_for(task, timeout=5)
+
+    asyncio.run(main())
+    assert adapter.clarifies == []
+
+
+def test_a_fast_step_error_surfaces_from_the_quiet_window():
+    adapter = _StopAdapter()
+    _job()
+
+    async def boom():
+        raise ValueError("download failed")
+
+    async def main():
+        return await prepared_intake._with_stop(
+            adapter, _source(), "model-link:i1", None, "Downloading the model.",
+            boom(), allow_stop=True, quiet_s=1.0)
+
+    with pytest.raises(ValueError, match="download failed"):
+        asyncio.run(main())
+    assert adapter.clarifies == []
+
+
 def test_typed_cancel_stops_a_slow_step_without_a_stop_button():
     adapter = _StopAdapter()
     job = _job()
@@ -409,12 +470,13 @@ def test_owner_cancel_during_combine_ends_the_intake_cleanly(tmp_path, monkeypat
     assert "Traceback" not in "\n".join(adapter.sent)
     assert not list((tmp_path / "archive").rglob("*-parts.3mf"))
     assert running_jobs.lookup_for_source(event.source) is None
-    # Every long pre-upload step the intake reached showed a Stop button.
+    # #1793 review: the fast steps (model page, downloads, file checks) finished
+    # inside their quiet window and posted no Stop prompt; the long combine did.
     stop_texts = [q["question"] for q in adapter.questions
                   if list(q.get("choices") or []) == ["Stop"]]
-    assert "Reading the model page." in stop_texts
-    assert "Downloading file 1 of 2." in stop_texts
-    assert "Checking the downloaded files." in stop_texts
+    assert "Reading the model page." not in stop_texts
+    assert "Downloading file 1 of 2." not in stop_texts
+    assert "Checking the downloaded files." not in stop_texts
     assert "Putting the 2 files together as one project." in stop_texts
 
 
@@ -456,6 +518,9 @@ def test_owner_cancel_during_download_waits_for_the_download_thread(tmp_path, mo
         return str(target)
 
     monkeypatch.setattr(model_job, "printables_download", download)
+    # The download runs about 1.2 s; a short quiet window makes its Stop prompt
+    # appear (the "still running after the window" path), which this test waits on.
+    monkeypatch.setattr(prepared_intake, "STEP_QUIET_S", 0.05)
     monkeypatch.setattr(model_job, "audit", lambda path: pytest.fail("audit ran after a cancel"))
     monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
 

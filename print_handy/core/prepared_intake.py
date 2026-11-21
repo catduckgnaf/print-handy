@@ -332,8 +332,20 @@ async def _race_job_cancel(work, job, text):
             waiter.cancel()
 
 
-async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None):
-    """Run work with plain progress by default; opt in to Stop only when cancellation is safe."""
+#: A step that finishes within this long posts no Stop prompt (#1793 review):
+#: reading the model page, downloads and file checks usually take well under
+#: a second, and a prompt per step doubled a normal intake's messages. A
+#: typed cancel still reaches the step while it is quiet.
+STEP_QUIET_S = 5.0
+
+
+async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None,
+                     quiet_s=None):
+    """Run work with plain progress by default; opt in to Stop only when cancellation is safe.
+
+    ``quiet_s`` (with ``allow_stop``) holds the Stop prompt back: the step
+    posts it only when the work is still running after ``quiet_s`` seconds.
+    """
     job = _running_job_for(key)
     if job is not None and job.cancellable:
         # The step name is what a typed "status" reports, and a cancel
@@ -366,6 +378,24 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         if job is not None and job.cancellable:
             return await _race_job_cancel(work, job, text)
         return await work
+    task = None
+    if quiet_s:
+        # Quiet window (#1793 review): run the step first and post its Stop
+        # prompt only if it is still running afterwards. A typed cancel in
+        # the window stops it exactly as it would after the prompt.
+        task = asyncio.ensure_future(work)
+        quiet_cancel = (asyncio.ensure_future(job.cancel_event.wait())
+                        if job is not None and job.cancellable else None)
+        try:
+            await asyncio.wait({task} | ({quiet_cancel} if quiet_cancel else set()),
+                               timeout=quiet_s, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if quiet_cancel is not None and not quiet_cancel.done():
+                quiet_cancel.cancel()
+        if task.done():
+            return await task
+        if quiet_cancel is not None and quiet_cancel.done():
+            return await _race_job_cancel(task, job, text)
     import uuid
     from .prompts import gateway as _prompts
     from . import prompts as _prompt_wait
@@ -384,12 +414,13 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     else:
         sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=text, choices=[STOP_LABEL],
                                           clarify_id=cid, session_key=key, metadata=metadata)
+    pending = task if task is not None else work  # the quiet window may have started it
     if not getattr(sent, "success", True):
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         if job is not None and job.cancellable:
-            return await _race_job_cancel(work, job, text)
-        return await work
-    task = asyncio.ensure_future(work)
+            return await _race_job_cancel(pending, job, text)
+        return await pending
+    task = asyncio.ensure_future(pending)
     waiter = asyncio.ensure_future(_prompt_wait.await_answer(cid, 3600, registry=cm))
     cancel_waiter = None
     if job is not None and job.cancellable:
@@ -2279,13 +2310,13 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
             adapter, source, key, metadata, timeout,
             lambda row=row, dest=dest, n=n: _with_stop(
                 adapter, source, key, metadata, f'Downloading file {n} of {len(parts)}.',
-                owned_worker.in_thread(fetch, job, row, dest), allow_stop=True))
+                owned_worker.in_thread(fetch, job, row, dest), allow_stop=True, quiet_s=STEP_QUIET_S))
 
         async def _checked(path=path):
             await owned_worker.in_thread(check_source, path)
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded files.',
-                         _checked(), allow_stop=True)
+                         _checked(), allow_stop=True, quiet_s=STEP_QUIET_S)
         paths.append(Path(path))
     from . import model_job as mj
     unit_q = await asyncio.to_thread(mj.parts_unit_question, job, paths)
@@ -2765,7 +2796,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                       lambda: _with_stop(adapter, source, key, metadata,
                                                          'Reading the model page.',
                                                          owned_worker.in_thread(mj.inventory_for_url, url),
-                                                         allow_stop=True))
+                                                         allow_stop=True, quiet_s=STEP_QUIET_S))
         _running_job.attach_job(job)
         rows = job.get('sources', [])
         if job['site'] in FILE_LIST_SITES:
@@ -2860,7 +2891,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 adapter, source, key, metadata, timeout,
                 lambda: _with_stop(adapter, source, key, metadata, 'Downloading the model.',
                                    owned_worker.in_thread(fetch, job, chosen, folder / 'source'),
-                                   allow_stop=True))
+                                   allow_stop=True, quiet_s=STEP_QUIET_S))
             job['downloaded_file'] = str(path)
         if reuse and reuse.get('source_checkpoint_resume'):
             expected = reuse['source_checkpoint_resume']['source_sha256']
@@ -2877,7 +2908,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # and slicer all read this copy. The user's bytes are kept under source/original/.
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded file.',
-                         _checked_single(), allow_stop=True)
+                         _checked_single(), allow_stop=True, quiet_s=STEP_QUIET_S)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         # Cache only pure inspection output, bound to canonical source bytes and

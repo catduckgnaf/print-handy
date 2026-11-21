@@ -272,13 +272,41 @@ def test_owner_status_and_other_text_get_job_aware_replies(cfg):
             "Still combining the files (")
         assert discord.sent[0].endswith(" so far).")
         out = run(core.handle_message(discord.message("only the first file")))
-        assert out == {"action": "skip", "reason": "typed other to a running job"}
+        # #1793 review: other text takes the normal fallback; only its
+        # last-resort unmatched reply becomes the job-aware reply.
+        assert out == {"action": "skip", "reason": "command list"}
         assert discord.sent[1].startswith(
             "Your Snacking Tongs job is still preparing (combining the files, ")
         assert "Say *cancel* to stop it" in discord.sent[1]
         assert runtime.unmatched_text(cfg["discord"]["bot_name"]) not in discord.sent
     finally:
         running_jobs.unregister(job)
+
+
+def test_owner_chat_during_a_running_job_still_gets_its_normal_answer(cfg):
+    """#1793 review: a message the fallback answers (here a natural-language
+    answer) is answered as usual while the owner's job prepares; the job
+    reply replaces only the generic unmatched reply."""
+    from print_handy.core import running_jobs
+    discord, core = make(cfg)
+    job = _running_job_for(discord)
+
+    async def answer(event, metadata):
+        return "You have 2 spools of purple PLA."
+    core._natural_language_answer = answer
+    try:
+        out = run(core.handle_message(discord.message("how much purple PLA do I have")))
+        assert out == {"action": "skip", "reason": "natural language answer"}
+        assert discord.sent == ["You have 2 spools of purple PLA."]
+        assert not job.cancel_event.is_set()
+    finally:
+        running_jobs.unregister(job)
+
+
+def test_without_a_running_job_the_unmatched_reply_is_unchanged(cfg):
+    discord, core = make(cfg)
+    run(core.handle_message(discord.message("only the first file")))
+    assert discord.sent == [runtime.unmatched_text(cfg["discord"]["bot_name"])]
 
 
 def test_another_users_cancel_does_not_touch_the_job(cfg):

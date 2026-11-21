@@ -66,15 +66,9 @@ def test_single_color_successful_flow_messages_and_order(env):
     adapter, result, receipt = run_flow(env, [2, 0, 0])  # single color, slot 1, slice and print now
 
     # Support clearance is checked in a stoppable worker before the slice wait.
-    # #1789: the model-page read, download, source checks and inspection now
-    # post their own Stop prompts first, so the flow has eight messages.
-    assert len(adapter.log) == 8, f'Expected page, download, checks, inspection, clearance, wait, prep and one start message: {adapter.log}'
-    assert adapter.log[0] == 'Reading the model page.'
-    assert adapter.log[1] == 'Downloading the model.'
-    assert adapter.log[2] == 'Checking the downloaded file.'
-    assert adapter.log[3] == 'Checking the model. Press Stop to cancel.'
-    assert adapter.log[4] == 'Checking support clearance.'
-    assert adapter.log[5] == WAIT_TEXT
+    assert len(adapter.log) == 4, f'Expected clearance, wait, prep and one start message: {adapter.log}'
+    assert adapter.log[0] == 'Checking support clearance.'
+    assert adapter.log[1] == WAIT_TEXT
 
     assert not any(m.startswith('Sliced:') for m in adapter.log)
     assert any(PREP_TEXT in m for m in adapter.log), f'Missing preparation message in: {adapter.log}'
@@ -136,21 +130,19 @@ def test_refused_start_sends_prep_then_precise_failure_no_printing_claim(env, mo
 
     adapter, result, receipt = run_flow(env, [2, 0, 0])
 
-    # #1789: the model-page read, download, source checks and inspection now
-    # post their own Stop prompts first, so the flow has eight messages.
-    assert len(adapter.log) == 8, f'Expected page, download, checks, inspection, clearance, wait, prep and one refusal message: {adapter.log}'
-    assert adapter.log[4] == 'Checking support clearance.'
-    assert adapter.log[5] == WAIT_TEXT
+    assert len(adapter.log) == 4, f'Expected clearance, wait, prep and one refusal message: {adapter.log}'
+    assert adapter.log[0] == 'Checking support clearance.'
+    assert adapter.log[1] == WAIT_TEXT
 
     prep_idx = next(i for i, m in enumerate(adapter.log) if PREP_TEXT in m)
 
     assert not any(m.startswith('Sliced:') for m in adapter.log)
     assert not any('print started' in m.lower() for m in adapter.log)
-    assert adapter.log[7] == (
+    assert adapter.log[3] == (
         "Didn't start: the printer could not confirm it was ready. Check the printer screen, "
         "resolve any warning, then press Retry."
     )
-    assert 'REFUSED:' not in adapter.log[6]
+    assert 'REFUSED:' not in adapter.log[2]
 
     # Raw refusal remains in the receipt for status/debug details.
     assert receipt['status'] == 'START_REFUSED'
@@ -169,8 +161,7 @@ def test_duplicate_event_deduplication_and_no_duplicate_messages(env):
     adapter1, result1, receipt1 = run_flow(env, [2, 0, 0], mid='dedup-1')
     assert len(env.starts) == 1
     initial_sent_count = len(adapter1.log)
-    # #1789: page, download, checks, inspection, clearance, wait, prep, start.
-    assert initial_sent_count == 8
+    assert initial_sent_count == 4
 
     # Send identical event with a new adapter
     adapter2 = Adapter([])
