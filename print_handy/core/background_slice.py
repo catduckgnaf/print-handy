@@ -231,12 +231,9 @@ class BackgroundSlice:
                                       'unverified': [{'plate': None, 'reason': f'the support coverage check could not run ({exc})'}]}
             self.supports_coverage_identity = None
         finally:
-            try:
-                model_job._timing(self.job_path, 'preview_support_coverage_done',
-                                  elapsed_s=round(time.monotonic() - started, 3),
-                                  checked=bool(self.supports_coverage and self.supports_coverage.get('checked')))
-            except Exception:  # timing is diagnostic only
-                pass
+            model_job._timing(self.job_path, 'preview_support_coverage_done',
+                              elapsed_s=round(time.monotonic() - started, 3),
+                              checked=bool(self.supports_coverage and self.supports_coverage.get('checked')))
 
     def _write_slice_job(self, slice_job_data, default_supports=None):
         if slice_job_data is None or self.job_path is None:
