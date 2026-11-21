@@ -235,6 +235,90 @@ def test_typed_text_answers_only_the_askers_open_question(cfg):
     assert run(flow()) == "2"
 
 
+def _running_job_for(discord):
+    """A running intake owned by the operator, mid-combine (#1789)."""
+    from print_handy.core import running_jobs
+    job = running_jobs.RunningJob(
+        platform="discord", chat_id=str(discord.channel.id), thread_id=None,
+        owner_user_id=str(discord.operator.id), intake_id="i1",
+        job={"title": "Snacking Tongs"})
+    job.set_step("combining the files")
+    return running_jobs.register(job)
+
+
+def test_owner_cancel_during_a_running_job_cancels_it(cfg):
+    """#1789: between questions, the owner's "cancel" reaches the job, not the help text."""
+    from print_handy.core import running_jobs
+    discord, core = make(cfg)
+    job = _running_job_for(discord)
+    try:
+        out = run(core.handle_message(discord.message("cancel")))
+        assert out == {"action": "skip", "reason": "typed cancel to a running job"}
+        assert job.cancel_event.is_set()
+        assert discord.sent == ["Cancelling the Snacking Tongs job. Nothing was uploaded or started."]
+    finally:
+        running_jobs.unregister(job)
+
+
+def test_owner_status_and_other_text_get_job_aware_replies(cfg):
+    """#1789: "status" reports the step and elapsed time; other text names the job."""
+    from print_handy.core import running_jobs
+    discord, core = make(cfg)
+    job = _running_job_for(discord)
+    try:
+        out = run(core.handle_message(discord.message("status")))
+        assert out == {"action": "skip", "reason": "typed status to a running job"}
+        assert len(discord.sent) == 1 and discord.sent[0].startswith(
+            "Still combining the files (")
+        assert discord.sent[0].endswith(" so far).")
+        out = run(core.handle_message(discord.message("only the first file")))
+        assert out == {"action": "skip", "reason": "typed other to a running job"}
+        assert discord.sent[1].startswith(
+            "Your Snacking Tongs job is still preparing (combining the files, ")
+        assert "Say *cancel* to stop it" in discord.sent[1]
+        assert runtime.unmatched_text(cfg["discord"]["bot_name"]) not in discord.sent
+    finally:
+        running_jobs.unregister(job)
+
+
+def test_another_users_cancel_does_not_touch_the_job(cfg):
+    """#1789: only the job owner's text is captured."""
+    from print_handy.core import running_jobs
+    discord, core = make(cfg)
+    job = _running_job_for(discord)
+    try:
+        other = runtime.make_source(424242, discord.channel.id)
+        out = run(core.process(runtime.make_event(other, "cancel", 2)))
+        assert out == {"action": "skip", "reason": "command list"}
+        assert not job.cancel_event.is_set()
+        assert discord.sent == [runtime.unmatched_text(cfg["discord"]["bot_name"])]
+    finally:
+        running_jobs.unregister(job)
+
+
+def test_typed_cancel_answers_an_open_question_before_the_running_job(cfg):
+    """#1789: with a question open, "cancel" answers it; the job hook does not preempt it."""
+    from print_handy.core import running_jobs
+    discord, core = make(cfg)
+    job = _running_job_for(discord)
+    asker = runtime.make_source(discord.operator.id, discord.channel.id)
+
+    async def flow():
+        cid = "typed-cancel-1"
+        prompts.register(cid, runtime.session_key(asker), "How many copies?", ["1", "2"])
+        await core.adapter.send_clarify(chat_id=str(discord.channel.id), question="How many copies?",
+                                        choices=["1", "2"], clarify_id=cid, session_key="flow")
+        out = await core.process(runtime.make_event(asker, "cancel", 1))
+        assert out == {"action": "skip", "reason": "typed answer to an open question"}
+        assert not job.cancel_event.is_set()
+        return await asyncio.to_thread(prompts.wait_for_response, cid, 1)
+
+    try:
+        assert run(flow()) == "cancel"
+    finally:
+        running_jobs.unregister(job)
+
+
 def test_print_it_follow_up_reuses_the_last_link_from_print_handy_state(cfg):
     discord, core = make(cfg)
     url = "https://makerworld.com/en/models/931302-holder"

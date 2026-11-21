@@ -571,6 +571,50 @@ def test_session_keys_are_matrix_scoped(cfg):
     assert runtime.session_key(source) == f"matrix:{ROOM}::{USER}"
 
 
+def test_owner_cancel_and_status_reach_a_running_job_on_matrix(cfg, tmp_path):
+    """#1789: the same owner-text routing on a buttonless surface (Matrix)."""
+    from print_handy.core import running_jobs
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path)
+    job = running_jobs.register(running_jobs.RunningJob(
+        platform="matrix", chat_id=ROOM, thread_id=None,
+        owner_user_id=USER, intake_id="i1", job={"title": "Snacking Tongs"}))
+    job.set_step("combining the files")
+    try:
+        source = runtime.make_source(USER, ROOM, platform_name="matrix")
+        out = run(core.process(runtime.make_event(source, "cancel", "$e8")))
+        assert out == {"action": "skip", "reason": "typed cancel to a running job"}
+        assert job.cancel_event.is_set()
+        assert stub.sent_bodies() == [
+            "Cancelling the Snacking Tongs job. Nothing was uploaded or started."]
+        job.cancel_event.clear()
+        job.cancellable = True
+        out = run(core.process(runtime.make_event(source, "status", "$e9")))
+        assert out == {"action": "skip", "reason": "typed status to a running job"}
+        assert stub.sent_bodies()[-1].startswith("Still combining the files (")
+        assert not job.cancel_event.is_set()
+    finally:
+        running_jobs.unregister(job)
+
+
+def test_another_users_cancel_does_not_touch_the_job_on_matrix(cfg, tmp_path):
+    """#1789: only the job owner's text is captured, on Matrix too."""
+    from print_handy.core import running_jobs
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path)
+    job = running_jobs.register(running_jobs.RunningJob(
+        platform="matrix", chat_id=ROOM, thread_id=None,
+        owner_user_id=USER, intake_id="i1", job={"title": "Snacking Tongs"}))
+    try:
+        other = runtime.make_source("@someoneelse:example.org", ROOM, platform_name="matrix")
+        out = run(core.process(runtime.make_event(other, "cancel", "$e10")))
+        assert out == {"action": "skip", "reason": "command list"}
+        assert not job.cancel_event.is_set()
+        assert any("didn't understand" in body for body in stub.sent_bodies())
+    finally:
+        running_jobs.unregister(job)
+
+
 def test_bot_check_rows_for_matrix(cfg, monkeypatch):
     monkeypatch.setenv("MATRIX_ACCESS_TOKEN", TOKEN)
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}

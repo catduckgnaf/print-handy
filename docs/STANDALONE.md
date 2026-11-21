@@ -234,10 +234,19 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 * A typed reply answers your own open question ("2" for two copies, "split", "cancel"). It
   never answers another allowed user's question, even in the same channel or thread. Buttons are shared: any
   allowed user may press an open question's button, and the message then shows who chose.
+* While your print job is still being prepared, your plain words reach that job even
+  between questions: "cancel" (or "stop", "never mind", "abort") stops it before
+  anything is uploaded or started, "status" (or "is it stuck", "?") reports the step
+  it is on and how long that step has run, and anything else gets a reply naming the
+  job instead of the "didn't understand" text. Only your own words are captured, only
+  in the job's channel or thread. Every step before upload offers Stop, including the
+  step that puts several files together; once upload starts, the start gates and the
+  printer's own cancel apply as before.
 * Anything else is tried by the deterministic natural-language layer, and only falls back to the short
   “didn't understand” reply when nothing answers it. The order is: explicit commands, deterministic phrases (like "print 57" above),
   links/files and typed answers to an open question run first and are never rerouted through a model;
   then the natural-language layer answers plain questions from local data (see the next section).
+  While one of your jobs is being prepared, your words reach that job first (previous bullet).
   Discord, Telegram and Matrix never send unmatched chat to a model. Only Web Chat has a bounded
   conversational fallback, and only if the operator enables `[webui] chat_llm_enabled` and configures
   the shared AI endpoint. Dedicated AI features such as Design have their own gates.

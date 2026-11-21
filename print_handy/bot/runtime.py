@@ -29,7 +29,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from .. import settings
-from ..core import fuzzy, prompts
+from ..core import fuzzy, prompts, running_jobs
 from ..runtime import _config
 from . import commands, llm, mention, platform, provenance, rest, routing
 from .router import Router
@@ -1547,6 +1547,14 @@ class BotCore(_RoutedAdapter):
             return {"action": "skip", "reason": "typed approval refused"}
         if text and await self.adapter.answer_typed(session_key(source), text, user_id=source.user_id):
             return {"action": "skip", "reason": "typed answer to an open question"}
+        if text:
+            # The owner's plain text reaches their running job while it
+            # prepares (#1789): a stop word cancels it, a status word
+            # reports where it is, anything else gets a job-aware reply.
+            # Anything this does not take falls through exactly as today.
+            kind = await running_jobs.handle_owner_text(self.adapter, event.source, text, metadata)
+            if kind is not None:
+                return {"action": "skip", "reason": f"typed {kind} to a running job"}
         if not text:
             return None
         return await self.fallback(event, allow_llm=allow_llm, _llm_replied=_llm_replied)
