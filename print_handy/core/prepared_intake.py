@@ -308,7 +308,10 @@ async def _race_job_cancel(work, job, text):
     is already racing: cancelling the task is what stops the heavy-worker
     child (its process group is killed by owned_worker) or waits out a
     thread, exactly as a Stop press does. Nothing here starts, uploads
-    or approves anything.
+    or approves anything. Thread-backed steps run through
+    owned_worker.in_thread, so a cancel waits the thread out before
+    Stopped is raised — a thread cannot be killed, and cleanup must never
+    race a worker still writing or reading the step's files (#1793 review).
     """
     task = asyncio.ensure_future(work)
     waiter = asyncio.ensure_future(job.cancel_event.wait())
@@ -2276,11 +2279,11 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
             adapter, source, key, metadata, timeout,
             lambda row=row, dest=dest, n=n: _with_stop(
                 adapter, source, key, metadata, f'Downloading file {n} of {len(parts)}.',
-                asyncio.to_thread(fetch, job, row, dest), allow_stop=True))
+                owned_worker.in_thread(fetch, job, row, dest), allow_stop=True))
 
         async def _checked(path=path):
-            await asyncio.to_thread(check_source, path)
-            await asyncio.to_thread(intake_working_copy, path)
+            await owned_worker.in_thread(check_source, path)
+            await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded files.',
                          _checked(), allow_stop=True)
         paths.append(Path(path))
@@ -2761,7 +2764,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             job = await _with_connect(adapter, source, key, metadata, timeout,
                                       lambda: _with_stop(adapter, source, key, metadata,
                                                          'Reading the model page.',
-                                                         asyncio.to_thread(mj.inventory_for_url, url),
+                                                         owned_worker.in_thread(mj.inventory_for_url, url),
                                                          allow_stop=True))
         _running_job.attach_job(job)
         rows = job.get('sources', [])
@@ -2856,7 +2859,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             path = await _with_connect(
                 adapter, source, key, metadata, timeout,
                 lambda: _with_stop(adapter, source, key, metadata, 'Downloading the model.',
-                                   asyncio.to_thread(fetch, job, chosen, folder / 'source'),
+                                   owned_worker.in_thread(fetch, job, chosen, folder / 'source'),
                                    allow_stop=True))
             job['downloaded_file'] = str(path)
         if reuse and reuse.get('source_checkpoint_resume'):
@@ -2869,10 +2872,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # refuse before the audit can misreport it as bad_3mf_structure.
             raise ValueError(gcode_3mf_message(Path(path).name))
         async def _checked_single(path=path):
-            await asyncio.to_thread(check_source, path)
+            await owned_worker.in_thread(check_source, path)
             # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
             # and slicer all read this copy. The user's bytes are kept under source/original/.
-            await asyncio.to_thread(intake_working_copy, path)
+            await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded file.',
                          _checked_single(), allow_stop=True)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name

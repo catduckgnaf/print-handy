@@ -178,6 +178,48 @@ def test_cancel_of_the_newest_job_does_not_stop_an_older_job():
         running_jobs.unregister(newer)
 
 
+def test_cancel_during_a_threaded_step_waits_for_the_worker_thread():
+    """#1793 review: cancelling a thread-backed step waits the thread out —
+    the intake must not report cancellation while the worker still writes
+    or reads the step's files."""
+    import threading
+    import time as _time
+
+    from print_handy.core import owned_worker
+
+    adapter = _StopAdapter()
+    job = _job()
+    started = threading.Event()
+    finished = threading.Event()
+    written = []
+
+    def slow_write():
+        started.set()
+        _time.sleep(1.0)
+        written.append("done")
+        finished.set()
+
+    async def main():
+        task = asyncio.create_task(prepared_intake._with_stop(
+            adapter, _source(), "model-link:i1", None, "Downloading the model.",
+            owned_worker.in_thread(slow_write), allow_stop=True))
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.05)
+        else:
+            task.cancel()
+            raise AssertionError("thread never started")
+        job.request_cancel()
+        with pytest.raises(Stopped):
+            await asyncio.wait_for(task, timeout=10)
+        # Stopped was raised only after the thread finished writing.
+        assert finished.is_set()
+        assert written == ["done"]
+
+    asyncio.run(main())
+
+
 def _grid_stl(path, cols=250, rows=200, size=1.0):
     """A flat subdivided plane: many triangles, one object, bed-sized."""
     path = Path(path)
@@ -374,3 +416,87 @@ def test_owner_cancel_during_combine_ends_the_intake_cleanly(tmp_path, monkeypat
     assert "Downloading file 1 of 2." in stop_texts
     assert "Checking the downloaded files." in stop_texts
     assert "Putting the 2 files together as one project." in stop_texts
+
+
+def test_owner_cancel_during_download_waits_for_the_download_thread(tmp_path, monkeypatch):
+    """#1793 review: cancelling during a threaded download waits the thread
+    out — the downloaded file is complete when the intake reports cancelled,
+    not still being written."""
+    import time as _time
+
+    from print_handy.core import model_job
+    from .test_color_intake import state
+
+    monkeypatch.setattr(model_job, "ARCHIVE", tmp_path / "archive")
+    from print_handy.runtime import _config as runtime_config
+    monkeypatch.setattr(runtime_config, "cache_dir", lambda: tmp_path / "cache")
+    monkeypatch.setattr(model_job, "printables_inventory", lambda url: {
+        "site": "printables", "slug": "snacking-tongs", "title": "Snacking Tongs",
+        "model_id": 1,
+        "sources": [{"id": 1, "name": "tongs_a.stl", "kind": "stls"},
+                    {"id": 2, "name": "tongs_b.stl", "kind": "stls"}]})
+
+    written = {}
+
+    def download(job, chosen, dest):
+        # Write the file in chunks with sleeps between them, so a cancel
+        # landing mid-download catches a partial file if the thread were
+        # abandoned instead of waited out.
+        src = _grid_stl(Path(dest).parent / ("src-" + chosen["name"]), cols=120, rows=100)
+        target = Path(dest) / chosen["name"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = src.read_bytes()
+        chunk = len(data) // 4
+        with open(target, "wb") as out:
+            for i in range(4):
+                out.write(data[i * chunk:(i + 1) * chunk if i < 3 else len(data)])
+                out.flush()
+                _time.sleep(0.3)
+        written[target] = len(data)
+        return str(target)
+
+    monkeypatch.setattr(model_job, "printables_download", download)
+    monkeypatch.setattr(model_job, "audit", lambda path: pytest.fail("audit ran after a cancel"))
+    monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
+
+    adapter = _IntakeAdapter([0])
+    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+              message_id="tongs",
+              text="https://www.printables.com/model/1-snacking-tongs")
+    receipts = tmp_path / "receipts"
+
+    async def main():
+        task = asyncio.create_task(prepared_intake.prepare_link(
+            event, adapter, state(), receipts, timeout=30))
+        for _ in range(600):
+            if any(q["question"].startswith("Downloading file 1 of 2.")
+                   for q in adapter.questions):
+                break
+            await asyncio.sleep(0.05)
+        else:
+            task.cancel()
+            raise AssertionError(
+                f"intake never reached the download: {[q['question'] for q in adapter.questions]}")
+        # Land the cancel mid-download, after the thread has started writing.
+        await asyncio.sleep(0.3)
+        kind = await running_jobs.handle_owner_text(adapter, event.source, "Cancel", None)
+        assert kind == "cancel"
+        result = await asyncio.wait_for(task, timeout=120)
+        # The intake has reported cancellation: the download thread must
+        # already be finished. This check runs inside the loop, before
+        # asyncio.run's executor shutdown would wait the thread out for us.
+        assert written, "the download never wrote a file"
+        for target, size in written.items():
+            assert target.exists()
+            assert target.stat().st_size == size
+        return result
+
+    result = asyncio.run(main())
+    assert result == {"action": "skip", "reason": "cancelled by operator"}
+    receipt = json.loads(next(receipts.glob("*.json")).read_text())
+    assert receipt["status"] == "CANCELLED"
+    assert not receipt["sliced"] and not receipt["uploaded"] and not receipt["started"]
+    assert "Cancelling the Snacking Tongs job. Nothing was uploaded or started." in adapter.sent
+    assert "Cancelled. Nothing sliced, uploaded or started." in adapter.sent
+    assert "Traceback" not in "\n".join(adapter.sent)
+    assert running_jobs.lookup_for_source(event.source) is None
