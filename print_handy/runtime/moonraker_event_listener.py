@@ -763,18 +763,14 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
         # The spool question is only opened when a slot is known (open_question), so
         # promise it only then; otherwise this alert and the follow-up notice contradict.
         asked = slot in (1, 2, 3, 4)
-        # Name the answers the question's buttons offer (spool_question_components):
-        # with a known spool, a runout also offers the new-roll and fix-feed choices.
-        choices = ("New roll, same filament; Same spool, fix feed or jam; Existing spool; or New spool"
-                   if spool_id else "Existing spool or New spool")
+        # Two lines (#1787): what happened, then what to do. The spool
+        # question's own message names its answers; this alert does not
+        # repeat them.
         extra = (f"Filament runout: {which}{spool} ran out of filament.\n"
-                 "To finish this print:\n"
-                 f"1. Load the replacement filament into {into} at the printer.\n"
-                 + (f"2. Answer the spool question below ({choices}) so the replacement "
-                    "spool is the one registered for that slot — filament usage stays paused for every "
-                    "spool until you answer.\n3. " if asked else "2. ")
-                 + "Tap Resume print below (or type /print-resume) once the filament is loaded. "
-                 "The print resumes only when you press it; nothing resumes on its own.")
+                 f"Load filament into {into} at the printer"
+                 + (", answer the spool question below (filament usage is paused until you do)"
+                    if asked else "")
+                 + ", then tap Resume print (or type /print-resume). Nothing resumes on its own.")
     else:
         extra = (f"Paused at {where}. " if where else "") + "Fix it at the printer, then tap Resume or Cancel below (or type /print-resume or /print-stop)."
     return print_summary.format_event("paused", filename, extra=extra)
@@ -893,6 +889,19 @@ def spool_matches_recovery(existing_material, candidate_material, existing_color
 
 classify_pause = _listener_common.classify_pause
 pause_is_jam = _listener_common.pause_is_jam
+firmware_pause_cause = _listener_common.firmware_pause_cause
+
+# How long a printer alert line naming a jam or runout counts as the cause of
+# a pause (#1787). The line and the paused state arrive within seconds of each
+# other, in either order: the listener handles messages one at a time and a
+# pause transition takes seconds (slot reads, posting), so a line that follows
+# the state change is only seen after the pause was already posted.
+FIRMWARE_CAUSE_WINDOW_S = 30.0
+# A jam that comes back within this long of the resume that followed a jam is
+# the same jam (#1787): the reheat takes about 40 s, the purge a few more, so
+# the feed is tested within the first two minutes. Seen live 2026-11-21: three
+# resumes, each jammed again within 15 s of printing.
+JAM_REPAUSE_WINDOW_S = 120
 
 
 def _span_hms(seconds):
@@ -905,44 +914,51 @@ def _span_hms(seconds):
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {secs:02d}s"
 
 
-def jam_message(filename, facts):
-    """The IFS jam pause post (#1020 E1/E2): measured facts, safe actions only.
+def _jam_where(facts):
+    """'slot 3 (IFS channel 3)', or the plain fallback when no slot is known."""
+    slot = (facts or {}).get("slot")
+    return filament_color.slot_display(slot) if slot in (1, 2, 3, 4) else "the active slot"
 
-    ``facts`` carries duration_s, layer, slot, next_cmd_delay,
-    detection_length and head_sensor (True/False/None). Unknown values
-    are stated as not reported rather than invented. The actions are
-    inspect, then resume or cancel — the listener never resumes a jam
-    on its own, and this post carries the ordinary paused alert's
-    Resume/Cancel buttons.
+
+def jam_message(filename, facts):
+    """The IFS jam pause post (#1020 E1, shortened in #1787): two lines and the buttons.
+
+    Line one says what happened and where (slot, layer, time in); line two
+    says what to do. The measured facts beyond that (zmod_ifs
+    next_cmd_delay and detection_length, the sensors) go to the log
+    (``jam_facts_line``), not the chat. The listener never resumes a jam on
+    its own; the post carries the ordinary paused alert's Resume/Cancel
+    buttons.
     """
-    slot = facts.get("slot")
-    slot_text = (filament_color.slot_display(slot) if slot in (1, 2, 3, 4)
-                 else "the active slot (no slot could be identified)")
-    duration = _span_hms(facts.get("duration_s"))
+    facts = facts or {}
     layer = facts.get("layer")
-    delay = facts.get("next_cmd_delay")
-    detection = facts.get("detection_length")
-    head_sensor = facts.get("head_sensor")
-    lines = [
-        f"**Filament jam detected (IFS)** on {slot_text} while printing "
-        f"{clean(filename or 'this print')}. The printer paused itself; nothing has resumed it.",
-        "",
-        "What the printer reports:",
-        f"- Print duration at pause: {duration or 'not reported'}",
-        f"- Layer: {layer if isinstance(layer, int) else 'not reported'}",
-        f"- Slot: {slot_text}",
-        f"- zmod_ifs next_cmd_delay: {delay if delay is not None else 'not reported'}",
-        f"- zmod_ifs detection_length: {detection if detection is not None else 'not reported'}",
-        f"- Head switch sensor: {'present' if head_sensor is True else 'not present' if head_sensor is False else 'not reported'}",
-        "",
-        "What to do:",
-        "1. Inspect the filament path at the printer — check for a real drag or tangle "
-        "on that slot before assuming a false trigger (see the jam procedure in "
-        "docs/DIAGNOSTICS.md).",
-        "2. Once the path is clear, tap Resume print below (or type /print-resume); "
-        "to give up on this print, tap Cancel (or type /print-stop).",
-    ]
-    return "\n".join(lines)
+    duration = _span_hms(facts.get("duration_s"))
+    at = ", ".join(part for part in (
+        f"layer {layer}" if isinstance(layer, int) else "",
+        f"{duration} in" if duration else "") if part)
+    return (f"**Paused: filament jam** on {_jam_where(facts)}"
+            f"{f' ({at})' if at else ''} while printing {clean(filename or 'this print')}.\n"
+            "Clear the feed at the printer (check the spool for a tangle, then the tube to the "
+            "head) and acknowledge the jam on the printer screen if it shows one, then tap "
+            "Resume print. Nothing resumes on its own; Cancel ends the print.")
+
+
+def jam_repause_message(filename, facts, count=1, seconds=None):
+    """The one-line rewrite when a print jams again right after a jam resume (#1787)."""
+    after = f" {int(seconds)} s after the resume" if isinstance(seconds, (int, float)) and seconds >= 0 else ""
+    times = "" if count <= 1 else f" ({count} times now)"
+    return (f"**Still jammed** on {_jam_where(facts)}: the printer paused again{after}{times} while "
+            f"printing {clean(filename or 'this print')}, so the filament is not moving. Nothing was "
+            "changed. Clear the feed at the printer before tapping Resume print again.")
+
+
+def jam_facts_line(facts):
+    """The measured jam facts for the log (#1020 E2), unknowns named rather than invented."""
+    facts = facts or {}
+    shown = {key: facts.get(key) for key in ("slot", "layer", "duration_s", "next_cmd_delay",
+                                             "detection_length", "head_sensor")}
+    return " ".join(f"{key}={'not reported' if value is None else value}"
+                    for key, value in shown.items())
 
 
 def persist_runout_pause(filename, slot, prior_spool_id, path=None):
@@ -1120,38 +1136,33 @@ def spool_question_text(record, nag=False, *, buttons=False):
     why = "ran out" if runout else "was unloaded and reloaded mid-print"
     head = (f"**Still waiting (reminder {record.get('nags', 0)})**: which spool is in {where}?" if nag
             else f"**Spool check:** the filament in {where} {why}.")
-    paused = ("\nFilament usage is **paused for every spool** until you answer, "
-              "so neither the old nor the new spool is charged.")
+    paused = " Filament usage is paused for every spool until you answer."
     if buttons:
+        # Short by design (#1787): one line per answer, one closing line.
         if runout and prior:
             options = (
-                f"\n• **New roll, same filament** — a fresh roll of the same filament: a new "
-                f"spool is created and #{prior} is marked depleted\n"
-                f"• **Same spool — fix feed or jam** — the same physical spool #{prior} stays "
-                f"in the slot and you clear its stuck feed or jam at the printer: nothing new "
-                f"is created, #{prior} is not marked depleted, and its remaining weight is "
-                f"unchanged\n"
-                "• **Existing spool** — pick a different spool from the shelf\n"
-                "• **New spool** — add a different new spool\n"
-                "• **Cancel print** — end the print and close this question")
+                f"\n• **New roll, same filament**: new spool created, #{prior} marked depleted\n"
+                f"• **Same spool — fix feed or jam**: #{prior} stays, not marked depleted, "
+                "remaining weight unchanged\n"
+                "• **Existing spool**: pick one from the shelf\n"
+                "• **New spool**: add a different spool\n"
+                "• **Cancel print**: end the print")
         elif record.get("cause") == "swap" and prior:
             options = (
-                f"\n• **Same spool** — spool #{prior} went back in\n"
-                "• **Existing spool** — pick a different spool from the shelf\n"
-                "• **New spool** — add a different new spool\n"
-                "• **Cancel print** — end the print and close this question")
+                f"\n• **Same spool**: #{prior} went back in\n"
+                "• **Existing spool**: pick one from the shelf\n"
+                "• **New spool**: add a different spool\n"
+                "• **Cancel print**: end the print")
         else:
             options = (
-                "\n• **Existing spool** — pick a spool from the shelf\n"
-                "• **New spool** — add a new spool\n"
-                "• **Cancel print** — end the print and close this question")
-        return (f"{head}{paused}\nTap one:{options}\n"
-                "Answering only settles the spool records: it never resumes the print and "
-                "does not mean the feed path is clear. A runout signal alone does not prove "
-                "the roll is empty — if the filament is stuck rather than gone, use the "
-                "same-spool fix above. Print Handy cannot load or unload filament while the "
-                "print is paused, so a stuck feed is fixed at the printer; cancelling is "
-                "the one choice that acts on the printer.")
+                "\n• **Existing spool**: pick one from the shelf\n"
+                "• **New spool**: add a new spool\n"
+                "• **Cancel print**: end the print")
+        closing = ("\nAnswering only updates the spool records and never resumes the print. "
+                   "A runout signal does not prove the roll is empty: if the filament is stuck, "
+                   "pick Same spool and clear the feed at the printer." if runout and prior else
+                   "\nAnswering only updates the spool records and never resumes the print.")
+        return f"{head}{paused}{options}{closing}"
     same = ("\n• `same` if you put spool #%s back" % prior) if record.get("cause") == "swap" and prior else ""
     refeed = (f"\n• `refeed` or `fix feed` if the same physical spool #{prior} stays in the "
               f"slot and you clear its stuck feed or jam at the printer — no new spool is "
@@ -3815,6 +3826,17 @@ class Listener:
         # channel and message ids, when known), when it was resumed, and how
         # often it paused again since. None outside a runout.
         self.runout_episode = None
+        # The printer's own last alert naming a jam or runout (#1787): its
+        # cause, the line, and when it arrived. A pause within
+        # FIRMWARE_CAUSE_WINDOW_S of it takes its cause from it.
+        self.firmware_cause = None
+        self.firmware_cause_text = ""
+        self.firmware_cause_at = 0.0
+        self.paused_at = 0.0
+        # The last jam of this print, shaped like runout_episode: its facts,
+        # its alert message, when it was resumed and how often it jammed
+        # again right after. None outside a jam.
+        self.jam_episode = None
         self.native_error_alerted = load_native_error_alerted()
         self.display_off = None  # live ZMod display mode from the last presence poll; None until read
         self.presence_failure = None  # last presence poll failure, logged once until it changes
@@ -4269,7 +4291,7 @@ class Listener:
         if slot is None and head_has_filament is False:
             # The head sensor names no slot; the job's own slot is the one that fed it.
             slot = recovery_slot(self.filename)[0]
-        is_runout = pause_is_runout(self.pause_message, slot, present, head_has_filament) or bool(empty)
+        is_runout = pause_is_runout(self._pause_text(), slot, present, head_has_filament) or bool(empty)
         return is_runout, slot
 
     def _jam_facts(self):
@@ -5060,6 +5082,11 @@ class Listener:
             log(f"resume, no start post: {self.filename!r}")
             if self.last_pause_was_runout and self.runout_episode is not None:
                 self.runout_episode["resumed_at"] = time.time()
+            if self.last_pause_episode == "paused:jam" and self.jam_episode is not None:
+                self.jam_episode["resumed_at"] = time.time()
+            # The cause of the pause just resumed is spent: a later pause
+            # needs the printer to name its own cause again (#1787).
+            self._forget_firmware_cause()
             self.last_pause_was_runout = False
             self.last_pause_episode = None
             # The pause is over: its starter-ping episodes stop
@@ -5074,6 +5101,8 @@ class Listener:
                 warn(f"pause reason clean-up failed: {exc!r}")
         else:
             self.runout_episode = None
+            self.jam_episode = None
+            self._forget_firmware_cause()
             self.slot_tracker.reset()
             self.failover_watch.reset()
             self.visual_watch.reset()
@@ -5125,22 +5154,134 @@ class Listener:
             except Exception as exc:
                 warn(f"live auto-start at print start failed: {exc!r}")
 
+    def _forget_firmware_cause(self):
+        self.firmware_cause, self.firmware_cause_text, self.firmware_cause_at = None, "", 0.0
+
+    def _pause_text(self):
+        """The pause's cause text: print_stats.message plus a recent printer alert line (#1787).
+
+        ZMod leaves print_stats.message empty on a macro-driven pause (#442)
+        and names an IFS jam only in a gcode response line, so a line seen
+        within FIRMWARE_CAUSE_WINDOW_S counts as the pause's own text.
+        """
+        recent = (self.firmware_cause_text if self.firmware_cause_at
+                  and time.time() - self.firmware_cause_at <= FIRMWARE_CAUSE_WINDOW_S else "")
+        return " ".join(part for part in (self.pause_message, recent) if part)
+
+    async def note_firmware_alert(self, line):
+        """Remember a printer alert line naming a jam or runout; upgrade a fresh pause to a jam (#1787).
+
+        The line can arrive just after the paused state, which this listener
+        handles first (messages are handled one at a time, and a pause
+        transition takes seconds). A jam line within FIRMWARE_CAUSE_WINDOW_S
+        of a pause that was posted as anything but a jam upgrades it.
+        """
+        cause = firmware_pause_cause(line)
+        if cause is None:
+            return
+        self.firmware_cause, self.firmware_cause_text = cause, str(line).strip()
+        self.firmware_cause_at = time.time()
+        log(f"printer reported a {cause}: {self.firmware_cause_text[:160]!r}")
+        if (cause == "jam" and self.state == "paused" and self.last_pause_episode is not None
+                and self.last_pause_episode != "paused:jam"
+                and time.time() - self.paused_at <= FIRMWARE_CAUSE_WINDOW_S):
+            await self._upgrade_pause_to_jam()
+
+    async def _upgrade_pause_to_jam(self):
+        """A pause posted as generic or runout turned out to be a jam (#1787).
+
+        A runout spool question opened for this pause is withdrawn: usage
+        resumes on the spool it suspended and the question record is
+        cleared, because a jam never touches the spool records. The pause's
+        alert is rewritten in place as the jam post, or one jam post is
+        added when it cannot be edited.
+        """
+        prior = self.last_pause_episode
+        self.last_pause_was_runout = False
+        self.last_pause_episode = "paused:jam"
+        withdrawn = ""
+        context = self.pause_context or {}
+        if context.get("cause") == "runout":
+            from . import spool_sync
+            suspended = context.get("suspended_spool_id")
+            try:
+                if suspended is not None:
+                    await asyncio.to_thread(spool_sync.resume_usage, int(suspended))
+                await asyncio.to_thread(clear_runout_pause)
+                withdrawn = ("\nThe spool question above no longer applies: nothing ran out, "
+                             "and filament usage is back on its spool.")
+            except Exception as exc:
+                warn(f"runout question withdrawal failed file={self.filename!r}: {exc!r}")
+        self.pause_context = None
+        self.runout_episode = None
+        log(f"pause re-classified {prior} -> paused:jam from the printer's alert: {self.filename!r}")
+        await self._post_jam(upgrade=True, note=withdrawn)
+
+    async def _post_jam(self, upgrade=False, note=""):
+        """Post the jam alert, or rewrite it as 'Still jammed' when it came back right after a resume.
+
+        ``upgrade`` rewrites the pause's existing alert (a pause first posted
+        as generic or runout); ``note`` is appended to the jam text.
+        """
+        try:
+            facts = await asyncio.to_thread(self._jam_facts)
+        except Exception as exc:
+            warn(f"jam facts failed file={self.filename!r}: {exc!r}")
+            facts = {}
+        log(f"jam facts: {jam_facts_line(facts)} file={self.filename!r}")
+        episode = self.jam_episode
+        resumed = (episode or {}).get("resumed_at")
+        if resumed and time.time() - float(resumed) <= JAM_REPAUSE_WINDOW_S:
+            episode["repauses"] = int(episode.get("repauses") or 0) + 1
+            episode["resumed_at"] = None
+            text = jam_repause_message(self.filename, facts, episode["repauses"],
+                                       seconds=time.time() - float(resumed))
+            log(f"jam again ({episode['repauses']}) {int(time.time() - float(resumed))} s after "
+                f"the resume: {self.filename!r}")
+            if not await asyncio.to_thread(self._rearm_jam_alert, text):
+                await self._post_pause_alert_or_fallback(text, "paused:jam")
+                episode["message"] = self._alert_message("paused") or episode.get("message")
+            return
+        text = jam_message(self.filename, facts) + note
+        # An upgrade rewrites the pause's own alert (posted moments ago as
+        # generic or runout) instead of adding a second one.
+        rewritten = False
+        if upgrade:
+            rewritten = await asyncio.to_thread(self._rearm_jam_alert, text,
+                                                self._alert_message("paused"))
+        if not rewritten:
+            await self._post_pause_alert_or_fallback(text, "paused:jam")
+        self.jam_episode = {"resumed_at": None, "repauses": 0,
+                            "message": self._alert_message("paused")}
+
+    def _rearm_jam_alert(self, text, target=None):
+        """Rewrite this jam's alert in place with fresh Resume/Cancel buttons; False when it cannot."""
+        target = target or (self.jam_episode or {}).get("message")
+        if not target:
+            return False
+        try:
+            from . import print_alert_buttons as pab
+            from .. import listeners as _listeners
+            return bool(pab.rearm_alert(_bot_token(), target[0], target[1], text, "paused",
+                                        self.filename,
+                                        printer_id=_listeners.instance_printer_id() or None))
+        except Exception as exc:
+            warn(f"jam alert rewrite failed file={self.filename!r}: {exc!r}")
+            return False
+
     async def _apply_pause_transition(self, old, new_state):
         """Transition side effect: a pause's jam, runout or plain alert."""
-        if pause_is_jam(self.pause_message):
-            # #1020 E1: an IFS jam gets its own post with the measured
-            # facts and only safe actions; it is never auto-resumed
-            # and never folded into the runout question flow.
+        self.paused_at = time.time()
+        if pause_is_jam(self._pause_text()):
+            # #1020 E1: an IFS jam gets its own post with only safe
+            # actions; it is never auto-resumed and never folded into the
+            # runout question flow. #1787: the cause comes from the
+            # printer's alert line too, since ZMod leaves the pause
+            # message empty.
             self.last_pause_was_runout = False
             self.last_pause_episode = "paused:jam"
             self.pause_context = None
-            try:
-                facts = await asyncio.to_thread(self._jam_facts)
-            except Exception as exc:
-                warn(f"jam facts failed file={self.filename!r}: {exc!r}")
-                facts = {}
-            await self._post_pause_alert_or_fallback(
-                jam_message(self.filename, facts), "paused:jam")
+            await self._post_jam()
         else:
             # Guarded on its own (#1583): a classification failure
             # must not lose the pause alert — the pause is posted as
@@ -5445,6 +5586,8 @@ class Listener:
         self._capture_end(new_state)
         self.print_identity = None
         self.runout_episode = None
+        self.jam_episode = None
+        self._forget_firmware_cause()
         # #516: the print is over; open the auto light-off idle window.
         await self.light_print_finished()
         # An auto-started live session ends with its print (#311 stage 4).
@@ -6236,6 +6379,10 @@ class Listener:
         elif method == "notify_gcode_response":
             for line in msg.get("params") or []:
                 await self.opencreator_prompt(line)
+                try:
+                    await self.note_firmware_alert(line)
+                except Exception as exc:
+                    warn(f"printer alert handling failed file={self.filename!r}: {exc!r}")
                 if no_mesh_line(line):
                     log(f"no bed mesh at print start: {self.filename!r}")
                     await asyncio.to_thread(post, f"{NO_MESH_ALERT}\nPrint: {print_summary.safe_label(self.filename)}")

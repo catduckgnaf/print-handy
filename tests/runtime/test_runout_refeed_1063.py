@@ -43,24 +43,23 @@ def test_discord_question_text_distinguishes_new_roll_from_refeed():
     text = mel.spool_question_text(dict(RUNOUT), buttons=True)
     assert "New roll, same filament" in text
     assert "Same spool — fix feed or jam" in text
-    assert "#20 is marked depleted" in text          # the new-roll fate is stated
+    assert "#20 marked depleted" in text             # the new-roll fate is stated
     assert "not marked depleted" in text             # the refeed fate is stated
-    assert "remaining weight is unchanged" in text   # the jam branch keeps the record whole
+    assert "remaining weight unchanged" in text      # the jam branch keeps the record whole
     assert "Existing spool" in text and "New spool" in text
     assert "Cancel print" in text
 
 
 def test_discord_question_text_separates_inventory_feed_and_resume():
-    """#1063 jam follow-up: the question itself says answering settles only
-    the records, never resumes, does not prove the path is clear, and
-    names that Print Handy cannot drive a paused-print load/unload —
-    the unsupported-manual-recovery explanation, not a silent funnel
-    back into new-spool creation."""
+    """#1063 jam follow-up, shortened in #1787: the question says answering
+    only updates the records and never resumes, that a runout signal does
+    not prove the roll is empty, and that a stuck feed is the same-spool
+    answer, cleared at the printer. One closing line, not a paragraph."""
     text = mel.spool_question_text(dict(RUNOUT), buttons=True)
-    assert "never resumes the print" in text
-    assert "does not mean the feed path is clear" in text
-    assert "cannot load or unload filament while the print is paused" in text
+    assert "only updates the spool records and never resumes the print" in text
     assert "does not prove the roll is empty" in text
+    assert "pick Same spool and clear the feed at the printer" in text
+    assert len(text.splitlines()) <= 7  # head, five answers, one closing line
 
 
 def test_discord_question_text_for_swap_keeps_true_same_spool():
@@ -140,14 +139,16 @@ def test_refeed_answer_creates_binds_and_depletes_nothing():
     sync.bind_slot.assert_not_called()
     sync.resume_usage.assert_called_once_with(21)
     lis.clear_runout_pause.assert_called_once()
-    assert "same physical spool #21" in text
-    assert "not marked depleted" in text and "No new spool was created" in text
-    assert "remaining weight record is unchanged" in text
-    # Inventory, feed state and resume stay separate, and the unsupported
-    # in-bot recovery is named rather than funneled into a replacement.
-    assert "does not mean the feed path is clear" in text
+    assert "Same spool #21, feed fix" in text
+    assert "#21 not marked depleted" in text and "no new spool" in text
+    assert "remaining weight unchanged" in text
+    # Inventory and resume stay separate (#1063); #1787: two lines, and the
+    # reply points at the pause alert's own Resume print button instead of
+    # sending the operator to resume somewhere else.
     assert "does not resume the print" in text
-    assert "cannot load or unload filament for you while the print is paused" in text
+    assert "tap Resume print on the pause message" in text
+    assert "print controls" not in text
+    assert len(text.splitlines()) == 2
 
 
 def test_refeed_answer_without_a_known_spool_refuses():
@@ -408,7 +409,7 @@ def test_chain_runout_new_spool_second_failure_refeed(tmp_path):
     second = {**RUNOUT, "prior_spool_id": 21, "suspended_spool_id": 21}
     holder["record"] = dict(second)
     text = plugin._answer_spool_question(listener, sync, dict(second), {"status": "refeed"})
-    assert "same physical spool #21" in text
+    assert "Same spool #21, feed fix" in text
     assert len(client.posts) == 1, "refeed must not create another spool"
     assert client.spools[21]["archived"] is False
     assert client.spools[21]["remaining_weight"] == 1000, "refeed must not deplete the new roll"
