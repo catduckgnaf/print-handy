@@ -74,7 +74,7 @@ page auto-fills amount and time. An unsliced 3MF, and a PrusaSlicer
 3MF (which never contains time or weight), answer with the explicit
 not-sliced state instead of a zero cost.
 
-Workspace defaults live on the Settings page in the Print cost group.
+Workspace defaults live on the Settings page in the Print COST group.
 Per-printer profiles live in the settings file's `[cost_printers]`
 table (file only, because it is a table of tables), keyed by roster id
 or printer name. A printer with no entry is costed on its model's

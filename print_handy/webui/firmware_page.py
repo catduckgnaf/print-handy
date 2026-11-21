@@ -321,21 +321,27 @@ def render_firmware_page(data, *, theme=shell.DEFAULT_THEME, nav=None, checked=N
     checked = checked if checked in ids else None
     transport_for = transport_for or _default_transport(data)
     parts = [
-        "<p>The newest release of the firmware each of your printers runs, the "
-        "version Print Handy was last checked against, and how that firmware is "
-        "updated. Print Handy tells you when a new release appears — in chat "
-        "(<code>[firmware] update_alerts</code>) and, once a printer's installed "
-        "versions have been checked below, as a notification in this Web UI. "
-        "A prerelease is shown under the newest release when you "
-        "subscribe to its track "
-        "(<code>[firmware] update_channel</code>). "
-        "An "
-        "update is applied only behind a confirmation, from chat with "
-        "<code>/print-firmware update</code> or from this page when Web UI "
-        "printer controls are on, and only for the firmware that has a safe "
-        "path. A component's Moonraker update channel can be switched the "
-        "same way (<code>/print-firmware channel</code>), behind a "
-        "confirmation that shows the exact one-line config change.</p>"]
+        "<p>The newest release of the firmware each of your printers runs, "
+        "the version Print Handy was last checked against, and how it "
+        "updates.</p>"
+        '<ul class="firmware-intro">'
+        "<li><strong>Alerts:</strong> a new release is announced in chat and, "
+        "after you check a printer below, as a Web UI notification.</li>"
+        "<li><strong>Updates:</strong> applied only behind a confirmation, "
+        "and only for firmware with a safe path.</li>"
+        "<li><strong>Prereleases:</strong> shown only if you subscribe to "
+        "that track.</li></ul>"
+        '<details class="firmware-help"><summary>Commands and settings</summary>'
+        "<dl>"
+        "<dt>Update from chat</dt><dd><code>/print-firmware update</code></dd>"
+        "<dt>Switch a Moonraker update channel from chat</dt>"
+        "<dd><code>/print-firmware channel</code> (shows the exact one-line "
+        "config change before it asks)</dd>"
+        "<dt>Chat alerts</dt><dd><code>[firmware] update_alerts</code></dd>"
+        "<dt>Release track</dt><dd><code>[firmware] update_channel</code></dd>"
+        "</dl>"
+        "<p>From this page, updates and channel switches need Web UI printer "
+        "controls turned on.</p></details>"]
     if current is None:
         parts.append(f"<p>{_esc(FEED_UNAVAILABLE)}</p>")
     if not roster:

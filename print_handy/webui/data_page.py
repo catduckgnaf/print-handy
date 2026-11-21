@@ -194,7 +194,7 @@ def empty_state(payload):
             "finishes, this page shows how your prints are going, how much filament, "
             "time and money they used, and what went wrong when one failed.</p>"
             '<p>Check your printers are connected on the <a href="/printers">Printers</a> '
-            'page, or price a file now on the <a href="/cost">Cost</a> page.</p></section>')
+            'page, or price a file now on the <a href="/cost">Print COST</a> page.</p></section>')
 
 
 def overview(payload):
@@ -458,7 +458,7 @@ def materials(payload):
                       "recorded when a print finishes.</p>")
     return ('<section id="data-materials"><h2>Filament and cost</h2>'
             f'<ul class="dp-list">{"".join(items)}</ul>{color_line}{money_part}'
-            '<p class="note">Price a file on the <a href="/cost">Cost</a> page; see what is '
+            '<p class="note">Price a file on the <a href="/cost">Print COST</a> page; see what is '
             'left on each spool on the <a href="/spools">Spools</a> page.</p></section>')
 
 

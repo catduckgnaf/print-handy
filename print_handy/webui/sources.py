@@ -107,8 +107,9 @@ def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None, form_token: str 
             f"<td>{_esc(note)}</td>"
             "</tr>")
     parts.append(
-        "<table><tr><th>Source</th><th>Support</th><th>Status</th>"
-        "<th>Site</th><th>Notes</th></tr>" + "".join(body) + "</table>")
+        '<div class="table-scroll"><table><tr><th>Source</th><th>Support</th>'
+        "<th>Status</th><th>Site</th><th>Notes</th></tr>" + "".join(body)
+        + "</table></div>")
     parts.append(
         "<p>Uploading a file instead? Use the <a href=\"/upload\">upload "
         "page</a>, or drop the .stl/.3mf file in chat directly.</p>")

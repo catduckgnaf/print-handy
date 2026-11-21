@@ -940,7 +940,7 @@ def _cost_section(costs, backfill=None):
         return ("<h2>Print costs</h2><p>" + _esc(costs.get("note") or
                 "No priced jobs in this period: no completed print has a recorded cost yet.")
                 + " Costs are recorded when a print finishes; open the "
-                '<a href="/cost">Cost</a> page to price a file now.</p>' + _backfill_line(backfill))
+                '<a href="/cost">Print COST</a> page to price a file now.</p>' + _backfill_line(backfill))
     rows = [
         ("Out of pocket", _money(costs, costs["out_of_pocket_total"])),
         ("Full cost (labor and machine wear)", _money(costs, costs["total_spend"])),
