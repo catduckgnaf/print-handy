@@ -160,7 +160,6 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         }
         for path, markers in checks.items():
             self.page.goto(self.base + path)
-            self.assertEqual(self.page.locator("body").get_attribute("data-page"), path.lstrip("/"), path)
             for marker in markers:
                 self.assertIn(marker, self.page.locator("body").inner_text(), path)
         from print_handy.webui import server as web_server

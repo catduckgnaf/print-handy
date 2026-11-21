@@ -69,7 +69,7 @@ class SeededWebUI:
         self.plans = self.root / "vault" / "Plans"
         self.archive = self.root / "archive"
         self.cache = self.root / "cache"
-        self.designs = self.root / "designs"
+        self.designs = self.cache / "designs"
         self.state = self.root / "state"
         for directory in (self.prints, self.plans, self.archive, self.cache, self.designs, self.state):
             directory.mkdir(parents=True, exist_ok=True)
