@@ -4761,6 +4761,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                     first_layer_mm=first)
                 latest['support_clearance'] = clearance
             except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
+                logger.warning('could not re-analyze the repaired model', exc_info=True)
                 latest.pop('support_clearance', None)
                 clearance = None
             mj.write_job(folder, latest)
