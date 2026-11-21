@@ -178,11 +178,8 @@ def _apply_key_aliases(layer):
         _note_retired_ai("model", "[agent] model", agent.get("model"))
     design = layer.get("design")
     if isinstance(design, dict):
-        for key, kind in (("chat_url", "url"), ("api_key_env", "key")):
-            if key in design:
-                _note_retired_ai(kind, f"[design] {key}", design.pop(key),
-                                 unknown_note=(f"[design] {key} is retired; configure the matching "
-                                               "endpoint and key variable together in [llm]"))
+        for key in ("chat_url", "api_key_env"):
+            design.pop(key, None)
     vision = layer.get("vision")
     if isinstance(vision, dict):
         _note_retired_ai("model", "[vision] model", vision.pop("model", None))
@@ -526,23 +523,35 @@ def _migrate_retired_ai_endpoint(data):
     """
     _retired_ai_state.clear()
     llm = data.setdefault("llm", {})
-    names = sorted({name for _, name, _, _ in _retired_ai_candidates})
+    # Environment candidates override the matching retired file key just as
+    # they override live settings. Keep both candidates for diagnostics, but
+    # only migrate the effective value; distinct retired keys still conflict.
+    env_keys = {}
+    for section, key in _RETIRED_AI_ENV:
+        env_keys[f"$PRINT_HANDY__{section.upper()}__{key.upper()}"] = f"[{section}] {key}"
+    overridden_names = {env_keys[name] for _, name, _, _ in _retired_ai_candidates
+                        if name in env_keys}
+    candidates = [(kind, name, value, note) for kind, name, value, note in _retired_ai_candidates
+                  if name not in overridden_names]
+    candidates.extend(candidate for candidate in _retired_ai_candidates
+                      if candidate[1] in env_keys)
+    names = sorted({name for _, name, _, _ in candidates})
     if not names:
         return
     if str(llm.get("chat_url") or "").strip():
         # An endpoint is configured; the retired keys are ignored as before (#1731).
-        for _, _, _, note in _retired_ai_candidates:
+        for _, _, _, note in candidates:
             if note:
                 _note_unknown(note)
         return
     urls = {}
-    for kind, _, value, _ in _retired_ai_candidates:
+    for kind, _, value, _ in candidates:
         if kind == "url" and value.startswith(("http://", "https://")):
             urls.setdefault(value.rstrip("/"), value)
-    keys = {value for kind, _, value, _ in _retired_ai_candidates
+    keys = {value for kind, _, value, _ in candidates
             if kind == "key" and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value)}
     models = {}
-    for kind, name, value, _ in _retired_ai_candidates:
+    for kind, name, value, _ in candidates:
         if kind == "model" and value:
             models.setdefault(value, []).append(name)
     live = {}
@@ -593,7 +602,7 @@ def _migrate_retired_ai_endpoint(data):
         return
     # Declined: report the dropped keys as unknown, as before (#1731), so the
     # startup warning still names them; the Doctor names them too, via the state.
-    for _, _, _, note in _retired_ai_candidates:
+    for _, _, _, note in candidates:
         if note:
             _note_unknown(note)
     _retired_ai_state.update({

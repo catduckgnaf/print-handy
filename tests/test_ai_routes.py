@@ -423,6 +423,36 @@ def test_differing_retired_models_do_not_migrate(tmp_path):
     assert "different models" in settings.retired_ai_state()["detail"]
 
 
+def test_retired_design_url_environment_override_is_effective_migration_value(tmp_path):
+    """An environment override replaces the same retired file key before migration."""
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "design:\n  chat_url: https://old.example.test/v1/chat/completions\n"
+        "  model: cad-model\n  api_key_env: OLD_KEY\n", encoding="utf-8")
+    data = settings.load(local=path, user=False, environ={
+        "PRINT_HANDY__DESIGN__CHAT_URL": "https://new.example.test/v1/chat/completions",
+        "PRINT_HANDY__DESIGN__API_KEY_ENV": "NEW_KEY"})
+    assert data["llm"]["chat_url"] == "https://new.example.test/v1/chat/completions"
+    assert data["llm"]["api_key_env"] == "NEW_KEY"
+    assert data["llm"]["model"] == "cad-model"
+    assert settings.retired_ai_state()["outcome"] == "migrated"
+    assert settings.unknown_settings_warning() is None
+
+
+def test_distinct_retired_urls_still_conflict_after_environment_override(tmp_path):
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "design:\n  chat_url: https://old.example.test/v1/chat/completions\n"
+        "  model: cad-model\n  api_key_env: DESIGN_KEY\n"
+        "agent:\n  chat_url: https://agent.example.test/v1/chat/completions\n", encoding="utf-8")
+    settings.load(local=path, user=False, environ={
+        "PRINT_HANDY__DESIGN__CHAT_URL": "https://new.example.test/v1/chat/completions"})
+    assert settings.retired_ai_state()["outcome"] == "ambiguous"
+    assert "different endpoints" in settings.retired_ai_state()["detail"]
+    warning = settings.unknown_settings_warning()
+    assert warning and "https://" not in warning and "DESIGN_KEY" not in warning
+
+
 def test_a_retired_env_endpoint_migrates_when_unambiguous():
     """#1759: the Docker spelling of the same retired keys migrates too."""
     data = settings.load(local=None, user=False, environ={
