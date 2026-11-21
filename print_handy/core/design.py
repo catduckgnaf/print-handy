@@ -1203,14 +1203,6 @@ def resolve_http_config(cfg) -> dict | None:
     d_url = str(design.get("chat_url") or "").strip()
     if l_url:
         model = str(design.get("model") or llm.get("model") or "").strip()
-        # If the shared endpoint has no model, retain a configured legacy
-        # design endpoint/model pair rather than treating the unrelated LLM
-        # URL as an endpoint for design.
-        if not str(llm.get("model") or "").strip() and d_url and str(design.get("model") or "").strip():
-            return {"chat_url": d_url, "model": str(design["model"]).strip(),
-                    "api_key_env": str(design.get("api_key_env") or "").strip() or "LLM_API_KEY",
-                    "timeout_s": int(design.get("timeout_s") or 180),
-                    "slot": "design.chat_url"}
         if not model:
             return None
         return {"chat_url": l_url, "model": model,
