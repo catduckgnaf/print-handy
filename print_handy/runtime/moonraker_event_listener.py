@@ -5201,18 +5201,37 @@ class Listener:
         self.last_pause_episode = "paused:jam"
         withdrawn = ""
         context = self.pause_context or {}
+        keep_question = False
         if context.get("cause") == "runout":
             from . import spool_sync
             suspended = context.get("suspended_spool_id")
             try:
+                resumed = None
                 if suspended is not None:
-                    await asyncio.to_thread(spool_sync.resume_usage, int(suspended))
+                    resumed = await asyncio.to_thread(spool_sync.resume_usage, int(suspended))
                 await asyncio.to_thread(clear_runout_pause)
-                withdrawn = ("\nThe spool question above no longer applies: nothing ran out, "
-                             "and filament usage is back on its spool.")
+                # Say only what happened (PR #1791 review): resume_usage
+                # returns False on a multi-slot print, where the usage
+                # pointer stays cleared on purpose and each slot is charged
+                # when the print ends (#1362) — the same outcome the
+                # same-spool answer reports.
+                if resumed is True:
+                    usage = f"filament usage is back on spool #{int(suspended)}."
+                elif resumed is False:
+                    usage = ("this is a multi-slot print, so no single spool is charged while it "
+                             "runs; each slot's spool is charged its share when the print ends.")
+                else:
+                    usage = "no spool's usage was paused for it."
+                withdrawn = f"\nThe spool question above no longer applies: nothing ran out, and {usage}"
             except Exception as exc:
+                # Nothing was withdrawn: the question stays open (and its
+                # reminders with it) so usage is not left paused unnoticed.
+                keep_question = True
                 warn(f"runout question withdrawal failed file={self.filename!r}: {exc!r}")
-        self.pause_context = None
+                withdrawn = ("\nThe spool question above is still open: filament usage could not be "
+                             "resumed automatically. Answer it with Same spool — fix feed or jam.")
+        if not keep_question:
+            self.pause_context = None
         self.runout_episode = None
         log(f"pause re-classified {prior} -> paused:jam from the printer's alert: {self.filename!r}")
         await self._post_jam(upgrade=True, note=withdrawn)

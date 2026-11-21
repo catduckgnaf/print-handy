@@ -159,6 +159,42 @@ class JamAfterPauseTests(JamListenerCase):
         self.assertIn("Paused: filament jam", text)
         self.assertIn("spool question above no longer applies", text)
 
+    async def test_the_withdrawal_names_the_spool_usage_resumed_on(self):
+        lis = self.listener(head=False)
+        with mock.patch.object(spool_sync, "resume_usage", return_value=True), \
+                mock.patch.object(mel, "clear_runout_pause"):
+            await self.pause(lis)
+            await lis.note_firmware_alert(JAM_LINE)
+        self.assertIn("filament usage is back on spool #21", self.rearm.call_args.args[3])
+
+    async def test_a_multi_slot_print_is_not_reported_as_resumed(self):
+        """PR #1791 review: resume_usage returns False on a multi-slot print
+        (#1362), where the usage pointer stays cleared on purpose. The text
+        says so instead of claiming usage is back on the spool."""
+        lis = self.listener(head=False)
+        with mock.patch.object(spool_sync, "resume_usage", return_value=False), \
+                mock.patch.object(mel, "clear_runout_pause") as clear:
+            await self.pause(lis)
+            await lis.note_firmware_alert(JAM_LINE)
+        clear.assert_called_once()  # the same outcome the same-spool answer gives
+        text = self.rearm.call_args.args[3]
+        self.assertIn("multi-slot print", text)
+        self.assertNotIn("back on spool", text)
+
+    async def test_a_failed_resume_keeps_the_question_open_and_says_so(self):
+        lis = self.listener(head=False)
+        with mock.patch.object(spool_sync, "resume_usage",
+                               side_effect=spool_sync.SpoolError("readback mismatch")), \
+                mock.patch.object(mel, "clear_runout_pause") as clear:
+            await self.pause(lis)
+            await lis.note_firmware_alert(JAM_LINE)
+        clear.assert_not_called()
+        self.assertIsNotNone(lis.pause_context)  # the question and its reminders stay
+        text = self.rearm.call_args.args[3]
+        self.assertIn("still open", text)
+        self.assertNotIn("no longer applies", text)
+        self.assertEqual(lis.last_pause_episode, "paused:jam")
+
     async def test_a_jam_line_long_after_the_pause_is_not_an_upgrade(self):
         lis = self.listener(head=True)
         await self.pause(lis)
