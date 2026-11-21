@@ -281,6 +281,66 @@ def test_a_legacy_config_loads_with_every_removed_key_inert(tmp_path):
         assert ai_routes.endpoint_url(tier, data) == ""
 
 
+def _retired_endpoint_config(tmp_path, llm_url, extra=""):
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "vision:\n  ai_enabled: true\n  model: local-vl\n"
+        "services:\n  vision_chat_url: http://vision.example.test:8080/v1/chat/completions\n"
+        f"llm:\n  chat_url: {llm_url}\n  model: hosted-text\n  api_key_env: HOSTED_KEY\n" + extra,
+        encoding="utf-8")
+    return settings.load(local=path, user=False, environ={"HOSTED_KEY": "x"})
+
+
+def test_a_differing_retired_vision_url_warns_by_name_and_images_go_to_llm(tmp_path, monkeypatch):
+    """#1749: the retired vision endpoint is named at load, never its value, and
+    the image really is posted to [llm] (synthetic frame, stub transport)."""
+    monkeypatch.setenv("HOSTED_KEY", "dummy")
+    cfg = _retired_endpoint_config(tmp_path, "https://api.hosted.example/v1/chat/completions")
+    warning = settings.unknown_settings_warning()
+    assert warning and "[services] vision_chat_url" in warning
+    assert "vision.example.test" not in warning and "hosted.example" not in warning
+    seen = []
+
+    class Reply:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def opener(request, timeout=None):
+        seen.append((request.full_url, request.data))
+        return Reply()
+
+    ai_routes.call("small", [{"role": "user", "content": "look"}],
+                   images=[b"\xff\xd8synthetic-frame"], cfg=cfg, opener=opener)
+    assert [url for url, _ in seen] == ["https://api.hosted.example/v1/chat/completions"]
+    assert b"vision.example.test" not in seen[0][1]
+
+
+def test_retired_agent_and_tier_urls_that_differ_from_llm_warn_by_name(tmp_path):
+    _retired_endpoint_config(
+        tmp_path, "https://api.hosted.example/v1/chat/completions",
+        "agent:\n  chat_url: http://agent.example.test/v1/chat/completions\n"
+        "ai:\n  small:\n    chat_url: http://tier.example.test/v1/chat/completions\n"
+        "    fallback_url: http://fb.example.test/v1/chat/completions\n")
+    warning = settings.unknown_settings_warning()
+    for name in ("[agent] chat_url", "[ai.small] chat_url", "[ai.small] fallback_url"):
+        assert name in warning
+    assert "example.test" not in warning
+
+
+def test_a_retired_url_equal_to_llm_or_with_no_llm_does_not_warn(tmp_path):
+    same = "http://vision.example.test:8080/v1/chat/completions"
+    _retired_endpoint_config(tmp_path, same)
+    assert settings.unknown_settings_warning() is None
+    _retired_endpoint_config(tmp_path, "''")
+    assert settings.unknown_settings_warning() is None
+
+
 def test_a_legacy_env_override_for_a_removed_key_is_ignored():
     data = settings.load(local=None, environ={
         "PRINT_HANDY__AGENT__CHAT_URL": "http://agent.test/v1/chat/completions",
