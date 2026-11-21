@@ -91,6 +91,7 @@ def test_post_slice_gate_offers_the_repairs_and_the_repair_changes_nothing_else(
     assert job['color_decisions']['selection']['slot'] == 1  # selected filament kept
     assert not job.get('clearance_acknowledgement', {}).get('acknowledged')
     assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt.get('started') is not True
+    assert 'slice_approval' not in receipt, 'the old slice approval must not authorize the repaired recipe'
     assert receipt['geometry_repair'] == {**receipt['geometry_repair'], 'kind': 'extend', 'deterministic': True}
     assert 'support_override' not in receipt
     assert job['ai_fixes'][-1]['lane'] == 'gap_repair'

@@ -4767,8 +4767,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             mj.write_job(folder, latest)
             binding = slice_binding(latest, new_sha)
             recipe_sha = binding_sha256(binding)
-            if receipt.get('slice_approval'):
-                receipt['slice_approval']['recipe_sha256'] = recipe_sha
+            # A Ready approval is bound to the old slice. A geometry repair
+            # changes the recipe and must not inherit that approval.
+            receipt.pop('slice_approval', None)
             receipt['geometry_repair'] = {
                 'kind': kind, 'mm': float(mm), 'deterministic': True,
                 'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'source_sha256': new_sha}
