@@ -100,10 +100,13 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                          "webui:\n  enabled: true\n  port: 8765\n")
         self.environ = {"PRINT_HANDY_CONFIG": str(local), "WEBUI_ACCESS_TOKEN": TOKEN}
         data = settings.load(local=local, environ=self.environ)
-        # The status/login cases must not be redirected by the first-run
-        # walkthrough. The walkthrough test explicitly re-enables it.
-        walkthrough.save_state(data, {"step": 0, "done": True})
-        self.settings_data = data
+        from tests.fixtures.webui_seeded import SeededWebUI
+
+        self.seed = SeededWebUI(root=self.tmp / "seed")
+        self.addCleanup(self.seed.close)
+        self.settings_data = self.seed.configure(data)
+        # The walkthrough test explicitly re-enables it.
+        walkthrough.save_state(self.settings_data, {"step": 0, "done": True})
         self.httpd = server.make_server(
             data, environ=self.environ, port=0,
             snapshot_func=lambda: FAKE_SNAPSHOT,
@@ -135,6 +138,17 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page.wait_for_load_state("load")
 
     # -- the smoke set ---------------------------------------------------
+
+    def test_seeded_fixture_contains_isolated_records_and_spools(self):
+        from print_handy.core import print_stats
+        records, skipped = print_stats.load_records(self.seed.root / "vault")
+        self.assertEqual(skipped, [])
+        self.assertEqual(len(records), 4)
+        self.assertEqual({row["status"] for row in records},
+                         {"completed", "failed", "cancelled", "printing"})
+        self.assertEqual(len(self.seed.fake_spoolman.spools), 4)
+        self.assertTrue(all(str(self.seed.root) in str(path)
+                            for path in (self.seed.prints, self.seed.archive, self.seed.cache)))
 
     def test_login_page_renders_with_a_token_form(self):
         self.page.goto(self.base + "/login")
