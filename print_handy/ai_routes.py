@@ -1,27 +1,15 @@
 """The one place Print Handy talks to an optional AI model (#818).
 
-Three tiers, each with its own endpoint settings under ``[ai.<tier>]``:
+Three tiers, each with settings under ``[ai.<tier>]``:
 
 * ``small``: the camera and image check, label reading.
 * ``chat``: questions the scripted handlers cannot answer.
-* ``heavy``: model-file editing and repair, deep image work. The repair
-  feature (#978, ``core/ai_fix.py``) calls it: "Fix this for my printer"
-  proposals are proposed on this tier, with its fallback.
+* ``heavy``: model-file editing and repair, deep image work. Repair proposals
+  use the shared ``llm.*`` endpoint with tier-local model and timeout overrides
+  and an optional same-endpoint fallback model.
 
-A tier setting has ``chat_url``, ``model``, ``fallback_model``, ``fallback_url``,
-``api_key_env``, ``fallback_api_key_env`` and ``timeout_s``. Nothing ships
-filled in. An install that configures no ``[ai]`` value keeps the settings it
-already had, which are each tier's default route: ``services.vision_chat_url``
-with the ``vision.*`` models for ``small``, ``llm.*`` for ``chat`` and
-``design.*`` (inheriting ``llm.*``) for ``heavy``. A tier value, when set, wins
-over that default one field at a time.
-
-``call`` is the whole interface. The primary request that fails or times out is
-retried exactly once on the fallback (``fallback_model``, on ``fallback_url``
-when given, else on the same endpoint). The fallback never receives the
-primary's key unless it is the same endpoint. The answer comes back with the
-model that served it, so a caller can record which one that was. Callers keep
-interpreting the answer text; this module only moves it.
+Legacy heavy endpoint fields are ignored. For ``chat``, only its model and
+``timeout_s`` are tier-local. ``small`` keeps its own endpoint configuration.
 """
 from __future__ import annotations
 
@@ -121,7 +109,16 @@ def _tier_settings(tier, cfg) -> dict[str, Any]:
     if tier not in TIERS:
         raise ValueError(f"unknown AI tier {tier!r}; expected one of {', '.join(TIERS)}")
     values = ((cfg or {}).get("ai") or {}).get(tier) or {}
-    return values if isinstance(values, dict) else {}
+    if not isinstance(values, dict):
+        return {}
+    if tier in {"chat", "heavy"}:
+        # Chat and heavy repair share the [llm] endpoint. Tolerate retired
+        # endpoint credentials in legacy tier configs, but never route to them
+        # or send their keys. Model selection and timeout remain tier-local;
+        # a fallback model uses that same endpoint and credential.
+        retired = {"chat_url", "api_key_env", "fallback_url", "fallback_api_key_env"}
+        values = {key: value for key, value in values.items() if key not in retired}
+    return values
 
 
 def _default_route(tier, cfg, purpose) -> Compat:
@@ -133,11 +130,11 @@ def _default_route(tier, cfg, purpose) -> Compat:
                       slot="llm.chat_url")
     if tier == "heavy":
         llm, design = cfg.get("llm") or {}, cfg.get("design") or {}
-        return Compat(str(design.get("chat_url") or llm.get("chat_url") or ""),
+        return Compat(str(llm.get("chat_url") or ""),
                       str(design.get("model") or llm.get("model") or ""),
-                      _secret(design.get("api_key_env") or llm.get("api_key_env")),
-                      float(design.get("timeout_s") or 0),
-                      slot="design.chat_url" if design.get("chat_url") else "llm.chat_url")
+                      _secret(llm.get("api_key_env")),
+                      float(design.get("timeout_s") or llm.get("timeout_s") or 0),
+                      slot="llm.chat_url")
     vision = cfg.get("vision") or {}
     model = vision.get("model")
     url = str((cfg.get("services") or {}).get("vision_chat_url") or "").rstrip("/")

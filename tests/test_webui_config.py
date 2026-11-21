@@ -263,8 +263,6 @@ class CatalogTests(unittest.TestCase):
             "llm.model": ("ai", "text"),
             "design.chat_url": ("ai", "url"),
             "design.model": ("ai", "text"),
-            "agent.chat_url": ("ai", "url"),
-            "agent.model": ("ai", "text"),
         }
         for field_id, (group, kind) in expected.items():
             with self.subTest(field=field_id):
@@ -380,6 +378,21 @@ class CatalogTests(unittest.TestCase):
 
     def test_catalog_fields_are_real_settings_with_valid_kinds(self):
         data = settings.load(local=False, environ={})
+        self.assertIn("agent", data)
+        # Existing agent endpoint settings remain loadable for compatibility,
+        # but the retired endpoint is no longer editable through this catalog.
+        with tempfile.TemporaryDirectory() as directory:
+            legacy_config = Path(directory) / "legacy.toml"
+            legacy_config.write_text(
+                '[agent]\nchat_url = "https://agent.example/v1/chat/completions"\n'
+                'model = "legacy-model"\ntimeout_s = 45\n'
+            )
+            loaded = settings.load(local=legacy_config, environ={})
+        self.assertEqual(loaded["agent"]["chat_url"], "https://agent.example/v1/chat/completions")
+        self.assertEqual(loaded["agent"]["model"], "legacy-model")
+        self.assertEqual(loaded["agent"]["timeout_s"], 45)
+        self.assertIsNone(field_by_id("agent.chat_url"))
+        self.assertIsNone(field_by_id("agent.model"))
         for field in CATALOG:
             with self.subTest(field=field.id):
                 self.assertIn(field.section, data)

@@ -1,14 +1,13 @@
 # Running the AI features on Cloudflare's free tier
 
-Print Handy's AI features are optional, and each one talks to an endpoint you choose. This guide shows how to point all of them at Cloudflare: [Workers AI](https://developers.cloudflare.com/workers-ai/) for the models and two small reference Workers in this repository for the camera and lookup contracts. A free Cloudflare account covers light home use.
+Print Handy's AI features are optional, and each one talks to an endpoint you choose. This guide shows how to point the AI features at Cloudflare: [Workers AI](https://developers.cloudflare.com/workers-ai/) for the models and a small reference Worker for the camera contract. A free Cloudflare account covers light home use.
 
-> **Verification status.** Nothing in this guide has been run against a real Cloudflare account by the project: no account was available. The two Workers are tested offline against a mock AI binding (`node --test`, see below), and the settings are the ones Print Handy documents in [SETTINGS.md](SETTINGS.md). Cloudflare facts (model names, prices, limits) were checked against Cloudflare's documentation on **2026-10-29**, with links next to each one; they change, so recheck them before you rely on them.
+> **Verification status.** Nothing in this guide has been run against a real Cloudflare account by the project: no account was available. The reference Worker is tested offline against a mock AI binding (`node --test`, see below), and the settings are the ones Print Handy documents in [SETTINGS.md](SETTINGS.md). Cloudflare facts (model names, prices, limits) were checked against Cloudflare's documentation on **2026-10-29**, with links next to each one; they change, so recheck them before you rely on them.
 
 | Feature | What you set | Cloudflare piece |
 | --- | --- | --- |
 | AI design and optional Web UI chat | `llm.chat_url`, `llm.model`, `LLM_API_KEY` | Workers AI's OpenAI-compatible endpoint, no Worker needed |
 | Camera watchdog | `PRINT_VISION_URL` and `vision.ai_enabled: true` | [`examples/cloudflare/vision-verdict`](../examples/cloudflare/vision-verdict/README.md) Worker |
-| Lookup by meaning in `/print-lookup` | `PRINT_FUZZY_URL` | [`examples/cloudflare/fuzzy-lookup`](../examples/cloudflare/fuzzy-lookup/README.md) Worker |
 
 You can use any one of these without the others.
 
@@ -16,7 +15,7 @@ You can use any one of these without the others.
 
 1. A Cloudflare account. The Workers Free plan includes the Workers AI daily free allocation ([pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/)).
 2. Your **account ID** and a **Workers AI API token**. In the dashboard, open the Workers AI page, select **Use REST API**, then **Create a Workers AI API Token**, and copy the account ID shown there ([Cloudflare's steps](https://developers.cloudflare.com/workers-ai/get-started/rest-api/)). A token you build by hand needs both `Workers AI - Read` and `Workers AI - Edit`.
-3. For the two Workers only: Node.js for `npx wrangler` ([supported versions](https://developers.cloudflare.com/workers/wrangler/install-and-update/)).
+3. For the Worker only: Node.js for `npx wrangler` ([supported versions](https://developers.cloudflare.com/workers/wrangler/install-and-update/)).
 
 ## 1. Chat and design through Workers AI
 
@@ -65,25 +64,12 @@ AI camera checks are off by default: set `vision.ai_enabled: true` (or `PRINT_HA
 
 `PRINT_VISION_URL` takes precedence over `services.vision_chat_url` and needs no key: the secret is the URL path, because Print Handy sends no `Authorization` header. Anything the Worker cannot read becomes `uncertain`, which alerts; it never turns a failure into `ok`. The Worker answers verdicts only, so spool-label photo reads sent to the same URL fall back to the manual steps. If you would rather keep frames at home, the [local failure detector](SETTINGS.md#local-failure-detector) runs on your own machine instead.
 
-## 3. Lookup by meaning through the fuzzy-lookup Worker
-
-`/print-lookup` matches locally first. Only when nothing matches locally does Print Handy offer the query to `PRINT_FUZZY_URL` (see [Semantic lookup endpoint](SETTINGS.md#semantic-lookup-endpoint-print_fuzzy_url)). The [fuzzy-lookup Worker](../examples/cloudflare/fuzzy-lookup/README.md) answers that contract with Workers AI's [`@cf/baai/bge-small-en-v1.5`](https://developers.cloudflare.com/workers-ai/models/bge-small-en-v1.5/) embeddings and cosine similarity. It is stateless (no KV, D1 or Vectorize), skips the model on an exact match, caches embeddings in memory, and degrades to `{"matches": [], "degraded": true}` on a quota or model error, which leaves the local answer in place.
-
-```sh
-cd examples/cloudflare/fuzzy-lookup
-npx wrangler login
-npx wrangler secret put LOOKUP_SECRET
-npx wrangler deploy
-```
-
-Then set `PRINT_FUZZY_URL=https://print-handy-fuzzy-lookup.<your-subdomain>.workers.dev/<the secret>` and restart.
-
-## 4. Free tier limits and rough usage
+## 3. Free tier limits and rough usage
 
 Checked on 2026-10-29:
 
 - **Workers AI:** 10,000 Neurons per day at no charge, on both Workers Free and Workers Paid, reset daily at 00:00 UTC. Workers Free has no paid overage (the pricing table lists none), so expect AI requests past the allocation to fail until the reset; Workers Paid bills $0.011 per 1,000 Neurons ([pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/)).
-- **Workers (for the two Workers):** 100,000 requests per day on Workers Free, 10 ms CPU time per request (the page says waiting on network requests does not count as CPU time), 50 subrequests per invocation ([limits](https://developers.cloudflare.com/workers/platform/limits/)). The requests from one home install are far below this.
+- **Workers (for the Worker):** 100,000 requests per day on Workers Free, 10 ms CPU time per request (the page says waiting on network requests does not count as CPU time), 50 subrequests per invocation ([limits](https://developers.cloudflare.com/workers/platform/limits/)). The requests from one home install are far below this.
 
 Neuron rates from the pricing page, per million tokens:
 
@@ -114,7 +100,7 @@ Cloudflare's [Workers AI data usage](https://developers.cloudflare.com/workers-a
 - **Chat:** the message you typed in the print channel and Print Handy's own system prompt (its command list). Nothing from the printer is sent unless it is in your message.
 - **Design:** your part description and follow-up requests, the OpenSCAD code from earlier turns, and render errors.
 - **Camera watchdog:** camera frames (JPEG) from your printer, at every check, plus the watchdog's fixed question. These go to your Worker and from it to Workers AI. This is the most personal data on the list: the frame shows whatever the camera sees.
-- **Lookup by meaning:** the `/print-lookup` text you typed, only when nothing matched locally, plus Print Handy's public registry entries (ids and display names). Print history, print numbers and spool IDs are never sent.
+- **Lookup:** `/print-lookup` runs exact and fuzzy matching locally; lookup text and registry data are not sent to a separate semantic service.
 
 The reference Workers write nothing to storage and log nothing. If you turn on Workers Logs or another logging feature in the dashboard, Cloudflare's retention rules for that feature apply. The secret URLs act as passwords: anyone with one can spend your allocation, so keep them in `.env` and out of screenshots and bug reports.
 

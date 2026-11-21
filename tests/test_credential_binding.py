@@ -238,13 +238,17 @@ def test_ai_routes_uses_the_binding(listener, monkeypatch):
     assert listener.seen == [None, f"Bearer {KEY}"]
 
 
-def test_ai_routes_tier_url_has_its_own_binding(listener, monkeypatch):
+def test_ai_routes_legacy_chat_url_cannot_replace_the_shared_binding(listener, monkeypatch):
     monkeypatch.setenv("TEST_LLM_KEY", KEY)
-    cfg = {"ai": {"chat": {"chat_url": listener.url(), "model": "m",
-                           "api_key_env": "TEST_LLM_KEY"}}}
-    _bind_elsewhere("ai.chat.chat_url")
+    monkeypatch.setenv("TEST_LEGACY_KEY", "retired-key")
+    cfg = {"llm": {"chat_url": listener.url(), "model": "m", "api_key_env": "TEST_LLM_KEY"},
+           "ai": {"chat": {"chat_url": "https://legacy.example/v1",
+                           "api_key_env": "TEST_LEGACY_KEY"}}}
+    _bind_elsewhere("llm.chat_url")
     ai_routes.call("chat", [{"role": "user", "content": "hi"}], cfg=cfg)
-    assert listener.seen == [None]
+    _rebind_here("llm.chat_url", listener)
+    ai_routes.call("chat", [{"role": "user", "content": "hi"}], cfg=cfg)
+    assert listener.seen == [None, f"Bearer {KEY}"]
 
 
 def test_design_client_uses_the_binding(listener, monkeypatch):

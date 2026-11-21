@@ -52,7 +52,7 @@ COMPOSE_VARS = {"PRINT_HANDY_IMAGE", "PRINT_HANDY_DATA", "PRINT_HANDY_SPOOLMAN_D
 # the image carries the NVIDIA_DRIVER_CAPABILITIES default, so they are not
 # Compose vars.
 UNRAID_GPU_VARS = {"NVIDIA_VISIBLE_DEVICES": "", "NVIDIA_DRIVER_CAPABILITIES": "compute,video,utility"}
-RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
+RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL"}
 # The slimmed Unraid template's whole Config surface: the Web UI port, the
 # two paths, bundled/external Spoolman and bundled firmware visibility choices,
 # timezone and GPU entries. Everything else is set in the mounted config file,

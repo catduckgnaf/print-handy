@@ -5,11 +5,8 @@
     session = knowledge.start_flow("clog")
 
 Read-only and advisory by construction: this package loads TOML data files,
-searches them and walks flow graphs. It has no printer client, and by default
-it sends nothing. The one exception is opt-in: with PRINT_FUZZY_URL set, a
-lookup that misses locally sends the query text and the registries' own entry
-names to the operator's semantic endpoint (#468 stage 4, core.fuzzy_semantic)
-— never per-install data — and any failure falls back to the local answer.
+searches them and walks flow graphs. It has no printer client and sends no
+lookup data over the network. Exact and fuzzy matching are local.
 """
 from __future__ import annotations
 
@@ -17,7 +14,7 @@ from functools import lru_cache
 
 from .flows import Flow, FlowError, FlowSession, Node, Step
 from .registry import (ROOT, FirmwareEntry, Match, PrinterEntry, Registry,
-                       RegistryError, Symptom, ThermalCapabilities, _norm, load_registry)
+                       RegistryError, Symptom, ThermalCapabilities, load_registry)
 from .thermal import (thermal_assumptions_lines, thermal_entry_for_model,
                       thermal_lines_for_model, thermal_setup_questions,
                       unknown_thermal_fields)
@@ -86,64 +83,10 @@ def lookup_text(query, *, firmware=None, printer=None, pack=None, registry=None)
     registry = registry or default_registry()
     results = registry.lookup(query, firmware=firmware, printer=printer, pack=pack)
     if not results:
-        semantic = _semantic_lookup(query, registry, firmware=firmware, printer=printer, pack=pack)
-        if semantic:
-            body = "\n\n".join(_format_match(match) for match in semantic)
-            return (f"No local match for {query!r}. Closest by meaning, from the semantic endpoint "
-                    f"this install configured (PRINT_FUZZY_URL):\n\n{body}\n\n" + ADVISORY_NOTE)
         return (f"Nothing in the registries matches {query!r}. Try the command or macro name, a symptom "
                 f"in plain words, or one of the guided flows:\n{flows_text(registry)}\n" + ADVISORY_NOTE)
     body = "\n\n".join(_format_match(match) for match in results)
     return body + "\n\n" + ADVISORY_NOTE
-
-
-def _semantic_lookup(query, registry, *, firmware=None, printer=None, pack=None):
-    """#468 stage 4: meaning-level matches from the operator's PRINT_FUZZY_URL endpoint.
-
-    Consulted only when the local lookup found nothing — local results are
-    never merged with or re-ranked by this layer. Candidates are the
-    registries' own public entries (id + the display text a person would
-    type), filtered exactly as ``Registry.lookup`` filters them; per-install
-    data such as print-history titles is never a candidate. Returns Match
-    objects in the client's enforced score order (best first), scores
-    rescaled to the local 0–100 display scale. Any failure or an unset
-    URL returns [].
-    """
-    from ..core import fuzzy_semantic
-
-    if not fuzzy_semantic.configured():
-        return []
-    candidates, by_id = [], {}
-
-    def add(kind, item, ident, text):
-        cid = f"{kind}:{ident}"
-        candidates.append({"id": cid, "text": text})
-        by_id[cid] = (kind, item)
-
-    firmware_norm = _norm(firmware).replace(" ", "") or None
-    pack_norm = _norm(pack).replace(" ", "-") if pack is not None else None
-    for entry in registry.firmware_entries:
-        if firmware_norm and entry.firmware != firmware_norm:
-            continue
-        if printer and "*" not in entry.printers and printer not in entry.printers:
-            continue
-        if pack_norm is not None and entry.pack != pack_norm:
-            continue
-        add("firmware", entry, entry.id, entry.name)
-    for symptom in registry.symptoms:
-        add("symptom", symptom, symptom.id, symptom.title)
-    for flow in registry.flows:
-        add("flow", flow, flow.id, flow.title)
-    for entry in registry.printers:
-        add("printer", entry, entry.key, entry.label)
-    matches = []
-    for hit in fuzzy_semantic.semantic_matches(query, candidates):
-        found = by_id.get(hit["id"])
-        if found is None:
-            continue  # an id the endpoint invented or mangled: not a registry entry, not shown
-        kind, item = found
-        matches.append(Match(kind, round(hit["score"] * 100), item))
-    return matches
 
 
 def flows_text(registry=None) -> str:

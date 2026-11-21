@@ -62,6 +62,8 @@ def cfg_with(tier, **tier_values):
             "llm": {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 20},
             "design": {}, "services": {"vision_chat_url": ""},
             "vision": {"model": "check-model", "roast_model": "roast-model"}}
+    if tier in {"chat", "heavy"}:
+        base["llm"]["chat_url"] = tier_values.pop("chat_url", "")
     base["ai"][tier] = tier_values
     return base
 

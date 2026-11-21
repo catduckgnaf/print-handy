@@ -79,10 +79,10 @@ def fix_env(tmp_path, monkeypatch, request):
         {"chat_id": "c", "thread_id": None, "job_json": str(job_path), "status": "SLICED"}))
     monkeypatch.setattr(plugin, "_state_dir", lambda: tmp_path)
     from print_handy.runtime import _config
-    cfg = {"agent": {}, "design": {}, "llm": {}, "discord": {"question_timeout_s": 5},
+    cfg = {"agent": {}, "design": {}, "discord": {"question_timeout_s": 5},
+           "llm": {"chat_url": "http://127.0.0.1:11434/v1/chat/completions"},
            "paths": {"cache": tmp_path / "cache"},
-           "ai": {"heavy": {"chat_url": "http://127.0.0.1:11434/v1/chat/completions",
-                            "model": "heavy-model"}}}
+           "ai": {"heavy": {"model": "heavy-model"}}}
     previous = _config.cfg()
     _config.set_override(cfg)
     request.addfinalizer(lambda: _config.set_override(previous))

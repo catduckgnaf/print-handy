@@ -223,6 +223,26 @@ def test_chat_llm_enabled_gates_the_core_lane(cfg):
     assert web.chat_enabled(cfg) is True
 
 
+def test_web_chat_ignores_legacy_agent_endpoint(cfg, monkeypatch):
+    """Web chat uses the canonical LLM lane, never legacy [agent]."""
+    from print_handy.bot import runtime
+
+    cfg["webui"]["chat_llm_enabled"] = True
+    cfg["agent"]["chat_url"] = "http://agent.invalid/v1/chat/completions"
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("Web chat called the legacy agent endpoint")
+
+    monkeypatch.setattr(runtime.agent, "ask", forbidden)
+    service = web.WebChatService(cfg)
+    assert service.core.status(True)["agent"] is False
+    assert service.submit("what is the weather?") is True
+    wait_for(service, "message")
+    assert calls == []
+
+
 def test_adapter_records_prompts_and_answers_choices(cfg):
     import asyncio
 

@@ -63,10 +63,10 @@ Use one bot token for one bot. Two live connections on one token both answer eve
 | `llm.model` | empty | Model name, required when `chat_url` is set |
 | `llm.api_key_env` | `LLM_API_KEY` | Name of the environment variable that holds the LLM API key, if it needs one |
 | `llm.timeout_s` | `20` | LLM request timeout |
-| `agent.chat_url` | empty | Optional agent endpoint for unmatched Web UI chat text, ahead of the `[llm]` call |
-| `agent.model` | empty | Agent model name; optional, empty omits `model` from the request |
-| `agent.api_key_env` | `AGENT_API_KEY` | Name of the environment variable that holds the agent endpoint's API key, if it needs one |
-| `agent.timeout_s` | `120` | Agent request timeout (one attempt, no retries) |
+| `agent.chat_url` | empty | Legacy setting retained when loading existing configuration; Web chat no longer sends unmatched text to this endpoint |
+| `agent.model` | empty | Legacy setting; retained for configuration compatibility, not used by Web chat |
+| `agent.api_key_env` | `AGENT_API_KEY` | Legacy setting; retained for configuration compatibility, not used by Web chat |
+| `agent.timeout_s` | `120` | Legacy setting; retained for configuration compatibility, not used by Web chat |
 | `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint. `false` turns roasts off; camera checks are unaffected |
 | `vision.roast_model` | `luna-latest` | Legacy, unused since #1002 (roasts are local); kept so older configs load |
 
@@ -238,21 +238,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 * A typed reply answers your own open question ("2" for two copies, "split", "cancel"). It
   never answers another allowed user's question, even in the same channel or thread. Buttons are shared: any
   allowed user may press an open question's button, and the message then shows who chose.
-* Anything else is tried, in order, with the deterministic natural-language layer and then a
-  model lane; the `[agent]` lane when an agent endpoint is
-  configured, else the LLM when `[llm]` is set, and only falls back to the short
-  “didn't understand” reply when
-  nothing answers it. The agent lane is different in kind from the LLM call below: the bot
-  sends your text once, with no bot system prompt, and posts the endpoint's reply as-is; the
-  endpoint (a Hermes agent behind its API, say) answers in its own voice, and its reply can never
-  name a command into execution. The bot keeps no conversation history; it sends the live session
-  key as an `X-Print-Handy-Session` header the endpoint may key its own conversation on. If a
-  configured agent endpoint does not answer, the reply says so (“The chat agent didn't answer…”)
-  instead of pretending the message was not understood. The order is: explicit commands, deterministic phrases (like "print 57" above),
-  links/files and typed answers to an open question run first and are never rerouted through the model;
-  then the natural-language layer answers plain questions from local data (see the next section);
-  only what is left reaches a model lane, and only when the message actually invoked it (next section).
-  The model never writes command text: it may call one typed read-only tool (inventory facts,
+* Anything else is tried in order with the deterministic natural-language layer, then the `[llm]` model lane when configured; the short “didn't understand” reply is the fallback. The order is: explicit commands, deterministic phrases, links/files and typed answers to open questions run first; then the natural-language layer answers plain questions from local data; only what remains reaches a model lane, and only when the message actually invoked it. The model never writes command text: it may call one typed read-only tool (inventory facts,
   the firmware report, printer status, doc lookup) and may propose an action as a capability plus
   typed slots, which the bot turns into the normal command and confirmation. It can never run
   `/spool change`, `/spool new`, `/spool sync`, `/print-colors` or
