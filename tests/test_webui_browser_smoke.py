@@ -147,6 +147,12 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.assertEqual({row["status"] for row in records},
                          {"completed", "failed", "cancelled", "printing", "stale"})
         self.assertEqual(len(self.seed.fake_spoolman.spools), 10)
+        from print_handy.core import design
+        sessions = design.list_sessions(design.sessions_root(self.seed.cache))
+        self.assertEqual(len(sessions), 3)
+        self.assertTrue(all(design.session_file(design.sessions_root(self.seed.cache), row["id"], "preview")
+                            for row in sessions))
+        self.assertEqual(len(list((self.seed.archive / "seeded-multiplate").glob("*.gcode"))), 3)
         self.assertTrue(all(str(self.seed.root) in str(path)
                             for path in (self.seed.prints, self.seed.archive, self.seed.cache)))
 
@@ -164,10 +170,8 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                 self.assertIn(marker, self.page.locator("body").inner_text(), path)
         from print_handy.webui import server as web_server
         service = web_server.chat_service_for(self.httpd)
-        from print_handy.bot.web import scope_for
-        service._append({"kind": "operator", "content": "Can I slice this?"})
-        service._append({"kind": "message", "content": "Confirm before slicing."})
-        service._append({"kind": "message", "content": "Slice summary: 3 plates, 2h 14m."})
+        for entry in self.seed.chat_entries:
+            service._append(entry)
         self.page.goto(self.base + "/chat")
         text = self.page.locator("body").inner_text()
         for marker in ("Can I slice this?", "Confirm before slicing", "Slice summary"):

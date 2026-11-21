@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy.runtime import print_records, spool_sync
+from print_handy.core import design
 from print_handy.webui import walkthrough
 from tests.test_webui_spools import FakeSpoolman
 
@@ -106,6 +107,7 @@ class SeededWebUI:
         self.fake_spoolman.spools[20]["extra"][spool_sync.PH_NICKNAME_FIELD] = json.dumps("Weekend pink")
         self._seed_archive()
         self._seed_designs()
+        self._seed_chat()
 
     def _seed_archive(self):
         job = self.archive / "seeded-multiplate"
@@ -119,18 +121,43 @@ class SeededWebUI:
         (job / "JOB.json").write_text(json.dumps(payload), encoding="utf-8")
 
     def _seed_designs(self):
+        now = 1_795_277_000.0
         for number in range(1, 4):
-            folder = self.designs / f"seeded-design-{number}"
+            session_id = f"seeded-design-{number:06d}"
+            folder = design.sessions_root(self.cache) / session_id
             folder.mkdir(parents=True, exist_ok=True)
-            (folder / "session.json").write_text(json.dumps({"title": f"Synthetic design session {number}", "status": "ready", "preview": f"preview-{number}.svg"}), encoding="utf-8")
-            (folder / f"preview-{number}.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160"><rect width="240" height="160" fill="#456"/></svg>', encoding="utf-8")
+            session = {
+                "id": session_id, "owner_key": "fixture-owner", "chat_id": "fixture-chat",
+                "description": f"Synthetic design session {number}: a long descriptive plate preview",
+                "kind": "create", "source": None, "edit_mode": None, "base_stl": None,
+                "body_file": None, "scad_deps": [], "status": "active", "turns": 1,
+                "created_at": now - number * 60, "updated_at": now - number * 30,
+                "scad": "turn-1.scad", "stl": "turn-1.stl", "preview": "turn-1.png",
+                "geometry": None,
+            }
+            (folder / "session.json").write_text(json.dumps(session), encoding="utf-8")
+            (folder / "turn-1.scad").write_text("// synthetic fixture\ncube([40, 20, 3]);\n", encoding="utf-8")
+            (folder / "turn-1.stl").write_bytes(b"solid fixture\nendsolid fixture\n")
+            (folder / "turn-1.png").write_bytes(
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR"
+                b"\x00\x00\x00\x01\x00\x00\x00\x01"
+                b"\x08\x02\x00\x00\x00\x90wS\xde"
+                b"\x00\x00\x00\x0bIDAT\x08\xd7c````\x00\x00\x00\x05\x00\x01"
+                b"\xa5\xf6E\x40\x00\x00\x00\x00IEND\xaeB`\x82")
 
+    def _seed_chat(self):
+        self.chat_entries = [
+            {"kind": "operator", "content": "Can I slice this?"},
+            {"kind": "message", "content": "Confirm before slicing."},
+            {"kind": "message", "content": "Slice summary: 3 plates, 2h 14m."},
+        ]
 
     def configure(self, settings_data):
         paths = settings_data.setdefault("paths", {})
         paths.update(records_vault=self.root / "vault", archive=self.archive,
                      cache=self.cache, state_home=self.state)
         settings_data.setdefault('services', {})['spoolman_url'] = self.spoolman_url
+        settings_data.setdefault('chat', {})['transcript'] = str(self.chat)
         self.settings = settings_data
         walkthrough.save_state(settings_data, {"step": 0, "done": True})
         return settings_data
