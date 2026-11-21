@@ -151,6 +151,8 @@ class SeededWebUI:
             {"kind": "message", "content": "Confirm before slicing."},
             {"kind": "message", "content": "Slice summary: 3 plates, 2h 14m."},
         ]
+        self.chat = self.root / "chat.json"
+        self.chat.write_text(json.dumps(self.chat_entries), encoding="utf-8")
 
     def configure(self, settings_data):
         paths = settings_data.setdefault("paths", {})
