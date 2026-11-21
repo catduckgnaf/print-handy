@@ -168,8 +168,11 @@ def _apply_key_aliases(layer):
     layer.pop("agent", None)
     design = layer.get("design")
     if isinstance(design, dict):
-        design.pop("chat_url", None)
-        design.pop("api_key_env", None)
+        for key in ("chat_url", "api_key_env"):
+            if key in design:
+                _note_unknown(f"[design] {key} is retired; configure the matching "
+                              "endpoint and key variable together in [llm]")
+                del design[key]
     vision = layer.get("vision")
     if isinstance(vision, dict):
         vision.pop("model", None)

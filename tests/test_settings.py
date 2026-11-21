@@ -846,8 +846,8 @@ class UnknownSettingsTests(unittest.TestCase):
 
     def test_retired_design_endpoint_warns_without_exposing_values(self):
         settings.load(local=self.local(
-            "design:\\n  chat_url: https://legacy.example/v1\\n"
-            "  api_key_env: LEGACY_DESIGN_KEY\\n"), environ={})
+            "design:\n  chat_url: https://legacy.example/v1\n"
+            "  api_key_env: LEGACY_DESIGN_KEY\n"), environ={})
         warning = settings.unknown_settings_warning()
         self.assertIsNotNone(warning)
         assert warning is not None
