@@ -574,6 +574,10 @@ def _from_env(home, environ, declared=None):
         if isinstance(declared, list) else set()
     roster = None
     for name, raw in environ.items():
+        if name in {"PRINT_VISION_URL", "PRINT_FUZZY_URL"}:
+            if raw.strip():
+                _note_unknown(f"${name} is retired and ignored; see Retired settings in the settings guide")
+            continue
         if name.startswith("PRINT_HANDY__"):
             parts = name[len("PRINT_HANDY__"):].lower().split("__")
             if len(parts) == 3 and parts[0] == "printers":

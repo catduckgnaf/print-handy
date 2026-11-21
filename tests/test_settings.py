@@ -856,6 +856,16 @@ class UnknownSettingsTests(unittest.TestCase):
         self.assertNotIn("https://legacy.example/v1", warning)
         self.assertNotIn("LEGACY_DESIGN_KEY", warning)
 
+    def test_retired_worker_overrides_warn_without_exposing_values(self):
+        settings.load(local=False, environ={"PRINT_VISION_URL": "https://vision.example/v1",
+                                            "PRINT_FUZZY_URL": "https://lookup.example/v1"})
+        warning = settings.unknown_settings_warning()
+        self.assertIsNotNone(warning)
+        assert warning is not None
+        self.assertIn("$PRINT_VISION_URL", warning)
+        self.assertIn("$PRINT_FUZZY_URL", warning)
+        self.assertNotIn("https://", warning)
+
     def test_env_unknown_section_warns_and_is_ignored(self):
         settings.load(local=False, environ={"PRINT_HANDY__BRAND_NEW__KEY": "1"})
         self.assertIn("[brand_new] key", settings.unknown_settings_warning())
