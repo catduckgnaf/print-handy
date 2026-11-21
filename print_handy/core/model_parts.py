@@ -17,6 +17,10 @@ Version detection is deliberately conservative: two names are versions of one
 part only when they differ by a single token that names an obvious version
 (``sign``/``nosign``, ``with_logo``/``no_logo``, ``v1``/``v2``, ``easy``/
 ``hard``, ``supported``/``presupported``, ``M3``/``M4``, ``100mm``/``150mm``).
+Clear variant markers count too (#1779): ``SnackTongs`` and
+``SnackTongs_FlatProfile`` are one part in two versions, as are ``_alt``,
+``_alternate``, ``_variant``, ``_flat``, ``_low_profile``, ``_remix``,
+``_modified``, ``_updated``, ``_original`` and ``_noSupports``.
 Anything else, including ``left``/``right`` and ``part1``/``part2``, is a part
 that is printed. A wrong "part" costs one extra object the operator can see
 in the prompt; a wrong "version" would silently drop a needed part.
@@ -43,6 +47,15 @@ _FAMILIES = (
                'huge', 'short', 'long', 'tall', 'wide', 'narrow', 'thin', 'thick', 'regular'}),
 )
 _PAIRED_PARTS = frozenset({'l', 'r', 'left', 'right'})
+# Word pairs read as one variant token (#1779): "FlatProfile", "low_profile".
+_PHRASES = {('flat', 'profile'): 'flatprofile', ('low', 'profile'): 'lowprofile',
+            ('slim', 'profile'): 'slimprofile'}
+_PHRASE_LABELS = {joined: ' '.join(words) for words, joined in _PHRASES.items()}
+# A token whose presence names another version of the same part (#1779). Kept
+# to words that rarely name a part of their own: a wrong "version" would drop
+# a needed part, while a wrong "part" only prints one extra object.
+_VARIANT = re.compile(r'(?:alt|alternate|alternative|variant)\d*|flat|flatprofile|lowprofile|slimprofile'
+                      r'|remix(?:ed)?|modified|updated|original')
 
 
 def _stem(name):
@@ -69,7 +82,14 @@ def tokens(name):
         if not _QUANTITY.fullmatch(tok) or _SIZE.fullmatch(tok):
             out.append(tok)
         i += 1
-    return out
+    merged = []
+    for tok in out:
+        joined = _PHRASES.get((merged[-1], tok)) if merged else None
+        if joined:
+            merged[-1] = joined
+        else:
+            merged.append(tok)
+    return merged
 
 
 def quantity_hint(name):
@@ -107,6 +127,10 @@ def _versionish(tok):
     return bool(_VERSION.fullmatch(tok) or _SIZE.fullmatch(tok))
 
 
+def _variant(tok):
+    return bool(_VARIANT.fullmatch(tok))
+
+
 def is_version_pair(a, b):
     """Two differing name tokens that name versions of one part (not two parts)."""
     if a == b or {a, b} <= _PAIRED_PARTS:
@@ -115,12 +139,14 @@ def is_version_pair(a, b):
         return True
     if _versionish(a) and _versionish(b):
         return True
+    if _variant(a) and _variant(b):
+        return True
     return any(a in fam and b in fam for fam in _FAMILIES)
 
 
 def is_version_extra(tok):
     """A token whose presence alone makes a version (``box`` vs ``box_v2``, ``box_nologo``)."""
-    if tok[:1] == '-' or _versionish(tok):
+    if tok[:1] == '-' or _versionish(tok) or _variant(tok):
         return True
     if any(tok == p + rest for p in _NEGATE for rest in [tok[len(p):]] if len(rest) >= 3):
         return True
@@ -165,12 +191,12 @@ def _human(tok, others):
                 return f'{"no" if p in ("no", "wo") else p} {bare}'
     if re.fullmatch(r'm\d+(?:\.\d+)?', tok):
         return tok.upper()
-    return tok
+    return _PHRASE_LABELS.get(tok, tok)
 
 
 def _shown_name(toks, common, fallback):
     words = [t for t in toks if t not in common]
-    text = ' '.join(_human(t, []) if t[:1] in '+-' else t for t in words)
+    text = ' '.join(_human(t, []) if t[:1] in '+-' else _PHRASE_LABELS.get(t, t) for t in words)
     return text or fallback
 
 
@@ -211,6 +237,10 @@ def plan(names):
             continue
         shared = set(toks[group[0]]).intersection(*(toks[i] for i in group[1:]))
         subject = ' '.join(t for t in toks[group[0]] if t in shared and t not in common and not t.isdigit())
+        if not subject:
+            # Every file is a version of this one part (#1779: SnackTongs and
+            # SnackTongs_FlatProfile): the shared name is the subject.
+            subject = ' '.join(_PHRASE_LABELS.get(t, t) for t in toks[group[0]] if t in shared and not t.isdigit())
         options = []
         for i in group:
             own = [t for t in toks[i] if t not in shared]

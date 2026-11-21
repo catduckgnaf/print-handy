@@ -2208,6 +2208,11 @@ async def _choose_files(adapter, source, key, rows, timeout):
     counts = [f'{names[i]} suggests {n}' for i, n in plan['quantities'].items()]
     if counts:
         lead += f" ({_and(counts)}; I still print one of each, so print more copies separately if you need them.)"
+    if not plan['parts'] and len(groups) == 1:
+        # Nothing prints together (#1779): every file is a version of one
+        # part, so the question is which version, never "one of each".
+        lead = (f"These {len(rows)} files look like versions of one part, the {groups[0]['subject']}, "
+                "not parts that print together, so I'll print one.")
     picked = list(plan['parts'])
     if not groups:
         if not _ask_which_parts():
@@ -2226,7 +2231,8 @@ async def _choose_files(adapter, source, key, rows, timeout):
     for n, group in enumerate(groups):
         options = group['options'][:5]
         labels = [o['label'][:60] for o in options]
-        question = f"Which {group['subject']}?"
+        question = ('Which version?' if not plan['parts'] and len(groups) == 1
+                    else f"Which {group['subject']}?")
         if n == 0:
             more = (f" Showing {len(options)} of {len(group['options'])}; use {CHOOSE_FILES} for the others."
                     if len(options) < len(group['options']) else '')

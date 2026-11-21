@@ -155,3 +155,45 @@ def test_combine_sets_parts_in_a_row_when_they_do_not_fit_one_bed(tmp_path):
 def test_combine_runs_in_the_heavy_worker():
     assert ('model_parts', 'combine') in prepared_intake._OFFLOAD
     assert ('model_parts', 'combine') in heavy_worker.ALLOWED
+
+
+@pytest.mark.parametrize('names, labels', [
+    (['SnackTongs.stl', 'SnackTongs_FlatProfile.stl'], ['standard', 'flat profile']),
+    (['clip.stl', 'clip_flat.stl'], ['standard', 'flat']),
+    (['lid.stl', 'lid_alt.stl'], ['standard', 'alt']),
+    (['lid.stl', 'lid-alternate.stl'], ['standard', 'alternate']),
+    (['hook.stl', 'hook_low_profile.stl'], ['standard', 'low profile']),
+    (['bust.stl', 'bust_noSupports.stl'], ['standard', 'no supports']),
+    (['knob_original.stl', 'knob_remix.stl'], ['original', 'remix']),
+    (['vase.stl', 'vase_v2.stl'], ['standard', 'v2']),
+])
+def test_variant_markers_make_one_version_question(names, labels):
+    """#1779: clear variant markers are versions of one part, never two parts."""
+    plan = model_parts.plan(names)
+    assert plan['parts'] == []
+    [group] = plan['groups']
+    assert [o['label'] for o in group['options']] == labels
+
+
+def test_a_variant_group_is_named_by_the_shared_part():
+    plan = model_parts.plan(['SnackTongs.stl', 'SnackTongs_FlatProfile.stl'])
+    assert plan['groups'][0]['subject'] == 'snack tongs'
+
+
+@pytest.mark.parametrize('names', [
+    ['bracket_flat.stl', 'bracket_angled.stl'],  # two shapes, not a marker pair
+    ['frame.stl', 'frame_profile.stl'],           # "profile" alone is a part name
+    ['base.stl', 'base_cover.stl'],
+])
+def test_words_near_the_markers_stay_parts(names):
+    """The bias the module documents: a wrong part costs less than a wrong version."""
+    plan = model_parts.plan(names)
+    assert plan['groups'] == [] and sorted(plan['parts']) == [0, 1]
+
+
+def test_variant_parts_beside_real_parts_still_print_the_parts():
+    plan = model_parts.plan(['tongs.stl', 'tongs_flat.stl', 'stand.stl'])
+    assert [plan['names'][i] for i in plan['parts']] == ['stand']
+    [group] = plan['groups']
+    assert group['subject'] == 'tongs'
+    assert [o['label'] for o in group['options']] == ['standard', 'flat']
