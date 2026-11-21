@@ -35,6 +35,7 @@ the failure this set exists to catch -- the in-process Web UI tests
 cannot see it.
 """
 import os
+import re
 import sys
 import threading
 import unittest
@@ -124,11 +125,16 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.addCleanup(self.browser.close)
         self.page = self.browser.new_page()
         self.page_errors = []
+        self.console_errors = []
         self.page.on("pageerror", lambda exc: self.page_errors.append(str(exc)))
+        self.page.on("console", lambda msg: self.console_errors.append(msg.text)
+                    if msg.type == "error" else None)
 
     def tearDown(self):
         self.assertEqual(self.page_errors, [],
                          "no uncaught JavaScript errors on any visited page")
+        self.assertEqual(self.console_errors, [],
+                         "no console errors on any visited page")
 
     # -- helpers -------------------------------------------------------
 
@@ -139,6 +145,78 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page.wait_for_load_state("load")
 
     # -- the smoke set ---------------------------------------------------
+
+    def test_seeded_layout_audit(self):
+        from tests.webui_layout_audit import PAGE_ROUTES, VIEWPORTS
+
+        self.login()
+        from print_handy.webui import server as web_server
+        service = web_server.chat_service_for(self.httpd)
+        for entry in self.seed.chat_entries:
+            service._append(entry)
+        artifact_root = Path(os.environ.get("PRINT_HANDY_SCREENSHOT_DIR", self.tmp / "screenshots"))
+        screenshots = artifact_root / "webui"
+        screenshots.mkdir(parents=True, exist_ok=True)
+        for width, height, label in VIEWPORTS:
+            self.page.set_viewport_size({"width": width, "height": height})
+            for route, description in PAGE_ROUTES.items():
+                with self.subTest(viewport=label, route=route, description=description):
+                    response = self.page.goto(self.base + route, wait_until="domcontentloaded")
+                    self.assertIsNotNone(response, route)
+                    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", route.strip("/")) or "home"
+                    self.page.screenshot(path=str(screenshots / f"{label}-{safe}.png"), full_page=True)
+                    self.assertEqual(response.status, 200, route)
+                    self.assertIn("text/html", response.headers.get("content-type", ""), route)
+                    audit = self.page.evaluate("""() => {
+                      const doc = document.documentElement;
+                      const scrolls = [...document.querySelectorAll('*')]
+                        .filter(e => e.scrollWidth > e.clientWidth + 2)
+                        .filter(e => !e.closest('[data-horizontal-scroll], .table-scroll, .overflow-x-auto'))
+                        .map(e => ({tag:e.tagName, id:e.id, cls:String(e.className).slice(0,100),
+                                    scroll:e.scrollWidth, client:e.clientWidth}));
+                      const oneChar = [...document.querySelectorAll('body *')]
+                        .filter(e => e.children.length === 0 && /[A-Za-z]{4,}/.test(e.innerText || ''))
+                        .filter(e => { const r=e.getBoundingClientRect(); return r.width > 0 && r.height > r.width * 5; })
+                        .map(e => ({tag:e.tagName, text:(e.innerText||'').slice(0,80),
+                                    width:e.getBoundingClientRect().width, height:e.getBoundingClientRect().height}));
+                      const smallTargets = [...document.querySelectorAll('a,button,input,select,textarea,[role=button]')]
+                        .filter(e => !(e.tagName === 'A' && e.childElementCount === 0 && (e.innerText||'').trim().length < 80))
+                        .map(e => ({el:e, r:e.getBoundingClientRect()}))
+                        .filter(x => x.r.width > 0 && x.r.height > 0 && (x.r.width < 44 || x.r.height < 44))
+                        .map(x => ({tag:x.el.tagName, text:(x.el.innerText||x.el.getAttribute('aria-label')||'').slice(0,60),
+                                    width:x.r.width, height:x.r.height}));
+                      return {docWidth:doc.scrollWidth, viewport:innerWidth, scrolls, oneChar, smallTargets};
+                    }""")
+                    self.assertLessEqual(audit["docWidth"], width + 2,
+                                         f"document horizontal overflow {route}: {audit}")
+                    self.assertEqual(audit["scrolls"], [], f"element overflow {route}: {audit}")
+                    self.assertEqual(audit["oneChar"], [], f"one-character line {route}: {audit}")
+                    if width == 375:
+                        self.assertEqual(audit["smallTargets"], [],
+                                         f"interactive target under 44px {route}: {audit}")
+                    links = self.page.locator("header a, nav a, .shell a").evaluate_all(
+                        "els => els.map(a => a.href).filter(h => h.startsWith(location.origin))")
+                    for href in sorted(set(links)):
+                        link_response = self.page.request.get(href, headers={"Accept": "text/html"})
+                        self.assertNotEqual(link_response.status, 404,
+                                            f"shell link {href} returned 404 from {route}")
+
+    def test_shell_links_are_not_404(self):
+        self.login()
+        for path in ("/", "/spools", "/data", "/sliced", "/designs", "/chat"):
+            self.page.goto(self.base + path)
+            links = self.page.locator("header a, nav a, .shell a").evaluate_all(
+                "els => els.map(a => a.href).filter(h => h.startsWith(location.origin))")
+            for href in sorted(set(links)):
+                response = self.page.request.get(href, headers={"Accept": "text/html"})
+                self.assertNotEqual(response.status, 404, f"shell link {href} returned 404 from {path}")
+
+    def test_route_inventory_is_complete_and_classified(self):
+        from tests.webui_layout_audit import PAGE_PATTERNS, NON_PAGE_PATTERNS, PAGE_ROUTES, assert_route_inventory
+
+        assert_route_inventory()
+        self.assertEqual(len(PAGE_PATTERNS) + len(NON_PAGE_PATTERNS), 58)
+        self.assertEqual(len(PAGE_ROUTES), len(PAGE_PATTERNS))
 
     def test_seeded_fixture_contains_isolated_records_and_spools(self):
         from print_handy.core import print_stats

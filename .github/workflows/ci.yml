@@ -999,6 +999,7 @@ jobs:
       - name: Run real-browser tests and record machine-readable results
         env:
           PRINT_HANDY_BROWSER_SMOKE: '1'
+          PRINT_HANDY_SCREENSHOT_DIR: webui-browser-artifacts
         run: python -m pytest -q -rs tests/test_webui_browser_smoke.py --junitxml=browser-smoke.xml
       - name: Refuse missing or skipped browser tests
         run: |
@@ -1018,6 +1019,12 @@ jobs:
         with:
           name: webui-browser-smoke
           path: browser-smoke.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: webui-layout-screenshots
+          path: webui-browser-artifacts/
+          if-no-files-found: error
 
   spelling:
     # US-spelling watch for prose (catduck, 2026-10-29): scans only the lines
