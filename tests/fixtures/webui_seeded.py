@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from print_handy.runtime import print_records
+from print_handy.runtime import print_records, spool_sync
 from print_handy.webui import walkthrough
-from test_webui_spools import FakeSpoolman
+from tests.test_webui_spools import FakeSpoolman
 
 
 class SeededWebUI:
@@ -20,7 +22,47 @@ class SeededWebUI:
         self.root.mkdir(parents=True, exist_ok=True)
         self.fake_spoolman = FakeSpoolman()
         self._patches = []
-        self._seed()
+        self._spoolman = None
+        try:
+            self._seed()
+            self._start_spoolman()
+        except BaseException:
+            self.close()
+            raise
+
+    def _start_spoolman(self):
+        fake = self.fake_spoolman
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/api/v1/health':
+                    result = {'status': 'healthy'}
+                elif self.path == '/api/v1/info':
+                    result = {'version': '0.23.0'}
+                else:
+                    try:
+                        result = fake('GET', self.path)
+                    except AssertionError:
+                        self.send_error(404)
+                        return
+                body = json.dumps(result).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        service = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=service.serve_forever, daemon=True)
+        thread.start()
+        self._spoolman = service, thread
+        self.spoolman_url = f'http://127.0.0.1:{service.server_port}'
+        patcher = mock.patch.object(spool_sync, 'SPOOLMAN', self.spoolman_url)
+        patcher.start()
+        self._patches.append(patcher)
 
     def _seed(self):
         self.prints = self.root / "vault" / "Prints"
@@ -48,8 +90,12 @@ class SeededWebUI:
                          "started_at": f"2026-06-{(number - 1) % 28 + 1:02d}T12:00:00Z",
                          "printer": "Synthetic AD5X"})
             print_records.write_completed_record(data)
+        self.fake_spoolman.spools.clear()
         self.fake_spoolman.spools.update({
             20: self.fake_spoolman._spool(20, 31, location="IFS Slot 1", remaining=865.722, initial=1000, ph_slot="flashforge-ad5x:1"),
+            30: self.fake_spoolman._spool(30, 37, location="IFS Slot 2", remaining=520, initial=1000, ph_slot="flashforge-ad5x:2"),
+            31: self.fake_spoolman._spool(31, 39, location="IFS Slot 3", remaining=635, initial=1000, ph_slot="flashforge-ad5x:3"),
+            32: self.fake_spoolman._spool(32, 41, location="IFS Slot 4", remaining=740, initial=1000, ph_slot="flashforge-ad5x:4"),
             21: self.fake_spoolman._spool(21, 37, location="Shelf", remaining=412.0384, initial=1000),
             22: self.fake_spoolman._spool(22, 39, location="Shelf", remaining=12.3456, initial=1000),
             23: self.fake_spoolman._spool(23, 41, location="Shelf", remaining=999.999, initial=1000),
@@ -57,7 +103,7 @@ class SeededWebUI:
             25: self.fake_spoolman._spool(25, 37, location="Shelf", remaining=700, initial=1000),
             26: self.fake_spoolman._spool(26, 39, location="Shelf", remaining=400, initial=1000, archived=True),
         })
-        self.fake_spoolman.spools[20]["extra"]["nickname"] = "Weekend pink"
+        self.fake_spoolman.spools[20]["extra"][spool_sync.PH_NICKNAME_FIELD] = json.dumps("Weekend pink")
         self._seed_archive()
         self._seed_designs()
 
@@ -82,14 +128,20 @@ class SeededWebUI:
 
     def configure(self, settings_data):
         paths = settings_data.setdefault("paths", {})
-        from pathlib import Path
-        paths.update(records_vault=Path(self.root / "vault"), archive=Path(self.archive),
-                     cache=Path(self.cache), state_home=Path(self.root / "state"))
+        paths.update(records_vault=self.root / "vault", archive=self.archive,
+                     cache=self.cache, state_home=self.state)
+        settings_data.setdefault('services', {})['spoolman_url'] = self.spoolman_url
         self.settings = settings_data
         walkthrough.save_state(settings_data, {"step": 0, "done": True})
         return settings_data
 
     def close(self):
+        if self._spoolman is not None:
+            service, thread = self._spoolman
+            service.shutdown()
+            service.server_close()
+            thread.join()
+            self._spoolman = None
         for patcher in reversed(self._patches):
             patcher.stop()
         self._patches.clear()
