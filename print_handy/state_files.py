@@ -44,6 +44,7 @@ KNOWN = (
     "orca-profiles",
     "print-next-claims",
     "print_alert_buttons.json",
+    "prompt-ledger.json",
     "print_handy_context.json",
     "print_handy_launches.sqlite3",
     "print_handy_start_claims.json",
