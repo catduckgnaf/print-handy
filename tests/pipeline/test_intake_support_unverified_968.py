@@ -36,6 +36,13 @@ def _stub_unverified(monkeypatch, reason=UNREADABLE_REASON):
                         lambda regions, plates: _unverified_result(reason))
 
 
+def _in_process_heavy(monkeypatch):
+    """Run offloaded steps in a thread so a monkeypatched inner function is the one that runs."""
+    async def thread_heavy(func, *args, **kwargs):
+        return await asyncio.to_thread(func, *args, **kwargs)
+    monkeypatch.setattr(prepared_intake, '_heavy', thread_heavy)
+
+
 def _coverage_only_flow(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
@@ -108,6 +115,7 @@ def test_unverified_coverage_check_raising_asks(env, monkeypatch):
     def _boom(*args, **kwargs):
         raise RuntimeError('kaboom')
     monkeypatch.setattr(support_clearance, 'verify_support_coverage', _boom)
+    _in_process_heavy(monkeypatch)  # the patched inner function must be seen, not a child process's
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
