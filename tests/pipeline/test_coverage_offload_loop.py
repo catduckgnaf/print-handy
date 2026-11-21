@@ -15,9 +15,11 @@ import pytest
 from print_handy.core import owned_worker, prepared_intake, support_clearance
 from .helpers import external
 from .test_color_intake import state
-from .test_intake_support_precheck import Adapter, env, _warning_slice, _coverage_only_report  # noqa: F401
+from . import test_intake_support_precheck as _precheck
+from .test_intake_support_precheck import Adapter, _warning_slice, _coverage_only_report  # noqa: F401
 from .test_intake_support_unverified_968 import _in_process_heavy
 
+env = _precheck.env  # re-exported pytest fixture
 print_next = external("print_next")
 SLOW_S = 0.6
 MAX_GAP_S = 0.25
