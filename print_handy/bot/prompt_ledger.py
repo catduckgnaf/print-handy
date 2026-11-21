@@ -110,7 +110,9 @@ def saved_job_state(intake_id):
         receipt = json.loads((_config.state_dir() / "model-link-intakes" / f"{intake_id}.json").read_text())
     except (OSError, ValueError, ImportError):
         return None
-    status = str(receipt.get("status") or "") if isinstance(receipt, dict) else ""
+    if not isinstance(receipt, dict):
+        return None
+    status = str(receipt.get("status") or "")
     if receipt.get("started"):
         return "started"
     if status == "SLICED_NOT_STARTED":

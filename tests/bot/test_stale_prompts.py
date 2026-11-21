@@ -301,3 +301,12 @@ def test_ledger_survives_a_new_process_and_prunes(tmp_path, monkeypatch):
     (tmp_path / "ledger.json").write_text("{not json")
     assert prompt_ledger.lookup("x2") is None  # a corrupt file is a miss, never an error
     assert adapter_mod.parse_custom_id("pbq:abc:1") == ("abc", 1) and parse_custom_id
+
+
+@pytest.mark.parametrize("body", ["[]", "null", "\"x\"", "7"])
+def test_a_non_object_receipt_does_not_break_the_stale_reply(tmp_path, monkeypatch, body):
+    state = tmp_path / "state"
+    (state / "model-link-intakes").mkdir(parents=True)
+    (state / "model-link-intakes" / "abc123.json").write_text(body)
+    monkeypatch.setattr("print_handy.runtime._config.state_dir", lambda: state)
+    assert prompt_ledger.saved_job_state("abc123") is None
