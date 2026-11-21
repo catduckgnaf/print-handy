@@ -210,14 +210,24 @@ def _mqtt_send(value: dict[str, Any], status: str, printer_id: str,
         payload = dict(value)
         payload["printer_id"] = printer_id
         payload["status"] = status
+        # Claim the printer in the same locked step that checks it, so two
+        # roasts publishing at once cannot both send discovery. The publish
+        # runs outside the lock; a failed one gives the claim back so the
+        # next roast retries.
         with _DISCOVERY_LOCK:
             first = printer_id not in _DISCOVERY_SENT
+            if first:
+                _DISCOVERY_SENT.add(printer_id)
         if first:
-            topic, config = discovery_config(notify, printer_id)
-            if notify_bus.publish_retained(topic, json.dumps(config)):
-                with _DISCOVERY_LOCK:
-                    _DISCOVERY_SENT.add(printer_id)
-            else:
+            sent = False
+            try:
+                topic, config = discovery_config(notify, printer_id)
+                sent = notify_bus.publish_retained(topic, json.dumps(config))
+            finally:
+                if not sent:
+                    with _DISCOVERY_LOCK:
+                        _DISCOVERY_SENT.discard(printer_id)
+            if not sent:
                 logger.info("mqtt roast discovery not published for %s", printer_id)
         if not notify_bus.publish_retained(
                 roast_state_topic(notify, printer_id), json.dumps(payload)):

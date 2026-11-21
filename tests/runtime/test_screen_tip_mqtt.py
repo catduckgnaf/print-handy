@@ -235,3 +235,84 @@ def test_sensor_on_or_mqtt_off_clears_nothing(broker, monkeypatch):
         monkeypatch.setattr(settings, "current", lambda cfg=cfg: cfg)
         assert screen_tip.clear_retained_roasts() == 0
     assert broker == []
+
+
+def _recording_publisher(monkeypatch, *, fail_discovery=0, delay=0.0):
+    """Replace the retained publish with a recorder; the first
+    ``fail_discovery`` discovery publishes report failure."""
+    import time
+    calls = []
+    lock = threading.Lock()
+    failures = {"left": fail_discovery}
+
+    def fake(topic, payload):
+        is_config = topic.endswith("/config")
+        if is_config and delay:
+            time.sleep(delay)  # widen the window between check and publish
+        with lock:
+            calls.append(topic)
+            if is_config and failures["left"] > 0:
+                failures["left"] -= 1
+                return False
+        return True
+
+    monkeypatch.setattr(notify, "publish_retained", fake)
+    monkeypatch.setattr(settings, "current", lambda: _cfg())
+    monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "")
+    screen_tip._DISCOVERY_SENT.clear()
+    return calls
+
+
+def test_concurrent_roasts_send_discovery_exactly_once(monkeypatch):
+    # Each publish_roast starts its own MQTT thread; 20 roasts released
+    # together must still send the discovery config once.
+    calls = _recording_publisher(monkeypatch, delay=0.02)
+    barrier = threading.Barrier(20)
+
+    def worker():
+        barrier.wait()
+        assert _publish() is True
+
+    threads = [threading.Thread(target=worker) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    _drain()
+    try:
+        assert [c for c in calls if c.endswith("/config")] == [
+            "homeassistant/sensor/print_handy_bambu1/last_roast/config"]
+        assert calls.count("print-handy/bambu1/last_roast") == 20
+    finally:
+        screen_tip._DISCOVERY_SENT.clear()
+
+
+def test_a_failed_discovery_is_retried_on_the_next_roast(monkeypatch):
+    calls = _recording_publisher(monkeypatch, fail_discovery=1)
+    try:
+        _publish()
+        _drain()
+        assert "bambu1" not in screen_tip._DISCOVERY_SENT
+        # The state still goes out when discovery fails.
+        assert calls.count("print-handy/bambu1/last_roast") == 1
+        _publish()
+        _drain()
+        assert "bambu1" in screen_tip._DISCOVERY_SENT
+        _publish()
+        _drain()
+        assert sum(c.endswith("/config") for c in calls) == 2
+        assert calls.count("print-handy/bambu1/last_roast") == 3
+    finally:
+        screen_tip._DISCOVERY_SENT.clear()
+
+
+def test_a_raising_discovery_gives_the_claim_back(monkeypatch):
+    _recording_publisher(monkeypatch)
+
+    def boom(topic, payload):
+        raise RuntimeError("broker exploded")
+
+    monkeypatch.setattr(notify, "publish_retained", boom)
+    assert _publish() is True
+    _drain()
+    assert "bambu1" not in screen_tip._DISCOVERY_SENT
