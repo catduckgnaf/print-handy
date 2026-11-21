@@ -115,10 +115,8 @@ def _tier_settings(tier, cfg) -> dict[str, Any]:
         # Chat and heavy repair share the [llm] endpoint. Tolerate retired
         # endpoint credentials in legacy tier configs, but never route to them
         # or send their keys. Model selection and timeout remain tier-local;
-        # heavy may still fall back to another model on that same endpoint.
+        # a fallback model uses that same endpoint and credential.
         retired = {"chat_url", "api_key_env", "fallback_url", "fallback_api_key_env"}
-        if tier == "chat":
-            retired.add("fallback_model")
         values = {key: value for key, value in values.items() if key not in retired}
     return values
 

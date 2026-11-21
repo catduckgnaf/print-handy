@@ -170,11 +170,11 @@ def test_the_primary_key_never_goes_to_a_different_fallback_host(monkeypatch):
     tier = {"chat_url": URL, "model": "big", "api_key_env": "TIER_KEY",
             "fallback_url": OTHER_URL, "fallback_model": "small"}
     endpoint = Endpoint(fail={"big"})
-    ai_routes.call("chat", MSG, cfg=cfg(ai={"small": {}, "heavy": {}, "chat": tier}), opener=endpoint)
+    ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
     assert [r["auth"] for r in endpoint.requests] == ["Bearer primary-secret", None]
     tier["fallback_api_key_env"] = "BACKUP_KEY"
     endpoint = Endpoint(fail={"big"})
-    ai_routes.call("chat", MSG, cfg=cfg(ai={"small": {}, "heavy": {}, "chat": tier}), opener=endpoint)
+    ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
     assert [r["auth"] for r in endpoint.requests] == ["Bearer primary-secret", "Bearer backup-secret"]
     assert endpoint.requests[1]["url"] == OTHER_URL
 
@@ -186,7 +186,7 @@ def test_a_named_fallback_key_wins_even_on_the_primary_endpoint(monkeypatch):
     tier = {"chat_url": URL, "model": "big", "api_key_env": "TIER_KEY",
             "fallback_model": "small", "fallback_api_key_env": "BACKUP_KEY"}
     endpoint = Endpoint(fail={"big"})
-    ai_routes.call("chat", MSG, cfg=cfg(ai={"small": {}, "heavy": {}, "chat": tier}), opener=endpoint)
+    ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
     assert [r["auth"] for r in endpoint.requests] == ["Bearer primary-secret", "Bearer backup-secret"]
     assert endpoint.requests[1]["url"] == URL
 
@@ -221,12 +221,10 @@ def test_legacy_chat_endpoint_credentials_are_ignored_without_secondary_egress(m
     )
     endpoint = Endpoint(fail={"tier-model"})
 
-    with pytest.raises(OSError):
-        ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
-
-    assert [request["url"] for request in endpoint.requests] == [URL]
-    assert [request["auth"] for request in endpoint.requests] == [None]
-    assert [request["timeout"] for request in endpoint.requests] == [7]
+    assert ai_routes.call("chat", MSG, cfg=config, opener=endpoint) == ("hello", "retired-fallback")
+    assert [request["url"] for request in endpoint.requests] == [URL, URL]
+    assert [request["auth"] for request in endpoint.requests] == [None, None]
+    assert [request["timeout"] for request in endpoint.requests] == [7, 7]
 
 
 def test_legacy_chat_model_and_timeout_override_shared_endpoint():
@@ -253,7 +251,7 @@ def test_images_ride_on_the_last_user_message():
 def test_describe_names_the_primary_and_the_fallback():
     config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
     assert ai_routes.describe("chat", config) == f"big at {URL}, fallback small"
-    assert ai_routes.describe("heavy", config) == ""
+    assert ai_routes.describe("heavy", config) == f"big at {URL}"
 
 
 # --- the callers are moved onto the routes -------------------------------------------------------
