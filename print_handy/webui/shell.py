@@ -55,7 +55,7 @@ NAV = (
     ("/printers", "Printers"),
     ("/firmware", "Firmware"),
     ("/spools", "Spools"),
-    ("/cost", "Print COST"),
+    ("/cost", "Print cost"),
 )
 
 NAV_GROUPS = {

@@ -111,7 +111,7 @@ def test_chat_page_ask_ai_default_and_no_print_help_suggestion():
     assert "/print-help" not in page
     assert shell.NAV[0] == ("/", "Status")
     assert ("/designs", "Chat / Design") in shell.NAV
-    assert ("/cost", "Print COST") in shell.NAV
+    assert ("/cost", "Print cost") in shell.NAV
     assert ("/config", "Settings") not in shell.NAV
     assert ("/notifications", "Notifications") not in shell.NAV
 
@@ -150,7 +150,7 @@ def test_cost_page_fills_and_names_defaults_and_calculate_is_top_right():
     assert '<details><summary>Advanced</summary>' in page
     assert 'data-advanced' in page
     assert page.index('name="amount"') < page.index("<details")
-    assert "Print Handy Print COST" not in page
+    assert "Print Handy Print cost" not in page
     advanced_form = {"technology": ["fdm"], "watts": ["77"], "failure_percent": ["9"]}
     advanced_error = cost_page.render_cost_page(data, form=advanced_form, error="Check the fields")
     assert '<details open><summary>Advanced</summary>' in advanced_error
