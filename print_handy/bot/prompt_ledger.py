@@ -128,9 +128,13 @@ def stale_notice(restarted, approval, saved):
     """
     why = ("Print Handy restarted after this question was posted, so it can no longer be answered."
            if restarted else "This question expired or was already answered, so it can no longer be answered.")
-    lines = [f"{why} Nothing changed: no print was started, nothing was uploaded to the printer"
-             + (", and your approval was not recorded." if approval else "."),
-             "I removed the dead buttons from that message."]
+    if saved == "started":
+        unchanged = ("Nothing changed. This click did not upload anything, start a print"
+                     + (", or record approval." if approval else "."))
+    else:
+        unchanged = ("Nothing changed: no print was started, nothing was uploaded to the printer"
+                     + (", and your approval was not recorded." if approval else "."))
+    lines = [f"{why} {unchanged}", "I removed the dead buttons from that message."]
     if saved == "started":
         lines.append("That job had already started. Check /print-status.")
     else:

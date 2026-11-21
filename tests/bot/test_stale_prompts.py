@@ -299,6 +299,8 @@ def test_a_started_job_points_to_status_not_a_resend(rig, monkeypatch):
     clicked = run(flow())
     text = clicked.replies[-1]["content"]
     assert "already started" in text and "/print-status" in text
+    assert "no print was started" not in text and "nothing was uploaded" not in text
+    assert "This click did not upload anything, start a print, or record approval." in text
     assert "send the model link" not in text
 
 
