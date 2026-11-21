@@ -1,6 +1,7 @@
 """Reusable offline synthetic seed for rendered Web UI browser checks."""
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from unittest import mock
