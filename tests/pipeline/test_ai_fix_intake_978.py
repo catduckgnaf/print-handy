@@ -302,7 +302,7 @@ def test_fix_that_clears_low_clearance_records_no_acknowledgement(env, monkeypat
     monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix, **_kw: clean)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'lay_flat'}], summary='lay it flat'))
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0)
-    adapter, result, receipt = run_flow(env, [2, 0, 1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 3, 0, 0])
     assert receipt['status'] == 'STARTED'
     assert 'support_override' not in receipt
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -325,7 +325,7 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
                                            summary='sink a little'))
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0), then on the
     # re-graded gate: Decide without a fix (1), Print anyway (0)
-    adapter, result, receipt = run_flow(env, [2, 0, 1, 0, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 3, 0, 0, 1, 0])
     gate = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in (q.get('choices') or [])]
     assert len(gate) == 1 and 'under 1.0 mm' in gate[0]['question']
     assert receipt['status'] == 'STARTED'
@@ -374,7 +374,7 @@ def test_a_declined_geometry_fix_leaves_no_copy_in_the_job_folder(env, monkeypat
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05}))
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Cancel the fix (1),
     # then Cancel (2) on the fix offer
-    adapter, result, receipt = run_flow(env, [2, 0, 1, 0, 1, 2])
+    adapter, result, receipt = run_flow(env, [2, 0, 3, 0, 1, 2])
     assert any(ai_fix.APPLY_LABEL in (q.get('choices') or []) for q in adapter.questions)
     folder = Path(receipt['job_json']).parent
     assert not list(folder.glob(ai_fix.STAGING_PREFIX + '*'))
