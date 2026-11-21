@@ -252,6 +252,14 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                    "(the leave-it-open choice), so " + reach + ".")
         banner += (f'<div class="banner"><span>{why}</span>'
                    '<a class="button" href="/config?section=webui">Web UI settings</a></div>')
+    # A retired AI endpoint that could not migrate (#1759): the Doctor row
+    # above (label "AI endpoint", doctor.AI_ENDPOINT_LABEL) says which keys,
+    # and this banner is the way to the fix — Settings → AI.
+    if any(row.get("label") == "AI endpoint" and row.get("status") == "warn"
+           for row in snap["doctor"]):
+        banner += ('<div class="banner"><span>AI is not configured: your old AI settings '
+                   'were retired and could not be moved to the one endpoint automatically.'
+                   '</span><a class="button" href="/config?section=ai">Open AI settings</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
             + (dashboard_module.render_dashboard(dashboard, snap, form_token=form_token) if dashboard else "")
