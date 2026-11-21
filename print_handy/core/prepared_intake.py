@@ -316,8 +316,12 @@ async def _race_job_cancel(work, job, text):
         await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
         if not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await task
+            except asyncio.CancelledError:
+                # The cancel itself is the expected outcome, not a failure:
+                # the task was cancelled one line above on the owner's word.
+                logger.debug("Typed cancel stopped the intake step %r", text or "intake")
             raise Stopped(text or "Cancelled.")
         return await task
     finally:
