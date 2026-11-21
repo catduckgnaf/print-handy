@@ -5331,6 +5331,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     report = sliced.get('support_clearance') or clearance
                     low_clearance = False
                     if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                           and f.get('severity') == 'risk'
                            for f in (report or {}).get('findings') or []):
                         ack = sliced.get('clearance_acknowledgement') or {}
                         low_clearance = (not ack.get('acknowledged')
@@ -5385,6 +5386,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     report = sliced.get('support_clearance') or clearance
                     low_clearance = False
                     if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                           and f.get('severity') == 'risk'
                            for f in (report or {}).get('findings') or []):
                         ack = sliced.get('clearance_acknowledgement') or {}
                         low_clearance = (not ack.get('acknowledged')
@@ -5438,6 +5440,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # their Phase 1 behavior. Print anyway is the explicit waiver.
             low_clearance = False
             if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                   and f.get('severity') == 'risk'
                    for f in (report or {}).get('findings') or []):
                 ack = sliced.get('clearance_acknowledgement') or {}
                 low_clearance = (not ack.get('acknowledged')
@@ -5541,6 +5544,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 report = sliced.get('support_clearance') or clearance
                 low_clearance = False
                 if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                       and f.get('severity') == 'risk'
                        for f in (report or {}).get('findings') or []):
                     ack = sliced.get('clearance_acknowledgement') or {}
                     low_clearance = (not ack.get('acknowledged')
