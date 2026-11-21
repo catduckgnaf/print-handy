@@ -157,6 +157,26 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("WARN  unknown settings: unknown setting(s) ignored: [listener] ticks", text)
         self.assertNotIn("unknown settings", self.run_doctor()[1])
 
+    def test_retired_ai_keys_warn_without_failing(self):
+        """#1759: retired AI keys with no model to migrate to are a WARN row
+        naming the keys, never a failed check — the machine still runs."""
+        code, text = self.run_doctor(
+            '[design]\nchat_url = "https://ai.example.com/v1/chat/completions"\n'
+            'api_key_env = "DESIGN_KEY"\n')
+        self.assertEqual(code, 0, text)
+        self.assertIn("WARN  ai endpoint: AI is not configured: retired AI settings", text)
+        self.assertIn("[design] chat_url", text)
+        self.assertNotIn("ai.example.com", text)
+        self.assertNotIn("DESIGN_KEY", text)
+
+    def test_a_migrated_retired_endpoint_is_an_ok_row(self):
+        """#1759: the same retired keys with a model migrate, so the row is ok."""
+        code, text = self.run_doctor(
+            '[design]\nchat_url = "https://ai.example.com/v1/chat/completions"\n'
+            'api_key_env = "DESIGN_KEY"\n[vision]\nmodel = "luna"\n')
+        self.assertEqual(code, 0, text)
+        self.assertIn("ok    ai endpoint: Retired AI settings migrated into [llm]", text)
+
     def test_missing_orca_binary_fails(self):
         code, text = self.run_doctor('[orca]\ncommand = ["definitely-not-orca-xyz"]\n')
         self.assertEqual(code, 1)
@@ -304,3 +324,40 @@ class ZmodVersionDoctorTests(unittest.TestCase):
     def test_no_moonraker_url_skips(self):
         data = {"printer": {"model": "flashforge.ad5x"}, "services": {}}
         self.assertIsNone(doctor.check_zmod_version(data))
+
+
+class RetiredAiCheckTests(unittest.TestCase):
+    """#1759: the Doctor names retired AI keys as a warning, never a failure."""
+
+    def load(self, tmp, text):
+        path = Path(tmp) / "local.yaml"
+        path.write_text(text, encoding="utf-8")
+        return settings.load(local=path, environ={})
+
+    def test_ambiguous_retired_keys_are_a_warn_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.load(tmp,
+                             "ai:\n  chat:\n    chat_url: https://ai.example.com/v1/chat/completions\n"
+                             "    api_key_env: DESIGN_KEY\n"
+                             "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
+                             "  api_key_env: DESIGN_KEY\n")
+        status, detail = doctor.check_retired_ai(data)
+        self.assertEqual(status, "warn")
+        self.assertIn("[design] chat_url", detail)
+        self.assertNotIn("ai.example.com", detail)
+        self.assertNotIn("DESIGN_KEY", detail)
+
+    def test_a_migrated_retired_endpoint_is_an_ok_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.load(tmp,
+                             "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
+                             "  api_key_env: DESIGN_KEY\n"
+                             "vision:\n  model: luna\n")
+        status, detail = doctor.check_retired_ai(data)
+        self.assertEqual(status, "ok")
+        self.assertIn("migrated into [llm]", detail)
+
+    def test_no_retired_keys_is_no_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.load(tmp, "design:\n  model: cad-model\n")
+        self.assertIsNone(doctor.check_retired_ai(data))

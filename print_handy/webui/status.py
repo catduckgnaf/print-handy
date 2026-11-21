@@ -229,6 +229,14 @@ def doctor_checks(data):
     rows.append({"label": "debug mode",
                  "status": "warn" if debug_row else "ok",
                  "detail": debug_row or "off"})
+    try:
+        ai_state = doctor.check_retired_ai(data)
+    except Exception as exc:  # a state problem is a row, never a failed snapshot
+        ai_state = ("warn", f"could not check: {exc}")
+    if ai_state is not None:
+        status, detail = ai_state
+        rows.append({"label": doctor.AI_ENDPOINT_LABEL,
+                     "status": status, "detail": detail})
     return rows
 
 
@@ -256,8 +264,13 @@ def snapshot(data=None, *, environ=None, heartbeat=READ_HEARTBEAT, probe=None, c
     model = printers.MODELS[model_key]
     services = {key: _shown_url(value) for key, value in sorted(data.get("services", {}).items())
                 if key.endswith("_url") and value}
+    # A warned AI endpoint is not "All good" (#1759): retired AI settings
+    # with no endpoint to migrate to mean the AI the operator configured is
+    # off, and the Status headline must say so even though no check failed.
+    ai_blocked = any(row["label"] == doctor.AI_ENDPOINT_LABEL and row["status"] == "warn"
+                     for row in rows)
     ok = (bot["ok"] is not False and listener["ok"] is not False
-          and spoolman["ok"] is not False
+          and spoolman["ok"] is not False and not ai_blocked
           and all(row["status"] != "fail" for row in rows))
     return {
         "version": __version__,

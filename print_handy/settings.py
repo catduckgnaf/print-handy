@@ -159,26 +159,33 @@ def _apply_key_aliases(layer):
     services = layer.get("services")
     if isinstance(services, dict):
         services.pop("openviking_url", None)  # Drop retired configuration without disrupting upgrades.
-        _note_retired_endpoint("[services] vision_chat_url", services.pop("vision_chat_url", None))  # Removed in #1731: vision uses the one [llm] endpoint.
+        vision_url = services.pop("vision_chat_url", None)
+        _note_retired_endpoint("[services] vision_chat_url", vision_url)  # Removed in #1731: vision uses the one [llm] endpoint.
+        _note_retired_ai("url", "[services] vision_chat_url", vision_url)
     # The legacy LLM cleanup (#1731): the [agent] lane, the per-lane and
     # per-tier endpoint keys and the vision model are retired. A config
     # carrying any of them still loads — the keys are dropped here, before
     # the unknown-key check, so they are inert rather than refused (some
     # are credential-shaped and would otherwise refuse the whole load).
+    # Their values are kept as migration candidates (#1759): _migrate_retired_ai_endpoint
+    # decides after the layers merge whether they restore [llm], and only then are the
+    # dropped keys reported as unknown (see _note_retired_ai).
     agent = layer.pop("agent", None)
     if isinstance(agent, dict):
         for key in ("chat_url", "fallback_url"):
             _note_retired_endpoint(f"[agent] {key}", agent.get(key))
+            _note_retired_ai("url", f"[agent] {key}", agent.get(key))
+        _note_retired_ai("model", "[agent] model", agent.get("model"))
     design = layer.get("design")
     if isinstance(design, dict):
-        for key in ("chat_url", "api_key_env"):
+        for key, kind in (("chat_url", "url"), ("api_key_env", "key")):
             if key in design:
-                _note_unknown(f"[design] {key} is retired; configure the matching "
-                              "endpoint and key variable together in [llm]")
-                del design[key]
+                _note_retired_ai(kind, f"[design] {key}", design.pop(key),
+                                 unknown_note=(f"[design] {key} is retired; configure the matching "
+                                               "endpoint and key variable together in [llm]"))
     vision = layer.get("vision")
     if isinstance(vision, dict):
-        vision.pop("model", None)
+        _note_retired_ai("model", "[vision] model", vision.pop("model", None))
     ai = layer.get("ai")
     if isinstance(ai, dict):
         for tier in ("small", "chat", "heavy"):
@@ -189,6 +196,11 @@ def _apply_key_aliases(layer):
                     value = table.pop(key, None)
                     if key in ("chat_url", "fallback_url"):
                         _note_retired_endpoint(f"[ai.{tier}] {key}", value)
+                        _note_retired_ai("url", f"[ai.{tier}] {key}", value)
+                    elif key in ("api_key_env", "fallback_api_key_env"):
+                        _note_retired_ai("key", f"[ai.{tier}] {key}", value)
+                    elif key == "fallback_model":
+                        _note_retired_ai("model", f"[ai.{tier}] {key}", value)
     return layer
 
 
@@ -437,6 +449,41 @@ def _credential_shaped(key):
 _retired_endpoints = []
 
 
+# Retired AI endpoint settings seen by the current load (#1759):
+# (kind, name, value, unknown_note). kind is "url", "key" or "model"; name is
+# the file key ("[design] chat_url") or the environment name
+# ("$PRINT_HANDY__AGENT__CHAT_URL"); value is the raw setting, kept only to
+# decide the migration and never written into a warning or a Doctor row;
+# unknown_note is the unknown-settings entry to report when the value is
+# dropped without migrating, or None when the key was never reported that
+# way. load() resets the list; the migration outcome is in _retired_ai_state
+# (see retired_ai_state()).
+_retired_ai_candidates = []
+_retired_ai_state = {}
+
+
+def _note_retired_ai(kind, name, value, unknown_note=None):
+    if value is not None and str(value).strip():
+        _retired_ai_candidates.append((kind, name, str(value).strip(), unknown_note))
+
+
+# Retired AI endpoint keys addressable from the environment (#1759), by
+# (section, key) to candidate kind. Two-part PRINT_HANDY__ names only; a
+# three-part tier name (PRINT_HANDY__AI__SMALL__CHAT_URL) was never a valid
+# override shape and still refuses loudly in _from_env, as before.
+# PRINT_VISION_URL and PRINT_FUZZY_URL are deliberately absent: they named
+# Cloudflare Worker URLs, not OpenAI-compatible endpoints, so they can never
+# migrate into [llm] and stay ignored-with-a-warning.
+_RETIRED_AI_ENV = {
+    ("agent", "chat_url"): "url",
+    ("agent", "fallback_url"): "url",
+    ("services", "vision_chat_url"): "url",
+    ("design", "chat_url"): "url",
+    ("design", "api_key_env"): "key",
+    ("vision", "model"): "model",
+}
+
+
 def _note_retired_endpoint(name, value):
     url = str(value or "").strip()
     if url:
@@ -459,6 +506,114 @@ def _warn_retired_endpoints(data):
             _note_unknown(f"{name} is retired and differs from [llm] chat_url; camera and label "
                           "images, and every other AI request, are now sent to the [llm] "
                           "endpoint (see Retired settings in the settings guide)")
+
+
+def _migrate_retired_ai_endpoint(data):
+    """Migrate an unambiguous retired AI endpoint into [llm] (#1759), or record why not.
+
+    The one-AI-endpoint change (#1731) retired the per-lane and per-tier endpoint keys; a
+    config carrying only those keys loads with AI silently off. When the retired keys name
+    exactly one endpoint URL, at most one key variable, and exactly one model — or [llm]
+    already names its model — the endpoint is restored in memory: [llm] chat_url, api_key_env
+    and model are filled from the retired values. The operator file is untouched, so the
+    migration re-derives on every load and stays reversible; the migrated keys are not
+    reported as unknown. Anything ambiguous, or a config with no single model to use, is
+    not guessed: the retired keys stay dropped, they are reported as unknown as before,
+    and retired_ai_state() reports the ambiguity for the Doctor and the Status page.
+    [llm] model is required whenever chat_url is set (validate() refuses the pair
+    otherwise), so a migration that cannot name a model must decline — filling the URL
+    alone would leave every tier unresolvable and silence the warning that names it.
+    """
+    _retired_ai_state.clear()
+    llm = data.setdefault("llm", {})
+    names = sorted({name for _, name, _, _ in _retired_ai_candidates})
+    if not names:
+        return
+    if str(llm.get("chat_url") or "").strip():
+        # An endpoint is configured; the retired keys are ignored as before (#1731).
+        for _, _, _, note in _retired_ai_candidates:
+            if note:
+                _note_unknown(note)
+        return
+    urls = {}
+    for kind, _, value, _ in _retired_ai_candidates:
+        if kind == "url" and value.startswith(("http://", "https://")):
+            urls.setdefault(value.rstrip("/"), value)
+    keys = {value for kind, _, value, _ in _retired_ai_candidates
+            if kind == "key" and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value)}
+    models = {}
+    for kind, name, value, _ in _retired_ai_candidates:
+        if kind == "model" and value:
+            models.setdefault(value, []).append(name)
+    live = {}
+    design_model = str((data.get("design") or {}).get("model") or "").strip()
+    if design_model:
+        live.setdefault(design_model, []).append("[design] model")
+    for tier in ("small", "chat", "heavy"):
+        tier_model = str(((data.get("ai") or {}).get(tier) or {}).get("model") or "").strip()
+        if tier_model:
+            live.setdefault(tier_model, []).append(f"[ai.{tier}] model")
+    llm_model = str(llm.get("model") or "").strip()
+    all_models = set(models) | set(live)
+    if llm_model:
+        model, model_source = llm_model, "[llm] model"
+    elif len(all_models) == 1:
+        model = next(iter(all_models))
+        model_source = (models.get(model) or live.get(model))[0]
+    else:
+        model, model_source = None, None
+    if len(urls) != 1:
+        reason = (f"name {len(urls)} different endpoints" if urls
+                  else "name no usable endpoint URL")
+    elif len(keys) > 1:
+        reason = f"name {len(keys)} different key variables"
+    elif model is None:
+        reason = ("name an endpoint but no model to use" if not all_models
+                  else f"name {len(all_models)} different models")
+    else:
+        reason = None
+    if reason is None:
+        url = urls[next(iter(urls))]
+        llm["chat_url"] = url
+        if len(keys) == 1:
+            llm["api_key_env"] = next(iter(keys))
+        if not llm_model:
+            llm["model"] = model
+        import logging
+        logging.getLogger(__name__).info(
+            "Migrated retired AI endpoint into [llm] from %s (model from %s); "
+            "the old keys are ignored — remove them from the config",
+            ", ".join(names), model_source)
+        _retired_ai_state.update({
+            "outcome": "migrated",
+            "keys": names,
+            "detail": (f"Retired AI settings migrated into [llm] (from {', '.join(names)}). "
+                       "The old keys are ignored; remove them from the config."),
+        })
+        return
+    # Declined: report the dropped keys as unknown, as before (#1731), so the
+    # startup warning still names them; the Doctor names them too, via the state.
+    for _, _, _, note in _retired_ai_candidates:
+        if note:
+            _note_unknown(note)
+    _retired_ai_state.update({
+        "outcome": "ambiguous",
+        "keys": names,
+        "detail": (f"AI is not configured: retired AI settings ({', '.join(names)}) {reason}; "
+                   "set [llm] chat_url, model and api_key_env in Settings → AI, "
+                   "or remove the old keys."),
+    })
+
+
+def retired_ai_state():
+    """The retired-AI-endpoint outcome of the most recent load(), or None.
+
+    None when the load saw no retired AI keys, or [llm] was already configured. Otherwise
+    {"outcome": "migrated" | "ambiguous", "keys": [retired key names], "detail": ...} — the
+    detail names the keys, never their values. The Doctor and the Status page read this;
+    the keys themselves are gone from the loaded data by then.
+    """
+    return dict(_retired_ai_state) if _retired_ai_state else None
 
 
 def _note_unknown(entry):
@@ -654,6 +809,14 @@ def _from_env(home, environ, declared=None):
             continue
         if (section, key) == ("services", "openviking_url"):
             continue  # Ignore old Docker template overrides on upgrade.
+        if (section, key) in _RETIRED_AI_ENV:
+            # A retired AI endpoint key from the environment (#1759): it
+            # still loads — the value is a migration candidate for [llm],
+            # exactly like the same key in a config file — and is reported
+            # as unknown only when the migration declines.
+            _note_retired_ai(_RETIRED_AI_ENV[(section, key)], f"${name}", raw,
+                             unknown_note=_unknown_message(f"${name}", section, key))
+            continue
         if (section, key) in ENV_LISTS:
             # An empty value changes nothing, like every other Docker feature variable left blank;
             # the list itself is checked by validate() (for [delivery] methods: _validate_vendor_choices).
@@ -2600,6 +2763,8 @@ def load(home=None, local=None, environ=None, user=None):
     environ = os.environ if environ is None else environ
     _unknown_settings.clear()
     _retired_endpoints.clear()
+    _retired_ai_candidates.clear()
+    _retired_ai_state.clear()
     if home is None:
         home = HOME if HOME.is_file() else LEGACY_HOME
     home_data = _apply_key_aliases(_read(home))
@@ -2663,6 +2828,7 @@ def load(home=None, local=None, environ=None, user=None):
     env_layer = _from_env(base, environ, declared)
     data = _merge(data, env_layer)
     _warn_retired_endpoints(data)
+    _migrate_retired_ai_endpoint(data)
     _keep_legacy_path_defaults(data, _explicit_keys(extra, env_layer))
     # layout.spacing fills the gap/margin keys; a key the operator set anywhere wins.
     apply_spacing_preset(data, _explicit_keys(home_data, extra, env_layer))

@@ -374,6 +374,27 @@ def check_debug_mode(data):
     return debug_mode.check_row(data)
 
 
+AI_ENDPOINT_LABEL = "AI endpoint"
+
+
+def check_retired_ai(data):
+    """The retired-AI-endpoint state (#1759) as (status, detail), or None.
+
+    ``data`` is the loaded settings dict; the state itself comes from the
+    most recent settings.load() (see settings.retired_ai_state()), which is
+    the load that produced ``data`` in every caller. None when the load saw
+    no retired AI keys, or [llm] was already configured. "ok" when the
+    retired endpoint migrated into [llm]; "warn" when retired AI keys are
+    present but no endpoint could be determined — the detail names the
+    keys, never their values. A warning here is never a failed check: the
+    machine still runs, but the AI the operator configured is off.
+    """
+    state = settings.retired_ai_state()
+    if state is None:
+        return None
+    return ("ok" if state["outcome"] == "migrated" else "warn", state["detail"])
+
+
 def _bot_token(data):
     from .runtime import _config
     name = data["discord"]["token_env"]
@@ -436,6 +457,13 @@ def run(out=sys.stdout):
         unknown_warning = f"could not check: {exc}"
     if unknown_warning:
         print(f"WARN  unknown settings: {unknown_warning}", file=out)
+    try:
+        ai_state = check_retired_ai(data)
+    except Exception as exc:  # a state problem is a warning here, never a failed check
+        ai_state = ("warn", f"could not check: {exc}")
+    if ai_state is not None:
+        status, detail = ai_state
+        print(f"{'WARN' if status == 'warn' else 'ok  '}  ai endpoint: {detail}", file=out)
     try:
         pids = check_pids(data)
     except Exception as exc:  # an unreadable cgroup is a warning here, never a failed check

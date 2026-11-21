@@ -341,6 +341,101 @@ def test_a_retired_url_equal_to_llm_or_with_no_llm_does_not_warn(tmp_path):
     assert settings.unknown_settings_warning() is None
 
 
+def test_an_unambiguous_retired_endpoint_migrates_into_llm(tmp_path):
+    """#1759: one retired URL, one key variable and one model restore [llm] in memory."""
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n  api_key_env: DESIGN_KEY\n"
+        "vision:\n  model: luna\n  ai_enabled: true\n", encoding="utf-8")
+    data = settings.load(local=path, user=False, environ={})
+    assert data["llm"]["chat_url"] == "https://ai.example.com/v1/chat/completions"
+    assert data["llm"]["api_key_env"] == "DESIGN_KEY"
+    assert data["llm"]["model"] == "luna"
+    assert settings.unknown_settings_warning() is None
+    assert settings.retired_ai_state()["outcome"] == "migrated"
+    for tier in ai_routes.TIERS:
+        assert ai_routes.configured(tier, data)
+
+
+def test_the_live_design_model_is_the_migration_model_when_it_is_the_only_one(tmp_path):
+    """#1759: [design] model is a live key, and the documented shared default
+    for the migration — the retired endpoint keys alone name no model."""
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
+        "  api_key_env: DESIGN_KEY\n  model: cad-model\n", encoding="utf-8")
+    data = settings.load(local=path, user=False, environ={})
+    assert data["llm"]["chat_url"] == "https://ai.example.com/v1/chat/completions"
+    assert data["llm"]["model"] == "cad-model"
+    assert ai_routes.configured("heavy", data)
+    assert settings.retired_ai_state()["outcome"] == "migrated"
+
+
+def test_differing_retired_urls_do_not_migrate(tmp_path):
+    """#1759: two endpoints are not guessed — [llm] stays empty and the keys are named."""
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "agent:\n  chat_url: http://agent.example.test/v1/chat/completions\n"
+        "design:\n  chat_url: http://design.example.test/v1/chat/completions\n"
+        "  api_key_env: DESIGN_KEY\n"
+        "vision:\n  model: luna\n", encoding="utf-8")
+    data = settings.load(local=path, user=False, environ={})
+    assert data["llm"]["chat_url"] == ""
+    for tier in ai_routes.TIERS:
+        assert not ai_routes.configured(tier, data)
+    state = settings.retired_ai_state()
+    assert state["outcome"] == "ambiguous"
+    assert "different endpoints" in state["detail"]
+    warning = settings.unknown_settings_warning()
+    assert warning and "[design] chat_url" in warning
+    assert "agent.example.test" not in warning and "design.example.test" not in warning
+
+
+def test_retired_keys_without_a_model_do_not_migrate(tmp_path):
+    """#1759: the issue's repro — one endpoint and one key, but no model
+    anywhere, so the endpoint cannot be restored and the Doctor must warn."""
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "ai:\n  chat:\n    chat_url: https://ai.example.com/v1/chat/completions\n"
+        "    api_key_env: DESIGN_KEY\n"
+        "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
+        "  api_key_env: DESIGN_KEY\n", encoding="utf-8")
+    data = settings.load(local=path, user=False, environ={})
+    assert data["llm"]["chat_url"] == ""
+    assert data["llm"]["model"] == ""
+    state = settings.retired_ai_state()
+    assert state["outcome"] == "ambiguous"
+    assert "no model to use" in state["detail"]
+    warning = settings.unknown_settings_warning()
+    assert warning and "[design] chat_url" in warning and "[design] api_key_env" in warning
+    assert "ai.example.com" not in warning and "DESIGN_KEY" not in warning
+
+
+def test_differing_retired_models_do_not_migrate(tmp_path):
+    """#1759: two model names are not guessed either."""
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n  api_key_env: DESIGN_KEY\n"
+        "vision:\n  model: luna\n"
+        "ai:\n  small:\n    fallback_model: nano\n", encoding="utf-8")
+    data = settings.load(local=path, user=False, environ={})
+    assert data["llm"]["chat_url"] == ""
+    assert "different models" in settings.retired_ai_state()["detail"]
+
+
+def test_a_retired_env_endpoint_migrates_when_unambiguous():
+    """#1759: the Docker spelling of the same retired keys migrates too."""
+    data = settings.load(local=None, user=False, environ={
+        "PRINT_HANDY__DESIGN__CHAT_URL": "https://ai.example.com/v1/chat/completions",
+        "PRINT_HANDY__DESIGN__API_KEY_ENV": "DESIGN_KEY",
+        "PRINT_HANDY__VISION__MODEL": "luna"})
+    assert data["llm"]["chat_url"] == "https://ai.example.com/v1/chat/completions"
+    assert data["llm"]["api_key_env"] == "DESIGN_KEY"
+    assert data["llm"]["model"] == "luna"
+    assert settings.retired_ai_state()["outcome"] == "migrated"
+    assert settings.unknown_settings_warning() is None
+
+
 def test_a_legacy_env_override_for_a_removed_key_is_ignored():
     data = settings.load(local=None, environ={
         "PRINT_HANDY__AGENT__CHAT_URL": "http://agent.test/v1/chat/completions",
