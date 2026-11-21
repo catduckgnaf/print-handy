@@ -85,12 +85,12 @@ def default_notes(data):
     profile, _ = cost_module.printer_profile_for(data)
     notes = {
         "price_per_kg": (f"Default: {_fmt(workspace.default_filament_cost_per_kg)} per "
-                         "kilogram, from the Print COST settings (default filament cost)."),
+                         "kilogram, from the Print cost settings (default filament cost)."),
         "watts": (f"Default: {_fmt(profile.watts)} W average "
                   f"({profile.watts_basis}), from the {profile.name} cost profile."),
         "failure_percent": (f"Default: {_fmt(workspace.failure_rate_fdm * 100)}% for FDM, "
                             f"{_fmt(workspace.failure_rate_resin * 100)}% for resin, "
-                            "from the Print COST settings."),
+                            "from the Print cost settings."),
         "prep_minutes": "Default: 5 minutes.",
         "post_minutes": "Default: 10 minutes.",
         "pack_minutes": "Default: 0 minutes.",
@@ -103,7 +103,7 @@ def default_notes(data):
                                   f"{profile.name} cost profile.")
     else:
         notes["printer_price"] = (f"No printer price in the {profile.name} cost profile "
-                                  "yet: 0 until one is set in the Print COST settings.")
+                                  "yet: 0 until one is set in the Print cost settings.")
     return notes
 
 
@@ -174,8 +174,10 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
         for key, _label, _kind in FIELDS:
             values[key] = _value(form, key, values.get(key, ""))
     notes = default_notes(data)
-    rows = []
+    basic_rows = []
+    advanced_rows = []
     for key, label, kind in FIELDS:
+        rows = advanced_rows if key in ADVANCED else basic_rows
         advanced = " data-advanced" if key in ADVANCED else ""
         if kind == "select":
             control = (f'<select name="{key}">'
@@ -197,25 +199,24 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
         body.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
         body.append(f'<p class="error">{_esc(error)}</p>')
+    advanced_error = bool(error and form and any(form.get(key) for key in ADVANCED))
     body.append(
         "<p>Cost is computed by the same engine as chat and the completion "
         "record. Drop a G-code or sliced 3MF file below to auto-fill the "
         "amount and time; an unsliced file says so instead of costing "
         "zero. Cost is information only and never blocks a print.</p>"
-        f'<form method="post" action="/cost"><input type="hidden" name="_csrf" value="{_esc(form_token)}">'
-        # Calculate sits at the top right of the form (#1718), not at
-        # the bottom under every field.
-        + '<div class="design-head"><p>Defaults are filled in and named '
-          'under each field; change any of them to price this job '
-          'differently.</p>'
-          '<button type="submit" class="accent">Calculate cost</button></div>'
-        + "".join(rows)
-        + '</form>'
         f'<form method="post" action="/cost" enctype="multipart/form-data">'
         f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
         '<p><label>Auto-fill from a file<br>'
         '<input type="file" name="file" accept=".gcode,.gco,.3mf,.txt"></label></p>'
-        '<p><button type="submit">Read file</button></p></form>')
+        '<p><button type="submit">Read file</button></p></form>'
+        f'<form method="post" action="/cost"><input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+        + '<p>Defaults are filled in and named under each field; change any of them to price this job differently.</p>'
+        + "".join(basic_rows)
+        + f'<details{" open" if advanced_error else ""}><summary>Advanced</summary>'
+        + "".join(advanced_rows) + '</details>'
+        + '<button type="submit" class="accent">Calculate cost</button>'
+        + '</form>')
     if result is not None:
         cur = _esc(result.currency_code)
         lines = "".join(
@@ -245,7 +246,8 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
                 "the Adventurer 5M platform figure.</p>")
     if history:
         body.append(history)
-    return shell.page("Print COST", "".join(body), path="/cost", theme=theme)
+    return shell.page("Print cost", "".join(body), path="/cost", theme=theme,
+                      heading="Print cost")
 
 
 def history_cost_rows(records, limit=20):
