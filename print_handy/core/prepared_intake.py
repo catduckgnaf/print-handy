@@ -3971,6 +3971,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     with_supports_line(sup_reason, sup_est, early.finding, clearance, gap_repair=gap_fix),
                     f"- Slice and print without supports: {nosup_est}",
                 ]
+                coverage_preview = getattr(early, 'supports_coverage', None)
+                if coverage_preview is not None:
+                    if coverage_preview.get('unverified'):
+                        coverage_line = "- With-supports coverage: couldn't verify; the start check will ask before proceeding"
+                    elif coverage_preview.get('checked') and not coverage_preview.get('ok'):
+                        coverage_line = "- With-supports coverage: gaps found; the start check will ask before proceeding"
+                    elif coverage_preview.get('checked'):
+                        coverage_line = '- With-supports coverage: verified'
+                    else:
+                        coverage_line = '- With-supports coverage: unavailable; the start check will verify before proceeding'
+                    flag_lines.append(coverage_line)
                 # Supports labeled "not recommended" are never the first
                 # option: the without-supports line and button lead.
                 sup_recommended = supports_recommended(early.finding, clearance) and not gap_fix
@@ -5113,7 +5124,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                        gcode_sha256={g: delivery.sha256(g) for g in gcodes})
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
 
-        async def _coverage_result(gcode_list):
+        async def _coverage_result(gcode_list, *, allow_preview=False):
             """The post-slice support coverage result for these plates (#922 gaps 2 and 4).
 
             Coverage is graded per plate with each plate's own bounds
@@ -5130,43 +5141,32 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             report = sliced.get('support_clearance') or clearance
             if not report:
                 return None
-            fit = sliced.get('fit') or {}
-            recorded = sliced.get('scale') or fit.get('scale')
-            placement = fit.get('placement_mm')
-            source_bounds = None
-            source_height = None
+            from . import coverage_reuse
+
+            extent = None
             bounds_note = None
-            source_part_count = None
             try:
-                # Off the chat loop (child process, bounded general lane): reading
-                # every mesh leaf of a large source starved the gateway heartbeat.
+                # Source geometry and G-code reads stay off the chat loop.
                 extent = await _heavy(support_clearance.source_extent, path)
-                source_bounds = tuple(extent['bounds'])
-                source_height = extent['height']
-                # Distinct placed parts in the source (#1612): an
-                # unlabeled multi-part plate cannot be attributed.
-                source_part_count = extent['part_count']
             except Exception as exc:  # noqa: BLE001 - named below, not silent
                 bounds_note = (f'source bounds unreadable ({exc}); coverage compared '
                                'without a source-to-slice mapping')
-            plates = []
-            for g in gcode_list:
-                plate = {'gcode': str(g), 'source_bounds': source_bounds,
-                         'source_height': source_height}
-                if source_part_count:
-                    plate['source_part_count'] = source_part_count
-                if recorded:
-                    plate['recorded_scale'] = float(recorded)
-                if placement:
-                    plate['placement_mm'] = tuple(float(v) for v in placement)
-                if bounds_note:
-                    plate['unverified_reason'] = bounds_note
-                plates.append(plate)
+            regions = report.get('regions') or []
             try:
-                # The G-code walk is the slow part: keep it off the chat loop. Its result
-                # is computed in-process; worker failures remain explicitly unverified.
-                return await _heavy(support_clearance.verify_coverage_by_plate,
-                                    report.get('regions') or [], plates)
+                plates = coverage_reuse.coverage_plates(gcode_list, sliced, extent, bounds_note)
+                preview_identity = getattr(early, 'supports_coverage_identity', None)
+                preview_result = getattr(early, 'supports_coverage', None)
+                if allow_preview and preview_identity and coverage_reuse.reusable(preview_result):
+                    try:
+                        current = await _heavy(coverage_reuse.coverage_identity, gcode_list, regions,
+                                               coverage_reuse.coverage_inputs(sliced), plates)
+                    except Exception as exc:  # noqa: BLE001 - cache failure still runs the normal gate
+                        logger.warning('support coverage identity unavailable for intake %s: %s', iid, exc)
+                        current = None
+                    if current == preview_identity:
+                        mj._timing(jp, 'support_coverage_exact_reuse')
+                        return preview_result
+                return await _heavy(support_clearance.verify_coverage_by_plate, regions, plates)
             except Exception as exc:  # noqa: BLE001 - CancelledError is BaseException and propagates
                 logger.warning('support coverage worker failed for intake %s: %s', iid, exc)
                 return {'checked': False, 'ok': True, 'regions': [], 'plate_mode': 'none',
@@ -5425,7 +5425,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 return 'waived'
 
         if supports_choice is True:
-            cov_result = await _coverage_result(gcodes)
+            cov_result = await _coverage_result(gcodes, allow_preview=True)
             if cov_result is not None and cov_result.get('unverified'):
                 _record_coverage_unverified(cov_result)
             cov_failure = (cov_result if cov_result is not None and cov_result['checked']

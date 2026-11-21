@@ -108,6 +108,11 @@ def bridge_sha(env_):
 
 
 def test_the_repair_does_not_waive_the_separate_coverage_failure(bridge, monkeypatch):
+    from print_handy.intake import worker
+    from .test_intake_support_unverified_968 import _in_process_heavy
+
+    _in_process_heavy(monkeypatch)
+    monkeypatch.setattr(worker, '_heavy', prepared_intake._heavy)
     calls = []
 
     def verify(regions, plates):
