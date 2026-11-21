@@ -508,6 +508,14 @@ def _warn_retired_endpoints(data):
                           "endpoint (see Retired settings in the settings guide)")
 
 
+def _retired_ai_key_name(name):
+    if name.startswith("$"):
+        parts = name[1:].removeprefix("PRINT_HANDY__").lower().split("__")
+        if len(parts) == 2:
+            return f"[{parts[0]}] {parts[1]}"
+    return name
+
+
 def _migrate_retired_ai_endpoint(data):
     """Migrate an unambiguous retired AI endpoint into [llm] (#1759), or record why not.
 
@@ -530,9 +538,10 @@ def _migrate_retired_ai_endpoint(data):
     # names when distinct retired keys remain in conflict.
     env_candidates = [candidate for candidate in _retired_ai_candidates
                       if candidate[1].startswith("$PRINT_HANDY__")]
-    env_file_names = {candidate[1][1:] for candidate in env_candidates}
+    env_file_names = {_retired_ai_key_name(candidate[1]) for candidate in env_candidates}
     candidates = [candidate for candidate in _retired_ai_candidates
-                  if not (candidate[1].startswith("[") and candidate[1] in env_file_names)]
+                  if not (candidate[1].startswith("[")
+                          and _retired_ai_key_name(candidate[1]) in env_file_names)]
     candidates.extend(env_candidates)
     names = sorted({name for _, name, _, _ in candidates})
     if not names:

@@ -439,6 +439,22 @@ def test_retired_design_url_environment_override_is_effective_migration_value(tm
     assert settings.unknown_settings_warning() is None
 
 
+def test_environment_override_of_retired_design_model_replaces_file_candidate(tmp_path):
+    """The environment model wins over its same-key YAML value during migration."""
+    path = tmp_path / "retired.yaml"
+    path.write_text(
+        "design:\n  chat_url: https://old.example.test/v1/chat/completions\n"
+        "  model: old-model\n", encoding="utf-8")
+    data = settings.load(local=path, user=False, environ={
+        "PRINT_HANDY__DESIGN__CHAT_URL": "https://new.example.test/v1/chat/completions",
+        "PRINT_HANDY__DESIGN__MODEL": "new-model"})
+    assert data["llm"]["chat_url"] == "https://new.example.test/v1/chat/completions"
+    assert data["llm"]["model"] == "new-model"
+    state = settings.retired_ai_state()
+    assert state and state["outcome"] == "migrated"
+    assert "old-model" not in str(state)
+
+
 def test_distinct_retired_urls_still_conflict_after_environment_override(tmp_path):
     path = tmp_path / "retired.yaml"
     path.write_text(
