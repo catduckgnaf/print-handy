@@ -170,8 +170,10 @@ def test_the_primary_key_never_goes_to_a_different_fallback_host(monkeypatch):
     tier = {"chat_url": URL, "model": "big", "api_key_env": "TIER_KEY",
             "fallback_url": OTHER_URL, "fallback_model": "small"}
     endpoint = Endpoint(fail={"big"})
-    ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
-    assert [r["auth"] for r in endpoint.requests] == ["Bearer primary-secret", None]
+    # The vision tier refuses a hosted fallback without its own key.
+    with pytest.raises(OSError, match="timed out"):
+        ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
+    assert [(r["url"], r["auth"]) for r in endpoint.requests] == [(URL, "Bearer primary-secret")]
     tier["fallback_api_key_env"] = "BACKUP_KEY"
     endpoint = Endpoint(fail={"big"})
     ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
