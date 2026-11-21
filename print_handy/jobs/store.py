@@ -36,6 +36,13 @@ def _timing(job_path, stage, at=None, **extra):
     consumption and lease acquisition). Other slice paths (multi-plate,
     split) emit ``slice_done`` without the ``orca_*``/``verify_*`` stages.
 
+    Front-of-flow stages of an intake, in order (#1476, #1779):
+    ``message_received``, ``download_done`` (every source file is in the
+    job folder), ``source_checked`` (source checks and the working copy),
+    ``combine_begin`` -> ``combine_done`` (multi-file models only),
+    ``audit_done``, ``manifest_done`` and ``inspection_done`` (clearance
+    too), with ``first_question_posted`` wherever the first question falls.
+
     ``at`` overrides the stamped time: the front-of-flow capture below
     stamps a stage when it happens and writes the line later, when the
     job folder exists (#1476).

@@ -338,6 +338,67 @@ async def _race_job_cancel(work, job, text):
 #: typed cancel still reaches the step while it is quiet.
 STEP_QUIET_S = 5.0
 
+#: How often a slow step's standing Stop prompt shows how long the step has
+#: run (#1779): the prompt itself is edited in place ("Slicing… 18 s"), never
+#: a new message per tick. Adapters that cannot edit a prompt keep the
+#: prompt's first text, as before.
+STEP_PROGRESS_TICK_S = 10.0
+
+_STOP_SUFFIXES = (" Press Stop to cancel before it starts.", " Press Stop to request cancellation.",
+                  " Press Stop to cancel.")
+
+
+def _step_progress_text(text, elapsed, done=False):
+    """A step prompt's text with its elapsed time (#1779).
+
+    'Slicing. Press Stop to cancel.' after 18 s reads
+    'Slicing… 18 s. Press Stop to cancel.'; once the step finished it reads
+    'Slicing: done, 18 s.' (the Stop hint goes with the button).
+    """
+    head, suffix = str(text or '').strip(), ''
+    for candidate in _STOP_SUFFIXES:
+        if head.endswith(candidate):
+            head, suffix = head[:-len(candidate)], candidate
+            break
+    head = head.rstrip().rstrip('.')
+    if done:
+        return f'{head}: done, {_elapsed_text(elapsed)}.'
+    return f'{head}… {_elapsed_text(elapsed)}.{suffix}'
+
+
+def _step_prompt_editor(adapter, stop_msg, sent, cid):
+    """An ``edit(text)`` coroutine function that rewrites a posted step prompt
+    while keeping its Stop button, or None when this adapter cannot."""
+    if stop_msg is not None and callable(getattr(stop_msg, 'edit', None)):
+        async def edit_stop_message(content):
+            await stop_msg.edit(content=content)
+            return True
+        return edit_stop_message
+    editor = getattr(adapter, 'edit_prompt', None)
+    if callable(editor) and sent is not None and getattr(sent, 'message_id', None):
+        async def edit_clarify(content):
+            return bool(await editor(cid, content))
+        return edit_clarify
+    return None
+
+
+async def _tick_step_prompt(edit, text, started, clock=time.monotonic, tick_s=None):
+    """Edit a step's prompt to show its elapsed time every ``tick_s`` seconds.
+
+    Runs until cancelled (the step finished) or an edit fails; a failed edit
+    ends the ticker, never the step it reports on.
+    """
+    tick = STEP_PROGRESS_TICK_S if tick_s is None else tick_s
+    while True:
+        await asyncio.sleep(tick)
+        try:
+            ok = await edit(_step_progress_text(text, clock() - started))
+        except Exception:
+            logger.info("step progress edit failed; the prompt keeps its last text", exc_info=True)
+            return
+        if ok is False:
+            return
+
 
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None,
                      quiet_s=None):
@@ -345,7 +406,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
 
     ``quiet_s`` (with ``allow_stop``) holds the Stop prompt back: the step
     posts it only when the work is still running after ``quiet_s`` seconds.
+    A posted Stop prompt shows the step's elapsed time, edited in place
+    (#1779), and reads "done" with the total once the step finishes.
     """
+    started = time.monotonic()
     job = _running_job_for(key)
     if job is not None and job.cancellable:
         # The step name is what a typed "status" reports, and a cancel
@@ -425,6 +489,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     cancel_waiter = None
     if job is not None and job.cancellable:
         cancel_waiter = asyncio.ensure_future(job.cancel_event.wait())
+    prompt_edit = _step_prompt_editor(adapter, stop_msg, sent, cid)
+    ticker = (asyncio.ensure_future(_tick_step_prompt(prompt_edit, text, started))
+              if prompt_edit is not None else None)
+    finished = False  # the work returned on its own (no Stop, no cancel)
     result = None
     try:
         # Race the work against the Stop button. The work finishing must never wait on a press:
@@ -451,7 +519,15 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             # definitive outcome. Preserve it instead of claiming a false cancellation.
             return result
         result = await task
+        finished = True
     finally:
+        if ticker is not None and not ticker.done():
+            ticker.cancel()
+            # Awaited so an edit in flight lands before the final "done" edit.
+            try:
+                await ticker
+            except asyncio.CancelledError:
+                logger.debug("step progress ticker stopped with its step")
         if cancel_waiter is not None and not cancel_waiter.done():
             cancel_waiter.cancel()
         if not task.done():
@@ -472,6 +548,13 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         except Exception:
             logger.debug("clarify waiter did not settle during teardown", exc_info=True)
         cm.wait_for_response(cid, 0.001)
+        # A step that ended on its own reads "done" with its total time
+        # (#1779). Start steps (refusal_context) and failed (False, detail)
+        # results deliver their own outcome, so their prompt is only retired.
+        done_text = None
+        if (finished and refusal_context is None
+                and not (isinstance(result, tuple) and result and result[0] is False)):
+            done_text = _step_progress_text(text, time.monotonic() - started, done=True)
         if stop_msg is not None:
             # The Stop button is dead once the work returns: retire it, and after a confirmed
             # pre-upload refusal turn the same prompt into plain guidance plus Retry.
@@ -496,7 +579,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 refusal_context['prompt_handled'] = handled
             if not handled:
                 try:
-                    await stop_msg.edit(view=None)
+                    if done_text:
+                        await stop_msg.edit(content=done_text, view=None)
+                    else:
+                        await stop_msg.edit(view=None)
                 except Exception:
                     logger.debug("could not retire the stop prompt buttons", exc_info=True)
         elif sent is not None and getattr(sent, "message_id", None):
@@ -513,6 +599,15 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 refusal_context['start_prompt_message_id'] = str(sent.message_id)
                 refusal_context['prompt_handled'] = handled
             if not handled:
+                edit_message = getattr(adapter, "edit_message", None)
+                if done_text and callable(edit_message):
+                    # The finished step reads "done" with its time (#1779);
+                    # adapters whose edit drops the buttons retire them here.
+                    try:
+                        await edit_message(chat_id=str(source.chat_id), message_id=str(sent.message_id),
+                                           content=done_text, metadata=metadata)
+                    except Exception:
+                        logger.debug("could not mark the step prompt done", exc_info=True)
                 retire = getattr(adapter, "retire_prompt", None)
                 if retire is not None:
                     try:
@@ -2319,6 +2414,10 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
                          _checked(), allow_stop=True, quiet_s=STEP_QUIET_S)
         paths.append(Path(path))
     from . import model_job as mj
+    # Every file is in the job folder (#1779): stamped here, not after the
+    # combine, so a slow combine no longer hides the finished downloads.
+    mj.front_mark('download_done')
+    mj.front_mark('source_checked')
     unit_q = await asyncio.to_thread(mj.parts_unit_question, job, paths)
     inches = False
     if unit_q is not None:
@@ -2331,10 +2430,12 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
             'One answer covers all the STL files.'), unit_q['choices'], timeout)
     target = folder / 'source' / f"{job.get('slug') or 'model'}-parts.3mf"
     bed = list(state.get('bed_mm') or BED)[:2] + ([state['max_print_height_mm']] if state.get('max_print_height_mm') else [])
+    mj.front_mark('combine_begin')
     combined = await _with_stop(adapter, source, key, metadata,
                                 f'Putting the {len(paths)} files together as one project.',
                                 _heavy(model_parts.combine, target, [str(p) for p in paths], bed, stl_inches=inches),
                                 allow_stop=True)
+    mj.front_mark('combine_done')
     job.update(_combined_source(job, parts, paths, combined))
     if unit_q is not None:
         job['unit_provenance'] = {'units': 'inch' if inches else 'mm', 'source': 'user_confirmation',
@@ -2927,6 +3028,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded file.',
                          _checked_single(), allow_stop=True, quiet_s=STEP_QUIET_S)
+        mj.front_mark('source_checked')  # source checks and the working copy (#1779)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         # Cache only pure inspection output, bound to canonical source bytes and
@@ -2958,6 +3060,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                     inspection_scope, job['audit'])
         if isinstance(job['audit'], dict):
             job['audit'] = intake_inspection_cache.bind_audit_to_path(job['audit'], path)
+        mj.front_mark('audit_done')  # (#1779)
         if isinstance(job['audit'], dict) and job['audit'].get('no_printable_volume'):
             # Refuse at intake (#194): asking for colors and copies first only to fail at slicing wastes the operator's time.
             raise mj.NoPrintableVolume(job['audit']['geometry_error'])
@@ -2979,6 +3082,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             if plate_id not in {str(value) for value in (manifest.get('plate_usage') or {})}:
                 raise ValueError('The archived source no longer identifies that authored plate. Nothing was sliced or started.')
         job['color_manifest'] = manifest
+        mj.front_mark('manifest_done')  # (#1779)
         # An explicit plate request applies only to authored plate IDs from
         # this exact inspected source. An unknown or ambiguous request must
         # not widen to all plates.

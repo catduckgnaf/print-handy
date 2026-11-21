@@ -303,6 +303,25 @@ class StandaloneAdapter(BasePlatformAdapter):
                                          "choices": labels, "question": pieces[-1]})
         return SendResult(True, message_id=event_id or None)
 
+    async def edit_prompt(self, clarify_id, question):
+        """Rewrite a standing prompt's text and keep its numbered choices
+        (#1779: a slow step's Stop prompt shows its elapsed time). False when
+        the prompt is gone or the edit fails."""
+        with _prompts_guard(self):
+            row = self._prompts.get(str(clarify_id))
+        if not row or not row.get("event_id"):
+            return False
+        listing = "\n".join(f"{index}. {label}" for index, label in enumerate(row.get("choices") or [], 1))
+        text = f"{question}\n\n{listing}\nReply with the number, or the choice text."
+        try:
+            await asyncio.to_thread(mx.edit_message, self.homeserver, self.token, row["room_id"],
+                                    str(row["event_id"]), text[:mx.LIMIT], opener=self.opener)
+        except Exception as exc:
+            logger.info("Matrix prompt edit failed: %r", exc)
+            return False
+        row["question"] = str(question)
+        return True
+
     # ------------------------------------------------------------------ answers
 
     async def answer_typed(self, session_key, text, user_id=None):
