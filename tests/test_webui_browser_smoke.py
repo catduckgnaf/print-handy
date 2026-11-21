@@ -38,6 +38,7 @@ import os
 import sys
 import threading
 import unittest
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,10 +101,13 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                          "webui:\n  enabled: true\n  port: 8765\n")
         self.environ = {"PRINT_HANDY_CONFIG": str(local), "WEBUI_ACCESS_TOKEN": TOKEN}
         data = settings.load(local=local, environ=self.environ)
-        # The status/login cases must not be redirected by the first-run
-        # walkthrough. The walkthrough test explicitly re-enables it.
-        walkthrough.save_state(data, {"step": 0, "done": True})
-        self.settings_data = data
+        from tests.fixtures.webui_seeded import SeededWebUI
+
+        self.seed = SeededWebUI(root=self.tmp / "seed")
+        self.addCleanup(self.seed.close)
+        self.settings_data = self.seed.configure(data)
+        # The walkthrough test explicitly re-enables it.
+        walkthrough.save_state(self.settings_data, {"step": 0, "done": True})
         self.httpd = server.make_server(
             data, environ=self.environ, port=0,
             snapshot_func=lambda: FAKE_SNAPSHOT,
@@ -135,6 +139,55 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page.wait_for_load_state("load")
 
     # -- the smoke set ---------------------------------------------------
+
+    def test_seeded_fixture_contains_isolated_records_and_spools(self):
+        from print_handy.core import print_stats
+        records, skipped = print_stats.load_records(self.seed.root / "vault")
+        self.assertEqual(skipped, [])
+        self.assertEqual(len(records), 40)
+        self.assertEqual({row["status"] for row in records},
+                         {"completed", "failed", "cancelled", "printing", "stale"})
+        self.assertEqual(len(self.seed.fake_spoolman.spools), 10)
+        from print_handy.core import design
+        sessions = design.list_sessions(design.sessions_root(self.seed.cache))
+        self.assertEqual(len(sessions), 3)
+        png = (design.sessions_root(self.seed.cache) / sessions[0]["id"] / "turn-1.png").read_bytes()
+        self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+        offset = 8
+        chunks = []
+        while offset < len(png):
+            length = int.from_bytes(png[offset:offset + 4], "big")
+            chunk_type = png[offset + 4:offset + 8]
+            payload = png[offset + 8:offset + 8 + length]
+            crc = int.from_bytes(png[offset + 8 + length:offset + 12 + length], "big")
+            self.assertEqual(crc, zlib.crc32(chunk_type + payload) & 0xFFFFFFFF)
+            chunks.append(chunk_type)
+            offset += 12 + length
+        self.assertEqual(chunks, [b"IHDR", b"IDAT", b"IEND"])
+        self.assertEqual(len(list((self.seed.archive / "seeded-multiplate").glob("*.gcode"))), 3)
+        self.assertTrue(all(str(self.seed.root) in str(path)
+                            for path in (self.seed.prints, self.seed.archive, self.seed.cache)))
+
+    def test_seeded_pages_render_populated_data_and_chat(self):
+        self.login()
+        checks = {
+            "/spools": ("Pink · PLA · #20", "865.722 g left"),
+            "/data": ("Synthetic AD5X",),
+            "/sliced": ("Long synthetic archive job title",),
+            "/designs": ("Synthetic design session",),
+        }
+        for path, markers in checks.items():
+            self.page.goto(self.base + path)
+            for marker in markers:
+                self.assertIn(marker, self.page.locator("body").inner_text(), path)
+        from print_handy.webui import server as web_server
+        service = web_server.chat_service_for(self.httpd)
+        for entry in self.seed.chat_entries:
+            service._append(entry)
+        self.page.goto(self.base + "/chat")
+        text = self.page.locator("body").inner_text()
+        for marker in ("Can I slice this?", "Confirm before slicing", "Slice summary"):
+            self.assertIn(marker, text)
 
     def test_login_page_renders_with_a_token_form(self):
         self.page.goto(self.base + "/login")
