@@ -1044,53 +1044,55 @@ def plan_is_complete(plan_id: str) -> bool:
 
 
 def _start_record_for_completion(data: Mapping[str, Any]) -> tuple[Path, dict[str, Any]] | None:
-    """The still-printing start record this completion belongs to, or None (#1758).
+    """Find one proven record for a contextless completion, including a retry (#1758).
 
-    A completion whose launch context is unavailable (the sidecar is gone,
-    or the listener key never matched it) carries no print number and no
-    record path, so on its own it would land under a timestamp name and
-    leave its start record printing forever. The start record is found
-    on disk instead: same G-code file by base name, same job when both
-    name one, and a start instant within the join window of the
-    completion's start evidence. The newest match wins; an ambiguous
-    match (two starts could both be this print) matches nothing — a
-    completion never finalizes a start it cannot prove is its own.
-    Returns (path, record).
+    A matching file alone is insufficient: start evidence is required, known
+    numbers and printers must agree, and the print intervals must overlap.
+    Multiple candidates are ambiguous even when one started more recently.
+    Finalized records remain candidates so retrying the same completion finds
+    its immutable record instead of creating a second timestamp-named file.
     """
     gcode = Path(str(data.get("gcode_file") or "")).name
-    if not gcode:
+    started = _timestamp(data.get("started_at"))
+    if not gcode or started is None:
         return None
     job = Path(str(data.get("job_key") or "")).name
-    started = _timestamp(data.get("started_at"))
-    best: tuple[Path, dict[str, Any]] | None = None
-    best_started: float | None = None
-    tied = False
+    number = _valid_print_number(data.get("print_number"))
+    printer = str(data.get("printer") or "").strip()
+    unknown_printers = {"", "unknown", "Klipper 3D Printer"}
+    completed = _timestamp(data.get("completed_at"))
+    requested_path = data.get("record_path")
+    matches: list[tuple[Path, dict[str, Any]]] = []
     try:
         paths = list(PRINTS_DIR.glob("*.json"))
     except OSError:
         return None
     for path in paths:
+        if requested_path and path != Path(str(requested_path)):
+            continue
         record = _read_json_record(path)
-        if not record or str(record.get("status") or "").strip().lower() != "printing":
+        if not record:
             continue
         if Path(str(record.get("gcode_file") or "")).name != gcode:
             continue
         other_job = Path(str(record.get("job_key") or "")).name
         if job and other_job and job != other_job:
             continue
-        other_started = _timestamp(record.get("started_at"))
-        if started is not None and other_started is not None:
-            if abs(other_started - started) > 600.0:
-                continue
-        if other_started is None:
+        other_number = _valid_print_number(record.get("print_number"))
+        if number is not None and other_number is not None and number != other_number:
             continue
-        if best_started is None or other_started > best_started:
-            best, best_started, tied = (path, record), other_started, False
-        elif other_started == best_started:
-            tied = True
-    if tied:
-        return None
-    return best
+        other_printer = str(record.get("printer") or "").strip()
+        if printer not in unknown_printers and other_printer not in unknown_printers and printer != other_printer:
+            continue
+        other_started = _timestamp(record.get("started_at"))
+        if other_started is None or abs(other_started - started) > 600.0:
+            continue
+        other_completed = _timestamp(record.get("completed_at"))
+        ends = [value for value in (completed, other_completed) if value is not None]
+        if ends and max(started, other_started) > min(ends):
+            continue
+        matches.append((path, record))
+    return matches[0] if len(matches) == 1 else None
 
 
 def write_completed_record(data: Mapping[str, Any]) -> dict[str, Any]:

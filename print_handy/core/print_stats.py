@@ -222,21 +222,45 @@ def _canonical_record(group):
 
 
 def _join_same_print(named):
-    """[(file name, record)] with same-print files joined (#1758).
+    """Join only mutually consistent groups; unknown identity cannot bridge prints.
 
-    Groups are built in file order; the returned records keep the
-    winning file's name for their sort position.
+    A numberless completion with an unknown printer can match two starts
+    that disagree with each other. Keep that whole ambiguous component
+    separate rather than choosing a printer based on directory order.
+    Exact record ids remain authoritative within such a component.
     """
-    groups: list[list[tuple[str, dict]]] = []
+    identities: list[list[tuple[str, dict]]] = []
+    by_id: dict[str, int] = {}
     for item in named:
-        placed = False
-        for group in groups:
-            if any(_same_print(item[1], member[1]) for member in group):
-                group.append(item)
-                placed = True
-                break
-        if not placed:
-            groups.append([item])
+        record_id = item[1].get("record_id")
+        if isinstance(record_id, str) and record_id:
+            if record_id in by_id:
+                identities[by_id[record_id]].append(item)
+                continue
+            by_id[record_id] = len(identities)
+        identities.append([item])
+    neighbors = [set() for _ in identities]
+    for i, left in enumerate(identities):
+        for j in range(i + 1, len(identities)):
+            if all(_same_print(l[1], r[1]) for l in left for r in identities[j]):
+                neighbors[i].add(j)
+                neighbors[j].add(i)
+    remaining = set(range(len(identities)))
+    groups = []
+    while remaining:
+        pending = [min(remaining)]
+        component = set()
+        while pending:
+            index = pending.pop()
+            if index in component:
+                continue
+            component.add(index)
+            pending.extend(neighbors[index] - component)
+        remaining -= component
+        if all(component - {i} <= neighbors[i] for i in component):
+            groups.append([item for i in sorted(component) for item in identities[i]])
+        else:
+            groups.extend(identities[i] for i in sorted(component))
     return [(group[0][0], _canonical_record(group)) for group in groups]
 
 

@@ -283,3 +283,49 @@ def test_load_context_matches_by_base_name(tmp_path):
     # Two sidecar jobs sharing a base name are ambiguous: no guess.
     sidecar.write_text(json.dumps({"jobs": {f"a/{GCODE}": {"print_number": 1}, f"b/{GCODE}": {"print_number": 2}}}))
     assert records.load_context(f"c/{GCODE}", path=sidecar) == {}
+
+@pytest.mark.parametrize("case", ["missing_start", "other_printer", "other_number", "ambiguous"])
+def test_completion_does_not_guess_a_start(vault, case):
+    _place(vault, "print-0064.json", print_number=64, record_id="a64")
+    data = {"gcode_file": GCODE, "job_key": GCODE, "status": "completed",
+            "success": True, "started_at": "2026-10-31T12:00:30Z",
+            "completed_at": "2026-10-31T13:00:30Z"}
+    if case == "missing_start":
+        data["started_at"] = None
+    elif case == "other_printer":
+        data["printer"] = "Other printer"
+    elif case == "other_number":
+        data["print_number"] = 65
+    else:
+        _place(vault, "print-0065.json", print_number=65, record_id="a65",
+               started_at="2026-10-31T12:00:20Z")
+    before = (vault / "Prints/print-0064.json").read_bytes()
+    result = records.write_completed_record(data)
+    assert not result["record_path"].endswith("print-0064.json")
+    assert (vault / "Prints/print-0064.json").read_bytes() == before
+    if case == "ambiguous":
+        assert json.loads((vault / "Prints/print-0065.json").read_text())["status"] == "printing"
+
+
+def test_repeated_contextless_completion_keeps_one_immutable_record(vault):
+    _place(vault, "print-0064.json", print_number=64, record_id="a64")
+    data = {"gcode_file": f"3mf_print/{GCODE}", "job_key": f"3mf_print/{GCODE}",
+            "status": "completed", "success": True,
+            "started_at": "2026-10-31T12:00:30Z", "completed_at": "2026-10-31T13:00:30Z"}
+    first = records.write_completed_record(data)
+    before = (vault / "Prints/print-0064.json").read_bytes()
+    second = records.write_completed_record({**data, "filament_used_g": 999})
+    assert first["record_path"] == second["record_path"]
+    assert (vault / "Prints/print-0064.json").read_bytes() == before
+    assert len(list((vault / "Prints").glob("*.json"))) == 1
+
+
+def test_unknown_printer_completion_cannot_bridge_two_printers(vault):
+    _place(vault, "print-0064.json", print_number=64, record_id="a64", printer="Printer A")
+    _place(vault, "print-0065.json", print_number=65, record_id="a65", printer="Printer B")
+    _place(vault, "20261031-completion.json", record_id="done", status="completed",
+           printer="Klipper 3D Printer", started_at="2026-10-31T12:00:30Z",
+           completed_at="2026-10-31T13:00:30Z")
+    loaded, skipped = print_stats.load_records(vault)
+    assert skipped == []
+    assert len(loaded) == 3  # no evidence chooses either printer's start
