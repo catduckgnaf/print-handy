@@ -211,7 +211,9 @@ def read_doubts(state: dict[str, Any], printer_id: str | None) -> list[SlotDoubt
     def spool_label(spool_id: int) -> str:
         try:
             spool = spool_sync.spoolman("GET", f"/api/v1/spool/{int(spool_id)}", None) or {}
-        except Exception:
+        except Exception as exc:
+            # The button falls back to the screen's own name for the spool.
+            logger.info("slot verification: spool #%s label unreadable (%r)", spool_id, exc)
             return ""
         return lane_data_sync._spool_label(spool) if isinstance(spool, dict) else ""
 
