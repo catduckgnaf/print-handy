@@ -82,14 +82,17 @@ def test_slow_coverage_keeps_the_loop_responsive_and_the_gate_still_decides(env,
     assert bool(env.starts) is (status == 'STARTED')
 
 
-def test_coverage_worker_failure_is_unverified_and_asks_never_a_pass(env, monkeypatch):
+@pytest.mark.parametrize('boom', [BrokenPipeError('worker pipe closed'), EOFError('worker exited'),
+                                  MemoryError('worker out of memory'),
+                                  owned_worker.WorkerError('the support coverage check exceeded its deadline')])
+def test_coverage_worker_failure_is_unverified_and_asks_never_a_pass(env, monkeypatch, boom):
     def dead(regions, plates):
-        raise owned_worker.WorkerError('the support coverage check exceeded its deadline')
+        raise boom
     _setup(env, monkeypatch, dead)
 
     async def heavy(func, *args, **kwargs):
         if func is support_clearance.verify_coverage_by_plate:
-            raise owned_worker.WorkerError('Print Handy is busy with 10 other model check steps')
+            raise boom
         return await asyncio.to_thread(func, *args, **kwargs)
     monkeypatch.setattr(prepared_intake, '_heavy', heavy)
     adapter, _res, receipt, _gaps = _run_with_ticker(env, [2, 0, 0, 1])

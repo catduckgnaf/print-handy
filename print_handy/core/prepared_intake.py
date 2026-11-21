@@ -5095,7 +5095,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # answer (busy lane, deadline, crash) is named unverified, never a pass.
                 return await _heavy(support_clearance.verify_coverage_by_plate,
                                     report.get('regions') or [], plates)
-            except (owned_worker.WorkerError, RuntimeError) as exc:
+            except Exception as exc:  # noqa: BLE001 - CancelledError is BaseException and still propagates (stop behavior)
                 logger.warning('support coverage worker failed for intake %s: %s', iid, exc)
                 return {'checked': False, 'ok': True, 'regions': [], 'plate_mode': 'none',
                         'unverified': [{'plate': None,
