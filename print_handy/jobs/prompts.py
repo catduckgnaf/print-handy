@@ -207,17 +207,22 @@ def parts_unit_question(job, paths):
     """
     if job.get('scale') is not None or _is_generated_mm(job):
         return None
-    from ..core.geometry_layout import load_parts
+    from ..core.geometry_layout import read_stl_triangles
+    from ..core.intake_resources import check_source
     from ..core.model_parts import _bounds
     largest = None
     for path in paths:
         if Path(str(path)).suffix.lower() != '.stl':
             continue
-        for part in load_parts(Path(path))[0]:
-            lo, hi = _bounds(part['triangles'])
-            dims = tuple(top - bottom for bottom, top in zip(lo, hi))
-            if largest is None or max(dims) > max(largest):
-                largest = dims
+        # Only the size is needed (#1790). load_parts() also runs the full
+        # topology check for its warnings, which this question discards:
+        # about 48 s of a 50 s load on a 30 MB STL. An STL loads as one part
+        # in file units, so its bounds are the same either way.
+        check_source(Path(path))
+        lo, hi = _bounds(read_stl_triangles(Path(path)))
+        dims = tuple(top - bottom for bottom, top in zip(lo, hi))
+        if largest is None or max(dims) > max(largest):
+            largest = dims
     if largest is None or not all(value > 0 for value in largest) or max(largest) >= UNIT_QUESTION_MAX_MM:
         return None
     return _unit_packet(largest)

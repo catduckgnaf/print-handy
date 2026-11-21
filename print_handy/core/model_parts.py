@@ -256,6 +256,14 @@ def parse_file_numbers(text, count):
 
 
 def _bounds(triangles):
+    from .mesh_fast import compact_points
+    points = compact_points(triangles)
+    if points is not None:
+        # A large STL part (#1790): one vectorized pass instead of nine
+        # Python comparisons per triangle. Finite data only, so the result
+        # equals the loop below.
+        return ([float(v) for v in points.min(axis=(0, 1))],
+                [float(v) for v in points.max(axis=(0, 1))])
     lo = [float('inf')] * 3
     hi = [float('-inf')] * 3
     for tri in triangles:
