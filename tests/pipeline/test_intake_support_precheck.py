@@ -301,11 +301,11 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (2 on the #1473 offer), slot 1 (0), pick choice 1 (Slice and print with
+    # picks: one color (2 on the #1473 offer), slot 1 (0), pick choice 3 (Slice and print with
     # supports; the only evidence is a low clearance supports cannot reach,
     # so supports are "not recommended" and come second), then Cancel (1)
     # at the post-slice support override question
-    adapter, result, receipt = run_flow(env, [2, 0, 1, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 3, 3])
     # The Ready question is not the last question in the #922 flow (the
     # blocked start sends no further question, so it still is here), but
     # find it by its choices rather than by position.
@@ -313,8 +313,11 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
                   if q['choices'] and 'Slice and print with supports (not recommended)' in q['choices'])
     choices = last_q['choices']
 
-    assert choices[0] == 'Slice and print without supports'
-    assert choices[1] == 'Slice and print with supports (not recommended)'
+    # The repair that closes the measured gap leads; supports cannot reach it.
+    assert choices[0] == 'Extend underside to plate'
+    assert choices[1] == 'Flatten (sink) to plate'
+    assert choices[2] == 'Slice and print without supports'
+    assert choices[3] == 'Slice and print with supports (not recommended)'
     assert 'Extend underside to plate' in choices
     assert 'Flatten (sink) to plate' in choices
     assert 'Reorient (lay flat)' in choices
@@ -340,7 +343,9 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     assert not job.get('clearance_acknowledgement', {}).get('acknowledged')
     # The refusal is a question with a real override, never a dead end.
     override_q = adapter.questions[-1]
-    assert override_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    # The gate offers the deterministic low-gap repairs beside the waiver (no AI).
+    assert override_q['choices'] == ['Extend underside to plate', 'Flatten (sink) to plate',
+                                     prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     # #1612: this source has more than one placed part and the fake
     # with-supports G-code carries no object labels, so coverage cannot
     # be attributed to each part and the question names it unverified
@@ -349,6 +354,7 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     assert "Support coverage couldn't be verified:" in override_q['question']
     assert 'no object labels' in override_q['question']
     assert 'under 1.0 mm' in override_q['question']
+    assert 'post the model again' not in override_q['question']
     assert 'support_override' not in receipt
     assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.sent)
 
@@ -361,7 +367,7 @@ def test_flagged_v12_with_supports_print_anyway_waives_both_gates_and_starts(env
 
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so
     # second), Print anyway (0)
-    adapter, result, receipt = run_flow(env, [2, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 3, 2])
     assert receipt['status'] == 'STARTED'
     override = receipt['support_override']
     assert override['via'] == 'print_anyway'
@@ -554,7 +560,7 @@ def test_extend_underside_fix_action_repairs_geometry(env, monkeypatch):
     # gone, but the modeled-support findings remain, so the menu is the
     # flagged one again and the operator waives those explicitly with
     # 'Print anyway' (index 2 there: sup, nosup, print anyway, ...).
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 2])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 2])
     assert any('Extended underside to touch build plate' in m for m in adapter.sent)
     assert receipt['status'] == 'STARTED'
 
@@ -602,7 +608,7 @@ def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch)
     # findings remain, so the repeated menu is answered with the explicit
     # Print anyway waiver (index 2 there) -- "with supports" no longer
     # waives findings and its slice owes coverage verification (#922).
-    adapter, result, receipt = run_flow(env, [2, 0, 2, 2])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 2])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
     assert job['color_decisions']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])

@@ -1042,9 +1042,15 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     if not stats.get("total_prints"):
         body = "".join(lead) + _skipped_note(payload)
         return _data_shell(data, body, theme)
+    headline_bits = [
+        f"Finished {stats['completed']}", f"failed {stats['failed']}",
+        f"stopped {stats['canceled']}", f"printing now {stats['in_progress']}"]
+    if stats.get("unknown_outcome"):
+        # #1758: prints whose record proves only that they ended are a
+        # shown part of the total, never a hidden remainder.
+        headline_bits.append(f"outcome not recorded {stats['unknown_outcome']}")
     parts.append(
-        f"<p>Finished {stats['completed']} · failed {stats['failed']} · "
-        f"stopped {stats['canceled']} · printing now {stats['in_progress']}. "
+        f"<p>{' · '.join(headline_bits)}. "
         f"{_esc(stats.get('success_rate_note') or '')}</p>")
     if stats.get("totals_caveat"):
         parts.append(
@@ -1195,6 +1201,10 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
         ("Completed", stats["completed"]), ("Failed", stats["failed"]),
         ("Stopped", outcomes["stopped"]), ("In progress", stats["in_progress"]),
         ("Risk-flagged", stats["risk_flagged"])]
+    if stats.get("unknown_outcome"):
+        # #1758: the split sums to the total only with the unrecorded
+        # outcomes shown.
+        outcome_items.append(("Outcome not recorded", stats["unknown_outcome"]))
     if outcomes.get("pasta_state") == "recorded":
         outcome_items.append(("Pasta", outcomes["pasta"]))
     charts.append(_bar_chart("Outcome split", outcome_items))

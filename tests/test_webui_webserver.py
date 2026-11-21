@@ -468,8 +468,8 @@ class RouteShapeTests(WebServerCase):
             self.assertEqual(code, 200)
             stats = json.loads(raw)
             self.assertEqual((stats["total_prints"], stats["filament_records"],
-                              stats["total_filament_used_g"], stats["success_rate"]),
-                             (5, 3, 150, 0.5))
+                              stats["total_filament_used_g"], stats["success_rate"],
+                              stats["unknown_outcome"]), (5, 3, 150, 0.5, 1))
 
     def test_wrapped_posts_need_the_form_token_and_a_whole_year(self):
         with tempfile.TemporaryDirectory() as tmp:

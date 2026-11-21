@@ -233,16 +233,13 @@ def overview(payload):
 
 
 def _outcome_line(payload):
-    completed = payload.get("completed", 0)
-    failed = payload.get("failed", 0)
-    stopped = payload.get("canceled", 0)
-    printing = payload.get("in_progress", 0)
-    unrecorded = payload.get("total_prints", 0) - completed - failed - stopped - printing
-    bits = [f"{completed} finished", f"{failed} failed", f"{stopped} stopped"]
-    if printing:
-        bits.append(f"{printing} printing now")
+    bits = [f"{payload.get('completed', 0)} finished", f"{payload.get('failed', 0)} failed",
+            f"{payload.get('canceled', 0)} stopped"]
+    if payload.get("in_progress"):
+        bits.append(f"{payload['in_progress']} printing now")
+    unrecorded = payload.get("unknown_outcome", 0)
     note = ""
-    if unrecorded > 0:
+    if unrecorded:
         bits.append(f'<a href="#data-outcome-note">{_esc(unrecorded)} outcome not recorded</a>')
         note = ('<p class="note" id="data-outcome-note">Some print records have no final outcome. '
                 'They count toward total prints but not toward the success rate.</p>')

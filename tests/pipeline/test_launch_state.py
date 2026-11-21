@@ -1172,7 +1172,8 @@ def test_1648_mapped_3mf_package_is_slot_labeled_for_screen_reprints(mapped, mon
     out, _, inner, _ = _launch_on_slot3(
         mapped, monkeypatch, "slot3",
         b'; hermes_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
-        b"; filament_colour = #161616\nM104 S215 T0\nSTART_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nG1 X1\n")
+        b"; filament_colour = #161616\nM104 S215 T0\nSTART_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nT0\nG1 X1\n")
+    assert "\nT2\n" in inner
     assert "M104 S215 T0" in inner and "M104 S215 T2" not in inner
     assert '; hermes_tool_slots = {"2":{"physical_slot":3}}' in inner
     assert "; zmod_color_data = 2|#161616|PLA" in inner
@@ -1220,8 +1221,10 @@ def test_1679_plain_gcode_upload_is_slot_labeled_for_screen_reprints(mapped, mon
     default T0 -> slot 1) still loads slot 3. The remote name stays bound to
     the archived G-code; the upload checksum is the relabeled bytes'."""
     import hashlib
-    out, g, upload, sent = _launch_plain_on_slot3(mapped, monkeypatch, "plain-slot3", _PLAIN_SLICE)
+    out, g, upload, sent = _launch_plain_on_slot3(mapped, monkeypatch, "plain-slot3",
+                                                 _PLAIN_SLICE.replace(b"\nG1", b"\nT0\nG1"))
     text = sent.decode()
+    assert "\nT2\n" in text
     assert '; hermes_tool_slots = {"2":{"physical_slot":3}}' in text
     assert "; zmod_color_data = 2|#161616|PLA" in text
     assert "M104 S215 T0" in text  # the heater's T0 is never relabeled
@@ -1244,20 +1247,18 @@ def test_1679_plain_gcode_default_map_uploads_the_archived_file(mapped, monkeypa
 AD5X_SLICE = Path(__file__).resolve().parents[1] / "fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.gcode.txt"
 
 
-def test_1648_slot_labeled_single_tool_slice_keeps_the_zmod_native_startup(mapped, monkeypatch):
-    """#1648 review: the recorded AD5X single-tool slice (CRLF, no T line, heater M104 ... T0)
-    mapped to slot 3. The packaged G-code must still pass ZMod's native startup contract,
-    so its heater stays T0, and the package must name filament 3 (tool T2) for ZMod's scan."""
-    from print_handy.printers.flashforge.zmod import native_startup
+def test_1776_plain_implicit_tool_keeps_chosen_slot(mapped, monkeypatch):
+    _out, g, upload, sent = _launch_plain_on_slot3(mapped, monkeypatch, "implicit-slot3", _PLAIN_SLICE)
+    assert mapped.scripts[0].endswith(" T0=3"), mapped.scripts[0]
+    assert Path(upload[2]) == g and sent == _PLAIN_SLICE
+
+
+def test_1776_packaged_implicit_tool_keeps_chosen_slot(mapped, monkeypatch):
     text = AD5X_SLICE.read_bytes().decode().replace("\r\n", "\n").replace("@BED@", "60").replace("@NOZZLE@", "210")
-    assert not any(line.startswith("T") for line in text.splitlines())  # a single-tool slice selects no tool
+    assert not any(line.startswith("T") for line in text.splitlines())
     sliced = text.replace("\n", "\r\n").encode()
-    assert native_startup.valid(sliced.decode(), 60, 210)
     out, _, inner, slice_info = _launch_on_slot3(mapped, monkeypatch, "fixture-slot3", sliced)
-    assert native_startup.valid(inner, 60, 210)
-    assert "\r\nM104 S210 T0\r\nSTART_PRINT " in inner  # heater untouched, CRLF kept
-    assert '; hermes_tool_slots = {"2":{"physical_slot":2,"spoolman_id":17}}\r\n' in inner
-    assert "; zmod_color_data = 2|#0C6283|Silk PLA\r\n" in inner
-    assert '<filament id="3" ' in slice_info and '<filament id="1" ' not in slice_info
-    assert mapped.scripts[0].endswith(" T2=3"), mapped.scripts[0]
-    assert out["delivery_format"]["slot_labeled"] == {"from": {"0": 3}, "to": {"2": 3}}
+    assert mapped.scripts[0].endswith(" T0=3"), mapped.scripts[0]
+    assert inner.encode() == sliced
+    assert '<filament id="1" ' in slice_info and '<filament id="3" ' not in slice_info
+    assert "slot_labeled" not in out["delivery_format"]

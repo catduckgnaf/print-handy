@@ -23,8 +23,8 @@ there; Klipper would read ``M104 T2`` as ``extruder2`` and fail the start.
 
 For a ``.gcode.3mf`` ZMod takes the plate's filaments from
 ``Metadata/slice_info.config`` (``core/gcode_3mf.py``), which the package
-builds from the relabeled usage lists, so a single-tool slice on slot 3 is
-listed as filament 3, tool T2, even though its body has no ``T`` line.
+builds from the relabeled usage lists. A slice without explicit tool selection
+keeps its original numbering and relies on the start command for slot mapping.
 
 A map that is not one-to-one, names a slot outside 1..slots, or leaves a
 used tool unmapped is not relabeled (``None``): the caller keeps today's
@@ -177,11 +177,13 @@ def relabel(text, mapping, used, slots=4):
     if body.startswith('; MD5:'):
         md5_line, _, body = body.partition('\n')
     lines = body.split('\n')
+    selected = set()
     for i, line in enumerate(lines):
         head = line.lstrip(' \t')[:1]
         if head == 'T':
             m = _TOOL_LINE.match(line)
             if m and int(m.group(2)) in relabel_map:
+                selected.add(int(m.group(2)))
                 lines[i] = f"{m.group(1)}T{relabel_map[int(m.group(2))]}{m.group(3)}"
         elif head == ';':
             if line.startswith(MAP_PREFIX):
@@ -200,6 +202,10 @@ def relabel(text, mapping, used, slots=4):
                 m = _LIST_LINE.match(line)
                 if m:
                     lines[i] = f"; {m.group(1)} = {_relabel_list(m.group(1), m.group(2), relabel_map)}{m.group(3)}"
+    # Metadata alone cannot select a tool. Keep the original launch mapping
+    # when an implicit tool (usually T0) would otherwise be moved.
+    if any(old != new and old not in selected for old, new in relabel_map.items()):
+        return None, None
     body = '\n'.join(lines)
     if md5_line is not None:
         cr = '\r' if md5_line.endswith('\r') else ''
