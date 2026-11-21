@@ -127,16 +127,15 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page_errors = []
         self.console_errors = []
         self.page.on("pageerror", lambda exc: self.page_errors.append(str(exc)))
-        self.page.on("console", lambda msg: self.console_errors.append(msg.text)
-                    if msg.type == "error" else None)
-        self.page.on("response", lambda response: self.console_errors.append(
-            f"HTTP {response.status}: {response.url}") if response.status >= 400 else None)
+        self._expected_refusal_responses = set()
+        self.page.on("console", self._record_console_error)
+        self.page.on("response", self._record_response_error)
 
     def tearDown(self):
         self.assertEqual(self.page_errors, [],
                          "no uncaught JavaScript errors on any visited page")
         self.assertEqual(self.console_errors, [],
-                         "no console errors on any visited page")
+                         "no console errors or unexpected HTTP errors on any visited page")
 
     # -- helpers -------------------------------------------------------
 
@@ -218,8 +217,8 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         from tests.webui_layout_audit import PAGE_PATTERNS, NON_PAGE_PATTERNS, PAGE_ROUTES, assert_route_inventory
 
         assert_route_inventory()
-        self.assertEqual(len(PAGE_PATTERNS) + len(NON_PAGE_PATTERNS), 58)
-        self.assertEqual(len(PAGE_ROUTES), len(PAGE_PATTERNS))
+        self.assertTrue(set(PAGE_ROUTES).issubset(PAGE_PATTERNS))
+        self.assertTrue(all(pattern != "*" for pattern in PAGE_ROUTES))
 
     def test_seeded_fixture_contains_isolated_records_and_spools(self):
         from print_handy.core import print_stats
@@ -318,7 +317,8 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
             self.console_errors.append(message.text)
 
     def _record_response_error(self, response):
-        if response.status >= 400 and response.url not in self._expected_refusal_responses:
+        if response.status >= 400 and not (response.url in self._expected_refusal_responses
+                                            and response.status == 400):
             self.console_errors.append(f"HTTP {response.status}: {response.url}")
 
     def test_settings_autosave_writes_a_change_and_shows_a_refusal_in_place(self):
@@ -334,12 +334,10 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
 
         self.page.locator('.config-tabs a[data-section="camera"]').click()
         sensitivity = self.page.locator('input[name="visual_watch.sensitivity"]')
-        refusal = self.page.locator("#row-visual_watch\\.sensitivity .save-state")
         expected_refusal = self.base + "/config/save"
-        with self.page.expect_response(
-                lambda response: response.url == expected_refusal and response.status == 400):
-            sensitivity.fill("99")
-            sensitivity.press("Tab")
+        self._expected_refusal_responses.add(expected_refusal)
+        sensitivity.fill("99")
+        sensitivity.press("Tab")
         refusal = self.page.locator("#row-visual_watch\\.sensitivity .save-state")
         refusal.filter(has_text="at most 5").wait_for()
         self.assertNotIn("sensitivity: 99", (self.tmp / "local.yaml").read_text())

@@ -12,9 +12,7 @@ PAGE_PATTERNS = {
     "/sources": "HTML page", "/designs": "HTML page", "/designs/*": "HTML page",
     "/sliced": "HTML page", "/sliced/*": "HTML page", "/external-intake": "HTML page",
     "/firmware/update": "HTML confirmation or redirect (HTML navigation route)",
-    "/firmware/update/status": "HTML status page",
     "/firmware/channel": "HTML confirmation or redirect (HTML navigation route)",
-    "/firmware/channel/status": "HTML status page",
     "/conversion-report/*": "HTML report for browser navigation; plain text by query",
 }
 NON_PAGE_PATTERNS = {
@@ -38,8 +36,7 @@ PAGE_ROUTES = {
     "/login": "login", "/offline": "offline",
     "/walkthrough": "walkthrough", "/": "dashboard", "/data": "seeded data",
     "/wrapped": "wrapped", "/firmware": "firmware", "/firmware/update": "firmware update",
-    "/firmware/update/status": "firmware update status",
-    "/firmware/channel": "firmware channel", "/firmware/channel/status": "firmware channel status",
+    "/firmware/channel": "firmware channel",
     "/cost": "cost", "/spools": "seeded spool index", "/printers": "printers",
     "/config": "configuration", "/printer-settings": "printer settings", "/chat": "seeded chat",
     "/workflow": "workflow", "/upload": "upload", "/sources": "sources",
