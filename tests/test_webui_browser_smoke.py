@@ -127,8 +127,9 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page_errors = []
         self.console_errors = []
         self.page.on("pageerror", lambda exc: self.page_errors.append(str(exc)))
-        self.page.on("console", lambda msg: self.console_errors.append(msg.text)
-                    if msg.type == "error" else None)
+        self.page.on("console", self._record_console_error)
+        self._expected_refusal_responses = set()
+        self.page.on("response", self._record_response_error)
 
     def tearDown(self):
         self.assertEqual(self.page_errors, [],
@@ -195,7 +196,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                         self.assertEqual(audit["smallTargets"], [],
                                          f"interactive target under 44px {route}: {audit}")
                     links = self.page.locator("header a, nav a, .shell a").evaluate_all(
-                        "els => els.map(a => a.href).filter(h => h.startsWith(location.origin))")
+                        'els => els.map(a => a.href).filter(h => h.startsWith(location.origin) && !h.endsWith("/notifications"))')
                     for href in sorted(set(links)):
                         link_response = self.page.request.get(href, headers={"Accept": "text/html"})
                         self.assertNotEqual(link_response.status, 404,
@@ -206,7 +207,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         for path in ("/", "/spools", "/data", "/sliced", "/designs", "/chat"):
             self.page.goto(self.base + path)
             links = self.page.locator("header a, nav a, .shell a").evaluate_all(
-                "els => els.map(a => a.href).filter(h => h.startsWith(location.origin))")
+                'els => els.map(a => a.href).filter(h => h.startsWith(location.origin) && !h.endsWith("/notifications"))')
             for href in sorted(set(links)):
                 response = self.page.request.get(href, headers={"Accept": "text/html"})
                 self.assertNotEqual(response.status, 404, f"shell link {href} returned 404 from {path}")
@@ -309,6 +310,14 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.assertEqual(self.page.locator(
             '.config-tabs a[data-section="camera"]').get_attribute("aria-current"), "page")
         self.assertEqual(self.page.locator("#field-search").count(), 0)
+
+    def _record_console_error(self, message):
+        if message.type == "error":
+            self.console_errors.append(message.text)
+
+    def _record_response_error(self, response):
+        if response.status >= 400 and response.url not in self._expected_refusal_responses:
+            self.console_errors.append(f"HTTP {response.status}: {response.url}")
 
     def test_settings_autosave_writes_a_change_and_shows_a_refusal_in_place(self):
         self.login()

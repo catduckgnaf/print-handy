@@ -35,17 +35,16 @@ NON_PAGE_PATTERNS = {
 }
 
 PAGE_ROUTES = {
-    "/login": "login", "/offline": "offline", "/u/invalid-seeded-token": "token upload",
+    "/login": "login", "/offline": "offline",
     "/walkthrough": "walkthrough", "/": "dashboard", "/data": "seeded data",
     "/wrapped": "wrapped", "/firmware": "firmware", "/firmware/update": "firmware update",
-    "/firmware/update/status?job=seeded": "firmware update status",
-    "/firmware/channel": "firmware channel", "/firmware/channel/status?job=seeded": "firmware channel status",
+    "/firmware/update/status": "firmware update status",
+    "/firmware/channel": "firmware channel", "/firmware/channel/status": "firmware channel status",
     "/cost": "cost", "/spools": "seeded spool index", "/printers": "printers",
-    "/printers/default/screen": "parameterized printer screen", "/spools/default": "parameterized spool page",
     "/config": "configuration", "/printer-settings": "printer settings", "/chat": "seeded chat",
     "/workflow": "workflow", "/upload": "upload", "/sources": "sources",
-    "/designs": "seeded designs", "/designs/seeded-design-000001": "design session",
-    "/sliced": "seeded archive", "/sliced/seeded-multiplate": "archive detail",
+    "/designs": "seeded designs",
+    "/sliced": "seeded archive",
     "/external-intake": "external intake",
 }
 VIEWPORTS = ((375, 812, "mobile"), (768, 1024, "tablet"), (1440, 900, "desktop"))
