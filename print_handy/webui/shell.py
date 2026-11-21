@@ -200,7 +200,11 @@ input, select, textarea {
   background: var(--color-bg); color: var(--color-ink);
   border: 1px solid var(--color-line); border-radius: var(--radius-card);
 }
-input[type="checkbox"] { width: 1.25rem; height: 1.25rem; accent-color: var(--color-accent); vertical-align: middle; }
+input, select, textarea, button {
+  min-height: 2.75rem;
+  box-sizing: border-box;
+}
+input[type="checkbox"] { width: 1.25rem; height: 1.25rem; min-height: 1.25rem; accent-color: var(--color-accent); vertical-align: middle; }
 input:disabled, select:disabled, textarea:disabled { opacity: 0.55; }
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 button, .button {
@@ -354,8 +358,12 @@ img { max-width: 100%; }
   .table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   body { overflow-wrap: anywhere; }
   input, select, textarea, button { max-width: 100%; }
+  a.button, nav.pills a, nav.subnav a, .header-quicklinks a, .slot-link,
+  .slot-action, .config-tabs a, ol.steps li, summary {
+    min-height: 2.75rem;
+    box-sizing: border-box;
+  }
   .printer-layout { display: grid; grid-template-columns: minmax(0, 1fr); }
-  .printer-settings-col, .printer-screen-col { min-width: 0; }
   .printer-settings-col p { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
   .printer-settings-col p .button { display: inline-flex; margin: 0; }
   .printer-card h3 { overflow-wrap: anywhere; }
