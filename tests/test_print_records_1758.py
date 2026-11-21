@@ -264,7 +264,9 @@ def test_data_totals_equal_the_sum_of_their_shown_parts(vault):
     assert month_parts == month["prints"]
     from print_handy.webui import data_page
 
-    assert "1 outcome not recorded" in data_page._outcome_line(agg)
+    outcome_line, note = data_page._outcome_line(agg)
+    assert "1 outcome not recorded" in outcome_line
+    assert 'id="data-outcome-note"' in note
 
 
 def test_load_context_matches_by_base_name(tmp_path):
