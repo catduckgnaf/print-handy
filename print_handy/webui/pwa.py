@@ -50,8 +50,8 @@ MANIFEST = {
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
-    # The shell tokens (shell.py): the dark default background and the
-    # light theme background.
+    # The shell tokens (shell.py): the dark background. The Web UI is
+    # dark only, so the manifest and the theme-color meta agree.
     "background_color": "#12110f",
     "theme_color": "#12110f",
     "orientation": "any",

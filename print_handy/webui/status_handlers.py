@@ -378,11 +378,13 @@ def not_found(handler, path):
                                "/walkthrough or /login"})
 
 def theme_route(handler):
-    """GET /theme?set=dark|light&back=<path>: remember the theme in
-    the ph-theme cookie and go back. Behind the same authorization
-    as every other page (and unreachable pre-setup, like them). The
-    ``back`` target must be a local path — anything else lands on
-    the status page, so the toggle is never an open redirect."""
+    """GET /theme?set=dark|light&back=<path>: a compatibility redirect only.
+
+    The Web UI is dark only (#1750), so this changes nothing about how any
+    page looks and sets no cookie. It stays behind the same authorization
+    as every other page so older bookmarks and cached links keep working.
+    The ``back`` target must be a local path; anything else lands on the
+    status page, so the route is never an open redirect."""
     query = parse_qs(urlparse(handler.path).query)
     theme = (query.get("set") or [""])[0]
     if theme not in shell.THEMES:
@@ -395,7 +397,7 @@ def theme_route(handler):
         # CR/LF would otherwise land in the Location header verbatim
         # and inject response headers of the caller's choosing.
         back = "/"
-    handler._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme, secure=handler._cookie_secure()))])
+    handler._redirect(back)
 
 
 def _is_loopback(host):

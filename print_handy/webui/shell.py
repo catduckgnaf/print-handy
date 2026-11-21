@@ -2,12 +2,12 @@
 """The one page shell for every Web UI page (#813).
 
 Before #813 each page module assembled its own bare HTML — no
-stylesheet anywhere, browser-default rendering, light only. This module
+stylesheet anywhere, browser-default rendering. This module
 owns the single shell they all render through now: the document head
 with one inline ``<style>`` (the design tokens and component styles
 ported from the console prototype catduck supplied for #813), the
 header chrome (brand tile, pill navigation over the real surfaces, the
-quick links to Settings and Notifications, and the light-only theme rule).
+quick links to Settings and Notifications, and the dark-only theme rule).
 
 The stylesheet is inline rather than a served file: the Web UI stays
 single-process, with no external request of any kind — the font stacks
@@ -17,9 +17,10 @@ PWA_HEAD_TAGS links the manifest the public PWA routes serve, and
 PWA_SCRIPT registers the service worker on secure contexts only
 (see :mod:`print_handy.webui.pwa`).
 
-The interface is light-only. The legacy ``ph-theme`` cookie and
-``/theme`` route remain harmless compatibility surfaces; stale dark
-preferences are ignored.
+The interface is dark only. There is no theme toggle and no light
+palette. The legacy ``ph-theme`` cookie is never read and ``/theme``
+remains only as a compatibility redirect; a stale ``light`` cookie or
+``/theme?set=light`` request cannot change how any page looks.
 
 Every page also carries a source footer (#1158): Print Handy is
 AGPL-3.0-only, and section 13 of that license expects a user
@@ -37,7 +38,7 @@ from .. import __version__
 
 THEME_COOKIE = "ph-theme"
 THEMES = ("dark", "light")
-DEFAULT_THEME = "light"
+DEFAULT_THEME = "dark"
 
 # The surfaces the header navigates to: only pages that exist, with
 # Chat first (#1718: chat is the primary way to drive Print Handy).
@@ -76,23 +77,23 @@ SOURCE_URL = "https://github.com/catduckgnaf/print-handy"
 
 CSS = """
 :root {
-  --color-bg: #f3efe6;
-  --color-surface: #fffcf7;
-  --color-ink: #1a1814;
-  --color-muted: #6b645b;
-  --color-line: #e3dcd0;
-  --color-accent: #c45c26;
-  --color-accent-ink: #fff8f3;
-  --color-ok: #1f6b45;
-  --color-ok-bg: #e5f2ea;
-  --color-warn: #8a5a12;
-  --color-warn-bg: #f8efd8;
-  --color-bad: #8f2d2d;
-  --color-bad-bg: #f8e6e4;
+  --color-bg: #12110f;
+  --color-surface: #1c1a17;
+  --color-ink: #f3efe6;
+  --color-muted: #a89b8c;
+  --color-line: #34302b;
+  --color-accent: #e07a3d;
+  --color-accent-ink: #1a100c;
+  --color-ok: #8dcea8;
+  --color-ok-bg: #1a3326;
+  --color-warn: #e4c07a;
+  --color-warn-bg: #3a2e14;
+  --color-bad: #f0a8a2;
+  --color-bad-bg: #3a1c1c;
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --radius-card: 0.75rem;
-  color-scheme: light;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 /* Reserve the scrollbar's width on every page, so moving between a short
@@ -480,7 +481,7 @@ PWA_HEAD_TAGS = (
     '<meta name="apple-mobile-web-app-capable" content="yes">'
     '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
     '<meta name="apple-mobile-web-app-title" content="Print Handy">'
-    '<meta name="theme-color" content="#f3efe6">'
+    '<meta name="theme-color" content="#12110f">'
     '<link rel="manifest" href="/manifest.webmanifest">'
 )
 
@@ -507,14 +508,8 @@ def _esc(value):
 
 
 def theme_from_cookies(cookie_header):
-    """Return the only supported theme; ignore legacy preferences."""
+    """The only supported theme, dark; the legacy ph-theme cookie is ignored."""
     return DEFAULT_THEME
-
-
-def theme_cookie_header(theme, secure=False):
-    """The Set-Cookie value that remembers ``theme`` for a year."""
-    flags = "; Secure" if secure else ""
-    return f"{THEME_COOKIE}={theme}; SameSite=Lax; Path=/; Max-Age=31536000{flags}"
 
 
 # The navigation for the request being served. The server sets it once per
@@ -604,7 +599,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     page, with or without chrome. Every interpolated value here is escaped by
     the callers for body content; title and heading are escaped here.
     """
-    theme_attr = ' data-theme="light"'
+    theme_attr = ' data-theme="dark"'
     parts = ["<!DOCTYPE html>\n<html lang=\"en\"", theme_attr, "><head><meta charset=\"utf-8\">"
              '<meta name="viewport" content="width=device-width, initial-scale=1">'
              f"{ICON_HEAD_TAGS}"
@@ -641,5 +636,5 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
 __all__ = [
     "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "NAV_GROUPS", "PWA_HEAD_TAGS",
     "PWA_SCRIPT", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
-    "page", "theme_cookie_header", "theme_from_cookies",
+    "page", "theme_from_cookies",
 ]
