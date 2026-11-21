@@ -1,10 +1,17 @@
 """Print-record statistics for the Data tab and Pasta Wrapped (#956).
 
 Pure aggregation over the durable print JSON records
-(``<records vault>/Prints/print-*.json``, #392). The loader is the only
+(``<records vault>/Prints/*.json``, #392). The loader is the only
 I/O: it reads a directory, skips malformed or half-written files and
-names them in ``skipped_records``. Everything else takes plain record
-dicts, so tests inject fixtures with no filesystem at all.
+names them in ``skipped_records``, and joins the files that name one
+physical print into one canonical record (#1758): a numbered start
+record and the timestamp-named completion the listener wrote when the
+launch context was unavailable carry different file names and different
+record ids, but the same G-code file and the same start instant. A
+reprint of the same file is a different print — its start falls after
+the earlier print ended — so the join never merges it. Everything else
+takes plain record dicts, so tests inject fixtures with no filesystem
+at all.
 
 Missing data stays missing. A record without a color, nozzle or
 filament weight counts toward the totals it can prove and lands in the
@@ -99,21 +106,146 @@ def prints_dir(records_vault):
 
 
 def load_records(records_vault):
-    """(records, skipped_records) from ``<records_vault>/Prints/print-*.json``.
+    """(records, skipped_records) from ``<records_vault>/Prints/*.json``.
 
     A missing directory is empty stats, not an error. A file that is
     not valid JSON, or whose JSON is not an object, is skipped and its
-    file name is returned in ``skipped_records``.
+    file name is returned in ``skipped_records``. Files that name one
+    physical print are joined into one canonical record
+    (:func:`_join_same_print`); the count returned is prints, not files.
     """
     return load_records_from_dir(prints_dir(records_vault))
+
+
+# Two files can name one physical print (#1758): the numbered start
+# record and the timestamp-named completion the listener wrote when the
+# launch context was unavailable, so the completion carries no number
+# and a different record id. The window is the history-match window:
+# the launch wall clock and Moonraker's history start name the same
+# print seconds apart, while a reprint of the same file starts minutes
+# later at the earliest.
+_JOIN_WINDOW_S = 600.0
+
+
+def _join_file_base(value):
+    """The base file name a record's G-code file or job key names, or ""."""
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    return Path(value.strip()).name
+
+
+def _join_printer(record):
+    """The printer a record names for join purposes, or None.
+
+    The writer's ``"Klipper 3D Printer"`` fallback names no printer at
+    all, so it proves nothing and never blocks a join.
+    """
+    name = _label(record.get("printer"))
+    if name == UNKNOWN or name == "Klipper 3D Printer":
+        return None
+    return name
+
+
+def _same_print(left, right):
+    """Whether two loaded records are one physical print (#1758).
+
+    The record id is the designed identity and wins outright. Otherwise
+    the G-code file must match, the job keys must match when both are
+    recorded, two recorded print numbers must agree, two recorded
+    printers must agree, the start instants must fall within the join
+    window, and the [start, end] intervals must overlap — a reprint
+    starts after the earlier print ended, so its interval cannot
+    overlap the earlier print's.
+    """
+    lid = left.get("record_id")
+    rid = right.get("record_id")
+    if isinstance(lid, str) and lid and lid == rid:
+        return True
+    lg = _join_file_base(left.get("gcode_file"))
+    rg = _join_file_base(right.get("gcode_file"))
+    if not lg or lg != rg:
+        return False
+    lj = _join_file_base(left.get("job_key"))
+    rj = _join_file_base(right.get("job_key"))
+    if lj and rj and lj != rj:
+        return False
+    ln = left.get("print_number")
+    rn = right.get("print_number")
+    ln = ln if isinstance(ln, int) and not isinstance(ln, bool) and ln > 0 else None
+    rn = rn if isinstance(rn, int) and not isinstance(rn, bool) and rn > 0 else None
+    if ln is not None and rn is not None and ln != rn:
+        return False
+    lp = _join_printer(left)
+    rp = _join_printer(right)
+    if lp is not None and rp is not None and lp != rp:
+        return False
+    ls = _parse_started(left.get("started_at"))
+    rs = _parse_started(right.get("started_at"))
+    if ls is None or rs is None:
+        return False
+    if abs((ls - rs).total_seconds()) > _JOIN_WINDOW_S:
+        return False
+    le = _parse_started(left.get("completed_at"))
+    re_ = _parse_started(right.get("completed_at"))
+    ends = [when for when in (le, re_) if when is not None]
+    if ends and max(ls, rs) > min(ends):
+        return False
+    return True
+
+
+def _canonical_record(group):
+    """One record for a group of files naming one print (#1758).
+
+    A terminal record beats a still-printing start; among terminals the
+    latest completion wins, among starts the latest start. Identity the
+    winner lacks — print number, start instant, record id, job key,
+    G-code file — is backfilled from the group, so the joined print
+    keeps its number even when the completion was written without one.
+    """
+    def rank(item):
+        _name, record = item
+        terminal = 1 if _is_finished(record) else 0
+        completed = _parse_started(record.get("completed_at"))
+        started = _parse_started(record.get("started_at"))
+        return (
+            terminal,
+            completed.timestamp() if completed is not None else float("-inf"),
+            started.timestamp() if started is not None else float("-inf"),
+        )
+
+    merged = dict(max(group, key=rank)[1])
+    for _name, record in group:
+        for key in ("print_number", "started_at", "record_id", "job_key", "gcode_file"):
+            if merged.get(key) in (None, "") and record.get(key) not in (None, ""):
+                merged[key] = record[key]
+    return merged
+
+
+def _join_same_print(named):
+    """[(file name, record)] with same-print files joined (#1758).
+
+    Groups are built in file order; the returned records keep the
+    winning file's name for their sort position.
+    """
+    groups: list[list[tuple[str, dict]]] = []
+    for item in named:
+        placed = False
+        for group in groups:
+            if any(_same_print(item[1], member[1]) for member in group):
+                group.append(item)
+                placed = True
+                break
+        if not placed:
+            groups.append([item])
+    return [(group[0][0], _canonical_record(group)) for group in groups]
 
 
 def load_records_from_dir(directory):
     directory = Path(directory)
     if not directory.is_dir():
         return [], []
-    records, skipped = [], []
-    for path in sorted(directory.glob("print-*.json")):
+    named, skipped = [], []
+    for path in sorted(directory.glob("*.json")):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -122,8 +254,8 @@ def load_records_from_dir(directory):
         if not isinstance(payload, dict):
             skipped.append(path.name)
             continue
-        records.append(payload)
-    return records, skipped
+        named.append((path.name, payload))
+    return [record for _name, record in _join_same_print(named)], skipped
 
 
 def watchdog_events_path(records_vault):
@@ -943,11 +1075,11 @@ def _printer_summaries(rows, outcomes=None):
     for record in rows:
         name = _label(record.get("printer"))
         entry = table.setdefault(name, {"printer": name, "prints": 0, "finished": 0, "failed": 0,
-                                        "stopped": 0, "printing": 0, "seconds": 0.0,
+                                        "stopped": 0, "printing": 0, "unknown": 0, "seconds": 0.0,
                                         "filament_used_g": 0.0, "last_started_at": None})
         entry["prints"] += 1
         outcome = (outcomes or {}).get(id(record), _outcome(record))
-        if outcome in ("finished", "failed", "stopped", "printing"):
+        if outcome in ("finished", "failed", "stopped", "printing", "unknown"):
             entry[outcome] += 1
         seconds = _num(record.get("print_duration_seconds"))
         if seconds is not None:
@@ -977,10 +1109,11 @@ def _monthly_outcomes(rows, resolved, outcomes=None):
         if parsed is None:
             continue
         key = _local(parsed, resolved).strftime("%Y-%m")
-        entry = months.setdefault(key, {"prints": 0, "finished": 0, "failed": 0, "stopped": 0})
+        entry = months.setdefault(key, {"prints": 0, "finished": 0, "failed": 0, "stopped": 0,
+                                        "printing": 0, "unknown": 0})
         entry["prints"] += 1
         outcome = (outcomes or {}).get(id(record), _outcome(record))
-        if outcome in ("finished", "failed", "stopped"):
+        if outcome in ("finished", "failed", "stopped", "printing", "unknown"):
             entry[outcome] += 1
     for entry in months.values():
         decided = entry["finished"] + entry["failed"]
@@ -1045,6 +1178,12 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     failed = resolved_counts.get("failed", 0)
     canceled = resolved_counts.get("stopped", 0)
     in_progress = resolved_counts.get("printing", 0)
+    # A print whose record proves only that it ended — a stale start
+    # with a later print on the same printer, or a completion with no
+    # recorded verdict — resolves to "unknown" (#1719). It is a shown
+    # part of the total, never a hidden remainder (#1758): the headline
+    # parts must add up to total_prints.
+    unknown_outcome = resolved_counts.get("unknown", 0)
     stale_printing = sum(
         1 for record in rows
         if _status(record) == "printing" and resolved_outcomes[id(record)] != "printing")
@@ -1243,6 +1382,7 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         "failed": failed,
         "canceled": canceled,
         "in_progress": in_progress,
+        "unknown_outcome": unknown_outcome,
         # Records still marked "printing" that the reconciliation above
         # proved had ended (#1719), with the note the page shows for them.
         "stale_printing_records": stale_printing,
@@ -1292,6 +1432,7 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
             "failed": failed,
             "stopped": canceled,
             "in_progress": in_progress,
+            "unknown": unknown_outcome,
             "pasta": pasta_block["pasta"],
             "pasta_state": pasta_block["pasta_state"],
             "pasta_note": pasta_block["pasta_note"],

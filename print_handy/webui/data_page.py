@@ -228,6 +228,10 @@ def _outcome_line(payload):
             f"{payload.get('canceled', 0)} stopped"]
     if payload.get("in_progress"):
         bits.append(f"{payload['in_progress']} printing now")
+    if payload.get("unknown_outcome"):
+        # #1758: prints whose record proves only that they ended are a
+        # shown part of the total, never a hidden remainder.
+        bits.append(f"{payload['unknown_outcome']} outcome not recorded")
     return ", ".join(bits)
 
 

@@ -117,7 +117,8 @@ def test_each_printer_gets_its_own_record():
 def test_the_month_by_month_trend_and_links_to_cost_and_spools():
     stats = print_stats.aggregate(RECORDS)
     assert stats["monthly_outcomes"]["2026-03"] == {
-        "prints": 2, "finished": 1, "failed": 1, "stopped": 0, "success_rate": 0.5}
+        "prints": 2, "finished": 1, "failed": 1, "stopped": 0,
+        "printing": 0, "unknown": 0, "success_rate": 0.5}
     lead = _lead(_page(RECORDS))
     assert "Mar 2026" in lead and "Apr 2026" in lead
     assert "Apr 2026 had more failures than the months before it" in lead
