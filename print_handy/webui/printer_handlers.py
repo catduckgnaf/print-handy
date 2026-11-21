@@ -170,7 +170,8 @@ def printers_page(handler, notice=None, error=None, code=200):
     handler._send(code, printers_page_module.render(
         settings.printers(handler._walkthrough_data()), form_token=handler._form_token(),
         notice=notice or done or None, error=error, theme=handler._theme(),
-        screen_for=screen_for),
+        screen_for=screen_for,
+        screen_touch=controls_module.controls_enabled(data)),
         "text/html; charset=utf-8")
 
 def printers_post(handler, form):

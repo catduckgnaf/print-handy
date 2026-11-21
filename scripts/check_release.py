@@ -31,7 +31,15 @@ Usage:
   check_release.py --version 2.2.6 --from-ref 2.2.5 \
       --notes path/to/draft-release-notes.md \
       [--internal-notes docs/history/INTERNAL_RELEASE_NOTES.md] \
-      [--range-file range.txt]
+      [--range-file range.txt] [--fill]
+
+``--fill`` rewrites the "Merged PRs covered by this release range:" line in
+both notes files from the ancestry range (adding the line when it is
+missing), then runs the check. It replaces hand-copying the range at release
+time, which is how the 2.3.6 bump PR first failed with 99 PRs missing. It
+writes coverage only: it lists the range PRs the prose never mentions so the
+author can decide which deserve a sentence, and never writes the prose or
+the internal ``# Version`` section itself.
 
 ``--range-file`` supplies the PR numbers one per line (or in git-log
 text) instead of running git, which is how the tests drive the coverage
@@ -52,6 +60,8 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 SQUASH_PR_RE = re.compile(r"\(#([0-9]+)\)\s*$")
 MENTION_RE_TEMPLATE = r"#{}\b"
+COVERAGE_PREFIX = "Merged PRs covered by this release range:"
+COVERAGE_LINE_RE = re.compile(rf"^{re.escape(COVERAGE_PREFIX)}.*$", re.MULTILINE)
 
 
 def _load_spelling():
@@ -105,9 +115,69 @@ def internal_section(text, version):
     return rest[:next_heading.start()] if next_heading else rest
 
 
+def coverage_line(numbers):
+    return f"{COVERAGE_PREFIX} " + ", ".join(f"#{n}" for n in numbers) + "."
+
+
+def with_coverage(text, numbers, before_heading=None):
+    """``text`` with its coverage line rewritten to ``numbers``, or added when it has none.
+
+    A new line goes before the first ``before_heading`` line when there is
+    one (the draft's "## References"), otherwise at the end."""
+    line = coverage_line(numbers)
+    if COVERAGE_LINE_RE.search(text):
+        return COVERAGE_LINE_RE.sub(lambda _match: line, text, count=1)
+    if before_heading:
+        match = re.search(rf"^{re.escape(before_heading)}[ \t]*$", text, re.MULTILINE)
+        if match:
+            return text[:match.start()] + line + "\n\n" + text[match.start():]
+    return text.rstrip("\n") + "\n\n" + line + "\n"
+
+
+def _write_like(path, text):
+    """Write ``text`` keeping the file's existing line endings (a Windows checkout has CRLF)."""
+    newline = "\r\n" if b"\r\n" in path.read_bytes() else "\n"
+    path.write_text(text, encoding="utf-8", newline=newline)
+
+
+def fill_coverage(notes_path, internal_path, version, numbers):
+    """Write the coverage line into the draft notes and the internal section; return the files changed.
+
+    A missing ``# Version`` section is left missing: run_checks reports
+    it, and its prose is the author's job."""
+    changed = []
+    notes = Path(notes_path)
+    text = notes.read_text(encoding="utf-8")
+    new = with_coverage(text, numbers, before_heading="## References")
+    if new != text:
+        _write_like(notes, new)
+        changed.append(str(notes_path))
+    internal = Path(internal_path)
+    text = internal.read_text(encoding="utf-8")
+    # [ \t]*, not \s*: \s would swallow the blank line after the heading.
+    heading = re.search(rf"^# Version {re.escape(version)}[ \t]*$", text, re.MULTILINE)
+    if heading is None:
+        return changed
+    rest = text[heading.end():]
+    following = re.search(r"^# ", rest, re.MULTILINE)
+    end = heading.end() + (following.start() if following else len(rest))
+    body = with_coverage(text[heading.end():end].strip("\n") + "\n", numbers)
+    new = (text[:heading.end()] + "\n\n" + body.strip("\n") + "\n"
+           + ("\n" if following else "") + text[end:])
+    if new != text:
+        _write_like(internal, new)
+        changed.append(str(internal_path))
+    return changed
+
+
+def unmentioned_in_prose(numbers, text):
+    """Range PRs the text mentions only in its coverage line, or not at all."""
+    return missing_mentions(numbers, COVERAGE_LINE_RE.sub("", text))
+
+
 def version_problems(root, version):
     problems = []
-    init_text = (root / "print_handy" / "__init__.py").read_text()
+    init_text = (root / "print_handy" / "__init__.py").read_text(encoding="utf-8")
     match = re.search(r'__version__\s*=\s*"([^"]+)"', init_text)
     if match is None:
         problems.append("print_handy/__init__.py: no __version__ found")
@@ -115,7 +185,7 @@ def version_problems(root, version):
         problems.append(
             f"print_handy/__init__.py: __version__ is {match.group(1)}, "
             f"not the release version ({version})")
-    readme = (root / "README.md").read_text()
+    readme = (root / "README.md").read_text(encoding="utf-8")
     current = re.search(r"^Current release: \*\*([^*]+)\*\*", readme,
                         re.MULTILINE)
     if current is None:
@@ -127,30 +197,31 @@ def version_problems(root, version):
     return problems
 
 
+def range_numbers(root, from_ref, range_file=None, to_ref="HEAD"):
+    """The release range's PR numbers, from git or from a ``--range-file``."""
+    if range_file is None:
+        return pr_numbers_in_range(from_ref, root, to_ref)
+    lines = Path(range_file).read_text().splitlines()
+    # A range file carries git-log subjects, or bare numbers one per line.
+    return (pr_numbers_from_subjects(lines)
+            or sorted({int(line) for line in lines if line.strip().isdigit()}))
+
+
 def run_checks(root, version, from_ref, notes_path, internal_path,
                range_file=None, to_ref="HEAD"):
     problems = []
     problems += version_problems(root, version)
 
-    internal_text = Path(internal_path).read_text()
+    internal_text = Path(internal_path).read_text(encoding="utf-8")
     section = internal_section(internal_text, version)
     if section is None:
         problems.append(
             f"{internal_path}: no '# Version {version}' section")
         section = ""
 
-    notes_text = Path(notes_path).read_text()
+    notes_text = Path(notes_path).read_text(encoding="utf-8")
 
-    if range_file is not None:
-        numbers = pr_numbers_from_subjects(
-            Path(range_file).read_text().splitlines())
-        # A range file may also carry bare numbers, one per line.
-        if not numbers:
-            numbers = sorted({int(line) for line in
-                              Path(range_file).read_text().splitlines()
-                              if line.strip().isdigit()})
-    else:
-        numbers = pr_numbers_in_range(from_ref, root, to_ref)
+    numbers = range_numbers(root, from_ref, range_file, to_ref)
     if not numbers:
         problems.append(
             f"no merged PRs found in range {from_ref}..{to_ref}; "
@@ -187,6 +258,9 @@ def main(argv=None):
                         help="range end (default HEAD; the version tag "
                              "itself for post-release checks)")
     parser.add_argument("--root", default=str(ROOT))
+    parser.add_argument("--fill", action="store_true",
+                        help="write the range's coverage line into both "
+                             "notes files before checking")
     args = parser.parse_args(argv)
 
     if not VERSION_RE.fullmatch(args.version):
@@ -197,6 +271,20 @@ def main(argv=None):
         print("--from-ref is required unless --range-file is given")
         return 2
     try:
+        if args.fill:
+            numbers = range_numbers(Path(args.root), args.from_ref,
+                                    args.range_file, args.to_ref)
+            if numbers:
+                changed = fill_coverage(args.notes, args.internal_notes,
+                                        args.version, numbers)
+                print(f"Coverage line ({len(numbers)} PRs) written to: "
+                      + (", ".join(changed) or "nothing, already current"))
+                bare = unmentioned_in_prose(
+                    numbers, Path(args.notes).read_text(encoding="utf-8"))
+                if bare:
+                    print("Mentioned only in the coverage line of the draft "
+                          "notes (add a sentence where it matters to users): "
+                          + ", ".join(f"#{n}" for n in bare))
         problems = run_checks(Path(args.root), args.version, args.from_ref,
                               args.notes, args.internal_notes,
                               args.range_file, args.to_ref)

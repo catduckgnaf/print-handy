@@ -495,7 +495,12 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertLess(lifecycle, publish)
         self.assertIn("lifecycle_gate.sh", steps[lifecycle]["run"])
         self.assertNotIn("docker push", steps[lifecycle]["run"])
-        publish_gate = ("inputs.publish && steps.acceptance.outcome == 'success'"
+        # A candidate (publish=false) pushes untagged digests only from main or a tag, so a
+        # publication on the same commit can reuse them (scripts/reuse_candidate.py); a PR-branch
+        # candidate never authenticates or pushes.
+        publish_gate = ("(inputs.publish || github.ref == 'refs/heads/main'"
+                        " || startsWith(github.ref, 'refs/tags/'))"
+                        " && steps.acceptance.outcome == 'success'"
                         " && steps.lifecycle.outcome == 'success'")
         self.assertEqual(steps[publish]["if"], publish_gate)
         login = next(step for step in steps
@@ -580,7 +585,11 @@ class DockerReleaseContract(unittest.TestCase):
         # acceptance-gated before its digest push).
         # It also reads the publish ref guard's move_latest output.
         self.assertEqual(manifest["needs"], ["build", "surfaces-gate"])
-        self.assertEqual(manifest["if"], "inputs.publish")
+        # A skipped build counts only when the gate reused an accepted candidate.
+        self.assertEqual(" ".join(manifest["if"].split()),
+                         "inputs.publish && !cancelled() && needs.surfaces-gate.result == 'success' && "
+                         "(needs.build.result == 'success' || (needs.build.result == 'skipped' && "
+                         "needs.surfaces-gate.outputs.reused == 'true'))")
         create = next(step for step in manifest["steps"]
                       if step.get("name") == "Create and push the multi-arch manifests")
         run = create["run"]

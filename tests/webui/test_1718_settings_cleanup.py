@@ -69,9 +69,11 @@ def test_spoolman_section_heading_and_hover_css():
     assert "max-width: 56rem" in shell.CSS
 
 
-def test_chat_is_first_in_the_navigation():
-    assert shell.NAV[0] == ("/chat", "Chat")
-    assert shell.NAV[-1] == ("/config", "Settings")
+def test_unified_chat_design_navigation_and_header_destinations():
+    assert shell.NAV[0] == ("/", "Status")
+    assert ("/designs", "Chat / Design") in shell.NAV
+    assert ("/config", "Settings") not in shell.NAV
+    assert ("/notifications", "Notifications") not in shell.NAV
 
 
 def _config_page(section):
@@ -103,11 +105,15 @@ def test_chat_page_ask_ai_default_and_no_print_help_suggestion():
             return []
 
     page = chat.render_chat_page(Service(), form_token="tok", ask_ai_default=True)
-    assert 'name="ask_ai" value="1" checked' in page
+    assert 'name="ask_ai"' not in page
+    assert "Ask AI" not in page
+    assert 'action="/chat"' in page and 'name="text"' in page
     assert "/print-help" not in page
-    off = chat.render_chat_page(Service(), form_token="tok")
-    assert 'name="ask_ai" value="1" checked' not in off
-    assert "/print-help" not in off
+    assert shell.NAV[0] == ("/", "Status")
+    assert ("/designs", "Chat / Design") in shell.NAV
+    assert ("/cost", "Print COST") in shell.NAV
+    assert ("/config", "Settings") not in shell.NAV
+    assert ("/notifications", "Notifications") not in shell.NAV
 
 
 def test_cost_page_fills_and_names_defaults_and_calculate_is_top_right():

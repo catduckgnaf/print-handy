@@ -437,7 +437,9 @@ def build_checklist(data):
     lines.append("")
     lines.append(
         f"- [ ] A candidate `docker-publish` run (publish=false) for "
-        f"{version} is green; the surfaces gate reports the README, "
+        f"{version} is green on the tag (or on `main` at the bump merge "
+        f"commit), so the publication reuses its images instead of "
+        f"rebuilding; the surfaces gate reports the README, "
         f"package version and Pages site current."
     )
     lines.append(

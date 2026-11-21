@@ -113,7 +113,7 @@ class PWAFoundationUnitTests(unittest.TestCase):
     def test_shell_head_tags_and_pwa_script(self):
         html = shell.page("Status", "<p>content</p>", path="/")
         self.assertIn('<link rel="manifest" href="/manifest.webmanifest">', html)
-        self.assertIn('<meta name="theme-color" content="#12110f"', html)
+        self.assertNotIn('<meta name="theme-color" content="#12110f"', html)
         self.assertIn('<meta name="theme-color" content="#f3efe6"', html)
         # The icon and apple-touch-icon link tags are the separate
         # favicon change's scope (#1456), folded into the same combined

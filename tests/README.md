@@ -464,8 +464,9 @@ What runs:
 | Mock slicer | `discord-timing` | every corpus case, `direct` and `standalone` transports | A problem fails the job. The job is a required status check on `main`; CONTRIBUTING lists the required checks. |
 | Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit`, `stl-large-plate` on `direct` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
 
-Both legs run `python -m tests.corpus.time_corpus` three times, then `python -m tests.corpus.timing_gate` on the
-three result files. The gate compares the per-case median of the three repeats, never one sample. Each leg writes
+The mock leg runs `python -m tests.corpus.time_corpus` five times, the real-Orca leg three times, then
+`python -m tests.corpus.timing_gate` on the result files. The gate compares the per-case median of the
+repeats, never one sample. Each leg writes
 a per-case table (median, baseline, limit, change) to the job summary and uploads its run files plus a
 `proposed-baseline.json` as an artifact (`discord-timing`, `slicer-timing-real`).
 
@@ -506,7 +507,11 @@ before the field existed; the #1142 review stored it explicitly on every entry, 
 parts-512-four-color's seed to its first recording, 4.74 s — the 3.77 s previously carried as its
 `raised_from` appears in no recorded baseline in the file's history, and the +38% drift printed for that
 case came from the seed, not from the code). Past +25% over `original` the gate prints a warning; past +50% it fails, even
-when each individual raise was small. Every job summary and every `--record` proposal prints the cumulative
+when each individual raise was small. Both percentages apply to max(`original`, slack floor): a first
+recording under the 0.35 s floor is itself runner noise, so +50% of it would be tighter than the noise the
+per-baseline check allows. 2.3.6 was blocked by exactly that: parts-512-four-color's `fit_check_s`, first
+recorded at 0.01 s, read 0.37 s against a 0.365 s cumulative limit while its own baseline limit was 0.57 s.
+Every job summary and every `--record` proposal prints the cumulative
 drift of every raised entry, however small, so a re-record shows its own total before anyone merges it.
 
 Two mock-leg cases are not file drops (#1142). `typed-setup-walkthrough` (`[entry] kind = "typed"`) times a
@@ -533,10 +538,20 @@ print-now (the verified-artifact skip) and in packaging (head/tail metadata, zip
 slice-time verify interval. Whether to add a large-plate case to the real-Orca leg is an open decision
 on #952.
 
-Noise controls in place: median of 3 repeats, per-case baselines (one heavy case cannot hide another's
+Noise controls in place: median of 5 repeats on the mock leg (3 on the real-Orca leg), per-case baselines (one heavy case cannot hide another's
 regression), a floored relative slack for tiny flows, the warm-up slice, and the fixed runner image (`ubuntu-24.04`). Not
 built yet: the same-job A/B against the merge base, and a control file to normalize runner speed. The stored
 per-release baseline ships first; A/B is the next step if the real-Orca warnings prove too noisy to promote.
+
+Five repeats on the mock leg since #1734, measured, not guessed: of the 15 main runs of 2026-11-19/20, three
+failed this gate, each on a different case (`parts-512-four-color`, `assembly-2c-tight`,
+`islands-144-four-color/direct`), and two of the three failed against the runner CPU's own `by_cpu` profile,
+so more profiles were not the fix. In the two spike failures the run was at or below baseline speed overall
+while the failing case alone spiked by about 0.4-0.8 s in the post-slice prompt tail in two of its three
+repeats (islands-144: 1.57 s / 1.61 s / 0.80 s against a 0.94 s baseline) — a median of three turns two
+spiked repeats into a failure, while a median of five needs a majority of repeats slow, which is the shape
+of a real regression. The tests in `tests/corpus/test_timing_gate.py` pin both directions with the
+islands-144 numbers.
 
 ### The large-plate case (#952)
 
@@ -588,10 +603,10 @@ baselines"), and CONTRIBUTING.md requires it before tagging. Nothing updates a b
        gh run download <run-id> -n slicer-timing-real -D slicer-timing
 
 3. Each artifact holds `proposed-baseline.json`, made by `timing_gate --record --recorded-from "CI run <id> (<sha>) ..."`
-   from the three repeats. To rebuild it by hand from the run files:
+   from the repeats. To rebuild it by hand from the run files:
 
        python -m tests.corpus.timing_gate timing/run-*.json --record \
-           --recorded-from "CI run <id> (<sha>), artifact discord-timing, median of 3" > proposed.json
+           --recorded-from "CI run <id> (<sha>), artifact discord-timing, median of 5" > proposed.json
        python -m tests.corpus.timing_gate slicer-timing/run-*.json \
            --baseline tests/corpus/timing_baseline_real_slicer.json --record \
            --recorded-from "CI run <id> (<sha>), artifact slicer-timing-real, median of 3" > proposed-real.json
@@ -617,7 +632,7 @@ job until it lands on the CPU the default baseline came from, record that run as
 (catduck, 2026-11-15):
 
     python -m tests.corpus.timing_gate timing/run-*.json --record --per-cpu \
-        --recorded-from "CI run <id> (<sha>), artifact discord-timing, median of 3" > proposed.json
+        --recorded-from "CI run <id> (<sha>), artifact discord-timing, median of 5" > proposed.json
 
 The CI artifacts already carry this as `proposed-baseline-per-cpu.json`. It is the whole baseline file with the
 run stored under `by_cpu["<cpu model>"]`; the default `cases` and every other CPU's profile are unchanged.

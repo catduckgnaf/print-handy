@@ -457,9 +457,9 @@ def _esc(value):
     return html.escape(str(value), quote=True)
 
 
-def _page(title, body, *, theme=shell.DEFAULT_THEME, nav=None):
+def _page(title, body, *, theme=shell.DEFAULT_THEME, nav=None, route="/designs"):
     """Through the one shell (#813); the header chrome carries the nav."""
-    return shell.page(title, body, path="/designs", theme=theme, nav=nav)
+    return shell.page(title, body, path=route, theme=theme, nav=nav)
 
 
 INTRO = ("<p>Describe a part and Print Handy designs it, checks it, and shows you a "
@@ -472,7 +472,13 @@ def _hidden_token(form_token):
     return f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
 
 
-def _render_workshop(workshop, *, form_token):
+def _route_action(route, suffix):
+    """Append a route suffix before its query string."""
+    path, separator, query = route.partition("?")
+    return f"{path}{suffix}{separator}{query}" if separator else f"{path}{suffix}"
+
+
+def _render_workshop(workshop, *, form_token, route="/designs"):
     """The design conversation at the top of GET /designs (#1636).
 
     Web chat off or design not set up is a plain reason and no message
@@ -497,7 +503,9 @@ def _render_workshop(workshop, *, form_token):
         return "".join(parts)
     session = workshop["session"]
     entries = workshop["entries"]
-    new_form = ('<form method="post" action="/designs/new" class="inline">'
+    new_action = ("/designs/new" if route == "/chat" else
+                  _route_action(route, "/new"))
+    new_form = (f'<form method="post" action="{_esc(new_action)}" class="inline">'
                 f'{_hidden_token(form_token)}'
                 '<button type="submit" class="secondary">New design</button></form>')
     if session is not None:
@@ -516,17 +524,18 @@ def _render_workshop(workshop, *, form_token):
         # chat page (this page's own state route) until the reply lands.
         parts.append(f'<noscript><meta http-equiv="refresh" '
                      f'content="{chat_module.REFRESH_SECONDS}"></noscript>')
-        parts.append(chat_module.poll_script(workshop["seq"], "/designs/state"))
+        parts.append(chat_module.poll_script(workshop["seq"], _route_action(route, "/state")))
     parts.append(transcript.render_log(entries, open_prompt=workshop["prompt"],
                                        working=workshop["pending"], empty=INTRO))
-    parts.append(transcript.render_prompt(workshop["prompt"], action="/designs/choice",
-                                          form_token=form_token))
+    parts.append(transcript.render_prompt(
+        workshop["prompt"], action=_esc(_route_action(route, "/choice")),
+        form_token=form_token))
     if workshop["failed"]:
         parts.append('<div class="chat-prompt" role="group" aria-label="Try again">'
                      '<div class="chat-body"><p>That design did not come out. Send it '
                      'again as it is, or say it another way below.</p></div>'
                      '<div class="chat-choices">'
-                     '<form method="post" action="/designs" class="inline">'
+                     f'<form method="post" action="{_esc(route)}" class="inline">'
                      f'{_hidden_token(form_token)}'
                      '<input type="hidden" name="retry" value="1">'
                      '<button type="submit">Try again</button></form></div></div>')
@@ -540,7 +549,7 @@ def _render_workshop(workshop, *, form_token):
     else:
         placeholder = "make it 5 mm taller, slice it, or answer the question"
         label = "Message"
-    parts.append('<form method="post" action="/designs" class="design-composer">'
+    parts.append(f'<form method="post" action="{_esc(route)}" class="design-composer">'
                  f'{_hidden_token(form_token)}'
                  f'<div class="field"><label for="d-text">{label}</label>'
                  '<input id="d-text" name="text" autocomplete="off" '
@@ -550,7 +559,7 @@ def _render_workshop(workshop, *, form_token):
     # of a new design conversation, the same edit a dropped file starts
     # in chat. The change is optional — with none, the part is shown as
     # it is and the next message in the box above makes the change.
-    parts.append('<form method="post" action="/designs/upload" '
+    parts.append(f'<form method="post" action="{_esc(_route_action(route, "/upload"))}" '
                  'enctype="multipart/form-data" class="design-upload">'
                  f'{_hidden_token(form_token)}'
                  '<div class="field"><label for="d-file">Upload a part to edit '
@@ -567,15 +576,17 @@ def _render_workshop(workshop, *, form_token):
 
 
 def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=None,
-                        form_token="", notice=None, error=None):
+                        form_token="", notice=None, error=None, route="/designs"):
+
     """The GET /designs page: the design conversation, then the catalog."""
     parts = []
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
-    parts.append(_render_workshop(workshop, form_token=form_token))
-    parts.append("<h2>Designs on this machine</h2>"
+    parts.append(_render_workshop(workshop, form_token=form_token, route=route))
+    if route == "/designs":
+        parts.append("<h2>Designs on this machine</h2>"
                  "<p>Every design session kept here (14 days), from this page or "
                  "from chat with <code>/print-design</code> (or <code>/design</code>) "
                  "(<a href=\"https://github.com/catduckgnaf/print-handy/blob/main/docs/DESIGN.md\">"
@@ -587,7 +598,7 @@ def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=N
         parts.append("<p>No designs yet. Start one above, or describe a part with "
                      "<code>/print-design</code> in chat: every session is listed "
                      "here.</p>")
-        return _page("designs", "".join(parts), theme=theme, nav=nav)
+        return _page("designs", "".join(parts), theme=theme, nav=nav, route=route)
     body = []
     for row in rows:
         preview = (f'<img src="/designs/{_esc(row["id"])}/preview" '
@@ -603,11 +614,12 @@ def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=N
             f"<td>{_esc(row['updated'])}</td>"
             f"<td>{preview}</td>"
             "</tr>")
-    parts.append('<div class="table-scroll"><table class="design-catalog"><tr>'
+    if route == "/designs":
+        parts.append('<div class="table-scroll"><table class="design-catalog"><tr>'
                  '<th>Design</th><th>Kind</th>'
                  "<th>State</th><th>Turns</th><th>Created</th><th>Updated</th>"
                  "<th>Preview</th></tr>" + "".join(body) + "</table></div>")
-    return _page("designs", "".join(parts), theme=theme, nav=nav)
+    return _page("designs", "".join(parts), theme=theme, nav=nav, route=route)
 
 
 _CONTINUE_NOTES = {

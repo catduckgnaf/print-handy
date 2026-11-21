@@ -55,6 +55,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 mod bed_scan;
+mod paint;
 
 /// Version handshake between this extension and the Python dispatcher.
 /// Bump on any semantic change; the dispatcher falls back to the Python
@@ -558,12 +559,56 @@ fn first_off_bed(py: Python<'_>, text: &str, bed_x: f64, bed_y: f64) -> PyResult
     outcome.map_err(PyValueError::new_err)
 }
 
+/// The paint census of one `.model` member (#1715; the contract is in
+/// `paint.rs`): `{object_id: {"states": {state: leaves},
+/// "unpainted": n}}`, `{"error": message}` for a mesh whose paint
+/// decode fails, or `{"python_fallback": true}` when Python's recursive
+/// decoder must decide its context-dependent recursion behavior.
+/// Any internal error raises `ValueError`, on which the Python
+/// dispatcher falls back.
+#[pyfunction]
+fn paint_census(py: Python<'_>, model: &[u8]) -> PyResult<Py<PyDict>> {
+    // The census touches no Python object: release the GIL so the bot's
+    // other threads keep running while a large member is counted.
+    let outcome = py.detach(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| paint::paint_census(model)))
+    });
+    let census = match outcome {
+        Ok(census) => census,
+        Err(_) => return Err(PyValueError::new_err("native paint census panicked")),
+    };
+    let dict = PyDict::new(py);
+    for (id, row) in &census {
+        let entry = PyDict::new(py);
+        match row {
+            paint::CensusRow::Counts { states, unpainted } => {
+                let states_dict = PyDict::new(py);
+                for (state, count) in states {
+                    states_dict.set_item(state, count)?;
+                }
+                entry.set_item("states", states_dict)?;
+                entry.set_item("unpainted", unpainted)?;
+            }
+            paint::CensusRow::Error(message) => {
+                entry.set_item("error", message)?;
+            }
+            paint::CensusRow::PythonFallback => {
+                entry.set_item("python_fallback", true)?;
+            }
+        }
+        dict.set_item(id, entry)?;
+    }
+    Ok(dict.unbind())
+}
+
 #[pymodule]
 fn _bounds_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("API_VERSION", API_VERSION)?;
     m.add("BED_SCAN_VERSION", bed_scan::BED_SCAN_VERSION)?;
+    m.add("PAINT_CENSUS_VERSION", paint::PAINT_CENSUS_VERSION)?;
     m.add_function(wrap_pyfunction!(parse_bounds, m)?)?;
     m.add_function(wrap_pyfunction!(first_off_bed, m)?)?;
+    m.add_function(wrap_pyfunction!(paint_census, m)?)?;
     m.add("BoundsRefusal", m.py().get_type::<BoundsRefusal>())?;
     Ok(())
 }

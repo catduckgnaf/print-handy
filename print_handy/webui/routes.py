@@ -198,6 +198,7 @@ ROUTES = (
     _post("/chat", SESSION_CSRF, "_chat_post", back="/chat"),
     _post("/chat/upload", SESSION_CSRF, "_chat_upload_post", back="/chat", multipart=True),
     _post("/chat/choice", SESSION_CSRF, "_chat_choice_post", back="/chat"),
+    _post("/chat/new", SESSION_CSRF, "_chat_design_new_post", back="/chat"),
     _post("/designs", SESSION_CSRF, "_designs_post", back="/designs"),
     _post("/designs/upload", SESSION_CSRF, "_designs_upload_post", back="/designs", multipart=True),
     _post("/designs/choice", SESSION_CSRF, "_designs_choice_post", back="/designs"),

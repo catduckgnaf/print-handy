@@ -190,6 +190,17 @@ def _page(monkeypatch, tmp_path, *, controls):
     return page, observed
 
 
+def test_firmware_tables_are_phone_scrollable_without_wrapping_values(monkeypatch, tmp_path):
+    monkeypatch.setattr(firmware_page.settings, "printers", lambda _data: [])
+    page = firmware_page.render_firmware_page(
+        {}, feed=SimpleNamespace(firmware=[SimpleNamespace(
+            kind="firmware", name="Example firmware", latest=None, channel="stable",
+            stale=False, latest_prerelease=None, latest_stable=None, audited="1.0",
+            update="Manual")], generated_at=None))
+    assert '<div class="table-scroll firmware-table-scroll"><table>' in page
+    assert "firmware-table-scroll th, .firmware-table-scroll td { white-space: nowrap; }" in page
+
+
 def test_checked_page_offers_update_with_estimate_when_controls_on(monkeypatch, tmp_path):
     page, observed = _page(monkeypatch, tmp_path, controls=True)
     assert "Updates available" in page

@@ -961,4 +961,5 @@ def render_page(printer_name, printer_id, *, ok, reason,
             "<p>The printer screen view shows the printer's own display "
             "where the firmware publishes one. The print-bed camera is "
             "unaffected either way.</p>")
-    return shell.page("Printer screen", body, path="/printers", theme=theme)
+    return shell.page("Printer screen", body, path="/printers", theme=theme,
+                      heading="")

@@ -303,6 +303,31 @@ Variables reason: The new option was checked on every surface: defaults tree, en
                 self.assertEqual(2, closure.main(["--metadata", str(path)]))
                 self.assertEqual(2, closure.main(["--metadata", str(Path(directory) / "missing.json")]))
 
+    def test_issue_closure_script_reads_a_live_issue_before_closing(self):
+        """2.3.6: the checklist was closed with boxes open, reopened by the guard, and the publication
+        dispatched meanwhile failed. --issue gives the guard's answer before closing."""
+        import io, contextlib
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location(
+            "closure", Path(__file__).resolve().parents[1] / "scripts/check_issue_closure.py")
+        closure = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(closure)
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return mock.Mock(stdout='{"body": "- [x] a\\n- [ ] b"}')
+        with mock.patch.object(closure.subprocess, "run", fake_run), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(1, closure.main(["--issue", "1729", "--repo", "o/r"]))
+        self.assertEqual(calls, [["gh", "issue", "view", "1729", "--json", "body", "--repo", "o/r"]])
+        self.assertIn("- [ ] b", out.getvalue())
+
+        def broken(cmd, **kwargs):
+            raise FileNotFoundError("gh")
+        with mock.patch.object(closure.subprocess, "run", broken), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(2, closure.main(["--issue", "1729"]))
+
     # -- evidence for a met criterion (#1322) -------------------------------------
 
     def run_policy(self, root, body, files):

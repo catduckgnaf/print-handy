@@ -53,6 +53,24 @@ loop in `print_handy/gcode/bed_scan.py`, dispatched under the same rules
 parser, non-ASCII text still takes Python by design); `tests/pipeline/test_native_bed_scan.py`
 holds the two to the same answers.
 
+The crate also carries the painted color census (`src/paint.rs`,
+`paint_census(model_bytes)` and `PAINT_CENSUS_VERSION`, #1715): one pass
+over a .model member returning, per mesh object, the paint leaf-state
+counts and unpainted count that `painted_geometry.leaf_states` decodes
+per part in Python — or the Python decoder's exact error message for
+that mesh only. Its contract is the Python decode in
+`print_handy/core/painted_geometry.py`, dispatched under the same rules
+(version handshake, golden self-check, Python fallback, the same
+`PRINT_HANDY_BOUNDS_IMPL` setting), with one permanent exception: parts
+with `triangle_ranges` always take the Python counting, because a
+whole-mesh census cannot answer for a subset of triangles. Trees deeper
+than the safe recursion budget are also delegated to Python per mesh, so
+its context-dependent `RecursionError` remains authoritative rather than
+being replaced by the iterative native decoder's broader acceptance.
+`tests/pipeline/test_native_paint_census.py` holds the two to the same
+answers, manifests included; the CI job sets
+`PRINT_HANDY_PAINT_REQUIRE_NATIVE=1` for it too.
+
 Without the built extension everything still works — the Python parser
 handles every input. Set `PRINT_HANDY_BOUNDS_IMPL=python` to force the
 fallback, or `=native` to make a missing/broken extension an error.

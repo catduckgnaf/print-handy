@@ -463,6 +463,22 @@ def test_lookup_symptom_finds_its_flow(registry):
     assert text.endswith(knowledge.ADVISORY_NOTE)
 
 
+def test_legacy_fuzzy_url_never_triggers_outbound_lookup(registry, monkeypatch):
+    """A legacy override is ignored; lookup remains entirely local."""
+    import urllib.request
+
+    monkeypatch.setenv("PRINT_FUZZY_URL", "https://example.invalid/legacy-endpoint")
+    def outbound(*args, **kwargs):
+        raise AssertionError("legacy fuzzy endpoint must never be called")
+    monkeypatch.setattr(urllib.request, "urlopen", outbound)
+
+    matched = knowledge.lookup_text("first layer not sticking", registry=registry)
+    assert "Symptom: First layer will not stick" in matched
+    unknown = knowledge.lookup_text("warp drive calibration", registry=registry)
+    assert "Nothing in the registries matches" in unknown
+    assert "semantic endpoint" not in unknown
+
+
 def test_lookup_text_for_command_and_unknown_query(registry):
     text = knowledge.lookup_text("M851", registry=registry)
     assert "M851" in text and "Safety:" in text
