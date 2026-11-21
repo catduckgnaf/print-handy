@@ -359,6 +359,9 @@ img { max-width: 100%; }
   .printer-settings-col p .button { display: inline-flex; margin: 0; }
   .printer-card h3 { overflow-wrap: anywhere; }
   .firmware-table-scroll th, .firmware-table-scroll td { white-space: nowrap; }
+  .firmware-intro { padding-left: 1.1rem; }
+  .firmware-help dd { margin: 0 0 0.5rem 0; }
+  .firmware-help code { overflow-wrap: anywhere; }
   .slot-link { display: flex; flex-direction: column; align-items: center; min-height: 10rem; }
   .slot-link .slot-action { margin-top: auto; white-space: normal; }
   .slots { align-items: stretch; }
