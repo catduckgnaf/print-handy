@@ -5138,18 +5138,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             bounds_note = None
             source_part_count = None
             try:
-                import numpy as _np
-                _leaves = support_clearance.leaves(path)
-                _tris = _np.concatenate([p['tris'].reshape(-1, 3)
-                                         for p in _leaves])
-                source_bounds = (float(_tris[:, 0].min()), float(_tris[:, 1].min()),
-                                 float(_tris[:, 0].max()), float(_tris[:, 1].max()))
-                source_height = float(_tris[:, 2].max()) or None
+                # Off the chat loop (child process, bounded general lane): reading
+                # every mesh leaf of a large source starved the gateway heartbeat.
+                extent = await _heavy(support_clearance.source_extent, path)
+                source_bounds = tuple(extent['bounds'])
+                source_height = extent['height']
                 # Distinct placed parts in the source (#1612): an
                 # unlabeled multi-part plate cannot be attributed.
-                # Modeled-support leaves are not parts to attribute.
-                source_part_count = len({p.get('item', i) for i, p in enumerate(_leaves)
-                                         if not p.get('support')}) or None
+                source_part_count = extent['part_count']
             except Exception as exc:  # noqa: BLE001 - named below, not silent
                 bounds_note = (f'source bounds unreadable ({exc}); coverage compared '
                                'without a source-to-slice mapping')
@@ -5166,8 +5162,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 if bounds_note:
                     plate['unverified_reason'] = bounds_note
                 plates.append(plate)
-            return await asyncio.to_thread(
-                support_clearance.verify_coverage_by_plate, report.get('regions') or [], plates)
+            try:
+                # The G-code walk is the slow part: keep it off the chat loop. Its result
+                # is computed in-process; worker failures remain explicitly unverified.
+                return await _heavy(support_clearance.verify_coverage_by_plate,
+                                    report.get('regions') or [], plates)
+            except Exception as exc:  # noqa: BLE001 - CancelledError is BaseException and propagates
+                logger.warning('support coverage worker failed for intake %s: %s', iid, exc)
+                return {'checked': False, 'ok': True, 'regions': [], 'plate_mode': 'none',
+                        'unverified': [{'plate': None,
+                                        'reason': f'the support coverage check could not run ({exc})'}]}
 
         def _record_coverage_unverified(result):
             """Name an unverified coverage state in the receipt and the log (#963 item 7)."""
