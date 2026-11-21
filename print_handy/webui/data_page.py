@@ -208,7 +208,7 @@ def overview(payload):
                 "Excludes stopped, printing, and unrecorded outcomes."
                 if decided else "No finished or failed prints yet.")
     recorded = payload.get("filament_records", 0)
-    missing = total - recorded
+    missing = max(0, total - recorded)
     filament_sub = (f"{recorded} of {print_stats.plural(total, 'print')} had weight recorded"
                     + (f" ({missing} missing)" if missing else ""))
     tiles = [

@@ -90,6 +90,13 @@ def test_the_filament_tile_distinguishes_missing_weight_from_zero():
             _page([_rec(1, grams=grams)]))
 
 
+def test_filament_missing_count_never_goes_negative_for_inconsistent_stats():
+    html = data_page.overview({"total_prints": 1, "filament_records": 2,
+                               "completed": 0, "failed": 0})
+    assert "2 of 1 print had weight recorded" in html
+    assert "(-1 missing)" not in html
+
+
 def test_failure_causes_are_grouped_in_plain_words_with_a_tip():
     stats = print_stats.aggregate(RECORDS)
     causes = {entry["cause"]: entry for entry in stats["failure_causes"]}
