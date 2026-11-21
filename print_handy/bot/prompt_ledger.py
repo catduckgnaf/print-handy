@@ -120,7 +120,7 @@ def saved_job_state(intake_id):
     return "other" if status else None
 
 
-def stale_notice(restarted, approval, saved):
+def stale_notice(restarted, approval, saved, *, retired):
     """What a person reads after pressing a button nothing is waiting behind.
 
     States that nothing changed, why the button is dead, and the safe way forward.
@@ -134,7 +134,9 @@ def stale_notice(restarted, approval, saved):
     else:
         unchanged = ("Nothing changed: no print was started, nothing was uploaded to the printer"
                      + (", and your approval was not recorded." if approval else "."))
-    lines = [f"{why} {unchanged}", "I removed the dead buttons from that message."]
+    lines = [f"{why} {unchanged}"]
+    if retired:
+        lines.append("I removed the dead buttons from that message.")
     if saved == "started":
         lines.append("That job had already started. Check /print-status.")
     else:

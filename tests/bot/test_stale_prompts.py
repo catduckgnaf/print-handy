@@ -226,7 +226,8 @@ def test_a_losing_racer_reports_stale_and_the_winner_keeps_its_answer(rig):
     assert "Nothing changed" in clicked.replies[-1]["content"]
 
 
-def test_stale_batched_question_preserves_live_sibling_select(rig, monkeypatch):
+@pytest.mark.parametrize("row_evicted", [False, True])
+def test_stale_batched_question_preserves_live_sibling_select(rig, row_evicted):
     discord, core, _state = rig
 
     async def flow():
@@ -244,15 +245,21 @@ def test_stale_batched_question_preserves_live_sibling_select(rig, monkeypatch):
                          if parse_custom_id(cid) and parse_custom_id(cid)[0] == stale)
         prompts._prompts.pop(stale, None)
         prompts._approval_marks.pop(stale, None)
-        monkeypatch.setattr(prompt_ledger, "BOOT_ID", "another-boot")
+        if row_evicted:
+            core.adapter._prompts.pop(stale, None)
         clicked = await discord.press(message, stale_cid, user=fake_discord.FakeUser(OPERATOR))
+        assert message.view is not None
+        assert len(message.selects()) == 2
+        assert prompts.is_open(live)
+        live_cid = next(cid for _, cid, _ in message.selects() if cid != stale_cid)
+        await discord.press(message, live_cid, user=fake_discord.FakeUser(OPERATOR), values=["Red"])
         return message, clicked, live
 
     message, clicked, live = run(flow())
-    assert message.view is not None
-    assert len(message.selects()) == 2
-    assert prompts.is_open(live)
-    assert "Nothing changed" in clicked.replies[-1]["content"]
+    assert prompts._prompts[live].answer == "Red"
+    assert message.view is None  # the last live answer retires the entire batch
+    text = clicked.replies[-1]["content"]
+    assert "Nothing changed" in text and "I removed" not in text
 
 
 def test_a_live_question_still_resolves_normally(rig):

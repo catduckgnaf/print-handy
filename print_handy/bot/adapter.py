@@ -305,10 +305,8 @@ class StandaloneAdapter(BasePlatformAdapter):
         uid = str(getattr(user, "id", "") or "")
         entry = prompt_ledger.lookup(cid)
         message = getattr(interaction, "message", None)
-        known = (entry is not None
-                 and (not entry.get("message_id") or message is None
-                      or str(getattr(message, "id", "")) == entry["message_id"]))
-        if not known:
+        if entry is None or (entry.get("message_id") and message is not None
+                             and str(getattr(message, "id", "")) != entry["message_id"]):
             await say("That question already closed. Nothing changed.")
             return
         press_channel = getattr(interaction, "channel_id", None)
@@ -328,24 +326,32 @@ class StandaloneAdapter(BasePlatformAdapter):
             return
         restarted = entry.get("boot") != prompt_ledger.BOOT_ID
         with _prompts_guard(self):
-            row = self._prompts.get(cid)
+            row = self._prompts.pop(cid, None)
             batch = row.get("batch") if row else None
             if batch is not None:
                 batch["pending"].discard(cid)
-                preserve_siblings = bool(batch["pending"])
-            else:
-                preserve_siblings = False
-            self._prompts.pop(cid, None)
+            # The stale row may already be gone. Check every live prompt on
+            # this message before editing a view shared by several questions.
+            message_id = getattr(message, "id", None)
+            preserve_siblings = False
+            if message_id is not None:
+                for sibling_id, sibling in self._prompts.items():
+                    if getattr(sibling.get("message"), "id", None) != message_id:
+                        continue
+                    shared = sibling.get("batch")
+                    if shared is not None:
+                        shared["pending"].discard(cid)
+                    preserve_siblings |= self.registry.is_open(sibling_id)
         prompt_ledger.forget(cid)
+        retired = False
         try:
-            # A batched select message is shared: removing its view while another
-            # select is live would strand that sibling question.
             if message is not None and not preserve_siblings:
                 await message.edit(view=None)
+                retired = True
         except Exception:
             logger.debug("could not retire the stale buttons", exc_info=True)
         await say(stale_notice(restarted, entry.get("approval"),
-                               saved_job_state(entry.get("intake_id"))))
+                               saved_job_state(entry.get("intake_id")), retired=retired))
 
     async def handle_click(self, interaction):
         """Resolve a prompt button. Returns False when the interaction is not one of ours."""
