@@ -61,6 +61,7 @@ KNOWN = (
     "screen_sync_pending.json",
     "setup_completion.json",
     "slice-result-thumbnails",
+    "slot-verify.json",
     "spoolman_known_spools.json",
     "start-recordings",
     "status-frames",

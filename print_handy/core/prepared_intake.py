@@ -2516,6 +2516,24 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                       confirm_target=confirm_target)
 
 
+async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeout):
+    """Ask about slots the printer screen and Print Handy disagree about (#1788); False = cancelled.
+
+    Reading the screen, the shelf or the ledger is fail-soft inside
+    ``slot_verify`` (no doubt, a log line). The question itself behaves like
+    every other intake question: an unanswered one ends the intake unsliced.
+    """
+    from ..intake import slot_verify
+
+    async def ask_slot(text, labels):
+        return await _ask(adapter, source, key, text, labels, timeout)
+
+    async def say(text):
+        await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
+
+    return await slot_verify.verify_slots(state, printer_id, ask_slot, say)
+
+
 async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                                before_start=None, confirm_target=False):
     """The chat intake for one model link, upload or reprint (see the module docstring).
@@ -3129,6 +3147,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if getattr(job_adapter, 'has_native_screen', False):
             await asyncio.to_thread(purge.refresh_best_effort, state, job_adapter, job.get('printer_id'))
             purge.require_jacker_capacity(manifest, job_adapter, state)
+            # #1788: a slot the printer screen and Print Handy disagree about is
+            # asked about before the colors are offered or anything is sliced.
+            if not await _verify_slots(adapter, source, key, metadata, state,
+                                       printer_id or job.get('printer_id'), timeout):
+                receipt.update(status='CANCELLED_SLOT_UNVERIFIED')
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                return {'action': 'skip', 'reason': 'operator cancelled on an unverified slot'}
         selections = [mj.resolve_filament_selection(state, dict(label, slot=int(slot)))
                       for slot, label in sorted(mj.configured_slots(state).items())]
         # A tool_based printer's positions are tools, never slots (#346, #1198).
