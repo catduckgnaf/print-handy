@@ -517,3 +517,40 @@ def test_off_states_show_the_reason_and_no_message_box(flow_cfg, change, reason)
         stop(srv)
     assert reason in page
     assert 'class="design-composer"' not in page and 'action="/designs/new"' not in page
+
+
+# ------------------------------------------------------------ stale answers (#1737)
+
+def test_a_stale_design_answer_stays_on_the_unified_design_view(server, flow_cfg, pipeline):
+    """A rejected inline answer explains itself in /chat?view=design.
+
+    The page is the unified Design view (not the legacy /designs page), the
+    explanation names the refusal, the Design thread is unchanged, and no
+    answer or hand-off was delivered.
+    """
+    _complete, handed = pipeline
+    browser = Browser(server)
+    prompt = start_design(server, browser)
+    browser.post("/chat/choice?view=design", clarify_id=prompt["clarify_id"],
+                 index=str(design.CHOICES.index(design.CHANGE_LABEL)))
+    _wait_for(lambda: "Say the change" in thread_text(browser.page("/chat?view=design")),
+              "the say-the-change reply")
+    settled(server, browser)
+    before = thread_text(browser.page("/chat?view=design"))
+    session = current_session(flow_cfg, browser)
+    for clarify_id in (prompt["clarify_id"], "no-such-prompt"):
+        status, payload = browser.request(
+            "POST", "/chat/choice?view=design",
+            {"clarify_id": clarify_id,
+             "index": str(design.CHOICES.index(design.SLICE_LABEL))})
+        page = payload.decode("utf-8")
+        assert status == 200
+        assert "wasn&#x27;t accepted" in page or "wasn't accepted" in page
+        # Still the unified Design view, never the legacy /designs page.
+        assert 'action="/chat/new?view=design"' in page
+        assert 'action="/designs"' not in page and 'action="/designs/choice"' not in page
+        assert thread_text(page) == before
+    assert handed == []
+    after = current_session(flow_cfg, browser)
+    assert after["id"] == session["id"] and after["status"] == "awaiting_revision"
+    assert thread_text(browser.page("/chat?view=design")) == before

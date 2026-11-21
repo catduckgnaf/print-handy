@@ -85,12 +85,12 @@ def default_notes(data):
     profile, _ = cost_module.printer_profile_for(data)
     notes = {
         "price_per_kg": (f"Default: {_fmt(workspace.default_filament_cost_per_kg)} per "
-                         "kilogram, from the Print cost settings (default filament cost)."),
+                         "kilogram, from the Print COST settings (default filament cost)."),
         "watts": (f"Default: {_fmt(profile.watts)} W average "
                   f"({profile.watts_basis}), from the {profile.name} cost profile."),
         "failure_percent": (f"Default: {_fmt(workspace.failure_rate_fdm * 100)}% for FDM, "
                             f"{_fmt(workspace.failure_rate_resin * 100)}% for resin, "
-                            "from the Print cost settings."),
+                            "from the Print COST settings."),
         "prep_minutes": "Default: 5 minutes.",
         "post_minutes": "Default: 10 minutes.",
         "pack_minutes": "Default: 0 minutes.",
@@ -103,7 +103,7 @@ def default_notes(data):
                                   f"{profile.name} cost profile.")
     else:
         notes["printer_price"] = (f"No printer price in the {profile.name} cost profile "
-                                  "yet: 0 until one is set in the Print cost settings.")
+                                  "yet: 0 until one is set in the Print COST settings.")
     return notes
 
 
@@ -245,7 +245,7 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
                 "the Adventurer 5M platform figure.</p>")
     if history:
         body.append(history)
-    return shell.page("Cost calculator", "".join(body), path="/cost", theme=theme)
+    return shell.page("Print COST", "".join(body), path="/cost", theme=theme)
 
 
 def history_cost_rows(records, limit=20):

@@ -72,6 +72,12 @@ def _design_cookie_headers(handler):
     return headers
 
 
+def _page_for(handler, route):
+    """The page a refusal renders on: the unified /chat route keeps its own
+    page (Design view included) instead of falling back to legacy /designs."""
+    return handler._chat_page if route.startswith("/chat") else handler._designs_page
+
+
 def designs_page(handler, notice=None, error=None):
     """Render the legacy /designs route; navigation directs users to /chat."""
     data = handler.server.settings_data
@@ -106,7 +112,7 @@ def designs_post(handler, form, route="/designs"):
     description again. The page itself designs, slices and prints nothing.
     """
     if not handler._web_chat_enabled():
-        handler._designs_page()
+        _page_for(handler, route)()
         return
     data = handler.server.settings_data
     view = handler._design_view()
@@ -126,8 +132,8 @@ def designs_post(handler, form, route="/designs"):
         designs_module.resume_lost(data, model)
     # The thread shows what was typed; the command wrapper is the page's.
     if not view.submit(message, shown=text):
-        handler._designs_page(error="Too many messages in the last minute; "
-                                 "give the bot a moment to catch up.")
+        _page_for(handler, route)(error="Too many messages in the last minute; "
+                                     "give the bot a moment to catch up.")
         return
     handler._redirect(route, headers=_design_cookie_headers(handler))
 
@@ -176,12 +182,12 @@ def designs_upload_post(handler, form, route="/designs"):
     message box starts from a description.
     """
     if not handler._web_chat_enabled():
-        handler._designs_page()
+        _page_for(handler, route)()
         return
     data = handler.server.settings_data
     ready, reason = designs_module.design_availability(data)
     if not ready:
-        handler._designs_page(error=reason)
+        _page_for(handler, route)(error=reason)
         return
     view = handler._design_view()
 
@@ -198,7 +204,7 @@ def designs_upload_post(handler, form, route="/designs"):
                                   else 400, reason, route)
             return
         if not submit_uploaded_part(view, saved, change):
-            handler._designs_page(error=f"{saved.name} is in the inbox, but the "
+            _page_for(handler, route)(error=f"{saved.name} is in the inbox, but the "
                                    "edit could not be started (too many messages "
                                    "in the last minute). Try again in a moment.")
             return
@@ -232,12 +238,12 @@ def designs_continue_post(handler, rest, form, route="/designs"):
         return
     session = detail[0]
     if not handler._web_chat_enabled():
-        handler._designs_page(error="Web chat is turned off, so a design cannot be "
+        _page_for(handler, route)(error="Web chat is turned off, so a design cannot be "
                                  "continued here.")
         return
     scope = handler._chat_view(issue=False).scope
     if designs_module.continue_state(session, scope) != "continue":
-        handler._designs_page(error="That design cannot be continued from this browser: "
+        _page_for(handler, route)(error="That design cannot be continued from this browser: "
                                  "it is finished, or another chat started it.")
         return
     handler._new_design_thread = designs_module.thread_of(session)[1]
@@ -247,7 +253,7 @@ def designs_continue_post(handler, rest, form, route="/designs"):
 def designs_choice_post(handler, form, route="/designs"):
     """Answer one open design question from the unified composer route."""
     if not handler._web_chat_enabled():
-        handler._chat_page() if route == "/chat" else handler._designs_page()
+        _page_for(handler, route)()
         return
     clarify_id = (form.get("clarify_id") or [""])[0]
     try:
@@ -260,11 +266,11 @@ def designs_choice_post(handler, form, route="/designs"):
         except Exception:
             log.warning("design page answer for %s did not reach the bot",
                         clarify_id, exc_info=True)
-            page = handler._chat_page if route == "/chat" else handler._designs_page
+            page = _page_for(handler, route)
             page(error="That answer didn't reach the bot in time. The question is still open, so try again.")
             return
         if label is None:
-            page = handler._chat_page if route == "/chat" else handler._designs_page
+            page = _page_for(handler, route)
             page(error="That answer wasn't accepted: the question may have closed, or the answer belongs to another step.")
             return
     handler._redirect(route)
