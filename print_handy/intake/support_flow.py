@@ -53,8 +53,6 @@ def gap_repairs(actions):
 
 def low_gap_text(actions):
     """One line naming the measured gap and the repair that closes it, or ''."""
-    from ..core import support_clearance
-
     repairs = gap_repairs(actions)
     if not repairs:
         return ''
