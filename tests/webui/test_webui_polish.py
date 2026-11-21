@@ -66,18 +66,17 @@ def _status_page(tmp, status_for, spools_for=_spools_for):
 # ------------------------------------------------------------------ Chat tab
 
 def test_chat_is_in_the_nav_inside_the_designs_group():
-    assert ("/chat", "Chat") in shell.NAV
+    assert ("/designs", "Chat / Design") in shell.NAV
     assert "/chat" in shell.NAV_GROUPS["/designs"][1]
     with tempfile.TemporaryDirectory() as tmp:
-        assert ("/chat", "Chat") in data_module.nav_for(load(tmp))
+        assert ("/designs", "Chat / Design") in data_module.nav_for(load(tmp))
     html = shell.page("chat", "", path="/chat")
     top = html.split('aria-label="Web UI pages"')[1].split("</nav>")[0]
-    # Chat is first in the nav (#1718), so the group's tab is Chat itself
-    # and it lights up on the chat page.
-    assert shell.NAV[0] == ("/chat", "Chat")
-    assert '<a href="/chat" class="active">' in top
-    sub = html.split('aria-label="Designs pages"')[1].split("</nav>")[0]
-    assert 'href="/chat" class="active" aria-current="page">Chat</a>' in sub
+    # The Chat page shares the Designs header destination; Chat itself is
+    # not a header tab or a Designs subnav item in the shared shell.
+    assert '<a href="/designs">Chat / Design</a>' in top
+    assert 'href="/chat"' not in top
+    assert 'aria-label="Designs pages"' not in html
 
 
 # ------------------------------------------------------------------ swatches
@@ -218,8 +217,10 @@ def test_phone_width_gives_the_tabs_the_full_header_width():
     # at phone width that squeezed the tabs into a narrow column.
     assert "header.site .wrap { padding-right: 1rem;" in phone
     assert ".chrome-right { flex-basis: 100%; }" in phone
-    # The theme toggle joins the flow, so it can never sit on top of the brand.
-    assert ".theme-toggle { position: static; }" in phone
+    # Light-only pages have no theme toggle to overlap the header.
+    page = shell.page("status", "", path="/")
+    assert 'data-theme="light"' in page
+    assert "theme-toggle" not in page
 
 
 def test_phone_width_scrolls_tables_rather_than_breaking_words_into_letters():
@@ -275,6 +276,8 @@ def test_every_page_header_reaches_chat():
         finally:
             httpd.shutdown()
             httpd.server_close()
-    assert 'href="/chat" class="active" aria-current="page">Chat</a>' in chat
+    assert 'href="/designs">Chat / Design</a>' in chat
+    assert 'href="/chat"' not in chat
     sub = sliced_page.split('aria-label="Designs pages"')[1].split("</nav>")[0]
-    assert 'href="/chat">Chat</a>' in sub
+    assert 'href="/sliced" class="active" aria-current="page">Sliced files</a>' in sub
+    assert 'href="/chat"' not in sub
