@@ -174,8 +174,10 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
         for key, _label, _kind in FIELDS:
             values[key] = _value(form, key, values.get(key, ""))
     notes = default_notes(data)
-    rows = []
+    basic_rows = []
+    advanced_rows = []
     for key, label, kind in FIELDS:
+        rows = advanced_rows if key in ADVANCED else basic_rows
         advanced = " data-advanced" if key in ADVANCED else ""
         if kind == "select":
             control = (f'<select name="{key}">'
@@ -198,10 +200,6 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
     if error:
         body.append(f'<p class="error">{_esc(error)}</p>')
     advanced_error = bool(error and form and any(form.get(key) for key in ADVANCED))
-    basic_rows = "".join(row for row, key in zip(rows, (field[0] for field in FIELDS))
-                         if key not in ADVANCED)
-    advanced_rows = "".join(row for row, key in zip(rows, (field[0] for field in FIELDS))
-                            if key in ADVANCED)
     body.append(
         "<p>Cost is computed by the same engine as chat and the completion "
         "record. Drop a G-code or sliced 3MF file below to auto-fill the "
@@ -214,8 +212,9 @@ def render_cost_page(data, *, theme=shell.DEFAULT_THEME, form=None, result=None,
         '<p><button type="submit">Read file</button></p></form>'
         f'<form method="post" action="/cost"><input type="hidden" name="_csrf" value="{_esc(form_token)}">'
         + '<p>Defaults are filled in and named under each field; change any of them to price this job differently.</p>'
-        + basic_rows
-        + f'<details{" open" if advanced_error else ""}><summary>Advanced</summary>{advanced_rows}</details>'
+        + "".join(basic_rows)
+        + f'<details{" open" if advanced_error else ""}><summary>Advanced</summary>'
+        + "".join(advanced_rows) + '</details>'
         + '<button type="submit" class="accent">Calculate cost</button>'
         + '</form>')
     if result is not None:
