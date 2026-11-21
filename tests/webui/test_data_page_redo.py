@@ -5,7 +5,8 @@ from print_handy.webui import data_page
 
 
 def _rec(n, status="completed", printer="Garage AD5X", started="2026-05-01T10:00:00Z",
-         seconds=3600, grams=40.0, material="PLA", color="Black", reason=None, title=None):
+         seconds=3600, grams: float | None = 40.0, material="PLA", color="Black", reason=None,
+         title=None):
     record = {"print_number": n, "title": title or f"Part {n}", "status": status,
               "printer": printer, "started_at": started, "print_duration_seconds": seconds,
               "filament_used_g": grams, "filament_material": material, "filament_color": color}
@@ -77,7 +78,16 @@ def test_numbers_are_formatted_for_people():
 def test_the_success_rate_and_outcomes_read_plainly():
     lead = _lead(_page(RECORDS))
     assert "2 finished, 4 failed, 1 stopped" in lead
-    assert "2 of 6 finished" in lead
+    assert "2 finished out of 6 that finished or failed" in lead
+    assert "7 of 7 prints had weight recorded" in lead
+
+
+def test_the_filament_tile_distinguishes_missing_weight_from_zero():
+    for grams, value, count in ((None, "not recorded", "0 of 1 print had weight recorded (1 missing)"),
+                                (0, "0 g", "1 of 1 print had weight recorded")):
+        tile = '<p class="eyebrow">Filament used</p>'
+        assert f'{tile}<div class="v">{value}</div><div class="s">{count}</div>' in _lead(
+            _page([_rec(1, grams=grams)]))
 
 
 def test_failure_causes_are_grouped_in_plain_words_with_a_tip():

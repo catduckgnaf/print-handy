@@ -434,6 +434,43 @@ class RouteShapeTests(WebServerCase):
             self.assertIn("no compiled Wrapped video",
                           json.loads(raw)["reason"])
 
+    def test_data_headlines_account_for_unknown_outcomes_and_missing_weights(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            prints = vault / "Prints"
+            prints.mkdir(parents=True)
+            rows = [
+                ("printing", "Printer A", None),  # A later record proves it ended.
+                ("completed", "Printer A", 120),
+                ("failed", "Printer A", 30),
+                ("cancelled", "Printer A", 0),  # Recorded zero still counts.
+                ("printing", "Printer B", None),
+            ]
+            for number, (state, printer, grams) in enumerate(rows, 1):
+                (prints / f"print-{number}.json").write_text(json.dumps({
+                    "print_number": number, "title": f"Test job {number}",
+                    "status": state, "printer": printer, "filament_used_g": grams,
+                    "started_at": f"2026-05-{number:02d}T12:00:00Z",
+                }), encoding="utf-8")
+            _, port = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n", environ={
+                "WEBUI_ACCESS_TOKEN": TOKEN,
+                "PRINT_HANDY__PATHS__RECORDS_VAULT": str(vault),
+            })
+            code, _, page = self.get(port, "/data", headers=self.auth(Accept="text/html"))
+            self.assertEqual(code, 200)
+            self.assertIn('<div class="v">5</div>', page)
+            self.assertIn("1 finished, 1 failed, 1 stopped, 1 printing now,", page)
+            self.assertIn('href="#data-outcome-note">1 outcome not recorded</a>', page)
+            self.assertIn("1 finished out of 2 that finished or failed", page)
+            self.assertIn("Excludes stopped, printing, and unrecorded outcomes.", page)
+            self.assertIn("3 of 5 prints had weight recorded (2 missing)", page)
+            code, _, raw = self.request(port, "GET", "/api/data", headers=self.auth())
+            self.assertEqual(code, 200)
+            stats = json.loads(raw)
+            self.assertEqual((stats["total_prints"], stats["filament_records"],
+                              stats["total_filament_used_g"], stats["success_rate"]),
+                             (5, 3, 150, 0.5))
+
     def test_wrapped_posts_need_the_form_token_and_a_whole_year(self):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")

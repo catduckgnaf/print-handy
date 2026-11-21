@@ -200,35 +200,53 @@ def empty_state(payload):
 def overview(payload):
     """How am I doing: the headline numbers in a row of tiles."""
     costs = payload.get("costs") or {}
-    decided = (payload.get("completed") or 0) + (payload.get("failed") or 0)
-    rate_sub = (f"{payload.get('completed', 0)} of {decided} finished"
-                if decided else "no finished or failed prints yet")
+    total = payload.get("total_prints", 0)
+    completed = payload.get("completed", 0)
+    failed = payload.get("failed", 0)
+    decided = completed + failed
+    rate_sub = (f"{completed} finished out of {decided} that finished or failed. "
+                "Excludes stopped, printing, and unrecorded outcomes."
+                if decided else "No finished or failed prints yet.")
+    recorded = payload.get("filament_records", 0)
+    missing = total - recorded
+    filament_sub = (f"{recorded} of {print_stats.plural(total, 'print')} had weight recorded"
+                    + (f" ({missing} missing)" if missing else ""))
     tiles = [
-        ("Prints", f"{payload.get('total_prints', 0)}",
-         _outcome_line(payload)),
+        ("Prints", str(total), ""),
         ("Success rate", percent(payload.get("success_rate")), rate_sub),
         ("Printing time", duration(payload.get("total_print_duration_seconds")),
          f"about {duration(payload.get('average_print_seconds'))} a print"
          if payload.get("average_print_seconds") else "no print time recorded"),
-        ("Filament used", weight(payload.get("total_filament_used_g")),
-         f"across {print_stats.plural(payload.get('filament_records', 0), 'print')}"),
+        ("Filament used", weight(payload.get("total_filament_used_g") if recorded else None),
+         filament_sub),
     ]
     if costs.get("has_priced"):
         tiles.append(("Spent", money(costs.get("out_of_pocket_total"), costs.get("currency_code")),
                       f"out of pocket, {print_stats.plural(costs.get('priced_count', 0), 'priced print')}"))
+    breakdown, note = _outcome_line(payload)
     body = "".join(
         f'<div class="dp-stat"><p class="eyebrow">{_esc(label)}</p>'
-        f'<div class="v">{_esc(value)}</div><div class="s">{_esc(sub)}</div></div>'
+        f'<div class="v">{_esc(value)}</div>'
+        f'<div class="s">{breakdown if label == "Prints" else _esc(sub)}</div></div>'
         for label, value, sub in tiles)
-    return f'<section id="data-overview"><div class="dp-stats">{body}</div></section>'
+    return f'<section id="data-overview"><div class="dp-stats">{body}</div>{note}</section>'
 
 
 def _outcome_line(payload):
-    bits = [f"{payload.get('completed', 0)} finished", f"{payload.get('failed', 0)} failed",
-            f"{payload.get('canceled', 0)} stopped"]
-    if payload.get("in_progress"):
-        bits.append(f"{payload['in_progress']} printing now")
-    return ", ".join(bits)
+    completed = payload.get("completed", 0)
+    failed = payload.get("failed", 0)
+    stopped = payload.get("canceled", 0)
+    printing = payload.get("in_progress", 0)
+    unrecorded = payload.get("total_prints", 0) - completed - failed - stopped - printing
+    bits = [f"{completed} finished", f"{failed} failed", f"{stopped} stopped"]
+    if printing:
+        bits.append(f"{printing} printing now")
+    note = ""
+    if unrecorded > 0:
+        bits.append(f'<a href="#data-outcome-note">{_esc(unrecorded)} outcome not recorded</a>')
+        note = ('<p class="note" id="data-outcome-note">Some print records have no final outcome. '
+                'They count toward total prints but not toward the success rate.</p>')
+    return ", ".join(bits), note
 
 
 def highlights(payload):
