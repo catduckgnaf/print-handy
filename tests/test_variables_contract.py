@@ -60,6 +60,10 @@ EXEMPTIONS = {
     # names: file-only by design, never rendered on a settings page.
     ("public_text", "denylist"): (frozenset({"webui"}), "#1020"),
     ("agent", "api_key_env"): (frozenset({"webui"}), "#286"),
+    # Historical compatibility keys retained in config, deliberately not a
+    # Web UI surface: unmatched web chat no longer calls this endpoint.
+    ("agent", "chat_url"): (frozenset({"webui"}), "#1740"),
+    ("agent", "model"): (frozenset({"webui"}), "#1740"),
     ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
     # The AI tier tables (#818) are file-only: model routes and key names
     # are set in the settings file, not from a page click.
