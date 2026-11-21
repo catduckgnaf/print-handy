@@ -145,7 +145,7 @@ def test_check_design_row_states_off_on_and_missing_openscad(monkeypatch, capsys
     monkeypatch.setattr(settings, "current", lambda: cfg)
     monkeypatch.setattr(_config, "cfg", lambda: cfg)
     bot_main.check()
-    assert "ok    design: auto-off (no design/LLM endpoint configured" in capsys.readouterr().out
+    assert "ok    design: auto-off (the AI endpoint is not configured" in capsys.readouterr().out
     cfg["design"]["enabled"] = False
     bot_main.check()
     assert "ok    design: off (design.enabled is false" in capsys.readouterr().out

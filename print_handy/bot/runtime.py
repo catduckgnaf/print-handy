@@ -31,7 +31,7 @@ from types import SimpleNamespace
 from .. import settings
 from ..core import fuzzy, prompts
 from ..runtime import _config
-from . import agent, commands, llm, mention, platform, provenance, rest, routing
+from . import commands, llm, mention, platform, provenance, rest, routing
 from .router import Router
 
 logger = logging.getLogger(__name__)
@@ -806,18 +806,6 @@ def command_suggestion_candidates(text):
     return [f"/{cmd.name}{suffix}" for cmd in decision.contenders[:MAX_SUGGESTION_CANDIDATES]]
 
 
-def agent_unavailable_text():
-    """The honest reply when a configured [agent] endpoint did not answer (#524 stage 3).
-
-    The unmatched reply would be the wrong wording here: the message may
-    have been perfectly understandable — the configured agent endpoint
-    failed, timed out or answered nonsense. Name the real cause, like the
-    rewrite refusal does, and say what still works.
-    """
-    return ("The chat agent didn't answer, so nothing happened. "
-            "Commands and links still work — post a link or type `/print-help`.")
-
-
 # Explicit AI invocation: "ask ai: …", "hey ai, …", "ai: …". The person
 # named the model lane; the invocation words are not part of the question.
 _AI_INVOCATION = re.compile(
@@ -888,11 +876,6 @@ def denied_users(cfg, section="discord"):
     if section == "matrix":
         return settings.matrix_user_ids(cfg[section].get("denied_user_ids"))
     return settings.user_ids(cfg[section].get("denied_user_ids"), key="denied_user_ids")
-
-
-def agent_lane_configured(cfg, platform_name):
-    """Whether [agent] may serve this platform's conversational lane."""
-    return platform_name != "webui" and agent.configured(cfg)
 
 
 def platform_name_of(source):
@@ -1138,7 +1121,7 @@ class _SlashAdapter:
 
 
 class BotCore(_RoutedAdapter):
-    def __init__(self, client, cfg=None, *, router=None, llm_opener=None, agent_opener=None,
+    def __init__(self, client, cfg=None, *, router=None, llm_opener=None,
                  platform_name=None, adapter=None, chat_id=None, use_llm=None):
         """Run the handlers against one platform adapter.
 
@@ -1192,14 +1175,15 @@ class BotCore(_RoutedAdapter):
         if client is not None and hasattr(client, "add_listener") and hasattr(self.adapter, "handle_click"):
             client.add_listener(self.on_interaction, "on_interaction")
         self.upload_dir = Path(self.cfg["paths"]["cache"]) / f"{self.platform_name}-uploads"
-        # Platforms that do not expose the AI lane remain deterministic. Discord
-        # is intentionally included even when use_llm=True; WebChatService passes
-        # its explicit choice through use_llm for its own AI capability.
-        self.use_llm = (bool(getattr(self.adapter, "uses_llm", True)) and
-                        self.platform_name != "discord") if use_llm is None else (
-                            bool(use_llm) and self.platform_name != "discord")
+        # The model lane follows the adapter, like Telegram and Matrix:
+        # a platform whose adapter says uses_llm = False (Discord, #1731)
+        # never reaches a model call — the adapter's word is a veto, so
+        # no caller can switch a pure bot's lane back on. WebChatService
+        # passes its explicit choice ([webui] chat_llm_enabled) through
+        # use_llm, on an adapter that allows the lane.
+        self.use_llm = bool(getattr(self.adapter, "uses_llm", True)) and (
+            True if use_llm is None else bool(use_llm))
         self.llm_opener = llm_opener
-        self.agent_opener = agent_opener
         # #1524 tranche 6: the conversational lane's per-user rate limit
         # and the one-time endpoint notice. Both are process-local.
         from . import ai_tools as _ai_tools
@@ -1207,7 +1191,6 @@ class BotCore(_RoutedAdapter):
         self._ai_rate = _ai_tools.RateLimiter(
             max_calls=int(_nl_settings.get("ai_rate_limit_per_hour") or 20))
         self._ai_noticed: set = set()
-        self.agent_unavailable = agent_unavailable_text()
         self._refusal_notices: dict[str, float] = {}  # user_id -> last notice time (#386)
         self._elsewhere_notices: dict[tuple, float] = {}  # (user_id, chat_id) -> last notice time
         # Did-you-mean waits running off the message path on serial-polling
@@ -1552,9 +1535,10 @@ class BotCore(_RoutedAdapter):
             return {"action": "skip", "reason": "setup-only mode"}
         if result is not None:
             if result.get("action") == "rewrite":
-                # A rewrite hands the rest to an agent. There is none here: say so, start nothing.
+                # A rewrite hands the rest to a chat agent. Print Handy has
+                # none (#1731): say so, start nothing.
                 await self.adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                        content="That needs the chat agent, which is not running. Nothing started.")
+                                        content="That needs the chat agent, which Print Handy does not have. Nothing started.")
             return result
         if text and self.adapter.typed_approval_blocked(session_key(source), source.user_id):
             # A typed "yes" is the approval button's twin (2.2.5 review): the
@@ -1568,33 +1552,27 @@ class BotCore(_RoutedAdapter):
         return await self.fallback(event, allow_llm=allow_llm, _llm_replied=_llm_replied)
 
     async def fallback(self, event, *, allow_llm=True, _llm_replied=False):
-        """No handler took it: a model lane tries first (#437), the short unmatched reply is last.
+        """No handler took it: the model lane tries first (#437), the short unmatched reply is last.
 
         Order of handling for a non-command message: explicit commands,
         deterministic handlers, links/files and typed answers to an open
         prompt have already run in ``process`` and are never rerouted here.
-        What is left goes to a stray-chat lane when one is enabled on a
-        ``uses_llm`` platform — the [agent] lane first when an agent
-        endpoint is configured (#524 stage 3: an operator who configures
-        one means the agent to be the chat brain; its reply posts as-is
-        and can never name a command), else the bounded [llm] call: it may
+        What is left goes to the one stray-chat lane when it is enabled on
+        a ``uses_llm`` platform — the bounded [llm] call (Web Chat only,
+        behind [webui] chat_llm_enabled; Discord, Telegram and Matrix are
+        pure bots whose adapters say uses_llm = False, #1731): it may
         answer directly, or name one allowlisted command, which then runs
         through the exact same handler (and confirmation) as a typed
-        command. Only when no lane answers does the #468 stage-3
+        command. Only when the lane does not answer does the #468 stage-3
         did-you-mean prompt get its chance at a near-miss command, and
         only when it does not fire (or is declined) does the short
         unmatched reply go out (#467 — the full command list is an answer to
         ``/print-help``, never an error response) — once, and never
-        alongside a lane reply for the same message. A configured agent
-        endpoint that fails gets the honest agent-unavailable line
-        instead: the message may have been fine; the endpoint was not.
-        Both lanes sit behind the one ``use_llm`` gate, so
-        ``discord.chat_llm_enabled=false`` (#466) means no stray-chat
-        model call of any kind.
+        alongside a lane reply for the same message.
         An explicit invocation ("ask ai: …") is recognised before the
-        lanes run: the invocation words are stripped and the lanes are
-        asked the bare question. When no lane answers an explicit
-        invocation — or none is enabled at all — the stripped question
+        lane runs: the invocation words are stripped and the lane is
+        asked the bare question. When the lane does not answer an explicit
+        invocation — or is not enabled at all — the stripped question
         still gets the deterministic suggestion chance ("ask ai change
         the filament" on a no-LLM platform is a spool change wearing an
         invocation), and the terminal reply names the AI instead of the
@@ -1635,7 +1613,7 @@ class BotCore(_RoutedAdapter):
                 await self.adapter.send(chat_id=source.chat_id, content=det,
                                         reply_to=event.message_id, metadata=metadata)
                 return {"action": "skip", "reason": "natural language answer"}
-        if lane_allowed and (agent_lane_configured(self.cfg, self.platform_name) or llm.configured(self.cfg)):
+        if lane_allowed and llm.configured(self.cfg):
             # #1524 tranche 6: per-user rate limit and the one-time
             # endpoint notice gate every conversational-lane call.
             if not self._ai_rate.allow(source.user_id):
@@ -1648,19 +1626,6 @@ class BotCore(_RoutedAdapter):
                                         content=ai_endpoint_notice_text(), metadata=metadata)
             from . import natural_language as _nl
             _nl.record_route("ai_lane")
-        if lane_allowed and agent_lane_configured(self.cfg, self.platform_name):
-            try:
-                reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
-                                                cfg=self.cfg, opener=self.agent_opener)
-            except Exception as exc:
-                logger.warning("agent reply failed, sending the agent-unavailable reply: %r", exc)
-                await self.adapter.send(chat_id=source.chat_id, content=self.agent_unavailable,
-                                        reply_to=event.message_id, metadata=metadata)
-                return {"action": "skip", "reason": "agent unavailable"}
-            # The endpoint's text is untrusted (#532): it may name a local file, never attach one.
-            await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
-                                    reply_to=event.message_id, metadata=metadata)
-            return {"action": "skip", "reason": "agent reply"}
         if lane_allowed and llm.configured(self.cfg):
             try:
                 # One turn per session at a time, queued on the loop: the
@@ -1741,7 +1706,7 @@ class BotCore(_RoutedAdapter):
                 natural_language.record_route("suggestion")
                 return await self._offer_suggestion_choice(event, candidates, metadata)
             if lane_unlocked:
-                if lane_allowed and (agent_lane_configured(self.cfg, self.platform_name) or llm.configured(self.cfg)):
+                if lane_allowed and llm.configured(self.cfg):
                     await self.adapter.send(chat_id=source.chat_id, content=ai_no_answer_text(),
                                             reply_to=event.message_id, metadata=metadata)
                     return {"action": "skip", "reason": "ai no answer"}
@@ -2271,7 +2236,6 @@ class BotCore(_RoutedAdapter):
                 "access": self.adapter.access_description(),
                 "handlers": len(self.router.dispatch_hooks),
                 "llm": bool(self.use_llm and llm.configured(self.cfg)),
-                "agent": bool(self.use_llm and agent_lane_configured(self.cfg, self.platform_name)),
                 "open_prompts": prompts.open_count(),
                 # #1524: local route counters and the opt-in unmatched
                 # log's export — diagnostics only, never transmitted.

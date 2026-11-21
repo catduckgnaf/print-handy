@@ -126,7 +126,7 @@ def test_telegram_command_suffix_provenance():
 
 # ---------------------------------------------------------------- end to end gate
 
-def make(cfg, llm_opener=None, agent_opener=None):
+def make(cfg, llm_opener=None):
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
     # Use the Web UI AI policy with a trusted test-only Discord transport,
@@ -134,7 +134,7 @@ def make(cfg, llm_opener=None, agent_opener=None):
     transport = discord_adapter.StandaloneAdapter(
         discord.client, [str(cfg["discord"]["allowed_user_ids"])])
     core = runtime.BotCore(discord.client, cfg, platform_name="discord", adapter=transport,
-                           llm_opener=llm_opener, agent_opener=agent_opener)
+                           llm_opener=llm_opener)
     core.addressed = lambda text, message=None: mention.address(
         text, mention.identity_for("discord", core.client, core.configured_bot_name, message))
     core.use_llm = bool(cfg["webui"]["chat_llm_enabled"])
@@ -257,19 +257,22 @@ def test_webui_chat_page_uses_configured_ai_lane():
 
 # ---------------------------------------------------------------- import allowlist
 
-# Modules allowed to import a model client (ai_routes, bot.llm, bot.agent),
-# by purpose (#1524 tranche 1): the conversational lane, design, edit
+# Modules allowed to import a model client (ai_routes, bot.llm), by
+# purpose (#1524 tranche 1): the conversational lane, design, edit
 # repair, vision, purchase intake and status reporting. Anything else
 # importing one fails here, so new code cannot quietly add a model call.
+# Since #1731 the design and purchase transports import ai_routes
+# because ai_routes.call is the only code that posts to a model endpoint.
 MODEL_IMPORT_ALLOWLIST = {
     "print_handy/ai_routes.py": "the model client itself",
     "print_handy/bot/llm.py": "conversational lane",
-    "print_handy/bot/agent.py": "conversational lane (agent endpoint)",
     "print_handy/bot/runtime.py": "conversational lane dispatch",
     "print_handy/bot/__main__.py": "status reporting only",
     "print_handy/bot/natural_language.py": "typed read-only tools for the conversational lane",
-    "print_handy/core/ai_fix.py": "edit repair via shared AI transport",
-    "print_handy/core/design.py": "design generation via shared AI transport",
+    "print_handy/bot/handlers/purchase.py": "purchase intake (chat)",
+    "print_handy/core/ai_fix.py": "edit repair",
+    "print_handy/core/design.py": "design transport",
+    "print_handy/webui/spools.py": "purchase intake (Web UI)",
     "print_handy/runtime/visual_watch.py": "vision",
     "print_handy/runtime/moonraker_event_listener.py": "vision/watchdog orchestration",
     "print_handy/runtime/purchase_intake.py": "purchase intake",

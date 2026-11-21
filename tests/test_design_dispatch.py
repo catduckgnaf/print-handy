@@ -97,17 +97,17 @@ def _dispatch(text, adapter, fake, choice, platform="discord", authorized=True):
 
 # ------------------------------------------------------- transport (#524 Stage 3)
 #
-# The HTTP transport ([design] inheriting [llm]) is the only design lane:
-# the ctx.llm fallback for endpoint-less Hermes installs is deleted with
-# the mode that needed it.
+# The HTTP transport (the one [llm] endpoint, #1731) is the only design
+# lane: the ctx.llm fallback for endpoint-less Hermes installs is deleted
+# with the mode that needed it, and design's retired endpoint fields are
+# inert — design.model is only a model-name override.
 
 def _transport_cfg(*, http_endpoint=False):
     return {"bot": {"mode": "standalone"},
-            "design": {"chat_url": "http://design.invalid/v1" if http_endpoint else "",
-                       "model": "sol" if http_endpoint else "", "api_key_env": "",
-                       "timeout_s": 180},
-            "llm": {"chat_url": "", "model": "", "api_key_env": "LLM_API_KEY",
-                    "timeout_s": 20}}
+            "design": {"model": "sol" if http_endpoint else "", "timeout_s": 180},
+            "llm": {"chat_url": "http://llm.invalid/v1" if http_endpoint else "",
+                    "model": "luna" if http_endpoint else "",
+                    "api_key_env": "LLM_API_KEY", "timeout_s": 20}}
 
 
 def test_design_transport_uses_the_http_endpoint(monkeypatch):

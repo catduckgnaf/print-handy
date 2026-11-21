@@ -401,8 +401,8 @@ def _design_root(cfg):
 def _design_transport(cfg):
     """(complete, kind) for a design turn, or (None, '') when no model is reachable.
 
-    The HTTP transport is the only path (#524 Stage 3): its endpoint
-    resolves from [design] inheriting [llm].
+    The HTTP transport is the only path: its endpoint is the one [llm]
+    endpoint, resolved through ai_routes' heavy tier (#1731).
     """
     from print_handy.core import design
     if design.resolve_http_config(cfg) is not None:
@@ -1100,9 +1100,8 @@ def _prompt_brand():
 def _photo_intake_ready():
     """Whether the photo label step can be offered (#514): any extraction
     route is available — the label's barcode/QR code (zxing-cpp wheel),
-    local OCR (a tesseract binary), or a vision endpoint (the
-    visual_watch.vision_ready rule: PRINT_VISION_URL, or
-    services.vision_chat_url with its key). No route, no offer, and the
+    local OCR (a tesseract binary), or the AI endpoint (the
+    visual_watch.vision_ready rule). No route, no offer, and the
     walkthrough is exactly as it was without one."""
     try:
         from print_handy.runtime import moonraker_event_listener as listener
@@ -1118,15 +1117,13 @@ def _photo_intake_ready():
 
 
 def _spool_label_vision_call():
-    """The shared vision call for label extraction (#514), carrying the
-    listener's configured values — the same endpoint the camera watch uses."""
-    from print_handy.runtime import moonraker_event_listener as listener
+    """The shared vision call for label extraction (#514) — the same one
+    AI endpoint the camera watch uses."""
     from print_handy.runtime import visual_watch
 
     def call(image, prompt):
         return visual_watch.visual_extract(
-            image, prompt, chat_url=listener._vision_chat_url, model=listener._VISION_MODEL,
-            api_key=lambda: listener._profile_env_value("CLIPROXY_API_KEY"),
+            image, prompt,
             context="Filament spool label photo. Reply with JSON only.")
 
     return call

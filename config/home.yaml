@@ -84,7 +84,6 @@ services:
   camera_source: auto
   camera_snapshot_url: ''
   spoolman_url: ''
-  vision_chat_url: ''
   stock_api_port: 8898
 discord:
   chat_id: ''
@@ -139,17 +138,15 @@ bot:
   health_stale_s: 120
   sync_commands: true
 llm:
+  # The one AI endpoint (#1731): every model call — Web Chat replies,
+  # design, camera and image checks, label and purchase reads, model-file
+  # edits — posts here. chat_url is an OpenAI-compatible chat completions
+  # URL; api_key_env names the environment variable holding its key (a
+  # local or LAN endpoint may need none); timeout_s bounds one call.
   chat_url: ''
   model: ''
   api_key_env: LLM_API_KEY
   timeout_s: 20
-agent:
-  # Agent endpoint for unmatched Web UI chat text, ahead of the [llm] call.
-  # Replies cannot run commands.
-  chat_url: ''
-  model: ''
-  api_key_env: AGENT_API_KEY
-  timeout_s: 120
 ai:
   # Who may use the AI edit lane (#902): chat user IDs, separated by commas
   # or spaces (a list also works). Empty keeps it open to
@@ -157,20 +154,15 @@ ai:
   # user over a rolling hour; 0 turns the limit off.
   allowed_users: ''
   edit_requests_per_hour: 20
-  # Optional AI tiers (#818). Nothing ships filled in: leave a tier empty and
-  # it keeps the settings it already used (small: services.vision_chat_url and
-  # the vision models; chat: llm; heavy: design, which inherits llm).
-  # A tier is a table with chat_url, model, fallback_model, fallback_url,
-  # api_key_env, fallback_api_key_env and timeout_s. small = camera
-  # and image check, label reading. chat = questions the
-  # scripted handlers cannot answer. heavy = model-file editing and repair
-  # (route only for now). A call that fails or times out is retried once on
-  # fallback_model (on fallback_url when set, else the same endpoint).
+  # Optional AI tiers (#818): per-purpose model names on the one [llm]
+  # endpoint. A tier table holds only model: set it to use a different
+  # model for that purpose, leave it empty to use the [llm] model.
+  # small = camera and image checks, label and purchase reads.
+  # chat = Web Chat questions the scripted handlers cannot answer.
+  # heavy = design and model-file editing and repair.
   # Example:
   #   small:
-  #     chat_url: http://127.0.0.1:11434/v1/chat/completions
   #     model: a-small-model
-  #     fallback_model: another-model
   small: {}
   chat: {}
   heavy: {}
@@ -179,8 +171,8 @@ natural_language:
   # 'Plain words first'. shadow_mode logs disagreements locally and lets
   # the previous behavior answer; unmatched_log_enabled keeps a sanitized
   # local-only log of unmatched phrases; ai_rate_limit_per_hour caps the
-  # conversational AI lane per user; ai_disabled_channel_ids switches
-  # that lane off per channel.
+  # one remaining conversational AI lane (Web Chat's bounded [llm] lane)
+  # per user; ai_disabled_channel_ids switches that lane off per channel.
   shadow_mode: false
   unmatched_log_enabled: false
   ai_rate_limit_per_hour: 20
@@ -188,17 +180,14 @@ natural_language:
 design:
   # AI design with OpenSCAD (#388): /print-design (or /design) creates a
   # new printable part from a description. There is deliberately no
-  # enabled line here: unset means AUTO — design turns on whenever a
-  # design/LLM endpoint is configured. Set enabled: false to
-  # force it off, or enabled: true to force it on. Empty
-  # chat_url/model/api_key_env inherit the [llm] values, so a
-  # single-endpoint setup only sets design.model (a stronger model
-  # for design, e.g. sol at medium while chat stays luna at medium).
-  # The endpoint fields are the whole story: design resolves only this
-  # endpoint (inheriting [llm]); there is no fallback lane.
-  chat_url: ''
+  # enabled line here: unset means AUTO — design turns on whenever the
+  # one AI endpoint ([llm]) is configured. Set enabled: false to
+  # force it off, or enabled: true to force it on. Design posts to the
+  # [llm] endpoint like everything else; model is only a model-name
+  # override on it (a stronger model for design, e.g. sol at medium
+  # while chat stays luna at medium). timeout_s bounds a design call
+  # and the rendering it drives.
   model: ''
-  api_key_env: ''
   timeout_s: 180
   repair_attempts: 3
 listener:
@@ -258,13 +247,12 @@ cost_printers: {}
 vision:
   # Vision endpoint camera checks: off by default. Camera checks run on
   # this machine with the local failure detector below instead. While
-  # false, no frame or photo is sent to a vision model endpoint
-  # (PRINT_VISION_URL, services.vision_chat_url, ai.small): the camera
-  # watchdog, idle plate checks, label reads and purchase reads treat the
-  # endpoint as not configured. The local detector and plate reference
-  # below keep their own switches. Set true to use the endpoint again.
+  # false, no frame or photo is sent to the one AI endpoint (the
+  # [ai.small] tier over [llm]): the camera watchdog, idle plate checks,
+  # label reads and purchase reads treat the endpoint as not configured.
+  # The local detector and plate reference below keep their own switches.
+  # Set true to use the endpoint again.
   ai_enabled: false
-  model: gemini-latest
   # The one-line roast on the completion, failure and cancel posts. On by
   # default, on every platform, Telegram included. Roasts come from the
   # local roast corpus and need no model or endpoint. Set false to turn
@@ -285,12 +273,11 @@ vision:
   # false to turn it off.
   local_detector_enabled: true
   # Which route judges the camera watchdog's frames (#455): auto (the
-  # local detector, or the vision endpoint first while ai_enabled is
-  # true: PRINT_VISION_URL, then the chat endpoint), endpoint
-  # (endpoint routes only; the local detector is never consulted for the
-  # watch) or local (the local detector only, even when an endpoint is
-  # configured; counts as enabling the detector for the watch). Label
-  # reads and roasts never follow this setting.
+  # local detector, or the AI endpoint first while ai_enabled is true),
+  # endpoint (the endpoint route only; the local detector is never
+  # consulted for the watch) or local (the local detector only, even
+  # when an endpoint is configured; counts as enabling the detector for
+  # the watch). Label reads and roasts never follow this setting.
   watch_source: auto
   # Path to the local detector's ONNX model file. Empty uses the default
   # location and the pinned model; set it to a file you placed yourself

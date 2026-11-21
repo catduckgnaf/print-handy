@@ -28,13 +28,13 @@ for _steel in ("HARDENED_STEEL", "STAINLESS_STEEL"):
 
 # The credentials Print Handy reads from the environment (#1428). A key set on the
 # machine running the tests (a developer shell, a service manager, a CI secret) would
-# otherwise reach every test that does not set its own: with CLIPROXY_API_KEY present the
-# vision chat route counts as configured, so the local-detector tests asked the fake
+# otherwise reach every test that does not set its own: with LLM_API_KEY present the
+# one AI endpoint counts as configured, so the local-detector tests asked the fake
 # vision.test host instead and failed only on hosts that export the key. Tests that need
 # a credential set it themselves with monkeypatch.setenv. Removed at import, before any
 # module reads one; tests/test_conftest_credentials.py pins this list against the code.
 CREDENTIAL_ENV = (
-    "AGENT_API_KEY", "API_KEY", "BAMBU_LAN_PASSWORD", "CLIPROXY_API_KEY", "CULTS3D_TOKEN",
+    "API_KEY", "BAMBU_LAN_PASSWORD", "CULTS3D_TOKEN",
     "DISCORD_BOT_TOKEN", "DISCORD_CLIENT_SECRET", "LIVE_STREAM_SESSION_SECRET", "LLM_API_KEY",
     "MAKERWORLD_TOKEN", "MATRIX_ACCESS_TOKEN", "MOONRAKER_API_KEY", "MQTT_PASSWORD",
     "MYMINIFACTORY_OAUTH_TOKEN", "NTFY_ACCESS_TOKEN", "OCTOPRINT_API_KEY", "PRINT_TIMELAPSE_SSH_KEY",
@@ -58,8 +58,11 @@ def _test_settings():
                          cache=_tmp / "cache")
     data["services"].update(
         moonraker_url="http://printer.test:7125", moonraker_ws_url="ws://printer.test:7125/websocket",
-        camera_snapshot_url="http://printer.test/webcam/?action=snapshot", spoolman_url="http://spoolman.test:7912",
-        vision_chat_url="http://vision.test:8317/v1/chat/completions")
+        camera_snapshot_url="http://printer.test/webcam/?action=snapshot", spoolman_url="http://spoolman.test:7912")
+    # The one AI endpoint lives on the fake vision.test host, so the watch
+    # and photo suites exercise the small tier against it (#1731).
+    data["llm"].update(chat_url="http://vision.test:8317/v1/chat/completions",
+                       model="vision-test-model")
     data["discord"]["chat_id"] = "100000000000000001"
     data["timelapse"].update(archive_host="archive.test", archive_dir="/archive/timelapses")
     # The Moonraker URL above is patched in after the load, so the mode
@@ -89,9 +92,9 @@ def vision_ai_on(monkeypatch):
 
     ``vision.ai_enabled`` is off by default (#1376), and while it is off
     no endpoint route counts. Tests that exercise those routes (the
-    verdict and extract calls, PRINT_VISION_URL, [ai.small], label and
-    purchase reads) opt in with ``pytestmark = pytest.mark.usefixtures(
-    "vision_ai_on")``. The switch itself is pinned in
+    verdict and extract calls, [ai.small], label and purchase reads) opt
+    in with ``pytestmark = pytest.mark.usefixtures("vision_ai_on")``.
+    The switch itself is pinned in
     tests/bot/test_ai_design_only_defaults.py.
     """
     from print_handy.runtime import visual_watch

@@ -270,14 +270,7 @@ def pause_is_jam(message, where=""):
 
 # -- the vision route --------------------------------------------------------
 
-def _vision_chat_url():
-    return _config.require(_config.service_url("vision_chat_url"), "services.vision_chat_url")
-
-
-_VISION_MODEL = str(_config.cfg()["vision"]["model"])
-
-
 def _vision_ready(ns=None):
-    """Whether the camera watch has a vision endpoint to judge frames with (visual_watch.vision_ready)."""
+    """Whether the camera watch has a vision route to judge frames with (visual_watch.vision_ready)."""
     ns = _ns(ns)
-    return _visual_watch.vision_ready(lambda: ns._profile_env_value("CLIPROXY_API_KEY"), ns.log)
+    return _visual_watch.vision_ready(ns.log)

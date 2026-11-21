@@ -509,10 +509,8 @@ def test_status_ready_when_watch_source_is_local_and_switch_off():
 # --------------------------------------------------------------- verdict routing
 
 
-def _verdict(image, **overrides):
-    call = dict(chat_url=lambda: "", model="m", api_key=lambda: "", context="")
-    call.update(overrides)
-    return vw.visual_verdict(image, "prompt", **call)
+def _verdict(image):
+    return vw.visual_verdict(image, "prompt", context="")
 
 
 def _chat_response(verdict="ok", reason="chat endpoint"):
@@ -521,38 +519,51 @@ def _chat_response(verdict="ok", reason="chat endpoint"):
     return _FakeResponse(json.dumps(body).encode())
 
 
-def _url_response(verdict="ok", reason="custom endpoint"):
-    return _FakeResponse(json.dumps({"verdict": verdict, "reason": reason}).encode())
+@contextlib.contextmanager
+def _llm_cfg(**llm):
+    """Process config with the given [llm] overrides, restored after."""
+    previous = copy.deepcopy(_config.cfg())
+    data = copy.deepcopy(previous)
+    data["llm"].update(llm)
+    _config.set_override(data)
+    try:
+        yield data
+    finally:
+        _config.set_override(previous)
 
 
-def test_print_vision_url_wins_and_local_is_not_consulted(monkeypatch, process_cfg):
+def test_print_vision_url_is_inert(monkeypatch, process_cfg):
+    """#1731: the retired PRINT_VISION_URL route no longer exists — the
+    variable alone configures nothing and no HTTP call is made; with no
+    endpoint configured the local detector answers."""
     monkeypatch.setenv("PRINT_VISION_URL", "http://detector.invalid/judge")
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda request, timeout=None: _url_response())
-    consulted = []
-    monkeypatch.setattr(lv, "local_verdict",
-                        lambda image: consulted.append(1) or ("spaghetti", "local"))
-    verdict, detail = _verdict(frame(235))
-    assert (verdict, detail) == ("ok", "custom endpoint")
-    assert consulted == []
+    calls = []
+
+    def counting_urlopen(request, timeout=None):
+        calls.append(1)
+        return _chat_response()
+
+    monkeypatch.setattr("urllib.request.urlopen", counting_urlopen)
+    with _llm_cfg(chat_url="", model=""):
+        verdict, detail = _verdict(frame(235))
+    assert verdict == "spaghetti" and "local failure detector" in detail
+    assert calls == []
 
 
 def test_chat_endpoint_wins_when_configured(monkeypatch, process_cfg):
+    monkeypatch.setenv("LLM_API_KEY", "key")
     monkeypatch.setattr("urllib.request.urlopen",
                         lambda request, timeout=None: _chat_response())
     consulted = []
     monkeypatch.setattr(lv, "local_verdict",
                         lambda image: consulted.append(1) or ("spaghetti", "local"))
-    verdict, detail = _verdict(
-        frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
-        api_key=lambda: "key")
+    verdict, detail = _verdict(frame(235))
     assert (verdict, detail) == ("ok", "chat endpoint")
     assert consulted == []
 
 
 def test_configured_chat_endpoint_failure_does_not_fall_through(monkeypatch, process_cfg):
-    monkeypatch.setattr(vw._config, "service_url",
-                        lambda key: "http://vision.invalid/v1" if key == "vision_chat_url" else "")
+    monkeypatch.setenv("LLM_API_KEY", "key")
 
     def failing_urlopen(request, timeout=None):
         raise OSError("endpoint down")
@@ -561,9 +572,7 @@ def test_configured_chat_endpoint_failure_does_not_fall_through(monkeypatch, pro
     consulted = []
     monkeypatch.setattr(lv, "local_verdict",
                         lambda image: consulted.append(1) or ("spaghetti", "local"))
-    verdict, detail = _verdict(
-        frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
-        api_key=lambda: "key")
+    verdict, detail = _verdict(frame(235))
     assert (verdict, detail) == ("uncertain", "the vision check could not be completed")
     assert consulted == []
 
@@ -574,16 +583,11 @@ def test_no_key_and_local_enabled_local_detector_answers(process_cfg):
 
 
 def test_half_configured_chat_route_local_detector_answers(monkeypatch, process_cfg):
-    """CLIPROXY_API_KEY present but services.vision_chat_url unset: the
-    injected chat_url raises (the listener's _config.require), which is
-    'no endpoint route configured', so the local detector stands in."""
-    monkeypatch.setattr(vw._config, "service_url",
-                        lambda key: "" if key == "vision_chat_url" else "")
-
-    def raising_chat_url():
-        raise RuntimeError("services.vision_chat_url is not configured")
-
-    verdict, detail = _verdict(frame(13), chat_url=raising_chat_url, api_key=lambda: "key")
+    """LLM_API_KEY present but [llm] chat_url unset: no endpoint route is
+    configured, so the local detector stands in."""
+    monkeypatch.setenv("LLM_API_KEY", "key")
+    with _llm_cfg(chat_url="", model=""):
+        verdict, detail = _verdict(frame(13))
     assert verdict == "ok" and "local failure detector" in detail
 
 
@@ -609,9 +613,7 @@ def test_visual_extract_never_uses_the_local_detector(monkeypatch, process_cfg):
     consulted = []
     monkeypatch.setattr(lv, "local_verdict",
                         lambda image: consulted.append(1) or ("spaghetti", "local"))
-    result = vw.visual_extract(frame(235), "read the label",
-                               chat_url=lambda: "", model="m",
-                               api_key=lambda: "", context="")
+    result = vw.visual_extract(frame(235), "read the label", context="")
     assert result is None and consulted == []
 
 
@@ -632,21 +634,21 @@ def _watch_cfg(**vision):
 
 
 def test_local_source_never_calls_an_endpoint(monkeypatch):
-    """watch_source=local: PRINT_VISION_URL and a working chat endpoint
-    are both configured, yet the detector judges and no HTTP call is made."""
+    """watch_source=local: a working chat endpoint is configured (and the
+    retired PRINT_VISION_URL is set), yet the detector judges and no HTTP
+    call is made."""
     monkeypatch.setenv("PRINT_VISION_URL", "http://detector.invalid/judge")
+    monkeypatch.setenv("LLM_API_KEY", "key")
     calls = []
 
     def counting_urlopen(request, timeout=None):
         calls.append(1)
-        return _url_response()
+        return _chat_response()
 
     monkeypatch.setattr("urllib.request.urlopen", counting_urlopen)
     with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
                     watch_source="local"):
-        verdict, detail = _verdict(
-            frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
-            api_key=lambda: "key")
+        verdict, detail = _verdict(frame(235))
     assert verdict == "spaghetti" and "local failure detector" in detail
     assert calls == []
 
@@ -679,8 +681,7 @@ def test_endpoint_source_missing_key_never_consults_the_detector(monkeypatch):
 
 def test_endpoint_source_failed_endpoint_never_falls_back(monkeypatch):
     """Endpoint mode suppresses even the #913 early-layer fallback."""
-    monkeypatch.setattr(vw._config, "service_url",
-                        lambda key: "http://vision.invalid/v1" if key == "vision_chat_url" else "")
+    monkeypatch.setenv("LLM_API_KEY", "key")
 
     def failing_urlopen(request, timeout=None):
         raise OSError("endpoint down")
@@ -691,21 +692,18 @@ def test_endpoint_source_failed_endpoint_never_falls_back(monkeypatch):
                         lambda image, streak=None: consulted.append(1) or ("spaghetti", "local"))
     with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
                     watch_source="endpoint"):
-        verdict, detail = _verdict(
-            frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
-            api_key=lambda: "key", local_fallback=True)
+        verdict, detail = _verdict(frame(235))
     assert (verdict, detail) == ("uncertain", "the vision check could not be completed")
     assert consulted == []
 
 
 def test_endpoint_source_uses_the_endpoint_when_it_answers(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "key")
     monkeypatch.setattr("urllib.request.urlopen",
                         lambda request, timeout=None: _chat_response())
     with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
                     watch_source="endpoint"):
-        verdict, detail = _verdict(
-            frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
-            api_key=lambda: "key")
+        verdict, detail = _verdict(frame(235))
     assert (verdict, detail) == ("ok", "chat endpoint")
 
 
@@ -714,19 +712,19 @@ def test_vision_ready_follows_watch_source(monkeypatch):
     # as enabling the detector for the watch (switch off still ready).
     with _watch_cfg(local_detector_enabled=False, local_model_path=str(FIXTURE),
                     watch_source="local"):
-        assert vw.vision_ready(lambda: "") is True
+        assert vw.vision_ready(lambda message: None) is True
     # endpoint: the detector alone never makes the watch ready.
-    monkeypatch.setattr(vw._config, "service_url", lambda key: "")
-    with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
-                    watch_source="endpoint"):
-        assert vw.vision_ready(lambda: "key") is False
+    with _llm_cfg(chat_url="", model=""):
+        with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
+                        watch_source="endpoint"):
+            assert vw.vision_ready(lambda message: None) is False
     # local with a model path that cannot even be checked: not ready.
     with _watch_cfg(local_detector_enabled=True,
                     local_model_path="/nonexistent-dir-455/model.onnx",
                     watch_source="local"):
         monkeypatch.setattr(lv, "detector_status",
                             lambda cfg=None: ("unavailable", "no runtime"))
-        assert vw.vision_ready(lambda: "") is False
+        assert vw.vision_ready(lambda message: None) is False
 
 
 # --------------------------------------------------------------- temporal escalation
@@ -907,11 +905,11 @@ def test_detector_failure_neither_builds_nor_clears_the_streak(monkeypatch, inde
 
 def test_visual_verdict_threads_the_streak(process_cfg, independent_views):
     streak = lv.FailureStreak()
-    verdict, _ = _verdict(frame(84), local_streak=streak)
+    verdict, _ = vw.visual_verdict(frame(84), "prompt", context="", local_streak=streak)
     assert verdict == "uncertain"
-    verdict, _ = _verdict(frame(84), local_streak=streak)
+    verdict, _ = vw.visual_verdict(frame(84), "prompt", context="", local_streak=streak)
     assert verdict == "uncertain"
-    verdict, detail = _verdict(frame(84), local_streak=streak)
+    verdict, detail = vw.visual_verdict(frame(84), "prompt", context="", local_streak=streak)
     assert verdict == "spaghetti" and "consecutive checks" in detail
     # No streak passed: single-frame behaviour, however often it repeats.
     assert _verdict(frame(84))[0] == "uncertain"
@@ -1064,14 +1062,14 @@ def test_status_names_the_execution_provider():
 
 
 def test_vision_ready_with_local_detector(process_cfg):
-    assert vw.vision_ready(lambda: "", None) is True
+    assert vw.vision_ready() is True
 
 
 def test_vision_ready_local_unavailable_stays_off(monkeypatch, process_cfg):
     monkeypatch.setattr(lv, "_ort_error", RuntimeError("no runtime"))
     monkeypatch.setattr(vw, "_vision_missing_logged", False)
     lines = []
-    assert vw.vision_ready(lambda: "", lines.append) is False
+    assert vw.vision_ready(lines.append) is False
     # The detector is switched on, so the line names why it is not ready.
     assert len(lines) == 1 and "local failure detector is not ready" in lines[0]
     assert "onnxruntime is not available" in lines[0]

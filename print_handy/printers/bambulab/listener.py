@@ -102,10 +102,8 @@ def _watch_coverage_reporter():
     import-time dependency of the printer package. Never raises.
     """
     def compute():
-        from ...runtime import _config, camera_watch, listener_common
-        return camera_watch.listener_coverage(
-            "bambulab_lan", _config.cfg(),
-            lambda: listener_common._profile_env_value("CLIPROXY_API_KEY"))
+        from ...runtime import _config, camera_watch
+        return camera_watch.listener_coverage("bambulab_lan", _config.cfg())
     try:
         from ...runtime import camera_watch
         return camera_watch.CoverageReporter(compute)

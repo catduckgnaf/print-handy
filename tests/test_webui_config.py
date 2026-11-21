@@ -261,8 +261,10 @@ class CatalogTests(unittest.TestCase):
             "notify.ntfy_topic": ("notifications", "text"),
             "llm.chat_url": ("ai", "url"),
             "llm.model": ("ai", "text"),
-            "design.chat_url": ("ai", "url"),
             "design.model": ("ai", "text"),
+            # design.chat_url and the agent.* fields left this list with
+            # their lanes in #1731: there is one endpoint ([llm]) now,
+            # and design.model is a model-name override on it.
         }
         for field_id, (group, kind) in expected.items():
             with self.subTest(field=field_id):
@@ -272,11 +274,12 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(field.kind, kind)
     def test_ai_section_fields_groups_and_gate(self):
         # Settings restructure stage 2: every AI surface lives in the ai
-        # group — the three endpoint pairs and the [ai] edit gate as
-        # ordinary fields (#902). The tier tables stay file-only: no
-        # field exists for them. The vision endpoint URL and model are
-        # file-only too (#1718): no field exists for them, so no
-        # provider or proxy name and no internal model alias is shown.
+        # group — the one endpoint ([llm], #1731) and the [ai] edit gate
+        # as ordinary fields (#902). The tier tables stay file-only: no
+        # field exists for them. The retired vision endpoint URL and
+        # model settings (#1718, removed in #1731) have no field either,
+        # so no provider or proxy name and no internal model alias is
+        # shown.
         expected = {
             "ai.allowed_users": ("ai", "id_list"),
             "ai.edit_requests_per_hour": ("ai", "number"),
@@ -378,21 +381,6 @@ class CatalogTests(unittest.TestCase):
 
     def test_catalog_fields_are_real_settings_with_valid_kinds(self):
         data = settings.load(local=False, environ={})
-        self.assertIn("agent", data)
-        # Existing agent endpoint settings remain loadable for compatibility,
-        # but the retired endpoint is no longer editable through this catalog.
-        with tempfile.TemporaryDirectory() as directory:
-            legacy_config = Path(directory) / "legacy.toml"
-            legacy_config.write_text(
-                '[agent]\nchat_url = "https://agent.example/v1/chat/completions"\n'
-                'model = "legacy-model"\ntimeout_s = 45\n'
-            )
-            loaded = settings.load(local=legacy_config, environ={})
-        self.assertEqual(loaded["agent"]["chat_url"], "https://agent.example/v1/chat/completions")
-        self.assertEqual(loaded["agent"]["model"], "legacy-model")
-        self.assertEqual(loaded["agent"]["timeout_s"], 45)
-        self.assertIsNone(field_by_id("agent.chat_url"))
-        self.assertIsNone(field_by_id("agent.model"))
         for field in CATALOG:
             with self.subTest(field=field.id):
                 self.assertIn(field.section, data)

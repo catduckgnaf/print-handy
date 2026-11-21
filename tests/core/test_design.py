@@ -121,82 +121,21 @@ def test_sandbox_scan_refuses_oversize_source():
 
 # --------------------------------------------------------------------- transports
 
-def test_resolve_http_config_inherits_llm_then_prefers_design():
-    cfg = {"design": {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 180},
+def test_resolve_http_config_uses_the_one_endpoint_with_design_overrides():
+    """#1731: design resolves the one [llm] endpoint; design.model is a
+    model-name override and design.timeout_s design's own budget. Retired
+    design.chat_url / design.api_key_env values in a dict are inert."""
+    cfg = {"design": {"model": "", "timeout_s": 180},
            "llm": {"chat_url": "http://llm/v1", "model": "luna", "api_key_env": "K1"}}
     assert design.resolve_http_config(cfg) == {
-        "chat_url": "http://llm/v1", "model": "luna", "api_key_env": "K1", "timeout_s": 180,
-        "slot": "llm.chat_url"}
+        "chat_url": "http://llm/v1", "model": "luna", "api_key_env": "K1", "timeout_s": 180}
     cfg["design"].update(chat_url="http://design/v1", model="sol", api_key_env="K2",
                          timeout_s=90)
     resolved = design.resolve_http_config(cfg)
-    assert resolved is not None
     assert resolved["chat_url"] == "http://llm/v1" and resolved["model"] == "sol"
     assert resolved["api_key_env"] == "K1" and resolved["timeout_s"] == 90
-    assert resolved["slot"] == "llm.chat_url"
     assert design.resolve_http_config({"design": {}, "llm": {}}) is None
     assert design.resolve_http_config({"design": {"chat_url": "http://x"}, "llm": {}}) is None
-
-
-def test_design_model_uses_shared_url_even_without_a_shared_default_model():
-    cfg = {"design": {"chat_url": "http://design/v1", "model": "design-model",
-                      "api_key_env": "DESIGN_KEY", "timeout_s": 90},
-           "llm": {"chat_url": "http://chat/v1", "model": "", "api_key_env": "LLM_KEY"}}
-    assert design.resolve_http_config(cfg) == {
-        "chat_url": "http://chat/v1", "model": "design-model", "api_key_env": "LLM_KEY",
-        "timeout_s": 90, "slot": "llm.chat_url"}
-
-
-def test_design_only_deployment_inherits_the_llm_key_name():
-    cfg = {"design": {"chat_url": "http://d/v1", "model": "sol", "api_key_env": ""},
-           "llm": {"chat_url": "", "model": "", "api_key_env": "PAIRED_KEY"}}
-    assert design.resolve_http_config(cfg)["api_key_env"] == "PAIRED_KEY"
-
-
-def test_shared_llm_endpoint_wins_over_conflicting_legacy_design_and_key():
-    cfg = {"design": {"chat_url": "http://legacy-design/v1", "model": "design-model",
-                      "api_key_env": "DESIGN_KEY"},
-           "llm": {"chat_url": "http://shared-llm/v1", "model": "chat-model",
-                   "api_key_env": "LLM_KEY"}}
-    assert design.resolve_http_config(cfg) == {
-        "chat_url": "http://shared-llm/v1", "model": "design-model", "api_key_env": "LLM_KEY",
-        "timeout_s": 180, "slot": "llm.chat_url"}
-
-
-def test_http_complete_sends_the_shared_key_and_design_model(monkeypatch):
-    monkeypatch.setenv("LLM_KEY", "shared-secret")
-    monkeypatch.setenv("DESIGN_KEY", "legacy-secret")
-    seen = []
-
-    class Resp:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def read(self):
-            return json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode()
-
-    def opener(req, timeout=None):
-        body = json.loads(req.data)
-        seen.append((req.full_url, req.get_header("Authorization"), body["model"]))
-        return Resp()
-
-    cfg = {"design": {"chat_url": "http://legacy-design/v1", "model": "design-model",
-                      "api_key_env": "DESIGN_KEY"},
-           "llm": {"chat_url": "http://shared-llm/v1", "model": "chat-model",
-                   "api_key_env": "LLM_KEY"}}
-    assert design.http_complete(cfg, [{"role": "user", "content": "x"}], opener=opener) == "ok"
-    assert seen == [("http://shared-llm/v1", "Bearer shared-secret", "design-model")]
-
-
-def test_competing_llm_endpoint_never_lends_its_key_to_design():
-    cfg = {"design": {"chat_url": "http://d/v1", "model": "sol", "api_key_env": ""},
-           "llm": {"chat_url": "http://other/v1", "model": "luna", "api_key_env": "LLM_KEY"}}
-    resolved = design.resolve_http_config(cfg)
-    assert resolved is not None
-    assert resolved["chat_url"] == "http://other/v1" and resolved["api_key_env"] == "LLM_KEY"
 
 
 def test_http_complete_sends_design_budgets_and_reads_the_reply():

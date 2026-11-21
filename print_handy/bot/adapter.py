@@ -41,13 +41,15 @@ class StandaloneAdapter(BasePlatformAdapter):
     configured, anyone who can post in the print channel may use the bot;
     ``allowed``/``denied`` are opt-in lists on top of that default.
 
-    Discord keeps ``uses_llm = True`` (it is the one platform whose chat
-    may use the LLM); the operator's per-install choice is the
-    ``[discord] chat_llm_enabled`` setting BotCore applies (#466), off by
-    default since #1376.
+    Discord is a pure bot (#1731): ``uses_llm = False``, so no Discord
+    message ever reaches a model call — commands, handlers and the
+    deterministic plain-language layer answer, and unmatched text gets
+    the short not-understood reply. The conversational model lane lives
+    only in Web Chat, behind [webui] chat_llm_enabled.
     """
 
     name = "discord"
+    uses_llm = False
     message_limit = rest.LIMIT
     supports_buttons = True
     max_buttons = MAX_BUTTONS

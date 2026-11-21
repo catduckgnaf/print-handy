@@ -568,15 +568,11 @@ def _idle_context(adapter) -> str:
 
 def _family_verdict(adapter):
     """A verdict(image, prompt) through the shared vision call (visual_watch)."""
-    mel = _mel()
     context = _idle_context(adapter)
 
     def verdict(image, prompt):
         from . import visual_watch as vw
-        return vw.visual_verdict(
-            image, prompt, chat_url=mel._vision_chat_url, model=mel._VISION_MODEL,
-            api_key=lambda: mel._profile_env_value("CLIPROXY_API_KEY"), context=context,
-            idle=True)
+        return vw.visual_verdict(image, prompt, context=context, idle=True)
 
     return verdict
 

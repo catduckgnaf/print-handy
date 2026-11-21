@@ -38,10 +38,11 @@ def test_the_scrub_list_covers_every_credential_the_code_reads():
 
 def test_local_detector_answers_although_the_host_exports_a_vision_key():
     """The #1428 failure, end to end: run the two streak tests in a child pytest
-    whose environment carries CLIPROXY_API_KEY, as the failing host's did."""
+    whose environment carries LLM_API_KEY (the one endpoint's key, #1731), as
+    the failing host's did."""
     import subprocess
     import sys
-    env = dict(os.environ, CLIPROXY_API_KEY="host-exported-key")
+    env = dict(os.environ, LLM_API_KEY="host-exported-key")
     # The child runs exactly these two tests: drop CI's shard spec, which would
     # otherwise deal them to another shard and deselect them both (exit 5).
     env.pop("PRINT_HANDY_TEST_SHARD", None)

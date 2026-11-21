@@ -241,6 +241,7 @@ class _FakeAdapter(BasePlatformAdapter):
     """An in-memory Discord-shaped adapter (the test_platform pattern)."""
 
     name = "discord"
+    uses_llm = False  # Discord is a pure bot (#1731), like the real adapter
     message_limit = 2000
     supports_buttons = True
 

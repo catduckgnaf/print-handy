@@ -32,12 +32,12 @@ def test_strip_json_fence_and_profile_adapter(monkeypatch):
         seen["timeout"] = timeout
         return Response()
 
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
+    monkeypatch.setattr(mel._config, "profile_env_value", lambda name: "test-key")
     monkeypatch.setattr(mel.urllib.request, "urlopen", fake_open)
     verdict, reason = mel._visual_verdict(b"frame", "idle snapshot")
     assert verdict == "empty_idle" and reason == "idle bed"
     assert seen["body"]["temperature"] == 0
-    assert seen["body"]["model"] == "gemini-latest"
+    assert seen["body"]["model"] == "vision-test-model"  # the [llm] model, via the small tier
     assert "Flashforge AD5X" in seen["body"]["messages"][0]["content"][0]["text"]
     assert "empty_idle" not in mel.VISUAL_ALERT_VERDICTS
     assert mel.VISUAL_ALERT_VERDICTS == {"air", "spaghetti", "detached", "uncertain"}
@@ -71,7 +71,7 @@ def test_visual_verdict_context_names_the_configured_printer(monkeypatch):
 
     monkeypatch.setattr(mel.printers, "current",
                         lambda *a, **k: mock.Mock(display_name="Sovol SV06"))
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
+    monkeypatch.setattr(mel._config, "profile_env_value", lambda name: "test-key")
     monkeypatch.setattr(mel.urllib.request, "urlopen", fake_open)
     verdict, reason = mel._visual_verdict(b"frame", "watch this print")
     assert verdict == "ok" and reason == "printing"
@@ -1122,27 +1122,31 @@ def test_unclaimed_print_gets_a_stable_identity(monkeypatch):
 
 def test_vision_ready_needs_an_endpoint_the_watch_can_actually_use(monkeypatch):
     from print_handy.runtime import visual_watch as vw
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(vw, "_vision_missing_logged", False)
     # The endpoint routes alone: the local detector (on by default) and a
     # plate reference are turned off, whatever earlier tests left behind.
     monkeypatch.setattr(vw.local_vision, "enabled", lambda cfg=None: False)
     monkeypatch.setattr(vw.local_vision, "watch_source", lambda cfg=None: "auto")
     monkeypatch.setattr(vw.local_empty, "reference_ready", lambda *a, **k: False)
-    urls = {"vision_chat_url": ""}
-    monkeypatch.setattr(vw._config, "service_url", lambda key: urls.get(key, ""))
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    cfg = vw._config.cfg()
+
+    def point(url):
+        monkeypatch.setitem(cfg, "llm", {"chat_url": url, "model": "m",
+                                         "api_key_env": "LLM_API_KEY", "timeout_s": 20})
+
+    point("")
     lines = []
-    assert vw.vision_ready(lambda: "key", lines.append) is False
-    assert vw.vision_ready(lambda: "key", lines.append) is False
+    assert vw.vision_ready(lines.append) is False
+    assert vw.vision_ready(lines.append) is False
     assert len(lines) == 1 and "camera watch skipped" in lines[0]  # said once, not per check
-    urls["vision_chat_url"] = "https://vision.example.com/v1/chat/completions"
-    assert vw.vision_ready(lambda: "", None) is False  # a hosted URL without its key judges nothing
-    assert vw.vision_ready(lambda: "key", None) is True
-    urls["vision_chat_url"] = "http://vision.local/v1/chat/completions"
-    assert vw.vision_ready(lambda: "", None) is True  # a LAN server takes no key
-    urls["vision_chat_url"] = ""
-    monkeypatch.setenv("PRINT_VISION_URL", "http://detector.local/judge")
-    assert vw.vision_ready(lambda: "", None) is True
+    point("https://vision.example.com/v1/chat/completions")
+    assert vw.vision_ready() is False  # a hosted URL without its key judges nothing
+    monkeypatch.setenv("LLM_API_KEY", "key")
+    assert vw.vision_ready() is True
+    monkeypatch.delenv("LLM_API_KEY")
+    point("http://vision.local/v1/chat/completions")
+    assert vw.vision_ready() is True  # a LAN server takes no key
 
 
 def _printing_with_a_due_check(monkeypatch, ready):
@@ -1402,33 +1406,24 @@ def test_local_detector_fallback_in_early_layer_mode(monkeypatch, tmp_path):
         raise OSError("cloud timeout")
 
     monkeypatch.setattr(vw, "_vision_answer", boom)
-    monkeypatch.setattr(vw, "_chat_route_configured", lambda api_key: True)
+    monkeypatch.setattr(vw, "_chat_route_configured", lambda: True)
     monkeypatch.setattr(local_vision, "model_path", lambda: model_file)
     monkeypatch.setattr(local_vision, "local_verdict", lambda image, streak=None: ("spaghetti", "local detector saw spaghetti"))
 
     # In early-layer mode with model present: falls back to local detector
-    verdict, detail = vw.visual_verdict(
-        b"image", "prompt", chat_url="http://fake", model="gemini",
-        api_key=lambda: "key", context="", local_fallback=True
-    )
+    verdict, detail = vw.visual_verdict(b"image", "prompt", context="", local_fallback=True)
     assert verdict == "spaghetti"
     assert "local detector fallback" in detail
 
     # In early-layer mode with model MISSING: degrades to uncertain without downloading
     monkeypatch.setattr(local_vision, "model_path", lambda: tmp_path / "missing.onnx")
-    verdict, detail = vw.visual_verdict(
-        b"image", "prompt", chat_url="http://fake", model="gemini",
-        api_key=lambda: "key", context="", local_fallback=True
-    )
+    verdict, detail = vw.visual_verdict(b"image", "prompt", context="", local_fallback=True)
     assert verdict == "uncertain"
     assert "the vision check could not be completed" in detail
 
     # In normal mode (local_fallback=False) even with model present: no fallback
     monkeypatch.setattr(local_vision, "model_path", lambda: model_file)
-    verdict, detail = vw.visual_verdict(
-        b"image", "prompt", chat_url="http://fake", model="gemini",
-        api_key=lambda: "key", context="", local_fallback=False
-    )
+    verdict, detail = vw.visual_verdict(b"image", "prompt", context="", local_fallback=False)
     assert verdict == "uncertain"
     assert "the vision check could not be completed" in detail
 

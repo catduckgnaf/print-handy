@@ -70,7 +70,6 @@ def _listener(monkeypatch, tmp_path, *, frame, endpoint_verdict):
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: frame)
     monkeypatch.setattr(mel._visual_watch, "frame_dark", lambda image: False)
     monkeypatch.setattr(mel._config, "cfg", lambda: _calibrated_cfg(tmp_path))
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
 
     def endpoint(image, prompt, **kwargs):
         result = endpoint_verdict(image, prompt, idle=True)
@@ -81,7 +80,7 @@ def _listener(monkeypatch, tmp_path, *, frame, endpoint_verdict):
     monkeypatch.setattr(vw, "_vision_answer", endpoint)
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("uncertain", "detector cannot certify empty"))
-    monkeypatch.setattr(vw, "_chat_route_configured", lambda key: False)
+    monkeypatch.setattr(vw, "_chat_route_configured", lambda: False)
     return listener, policy, sent
 
 
@@ -124,12 +123,11 @@ def test_next_plate_offer_uses_the_reference_verdict(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: EMPTY)
     monkeypatch.setattr(mel._visual_watch, "frame_dark", lambda image: False)
     monkeypatch.setattr(mel._config, "cfg", lambda: _calibrated_cfg(tmp_path))
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(vw, "_vision_answer",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no route")))
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("uncertain", "detector"))
-    monkeypatch.setattr(vw, "_chat_route_configured", lambda key: False)
+    monkeypatch.setattr(vw, "_chat_route_configured", lambda: False)
     from print_handy.runtime import next_plate_offer
     monkeypatch.setattr(next_plate_offer, "due", lambda: True)
     monkeypatch.setattr(next_plate_offer, "observe",
@@ -149,11 +147,8 @@ def test_in_print_visual_check_never_uses_the_reference(monkeypatch, tmp_path):
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("uncertain", "detector"))
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda tier: False)
-    monkeypatch.setattr(vw._config, "service_url", lambda name: "")
-    verdict, _ = vw.visual_verdict(EMPTY, "watch", chat_url="", model="m",
-                                   api_key=lambda: "", context="")
+    monkeypatch.setattr(vw, "_chat_route_configured", lambda: False)
+    verdict, _ = vw.visual_verdict(EMPTY, "watch", context="")
     assert verdict == "uncertain"
     assert called == []
 

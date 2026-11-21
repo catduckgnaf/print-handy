@@ -232,8 +232,9 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         sys.path.insert(0, str(ROOT / "tests"))
         from test_webui_design_workshop import GOOD, THICKER, _runner, _scripted
 
-        self.settings_data["design"] = {"enabled": True, "chat_url": "http://design.test/v1",
-                                        "model": "fake", "timeout_s": 30,
+        self.settings_data["llm"] = {"chat_url": "http://design.test/v1", "model": "fake",
+                                     "api_key_env": "LLM_API_KEY", "timeout_s": 20}
+        self.settings_data["design"] = {"enabled": True, "model": "fake", "timeout_s": 30,
                                         "repair_attempts": 1}
         complete = _scripted([GOOD, THICKER])
         engine = mock.patch.object(design_handler, "_design_engine", lambda cfg, _c:

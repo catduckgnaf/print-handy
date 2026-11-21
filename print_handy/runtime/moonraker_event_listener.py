@@ -3042,10 +3042,6 @@ def _camera_url():
     return _config.require(_config.service_url("camera_snapshot_url"), "services.camera_snapshot_url")
 
 
-def _vision_chat_url():
-    return _listener_common._vision_chat_url()
-
-
 # The visual-watch implementation is shared with the Bambu camera watch (#294):
 # these names are the shared module's, re-exported so existing references work.
 VISUAL_VERDICTS = _visual_watch.VISUAL_VERDICTS
@@ -3057,8 +3053,6 @@ _visual_profile = _visual_watch._visual_profile
 _frame_changed = _visual_watch._frame_changed
 _strip_json_fence = _visual_watch._strip_json_fence
 VisualPrintWatch = _visual_watch.VisualPrintWatch
-_VISION_BASE = _config.service_url("vision_chat_url")
-_VISION_MODEL = _listener_common._VISION_MODEL
 
 
 def _vision_context() -> str:
@@ -3216,8 +3210,7 @@ def _visual_verdict(image, prompt, streak=None, local_fallback=False, idle=False
     recheck stays endpoint-only.
     """
     return _visual_watch.visual_verdict(
-        image, prompt, chat_url=_vision_chat_url, model=_VISION_MODEL,
-        api_key=lambda: _profile_env_value("CLIPROXY_API_KEY"), context=_vision_context(),
+        image, prompt, context=_vision_context(),
         local_streak=streak, local_fallback=local_fallback, idle=idle)
 
 
@@ -3313,8 +3306,7 @@ def _watch_printer_id():
 def _watch_coverage_now():
     """This printer's camera-watch coverage for the heartbeat (camera_watch.listener_coverage)."""
     return _camera_watch.listener_coverage(
-        "moonraker", _config.cfg(), lambda: _profile_env_value("CLIPROXY_API_KEY"),
-        camera_reason=_camera_missing_reason())
+        "moonraker", _config.cfg(), camera_reason=_camera_missing_reason())
 
 
 # One listener per process: its coverage, refreshed at most every
@@ -6034,8 +6026,7 @@ class Listener:
         if _vision_ready():
             return ""
         try:
-            reason = _visual_watch.watch_unavailable_reason(
-                lambda: _profile_env_value("CLIPROXY_API_KEY"))
+            reason = _visual_watch.watch_unavailable_reason()
         except Exception as exc:
             reason = f"the vision route could not be checked ({exc})"
         return reason or "no vision route is ready"
@@ -6600,13 +6591,14 @@ def main():
     if not WS_URL:
         raise SystemExit("services.moonraker_url is not configured (or services.moonraker_ws_url). "
                          "Set it in config/local.yaml or config/local.toml; the listener has nothing to connect to.")
-    route = "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL") else (_VISION_BASE or "not configured")
+    from .. import ai_routes as _ai_routes
+    route = _ai_routes.describe("small") or "not configured"
     logs.configure(role="listener")
     _install_stack_dump_handler()
     # The local detector's model is fetched now, in the background, so the
     # first print's first camera check never waits on a 202 MB download.
     _local_vision.prefetch_model()
-    log(f"listener starting (Print Handy {__version__}); camera watchdog initialized route={route} model={_VISION_MODEL}")
+    log(f"listener starting (Print Handy {__version__}); camera watchdog initialized route={route}")
     asyncio.run(Listener().forever())
 
 

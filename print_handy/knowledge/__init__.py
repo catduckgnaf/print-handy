@@ -5,8 +5,9 @@
     session = knowledge.start_flow("clog")
 
 Read-only and advisory by construction: this package loads TOML data files,
-searches them and walks flow graphs. It has no printer client and sends no
-lookup data over the network. Exact and fuzzy matching are local.
+searches them and walks flow graphs. It has no printer client, and it sends
+nothing: lookups are answered by the local matcher alone (#1731 removed the
+opt-in semantic endpoint layer).
 """
 from __future__ import annotations
 

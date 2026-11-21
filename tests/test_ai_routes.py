@@ -1,6 +1,8 @@
-"""The optional AI tiers (#818): one routing module for the roast, the vision check, label reading and chat.
+"""The AI tiers after #1731: model names only, over the ONE [llm] endpoint.
 
-No test here touches the network: every call goes through a fake opener or a patched urlopen.
+Every tier resolves to the same URL; a tier table holds only ``model``.
+There is no fallback leg: a failed call fails. No test here touches the
+network: every call goes through a fake opener or a patched urlopen.
 """
 import io
 import json
@@ -45,18 +47,23 @@ class Endpoint:
 
 @pytest.fixture(autouse=True)
 def _clean_keys(monkeypatch):
-    for name in ("TIER_KEY", "BACKUP_KEY", "LLM_API_KEY", "CLIPROXY_API_KEY"):
+    for name in ("LLM_API_KEY",):
         monkeypatch.delenv(name, raising=False)
 
 
 def cfg(**sections):
-    base = {"ai": {"small": {}, "chat": {}, "heavy": {}}, "llm": {"chat_url": "", "model": "", "api_key_env": "",
-                                                                     "timeout_s": 20},
-            "design": {}, "services": {"vision_chat_url": ""},
-            "vision": {"model": "check-model", "roast_model": "roast-model"}}
+    base = {"ai": {"small": {}, "chat": {}, "heavy": {}},
+            "llm": {"chat_url": "", "model": "", "api_key_env": "", "timeout_s": 20},
+            "design": {}, "vision": {"roast_model": "roast-model"}}
     for name, values in sections.items():
         base[name] = values
     return base
+
+
+def one_endpoint(**sections):
+    sections.setdefault("llm", {"chat_url": URL, "model": "chat-model",
+                                "api_key_env": "", "timeout_s": 7})
+    return cfg(**sections)
 
 
 MSG = [{"role": "user", "content": "hi"}]
@@ -71,131 +78,60 @@ def test_an_install_that_configures_nothing_has_no_route_and_sends_nothing():
     assert endpoint.requests == []
 
 
-def test_default_routes_map_the_existing_settings(monkeypatch):
-    monkeypatch.setenv("CLIPROXY_API_KEY", "vision-key")
-    config = cfg(llm={"chat_url": URL, "model": "chat-model", "api_key_env": "", "timeout_s": 7},
-                 services={"vision_chat_url": OTHER_URL + "/"},
-                 design={"chat_url": "", "model": "design-model", "api_key_env": "", "timeout_s": 99})
+def test_exactly_one_endpoint_resolves_for_every_tier():
+    """The #1731 end state: whatever the tier, the URL is llm.chat_url."""
+    config = one_endpoint()
+    for tier in ai_routes.TIERS:
+        assert ai_routes.endpoint_url(tier, config) == URL
+        assert ai_routes.configured(tier, config)
+
+
+def test_the_one_endpoint_serves_every_tier_with_its_model_name(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "k")  # the small tier insists on a key for a hosted endpoint
+    config = one_endpoint(
+        llm={"chat_url": URL, "model": "chat-model", "api_key_env": "LLM_API_KEY", "timeout_s": 7},
+        design={"model": "design-model"})
     endpoint = Endpoint()
     answer, served = ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
     assert (answer, served) == ("hello", "chat-model")
     assert endpoint.requests[0]["url"] == URL and endpoint.requests[0]["timeout"] == 7
-    ai_routes.call("heavy", MSG, cfg=config, opener=endpoint)  # [design] over [llm], url inherited
-    assert (endpoint.requests[1]["url"], endpoint.models[1], endpoint.requests[1]["timeout"]) == \
-        (URL, "design-model", 99)
-    # small: the vision endpoint, the check model by default and the roast model for a roast.
-    ai_routes.call("small", MSG, cfg=config, opener=endpoint, compat=None, purpose="vision")
-    ai_routes.call("small", MSG, cfg=config, opener=endpoint, purpose="roast")
-    assert endpoint.models[2:] == ["check-model", "check-model"]
+    # heavy: design.model is the model-name override; the URL is the same.
+    ai_routes.call("heavy", MSG, cfg=config, opener=endpoint)
+    assert (endpoint.requests[1]["url"], endpoint.models[1]) == (URL, "design-model")
+    # small: the same endpoint and the llm model by default.
+    ai_routes.call("small", MSG, cfg=config, opener=endpoint)
+    assert (endpoint.requests[2]["url"], endpoint.models[2]) == (URL, "chat-model")
     assert "roast-model" not in endpoint.models
-    assert endpoint.requests[2]["url"] == OTHER_URL
 
 
-def test_a_tier_setting_wins_one_field_at_a_time():
-    config = cfg(llm={"chat_url": URL, "model": "chat-model", "api_key_env": "", "timeout_s": 20},
-                 ai={"small": {}, "heavy": {}, "chat": {"model": "better-model"}})
+def test_a_tier_model_name_wins_and_changes_nothing_else():
+    config = one_endpoint(ai={"small": {}, "heavy": {}, "chat": {"model": "better-model"}})
     endpoint = Endpoint()
     _answer, served = ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
     assert served == "better-model" and endpoint.requests[0]["url"] == URL
+    assert ai_routes.model_for("chat", config) == "better-model"
+    assert ai_routes.model_for("small", config) == "chat-model"
 
 
-def test_heavy_uses_shared_llm_endpoint_with_model_timeout_and_same_host_fallback(monkeypatch):
-    monkeypatch.setenv("LLM_API_KEY", "shared-secret")
-    monkeypatch.setenv("TIER_KEY", "retired-secret")
-    config = cfg(llm={"chat_url": URL, "model": "standard", "api_key_env": "LLM_API_KEY", "timeout_s": 20},
-                 design={"model": "repair-model", "timeout_s": 71,
-                         "chat_url": OTHER_URL, "api_key_env": "TIER_KEY"},
-                 ai={"small": {}, "chat": {}, "heavy": {
-                     "chat_url": OTHER_URL, "api_key_env": "TIER_KEY", "model": "heavy-model",
-                     "timeout_s": 91, "fallback_model": "repair-backup", "fallback_url": OTHER_URL,
-                     "fallback_api_key_env": "TIER_KEY"}})
-    endpoint = Endpoint(fail={"heavy-model"})
-
-    answer, served = ai_routes.call("heavy", MSG, cfg=config, opener=endpoint)
-
-    assert (answer, served) == ("hello", "repair-backup")
-    assert [request["url"] for request in endpoint.requests] == [URL, URL]
-    assert endpoint.models == ["heavy-model", "repair-backup"]
-    assert [request["auth"] for request in endpoint.requests] == ["Bearer shared-secret"] * 2
-    assert [request["timeout"] for request in endpoint.requests] == [91, 91]
-
-
-def test_a_failed_primary_retries_once_on_the_fallback_model_and_reports_who_served():
-    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
-    endpoint = Endpoint(fail={"big"})
-    answer, served = ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
-    assert (answer, served) == ("hello", "small")
-    assert endpoint.models == ["big", "small"]
-    assert {request["url"] for request in endpoint.requests} == {URL}
-
-
-def test_a_primary_that_works_never_touches_the_fallback():
-    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
-    endpoint = Endpoint()
-    assert ai_routes.call("chat", MSG, cfg=config, opener=endpoint)[1] == "big"
-    assert endpoint.models == ["big"]
-
-
-def test_when_both_fail_there_is_exactly_one_retry_and_the_error_surfaces():
-    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
-    endpoint = Endpoint(fail={"big", "small"})
+def test_a_failed_call_is_not_retried_and_the_error_surfaces():
+    config = one_endpoint()
+    endpoint = Endpoint(fail={"chat-model"})
     with pytest.raises(OSError):
         ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
-    assert endpoint.models == ["big", "small"]
-
-
-def test_without_a_fallback_a_failure_is_not_retried():
-    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {}})
-    endpoint = Endpoint(fail={"big"})
-    with pytest.raises(OSError):
-        ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
-    assert endpoint.models == ["big"]
+    assert endpoint.models == ["chat-model"]  # exactly one attempt, no fallback
 
 
 def test_an_empty_answer_counts_as_a_failure():
-    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
-
-    class Blank(Endpoint):
-        def __call__(self, req, timeout=None):
-            self.answer = "" if json.loads(req.data)["model"] == "big" else "ok"
-            return super().__call__(req, timeout)
-
-    endpoint = Blank()
-    assert ai_routes.call("chat", MSG, cfg=config, opener=endpoint) == ("ok", "small")
-
-
-def test_the_primary_key_never_goes_to_a_different_fallback_host(monkeypatch):
-    monkeypatch.setenv("TIER_KEY", "primary-secret")
-    monkeypatch.setenv("BACKUP_KEY", "backup-secret")
-    tier = {"chat_url": URL, "model": "big", "api_key_env": "TIER_KEY",
-            "fallback_url": OTHER_URL, "fallback_model": "small"}
-    endpoint = Endpoint(fail={"big"})
-    # The vision tier refuses a hosted fallback without its own key.
-    with pytest.raises(OSError, match="timed out"):
-        ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
-    assert [(r["url"], r["auth"]) for r in endpoint.requests] == [(URL, "Bearer primary-secret")]
-    tier["fallback_api_key_env"] = "BACKUP_KEY"
-    endpoint = Endpoint(fail={"big"})
-    ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
-    assert [r["auth"] for r in endpoint.requests] == ["Bearer primary-secret", "Bearer backup-secret"]
-    assert endpoint.requests[1]["url"] == OTHER_URL
-
-
-def test_a_named_fallback_key_wins_even_on_the_primary_endpoint(monkeypatch):
-    # The fallback model on the same endpoint can run under its own key (#818 review).
-    monkeypatch.setenv("TIER_KEY", "primary-secret")
-    monkeypatch.setenv("BACKUP_KEY", "backup-secret")
-    tier = {"chat_url": URL, "model": "big", "api_key_env": "TIER_KEY",
-            "fallback_model": "small", "fallback_api_key_env": "BACKUP_KEY"}
-    endpoint = Endpoint(fail={"big"})
-    ai_routes.call("small", MSG, cfg=cfg(ai={"small": tier, "heavy": {}, "chat": {}}), opener=endpoint)
-    assert [r["auth"] for r in endpoint.requests] == ["Bearer primary-secret", "Bearer backup-secret"]
-    assert endpoint.requests[1]["url"] == URL
+    config = one_endpoint()
+    endpoint = Endpoint(answer="")
+    with pytest.raises(ValueError, match="empty answer"):
+        ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
+    assert endpoint.models == ["chat-model"]
 
 
 def test_the_small_tier_refuses_a_hosted_endpoint_without_a_key_and_sends_nothing():
-    config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": "https://api.example.com/v1/chat",
-                                                         "model": "m", "api_key_env": "TIER_KEY"}})
+    config = cfg(llm={"chat_url": "https://api.example.com/v1/chat", "model": "m",
+                      "api_key_env": "LLM_API_KEY", "timeout_s": 20})
     endpoint = Endpoint()
     assert not ai_routes.ready("small", config)
     with pytest.raises(ai_routes.AIKeyMissing):
@@ -204,89 +140,77 @@ def test_the_small_tier_refuses_a_hosted_endpoint_without_a_key_and_sends_nothin
 
 
 def test_the_chat_tier_still_sends_without_a_key_to_a_hosted_endpoint():
-    config = cfg(llm={"chat_url": "https://api.example.com/v1/chat", "model": "m", "api_key_env": "LLM_API_KEY",
-                      "timeout_s": 20})
+    config = cfg(llm={"chat_url": "https://api.example.com/v1/chat", "model": "m",
+                      "api_key_env": "LLM_API_KEY", "timeout_s": 20})
     endpoint = Endpoint()
     ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
     assert endpoint.requests[0]["auth"] is None
 
 
-def test_legacy_chat_endpoint_credentials_are_ignored_without_secondary_egress(monkeypatch):
-    monkeypatch.setenv("RETIRED_CHAT_KEY", "must-not-be-sent")
-    config = cfg(
-        llm={"chat_url": URL, "model": "shared", "api_key_env": "", "timeout_s": 31},
-        ai={"small": {}, "heavy": {}, "chat": {
-            "chat_url": OTHER_URL, "model": "tier-model", "api_key_env": "RETIRED_CHAT_KEY",
-            "fallback_model": "retired-fallback", "fallback_url": OTHER_URL + "/backup",
-            "fallback_api_key_env": "RETIRED_CHAT_KEY", "timeout_s": 7,
-        }},
-    )
-    endpoint = Endpoint(fail={"tier-model"})
-
-    assert ai_routes.call("chat", MSG, cfg=config, opener=endpoint) == ("hello", "retired-fallback")
-    assert [request["url"] for request in endpoint.requests] == [URL, URL]
-    assert [request["auth"] for request in endpoint.requests] == [None, None]
-    assert [request["timeout"] for request in endpoint.requests] == [7, 7]
-
-
-def test_legacy_chat_model_and_timeout_override_shared_endpoint():
-    config = cfg(
-        llm={"chat_url": URL, "model": "shared", "timeout_s": 31},
-        ai={"small": {}, "heavy": {}, "chat": {"model": "tier-model", "timeout_s": 7}},
-    )
+def test_the_key_goes_to_the_one_endpoint(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "the-secret")
+    config = one_endpoint(llm={"chat_url": URL, "model": "chat-model",
+                               "api_key_env": "LLM_API_KEY", "timeout_s": 20})
     endpoint = Endpoint()
-
-    assert ai_routes.call("chat", MSG, cfg=config, opener=endpoint) == ("hello", "tier-model")
-    assert endpoint.requests[0]["url"] == URL
-    assert endpoint.requests[0]["timeout"] == 7
+    ai_routes.call("small", MSG, cfg=config, opener=endpoint)
+    assert endpoint.requests[0]["auth"] == "Bearer the-secret"
 
 
 def test_images_ride_on_the_last_user_message():
-    config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m"}})
+    config = cfg(llm={"chat_url": LOCAL_URL, "model": "m", "api_key_env": "", "timeout_s": 20})
     endpoint = Endpoint()
-    ai_routes.call("small", [{"role": "user", "content": "look"}], images=[b"\xff\xd8"], cfg=config, opener=endpoint)
+    ai_routes.call("small", [{"role": "user", "content": "look"}], images=[b"\xff\xd8"],
+                   cfg=config, opener=endpoint)
     content = endpoint.requests[0]["body"]["messages"][-1]["content"]
     assert content[0] == {"type": "text", "text": "look"}
     assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
 
 
-def test_describe_names_the_primary_and_the_fallback():
-    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
-    assert ai_routes.describe("chat", config) == f"big at {URL}, fallback small"
-    assert ai_routes.describe("heavy", config) == f"big at {URL}"
+def test_describe_names_the_one_endpoint():
+    config = one_endpoint()
+    assert ai_routes.describe("chat", config) == f"chat-model at {URL}"
+    assert ai_routes.describe("heavy", cfg()) == ""
 
 
-# --- the callers are moved onto the routes -------------------------------------------------------
+def test_a_caller_timeout_beats_the_endpoint_default():
+    config = one_endpoint()
+    endpoint = Endpoint()
+    ai_routes.call("chat", MSG, cfg=config, opener=endpoint, timeout=60)
+    ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
+    assert [r["timeout"] for r in endpoint.requests] == [60, 7]
+
+
+# --- the callers ride the one route --------------------------------------------------------------
 
 def patch_urlopen(monkeypatch, endpoint):
     monkeypatch.setattr("urllib.request.urlopen", endpoint)
 
 
-def test_the_chat_fallback_uses_the_chat_tier_fallback_model():
-    config = cfg(llm={"chat_url": URL, "model": "chat-model", "api_key_env": "", "timeout_s": 20},
-                 ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "backup-model"}})
-    endpoint = Endpoint(answer=json.dumps({"reply": "Press stop.", "command": "/print-stop"}), fail={"chat-model"})
+def test_the_chat_lane_uses_the_one_endpoint_and_a_failure_raises():
+    config = one_endpoint()
+    endpoint = Endpoint(answer=json.dumps({"reply": "Press stop.", "command": "/print-stop"}))
     assert llm.configured(config)
     # #1524 tranche 6: the recorded legacy "command" is ignored - ask
     # returns the reply and no proposal, so nothing can be dispatched.
     assert llm.ask("kill it", "help text", cfg=config, opener=endpoint) == ("Press stop.", None)
-    assert endpoint.models == ["chat-model", "backup-model"]
+    assert endpoint.requests[0]["url"] == URL and endpoint.models == ["chat-model"]
+    failing = Endpoint(fail={"chat-model"})
+    with pytest.raises(OSError):
+        llm.ask("kill it", "help text", cfg=config, opener=failing)
+    assert failing.models == ["chat-model"]  # no fallback retry
 
 
-def test_llm_is_unconfigured_until_a_chat_route_exists():
+def test_llm_is_unconfigured_until_the_endpoint_exists():
     assert not llm.configured(cfg())
-    assert llm.configured(cfg(llm={"chat_url": URL, "model": "m"}))
+    assert llm.configured(one_endpoint())
 
 
-def test_the_roast_never_goes_through_the_small_tier(monkeypatch, tmp_path):
-    """Roasts are local since #1002: a fully configured small tier (with a
-    fallback) is never called for one."""
-    config = mel._config.cfg()
-    monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {},
-                                       "small": {"chat_url": LOCAL_URL, "model": "roast-a", "fallback_model": "roast-b"}})
-    monkeypatch.setitem(config["services"], "vision_chat_url", "")
+def test_the_roast_never_goes_through_the_endpoint(monkeypatch, tmp_path):
+    """Roasts are local since #1002: a fully configured endpoint is never
+    called for one."""
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
-    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
     endpoint = Endpoint(answer='"A fine stand."')
     patch_urlopen(monkeypatch, endpoint)
@@ -294,105 +218,76 @@ def test_the_roast_never_goes_through_the_small_tier(monkeypatch, tmp_path):
     assert endpoint.models == [] and endpoint.requests == []
 
 
-def test_the_vision_check_uses_an_ai_small_endpoint_when_no_vision_url_is_set(monkeypatch):
+def test_the_vision_check_and_label_read_use_the_small_tier_on_the_one_endpoint(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "test-key")  # the fake endpoint is hosted; small insists on its key
     config = vw._config.cfg()
-    monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {},
-                                       "small": {"chat_url": LOCAL_URL, "model": "eyes", "fallback_model": "eyes2"}})
-    monkeypatch.setitem(config["services"], "vision_chat_url", "")
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    endpoint = Endpoint(answer='{"verdict": "ok", "reason": "fine"}', fail={"eyes"})
+    endpoint = Endpoint(answer='{"verdict": "ok", "reason": "fine"}')
     patch_urlopen(monkeypatch, endpoint)
-    assert vw.vision_ready(lambda: "")
-    verdict = vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "", model="m",
-                                api_key=lambda: "", context="")
-    assert verdict == ("ok", "fine")
-    assert endpoint.models == ["eyes", "eyes2"]
+    assert vw.vision_ready()
+    assert vw.visual_verdict(b"\xff\xd8", "p", context="") == ("ok", "fine")
     # Label reading shares the route.
-    assert vw.visual_extract(b"\xff\xd8", "p", chat_url=lambda: "", model="m",
-                             api_key=lambda: "", context="") == {"verdict": "ok", "reason": "fine"}
-
-
-def test_the_old_vision_settings_still_drive_the_check(monkeypatch):
-    config = vw._config.cfg()
-    monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {}})
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    endpoint = Endpoint(answer='{"verdict": "spaghetti", "reason": "tangle"}')
-    patch_urlopen(monkeypatch, endpoint)
-    verdict = vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: URL, model="legacy-model",
-                                api_key=lambda: "k", context="")
-    assert verdict == ("spaghetti", "tangle")
-    assert endpoint.models == ["legacy-model"] and endpoint.requests[0]["auth"] == "Bearer k"
+    assert vw.visual_extract(b"\xff\xd8", "p", context="") == {"verdict": "ok", "reason": "fine"}
+    urls = {request["url"] for request in endpoint.requests}
+    assert urls == {config["llm"]["chat_url"]}
 
 
 # --- settings ------------------------------------------------------------------------------------
 
 def test_the_shipped_defaults_leave_every_tier_empty():
     assert settings._read(settings.HOME)["ai"] == {"allowed_users": "", "edit_requests_per_hour": 20,
-                                                "small": {}, "chat": {}, "heavy": {}}
+                                                   "small": {}, "chat": {}, "heavy": {}}
 
 
-def test_ai_tier_settings_are_validated():
+def test_ai_tier_settings_hold_model_names_only():
     data = {}
     settings._validate_ai(data)
     assert data["ai"] == {"allowed_users": "", "edit_requests_per_hour": 20,
-                                                "small": {}, "chat": {}, "heavy": {}}
-    good = {"ai": {"small": {"chat_url": URL, "model": "m", "fallback_model": "n", "fallback_url": OTHER_URL,
-                             "api_key_env": "TIER_KEY", "fallback_api_key_env": "BACKUP_KEY", "timeout_s": 5}}}
+                          "small": {}, "chat": {}, "heavy": {}}
+    good = {"ai": {"small": {"model": "m"}}}
     settings._validate_ai(good)
-    for bad in ({"chat_url": URL},  # no model
-                {"chat_url": "ftp://x", "model": "m"},
-                {"model": "m", "api_key_env": "not a name"},
-                {"model": "m", "fallback_url": "models.test"},
-                {"model": "m", "timeout_s": 0},
-                {"model": "m", "shade": "red"}):
+    assert good["ai"]["small"] == {"model": "m"}
+    for bad in ({"model": "m", "shade": "red"},          # unknown keys stay refused
+                {"model": "m", "chat_url": URL}):        # endpoint keys are not tier keys
         with pytest.raises(settings.SettingsError):
             settings._validate_ai({"ai": {"heavy": bad}})
     with pytest.raises(settings.SettingsError):
         settings._validate_ai({"ai": {"chat": "http://x"}})
 
 
-def test_a_tier_that_only_supplies_a_key_makes_the_inherited_endpoint_ready(monkeypatch):
-    monkeypatch.setenv("TIER_KEY", "tier-secret")
-    config = vw._config.cfg()
-    monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {"api_key_env": "TIER_KEY"}})
-    monkeypatch.setitem(config["services"], "vision_chat_url", "https://vision.example.com/v1/chat")
-    # The endpoint route alone: the local detector (on by default) would answer otherwise.
-    monkeypatch.setitem(config["vision"], "local_detector_enabled", False)
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    assert vw.vision_ready(lambda: "")
-    endpoint = Endpoint(answer='{"verdict": "ok", "reason": "fine"}')
-    patch_urlopen(monkeypatch, endpoint)
-    assert vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "https://vision.example.com/v1/chat",
-                             model="m", api_key=lambda: "", context="") == ("ok", "fine")
-    assert endpoint.requests[0]["auth"] == "Bearer tier-secret"
-    monkeypatch.delenv("TIER_KEY")
-    assert not vw.vision_ready(lambda: "")
-    assert vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "https://vision.example.com/v1/chat",
-                             model="m", api_key=lambda: "", context="") == ("uncertain", "vision key is not configured")
+def test_a_legacy_config_loads_with_every_removed_key_inert(tmp_path):
+    """#1731: a config carrying any removed key still loads; the values do
+    nothing — in particular the retired vision URL must not configure the
+    small tier, and the retired [agent] section must not come back."""
+    legacy = tmp_path / "legacy.yaml"
+    legacy.write_text(
+        "llm:\n  chat_url: ''\n  model: ''\n"
+        "agent:\n  chat_url: http://agent.test/v1/chat/completions\n  model: agent-model\n"
+        "design:\n  chat_url: http://design.test/v1/chat/completions\n  api_key_env: LLM_API_KEY\n"
+        "services:\n  vision_chat_url: http://vision-legacy.test/v1/chat/completions\n"
+        "vision:\n  model: legacy-vision-model\n  ai_enabled: true\n"
+        "ai:\n  small:\n    chat_url: http://tier.test/v1/chat/completions\n"
+        "    model: tier-model\n    fallback_model: tier-fallback\n"
+        "    api_key_env: LLM_API_KEY\n    timeout_s: 5\n",
+        encoding="utf-8")
+    data = settings.load(local=legacy, environ={})
+    assert "agent" not in data
+    assert "chat_url" not in data["design"] and "api_key_env" not in data["design"]
+    assert "vision_chat_url" not in data["services"]
+    assert "model" not in data["vision"]
+    assert data["ai"]["small"] == {"model": "tier-model"}
+    # Nothing resolves: the retired URLs are inert and [llm] is empty.
+    for tier in ai_routes.TIERS:
+        assert not ai_routes.configured(tier, data)
+        assert ai_routes.endpoint_url(tier, data) == ""
 
 
-def test_a_configured_tier_timeout_beats_the_caller_default_and_the_default_applies_otherwise(monkeypatch):
-    endpoint = Endpoint()
-    config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m", "timeout_s": 9}})
-    ai_routes.call("small", MSG, cfg=config, opener=endpoint, compat=ai_routes.Compat(timeout_s=4))
-    config["ai"]["small"].pop("timeout_s")
-    ai_routes.call("small", MSG, cfg=config, opener=endpoint, compat=ai_routes.Compat(timeout_s=4))
-    assert [r["timeout"] for r in endpoint.requests] == [9, 4]
-
-
-def test_the_vision_call_passes_its_legacy_timeout_as_default(monkeypatch):
-    config = mel._config.cfg()
-    monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m",
-                                                                            "timeout_s": 15}})
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "k")
-    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
-    endpoint = Endpoint(answer='{"verdict": "ok", "reason": "x"}')
-    patch_urlopen(monkeypatch, endpoint)
-    # The roast's old 4 s small-tier default is gone with the roast's model
-    # call (#1002); the vision check keeps its own.
-    vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "", model="m", api_key=lambda: "", context="")
-    assert [r["timeout"] for r in endpoint.requests] == [15]
-    config["ai"]["small"].pop("timeout_s")
-    vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "", model="m", api_key=lambda: "", context="")
-    assert [r["timeout"] for r in endpoint.requests[1:]] == [60]
+def test_a_legacy_env_override_for_a_removed_key_is_ignored():
+    data = settings.load(local=None, environ={
+        "PRINT_HANDY__AGENT__CHAT_URL": "http://agent.test/v1/chat/completions",
+        "PRINT_HANDY__SERVICES__VISION_CHAT_URL": "http://vision-legacy.test/v1/chat/completions",
+        "PRINT_HANDY__VISION__MODEL": "legacy-model",
+        "PRINT_HANDY__DESIGN__CHAT_URL": "http://design.test/v1/chat/completions"})
+    assert "agent" not in data
+    assert "vision_chat_url" not in data["services"]
+    for tier in ai_routes.TIERS:
+        assert not ai_routes.configured(tier, data)

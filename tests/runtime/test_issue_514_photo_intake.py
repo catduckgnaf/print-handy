@@ -12,6 +12,7 @@ Spoolman or vision endpoint is used anywhere here.
 import asyncio
 import importlib.util
 import json
+import urllib.request
 from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
@@ -145,53 +146,55 @@ class _Response:
         return self._payload
 
 
-def test_visual_extract_vision_url_route_returns_object(monkeypatch):
+def _chat_body(content):
+    return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
+
+
+def test_visual_extract_endpoint_route_returns_object(monkeypatch):
+    """Since #1731 the extract posts to the one AI endpoint in the
+    OpenAI-compatible shape; the retired PRINT_VISION_URL shape is gone."""
     requests = []
+    monkeypatch.setenv("LLM_API_KEY", "key")  # the fake endpoint is hosted; small insists on its key
 
     def fake_urlopen(req, timeout=None):
         requests.append((req, timeout))
-        return _Response(json.dumps({"material": "PLA", "color": "Black", "grams": 1000}).encode())
+        return _Response(_chat_body('{"material": "PLA", "color": "Black", "grams": 1000}'))
 
-    monkeypatch.setenv("PRINT_VISION_URL", "http://vision.invalid/extract")
-    monkeypatch.setattr(vw.urllib.request, "urlopen", fake_urlopen)
-    out = vw.visual_extract(b"jpeg", "prompt", chat_url=lambda: "unused",
-                            model="m", api_key=lambda: None, context="")
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = vw.visual_extract(b"jpeg", "prompt", context="")
     assert out == {"material": "PLA", "color": "Black", "grams": 1000}
     body = json.loads(requests[0][0].data)
-    assert set(body) == {"image", "prompt"} and requests[0][1] == 30
+    assert body["model"] == "vision-test-model"  # the small tier over [llm]
+    assert requests[0][0].full_url.endswith("/v1/chat/completions")
+    assert requests[0][1] == 60  # the vision call's timeout
 
 
-def test_visual_extract_chat_route_returns_raw_string_when_not_json(monkeypatch):
-    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
+def test_visual_extract_returns_raw_string_when_not_json(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "key")
     payload = {"choices": [{"message": {"content": "sorry, blurry"}}]}
 
     def fake_urlopen(req, timeout=None):
         return _Response(json.dumps(payload).encode())
 
-    monkeypatch.setattr(vw.urllib.request, "urlopen", fake_urlopen)
-    out = vw.visual_extract(b"jpeg", "prompt", chat_url=lambda: "http://chat.invalid",
-                            model="m", api_key=lambda: "key", context="")
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = vw.visual_extract(b"jpeg", "prompt", context="")
     assert out == "sorry, blurry"
 
 
 def test_visual_extract_failure_returns_none(monkeypatch):
-    monkeypatch.setenv("PRINT_VISION_URL", "http://vision.invalid/extract")
-
     def boom(req, timeout=None):
         raise OSError("unreachable")
 
-    monkeypatch.setattr(vw.urllib.request, "urlopen", boom)
-    assert vw.visual_extract(b"jpeg", "p", chat_url=lambda: "u", model="m",
-                             api_key=lambda: None, context="") is None
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert vw.visual_extract(b"jpeg", "p", context="") is None
 
 
 def test_visual_verdict_still_reads_the_shared_transport(monkeypatch):
-    monkeypatch.setenv("PRINT_VISION_URL", "http://vision.invalid/extract")
-    monkeypatch.setattr(vw.urllib.request, "urlopen",
+    monkeypatch.setenv("LLM_API_KEY", "key")
+    monkeypatch.setattr(urllib.request, "urlopen",
                          lambda req, timeout=None: _Response(
-                             json.dumps({"verdict": "OK", "reason": "fine"}).encode()))
-    verdict, detail = vw.visual_verdict(b"frame", "prompt", chat_url=lambda: "u",
-                                        model="m", api_key=lambda: None, context="")
+                             _chat_body('{"verdict": "OK", "reason": "fine"}')))
+    verdict, detail = vw.visual_verdict(b"frame", "prompt", context="")
     assert (verdict, detail) == ("ok", "fine")
 
 

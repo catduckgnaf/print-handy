@@ -97,8 +97,10 @@ def flow_cfg(tmp_path, monkeypatch):
     cfg["paths"]["state_home"] = tmp_path
     cfg["printer"] = dict(cfg.get("printer") or {},
                           bed_mm=[220, 220], max_print_height_mm=250)
-    cfg["design"] = {"enabled": True, "chat_url": "http://design.test/v1",
-                     "model": "fake", "timeout_s": 30, "repair_attempts": 1}
+    cfg["llm"] = {"chat_url": "http://design.test/v1", "model": "fake",
+                  "api_key_env": "LLM_API_KEY", "timeout_s": 20}
+    cfg["design"] = {"enabled": True, "model": "fake", "timeout_s": 30,
+                     "repair_attempts": 1}
     cfg["webui"] = dict(cfg.get("webui") or {}, enabled=True, port=8765, chat_enabled=True)
     monkeypatch.setattr(_config, "_override", cfg)
     return cfg

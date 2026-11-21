@@ -44,7 +44,7 @@ def test_availability_states():
     ready, reason = designs_module.design_availability(off)
     assert not ready and "design.enabled is false" in reason
 
-    enabled_no_model = {"design": {"enabled": True, "chat_url": "", "model": ""},
+    enabled_no_model = {"design": {"enabled": True, "model": ""},
                         "llm": {"chat_url": "", "model": ""}}
     ready, reason = designs_module.design_availability(enabled_no_model)
     assert not ready and "no design model is configured" in reason
@@ -53,8 +53,8 @@ def test_availability_states():
     ready, reason = designs_module.design_availability(auto_no_model)
     assert not ready and "not set up yet" in reason
 
-    configured = {"design": {"enabled": True, "chat_url": "http://x.test/v1",
-                              "model": "fake"}}
+    configured = {"design": {"enabled": True, "model": "fake"},
+                  "llm": {"chat_url": "http://x.test/v1", "model": "fake"}}
     assert designs_module.design_availability(configured) == (True, "")
 
     inherited = {"design": {}, "llm": {"chat_url": "http://x.test/v1", "model": "fake"}}
@@ -88,7 +88,8 @@ class FakeView:
         return list(self._entries)
 
 
-READY_CFG = {"design": {"enabled": True, "chat_url": "http://x.test/v1", "model": "fake"},
+READY_CFG = {"design": {"enabled": True, "model": "fake"},
+             "llm": {"chat_url": "http://x.test/v1", "model": "fake"},
              "paths": {"cache": "/nonexistent-cache"}}
 
 
@@ -255,8 +256,8 @@ def test_server_post_without_form_token_is_refused(running):
 
 @pytest.fixture()
 def running_configured(tmp_path, monkeypatch):
-    extra = ("design:\n  enabled: true\n  chat_url: http://127.0.0.1:9/v1\n"
-             "  model: fake-model\n")
+    extra = ("llm:\n  chat_url: http://127.0.0.1:9/v1\n  model: fake-model\n"
+             "design:\n  enabled: true\n")
     data = load_settings(tmp_path, extra)
     data["paths"]["cache"] = tmp_path / "cache"  # never the machine's own cache
     # The bot inside web chat reads the runtime settings: the same ones.
@@ -333,8 +334,10 @@ def flow_cfg(tmp_path, monkeypatch):
     cfg["paths"]["state_home"] = tmp_path
     cfg["printer"] = dict(cfg.get("printer") or {},
                           bed_mm=[220, 220], max_print_height_mm=250)
-    cfg["design"] = {"enabled": True, "chat_url": "http://design.test/v1",
-                     "model": "fake", "timeout_s": 30, "repair_attempts": 1}
+    cfg["llm"] = {"chat_url": "http://design.test/v1", "model": "fake",
+                  "api_key_env": "LLM_API_KEY", "timeout_s": 20}
+    cfg["design"] = {"enabled": True, "model": "fake", "timeout_s": 30,
+                     "repair_attempts": 1}
     monkeypatch.setattr(_config, "_override", cfg)
     return cfg
 

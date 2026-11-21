@@ -1,15 +1,26 @@
-"""The one place Print Handy talks to an optional AI model (#818).
+"""The one place Print Handy talks to an optional AI model (#818, #1731).
 
-Three tiers, each with settings under ``[ai.<tier>]``:
+There is exactly one model endpoint: the OpenAI-compatible endpoint in
+``[llm]`` — ``chat_url``, ``model``, ``api_key_env`` and ``timeout_s``.
+Three tiers name the purposes a call serves:
 
-* ``small``: the camera and image check, label reading.
-* ``chat``: questions the scripted handlers cannot answer.
-* ``heavy``: model-file editing and repair, deep image work. Repair proposals
-  use the shared ``llm.*`` endpoint with tier-local model and timeout overrides
-  and an optional same-endpoint fallback model.
+* ``small``: camera and image checks, label and purchase reads.
+* ``chat``: Web Chat questions the scripted handlers cannot answer.
+* ``heavy``: design and model-file editing and repair. The repair
+  feature (#978, ``core/ai_fix.py``) calls it: "Fix this for my printer"
+  proposals are proposed on this tier.
 
-Legacy heavy endpoint fields are ignored. For ``chat``, only its model and
-``timeout_s`` are tier-local. ``small`` keeps its own endpoint configuration.
+A tier is a purpose plus an optional model name: ``[ai.<tier>] model``
+overrides the [llm] model for that tier's calls, and ``design.model``
+overrides it for design's heavy calls. Nothing else is per-tier — the
+endpoint, the key and the timeout come from [llm] alone, and there is
+one credential-binding slot for the endpoint (``llm.chat_url``).
+
+``call`` is the whole interface, and the only code in Print Handy that
+posts to a model endpoint. A call that fails fails honestly: there is
+no fallback retry. The answer comes back with the model that served it,
+so a caller can record which one that was. Callers keep interpreting
+the answer text; this module only moves it.
 """
 from __future__ import annotations
 
@@ -29,8 +40,7 @@ from .runtime import _config
 logger = logging.getLogger(__name__)
 
 TIERS = ("small", "chat", "heavy")
-TIER_KEYS = ("chat_url", "model", "fallback_model", "fallback_url",
-             "api_key_env", "fallback_api_key_env", "timeout_s")
+TIER_KEYS = ("model",)
 
 DEFAULT_TIMEOUT_S = 30.0
 
@@ -40,22 +50,11 @@ class AIRouteError(Exception):
 
 
 class AINotConfigured(AIRouteError, RuntimeError):
-    """The tier has no endpoint or no model."""
+    """The one endpoint has no URL or no model for this tier."""
 
 
 class AIKeyMissing(AIRouteError):
     """The endpoint is hosted and its API key is not available. Nothing was sent."""
-
-
-@dataclass(frozen=True)
-class Compat:
-    """A tier's default route, supplied by a caller that owns its own setting lookups."""
-    chat_url: str = ""
-    model: str = ""
-    key: str = ""
-    timeout_s: float = 0.0
-    # The setting whose host the key is bound to (#1192, credential_binding).
-    slot: str = ""
 
 
 @dataclass(frozen=True)
@@ -70,8 +69,7 @@ class _Leg:
 @dataclass(frozen=True)
 class _Route:
     tier: str
-    primary: _Leg
-    fallback: _Leg | None
+    leg: _Leg
     timeout_s: float
 
 
@@ -109,99 +107,63 @@ def _tier_settings(tier, cfg) -> dict[str, Any]:
     if tier not in TIERS:
         raise ValueError(f"unknown AI tier {tier!r}; expected one of {', '.join(TIERS)}")
     values = ((cfg or {}).get("ai") or {}).get(tier) or {}
-    if not isinstance(values, dict):
-        return {}
-    if tier in {"chat", "heavy"}:
-        # Chat and heavy repair share the [llm] endpoint. Tolerate retired
-        # endpoint credentials in legacy tier configs, but never route to them
-        # or send their keys. Model selection and timeout remain tier-local;
-        # a fallback model uses that same endpoint and credential.
-        retired = {"chat_url", "api_key_env", "fallback_url", "fallback_api_key_env"}
-        values = {key: value for key, value in values.items() if key not in retired}
-    return values
+    return values if isinstance(values, dict) else {}
 
 
-def _default_route(tier, cfg, purpose) -> Compat:
-    """The route the pre-[ai] settings already describe for this tier."""
-    if tier == "chat":
-        llm = cfg.get("llm") or {}
-        return Compat(str(llm.get("chat_url") or ""), str(llm.get("model") or ""),
-                      _secret(llm.get("api_key_env")), float(llm.get("timeout_s") or 0),
-                      slot="llm.chat_url")
-    if tier == "heavy":
-        llm, design = cfg.get("llm") or {}, cfg.get("design") or {}
-        return Compat(str(llm.get("chat_url") or ""),
-                      str(design.get("model") or llm.get("model") or ""),
-                      _secret(llm.get("api_key_env")),
-                      float(design.get("timeout_s") or llm.get("timeout_s") or 0),
-                      slot="llm.chat_url")
-    vision = cfg.get("vision") or {}
-    model = vision.get("model")
-    url = str((cfg.get("services") or {}).get("vision_chat_url") or "").rstrip("/")
-    return Compat(url, str(model or ""), _secret("CLIPROXY_API_KEY"), slot="services.vision_chat_url")
-
-
-def _resolve(tier, cfg, compat, purpose) -> _Route | None:
+def model_for(tier, cfg=None) -> str:
+    """The model name a tier's calls use (see the resolution order below)."""
     cfg = cfg if cfg is not None else _config.cfg()
-    mine = _tier_settings(tier, cfg)
-    base = compat or _default_route(tier, cfg, purpose)
-    url = str(mine.get("chat_url") or "").strip() or base.chat_url
-    model = str(mine.get("model") or "").strip() or base.model
+    return _model_for(tier, cfg)
+
+
+def _model_for(tier, cfg) -> str:
+    """The model name a tier's calls use: its own override, then the defaults.
+
+    The heavy tier's default override is ``design.model`` (design is the
+    heavy tier's main caller and names its stronger model there); every
+    tier otherwise falls back to the [llm] model.
+    """
+    model = str(_tier_settings(tier, cfg).get("model") or "").strip()
+    if model:
+        return model
+    if tier == "heavy":
+        model = str((cfg.get("design") or {}).get("model") or "").strip()
+        if model:
+            return model
+    return str((cfg.get("llm") or {}).get("model") or "").strip()
+
+
+def _resolve(tier, cfg) -> _Route | None:
+    cfg = cfg if cfg is not None else _config.cfg()
+    llm = cfg.get("llm") or {}
+    url = str(llm.get("chat_url") or "").strip()
+    model = _model_for(tier, cfg)
     if not url or not model:
         return None
-    env_name = str(mine.get("api_key_env") or "").strip()
-    if mine.get("chat_url") or env_name:
-        key = _secret(env_name)
-    else:
-        key = base.key
-    slot = (f"ai.{tier}.chat_url" if str(mine.get("chat_url") or "").strip()
-            else base.slot or f"ai.{tier}.chat_url")
-    primary = _Leg(url, model, key, keyless_ok(url), slot)
-    fallback = None
-    fb_model = str(mine.get("fallback_model") or "").strip()
-    fb_url = str(mine.get("fallback_url") or "").strip()
-    if fb_model or fb_url:
-        fb_url = fb_url or url
-        # An explicitly named fallback key always wins; otherwise the same endpoint reuses the
-        # primary's key, and a different host never gets it.
-        fb_env = str(mine.get("fallback_api_key_env") or "").strip()
-        fb_key = _secret(fb_env) if fb_env else (key if fb_url == url else "")
-        fallback = _Leg(fb_url, fb_model or model, fb_key, keyless_ok(fb_url),
-                        slot if fb_url == url else f"ai.{tier}.fallback_url")
-    timeout = float(mine.get("timeout_s") or 0) or base.timeout_s or DEFAULT_TIMEOUT_S
-    return _Route(tier, primary, fallback, timeout)
+    timeout = float(llm.get("timeout_s") or 0) or DEFAULT_TIMEOUT_S
+    leg = _Leg(url, model, _secret(llm.get("api_key_env")), keyless_ok(url), "llm.chat_url")
+    return _Route(tier, leg, timeout)
 
 
-def configured(tier, cfg=None, *, compat=None, purpose="") -> bool:
-    """Whether the tier has an endpoint and a model, from [ai.<tier>] or its default settings."""
-    return _resolve(tier, cfg, compat, purpose) is not None
+def configured(tier, cfg=None) -> bool:
+    """Whether the tier resolves: the one endpoint has a URL and the tier a model."""
+    return _resolve(tier, cfg) is not None
 
 
-def explicit(tier, cfg=None) -> bool:
-    """Whether [ai.<tier>] names its own endpoint (the default settings are not consulted)."""
-    cfg = cfg if cfg is not None else _config.cfg()
-    return bool(str(_tier_settings(tier, cfg).get("chat_url") or "").strip())
+def endpoint_url(tier, cfg=None) -> str:
+    """The one endpoint's URL as the tier resolves it; empty when not configured."""
+    route = _resolve(tier, cfg)
+    return route.leg.url if route else ""
 
 
-def overrides_route(tier, cfg=None) -> bool:
-    """Whether [ai.<tier>] changes where or with which key the tier's default route is called.
-
-    True for a chat_url of its own, and also for an api_key_env alone: that
-    supplies the key for the endpoint the tier inherits.
-    """
-    cfg = cfg if cfg is not None else _config.cfg()
-    mine = _tier_settings(tier, cfg)
-    return bool(str(mine.get("chat_url") or "").strip() or str(mine.get("api_key_env") or "").strip())
-
-
-def ready(tier, cfg=None, *, compat=None, purpose="") -> bool:
+def ready(tier, cfg=None) -> bool:
     """Whether a call would be sent: the tier is configured and its endpoint has its key or needs none."""
-    route = _resolve(tier, cfg, compat, purpose)
-    return bool(route and _key_ok(tier, route.primary))
+    route = _resolve(tier, cfg)
+    return bool(route and _key_ok(tier, route.leg))
 
 
 def _key_ok(tier, leg) -> bool:
-    """Whether the leg may be sent. Only the small tier insists on a key for a hosted endpoint.
+    """Whether the call may be sent. Only the small tier insists on a key for a hosted endpoint.
 
     Its calls feed alerts, and an unauthenticated hosted endpoint would fail
     every check and post a false one. The chat and heavy tiers have always sent
@@ -210,16 +172,12 @@ def _key_ok(tier, leg) -> bool:
     return tier != "small" or bool(leg.key) or leg.keyless_ok
 
 
-def describe(tier, cfg=None, *, purpose="") -> str:
-    """"model at url", plus the fallback model when one is set; empty when the tier is not configured."""
-    route = _resolve(tier, cfg, None, purpose)
+def describe(tier, cfg=None) -> str:
+    """"model at url" for the tier; empty when the tier is not configured."""
+    route = _resolve(tier, cfg)
     if route is None:
         return ""
-    text = f"{route.primary.model} at {route.primary.url}"
-    if route.fallback:
-        where = "" if route.fallback.url == route.primary.url else f" at {route.fallback.url}"
-        text += f", fallback {route.fallback.model}{where}"
-    return text
+    return f"{route.leg.model} at {route.leg.url}"
 
 
 def _post(leg, messages, images, max_tokens, temperature, timeout, opener):
@@ -246,37 +204,26 @@ def _post(leg, messages, images, max_tokens, temperature, timeout, opener):
     return answer
 
 
-def call(tier, messages, *, images=(), compat=None, purpose="", max_tokens=200,
+def call(tier, messages, *, images=(), max_tokens=200,
          temperature=0.2, timeout=None, cfg=None, opener=None):
-    """Send ``messages`` (plus optional JPEG ``images``) to the tier: ``(answer, served_by)``.
+    """Send ``messages`` (plus optional JPEG ``images``) on the tier: ``(answer, served_by)``.
 
-    ``served_by`` is the model name that produced the answer, the fallback's
-    when the primary failed. ``compat`` replaces the tier's default route for
-    callers that resolve their own settings; ``purpose`` picks the
-    default model within a tier. Raises AINotConfigured or AIKeyMissing before
-    anything is sent, and otherwise the last transport or parse error when
-    every leg failed. Only a failed primary is retried, once, on the fallback.
+    ``served_by`` is the model name that produced the answer. Raises
+    AINotConfigured or AIKeyMissing before anything is sent, and otherwise
+    the transport or parse error: a failed call fails, it is not retried
+    on another model or endpoint.
     """
-    route = _resolve(tier, cfg, compat, purpose)
+    route = _resolve(tier, cfg)
     if route is None:
         raise AINotConfigured(f"the {tier} AI tier has no endpoint and model "
-                              f"(set [ai.{tier}] chat_url and model, or the settings it falls back to)")
-    if not _key_ok(tier, route.primary):
+                              f"(set [llm] chat_url and model)")
+    if not _key_ok(tier, route.leg):
         raise AIKeyMissing(f"the {tier} AI tier's API key is not configured")
     wait = float(timeout) if timeout else route.timeout_s
-    error = None
-    for index, leg in enumerate((route.primary, route.fallback)):
-        if leg is None:
-            continue
-        if index and not _key_ok(tier, leg):
-            logger.warning("ai %s fallback skipped: no API key for %s", tier, leg.model)
-            break
-        try:
-            answer = _post(leg, messages, images, max_tokens, temperature, wait, opener)
-        except Exception as exc:
-            error = exc
-            logger.warning("ai %s call to %s failed: %s: %s", tier, leg.model, type(exc).__name__, exc)
-            continue
-        logger.info("ai %s served by %s%s", tier, leg.model, " (fallback)" if index else "")
-        return answer, leg.model
-    raise error
+    try:
+        answer = _post(route.leg, messages, images, max_tokens, temperature, wait, opener)
+    except Exception as exc:
+        logger.warning("ai %s call to %s failed: %s: %s", tier, route.leg.model, type(exc).__name__, exc)
+        raise
+    logger.info("ai %s served by %s", tier, route.leg.model)
+    return answer, route.leg.model

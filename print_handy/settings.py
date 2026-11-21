@@ -72,13 +72,11 @@ LEGACY_ENV = {
     "MOONRAKER_URL": ("services", "moonraker_url"),
     "MOONRAKER_WS_URL": ("services", "moonraker_ws_url"),
     "SPOOLMAN_URL": ("services", "spoolman_url"),
-    "PRINT_VISION_CHAT_URL": ("services", "vision_chat_url"),
     "PRINT_DISCORD_CHAT_ID": ("discord", "chat_id"),
     "DISCORD_UPLOAD_MAX_BYTES": ("discord", "upload_max_bytes"),
     "MOONRAKER_LISTENER_TICK_SECONDS": ("listener", "tick_s"),
     "IFS_PRESENCE_POLL_SECONDS": ("listener", "ifs_presence_poll_s"),
     "SPOOL_NAG_SECONDS": ("listener", "spool_nag_s"),
-    "PRINT_VISION_MODEL": ("vision", "model"),
     "PRINT_TIMELAPSE_ARCHIVE_HOST": ("timelapse", "archive_host"),
     "PRINT_TIMELAPSE_ARCHIVE_DIR": ("timelapse", "archive_dir"),
     "PRINT_TIMELAPSE_SSH_KEY": ("timelapse", "ssh_key"),
@@ -161,6 +159,31 @@ def _apply_key_aliases(layer):
     services = layer.get("services")
     if isinstance(services, dict):
         services.pop("openviking_url", None)  # Drop retired configuration without disrupting upgrades.
+        services.pop("vision_chat_url", None)  # Removed in #1731: vision uses the one [llm] endpoint.
+    # The legacy LLM cleanup (#1731): the [agent] lane, the per-lane and
+    # per-tier endpoint keys and the vision model are retired. A config
+    # carrying any of them still loads — the keys are dropped here, before
+    # the unknown-key check, so they are inert rather than refused (some
+    # are credential-shaped and would otherwise refuse the whole load).
+    layer.pop("agent", None)
+    design = layer.get("design")
+    if isinstance(design, dict):
+        for key in ("chat_url", "api_key_env"):
+            if key in design:
+                _note_unknown(f"[design] {key} is retired; configure the matching "
+                              "endpoint and key variable together in [llm]")
+                del design[key]
+    vision = layer.get("vision")
+    if isinstance(vision, dict):
+        vision.pop("model", None)
+    ai = layer.get("ai")
+    if isinstance(ai, dict):
+        for tier in ("small", "chat", "heavy"):
+            table = ai.get(tier)
+            if isinstance(table, dict):
+                for key in ("chat_url", "fallback_model", "fallback_url", "api_key_env",
+                            "fallback_api_key_env", "timeout_s"):
+                    table.pop(key, None)
     return layer
 
 
@@ -202,11 +225,9 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("webui", "chat_llm_enabled"): bool,
                  ("webui", "chat_enabled"): bool,
                  ("webui", "trusted_proxies"): str,
-                 ("design", "enabled"): bool, ("design", "chat_url"): str,
-                 ("design", "model"): str, ("design", "api_key_env"): str,
+                 ("design", "enabled"): bool,
+                 ("design", "model"): str,
                  ("design", "timeout_s"): int, ("design", "repair_attempts"): int,
-                 ("agent", "chat_url"): str, ("agent", "model"): str,
-                 ("agent", "api_key_env"): str, ("agent", "timeout_s"): int,
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
                  ("timelapse", "wrapped_enabled"): bool,
                  ("timelapse", "data_enabled"): bool,
@@ -244,9 +265,10 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
 # (PRINT_HANDY__DELIVERY__METHODS=discord,bambu_handoff,printer). Every other list or table is file
 # only. [delivery] methods is here so a Docker operator can opt into the Bambu LAN print button without
 # replacing the image's docker.yaml (#270); the value is validated exactly like the YAML list.
-# The keys of one [ai.<tier>] table (#818); the tables are file only, so they are not in OPTIONAL_KEYS.
-AI_TIER_KEYS = ("chat_url", "model", "fallback_model", "fallback_url", "api_key_env",
-                "fallback_api_key_env", "timeout_s")
+# The keys of one [ai.<tier>] table (#818): a model name only since #1731 —
+# every tier posts to the one endpoint in [llm]. The tables are file only,
+# so they are not in OPTIONAL_KEYS.
+AI_TIER_KEYS = ("model",)
 ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "denylist"),
              ("firmware", "notice_firmwares")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
@@ -552,6 +574,10 @@ def _from_env(home, environ, declared=None):
         if isinstance(declared, list) else set()
     roster = None
     for name, raw in environ.items():
+        if name in {"PRINT_VISION_URL", "PRINT_FUZZY_URL"}:
+            if raw.strip():
+                _note_unknown(f"${name} is retired and ignored; see Retired settings in the settings guide")
+            continue
         if name.startswith("PRINT_HANDY__"):
             parts = name[len("PRINT_HANDY__"):].lower().split("__")
             if len(parts) == 3 and parts[0] == "printers":
@@ -1299,8 +1325,8 @@ def _check_mixed_shape(extra, environ):
 
 
 # [vision] watch_source (#455): which route judges the camera watchdog's
-# frames. "auto" is today's precedence (PRINT_VISION_URL, then the chat
-# endpoint, then the local detector when no endpoint route is configured);
+# frames. "auto" is today's precedence (the one AI endpoint, then the
+# local detector when no endpoint route is configured);
 # "endpoint" pins the watch to the endpoint routes and never consults the
 # local detector; "local" pins the watch to the built-in local detector
 # and never calls an endpoint. Label reads and roasts are not verdicts and
@@ -1769,12 +1795,12 @@ def _validate_vision(data):
     """
     vision = data.setdefault("vision", {})
     # AI image checks (#1376): off by default, because AI is for designing
-    # models. While false, no frame or image is sent to a vision model
-    # endpoint (PRINT_VISION_URL, services.vision_chat_url, [ai.small]):
-    # the camera watchdog, the idle plate checks, label reads and purchase
-    # reads treat the endpoint as not configured. The local detector and
-    # plate reference below keep their own switches. True restores the
-    # endpoint routes exactly as before.
+    # models. While false, no frame or image is sent to the one AI
+    # endpoint (the [ai.small] tier over [llm]): the camera watchdog, the
+    # idle plate checks, label reads and purchase reads treat the endpoint
+    # as not configured. The local detector and plate reference below keep
+    # their own switches. True restores the endpoint route exactly as
+    # before.
     ai_enabled = vision.setdefault("ai_enabled", False)
     if not isinstance(ai_enabled, bool):
         raise SettingsError(f"[vision] ai_enabled must be true or false, got {ai_enabled!r}")
@@ -2030,14 +2056,13 @@ def _validate_design(data):
     """The [design] section (#388 Stage 1; auto-on posture from the close-out ruling).
 
     ``enabled`` is tri-state. Absent (None here) means AUTO: design turns
-    on whenever a design/LLM endpoint is resolvable — [design] inheriting
-    [llm] is the only lane there is — the same
+    on whenever the one AI endpoint ([llm]) is resolvable — the same
     posture the camera checks have (on whenever an endpoint is available).
     ``enabled = true`` forces it on (an unconfigured endpoint is then a
     visible failure, not a silent off), and ``enabled = false`` turns it
-    off in all cases. ``chat_url``, ``model`` and ``api_key_env`` are empty
-    to inherit the [llm] values, so the common single-endpoint setup only
-    sets ``design.model`` (a stronger model for design turns). The shipped
+    off in all cases. Design has no endpoint of its own (#1731): it posts
+    to the [llm] endpoint, and ``design.model`` is only a model-name
+    override on it (a stronger model for design turns). The shipped
     config files deliberately carry no ``enabled`` line, so a config that
     never mentions it gets the auto posture; the effective state is
     resolved by ``print_handy.core.design.effective_enabled``.
@@ -2047,18 +2072,10 @@ def _validate_design(data):
     if enabled is not None and not isinstance(enabled, bool):
         raise SettingsError(f"[design] enabled must be true or false, got {enabled!r}")
     design["enabled"] = enabled
-    chat_url = str(design.setdefault("chat_url", "") or "").strip()
-    if chat_url and not chat_url.startswith(("http://", "https://")):
-        raise SettingsError(f"[design] chat_url must be a URL, got {chat_url!r}")
-    design["chat_url"] = chat_url
     model = design.setdefault("model", "")
     if not isinstance(model, str):
         raise SettingsError(f"[design] model must be a model name or empty, got {model!r}")
     design["model"] = model.strip()
-    env_name = str(design.setdefault("api_key_env", "") or "").strip()
-    if env_name and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", env_name):
-        raise SettingsError(f"[design] api_key_env must be an environment variable name, got {env_name!r}")
-    design["api_key_env"] = env_name
     design.setdefault("timeout_s", 180)
     design["timeout_s"] = _positive(data, "design", "timeout_s", int)
     attempts = design.setdefault("repair_attempts", 3)
@@ -2090,11 +2107,12 @@ def ai_allowed_users(value) -> list[str]:
 def _validate_ai(data):
     """The [ai] section (#818): optional small, chat and heavy tiers, each a table.
 
-    Every tier defaults to empty, which keeps the settings the install already
-    had (print_handy.ai_routes documents the mapping). A tier value is checked
-    here so a typo fails at load, not on the first print: only known keys,
-    http(s) URLs, a model whenever chat_url is set, environment variable names
-    for the key settings and a positive timeout.
+    A tier table holds a model name only (#1731): every tier posts to the
+    one endpoint in [llm], and a tier's ``model`` overrides the model name
+    for that tier's calls. The endpoint keys a tier table used to carry
+    are dropped on load by _apply_key_aliases, so an old config still
+    loads with them inert; any other unknown key stays refused here, so a
+    typo fails at load, not on the first print.
     """
     ai = data.setdefault("ai", {})
     # Who may use the AI edit lane (#902), and how often. Empty allowed_users keeps the
@@ -2125,29 +2143,16 @@ def _validate_ai(data):
             # tier key stays refused (test_ai_routes pins this).
             raise SettingsError(f"[ai.{tier}] unknown setting {', '.join(unknown)} "
                                 f"(known: {', '.join(AI_TIER_KEYS)})")
-        for key in AI_TIER_KEYS:
-            if key == "timeout_s":
-                continue
-            value = values.get(key, "")
-            if value is None:
-                value = ""
-            if not isinstance(value, str):
-                raise SettingsError(f"[ai.{tier}] {key} must be text, got {value!r}")
-            value = value.strip()
-            if key.endswith("_url") and value and not value.startswith(("http://", "https://")):
-                raise SettingsError(f"[ai.{tier}] {key} must be a URL, got {value!r}")
-            if key.endswith("_env") and value and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
-                raise SettingsError(f"[ai.{tier}] {key} must be an environment variable name, got {value!r}")
-            if value:
-                values[key] = value
-            else:
-                values.pop(key, None)
-        if values.get("chat_url") and not values.get("model"):
-            raise SettingsError(f"[ai.{tier}] model is required when chat_url is set")
-        if "timeout_s" in values:
-            timeout = values["timeout_s"]
-            if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-                raise SettingsError(f"[ai.{tier}] timeout_s must be a positive number of seconds, got {timeout!r}")
+        model = values.get("model", "")
+        if model is None:
+            model = ""
+        if not isinstance(model, str):
+            raise SettingsError(f"[ai.{tier}] model must be text, got {model!r}")
+        model = model.strip()
+        if model:
+            values["model"] = model
+        else:
+            values.pop("model", None)
 
 
 def _validate_logging(data):
@@ -2275,23 +2280,9 @@ def _validate_bot(data):
         raise SettingsError("[llm] model is required when chat_url is set")
     llm.setdefault("timeout_s", 20)
     llm["timeout_s"] = _positive(data, "llm", "timeout_s")
-    # The stray-chat agent lane (#524 stage 3): an operator-configured agent
-    # endpoint (any OpenAI-compatible chat completions URL, e.g. a Hermes
-    # agent behind its API) that answers Discord free text the handlers did
-    # not take, ahead of the bounded [llm] call. A separate section, not an
-    # [llm] extension: [llm]'s bounded, stateless, untrusted-output meaning
-    # is load-bearing for #466, while an agent endpoint is stateful and
-    # answers in its own voice. model is optional, unlike [llm]: an agent
-    # endpoint may not be model-addressable, and empty omits it from the
-    # request. timeout_s defaults to 120, not [llm]'s 20: an agent turn
-    # does real work, but the call stays bounded all the same.
-    agent = data.setdefault("agent", {})
-    for key, default in (("chat_url", ""), ("model", ""), ("api_key_env", "AGENT_API_KEY")):
-        agent.setdefault(key, default)
-    if agent["chat_url"] and not agent["chat_url"].startswith(("http://", "https://")):
-        raise SettingsError(f"[agent] chat_url must be a URL, got {agent['chat_url']!r}")
-    agent.setdefault("timeout_s", 120)
-    agent["timeout_s"] = _positive(data, "agent", "timeout_s")
+    # The [agent] lane is removed (#1731): _apply_key_aliases drops the
+    # whole section from every config layer, so an old config loads with
+    # the lane inert and no [agent] defaults are seeded here.
 
 
 def _validate_purge(data):
