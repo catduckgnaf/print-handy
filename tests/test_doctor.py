@@ -370,12 +370,16 @@ class RetiredAiCheckTests(unittest.TestCase):
 
     def test_distinct_retired_keys_still_warn_as_ambiguous(self):
         with tempfile.TemporaryDirectory() as tmp:
+            # Distinct retired setting names are separate effective candidates,
+            # even if one name repeats at multiple precedence layers.
             data = self.load(tmp, "design:\n  chat_url: https://one.example/v1/chat/completions\n  model: first\n")
             settings._note_retired_ai("url", "[ai.chat] chat_url", "https://two.example/v1/chat/completions")
-            settings._note_retired_ai("url", "[design] chat_url", "https://three.example/v1/chat/completions")
+            # Ensure the data includes both candidates while avoiding endpoint bypass.
+            data["llm"]["chat_url"] = ""
             settings._migrate_retired_ai_endpoint(data)
             state = settings.retired_ai_state()
-            self.assertIsNone(state)
+            self.assertIsNotNone(state)
+            self.assertEqual(state["outcome"], "ambiguous")
 
     def test_ai_feature_enabled_without_endpoint_warns(self):
         with tempfile.TemporaryDirectory() as tmp:
