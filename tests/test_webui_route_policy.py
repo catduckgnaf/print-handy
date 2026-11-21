@@ -100,6 +100,7 @@ EXPECTED = [
     ("POST", "/chat", SC),
     ("POST", "/chat/upload", SC),
     ("POST", "/chat/choice", SC),
+    ("POST", "/chat/new", SC),
     ("POST", "/designs", SC),
     ("POST", "/designs/upload", SC),
     ("POST", "/designs/choice", SC),

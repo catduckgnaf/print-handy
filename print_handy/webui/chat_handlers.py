@@ -62,8 +62,8 @@ def chat_page(handler, notice=None, error=None):
             form_token=ft, notice=notice, error=error, route="/chat?view=design"),
             "text/html; charset=utf-8", headers=headers)
         return
-    headers = handler._chat_cookie_headers()
     view = handler._chat_view()
+    headers = handler._chat_cookie_headers()
     prefill = (parse_qs(urlparse(handler.path).query).get("text") or [""])[0]
     handler._send(200, chat_module.render_chat_page(
         view, form_token=ft, notice=notice, error=error,
