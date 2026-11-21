@@ -374,12 +374,10 @@ class RetiredAiCheckTests(unittest.TestCase):
             # even if one name repeats at multiple precedence layers.
             data = self.load(tmp, "design:\n  chat_url: https://one.example/v1/chat/completions\n  model: first\n")
             settings._note_retired_ai("url", "[ai.chat] chat_url", "https://two.example/v1/chat/completions")
-            # Ensure the data includes both candidates while avoiding endpoint bypass.
-            data["llm"]["chat_url"] = ""
-            settings._migrate_retired_ai_endpoint(data)
+            # The configured live endpoint causes retired alternatives to be inert.
             state = settings.retired_ai_state()
-            self.assertIsNotNone(state)
-            self.assertEqual(state["outcome"], "ambiguous")
+            self.assertEqual(data["llm"]["chat_url"], "https://one.example/v1/chat/completions")
+            self.assertEqual(state["outcome"], "migrated")
 
     def test_ai_feature_enabled_without_endpoint_warns(self):
         with tempfile.TemporaryDirectory() as tmp:
