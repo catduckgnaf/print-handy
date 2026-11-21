@@ -350,8 +350,6 @@ BROAD_NO_LOG_ALLOWANCE = {
         "Pre-existing broad no-log handlers moved unchanged out of webui/server.py in the #1603 item 3 handler split; the allowance followed the code from server.py (whose count dropped by the same total), so the overall frozen #1467 total did not grow."),
     "print_handy/webui/share_export.py": (2,
         "Pre-existing broad no-log handlers in shipped code, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
-    "print_handy/webui/shell.py": (1,
-        "Pre-existing broad no-log handlers in shipped code, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
     "print_handy/webui/spools.py": (2,
         "Pre-existing broad no-log handlers in shipped code, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
     "print_handy/webui/status.py": (5,

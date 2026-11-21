@@ -81,7 +81,7 @@ def add(form, roster, *, environ=None):
 
 
 def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_THEME,
-           screen_for=None):
+           screen_for=None, screen_touch=False):
     """The Printers page: one card per printer, settings on the left
     and the printer screen itself on the right (#1720).
 
@@ -109,8 +109,9 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
         # Moonraker, so only Moonraker printers carry the screen; the
         # full view itself explains when no screen is published.
         moonraker = model is not None and model.vendor.connection == "moonraker"
-        screen_link = (f' <a class="button" href="/printers/{pid}/screen">'
-                       'Printer screen</a>' if moonraker else "")
+        # The screen is already embedded on this card; avoid a redundant
+        # action competing with settings and spool links on narrow screens.
+        screen_link = ""
         settings_col = (
             '<div class="printer-settings-col">'
             f'<h3>{esc(entry.get("name") or entry["id"])}{default}</h3>'
@@ -122,11 +123,36 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             cards.append(f'<div class="card printer-card">{settings_col}</div>')
             continue
         published = True if screen_for is None else bool(screen_for(entry["id"]))
-        if published:
+        if published and screen_touch:
+            screen_col = (
+                '<div class="printer-screen-col"><h3>Printer screen</h3>'
+                f'<input type="hidden" id="printer-preview-csrf-{pid}" value="{_esc(form_token)}">'
+                f'<div style="position:relative"><img data-printer-screen '
+                f'data-touch-url="/printers/{pid}/screen/touch" '
+                f'data-csrf-id="printer-preview-csrf-{pid}" '
+                'role="button" tabindex="0" aria-keyshortcuts="Enter Space" '
+                f'src="/api/printers/{pid}/screen/snapshot" '
+                f'alt="Interactive printer screen of {esc(entry.get("name") or entry["id"])}" '
+                'style="width:100%;display:block;touch-action:manipulation;cursor:pointer">'
+                '<span class="printer-tap-marker" aria-hidden="true" style="display:none;'
+                'position:absolute;width:22px;height:22px;border:3px solid #d22;border-radius:50%;'
+                'box-sizing:border-box;transform:translate(-50%,-50%);pointer-events:none;'
+                'box-shadow:0 0 0 5px #fff8"></span></div>'
+                f'<p class="muted" id="printer-preview-note-{pid}" role="status" '
+                'aria-live="polite">Tap to send one screen press. Drags and long presses are not sent.</p>'
+                '<p class="muted">This is the printer\'s own display, not '
+                'the bed camera. '
+                f'<a href="/printers/{pid}/screen">Open the full printer '
+                'screen view</a>.</p></div>')
+        elif published:
             screen_col = (
                 '<div class="printer-screen-col"><h3>Printer screen</h3>'
                 f'<img data-printer-screen src="/api/printers/{pid}/screen/snapshot" '
-                f'alt="Printer screen of {esc(entry.get("name") or entry["id"])}">'
+                f'alt="Printer screen of {esc(entry.get("name") or entry["id"])}" '
+                f'aria-describedby="printer-preview-note-{pid}">'
+                f'<p class="muted" id="printer-preview-note-{pid}" role="status" '
+                f'aria-live="polite">Preview only. Tap or click to learn how to open the full screen; '
+                'this preview does not send touches to the printer.</p>'
                 '<p class="muted">This is the printer\'s own display, not '
                 'the bed camera. '
                 f'<a href="/printers/{pid}/screen">Open the full printer '
@@ -171,6 +197,27 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             "<script>"
             "document.querySelectorAll('img[data-printer-screen]').forEach(function(img){"
             "var base=img.src.split('?')[0];var failures=0;"
+            "var touchUrl=img.getAttribute('data-touch-url');"
+            "var note=img.closest('.printer-screen-col').querySelector('[role=status]');"
+            "function sendTap(clientX,clientY){"
+            "var rect=img.getBoundingClientRect();if(!rect.width||!rect.height){return;}"
+            "var x=Math.max(0,Math.min(799,Math.round((clientX-rect.left)/rect.width*800)));"
+            "var y=Math.max(0,Math.min(479,Math.round((clientY-rect.top)/rect.height*480)));"
+            "var marker=img.parentElement.querySelector('.printer-tap-marker');"
+            "if(marker){marker.style.left=(x/800*100)+'%';marker.style.top=(y/480*100)+'%';marker.style.display='block';}"
+            "if(!touchUrl){if(note){note.textContent=\"Preview only. No printer action was sent. Use the Open the full printer screen view link to interact.\";}return;}"
+            "var csrf=document.getElementById(img.getAttribute('data-csrf-id'));if(note){note.textContent='Sending tap...';}"
+            "fetch(touchUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'_csrf='+encodeURIComponent(csrf?csrf.value:'')+'&x='+x+'&y='+y})"
+            ".then(function(r){return r.json();}).then(function(j){if(note){note.textContent=j.ok?(j.detail||'Tap sent.'):'Tap refused: '+(j.reason||'not sent');}if(j.ok){img.src=base+'?t='+Date.now();}})"
+            ".catch(function(){if(note){note.textContent='Could not reach the Web UI; tap was not confirmed.';}});"
+            "}"
+            "var gesture=null;"
+            "img.addEventListener('pointerdown',function(e){if(e.button!==0){return;}gesture={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,started:Date.now()};});"
+            "img.addEventListener('pointermove',function(e){if(gesture&&e.pointerId===gesture.id){gesture.lastX=e.clientX;gesture.lastY=e.clientY;}});"
+            "img.addEventListener('pointercancel',function(e){if(gesture&&e.pointerId===gesture.id){gesture=null;}});"
+            "img.addEventListener('pointerup',function(e){if(!gesture||e.pointerId!==gesture.id){return;}var g=gesture;gesture=null;"
+            "if(Date.now()-g.started>500||Math.hypot(e.clientX-g.x,e.clientY-g.y)>10){return;}sendTap(e.clientX,e.clientY);});"
+            "img.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();var r=img.getBoundingClientRect();sendTap(r.left+r.width/2,r.top+r.height/2);}});"
             "function next(){setTimeout(tick,Math.min(2000*Math.pow(2,failures),60000));}"
             "function tick(){if(document.hidden){next();return;}img.src=base+'?t='+Date.now();}"
             "img.onload=function(){failures=0;next();};"

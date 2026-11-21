@@ -176,7 +176,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .. import __version__, logs, settings
 from ..bot import health as bot_health
@@ -1087,6 +1087,8 @@ class _Handler(BaseHTTPRequestHandler):
         return config_handlers_module.printer_settings_save(self, form)
 
     def _chat_state(self):
+        if self._chat_design_mode():
+            return self._designs_state()
         return chat_handlers_module.chat_state(self)
 
     def _upload_page(self):
@@ -1098,14 +1100,14 @@ class _Handler(BaseHTTPRequestHandler):
     def _designs_page(self, notice=None, error=None):
         return design_handlers_module.designs_page(self, notice, error)
 
-    def _designs_post(self, form):
-        return design_handlers_module.designs_post(self, form)
+    def _designs_post(self, form, route="/designs"):
+        return design_handlers_module.designs_post(self, form, route=route)
 
-    def _designs_upload_post(self, form):
-        return design_handlers_module.designs_upload_post(self, form)
+    def _designs_upload_post(self, form, route="/designs"):
+        return design_handlers_module.designs_upload_post(self, form, route=route)
 
-    def _designs_choice_post(self, form):
-        return design_handlers_module.designs_choice_post(self, form)
+    def _designs_choice_post(self, form, route="/designs"):
+        return design_handlers_module.designs_choice_post(self, form, route=route)
 
     def _designs_state(self):
         return design_handlers_module.designs_state(self)
@@ -1399,10 +1401,20 @@ class _Handler(BaseHTTPRequestHandler):
     def _chat_post(self, form):
         return chat_handlers_module.chat_post(self, form)
 
+    def _chat_design_mode(self):
+        return parse_qs(urlparse(self.path).query).get("view") == ["design"]
+
     def _chat_upload_post(self, form):
+        if self._chat_design_mode():
+            return self._designs_upload_post(form, route="/chat?view=design")
         return chat_handlers_module.chat_upload_post(self, form)
 
+    def _chat_design_new_post(self, form):
+        return design_handlers_module.designs_new_post(self, form, route="/chat?view=design")
+
     def _chat_choice_post(self, form):
+        if self._chat_design_mode():
+            return self._designs_choice_post(form, route="/chat?view=design")
         return chat_handlers_module.chat_choice_post(self, form)
 
     # -- workflow (#1450) ---------------------------------------------------
