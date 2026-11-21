@@ -143,12 +143,36 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         from print_handy.core import print_stats
         records, skipped = print_stats.load_records(self.seed.root / "vault")
         self.assertEqual(skipped, [])
-        self.assertEqual(len(records), 4)
+        self.assertEqual(len(records), 40)
         self.assertEqual({row["status"] for row in records},
-                         {"completed", "failed", "cancelled", "printing"})
-        self.assertEqual(len(self.seed.fake_spoolman.spools), 4)
+                         {"completed", "failed", "cancelled", "printing", "stale"})
+        self.assertEqual(len(self.seed.fake_spoolman.spools), 10)
         self.assertTrue(all(str(self.seed.root) in str(path)
                             for path in (self.seed.prints, self.seed.archive, self.seed.cache)))
+
+    def test_seeded_pages_render_populated_data_and_chat(self):
+        self.login()
+        checks = {
+            "/spools": ("Weekend pink",),
+            "/data": ("Synthetic AD5X",),
+            "/sliced": ("Long synthetic archive job title",),
+            "/designs": ("Synthetic design session",),
+        }
+        for path, markers in checks.items():
+            self.page.goto(self.base + path)
+            self.assertEqual(self.page.locator("body").get_attribute("data-page"), path.lstrip("/"), path)
+            for marker in markers:
+                self.assertIn(marker, self.page.locator("body").inner_text(), path)
+        from print_handy.webui import server as web_server
+        service = web_server.chat_service_for(self.httpd)
+        from print_handy.bot.web import scope_for
+        service._append({"kind": "operator", "content": "Can I slice this?"})
+        service._append({"kind": "message", "content": "Confirm before slicing."})
+        service._append({"kind": "message", "content": "Slice summary: 3 plates, 2h 14m."})
+        self.page.goto(self.base + "/chat")
+        text = self.page.locator("body").inner_text()
+        for marker in ("Can I slice this?", "Confirm before slicing", "Slice summary"):
+            self.assertIn(marker, text)
 
     def test_login_page_renders_with_a_token_form(self):
         self.page.goto(self.base + "/login")
