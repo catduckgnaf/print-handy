@@ -26,7 +26,10 @@ _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('support_cleara
             ('model_parts', 'combine'),
             # The painted-plate fit (#1153 item 8): pure-Python 3MF geometry export at each ladder
             # scale. In a thread it held the GIL for whole stretches of a chat interaction.
-            ('model_job', 'painted_fit_for_job')}
+            ('model_job', 'painted_fit_for_job'),
+            # The post-slice support coverage gate walks every G-code line of each plate (#963).
+            # Inline it blocked the gateway heartbeat for a minute; the gate result is unchanged.
+            ('support_clearance', 'source_extent'), ('support_clearance', 'verify_coverage_by_plate')}
 # Steps that moved out of their offload module (#1323) keep its name: the worker
 # imports print_handy.core.<module>, which still re-exports them.
 _OFFLOAD_HOMES = {'print_handy.jobs.slice': 'model_job', 'print_handy.jobs.audit': 'model_job'}
@@ -40,7 +43,8 @@ _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory':
                 'inspect_geometry': 'the geometry check', 'arrange_and_export': 'the layout',
                 'probe_single_plate_rearrange': 'the layout check', 'combine': 'combining the files',
                 'check_source_against_split_plan': 'the split check', 'prepare_cad_split': 'the split',
-                'painted_fit_for_job': 'the bed fit check', 'safe_analyze': 'the support clearance check'}
+                'painted_fit_for_job': 'the bed fit check', 'safe_analyze': 'the support clearance check',
+                'source_extent': 'the support coverage check', 'verify_coverage_by_plate': 'the support coverage check'}
 
 
 async def _await_background_slice(runner, binding):

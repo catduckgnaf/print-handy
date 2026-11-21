@@ -20,6 +20,7 @@ ALLOWED = {
     ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
     ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
     ('model_parts', 'combine'), ('model_job', 'painted_fit_for_job'),
+    ('support_clearance', 'source_extent'), ('support_clearance', 'verify_coverage_by_plate'),
 }
 
 

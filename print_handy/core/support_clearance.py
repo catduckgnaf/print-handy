@@ -1285,6 +1285,26 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
     return result
 
 
+def source_extent(source):
+    """The source model's XY bounds, height and distinct part count, as plain JSON values.
+
+    The coverage gate's source-to-slice mapping input. It reads every mesh
+    leaf of the source, which is pure-Python XML work, so the intake runs it
+    in the heavy worker (a child process) instead of on the chat loop. A
+    source that cannot be read raises, exactly as ``leaves`` does; the
+    caller turns that into a named unverified entry.
+    """
+    import numpy as _np
+    found = leaves(source)
+    tris = _np.concatenate([p['tris'].reshape(-1, 3) for p in found])
+    # Modeled-support leaves are not parts to attribute (#1612).
+    parts = len({p.get('item', i) for i, p in enumerate(found) if not p.get('support')}) or None
+    return {'bounds': [float(tris[:, 0].min()), float(tris[:, 1].min()),
+                       float(tris[:, 0].max()), float(tris[:, 1].max())],
+            'height': float(tris[:, 2].max()) or None,
+            'part_count': parts}
+
+
 def verify_coverage_by_plate(regions, plates):
     """Per-plate post-slice coverage (#963 items 4 and 7).
 
