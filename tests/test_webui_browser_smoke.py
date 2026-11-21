@@ -159,7 +159,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
     def test_seeded_pages_render_populated_data_and_chat(self):
         self.login()
         checks = {
-            "/spools": ("Weekend pink",),
+            "/spools": ("Pink · PLA · #20", "865.722 g left"),
             "/data": ("Synthetic AD5X",),
             "/sliced": ("Long synthetic archive job title",),
             "/designs": ("Synthetic design session",),
