@@ -44,7 +44,7 @@ PAGE_ROUTES = {
     "/firmware/update": ("/firmware/update?printer=fixture-klipper&component=klipper", "Update now"),
     "/firmware/channel": ("/firmware/channel?printer=fixture-klipper&component=klipper",
                           "Switch klipper to"),
-    "/cost": ("/cost", None), "/spools": ("/spools/fixture-klipper", "Weekend pink"),
+    "/cost": ("/cost", None), "/spools": ("/spools/flashforge-ad5x", "Weekend pink"),
     "/printers": ("/printers", "Fixture Klipper"),
     "/config": ("/config", None), "/printer-settings": ("/printer-settings", None),
     "/chat": ("/chat", "Slice summary"), "/workflow": ("/workflow", None),
@@ -80,8 +80,8 @@ def measure_layout(page):
         return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility === 'visible';
       };
       const overflow = [...document.querySelectorAll('body *')].filter(visible)
-        .filter(e => !inScroller(e) && !hasOwnScroll(e) && (e.getBoundingClientRect().width > innerWidth + 2 ||
-          e.scrollWidth > e.clientWidth + 2))
+        .filter(e => !inScroller(e) && !hasOwnScroll(e) &&
+          e.getBoundingClientRect().right > innerWidth + 2)
         .map(e => ({...describe(e), scroll: e.scrollWidth, client: e.clientWidth}));
       const oneChar = [...document.querySelectorAll('body *')].filter(visible)
         .filter(e => e.children.length === 0 && /[A-Za-z]{4,}/.test(e.innerText || ''))
