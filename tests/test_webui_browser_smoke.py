@@ -218,6 +218,62 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.assertTrue(response.body().startswith(b"\xff\xd8"),
                         "the snapshot is a JPEG from the fake source")
 
+    def test_embedded_printer_screen_only_sends_single_finger_taps(self):
+        import json
+
+        from print_handy.webui import printers_page
+
+        roster = [{"id": "demo", "name": "Print Handy test printer",
+                   "model": "flashforge.ad5x", "default": True}]
+        html = printers_page.render(roster, form_token="fixture-csrf",
+                                    screen_for=lambda _pid: True, screen_touch=True)
+        with self.browser.new_context(viewport={"width": 375, "height": 812},
+                                      is_mobile=True, has_touch=True) as context:
+            page = context.new_page()
+            page.on("pageerror", lambda exc: self.page_errors.append(str(exc)))
+            posts = []
+
+            def serve_touch(route):
+                posts.append(route.request.post_data)
+                route.fulfill(json={"ok": True, "detail": "Fixture recorded the tap."})
+
+            page.route("**/*", lambda route: route.abort())
+            page.route(self.base + "/printers/demo/screen/touch", serve_touch)
+            page.route(self.base + "/api/printers/demo/screen/snapshot*",
+                       lambda route: route.fulfill(content_type="image/jpeg", body=JPEG_BYTES))
+            page.route(self.base + "/printers", lambda route: route.fulfill(body=html,
+                       content_type="text/html"))
+            page.goto(self.base + "/printers")
+            image = page.locator("img[data-printer-screen]")
+            image.scroll_into_view_if_needed()
+            marker = page.locator(".printer-tap-marker")
+            for sequence in ([['pointerdown', 0, 1], ['pointermove', 40, 1],
+                              ['pointermove', 0, 1], ['pointerup', 0, 1]],
+                             [['pointerdown', 0, 1], ['pointermove', 40, 1, True],
+                              ['pointermove', 0, 1], ['pointerup', 0, 1]],
+                             [['pointerdown', 0, 1], ['pointerdown', 30, 2],
+                              ['pointerup', 30, 2], ['pointerup', 0, 1]],
+                             [['pointerdown', 0, 1], ['pointerdown', 30, 2, True],
+                              ['pointerup', 30, 2, True], ['pointerup', 0, 1]],
+                             [['pointerdown', 0, 1], ['pointercancel', 0, 1],
+                              ['pointerup', 0, 1]]):
+                page.evaluate("""events => {
+                    const img = document.querySelector('img[data-printer-screen]');
+                    const rect = img.getBoundingClientRect();
+                    for (const [type, dx, id, outside] of events) {
+                        (outside ? document.body : img).dispatchEvent(new PointerEvent(type, {
+                            bubbles: true, button: 0, pointerId: id, pointerType: 'touch',
+                            isPrimary: id === 1, clientX: rect.left + rect.width / 2 + dx,
+                            clientY: rect.top + rect.height / 2,
+                        }));
+                    }
+                }""", sequence)
+                self.assertFalse(marker.is_visible(), json.dumps(sequence))
+            with page.expect_response(lambda response: response.url.endswith("/screen/touch")):
+                image.tap()
+            self.assertTrue(marker.is_visible())
+            self.assertEqual(posts, ["_csrf=fixture-csrf&x=400&y=240"])
+
     def test_designs_page_is_one_conversation(self):
         """#1636: one message box starts the design, the reply and the turn's
         preview land in the thread (the page's own poll reloads into them),
