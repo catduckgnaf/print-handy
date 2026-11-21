@@ -247,10 +247,12 @@ def test_webui_ask_ai_flag_is_server_side(cfg, monkeypatch):
         service.close()
 
 
-def test_webui_chat_page_has_ask_ai_control():
-    from print_handy.webui import chat as chat_page
+def test_webui_chat_page_uses_configured_ai_lane():
+    from print_handy.webui import chat_handlers
     import inspect
-    assert 'name="ask_ai"' in inspect.getsource(chat_page.render_chat_page)
+    source = inspect.getsource(chat_handlers.chat_post)
+    assert "chat_llm_enabled(handler.server.settings_data)" in source
+    assert "ask_ai=ask_ai" in source
 
 
 # ---------------------------------------------------------------- import allowlist

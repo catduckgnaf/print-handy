@@ -224,23 +224,32 @@ def test_chat_llm_enabled_gates_the_core_lane(cfg):
 
 
 def test_web_chat_ignores_legacy_agent_endpoint(cfg, monkeypatch):
-    """Web chat uses the canonical LLM lane, never legacy [agent]."""
-    from print_handy.bot import runtime
+    """A legacy agent config cannot override the canonical Web Chat lane."""
+    from print_handy.bot import llm
 
     cfg["webui"]["chat_llm_enabled"] = True
-    cfg["agent"]["chat_url"] = "http://agent.invalid/v1/chat/completions"
+    cfg["agent"] = {"chat_url": "http://agent.invalid/v1/chat/completions"}
+    cfg["llm"].update(chat_url="http://shared.invalid/v1/chat/completions", model="test-model")
     calls = []
 
-    def forbidden(*args, **kwargs):
-        calls.append((args, kwargs))
-        raise AssertionError("Web chat called the legacy agent endpoint")
+    def fake_ask(*args, **kwargs):
+        calls.append(kwargs["cfg"]["llm"]["chat_url"])
+        return "Reply from the shared endpoint", None
 
-    monkeypatch.setattr(runtime.agent, "ask", forbidden)
+    monkeypatch.setattr(llm, "ask", fake_ask)
     service = web.WebChatService(cfg)
-    assert service.core.status(True)["agent"] is False
-    assert service.submit("what is the weather?") is True
-    wait_for(service, "message")
-    assert calls == []
+
+    async def unmatched(*args, **kwargs):
+        return None
+
+    # Keep the real AI routing path but isolate it from printer intake handlers.
+    monkeypatch.setattr(service.core.router, "dispatch", unmatched)
+    try:
+        assert service.submit("what is the weather?", ask_ai=True) is True
+        wait_for(service, "message", "Reply from the shared endpoint")
+        assert calls == ["http://shared.invalid/v1/chat/completions"]
+    finally:
+        service.close()
 
 
 def test_adapter_records_prompts_and_answers_choices(cfg):
