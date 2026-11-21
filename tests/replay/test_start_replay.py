@@ -62,8 +62,8 @@ def test_a_blocked_set_zcolor_post_is_a_start_not_a_refusal(ad5x, tmp_path, clie
     assert message == "" and "Didn't start" not in tail
     # Exactly one upload and one start went out; nothing was resubmitted after the timeout.
     assert len(ad5x.uploads) == 1
-    # The upload is slot-labeled (#1679), so slot 2 is selected as tool 1.
-    assert len(ad5x.zcolor()) == 1 and ad5x.zcolor()[0].endswith("T1=2")
+    # The upload keeps implicit T0; the start command maps tool 0 to physical slot 2.
+    assert len(ad5x.zcolor()) == 1 and ad5x.zcolor()[0].endswith("T0=2")
     assert "MAPPED START READBACK" in tail
     # The printer now reports the uploaded file.
     assert ad5x.status["print_stats"]["state"] == "printing"
@@ -269,7 +269,7 @@ def test_slot_two_labeled_silk_launches_with_silk_pla_in_spoolman(ad5x, tmp_path
 
     assert ok, tail
     assert intake_outcome(ok, tail)[0] == "STARTED"
-    assert ad5x.zcolor() and ad5x.zcolor()[0].endswith("T1=2")  # slot-labeled upload (#1679)
+    assert ad5x.zcolor() and ad5x.zcolor()[0].endswith("T0=2")  # slot-labeled upload (#1679)
     assert "is labeled" not in tail
 
 
