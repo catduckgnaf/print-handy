@@ -268,6 +268,24 @@ def pause_is_jam(message, where=""):
     return classify_pause(message, where) == "jam"
 
 
+# Printer alert lines in Moonraker's gcode responses (#1787). ZMod reports an
+# IFS jam only here ("!! Filament jam detected (IFS)." and a
+# "tgalarm_photo Filament jam detected (IFS)." line); a macro-driven pause
+# leaves print_stats.message empty (#442), so the alert line is the only
+# place the cause is named. Only alert-shaped lines count: a command echo or
+# a console note that mentions a jam is not the printer reporting one.
+FIRMWARE_ALERT_PREFIXES = ("!!", "tgalarm_photo")
+
+
+def firmware_pause_cause(line):
+    """'jam' or 'runout' when a printer alert line names a pause cause, else None."""
+    text = str(line or "").strip()
+    if not text.startswith(FIRMWARE_ALERT_PREFIXES):
+        return None
+    cause = classify_pause(text)
+    return cause if cause in ("jam", "runout") else None
+
+
 # -- the vision route --------------------------------------------------------
 
 def _vision_ready(ns=None):

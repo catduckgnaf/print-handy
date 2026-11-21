@@ -971,20 +971,14 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         resumed = spool_sync.resume_usage(int(keep))
         listener.clear_runout_pause()
         tracking = f'Usage tracking is back on #{keep}.' if resumed is not False else _MULTISLOT_TRACKING
-        # The three concerns stay separate (#1063 jam follow-up): this
-        # settles the inventory record only. It does not say the feed
-        # path is clear, it does not resume the print, and Print Handy
-        # names plainly that it cannot drive a paused-print load/unload
-        # itself instead of funneling the operator into a replacement.
-        return (f'Got it — the same physical spool #{keep} stays in the slot; this is a feed '
-                f'fix, not a replacement. No new spool was created, spool #{keep} was not '
-                f'marked depleted, and its remaining weight record is unchanged. {tracking}\n'
-                f'That settles the spool records only: it does not mean the feed path is '
-                f'clear, and it does not resume the print. Clear the stuck filament at the '
-                f'printer and resume from the print controls when the path is actually '
-                f'clear. Print Handy cannot load or unload filament for you while the print '
-                f'is paused — no supported paused-print load/unload command is available to '
-                f'it — so the physical fix happens at the printer.')
+        # The concerns stay separate (#1063 jam follow-up): this settles
+        # the inventory record only and does not resume the print. #1787:
+        # two lines, and it points at the pause alert's own Resume print
+        # button instead of telling the operator to resume elsewhere.
+        return (f'Same spool #{keep}, feed fix: no new spool, #{keep} not marked depleted, '
+                f'remaining weight unchanged. {tracking}\n'
+                f'This does not resume the print. Clear the stuck filament at the printer, then '
+                f'tap Resume print on the pause message once filament comes out of the nozzle.')
     if choice['status'] == 'same':
         keep = prior or context.get('suspended_spool_id')
         if not keep:

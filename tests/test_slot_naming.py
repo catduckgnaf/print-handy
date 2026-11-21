@@ -112,29 +112,36 @@ class JamTests(unittest.TestCase):
         self.assertEqual(listener.classify_pause("Filament runout detected"), "runout")
         self.assertEqual(listener.classify_pause(""), "other")
 
-    def test_jam_post_carries_the_measured_facts(self):
-        text = listener.jam_message("benchy.gcode", {
-            "duration_s": 3661, "layer": 42, "slot": 3,
-            "next_cmd_delay": 0.02, "detection_length": 10, "head_sensor": True})
-        self.assertIn("Filament jam detected (IFS)", text)
+    def test_jam_post_is_two_lines_and_the_facts_go_to_the_log(self):
+        """#1787 shortened the #1020 E2 post: where and when in line one,
+        what to do in line two; the zmod_ifs numbers go to the log."""
+        facts = {"duration_s": 3661, "layer": 42, "slot": 3,
+                 "next_cmd_delay": 0.02, "detection_length": 10, "head_sensor": True}
+        text = listener.jam_message("benchy.gcode", facts)
+        self.assertEqual(len(text.splitlines()), 2)
+        self.assertIn("Paused: filament jam", text)
         self.assertIn("slot 3 (IFS channel 3)", text)
-        self.assertIn("1h 01m", text)
-        self.assertIn("Layer: 42", text)
-        self.assertIn("next_cmd_delay: 0.02", text)
-        self.assertIn("detection_length: 10", text)
-        self.assertIn("Head switch sensor: present", text)
+        self.assertIn("layer 42", text)
+        self.assertIn("1h 01m in", text)
+        self.assertNotIn("next_cmd_delay", text)
+        logged = listener.jam_facts_line(facts)
+        self.assertIn("next_cmd_delay=0.02", logged)
+        self.assertIn("detection_length=10", logged)
 
     def test_jam_post_states_unknowns_and_never_auto_resumes(self):
         text = listener.jam_message("benchy.gcode", {
             "duration_s": None, "layer": None, "slot": None,
             "next_cmd_delay": None, "detection_length": None, "head_sensor": None})
-        self.assertIn("not reported", text)
-        self.assertIn("nothing has resumed it", text)
-        # The only actions offered are the operator's own: inspect, then
-        # resume or cancel by hand.
-        self.assertIn("Inspect the filament path", text)
-        self.assertIn("tap Resume print below", text)
-        self.assertIn("tap Cancel", text)
+        # Unknown facts are left out of the post, never invented.
+        self.assertIn("the active slot", text)
+        self.assertNotIn("layer", text.splitlines()[0].casefold())
+        self.assertIn("Nothing resumes on its own", text)
+        # The only actions offered are the operator's own: clear the feed,
+        # then resume or cancel by hand.
+        self.assertIn("Clear the feed at the printer", text)
+        self.assertIn("tap Resume print", text)
+        self.assertIn("Cancel ends the print", text)
+        self.assertIn("not reported", listener.jam_facts_line({}))
 
 
 if __name__ == "__main__":
