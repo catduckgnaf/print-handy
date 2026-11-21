@@ -36,10 +36,12 @@ def test_reslice_with_supports_requires_a_new_clearance_acknowledgement(env, mon
     finding must be asked again (with buttons), not silently waived."""
     _v12_warning_env(env, monkeypatch)
     # color(1), slot(0), Print anyway at Ready(5), Re-slice with supports(0),
-    # then Print anyway at the re-asked gate question(0).
-    adapter, result, receipt = run_flow(env, [2, 0, 5, 0, 0])
+    # then Print anyway at the re-asked gate question(2, after the two repairs).
+    adapter, result, receipt = run_flow(env, [2, 0, 5, 0, 2])
     gate_q = adapter.questions[-1]
-    assert gate_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    # The gate offers the deterministic low-gap repairs beside the waiver.
+    assert gate_q['choices'] == ['Extend underside to plate', 'Flatten (sink) to plate',
+                                 prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'under 1.0 mm' in gate_q['question']
     assert receipt['status'] == 'STARTED'
     # The acknowledgement that starts the print is the fresh one, bound to
@@ -57,9 +59,9 @@ def test_reslice_with_supports_cancel_at_the_reasked_gate_starts_nothing(env, mo
     _v12_warning_env(env, monkeypatch)
     # color(1), slot(0), Print anyway at Ready(5), Re-slice with supports(0),
     # then Cancel at the re-asked gate question(1).
-    adapter, result, receipt = run_flow(env, [2, 0, 5, 0, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 5, 0, 3])
     gate_q = adapter.questions[-1]
-    assert gate_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert gate_q['choices'][-2:] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'under 1.0 mm' in gate_q['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert env.starts == []

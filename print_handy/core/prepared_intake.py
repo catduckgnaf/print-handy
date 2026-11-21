@@ -46,7 +46,7 @@ from . import status_voice  # noqa: E402
 
 from ..intake.support_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
     PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL, supports_decision, supports_recommended,
-    with_supports_line,
+    with_supports_line, repair_actions, gap_repairs, low_gap_text,
 )
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
@@ -3950,13 +3950,30 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     nosup_est = 'no estimate (the first slice failed)'
                     if sup_est == 'slicing...':
                         sup_est = 'no estimate (the first slice failed)'
+                # Extend and sink rewrite the authored mesh along its own Z: on a
+                # turned job that is another side of the model, so they are not
+                # offered (#1373 review). Reorient is not offered where its turn
+                # would not reach the slice or would undo a fit: a split or a
+                # rearranged plan slices its own poses, a fit rotation was needed
+                # to fit the bed, and several copies would need a new bed check.
+                turned_job = bool((latest.get('orientation') or {}).get('rotation'))
+                reorient_ok = (offer_reorient and not turned_job and int(chosen_quantity or 1) == 1
+                               and not latest.get('full_size_split_plan')
+                               and not latest.get('full_size_rearrange_plan')
+                               and latest.get('plate_mode') != 'separate')
+                fix_actions, fix_lines = repair_actions(clearance, turned_job=turned_job,
+                                                        reorient_ok=reorient_ok)
+                # A measured low gap that a repair can close is its own finding,
+                # apart from the slicer's floating-region warning: supports help
+                # the one and cannot reach the other, so the repair leads.
+                gap_fix = bool(gap_repairs(fix_actions))
                 flag_lines = [
-                    with_supports_line(sup_reason, sup_est, early.finding, clearance),
+                    with_supports_line(sup_reason, sup_est, early.finding, clearance, gap_repair=gap_fix),
                     f"- Slice and print without supports: {nosup_est}",
                 ]
                 # Supports labeled "not recommended" are never the first
                 # option: the without-supports line and button lead.
-                sup_recommended = supports_recommended(early.finding, clearance)
+                sup_recommended = supports_recommended(early.finding, clearance) and not gap_fix
                 if not sup_recommended:
                     flag_lines.reverse()
                 modeled = modeled_supports.safe_describe(path)
@@ -3977,46 +3994,20 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 sup_label = SUPPORTS_RECOMMENDED_LABEL if can_print else 'Slice with supports (recommended)'
                 nosup_label = NO_SUPPORTS_LABEL if can_print else 'Slice without supports'
                 if not sup_recommended:
-                    sup_label = (SUPPORTS_NOT_RECOMMENDED_LABEL
-                                 if can_print else 'Slice with supports (not recommended)')
-
-                fix_actions = []
-                # Extend and sink rewrite the authored mesh along its own Z: on a
-                # turned job that is another side of the model, so they are not
-                # offered (#1373 review). Reorient is not offered where its turn
-                # would not reach the slice or would undo a fit: a split or a
-                # rearranged plan slices its own poses, a fit rotation was needed
-                # to fit the bed, and several copies would need a new bed check.
-                turned_job = bool((latest.get('orientation') or {}).get('rotation'))
-                reorient_ok = (offer_reorient and not turned_job and int(chosen_quantity or 1) == 1
-                               and not latest.get('full_size_split_plan')
-                               and not latest.get('full_size_rearrange_plan')
-                               and latest.get('plate_mode') != 'separate')
-                if clearance and support_clearance.risky(clearance):
-                    for f in clearance.get('findings') or []:
-                        for fix in f.get('fixes') or []:
-                            # "Extend underside to plate" is only a repair when
-                            # the underside faces the plate (#922 gap 5): over
-                            # another part there is no plate to extend to.
-                            if fix.get('fix') == 'extend_underside' and f.get('over') == 'plate' \
-                                    and not turned_job \
-                                    and not any(a['kind'] == 'extend' for a in fix_actions):
-                                fix_actions.append({'kind': 'extend', 'label': 'Extend underside to plate', 'finding': f})
-                                if fix.get('added_volume_mm3') is not None:
-                                    flag_lines.append(
-                                        f"- Extend underside to plate adds about "
-                                        f"{fix['added_volume_mm3']:.0f} mm3 of material below the underside.")
-                            elif fix.get('fix') == 'sink' and not turned_job \
-                                    and not any(a['kind'] == 'sink' for a in fix_actions):
-                                fix_actions.append({'kind': 'sink', 'label': 'Flatten (sink) to plate', 'finding': f})
-                                if fix.get('removed_volume_mm3') is not None:
-                                    flag_lines.append(
-                                        f"- Flatten (sink) to plate removes about "
-                                        f"{fix['removed_volume_mm3']:.0f} mm3 that would end up below the plate.")
-                            elif fix.get('fix') == 'reorient' and reorient_ok \
-                                    and not any(a['kind'] == 'reorient' for a in fix_actions):
-                                fix_actions.append({'kind': 'reorient', 'label': 'Reorient (lay flat)', 'finding': f})
-                    summary_extra = '\n' + '\n'.join(flag_lines)
+                    if early.finding and gap_fix:
+                        # Supports still help the slicer's floating regions; they
+                        # just are not the answer to the measured gap.
+                        sup_label = ('Slice and print with supports (floating regions only)'
+                                     if can_print else 'Slice with supports (floating regions only)')
+                    else:
+                        sup_label = (SUPPORTS_NOT_RECOMMENDED_LABEL
+                                     if can_print else 'Slice with supports (not recommended)')
+                if gap_fix:
+                    flag_lines.insert(0, low_gap_text(fix_actions))
+                    flag_lines.insert(1, '- Recommended: ' + ' or '.join(
+                        a['label'] for a in gap_repairs(fix_actions)) + ' (closes the gap; supports do not).')
+                flag_lines.extend(fix_lines)
+                summary_extra = '\n' + '\n'.join(flag_lines)
 
                 menu_options = [
                     {'kind': 'sup', 'label': sup_label},
@@ -4024,8 +4015,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 ]
                 if not sup_recommended:
                     menu_options.reverse()
-                for act in fix_actions:
-                    menu_options.append(act)
+                # The repair that closes a measured gap leads the menu; the
+                # other repairs (reorient) keep their place after the choices.
+                menu_options = gap_repairs(fix_actions) + menu_options + [
+                    a for a in fix_actions if a['kind'] not in ('extend', 'sink')]
                 if clearance and support_clearance.risky(clearance):
                     # The one explicit waiver for a low-clearance finding
                     # (#922 gap 2): neither "with supports" nor "without
@@ -4703,6 +4696,85 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             return proposal
 
+        async def _gap_repair_attempt(action):
+            """Apply one deterministic low-gap repair to a COPY of the source (no AI).
+
+            The same repair the Ready menu offers (extend or sink, the
+            distances measured on this job), built by the existing copy
+            machinery so the original file is untouched and the repair is
+            undoable. The job is repointed at the copy with the selected
+            filament decisions rebound to its bytes, and the clearance is
+            re-analyzed; the caller re-slices and every gate runs again.
+            It waives nothing, records no acknowledgement and starts
+            nothing. Returns True when applied, False when nothing changed.
+            """
+            nonlocal path, clearance, validated, binding, recipe_sha, latest
+            from . import ai_fix
+            f = action['finding']
+            win = f.get('clearance_mm') or {}
+            kind = action['kind']
+            mm = win.get('min') if kind == 'extend' else win.get('max')
+            try:
+                if not isinstance(mm, (int, float)) or mm <= 0:
+                    raise ai_fix.FixError('the measured gap is unusable')
+                job_now = json.loads(jp.read_text())
+                note = multi_file_fix_note(job_now)
+                if note:
+                    raise ai_fix.FixError(note)
+                proposal = ai_fix.FixProposal(
+                    geometry={'kind': kind, 'mm': float(mm)},
+                    summary='Close the measured low gap to the build plate.',
+                    served_by='deterministic')
+                fixed_path, report = await _heavy(ai_fix.build_fixed_copy, path, proposal, folder,
+                                                  stem='gap-repair')
+            except Exception as exc:  # noqa: BLE001 - nothing changed; said out loud
+                logger.warning('low-gap repair could not be built: %r', exc)
+                detail = f' ({ai_fix.reason(exc)})' if isinstance(exc, ai_fix.FixError) else ''
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=f'That repair could not be built{detail}, so nothing was changed.')
+                return False
+            if not ai_fix.source_unchanged(path, decisions['source_sha256'], mj.file_sha256):
+                ai_fix.discard_fixed_copy(fixed_path)
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='The model file changed while the repair was being prepared, '
+                                           'so it was not applied.')
+                return False
+            fixed_path = ai_fix.commit_fixed_copy(fixed_path, report)
+            latest = json.loads(jp.read_text())
+            actor = (f"{getattr(getattr(source, 'platform', None), 'value', None) or 'discord'}:"
+                     f"{getattr(source, 'user_id', '')}")
+            ai_fix.apply_to_job(latest, proposal, [], fixed_path=fixed_path, actor=actor,
+                                problem='Post-slice low gap', report=report,
+                                file_sha256=mj.file_sha256, lane='gap_repair')
+            new_sha = mj.file_sha256(fixed_path)
+            path = fixed_path
+            decisions['source_sha256'] = new_sha
+            manifest['source_sha256'] = new_sha
+            latest['color_manifest'] = manifest
+            validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                                           selected_plate_ids=selected_plates)
+            mj.set_color_decisions(latest, validated)
+            latest.pop('clearance_acknowledgement', None)  # it belonged to the old file
+            try:
+                first = support_clearance.job_first_layer_mm(latest)
+                clearance = await asyncio.to_thread(support_clearance.safe_analyze, path,
+                                                    first_layer_mm=first)
+                latest['support_clearance'] = clearance
+            except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
+                logger.warning('could not re-analyze the repaired model', exc_info=True)
+                latest.pop('support_clearance', None)
+                clearance = None
+            mj.write_job(folder, latest)
+            binding = slice_binding(latest, new_sha)
+            recipe_sha = binding_sha256(binding)
+            if receipt.get('slice_approval'):
+                receipt['slice_approval']['recipe_sha256'] = recipe_sha
+            receipt['geometry_repair'] = {
+                'kind': kind, 'mm': float(mm), 'deterministic': True,
+                'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'source_sha256': new_sha}
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            return True
+
         def _fix_failed_before():
             """A fix failed in this intake, or on an earlier intake of this
             same source (recorded on the job, #1474)."""
@@ -5132,7 +5204,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             never picks the fix. Without the tier, the question gains the
             one-line note that a fix exists when AI is set up.
             """
-            nonlocal gcodes, sliced, clearance_ack_pending
+            nonlocal gcodes, sliced, clearance_ack_pending, choice
             from . import ai_fix as _ai_fix
             heavy = _ai_fix.intake_fix_offered()
             multi_note = _multi_file_fix_note()
@@ -5151,15 +5223,32 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     lines.append('This print has a low-clearance underside (under 1.0 mm) that slicer '
                                  'supports cannot fix.')
                 lines.append('Nothing has been sent to the printer yet.')
+                # The low gap is its own finding, apart from the coverage check
+                # and the slicer's floating-region warning: when a deterministic
+                # repair applies it is offered here, in this same intake (no AI).
+                repairs, repair_lines = [], []
+                if low_clearance and fix_attempts < 3:
+                    gate_job = json.loads(jp.read_text())
+                    repairs, repair_lines = repair_actions(
+                        sliced.get('support_clearance') or clearance,
+                        turned_job=bool((gate_job.get('orientation') or {}).get('rotation')))
+                    repairs = gap_repairs(repairs) if not multi_note else []
+                if repairs:
+                    lines.append(low_gap_text(repairs))
+                    lines.extend(f"- {a['label']}: re-slices a repaired copy of the model (the original "
+                                 'is kept) and runs every check again. It waives nothing and starts nothing.'
+                                 for a in repairs)
+                    lines.extend(repair_lines)
                 lines.append('- Print anyway: print this slice as it is.')
                 lines.append('- Cancel: stop here.'
                              + (' To fix the low gap, post the model again and choose Extend '
-                                'underside to plate or Flatten (sink) to plate.' if low_clearance else ''))
+                                'underside to plate or Flatten (sink) to plate.'
+                                if low_clearance and not repairs else ''))
                 if heavy and not fix_ready and multi_note:
                     lines.append(multi_note)
                 elif heavy and not fix_ready and _fix_budget_left() <= 0:
                     lines.append(_no_fix_left_note())
-                choices = [PRINT_ANYWAY_LABEL]
+                choices = [a['label'] for a in repairs] + [PRINT_ANYWAY_LABEL]
                 if fix_ready:
                     choices.append(_ai_fix.FIX_LABEL)
                 choices.append(print_next.CANCEL_LABEL)
@@ -5181,6 +5270,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                           'approver.']),
                                        offer, timeout)
                     picked_fix = offer[first] == _ai_fix.FIX_LABEL
+                    picked_repair = None
                     if offer[first] == print_next.CANCEL_LABEL:
                         pick = 1  # read as Cancel below
                     elif not picked_fix:
@@ -5194,6 +5284,61 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     pick = await _ask(adapter, source, key, '\n'.join(lines),
                                       choices, timeout, approval=True)
                     picked_fix = fix_ready and choices[pick] == _ai_fix.FIX_LABEL
+                    picked_repair = next((a for a in repairs if a['label'] == choices[pick]), None)
+                    # Index 0 means Print anyway to the code below.
+                    pick = 0 if choices[pick] == PRINT_ANYWAY_LABEL else 1
+                if picked_repair is not None:
+                    fix_attempts += 1
+                    if not await _gap_repair_attempt(picked_repair):
+                        continue  # nothing changed: ask the gate question again
+                    try:
+                        out = await _with_stop(
+                            adapter, source, key, metadata,
+                            'Re-slicing the repaired model. Press Stop to cancel.',
+                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                                {'copies': chosen_quantity}
+                                if chosen_quantity and chosen_quantity > 1 else {})),
+                            allow_stop=True)
+                    except Exception as reslice_error:  # noqa: BLE001 - reported, then cancelled
+                        from . import slice_failure as _slice_failure
+                        logger.exception('low-gap repair re-slice failed')
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content=_slice_failure.post(reslice_error))
+                        return False
+                    clearance_ack_pending = False  # the old artifact's acknowledgement is void
+                    # The Ready button that was pressed approved the slice it
+                    # showed, not this repaired one: the ordinary "Start this
+                    # exact plate?" approval question follows (choice 1), so a
+                    # repair never starts a print by itself.
+                    choice = 1
+                    gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
+                    sliced = json.loads(jp.read_text())
+                    receipt.update(status='SLICED', sliced=True, gcodes=gcodes,
+                                   gcode_sha256={g: delivery.sha256(g) for g in gcodes})
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    cov_result = _coverage_result(gcodes)
+                    if cov_result is not None and cov_result.get('unverified'):
+                        _record_coverage_unverified(cov_result)
+                    cov_failure = (cov_result if cov_result is not None and cov_result['checked']
+                                   and not cov_result['ok'] else None)
+                    unverified_result = (cov_result if cov_result is not None
+                                         and cov_result.get('unverified') else None)
+                    report = sliced.get('support_clearance') or clearance
+                    low_clearance = False
+                    if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                           for f in (report or {}).get('findings') or []):
+                        ack = sliced.get('clearance_acknowledgement') or {}
+                        low_clearance = (not ack.get('acknowledged')
+                                         or ack.get('via', 'print_anyway')
+                                         not in ('print_anyway', 'geometry_repair'))
+                    if cov_failure is None and not low_clearance and unverified_result is None:
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content='The repaired slice passes the support checks. '
+                                                   'Nothing was waived, and the usual start '
+                                                   'confirmation still follows.')
+                        return 'fixed'
+                    resliced = True
+                    continue
                 if picked_fix:
                     fix_attempts += 1
                     problem = 'Post-slice gate failure. ' + ' '.join(
