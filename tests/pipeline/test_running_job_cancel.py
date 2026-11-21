@@ -367,3 +367,10 @@ def test_owner_cancel_during_combine_ends_the_intake_cleanly(tmp_path, monkeypat
     assert "Traceback" not in "\n".join(adapter.sent)
     assert not list((tmp_path / "archive").rglob("*-parts.3mf"))
     assert running_jobs.lookup_for_source(event.source) is None
+    # Every long pre-upload step the intake reached showed a Stop button.
+    stop_texts = [q["question"] for q in adapter.questions
+                  if list(q.get("choices") or []) == ["Stop"]]
+    assert "Reading the model page." in stop_texts
+    assert "Downloading file 1 of 2." in stop_texts
+    assert "Checking the downloaded files." in stop_texts
+    assert "Putting the 2 files together as one project." in stop_texts
