@@ -239,7 +239,7 @@ def test_stale_batched_question_preserves_live_sibling_select(rig, monkeypatch):
                 {"label": "Part B", "choices": ["Red", "Blue"], "clarify_id": live},
             ], f"model-link:{IID}")
         assert sent.success
-        message = discord.last_question()
+        message = next(m for m in reversed(discord.messages) if m.selects())
         stale_cid = next(cid for _placeholder, cid, _options in message.selects()
                          if parse_custom_id(cid) and parse_custom_id(cid)[0] == stale)
         prompts._prompts.pop(stale, None)
