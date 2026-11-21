@@ -153,6 +153,7 @@ def test_a_gap_over_another_part_has_no_repair_and_keeps_the_old_gate(env, tmp_p
     rep = support_clearance.analyze(str(fixture), first_layer_mm=0.2)
     actions, _ = support_flow.repair_actions(rep, turned_job=False)
     assert not support_flow.gap_repairs(actions)
+    assert all(action['kind'] != 'sink' for action in actions)
     # Two-part model: color each part (0, 0, 0), then Cancel at Ready (last of 8).
     adapter, _result, _receipt = run_flow(env, [0, 0, 0, 7])
     ready = _ready(adapter)

@@ -34,7 +34,7 @@ def repair_actions(clearance, *, turned_job, reorient_ok=False):
                 if fix.get('added_volume_mm3') is not None:
                     lines.append(f"- Extend underside to plate adds about "
                                  f"{fix['added_volume_mm3']:.0f} mm3 of material below the underside.")
-            elif fix.get('fix') == 'sink' and not turned_job \
+            elif fix.get('fix') == 'sink' and f.get('over') == 'plate' and not turned_job \
                     and not any(a['kind'] == 'sink' for a in actions):
                 actions.append({'kind': 'sink', 'label': SINK_LABEL, 'finding': f})
                 if fix.get('removed_volume_mm3') is not None:
