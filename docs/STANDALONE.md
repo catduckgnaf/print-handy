@@ -238,9 +238,9 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   “didn't understand” reply when nothing answers it. The order is: explicit commands, deterministic phrases (like "print 57" above),
   links/files and typed answers to an open question run first and are never rerouted through a model;
   then the natural-language layer answers plain questions from local data (see the next section).
-  On Discord, Telegram and Matrix that is the end of the road: no message on those platforms ever
-  reaches a model call. Only Web UI chat has a bounded model lane behind it (the next section), and
-  only when `[webui] chat_llm_enabled` is on and the message actually invoked it.
+  Discord, Telegram and Matrix never send unmatched chat to a model. Only Web Chat has a bounded
+  conversational fallback, and only if the operator enables `[webui] chat_llm_enabled` and configures
+  the shared AI endpoint. Dedicated AI features such as Design have their own gates.
   The model never writes command text: it may call one typed read-only tool (inventory facts,
   the firmware report, printer status, doc lookup) and may propose an action as a capability plus
   typed slots, which the bot turns into the normal command and confirmation. It can never run
@@ -257,19 +257,20 @@ Print Handy is natural-language first, with three separate routes that never blu
    called, mentioned or not: a mentioned "how much purple PLA" gets the same Spoolman answer.
    The capability list behind these answers is one registry; "What can you do?" prints it,
    generated from the same example phrases the tests run.
-2. **The conversational AI is Web UI chat only, and opt-in per message.** It runs only when
-   the message carries a trusted invocation: a typed "ask ai:"/"ai:"/"hey ai" ask, or the
-   Web UI chat's Ask AI checkbox (set by the authenticated form post, never parsed from
-   message text), and only with `[webui] chat_llm_enabled` on. A reply to one of the bot's
-   messages is not an invocation. The first time a user's message goes to the endpoint, the
-   bot posts a one-time notice saying so. The lane is rate-limited per user
+2. **The conversational fallback is optional and only available in Web Chat.** It is off by
+   default. With `[webui] chat_llm_enabled` on and `[llm]` configured, an authenticated Web Chat
+   message can reach the model if the local handlers do not answer it. There is no per-message
+   checkbox, and no special wording is required. The first time a user's message goes to the
+   endpoint, the bot posts a notice. The fallback has a per-user rate limit
    (`natural_language.ai_rate_limit_per_hour`, default 20), can be switched off per channel
-   (`natural_language.ai_disabled_channel_ids`), and its model gets only the typed read-only
-   tools above. An ask is never consent to change anything. Discord, Telegram and Matrix
-   have no conversational lane at all.
-3. **Design is a dedicated AI path.** Asking for a new or edited model uses the design engine
-   with no mention required, as before. Specialized AI paths keep their own gates and are
-   unchanged: Pasta Cam vision, spool-label and purchase photos, and edit repair.
+   (`natural_language.ai_disabled_channel_ids`), and offers only the typed read-only tools above.
+   A message is never consent to change anything. Discord, Telegram and Matrix have no
+   conversational AI fallback.
+3. **Design is a dedicated AI feature.** Requests to create or edit a model use the Design engine
+   when enabled. Design, Web Chat, edit repair, and optional image features such as AI vision and
+   label reads share the OpenAI-compatible `[llm]` endpoint. They retain their own feature gates
+   and can select different models. See [AI settings](SETTINGS.md#ai-tiers) and
+   [how to migrate retired endpoint settings](SETTINGS.md#retired-settings).
 
 Firmware answers keep seven honest states: confirmed update available, verified current,
 a new release published but the installed comparison unknown, unknown, unsupported,
