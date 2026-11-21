@@ -11,7 +11,6 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace as S
 
-import pytest
 
 from print_handy.core import prepared_intake
 
