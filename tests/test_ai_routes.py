@@ -121,7 +121,7 @@ def test_heavy_uses_shared_llm_endpoint_with_model_timeout_and_same_host_fallbac
 
 
 def test_a_failed_primary_retries_once_on_the_fallback_model_and_reports_who_served():
-    config = cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "big", "fallback_model": "small"}})
+    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
     endpoint = Endpoint(fail={"big"})
     answer, served = ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
     assert (answer, served) == ("hello", "small")
@@ -130,14 +130,14 @@ def test_a_failed_primary_retries_once_on_the_fallback_model_and_reports_who_ser
 
 
 def test_a_primary_that_works_never_touches_the_fallback():
-    config = cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "big", "fallback_model": "small"}})
+    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
     endpoint = Endpoint()
     assert ai_routes.call("chat", MSG, cfg=config, opener=endpoint)[1] == "big"
     assert endpoint.models == ["big"]
 
 
 def test_when_both_fail_there_is_exactly_one_retry_and_the_error_surfaces():
-    config = cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "big", "fallback_model": "small"}})
+    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
     endpoint = Endpoint(fail={"big", "small"})
     with pytest.raises(OSError):
         ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
@@ -145,7 +145,7 @@ def test_when_both_fail_there_is_exactly_one_retry_and_the_error_surfaces():
 
 
 def test_without_a_fallback_a_failure_is_not_retried():
-    config = cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "big"}})
+    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {}})
     endpoint = Endpoint(fail={"big"})
     with pytest.raises(OSError):
         ai_routes.call("chat", MSG, cfg=config, opener=endpoint)
@@ -153,7 +153,7 @@ def test_without_a_fallback_a_failure_is_not_retried():
 
 
 def test_an_empty_answer_counts_as_a_failure():
-    config = cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "big", "fallback_model": "small"}})
+    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
 
     class Blank(Endpoint):
         def __call__(self, req, timeout=None):
@@ -251,7 +251,7 @@ def test_images_ride_on_the_last_user_message():
 
 
 def test_describe_names_the_primary_and_the_fallback():
-    config = cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "big", "fallback_model": "small"}})
+    config = cfg(llm={"chat_url": URL, "model": "big"}, ai={"small": {}, "heavy": {}, "chat": {"fallback_model": "small"}})
     assert ai_routes.describe("chat", config) == f"big at {URL}, fallback small"
     assert ai_routes.describe("heavy", config) == ""
 
@@ -275,7 +275,7 @@ def test_the_chat_fallback_uses_the_chat_tier_fallback_model():
 
 def test_llm_is_unconfigured_until_a_chat_route_exists():
     assert not llm.configured(cfg())
-    assert llm.configured(cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "m"}}))
+    assert llm.configured(cfg(llm={"chat_url": URL, "model": "m"}))
 
 
 def test_the_roast_never_goes_through_the_small_tier(monkeypatch, tmp_path):
