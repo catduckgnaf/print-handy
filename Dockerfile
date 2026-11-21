@@ -279,7 +279,7 @@ RUN set -e; cd /tmp/bounds-wheel && python -m zipfile -e *.whl x && \
     site=$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') && \
     mkdir -p "$site/print_handy/core" && \
     cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/ && \
-    cd /app && python -c "from print_handy.core import _bounds_native" && \
+    cd /app && python -c "from print_handy.core import _bounds_native as m; assert callable(m.paint_census) and m.PAINT_CENSUS_VERSION >= 1" && \
     cd / && rm -rf /tmp/bounds-wheel
 # Bytecode for the working copy (#1153). .dockerignore keeps every
 # __pycache__ out of the context, /app is root-owned and the processes run
