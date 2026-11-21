@@ -12,7 +12,8 @@ import logging
 from typing import Any
 
 from ..core import prompts
-from . import rest
+from . import prompt_ledger, rest
+from .prompt_ledger import saved_job_state, stale_notice
 from .platform import (CUSTOM_PREFIX, BasePlatformAdapter, SendResult, _prompts_guard, custom_id,
                        parse_custom_id)
 
@@ -191,7 +192,17 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.warning("Discord button question failed: %r", exc)
             return SendResult(False, error=str(exc))
         self._record_prompt(clarify_id, {"message": message, "choices": labels, "question": pieces[-1]})
+        self._ledger_prompt(clarify_id, message, session_key)
         return SendResult(True, message_id=str(message.id))
+
+    def _ledger_prompt(self, clarify_id, message, session_key=None):
+        """Note the posted question on disk so a button that outlives a restart is recognized."""
+        key = str(session_key or "")
+        prompt_ledger.record(
+            clarify_id, channel_id=getattr(getattr(message, "channel", None), "id", None),
+            message_id=getattr(message, "id", None), approval=prompts.is_approval(clarify_id),
+            initiator=self._prompt_initiator(clarify_id),
+            intake_id=key[len("model-link:"):] if key.startswith("model-link:") else None)
 
     async def send_clarify_batch(self, chat_id, question, groups, session_key, metadata=None):
         """One message with one select menu per group (#1473), five rows to a message.
@@ -231,6 +242,7 @@ class StandaloneAdapter(BasePlatformAdapter):
                                         {"message": message, "choices": labels_by_cid[group["clarify_id"]],
                                          "question": pieces[-1], "batch": batch,
                                          "group_label": str(group["label"])})
+                    self._ledger_prompt(group["clarify_id"], message, session_key)
             return SendResult(True, message_id=first_id)
         except Exception as exc:
             logger.warning("Discord batch question failed: %r", exc)
@@ -239,6 +251,7 @@ class StandaloneAdapter(BasePlatformAdapter):
     async def retire_prompt(self, clarify_id):
         """Retire a prompt's buttons without an answer (prepared_intake's
         Stop flow): the message loses its view."""
+        prompt_ledger.forget(clarify_id)
         with _prompts_guard(self):
             row = self._prompts.pop(str(clarify_id), None)
         if not row:
@@ -254,6 +267,7 @@ class StandaloneAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------ answers
 
     async def close_prompt(self, cid, note):
+        prompt_ledger.forget(cid)
         with _prompts_guard(self):
             row = self._prompts.pop(str(cid), None)
         if not row:
@@ -270,6 +284,59 @@ class StandaloneAdapter(BasePlatformAdapter):
 
     # The pre-interface name for closing a prompt's buttons.
     _close_buttons = close_prompt
+
+    async def _report_stale(self, interaction, cid):
+        """A press on a button whose question is no longer open (answered, timed out, or posted
+        before a restart). Nothing is resolved, restored, replayed or started.
+
+        The ledger (``bot.prompt_ledger``) holds only the identity this needs. A message this
+        install posted gets its dead buttons removed and a plain explanation; anything else
+        keeps the short generic reply. The same checks as a live press apply first: the
+        channel the question was asked in, the approver for a print approval, and the
+        person who was asked for an ordinary question.
+        """
+        async def say(text):
+            if interaction.response.is_done():  # the press was already acknowledged (a lost race)
+                await interaction.followup.send(text, ephemeral=True)
+            else:
+                await interaction.response.send_message(text, ephemeral=True)
+
+        user = getattr(interaction, "user", None)
+        uid = str(getattr(user, "id", "") or "")
+        entry = prompt_ledger.lookup(cid)
+        message = getattr(interaction, "message", None)
+        known = (entry is not None
+                 and (not entry.get("message_id") or message is None
+                      or str(getattr(message, "id", "")) == entry["message_id"]))
+        if not known:
+            await say("That question already closed. Nothing changed.")
+            return
+        press_channel = getattr(interaction, "channel_id", None)
+        if entry.get("channel_id") and press_channel is not None \
+                and str(press_channel) != entry["channel_id"]:
+            await say("Not allowed. Nothing changed.")
+            return
+        if entry.get("approval"):
+            if not self.authorize_press(interaction, "approver"):
+                logger.info("refused stale approval button press from Discord user %s: %s", uid,
+                            self.approval_refusal_reason(uid))
+                await say("Not allowed. Nothing changed.")
+                return
+        elif entry.get("initiator") and uid != entry["initiator"] \
+                and not (uid and uid not in self.denied and uid in self.approvers):
+            await say("That question was asked of someone else. Nothing changed.")
+            return
+        restarted = entry.get("boot") != prompt_ledger.BOOT_ID
+        with _prompts_guard(self):
+            self._prompts.pop(cid, None)
+        prompt_ledger.forget(cid)
+        try:
+            if message is not None:
+                await message.edit(view=None)
+        except Exception:
+            logger.debug("could not retire the stale buttons", exc_info=True)
+        await say(stale_notice(restarted, entry.get("approval"),
+                               saved_job_state(entry.get("intake_id"))))
 
     async def handle_click(self, interaction):
         """Resolve a prompt button. Returns False when the interaction is not one of ours."""
@@ -291,6 +358,12 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("refused button press from Discord user %s: %s",
                         getattr(user, "id", ""), self.refusal_reason(getattr(user, "id", "")))
             await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
+            return True
+        if not self.registry.is_open(cid):
+            # Nothing live behind this button: answered, timed out, or posted before a
+            # restart. Report which, retire the dead buttons when this install posted
+            # them, and never resolve, restore or replay anything.
+            await self._report_stale(interaction, cid)
             return True
         if prompts.is_approval(cid) and not self.authorize_press(interaction, "approver"):
             # Print approvals stay separate from open channel access (P1-93):
@@ -340,11 +413,14 @@ class StandaloneAdapter(BasePlatformAdapter):
         except Exception:
             logger.warning("could not acknowledge prompt click", exc_info=True)
         if not self.registry.resolve_gateway_clarify(cid, answer):
+            # Lost a race: another press answered, or the question timed out, between the
+            # open check and now. The same stale report applies; nothing was resolved.
             try:
-                await interaction.followup.send("That question already closed. Nothing changed.", ephemeral=True)
+                await self._report_stale(interaction, cid)
             except Exception:
                 logger.debug("could not report a closed question", exc_info=True)
             return True
+        prompt_ledger.forget(cid)
         who = getattr(user, "display_name", None) or getattr(user, "name", None) or "Someone"
         question = row["question"] if row else str(getattr(getattr(interaction, "message", None), "content", "") or "")
         with _prompts_guard(self):
