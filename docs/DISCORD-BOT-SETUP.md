@@ -426,4 +426,8 @@ Startup logs go to stderr by default; optional logging settings are in [standalo
 Review and redact logs locally before sharing: diagnostic output can contain paths, channel IDs and service URLs.
 In Discord, `/print-handy setup` runs a guided, resumable setup checklist and `/print-handy debugging` runs read-only, redacted diagnostics; see [guided setup and debugging](GUIDED-SETUP-DEBUGGING.md). The CLI checks above remain the offline and machine-level routes.
 After a restart, intake questions held in memory must be restarted by resending the model; do not treat old
-buttons as authorization. Listener alerts have separate persistent-button support.
+buttons as authorization. Pressing a button on a question that is no longer open (restarted, expired or already
+answered) changes nothing: no approval is recorded, nothing is uploaded and no print starts. When this install
+posted that message, Print Handy removes the dead buttons and tells the presser to send the model link or file
+again; a print approval is always asked again. A small identity note (`prompt-ledger.json` in the state folder:
+message, channel, approval flag, asker, intake) is kept only to recognize those buttons; it never answers a question. Listener alerts have separate persistent-button support.
