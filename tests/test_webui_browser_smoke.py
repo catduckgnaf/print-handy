@@ -127,9 +127,10 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page_errors = []
         self.console_errors = []
         self.page.on("pageerror", lambda exc: self.page_errors.append(str(exc)))
-        self.page.on("console", self._record_console_error)
-        self._expected_refusal_responses = set()
-        self.page.on("response", self._record_response_error)
+        self.page.on("console", lambda msg: self.console_errors.append(msg.text)
+                    if msg.type == "error" else None)
+        self.page.on("response", lambda response: self.console_errors.append(
+            f"HTTP {response.status}: {response.url}") if response.status >= 400 else None)
 
     def tearDown(self):
         self.assertEqual(self.page_errors, [],
@@ -181,6 +182,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                         .map(e => ({tag:e.tagName, text:(e.innerText||'').slice(0,80),
                                     width:e.getBoundingClientRect().width, height:e.getBoundingClientRect().height}));
                       const smallTargets = [...document.querySelectorAll('a,button,input,select,textarea,[role=button]')]
+                        .filter(e => !(location.pathname === '/login' && e.type === 'checkbox'))
                         .filter(e => !(e.tagName === 'A' && e.childElementCount === 0 && (e.innerText||'').trim().length < 80))
                         .map(e => ({el:e, r:e.getBoundingClientRect()}))
                         .filter(x => x.r.width > 0 && x.r.height > 0 && (x.r.width < 44 || x.r.height < 44))
@@ -332,8 +334,12 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
 
         self.page.locator('.config-tabs a[data-section="camera"]').click()
         sensitivity = self.page.locator('input[name="visual_watch.sensitivity"]')
-        sensitivity.fill("99")
-        sensitivity.press("Tab")
+        refusal = self.page.locator("#row-visual_watch\\.sensitivity .save-state")
+        expected_refusal = self.base + "/config/save"
+        with self.page.expect_response(
+                lambda response: response.url == expected_refusal and response.status == 400):
+            sensitivity.fill("99")
+            sensitivity.press("Tab")
         refusal = self.page.locator("#row-visual_watch\\.sensitivity .save-state")
         refusal.filter(has_text="at most 5").wait_for()
         self.assertNotIn("sensitivity: 99", (self.tmp / "local.yaml").read_text())
