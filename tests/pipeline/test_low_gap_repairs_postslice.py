@@ -128,8 +128,10 @@ def test_the_repair_does_not_waive_the_separate_coverage_failure(bridge, monkeyp
 
 
 def test_repaired_slice_still_needs_the_ordinary_start_approval(bridge, monkeypatch):
-    monkeypatch.setattr(support_clearance, 'verify_coverage_by_plate',
-                        lambda regions, plates: {'checked': True, 'ok': True, 'unverified': []})
+    def verify(regions, plates):
+        return {'checked': True, 'ok': True, 'unverified': []}
+
+    monkeypatch.setattr(support_clearance, 'verify_coverage_by_plate', verify)
     # with supports (3), Extend (0) at the gate (the repaired slice passes every
     # check), then Cancel at the ordinary start question.
     adapter, _result, receipt = run_flow(bridge, [0, 3, 0, 2])
