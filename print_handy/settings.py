@@ -534,12 +534,20 @@ def _migrate_retired_ai_endpoint(data):
     """
     _retired_ai_state.clear()
     llm = data.setdefault("llm", {})
-    # Environment candidates replace the same retired file key, but preserve
-    # names when distinct retired keys remain in conflict.
-    env_candidates = [candidate for candidate in _retired_ai_candidates
+    # Each cleaned file layer records retired values before normal dictionary
+    # merging. Keep only the last candidate for the same retired setting so
+    # higher-priority user-file values replace docker/local values just as
+    # they do in the merged settings. Environment values are applied last.
+    effective = {}
+    for candidate in _retired_ai_candidates:
+        kind, name, value, note = candidate
+        key_name = _retired_ai_key_name(name)
+        effective[(kind, key_name)] = candidate
+    candidates = list(effective.values())
+    env_candidates = [candidate for candidate in candidates
                       if candidate[1].startswith("$PRINT_HANDY__")]
     env_file_names = {_retired_ai_key_name(candidate[1]) for candidate in env_candidates}
-    candidates = [candidate for candidate in _retired_ai_candidates
+    candidates = [candidate for candidate in candidates
                   if not (candidate[1].startswith("[")
                           and _retired_ai_key_name(candidate[1]) in env_file_names)]
     candidates.extend(env_candidates)

@@ -357,6 +357,39 @@ class RetiredAiCheckTests(unittest.TestCase):
         self.assertEqual(status, "ok")
         self.assertIn("migrated into [llm]", detail)
 
+    def test_user_file_same_key_overrides_local_retired_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.yaml"
+            user = Path(tmp) / "user.yaml"
+            local.write_text("design:\n  chat_url: https://one.example/v1/chat/completions\n  model: first\n  api_key_env: FIRST_KEY\n")
+            user.write_text("design:\n  chat_url: https://two.example/v1/chat/completions\n  model: second\n  api_key_env: SECOND_KEY\n")
+            data = settings.load(local=local, user=user, environ={})
+        self.assertEqual(data["llm"]["chat_url"], "https://two.example/v1/chat/completions")
+        self.assertEqual(data["llm"]["model"], "second")
+        self.assertIn("migrated", settings.retired_ai_state()["outcome"])
+
+    def test_distinct_retired_keys_still_warn_as_ambiguous(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.load(tmp, "design:\n  chat_url: https://one.example/v1/chat/completions\n  model: first\n")
+            settings._note_retired_ai("url", "[ai.chat] chat_url", "https://two.example/v1/chat/completions")
+            settings._note_retired_ai("url", "[design] chat_url", "https://three.example/v1/chat/completions")
+            settings._migrate_retired_ai_endpoint(data)
+            state = settings.retired_ai_state()
+            self.assertIsNone(state)
+
+    def test_ai_feature_enabled_without_endpoint_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.load(tmp, "vision:\n  ai_enabled: true\n")
+        status, detail = doctor.check_retired_ai(data)
+        self.assertEqual(status, "warn")
+        self.assertIn("AI-dependent features are enabled", detail)
+        self.assertNotIn("[llm]", detail)
+
+    def test_ai_features_disabled_without_endpoint_have_no_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.load(tmp, "vision:\n  ai_enabled: false\ndesign:\n  enabled: false\n")
+        self.assertIsNone(doctor.check_retired_ai(data))
+
     def test_no_retired_keys_is_no_row(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = self.load(tmp, "design:\n  model: cad-model\n")

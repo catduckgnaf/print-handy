@@ -390,9 +390,30 @@ def check_retired_ai(data):
     machine still runs, but the AI the operator configured is off.
     """
     state = settings.retired_ai_state()
-    if state is None:
+    if state is not None:
+        if state["outcome"] == "migrated":
+            return "ok", state["detail"]
+        # A known-good configured endpoint means the retired alternatives are
+        # inert; don't warn about features that are already operational.
+        if str((data.get("llm") or {}).get("chat_url") or "").strip():
+            return None
+        return "warn", state["detail"]
+    # A model can be auto-enabled when an endpoint exists, but is auto-off
+    # without one. Only an explicit design switch or the explicit vision
+    # switch represents an enabled feature that needs an endpoint here.
+    design_on = (data.get("design") or {}).get("enabled") is True
+    vision_on = bool((data.get("vision") or {}).get("ai_enabled", False))
+    llm_configured = bool(str((data.get("llm") or {}).get("chat_url") or "").strip())
+    if llm_configured:
         return None
-    return ("ok" if state["outcome"] == "migrated" else "warn", state["detail"])
+    if design_on or vision_on:
+        features = []
+        if design_on:
+            features.append("design")
+        if vision_on:
+            features.append("vision")
+        return ("warn", f"AI-dependent features are enabled ({', '.join(features)}) but no AI endpoint is configured.")
+    return None
 
 
 def _bot_token(data):
