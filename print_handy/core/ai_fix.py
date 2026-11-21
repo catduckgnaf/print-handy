@@ -932,7 +932,7 @@ def source_files(job):
 
 
 def apply_to_job(job, proposal, plans, *, fixed_path, actor, problem, report, file_sha256,
-                 color_decisions=None):
+                 color_decisions=None, lane='ai_fix'):
     """Record and apply one confirmed fix on a job record, undoably.
 
     Captures everything the fix may change (the edit fields, which include
@@ -948,7 +948,7 @@ def apply_to_job(job, proposal, plans, *, fixed_path, actor, problem, report, fi
     before = {'edit': edit_plan.snapshot(job),
               'files': {name: copy.deepcopy(job.get(name)) for name in FILE_FIELDS}}
     current = job.get('downloaded_file')
-    entry = {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': str(actor), 'lane': 'ai_fix',
+    entry = {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': str(actor), 'lane': lane,
              'problem': str(problem or '')[:300], 'summary': proposal.summary,
              'changes': proposal.describe(), 'served_by': proposal.served_by,
              'geometry': proposal.geometry, 'mesh_repair': proposal.mesh_repair,
@@ -980,7 +980,7 @@ def apply_to_job(job, proposal, plans, *, fixed_path, actor, problem, report, fi
         settings_now['profile'] = {**(settings_now.get('profile') or {}), **proposal.profile}
         job['edit_settings'] = settings_now
     for plan in plans:
-        edit_plan.record_edit(job, plan, actor=actor, lane='ai_fix',
+        edit_plan.record_edit(job, plan, actor=actor, lane=lane,
                               source_sha256=entry['source_sha256_after'])
         edit_plan.apply_plan(job, plan)
     entry['edits_to'] = len(job.get('edits') or [])
