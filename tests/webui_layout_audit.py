@@ -26,6 +26,7 @@ NON_PAGE_PATTERNS = {
     "/wrapped/reel-file": "binary download", "/api/wrapped/reel-status": "JSON API",
     "/api/cost": "JSON API alias", "/readyz": "JSON readiness probe",
     "/api/printers/*": "JSON API", "/chat/state": "JSON API", "/workflow/state": "JSON API",
+    "/firmware/update/status": "JSON API", "/firmware/channel/status": "JSON API",
     "/workflow/download/*": "binary download", "/designs/state": "JSON API",
     "/settings-report/*": "JSON download", "/editable-export/*": "binary/config download",
     "/slice-result/*": "JSON API", "/u1-feasibility/*": "JSON API",

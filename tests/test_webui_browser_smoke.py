@@ -214,7 +214,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                 self.assertNotEqual(response.status, 404, f"shell link {href} returned 404 from {path}")
 
     def test_route_inventory_is_complete_and_classified(self):
-        from tests.webui_layout_audit import PAGE_PATTERNS, NON_PAGE_PATTERNS, PAGE_ROUTES, assert_route_inventory
+        from tests.webui_layout_audit import PAGE_PATTERNS, PAGE_ROUTES, assert_route_inventory
 
         assert_route_inventory()
         self.assertTrue(set(PAGE_ROUTES).issubset(PAGE_PATTERNS))
@@ -312,12 +312,20 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
             '.config-tabs a[data-section="camera"]').get_attribute("aria-current"), "page")
         self.assertEqual(self.page.locator("#field-search").count(), 0)
 
+    def _is_expected_refusal(self, url):
+        return (url in self._expected_refusal_responses
+                and url.endswith("/config/save"))
+
     def _record_console_error(self, message):
         if message.type == "error":
-            self.console_errors.append(message.text)
+            text = message.text
+            if "status of 400" in text and any(self._is_expected_refusal(url)
+                                                for url in self._expected_refusal_responses):
+                return
+            self.console_errors.append(text)
 
     def _record_response_error(self, response):
-        if response.status >= 400 and not (response.url in self._expected_refusal_responses
+        if response.status >= 400 and not (self._is_expected_refusal(response.url)
                                             and response.status == 400):
             self.console_errors.append(f"HTTP {response.status}: {response.url}")
 
