@@ -329,3 +329,62 @@ def test_unknown_printer_completion_cannot_bridge_two_printers(vault):
     loaded, skipped = print_stats.load_records(vault)
     assert skipped == []
     assert len(loaded) == 3  # no evidence chooses either printer's start
+
+
+# The ZMod 3MF delivery as it appears on a real AD5X install (#1758): the start
+# record and the launch sidecar name the uploaded package, Moonraker's history
+# and the listener name the G-code ZMod unpacked from it.
+PACKAGED = "Couch-Arm-Organizer_plate_1_7a271d6f2286978fbbc4dc7a.gcode.3mf"
+UNPACKED = "3mf_print/Couch-Arm-Organizer_plate_1_7a271d6f2286978fbbc4dc7a.gcode"
+
+
+def test_print_file_name_names_a_package_by_its_gcode():
+    assert print_stats.print_file_name(PACKAGED) == print_stats.print_file_name(UNPACKED)
+    assert print_stats.print_file_name("gcodes/x.gcode") == "x.gcode"
+    assert print_stats.print_file_name("project.3mf") == "project.3mf"
+    assert print_stats.print_file_name("") == "" and print_stats.print_file_name(None) == ""
+
+
+def test_loader_joins_a_packaged_start_with_its_unpacked_completion(vault):
+    """#1758 on the reporting install: every numbered AD5X start names
+    ``X.gcode.3mf`` while its timestamp completion names ``3mf_print/X.gcode``.
+    Comparing bare base names joined none of them."""
+    _place(vault, "print-0121.json", print_number=121, record_id="c121", printer="Klipper 3D Printer",
+           gcode_file=PACKAGED, job_key=PACKAGED, started_at="2026-11-21T15:21:34Z")
+    _place(vault, "20261121T152506-Couch-Arm-Organizer_plate_1_7a271d6f-316161f0.json",
+           record_id="316161f0", status="cancelled", printer="Klipper 3D Printer",
+           gcode_file=UNPACKED, job_key=UNPACKED,
+           started_at="2026-11-21T15:25:06Z", completed_at="2026-11-21T15:28:54Z")
+    loaded, skipped = print_stats.load_records(vault)
+    assert skipped == [] and len(loaded) == 1, "the packaged start and its completion are one print"
+    assert loaded[0]["status"] == "cancelled" and loaded[0]["print_number"] == 121
+    agg = print_stats.aggregate(loaded, year=2026)
+    assert agg["total_prints"] == 1 and agg["canceled"] == 1 and agg["unknown_outcome"] == 0
+
+
+def test_packaged_completion_finalizes_the_numbered_start(vault):
+    """#1758 writer side: a contextless completion for ``3mf_print/X.gcode``
+    adopts the numbered start recorded for ``X.gcode.3mf``."""
+    start_path = records.write_start_record(
+        {"job_key": PACKAGED, "print_number": 121, "title": "Couch organizer",
+         "started_at": "2026-11-21T15:21:34Z", "printer": "AD5X", "active_spool": SPOOL})
+    assert start_path.endswith("print-0121.json")
+    epoch = datetime.datetime(2026, 11, 21, 15, 25, 6, tzinfo=datetime.timezone.utc).timestamp()
+    data = records.build_record_data(
+        UNPACKED,
+        stats={"state": "complete", "print_duration": 3600.0, "filament_used": 1000.0, "start_time": epoch},
+        context={"job_key": UNPACKED},
+        active_spool=SPOOL,
+        completed_at="2026-11-21T16:25:06Z",
+    )
+    result = records.write_completed_record(data)
+    assert result["record_path"].endswith("print-0121.json")
+    files = sorted(p.name for p in (vault / "Prints").glob("*.json"))
+    assert files == ["print-0121.json"], f"one canonical record, not two: {files}"
+
+
+def test_load_context_finds_the_packaged_sidecar_entry(tmp_path):
+    """#1758: the launch sidecar keys the job by the uploaded package name."""
+    sidecar = tmp_path / "context.json"
+    sidecar.write_text(json.dumps({"jobs": {PACKAGED: {"print_number": 121, "job_key": PACKAGED}}}))
+    assert records.load_context(UNPACKED, path=sidecar).get("print_number") == 121

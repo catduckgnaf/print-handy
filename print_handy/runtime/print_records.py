@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..core.print_stats import print_file_name
 from . import _config
 from . import state_file
 
@@ -218,8 +219,9 @@ def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
 
     The listener keys a job by the printer-reported path (``3mf_print/X.gcode``
     for a ZMod 3MF delivery, #1758) while the launch sidecar keys it by the
-    bare remote name, so an exact miss falls back to a base-name match —
-    used only when exactly one job in the sidecar shares that base name.
+    uploaded name (``X.gcode.3mf``), so an exact miss falls back to a
+    print-file-name match (:func:`print_file_name`), used only when exactly
+    one job in the sidecar shares it.
     A miss with a ``jobs`` dict never returns the whole file as a context:
     that shape is a map, not one job.
     """
@@ -234,9 +236,9 @@ def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
     if isinstance(jobs, dict):
         if isinstance(jobs.get(job_key), dict):
             return dict(jobs[job_key])
-        wanted = Path(str(job_key or "")).name
+        wanted = print_file_name(str(job_key or ""))
         matches = [job for key, job in jobs.items()
-                   if isinstance(job, dict) and Path(str(key)).name == wanted and wanted]
+                   if isinstance(job, dict) and print_file_name(str(key)) == wanted and wanted]
         if len(matches) == 1:
             return dict(matches[0])
         return {}
@@ -1052,11 +1054,11 @@ def _start_record_for_completion(data: Mapping[str, Any]) -> tuple[Path, dict[st
     Finalized records remain candidates so retrying the same completion finds
     its immutable record instead of creating a second timestamp-named file.
     """
-    gcode = Path(str(data.get("gcode_file") or "")).name
+    gcode = print_file_name(str(data.get("gcode_file") or ""))
     started = _timestamp(data.get("started_at"))
     if not gcode or started is None:
         return None
-    job = Path(str(data.get("job_key") or "")).name
+    job = print_file_name(str(data.get("job_key") or ""))
     number = _valid_print_number(data.get("print_number"))
     printer = str(data.get("printer") or "").strip()
     unknown_printers = {"", "unknown", "Klipper 3D Printer"}
@@ -1073,9 +1075,9 @@ def _start_record_for_completion(data: Mapping[str, Any]) -> tuple[Path, dict[st
         record = _read_json_record(path)
         if not record:
             continue
-        if Path(str(record.get("gcode_file") or "")).name != gcode:
+        if print_file_name(str(record.get("gcode_file") or "")) != gcode:
             continue
-        other_job = Path(str(record.get("job_key") or "")).name
+        other_job = print_file_name(str(record.get("job_key") or ""))
         if job and other_job and job != other_job:
             continue
         other_number = _valid_print_number(record.get("print_number"))

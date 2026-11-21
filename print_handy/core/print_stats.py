@@ -127,11 +127,26 @@ def load_records(records_vault):
 _JOIN_WINDOW_S = 600.0
 
 
-def _join_file_base(value):
-    """The base file name a record's G-code file or job key names, or ""."""
+_PACKAGE_SUFFIX = ".gcode.3mf"
+
+
+def print_file_name(value):
+    """The printed G-code's base name for matching records of one print, or "".
+
+    The launch side names a packaged ZMod delivery by its uploaded name
+    (``X.gcode.3mf``), while Moonraker reports the file it unpacked and ran
+    (``3mf_print/X.gcode``). Both name one print, so the directory is dropped and
+    a ``.gcode.3mf`` package is named by the ``.gcode`` inside it (#1758).
+    """
     if not isinstance(value, str) or not value.strip():
         return ""
-    return Path(value.strip()).name
+    name = Path(value.strip()).name
+    if name.lower().endswith(_PACKAGE_SUFFIX):
+        name = name[:-len(".3mf")]
+    return name
+
+
+_join_file_base = print_file_name
 
 
 def _join_printer(record):
