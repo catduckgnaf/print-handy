@@ -271,7 +271,7 @@ def test_owner_status_and_other_text_get_job_aware_replies(cfg):
         assert len(discord.sent) == 1 and discord.sent[0].startswith(
             "Still combining the files (")
         assert discord.sent[0].endswith(" so far).")
-        out = run(core.handle_message(discord.message("only the first file")))
+        out = run(core.handle_message(discord.message("zxqv blorp wibble")))
         # #1793 review: other text takes the normal fallback; only its
         # last-resort unmatched reply becomes the job-aware reply.
         assert out == {"action": "skip", "reason": "command list"}
@@ -305,7 +305,7 @@ def test_owner_chat_during_a_running_job_still_gets_its_normal_answer(cfg):
 
 def test_without_a_running_job_the_unmatched_reply_is_unchanged(cfg):
     discord, core = make(cfg)
-    run(core.handle_message(discord.message("only the first file")))
+    run(core.handle_message(discord.message("zxqv blorp wibble")))
     assert discord.sent == [runtime.unmatched_text(cfg["discord"]["bot_name"])]
 
 

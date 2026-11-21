@@ -2931,7 +2931,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             job['audit'] = await _with_stop(
                 adapter, source, key, metadata,
                 _voiced(large_model_notice(path), 'model_audit', source, iid),
-                _heavy(mj.audit, path), allow_stop=True)
+                _heavy(mj.audit, path), allow_stop=True, quiet_s=STEP_QUIET_S)
         if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during audit; retry intake.')
         if audit_cache_key is None:
@@ -2952,7 +2952,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             manifest = await _with_stop(
                 adapter, source, key, metadata,
                 _voiced("Checking the model. Press Stop to cancel.", "color_detection", source, iid),
-                _heavy(inventory, path), allow_stop=True)
+                _heavy(inventory, path), allow_stop=True, quiet_s=STEP_QUIET_S)
         # STL has no source palette, but still needs an exact-source color decision.
         if not manifest.get('source_sha256'):
             manifest.update(source_sha256=await asyncio.to_thread(mj.file_sha256, path))
