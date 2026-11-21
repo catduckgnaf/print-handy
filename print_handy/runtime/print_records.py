@@ -215,6 +215,13 @@ def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
     Supported sidecar shapes are either one job object, or
     ``{"jobs": {"gcode/path": {...}}}``. A nonmatching or malformed file is
     treated as absent so a bad sidecar cannot stop completion announcements.
+
+    The listener keys a job by the printer-reported path (``3mf_print/X.gcode``
+    for a ZMod 3MF delivery, #1758) while the launch sidecar keys it by the
+    bare remote name, so an exact miss falls back to a base-name match —
+    used only when exactly one job in the sidecar shares that base name.
+    A miss with a ``jobs`` dict never returns the whole file as a context:
+    that shape is a map, not one job.
     """
     configured = path or _config.state_file("PRINT_HANDY_CONTEXT_PATH", "print_handy_context.json")
     try:
@@ -224,8 +231,15 @@ def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     jobs = payload.get("jobs")
-    if isinstance(jobs, dict) and isinstance(jobs.get(job_key), dict):
-        return dict(jobs[job_key])
+    if isinstance(jobs, dict):
+        if isinstance(jobs.get(job_key), dict):
+            return dict(jobs[job_key])
+        wanted = Path(str(job_key or "")).name
+        matches = [job for key, job in jobs.items()
+                   if isinstance(job, dict) and Path(str(key)).name == wanted and wanted]
+        if len(matches) == 1:
+            return dict(matches[0])
+        return {}
     if payload.get("job_key") in (None, job_key):
         return payload
     return {}
@@ -1029,15 +1043,100 @@ def plan_is_complete(plan_id: str) -> bool:
     return bool(parts) and all(part.get("status") == "completed" for part in parts)
 
 
+def _start_record_for_completion(data: Mapping[str, Any]) -> tuple[Path, dict[str, Any]] | None:
+    """Find one proven record for a contextless completion, including a retry (#1758).
+
+    A matching file alone is insufficient: start evidence is required, known
+    numbers and printers must agree, and the print intervals must overlap.
+    Multiple candidates are ambiguous even when one started more recently.
+    Finalized records remain candidates so retrying the same completion finds
+    its immutable record instead of creating a second timestamp-named file.
+    """
+    gcode = Path(str(data.get("gcode_file") or "")).name
+    started = _timestamp(data.get("started_at"))
+    if not gcode or started is None:
+        return None
+    job = Path(str(data.get("job_key") or "")).name
+    number = _valid_print_number(data.get("print_number"))
+    printer = str(data.get("printer") or "").strip()
+    unknown_printers = {"", "unknown", "Klipper 3D Printer"}
+    completed = _timestamp(data.get("completed_at"))
+    requested_path = data.get("record_path")
+    matches: list[tuple[Path, dict[str, Any]]] = []
+    try:
+        paths = list(PRINTS_DIR.glob("*.json"))
+    except OSError:
+        return None
+    for path in paths:
+        if requested_path and path != Path(str(requested_path)):
+            continue
+        record = _read_json_record(path)
+        if not record:
+            continue
+        if Path(str(record.get("gcode_file") or "")).name != gcode:
+            continue
+        other_job = Path(str(record.get("job_key") or "")).name
+        if job and other_job and job != other_job:
+            continue
+        other_number = _valid_print_number(record.get("print_number"))
+        if number is not None and other_number is not None and number != other_number:
+            continue
+        other_printer = str(record.get("printer") or "").strip()
+        if printer not in unknown_printers and other_printer not in unknown_printers and printer != other_printer:
+            continue
+        other_started = _timestamp(record.get("started_at"))
+        if other_started is None or abs(other_started - started) > 600.0:
+            continue
+        other_completed = _timestamp(record.get("completed_at"))
+        ends = [value for value in (completed, other_completed) if value is not None]
+        if ends and max(started, other_started) > min(ends):
+            continue
+        matches.append((path, record))
+    return matches[0] if len(matches) == 1 else None
+
+
 def write_completed_record(data: Mapping[str, Any]) -> dict[str, Any]:
     """Write one idempotent JSON record and its multipart plan, then return cleanup facts."""
     plan_id, eligible = update_multipart_plan(data)
+    # #1758: a completion without a number or a record path adopts its
+    # start record's identity before the target is computed, so it
+    # finalizes the numbered start in place instead of landing under a
+    # timestamp name beside it. The start's start instant is adopted
+    # with it, so the completion names the same start instant; the
+    # record id itself still differs (the completion's job key and file
+    # name are the printer-reported path, the start's are the remote
+    # name), which is why the finalize below writes at the start
+    # record's path instead of the numbered target.
+    data = dict(data)
+    adopted_start: Path | None = None
+    if _valid_print_number(data.get("print_number")) is None or not data.get("record_path"):
+        found = _start_record_for_completion(data)
+        if found is not None:
+            adopted_start, start = found
+            if _valid_print_number(data.get("print_number")) is None:
+                number = _valid_print_number(start.get("print_number"))
+                if number is not None:
+                    data["print_number"] = number
+            if start.get("started_at"):
+                data["started_at"] = start["started_at"]
+            if not data.get("record_path"):
+                data["record_path"] = str(adopted_start)
     digest = _record_id(data)
-    target = _record_path_for(data, digest)
-    existing = _read_json_record(target) if target.exists() else None
-    if existing is not None and existing.get("record_id") != digest:
-        target = _avoid_collision(target, digest)
+    if adopted_start is not None:
+        # The start record's file IS this print's record: finalize it in
+        # place. The completion's own record id differs — its job key and
+        # file name are the printer-reported path, the start's are the
+        # remote name — so the numbered-target collision check below
+        # would wrongly treat it as a different print and mint a second
+        # file for the same print.
+        target = adopted_start
         existing = _read_json_record(target) if target.exists() else None
+    else:
+        target = _record_path_for(data, digest)
+        existing = _read_json_record(target) if target.exists() else None
+        if existing is not None and existing.get("record_id") != digest:
+            target = _avoid_collision(target, digest)
+            existing = _read_json_record(target) if target.exists() else None
     # A start record (status printing) is finalized in place or renamed to the
     # numbered name; a final record for this same print is immutable.
     final_exists = existing is not None and existing.get("record_id") == digest and existing.get("status") != "printing"
