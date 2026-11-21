@@ -386,6 +386,46 @@ def _bounds_and_volume_arrays(vertices, faces):
     return lo, hi, volume
 
 
+COMPACT_FAST_MIN = 32768
+
+
+def compact_points(triangles):
+    """A zero-copy (M, 3, 3) float64 view of a large, all-finite CompactTriangles, else None (#1790).
+
+    STL sources load as CompactTriangles (one flat ``array('d')``), which the
+    indexed fast paths did not recognize, so bounds and volume fell back to a
+    per-triangle Python loop: about 4 s per pass on a 600k-face STL, run
+    eight times while combining two parts. Small meshes (under
+    COMPACT_FAST_MIN faces) and any non-finite coordinate keep the scalar
+    path, so its exact historical results, NaN handling included, are
+    unchanged.
+    """
+    from .compact_geometry import CompactTriangles
+    if not isinstance(triangles, CompactTriangles) or len(triangles) < COMPACT_FAST_MIN:
+        return None
+    points = np.frombuffer(triangles.coordinates, dtype=np.float64).reshape((-1, 3, 3))
+    if not np.isfinite(points).all():
+        return None
+    return points
+
+
+def _bounds_and_volume_points(points):
+    """Bounds (exact selection) and signed volume of an (M, 3, 3) array, summed in face-order chunks."""
+    lo = [float(v) for v in points.min(axis=(0, 1))]
+    hi = [float(v) for v in points.max(axis=(0, 1))]
+    volume = 0.0
+    for start in range(0, len(points), 8192):
+        pts = points[start:start + 8192]
+        a, b, c = pts[:, 0], pts[:, 1], pts[:, 2]
+        ax, ay, az = a[:, 0], a[:, 1], a[:, 2]
+        bx, by, bz = b[:, 0], b[:, 1], b[:, 2]
+        cx, cy, cz = c[:, 0], c[:, 1], c[:, 2]
+        terms = (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx)
+                 + az * (bx * cy - by * cx)) / 6.0
+        volume += float(np.sum(terms))
+    return lo, hi, volume
+
+
 def _scalar_bounds(triangles):
     """Match the historical Python min/max behavior, including NaNs."""
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
@@ -410,6 +450,10 @@ def _scalar_bounds(triangles):
 def bounds(triangles):
     """Return exact (lo, hi) bounds without doing signed-volume arithmetic."""
     from .compact_geometry import IndexedTriangles
+    points = compact_points(triangles)
+    if points is not None:
+        return ([float(v) for v in points.min(axis=(0, 1))],
+                [float(v) for v in points.max(axis=(0, 1))])
     if isinstance(triangles, IndexedTriangles) and len(triangles) >= 32768:
         # Float conversion can collapse distinct int64 coordinates above 2**53.
         # Preserve the scalar path's exact comparisons for integer-backed data.
@@ -470,6 +514,9 @@ def bounds(triangles):
 def bounds_and_volume(triangles):
     """(lo, hi, signed volume), without materializing a per-triangle point list."""
     from .compact_geometry import IndexedTriangles
+    points = compact_points(triangles)
+    if points is not None:
+        return _bounds_and_volume_points(points)
     if isinstance(triangles, IndexedTriangles) and len(triangles) >= 32768:
         return _bounds_and_volume_arrays(triangles.vertices, triangles.faces)
     if isinstance(triangles, MeshTable) and len(triangles) >= 32768:
