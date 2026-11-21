@@ -55,13 +55,14 @@ def test_firmware_and_sources_tables_scroll_instead_of_stacking_letters():
     assert ".table-scroll th { white-space: nowrap; }" in css
 
 
-def test_change_spool_actions_share_one_row_height_on_phones():
-    css = shell.page("x", "")
-    mobile = css.split("@media (max-width: 40rem)")[1]
-    assert ".slot-link { display: flex; flex-direction: column;" in mobile
-    assert "min-height" in mobile.split(".slot-link {")[1].split("}")[0]
-    assert ".slot-link .slot-action { margin-top: auto;" in mobile
-    assert ".slots { align-items: stretch; }" in mobile
+def test_change_spool_actions_share_one_row_height_at_all_widths():
+    css = shell.CSS
+    base, mobile = css.split("@media (max-width: 40rem)", 1)
+    assert "align-items: stretch;" in base.split(".slots {")[1].split("}")[0]
+    assert ".slot-link { display: flex; flex-direction: column;" in base
+    assert "margin-top: auto;" in base.split(".slot-action { display:")[1].split("}")[0]
+    assert ".slot-link { min-height: 10rem; }" in mobile
+    assert ".slot-link .slot-action { white-space: normal; }" in mobile
 
 
 def test_printer_card_has_one_title_no_screen_button_and_guarded_taps():
