@@ -75,10 +75,10 @@ step) serving:
   walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
   every install that has not finished it; its steps write through the
   config path above, and its Login step is where a password is set.
-- ``GET /theme?set=dark|light&back=<path>`` — the header theme toggle
-  (#813; :mod:`print_handy.webui.shell`): sets the ``ph-theme`` cookie
-  and redirects back. A browser preference only, behind the same
-  authorization as every other page.
+- ``GET /theme?set=dark|light&back=<path>`` — a compatibility redirect
+  only (#1750; :mod:`print_handy.webui.shell`): the Web UI is dark only
+  with no theme toggle, so it sets no cookie and changes no page. It
+  stays behind the same authorization as every other page.
 - ``GET /manifest.webmanifest``, ``GET /sw.js``, ``GET /offline``
   and ``GET /static/<file>`` — the PWA install plumbing (#450
   Phase 1; :mod:`print_handy.webui.pwa`), declared ``public`` in the
@@ -89,7 +89,7 @@ step) serving:
 
 Every HTML page renders through the one shell
 (:mod:`print_handy.webui.shell`): one inline stylesheet, the header
-chrome, and the dark-by-default theme.
+chrome, and the dark-only theme.
 
 Unknown GET paths are 404. Writes go only through the POST routes
 ``do_POST`` names: the config page (``POST /config/preview`` renders the
@@ -786,7 +786,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
 
     def _theme(self):
-        """This browser's theme from its cookie (#813); dark by default."""
+        """The theme for this request: always dark; a stale ph-theme cookie is ignored."""
         return shell.theme_from_cookies(self.headers.get("Cookie"))
 
     def _session_id(self):
