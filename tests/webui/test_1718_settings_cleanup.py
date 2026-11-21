@@ -144,5 +144,15 @@ def test_cost_page_fills_and_names_defaults_and_calculate_is_top_right():
     page = cost_page.render_cost_page(data, form_token="tok")
     assert "Default: 22 per kilogram" in page or "Default: 22" in page
     assert 'name="price_per_kg" inputmode="decimal" value="22"' in page
-    # Calculate cost is in the form's head row, before the first field.
-    assert page.index("Calculate cost") < page.index('name="technology"')
+    # File auto-fill precedes the calculator, and Calculate cost follows the fields.
+    assert page.index('name="file"') < page.index('name="technology"')
+    assert page.index('name="technology"') < page.index("<details") < page.index("Calculate cost")
+    assert '<details><summary>Advanced</summary>' in page
+    assert 'data-advanced' in page
+    assert page.index('name="amount"') < page.index("<details")
+    assert "Print Handy Print COST" not in page
+    advanced_form = {"technology": ["fdm"], "watts": ["77"], "failure_percent": ["9"]}
+    advanced_error = cost_page.render_cost_page(data, form=advanced_form, error="Check the fields")
+    assert '<details open><summary>Advanced</summary>' in advanced_error
+    assert 'name="watts" inputmode="decimal" value="77"' in advanced_error
+    assert 'name="failure_percent" inputmode="decimal" value="9"' in advanced_error
