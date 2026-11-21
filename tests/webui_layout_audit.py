@@ -93,11 +93,7 @@ def measure_layout(page):
       const smallTargets = [...document.querySelectorAll(interactive)].filter(visible)
         .filter(e => !inlineLink(e) && !e.matches(':disabled, [aria-disabled=true]'))
         .map(e => ({...describe(e), width: e.getBoundingClientRect().width,
-                                   height: e.getBoundingClientRect().height,
-                                   kind: e.matches('nav a[href], header a[href]') ? 'nav' :
-                                     e.matches('button, [role=button]') ? 'button' :
-                                     e.matches('input, select, textarea') ? 'field' :
-                                     e.matches('summary') ? 'summary' : 'other'}))
+                                   height: e.getBoundingClientRect().height}))
         .filter(e => e.width < 44 || e.height < 44);
       return {docWidth: doc.scrollWidth, overflow, oneChar, smallTargets};
     }""")

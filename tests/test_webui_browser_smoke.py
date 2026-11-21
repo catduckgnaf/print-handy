@@ -224,19 +224,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                         self.assertEqual(audit["overflow"], [], f"element overflow {pattern}")
                         self.assertEqual(audit["oneChar"], [], f"one-character line {pattern}")
                         if width == 375:
-                            unexpected_small = [target for target in audit["smallTargets"]
-                                                if target["kind"] not in {"nav", "button", "field", "summary"}]
-                            self.assertEqual(unexpected_small, [],
-                                             f"unclassified target below 44px {pattern}")
-                            known_small = [target for target in audit["smallTargets"]
-                                           if target["kind"] in {"nav", "button", "field", "summary"}]
-                            if known_small:
-                                try:
-                                    self.assertEqual(known_small, [], "#1762: mobile nav/buttons/fields/summaries <44px")
-                                except AssertionError:
-                                    pass  # strict expected failure; remove when #1762 is fixed
-                                else:
-                                    self.fail("strict #1762 tap-target xfail unexpectedly passed")
+                            self.assertEqual(audit["smallTargets"], [], f"target below 44px {pattern}")
                         links = self.page.locator("header a[href], nav a[href]").evaluate_all("""els =>
                             els.map(a => new URL(a.href)).filter(u => u.origin === location.origin)
                                .map(u => u.pathname + u.search)""")
