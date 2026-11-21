@@ -5113,7 +5113,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                        gcode_sha256={g: delivery.sha256(g) for g in gcodes})
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
 
-        def _coverage_result(gcode_list):
+        async def _coverage_result(gcode_list):
             """The post-slice support coverage result for these plates (#922 gaps 2 and 4).
 
             Coverage is graded per plate with each plate's own bounds
@@ -5166,8 +5166,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 if bounds_note:
                     plate['unverified_reason'] = bounds_note
                 plates.append(plate)
-            return support_clearance.verify_coverage_by_plate(
-                report.get('regions') or [], plates)
+            return await asyncio.to_thread(
+                support_clearance.verify_coverage_by_plate, report.get('regions') or [], plates)
 
         def _record_coverage_unverified(result):
             """Name an unverified coverage state in the receipt and the log (#963 item 7)."""
@@ -5317,7 +5317,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     receipt.update(status='SLICED', sliced=True, gcodes=gcodes,
                                    gcode_sha256={g: delivery.sha256(g) for g in gcodes})
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                    cov_result = _coverage_result(gcodes)
+                    cov_result = await _coverage_result(gcodes)
                     if cov_result is not None and cov_result.get('unverified'):
                         _record_coverage_unverified(cov_result)
                     cov_failure = (cov_result if cov_result is not None and cov_result['checked']
@@ -5371,7 +5371,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     receipt.update(status='SLICED', sliced=True, gcodes=gcodes,
                                    gcode_sha256={g: delivery.sha256(g) for g in gcodes})
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                    cov_result = _coverage_result(gcodes)
+                    cov_result = await _coverage_result(gcodes)
                     if cov_result is not None and cov_result.get('unverified'):
                         _record_coverage_unverified(cov_result)
                     cov_failure = (cov_result if cov_result is not None and cov_result['checked']
@@ -5419,7 +5419,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 return 'waived'
 
         if supports_choice is True:
-            cov_result = _coverage_result(gcodes)
+            cov_result = await _coverage_result(gcodes)
             if cov_result is not None and cov_result.get('unverified'):
                 _record_coverage_unverified(cov_result)
             cov_failure = (cov_result if cov_result is not None and cov_result['checked']
@@ -5519,7 +5519,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 sliced = json.loads(jp.read_text())
                 receipt.update(status='SLICED', gcodes=gcodes,
                                gcode_sha256={g: delivery.sha256(g) for g in gcodes})
-                cov_result = _coverage_result(gcodes)
+                cov_result = await _coverage_result(gcodes)
                 if cov_result is not None and cov_result.get('unverified'):
                     # Same receipt pattern as the first slice: the dict
                     # update persists with this block's receipt writes.
