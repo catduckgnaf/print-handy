@@ -75,7 +75,7 @@ See [print cost questions](docs/COST.md) and [continuing a multipart project](do
 
 For ordinary questions, deterministic routing and local data answer what the system knows. Typo-tolerant fuzzy matching can help understand a misspelling; it does not mean every vague message is understood, nor does a match itself authorize a printer action. Intake still asks the normal questions and preserves its confirmation gates. Details and slash-command forms remain in the [command reference](docs/PROJECT-REFERENCE.md).
 
-**Everyday questions are answered locally.** Web Chat can send unmatched questions to a model only when its AI feature is enabled. Design and AI vision have their own settings, but all three use the same `[llm]` endpoint. Roasts come from local text and need no LLM. See [AI and chat behavior](docs/STANDALONE.md#plain-words-first-the-three-routes) and [how to migrate retired endpoint settings](docs/SETTINGS.md#retired-settings).
+**Normal chat is local.** **Web Chat AI is opt-in** at the installation level: when enabled, it can send unmatched questions to the model. Creating a design or editing a part is different: **designing is its own AI path** with separate feature settings, as is AI vision. All three use the same `[llm]` endpoint. Roasts come from local text and need no LLM. See [AI and chat behavior](docs/STANDALONE.md#plain-words-first-the-three-routes) and [how to migrate retired endpoint settings](docs/SETTINGS.md#retired-settings).
 
 
 ## Get started
