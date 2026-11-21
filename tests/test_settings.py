@@ -844,6 +844,18 @@ class UnknownSettingsTests(unittest.TestCase):
         self.assertIn("$PRINT_HANDY__LISTENER__TICKS", entries[0])
         self.assertIn("[listener] ticks", entries[0])
 
+    def test_retired_design_endpoint_warns_without_exposing_values(self):
+        settings.load(local=self.local(
+            "design:\\n  chat_url: https://legacy.example/v1\\n"
+            "  api_key_env: LEGACY_DESIGN_KEY\\n"), environ={})
+        warning = settings.unknown_settings_warning()
+        self.assertIsNotNone(warning)
+        assert warning is not None
+        self.assertIn("[design] chat_url", warning)
+        self.assertIn("[design] api_key_env", warning)
+        self.assertNotIn("https://legacy.example/v1", warning)
+        self.assertNotIn("LEGACY_DESIGN_KEY", warning)
+
     def test_env_unknown_section_warns_and_is_ignored(self):
         settings.load(local=False, environ={"PRINT_HANDY__BRAND_NEW__KEY": "1"})
         self.assertIn("[brand_new] key", settings.unknown_settings_warning())
