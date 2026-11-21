@@ -223,6 +223,8 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                         self.assertLessEqual(audit["docWidth"], width + 2, f"document overflow {pattern}")
                         self.assertEqual(audit["overflow"], [], f"element overflow {pattern}")
                         self.assertEqual(audit["oneChar"], [], f"one-character line {pattern}")
+                        if width == 375:
+                            self.assertEqual(audit["smallTargets"], [], f"target below 44px {pattern}")
                         links = self.page.locator("header a[href], nav a[href]").evaluate_all("""els =>
                             els.map(a => new URL(a.href)).filter(u => u.origin === location.origin)
                                .map(u => u.pathname + u.search)""")

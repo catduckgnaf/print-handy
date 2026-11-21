@@ -44,7 +44,7 @@ PAGE_ROUTES = {
     "/firmware/update": ("/firmware/update?printer=fixture-klipper&component=klipper", "Update now"),
     "/firmware/channel": ("/firmware/channel?printer=fixture-klipper&component=klipper",
                           "Switch klipper to"),
-    "/cost": ("/cost", None), "/spools": ("/spools", "865.722 g left"),
+    "/cost": ("/cost", None), "/spools": ("/spools/fixture-klipper", "Weekend pink"),
     "/printers": ("/printers", "Fixture Klipper"),
     "/config": ("/config", None), "/printer-settings": ("/printer-settings", None),
     "/chat": ("/chat", "Slice summary"), "/workflow": ("/workflow", None),
@@ -73,12 +73,14 @@ def measure_layout(page):
         href: e.getAttribute('href'), cls: String(e.className).slice(0, 100),
         text: (e.getAttribute('aria-label') || e.innerText || '').trim().slice(0, 80)});
       const inScroller = e => e.closest('[data-horizontal-scroll], .table-scroll, .overflow-x-auto');
+      const hasOwnScroll = e => getComputedStyle(e).overflowX === 'auto' ||
+        getComputedStyle(e).overflowX === 'scroll';
       const visible = e => {
         const r = e.getBoundingClientRect();
         return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility === 'visible';
       };
       const overflow = [...document.querySelectorAll('body *')].filter(visible)
-        .filter(e => !inScroller(e) && (e.getBoundingClientRect().width > innerWidth + 2 ||
+        .filter(e => !inScroller(e) && !hasOwnScroll(e) && (e.getBoundingClientRect().width > innerWidth + 2 ||
           e.scrollWidth > e.clientWidth + 2))
         .map(e => ({...describe(e), scroll: e.scrollWidth, client: e.clientWidth}));
       const oneChar = [...document.querySelectorAll('body *')].filter(visible)
