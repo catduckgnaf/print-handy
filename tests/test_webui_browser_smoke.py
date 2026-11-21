@@ -34,6 +34,7 @@ present. A page that returns 200 with broken JavaScript is exactly
 the failure this set exists to catch -- the in-process Web UI tests
 cannot see it.
 """
+import json
 import os
 import re
 import sys
@@ -127,7 +128,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.page_errors = []
         self.console_errors = []
         self.page.on("pageerror", lambda exc: self.page_errors.append(str(exc)))
-        self._expected_refusal_responses = set()
+        self._expected_settings_refusal = False
         self.page.on("console", self._record_console_error)
         self.page.on("response", self._record_response_error)
 
@@ -148,109 +149,105 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
     # -- the smoke set ---------------------------------------------------
 
     def test_seeded_layout_audit(self):
-        from tests.webui_layout_audit import (
-            EXPECTED_MOBILE_SMALL_TARGETS, PAGE_ROUTES, VIEWPORTS)
+        from unittest.mock import patch
+
+        from print_handy import firmware_update, settings
+        from print_handy.webui import firmware_page, screen, server, upload, walkthrough
+        from tests.webui_layout_audit import PAGE_ROUTES, PAGE_SELECTORS, VIEWPORTS, measure_layout
 
         self.login()
-        from print_handy.webui import server as web_server
-        service = web_server.chat_service_for(self.httpd)
+        data = self.httpd.settings_data
+        printer = settings.default_printer_id(data)
+        data["printers"].append({"id": "fixture-klipper", "model": "klipper.generic",
+                                 "name": "Fixture Klipper", "services": {}})
+        data["webui"]["controls_enabled"] = True
+        self.httpd.screen_probe_func = lambda _pid: (True, "Seeded screen", screen.SOURCE_ZMOD)
+        self.httpd.screen_snapshot_func = lambda _pid: (200, self.seed._png_preview(), "image/png")
+
+        def fake_transport(method, path, body=None, timeout=None):
+            if method == "GET" and path == firmware_update.UPDATE_STATUS_PATH:
+                return {"result": {"busy": False, "version_info": {
+                    "klipper": {"version": "v0.12.0-289", "remote_version": "v0.12.0-310",
+                                "channel": "stable", "configured_type": "git_repo"},
+                }}}
+            if method == "GET" and path == firmware_update.PRINT_STATE_PATH:
+                return {"result": {"status": {"print_stats": {"state": "standby"}}}}
+            raise AssertionError(f"Unexpected firmware fixture call: {method} {path}")
+
+        firmware = patch.object(firmware_page, "_default_transport", lambda _data: lambda _pid: fake_transport)
+        firmware.start()
+        self.addCleanup(firmware.stop)
+        grant = upload.create_link(data, self.httpd.access.credential_fingerprint())
+        service = server.chat_service_for(self.httpd)
         for entry in self.seed.chat_entries:
             service._append(entry)
+
         artifact_root = Path(os.environ.get("PRINT_HANDY_SCREENSHOT_DIR", self.tmp / "screenshots"))
         screenshots = artifact_root / "webui"
         screenshots.mkdir(parents=True, exist_ok=True)
-        for width, height, label in VIEWPORTS:
-            self.page.set_viewport_size({"width": width, "height": height})
-            for route, description in PAGE_ROUTES.items():
-                with self.subTest(viewport=label, route=route, description=description):
-                    response = self.page.goto(self.base + route, wait_until="domcontentloaded")
-                    self.assertIsNotNone(response, route)
-                    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", route.strip("/")) or "home"
-                    self.page.screenshot(path=str(screenshots / f"{label}-{safe}.png"), full_page=True)
-                    self.assertEqual(response.status, 200, route)
-                    self.assertIn("text/html", response.headers.get("content-type", ""), route)
-                    audit = self.page.evaluate("""() => {
-                      const doc = document.documentElement;
-                      const scrolls = [...document.querySelectorAll('*')]
-                        .filter(e => e.scrollWidth > e.clientWidth + 2)
-                        .filter(e => !e.closest('[data-horizontal-scroll], .table-scroll, .overflow-x-auto'))
-                        .map(e => ({tag:e.tagName, id:e.id, cls:String(e.className).slice(0,100),
-                                    scroll:e.scrollWidth, client:e.clientWidth}));
-                      const oneChar = [...document.querySelectorAll('body *')]
-                        .filter(e => e.children.length === 0 && /[A-Za-z]{4,}/.test(e.innerText || ''))
-                        .filter(e => { const r=e.getBoundingClientRect(); return r.width > 0 && r.height > r.width * 5; })
-                        .map(e => ({tag:e.tagName, text:(e.innerText||'').slice(0,80),
-                                    width:e.getBoundingClientRect().width, height:e.getBoundingClientRect().height}));
-                      const smallTargets = [...document.querySelectorAll('a,button,input,select,textarea,[role=button]')]
-                        .filter(e => !(location.pathname === '/login' && e.type === 'checkbox'))
-                        .filter(e => !(e.tagName === 'A' && e.childElementCount === 0 && (e.innerText||'').trim().length < 80))
-                        .map(e => ({el:e, r:e.getBoundingClientRect()}))
-                        .filter(x => x.r.width > 0 && x.r.height > 0 && (x.r.width < 44 || x.r.height < 44))
-                        .map(x => ({tag:x.el.tagName, text:(x.el.innerText||x.el.getAttribute('aria-label')||'').slice(0,60),
-                                    width:x.r.width, height:x.r.height}));
-                      return {docWidth:doc.scrollWidth, viewport:innerWidth, scrolls, oneChar, smallTargets};
-                    }""")
-                    self.assertLessEqual(audit["docWidth"], width + 2,
-                                         f"document horizontal overflow {route}: {audit}")
-                    self.assertEqual(audit["scrolls"], [], f"element overflow {route}: {audit}")
-                    self.assertEqual(audit["oneChar"], [], f"one-character line {route}: {audit}")
-                    if width == 375:
-                        # Mobile tap targets under 44px are pinned, not
-                        # ignored: EXPECTED_MOBILE_SMALL_TARGETS holds the
-                        # known #1737 findings per route, and any deviation
-                        # (a new target, a fixed one, a renamed one) fails
-                        # until the pin is updated deliberately.
-                        found = sorted((item["tag"], item["text"])
-                                       for item in audit["smallTargets"])
-                        expected = sorted(
-                            (tag, text)
-                            for (tag, text), count in
-                            EXPECTED_MOBILE_SMALL_TARGETS.get(route, {}).items()
-                            for _ in range(count))
-                        self.assertEqual(
-                            found, expected,
-                            f"mobile tap targets under 44px changed on {route}: {audit}")
-                    links = self.page.locator("header a, nav a, .shell a").evaluate_all(
-                        'els => els.map(a => a.href).filter(h => h.startsWith(location.origin) && !h.endsWith("/notifications"))')
-                    for href in sorted(set(links)):
-                        link_response = self.page.request.get(href, headers={"Accept": "text/html"})
-                        self.assertNotEqual(link_response.status, 404,
-                                            f"shell link {href} returned 404 from {route}")
+        observations = {}
+        checked_links = {}
+        try:
+            for width, height, label in VIEWPORTS:
+                self.page.set_viewport_size({"width": width, "height": height})
+                for pattern, (route, marker) in PAGE_ROUTES.items():
+                    route = route.format(grant=grant, printer=printer)
+                    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", pattern.strip("/")).rstrip("_") or "home"
+                    if "*" in pattern:
+                        safe += "-detail"
+                    with self.subTest(viewport=label, route=pattern):
+                        if pattern == "/walkthrough":
+                            walkthrough.restart(data)
+                        error_start = len(self.page_errors), len(self.console_errors)
+                        try:
+                            response = self.page.goto(self.base + route, wait_until="load")
+                            self.page.screenshot(path=str(screenshots / f"{label}-{safe}.png"), full_page=True)
+                        finally:
+                            if pattern == "/walkthrough":
+                                walkthrough.save_state(data, {"step": 0, "done": True})
+                        self.assertIsNotNone(response, pattern)
+                        self.assertEqual(response.status, 200, pattern)
+                        self.assertEqual(self.page.url, self.base + route, f"unexpected navigation for {pattern}")
+                        self.assertIn("text/html", response.headers.get("content-type", ""), pattern)
+                        if marker:
+                            self.assertIn(marker, self.page.locator("body").inner_text(), pattern)
+                        if selector := PAGE_SELECTORS.get(pattern):
+                            self.assertEqual(self.page.locator(selector).count(), 1, pattern)
+                        if pattern == "/printers/*/screen":
+                            self.assertTrue(self.page.locator("#printer-screen").evaluate(
+                                "img => img.complete && img.naturalWidth > 0"), "fixture screen frame did not load")
+                        audit = measure_layout(self.page)
+                        observations[f"{label}:{pattern}"] = audit
+                        errors = self.page_errors[error_start[0]:] + self.console_errors[error_start[1]:]
+                        self.assertEqual(errors, [], "browser errors on " + pattern)
+                        self.assertLessEqual(audit["docWidth"], width + 2, f"document overflow {pattern}")
+                        self.assertEqual(audit["overflow"], [], f"element overflow {pattern}")
+                        self.assertEqual(audit["oneChar"], [], f"one-character line {pattern}")
+                        links = self.page.locator("header a[href], nav a[href]").evaluate_all("""els =>
+                            els.map(a => new URL(a.href)).filter(u => u.origin === location.origin)
+                               .map(u => u.pathname + u.search)""")
+                        for href in sorted(set(links)):
+                            if href not in checked_links:
+                                checked_links[href] = self.page.request.get(
+                                    self.base + href, headers={"Accept": "text/html"}).status
+                        if width == 375:
+                            self.assertEqual(audit["smallTargets"], [], f"target below 44px {pattern}")
+        finally:
+            (artifact_root / "layout-measurements.json").write_text(
+                json.dumps(observations, indent=2, sort_keys=True), encoding="utf-8")
 
-    def test_shell_links_are_not_404(self):
-        self.login()
-        for path in ("/", "/spools", "/data", "/sliced", "/designs", "/chat"):
-            self.page.goto(self.base + path)
-            links = self.page.locator("header a, nav a, .shell a").evaluate_all(
-                'els => els.map(a => a.href).filter(h => h.startsWith(location.origin) && !h.endsWith("/notifications"))')
-            for href in sorted(set(links)):
-                response = self.page.request.get(href, headers={"Accept": "text/html"})
-                self.assertNotEqual(response.status, 404, f"shell link {href} returned 404 from {path}")
+        self.assertIn("/", checked_links, "shell crawl did not find the status link")
+        dead_links = sorted(link for link, code in checked_links.items() if code == 404)
+        # Strict expected failure for the known header link (#1762). Any new
+        # 404 or a repaired Notifications link requires updating this test.
+        self.assertEqual(dead_links, ["/notifications"],
+                         "shell 404s differ from #1762; remove the exception when fixed")
 
     def test_route_inventory_is_complete_and_classified(self):
-        from tests.webui_layout_audit import (
-            EXPECTED_MOBILE_SMALL_TARGETS,
-            PAGE_PATTERNS,
-            PAGE_ROUTES,
-            UNSAMPLED_PAGE_PATTERNS,
-            assert_route_inventory,
-            pattern_for_route,
-        )
+        from tests.webui_layout_audit import PAGE_PATTERNS, PAGE_ROUTES, assert_route_inventory
 
         assert_route_inventory()
-        # Every audited route is a real page pattern: exactly, or a concrete
-        # instantiation of a wildcard pattern such as /spools/<printer>.
-        for route in PAGE_ROUTES:
-            self.assertIsNotNone(pattern_for_route(route), route)
-        # Every page pattern is audited, or named as intentionally unsampled
-        # with its reason in UNSAMPLED_PAGE_PATTERNS -- a new pattern cannot
-        # slip through unaudited.
-        covered = {pattern_for_route(route) for route in PAGE_ROUTES}
-        uncovered = set(PAGE_PATTERNS) - covered
-        self.assertEqual(uncovered, set(UNSAMPLED_PAGE_PATTERNS), uncovered)
-        # The pinned mobile findings only name audited routes.
-        self.assertTrue(set(EXPECTED_MOBILE_SMALL_TARGETS).issubset(PAGE_ROUTES))
-        self.assertTrue(all(pattern != "*" for pattern in PAGE_ROUTES))
+        self.assertEqual(set(PAGE_ROUTES), set(PAGE_PATTERNS))
 
     def test_seeded_fixture_contains_isolated_records_and_spools(self):
         from print_handy.core import print_stats
@@ -345,23 +342,19 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#field-search").count(), 0)
 
     def _is_expected_refusal(self, url):
-        # The set holds the exact URLs of refusals the test itself triggers;
-        # membership is the check, not a path suffix. The autosave posts one
-        # field to /config/field, and a 400 there is the expected in-place
-        # refusal, not an unexpected error.
-        return url in self._expected_refusal_responses
+        return self._expected_settings_refusal and url == self.base + "/config/field"
 
     def _record_console_error(self, message):
         if message.type == "error":
             text = message.text
-            if "status of 400" in text and any(self._is_expected_refusal(url)
-                                                for url in self._expected_refusal_responses):
+            if "status of 400" in text and self._is_expected_refusal(message.location.get("url")):
                 return
             self.console_errors.append(text)
 
     def _record_response_error(self, response):
-        if response.status >= 400 and not (self._is_expected_refusal(response.url)
-                                            and response.status == 400):
+        expected = (self._is_expected_refusal(response.url) and response.status == 400
+                    and response.request.method == "POST")
+        if response.status >= 400 and not expected:
             self.console_errors.append(f"HTTP {response.status}: {response.url}")
 
     def test_settings_autosave_writes_a_change_and_shows_a_refusal_in_place(self):
@@ -377,12 +370,17 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
 
         self.page.locator('.config-tabs a[data-section="camera"]').click()
         sensitivity = self.page.locator('input[name="visual_watch.sensitivity"]')
-        expected_refusal = self.base + "/config/field"
-        self._expected_refusal_responses.add(expected_refusal)
-        sensitivity.fill("99")
-        sensitivity.press("Tab")
-        refusal = self.page.locator("#row-visual_watch\\.sensitivity .save-state")
-        refusal.filter(has_text="at most 5").wait_for()
+        self._expected_settings_refusal = True
+        try:
+            with self.page.expect_response(lambda response: self._is_expected_refusal(response.url)
+                                           and response.request.method == "POST") as result:
+                sensitivity.fill("99")
+                sensitivity.press("Tab")
+            self.assertEqual(result.value.status, 400)
+            refusal = self.page.locator("#row-visual_watch\\.sensitivity .save-state")
+            refusal.filter(has_text="at most 5").wait_for()
+        finally:
+            self._expected_settings_refusal = False
         self.assertNotIn("sensitivity: 99", (self.tmp / "local.yaml").read_text())
 
     def test_control_post_refuses_browser_cookie_without_api_header(self):
@@ -406,8 +404,6 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                         "the snapshot is a JPEG from the fake source")
 
     def test_embedded_printer_screen_only_sends_single_finger_taps(self):
-        import json
-
         from print_handy.webui import printers_page
 
         roster = [{"id": "demo", "name": "Print Handy test printer",
