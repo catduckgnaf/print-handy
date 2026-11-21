@@ -613,58 +613,38 @@ class ThemeTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_pages_default_to_light_with_the_shared_stylesheet(self):
+    def test_pages_are_dark_with_the_shared_stylesheet(self):
         with tempfile.TemporaryDirectory() as tmp:
             port = self.start(tmp, host="127.0.0.1")
             code, _, body = self.request(port, "GET", "/config")
             self.assertEqual(code, 200)
-            self.assertIn('<html lang="en" data-theme="light"><head>', body)
-            self.assertIn("--color-bg: #f3efe6", body)
+            self.assertIn('<html lang="en" data-theme="dark"><head>', body)
+            self.assertIn("--color-bg: #12110f", body)
             self.assertIn('<nav class="pills"', body)
 
-    def test_legacy_dark_cookie_is_ignored(self):
+    def test_stale_theme_cookies_are_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             port = self.start(tmp, host="127.0.0.1")
-            code, _, body = self.request(port, "GET", "/config",
-                                         headers={"Cookie": "ph-theme=dark"})
-            self.assertEqual(code, 200)
-            self.assertIn('<html lang="en" data-theme="light">', body)
+            for cookie in ("ph-theme=light", "ph-theme=dark", "ph-theme=bogus"):
+                code, _, body = self.request(port, "GET", "/config",
+                                             headers={"Cookie": cookie})
+                self.assertEqual(code, 200)
+                self.assertIn('<html lang="en" data-theme="dark">', body)
+                self.assertNotIn('data-theme="light"', body)
 
-    def test_theme_route_sets_the_cookie_and_goes_back(self):
+    def test_theme_route_is_a_cookieless_redirect(self):
         with tempfile.TemporaryDirectory() as tmp:
             port = self.start(tmp, host="127.0.0.1")
             code, headers, _ = self.request(port, "GET", "/theme?set=light&back=/config")
             self.assertEqual((code, headers["location"]), (303, "/config"))
-            self.assertTrue(headers["set-cookie"].startswith("ph-theme=light"))
-            self.assertIn("SameSite=Lax", headers["set-cookie"])
-            self.assertIn("Path=/", headers["set-cookie"])
-            self.assertNotIn("Secure", headers["set-cookie"])
-
-    def test_theme_cookie_is_secure_only_when_configured(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp, host="127.0.0.1", extra="  cookie_secure: true\n")
-            code, headers, _ = self.request(port, "GET", "/theme?set=dark&back=/config")
-            self.assertEqual(code, 303)
-            self.assertIn("ph-theme=dark", headers["set-cookie"])
-            self.assertIn("; Secure", headers["set-cookie"])
-
-    def test_theme_route_rejects_bad_values_and_foreign_backs(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp, host="127.0.0.1")
+            self.assertNotIn("set-cookie", headers)
             self.assertEqual(self.request(port, "GET", "/theme?set=sepia")[0], 400)
             code, headers, _ = self.request(
                 port, "GET", "/theme?set=dark&back=https://evil.example/")
             self.assertEqual((code, headers["location"]), (303, "/"))
-
-    def test_theme_route_rejects_control_characters_in_back(self):
-        # A decoded CR/LF in back would otherwise reach the Location
-        # header verbatim and inject response headers (Codex P1).
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp, host="127.0.0.1")
             code, headers, _ = self.request(
                 port, "GET", "/theme?set=dark&back=/%0d%0aX-Injected:%20yes")
-            self.assertEqual(code, 303)
-            self.assertEqual(headers["location"], "/")
+            self.assertEqual((code, headers["location"]), (303, "/"))
             self.assertNotIn("x-injected", headers)
 
     def test_theme_route_is_reachable_while_unclaimed(self):
@@ -673,7 +653,6 @@ class ThemeTests(unittest.TestCase):
             code, headers, _ = self.request(port, "GET", "/theme?set=light", headers=HTML)
             self.assertEqual(code, 303)
             self.assertNotEqual(headers["location"], "/setup")
-            self.assertEqual(self.request(port, "GET", "/theme?set=light")[0], 303)
 
     def test_theme_route_needs_auth_on_a_token_install(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -683,12 +662,9 @@ class ThemeTests(unittest.TestCase):
                                       headers={server.TOKEN_HEADER: "sekrit"})
             self.assertEqual(code, 303)
 
-    def test_shell_function_reads_the_cookie(self):
-        self.assertEqual(shell.theme_from_cookies("ph-theme=light"), "light")
-        self.assertEqual(shell.theme_from_cookies("ph-theme=dark"), "light")
-        self.assertEqual(shell.theme_from_cookies("ph-theme=bogus"), "light")
-        self.assertEqual(shell.theme_from_cookies(""), "light")
-        self.assertEqual(shell.theme_from_cookies(None), "light")
+    def test_shell_function_is_dark_only(self):
+        for cookie in ("ph-theme=light", "ph-theme=dark", "ph-theme=bogus", "", None):
+            self.assertEqual(shell.theme_from_cookies(cookie), "dark")
 
     def test_submit_script_restores_controls_on_a_bfcache_return(self):
         # A page restored from the back/forward cache keeps the DOM as
