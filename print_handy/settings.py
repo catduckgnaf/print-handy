@@ -178,8 +178,11 @@ def _apply_key_aliases(layer):
         _note_retired_ai("model", "[agent] model", agent.get("model"))
     design = layer.get("design")
     if isinstance(design, dict):
-        for key in ("chat_url", "api_key_env"):
-            design.pop(key, None)
+        for key, kind in (("chat_url", "url"), ("api_key_env", "key")):
+            if key in design:
+                _note_retired_ai(kind, f"[design] {key}", design.pop(key),
+                                 unknown_note=(f"[design] {key} is retired; configure the matching "
+                                               "endpoint and key variable together in [llm]"))
     vision = layer.get("vision")
     if isinstance(vision, dict):
         _note_retired_ai("model", "[vision] model", vision.pop("model", None))
@@ -523,18 +526,14 @@ def _migrate_retired_ai_endpoint(data):
     """
     _retired_ai_state.clear()
     llm = data.setdefault("llm", {})
-    # Environment candidates override the matching retired file key just as
-    # they override live settings. Keep both candidates for diagnostics, but
-    # only migrate the effective value; distinct retired keys still conflict.
-    env_keys = {}
-    for section, key in _RETIRED_AI_ENV:
-        env_keys[f"$PRINT_HANDY__{section.upper()}__{key.upper()}"] = f"[{section}] {key}"
-    overridden_names = {env_keys[name] for _, name, _, _ in _retired_ai_candidates
-                        if name in env_keys}
-    candidates = [(kind, name, value, note) for kind, name, value, note in _retired_ai_candidates
-                  if name not in overridden_names]
-    candidates.extend(candidate for candidate in _retired_ai_candidates
-                      if candidate[1] in env_keys)
+    # Environment candidates replace the same retired file key, but preserve
+    # names when distinct retired keys remain in conflict.
+    env_candidates = [candidate for candidate in _retired_ai_candidates
+                      if candidate[1].startswith("$PRINT_HANDY__")]
+    env_file_names = {candidate[1][1:] for candidate in env_candidates}
+    candidates = [candidate for candidate in _retired_ai_candidates
+                  if not (candidate[1].startswith("[") and candidate[1] in env_file_names)]
+    candidates.extend(env_candidates)
     names = sorted({name for _, name, _, _ in candidates})
     if not names:
         return
