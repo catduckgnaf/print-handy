@@ -74,7 +74,10 @@ A bed-clear approval starts one print. `print-now` itself refuses without the op
   reads the screen's lane record back: the lane link is confirmed, repaired once (only that
   lane's key is rewritten, screen-owned `helix_*` fields kept), or named as still pointing at
   another spool. A catalog entry on the screen that names a different material family is
-  reported as advice; Print Handy never edits it.
+  reported as advice; Print Handy never edits it. A lane that names a spool Spoolman no longer has
+  is relinked from chat, never at the printer: `/spool sync` rewrites that lane's key to the
+  bound live spool, and intake does the same before asking Keep or switch, so a dead id is never
+  offered as a choice.
 * `/print-spools` is the loaded-only, read-only view: per loaded location, spool number,
   brand, material, color, grams left and percent left where the spool's starting weight is
   recorded (percent named unknown, never estimated). Reached by `/print-spools`, `/spool loaded`,

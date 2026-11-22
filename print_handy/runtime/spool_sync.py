@@ -2278,6 +2278,38 @@ def sync_slot_screen(slot: int, *, printer_id: str | None = None) -> str:
     return push_screen(slot, rec.get("material") or "", rec["hex"])
 
 
+def repair_lane_links(state: dict[str, Any], *, mr: Client = moonraker, client: Client = spoolman,
+                      printer_id: str | None = None) -> list[str]:
+    """Relink each bound slot's screen lane to Print Handy's record, from chat (print #137, #138).
+
+    Reads the lane record, rewrites only ``lane<slot>`` when it names
+    another spool (a deleted one included), and reads it back. Software
+    only: no printer command and no screen-owned field is touched.
+    Printers without a writable lane namespace report nothing.
+    """
+    if _lane_data_write_refusal(printer_id) is not None or _toolhead_lane_namespace(printer_id):
+        return []
+    out: list[str] = []
+    for slot in SLOTS:
+        rec = (state.get("filament_slots") or {}).get(str(slot)) or {}
+        sid = rec.get("spoolman_id")
+        if not sid:
+            continue
+        try:
+            spool = client("GET", f"/api/v1/spool/{int(sid)}", None)
+            if not isinstance(spool, dict) or spool.get("archived"):
+                continue
+            link = verify_lane_link(slot, spool, mr=mr)
+        except Exception:
+            continue
+        if link["status"] == "repaired":
+            out.append(f"Slot {slot}: screen lane relinked to spool #{sid}")
+        elif link["status"] == "stale":
+            out.append(f"Slot {slot}: screen lane still names spool #{link.get('found')}; "
+                       f"advisory, run `/spool sync` again")
+    return out
+
+
 def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
                      pending_path: Path | None = None, printer_id: str | None = None) -> list[str]:
     state = load_state(state_path, printer_id=printer_id)
@@ -2299,6 +2331,7 @@ def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
             out.append(f"Slot {slot}: {pushed}" + (f" ({note})" if note else ""))
         except Exception as exc:
             out.append(f"Slot {slot}: the screen could not be updated — try again")
+    out.extend(repair_lane_links(state, mr=mr, printer_id=printer_id))
     # /spool sync is also the recovery bind_slot names when re-pointing usage
     # failed (P2-179): it must repair the charging, not just the screens.
     out.append(repair_usage_spool(mr=mr, state_path=state_path, printer_id=printer_id))

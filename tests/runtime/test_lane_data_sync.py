@@ -1632,3 +1632,28 @@ def test_catalog_note_is_advisory_and_only_for_a_family_mismatch():
     assert spool_sync.lane_catalog_note(3, "PLA+", mr) is None  # same family
     before = copy.deepcopy(mr.lanes)
     assert mr.lanes == before  # reporting never edits screen-owned fields
+
+
+def test_stale_spool_notice_never_sends_the_operator_to_the_printer(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11)])
+    watcher, _applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {"lane1": lane(18)}  # spool 18 does not exist in Spoolman
+    text = watcher.poll()[0]["text"]
+    assert "clear the lane" not in text and "lane on the screen" not in text
+    assert "/spool sync" in text and "Nothing needs doing at the printer" in text
+
+
+def test_spool_sync_relinks_a_lane_that_names_a_deleted_spool(tmp_path):
+    """Print #138 convergence: record #23, lane3 still #21; /spool sync repairs it from chat."""
+    fake = FakeSpoolman([spool(23, "Coffee", "PLA", "6F4E37")])
+    mr = FakeMoonraker(lanes={"lane3": {**lane(21, slot=3), "helix_catalog_id": "generic-pla"}})
+    state = {"filament_slots": {"3": {"spoolman_id": 23}}}
+    out = spool_sync.repair_lane_links(state, mr=mr, client=fake, printer_id=None)
+    assert out == ["Slot 3: screen lane relinked to spool #23"]
+    assert mr.lanes["lane3"]["spool_id"] == 23
+    assert mr.lanes["lane3"]["helix_catalog_id"] == "generic-pla"
+    assert mr.gcode_scripts() == []  # software only
+    # Already linked: nothing to say.
+    assert spool_sync.repair_lane_links(state, mr=mr, client=fake, printer_id=None) == []

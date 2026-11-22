@@ -202,3 +202,60 @@ def test_the_intake_checks_slots_before_offering_colors():
     hook = body.index("await _verify_slots(")
     assert body.index("purge.require_jacker_capacity(") < hook < body.index("selections = [mj.resolve_filament_selection(")
     assert "CANCELLED_SLOT_UNVERIFIED" in body
+
+
+# ------------------------------------------------------------------ print #138: a lane naming a deleted spool
+
+class _LaneMr:
+    def __init__(self, lanes):
+        self.lanes, self.calls = lanes, []
+
+    def __call__(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        if path.startswith("/server/database/item"):
+            if method == "POST":
+                self.lanes[body["key"]] = dict(body["value"])
+                return {"result": {}}
+            return {"result": {"value": json.loads(json.dumps(self.lanes))}}
+        return {"result": "ok"}
+
+
+def _slots_23():
+    return {"3": {"material": "PLA", "color": "Coffee PLA", "spoolman_id": 23}}
+
+
+def test_a_lane_naming_a_deleted_spool_is_relinked_without_a_question():
+    """Replay of print #138: record is live #23, the lane still says deleted #21."""
+    from print_handy.runtime import spool_sync
+    mr = _LaneMr({"lane3": {"spool_id": 21, "lane": 2, "material": "PLA", "color": "6F4E37",
+                            "helix_catalog_id": "generic-pla"}})
+    rows = [{"id": 23, "archived": False, "remaining_weight": 900,
+             "filament": {"name": "Coffee", "material": "PLA", "color_hex": "6F4E37"}}]
+    with mock.patch.object(spool_sync, "spoolman", return_value=rows), \
+            mock.patch("print_handy.jobs.filament.configured_slots", return_value=_slots_23()):
+        notes = sv.heal_dead_links({}, mr.lanes, None, mr)
+    assert mr.lanes["lane3"]["spool_id"] == 23
+    assert mr.lanes["lane3"]["helix_catalog_id"] == "generic-pla"  # screen-owned field kept
+    assert len(notes) == 1 and "#21" in notes[0] and "#23" in notes[0]
+    assert "nothing was sent to the printer" in notes[0]
+    assert not any("gcode" in call[1] for call in mr.calls)  # no printer command
+
+
+def test_a_lane_naming_a_live_other_spool_is_still_a_question_not_a_silent_relink():
+    from print_handy.runtime import spool_sync
+    mr = _LaneMr({"lane3": {"spool_id": 22, "lane": 2, "material": "PETG"}})
+    rows = [{"id": 23, "archived": False, "filament": {"material": "PLA"}},
+            {"id": 22, "archived": False, "filament": {"material": "PETG"}}]
+    with mock.patch.object(spool_sync, "spoolman", return_value=rows), \
+            mock.patch("print_handy.jobs.filament.configured_slots", return_value=_slots_23()):
+        assert sv.heal_dead_links({}, mr.lanes, None, mr) == []
+    assert mr.lanes["lane3"]["spool_id"] == 22
+
+
+def test_spoolman_unreadable_leaves_the_lane_alone():
+    from print_handy.runtime import spool_sync
+    mr = _LaneMr({"lane3": {"spool_id": 21, "lane": 2}})
+    with mock.patch.object(spool_sync, "spoolman", side_effect=OSError("down")), \
+            mock.patch("print_handy.jobs.filament.configured_slots", return_value=_slots_23()):
+        assert sv.heal_dead_links({}, mr.lanes, None, mr) == []
+    assert mr.lanes["lane3"]["spool_id"] == 21
