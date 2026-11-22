@@ -78,7 +78,7 @@ class FilamentInsertionMonitorTests(unittest.TestCase):
         )
         self.assertIn("job, IFS slot 1", prompt)
         self.assertIn("A) existing Spoolman spool, or B) new spool", prompt)
-        self.assertIn("Matte White · PLA+ · #23 · 412 g left", prompt)
+        self.assertIn("White Matte, PLA+ · #23 · 412 g left", prompt)
         self.assertIn("will not select it automatically", prompt)
         self.assertIn("load it and resume manually at the printer", prompt)
         self.assertIn("clear label photo (preferred)", prompt)

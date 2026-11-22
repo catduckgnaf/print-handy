@@ -404,9 +404,8 @@ def _action_key(fingerprint: dict[str, Any] | None) -> str:
 
 
 def _spool_label(spool: dict[str, Any]) -> str:
-    filament = (spool or {}).get("filament") or {}
-    parts = [str(filament.get("name") or "").strip(), str(filament.get("material") or "").strip()]
-    return " ".join(part for part in parts if part) or "unknown filament"
+    from ..core import filament_type
+    return filament_type.spool_label((spool or {}).get("filament")) or "unknown filament"
 
 
 def _color_agrees(lane_color: str, spool: dict[str, Any]) -> bool:
@@ -1026,8 +1025,9 @@ class LaneDataWatcher:
             self._queue(pending, noted, slot, "stale_spool",
                         f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen is "
                         f"linked to spool #{spool_id}, which {fate}. Nothing was overwritten. "
-                        f"Relink the slot with `/spool change {slot} <spool#>`, or clear the "
-                        "lane on the screen.",
+                        f"Relink the slot from chat with `/spool change {slot} <spool#>`; "
+                        "if Print Handy already has a live spool bound there, `/spool sync` "
+                        "relinks the screen lane to it. Nothing needs doing at the printer.",
                         action, spool_id=spool_id)
             adopt()
             return True

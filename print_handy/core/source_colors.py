@@ -2610,10 +2610,10 @@ def _spool_label(selection):
             color = parsed[0]
     else:
         color = ' '.join(color.split()).title()
+    from . import filament_type
     material = str(selection.get('material') or '').strip()
-    if material and not color.casefold().endswith(material.casefold()):
-        return f'{color} {material}'.strip()
-    return color
+    ftype = filament_type.from_text(material, color)
+    return filament_type.label(filament_type.color_name(color, ftype), ftype, material_fallback=material)
 
 
 def propose_mapping(manifest, selections, selected_plate_ids=None, *, groups=None):
@@ -2675,8 +2675,11 @@ def propose_mapping(manifest, selections, selected_plate_ids=None, *, groups=Non
 
 
 def mapping_summary(groups):
-    """'Plaque: Black PLA+, Letters and trim: Bronze PLA+' for proposed groups."""
-    return ', '.join(f"{group['label']}: {group['spool_label']}"
+    """'Plaque: Black, PLA+; Letters and trim: Bronze, PLA+' for proposed groups.
+
+    Groups are joined with '; ' because each spool label carries its own comma
+    (FILAMENT-TYPES-DESIGN section 4)."""
+    return '; '.join(f"{group['label']}: {group['spool_label']}"
                      for group in groups if group.get('slot') is not None)
 
 

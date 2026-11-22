@@ -2120,7 +2120,8 @@ def alert_button_handlers(bot, adapter):
             spool = await asyncio.to_thread(spool_sync.spoolman, 'GET', f'/api/v1/spool/{int(spool_id)}', None)
             filament = (spool or {}).get('filament') or {}
             label = spool_picker_label(filament.get('name'), filament.get('material'),
-                                       spool_id, (spool or {}).get('remaining_weight'))
+                                       spool_id, (spool or {}).get('remaining_weight'),
+                                       filament=filament)
         except Exception:
             logger.debug('bind confirmation could not re-read the spool', exc_info=True)
         old_id = None

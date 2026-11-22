@@ -285,14 +285,65 @@ def clear_unconfirmed(slot, path=None) -> None:
 
 # ------------------------------------------------------------------ intake hook
 
-def read_doubts(state: dict[str, Any], printer_id: str | None) -> list[SlotDoubt]:
-    """The slots in doubt right now, with their answer buttons. Fail-soft: [] on any read failure."""
+def heal_dead_links(state: dict[str, Any], lane_value: Any, printer_id: str | None, mr: Any) -> list[str]:
+    """Relink screen lanes that name a spool Spoolman no longer has (print #138).
+
+    A lane naming a deleted spool is not a disagreement about what is
+    loaded: the screen kept an id that points at nothing, while Print
+    Handy's record names a live spool bound to the slot. Asking "Keep or
+    switch?" there forced a choice between a ghost and the real spool. This
+    rewrites only that lane's key to the record's live spool (the bind
+    write, screen-owned ``helix_*`` fields kept) and returns one line per
+    slot for the chat. No printer command is sent. A slot whose record spool
+    is not live, or whose lane cannot be read back, is left to the normal
+    question. Fail-soft: [] on any failure.
+    """
+    from ..jobs.filament import configured_slots
+    from ..runtime import lane_data_sync, spool_sync
+
+    notes: list[str] = []
+    try:
+        lanes = lane_data_sync.parse_lane_data(lane_value) or {}
+        rows = spool_sync.spoolman("GET", "/api/v1/spool?allow_archived=true", None)
+        if not isinstance(rows, list):
+            return []
+        live = {int(r["id"]): r for r in rows
+                if isinstance(r, dict) and r.get("id") is not None and not r.get("archived")}
+        known = {int(r["id"]) for r in rows if isinstance(r, dict) and r.get("id") is not None}
+        for key, record in sorted(configured_slots(state).items(), key=lambda item: int(item[0])):
+            slot = int(key)
+            lane = lanes.get(slot) or {}
+            dead = _int(lane.get("spool_id"))
+            mine = _int((record or {}).get("spoolman_id"))
+            if dead is None or mine is None or dead == mine or dead in known or mine not in live:
+                continue
+            out = spool_sync.verify_lane_link(slot, live[mine], mr=mr)
+            if out["status"] in ("verified", "repaired"):
+                notes.append(f"Screen lane {slot} named spool #{dead}, which no longer exists in Spoolman. "
+                             f"Relinked it to spool #{mine}; nothing was sent to the printer.")
+    except Exception as exc:
+        logger.info("slot verification: dead lane link check failed (%r)", exc)
+    return notes
+
+
+def read_doubts(state: dict[str, Any], printer_id: str | None,
+                healed: list[str] | None = None) -> list[SlotDoubt]:
+    """The slots in doubt right now, with their answer buttons. Fail-soft: [] on any read failure.
+
+    ``healed`` collects chat lines for lane links relinked without a question.
+    """
     from ..jobs.filament import configured_slots
     from ..runtime import lane_data_sync, spool_sync
 
     try:
         mr = spool_sync.moonraker_for(printer_id)
-        lanes = lane_data_sync.parse_lane_data(spool_sync.read_lane_data(mr=mr))
+        lane_value = spool_sync.read_lane_data(mr=mr)
+        notes = heal_dead_links(state, lane_value, printer_id, mr)
+        if notes:
+            if healed is not None:
+                healed.extend(notes)
+            lane_value = spool_sync.read_lane_data(mr=mr)
+        lanes = lane_data_sync.parse_lane_data(lane_value)
     except Exception as exc:
         # Reload marks still count: they do not need the screen.
         logger.info("slot verification: screen lanes unreadable (%r); checking reload marks only", exc)
@@ -338,7 +389,10 @@ async def verify_slots(state: dict[str, Any], printer_id: str | None,
     from ..core import printer_state
     from ..runtime import spool_sync
 
-    doubts = await asyncio.to_thread(read_doubts, state, printer_id)
+    healed: list[str] = []
+    doubts = await asyncio.to_thread(read_doubts, state, printer_id, healed)
+    for line in healed:
+        await send(line)
     if used_slots is not None:
         wanted = {int(slot) for slot in used_slots}
         for doubt in doubts:

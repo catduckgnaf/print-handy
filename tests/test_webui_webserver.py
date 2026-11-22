@@ -256,7 +256,7 @@ class RouteShapeTests(WebServerCase):
                 ("/data", "Print Handy data"),
                 ("/wrapped", "Print Handy wrapped"),
                 ("/login", f'name="{pages.LOGIN_TOKEN_FIELD}"'),
-                (f"/spools/{pid}", "Pink · PLA · #3"),
+                (f"/spools/{pid}", "Pink, PLA · #3"),
             ]
             for path, marker in pages_expected:
                 code, headers, body = self.get(port, path, headers=self.auth())

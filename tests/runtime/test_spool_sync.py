@@ -296,7 +296,7 @@ def test_list_text_shelf_names_the_material_once(tmp_path):
     client = lambda method, path, body=None: [
         {"id": 21, "remaining_weight": 800, "filament": {"name": "Coffee PLA+", "material": "PLA+"}}]
     text = spool_sync.list_text(client=client, state_path=state)
-    assert "#21 Coffee PLA+, 800 g" in text and "PLA+ PLA+" not in text
+    assert "#21 Coffee, PLA+; 800 g" in text and "PLA+ PLA+" not in text
 
 
 def test_screen_label_matches_the_type_print_handy_writes():
@@ -347,11 +347,11 @@ def test_bind_text_says_when_the_screen_shows_a_stand_in():
     result = {"slot": 2, "spool_id": 9, "record": {"name": "Gray ASA"}, "prior_spool_id": None,
               "screen": "pushed", "screen_note": "screen shows ABS for ASA", "usage": "unchanged"}
     assert spool_sync.bind_text(result) == (
-        "Slot 2 → spool #9 (Gray ASA). Printer screen updated (screen shows ABS for ASA).")
+        "Slot 2 → spool #9 (Gray ASA). Printer screen color and label command accepted (screen shows ABS for ASA).")
     deferred = {**result, "screen": "deferred"}
     assert "ends (screen shows ABS for ASA)." in spool_sync.bind_text(deferred)
     plain = {**result, "screen_note": None}
-    assert spool_sync.bind_text(plain) == "Slot 2 → spool #9 (Gray ASA). Printer screen updated."
+    assert spool_sync.bind_text(plain) == "Slot 2 → spool #9 (Gray ASA). Printer screen color and label command accepted."
 
 
 def test_bind_slot_carries_the_fallback_note_only_when_the_screen_was_told(tmp_path):

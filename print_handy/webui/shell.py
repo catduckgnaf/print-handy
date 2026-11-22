@@ -383,6 +383,15 @@ img { max-width: 100%; }
   /* Enlarge the actual remembered-session label target, not only its checkbox. */
   form[action="/login"] p:has(> input[type="checkbox"][name="remember"]) { display: flex; align-items: center; gap: 0.5rem; }
   form[action="/login"] p:has(> input[type="checkbox"][name="remember"]) label { display: inline-flex; align-items: center; min-height: 2.75rem; }
+  /* A checkbox or radio stays visually compact; its label is the 44px tap
+     target, whether it wraps the box or names it with for= beside it. */
+  label:has(> input[type="checkbox"]), label:has(> input[type="radio"]),
+  p:has(> input[type="checkbox"]) > label[for], p:has(> input[type="radio"]) > label[for],
+  .field:has(> input[type="checkbox"]) > label[for] {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    min-height: 2.75rem; min-width: 2.75rem; box-sizing: border-box;
+  }
+  .spools-page > nav[aria-label="Printer"] a { display: inline-flex; align-items: center; min-height: 2.75rem; box-sizing: border-box; }
   /* Keep the brand and quick destinations readable above full-width tabs. */
   header.site .wrap { padding-right: 1rem; gap: 0.5rem; }
   .header-quicklinks { margin-left: auto; }
