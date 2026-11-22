@@ -2615,7 +2615,7 @@ def spool_display_label(spool):
     filament = (spool or {}).get("filament") or {}
     return print_summary.spool_picker_label(
         filament.get("name"), filament.get("material"),
-        (spool or {}).get("id"), (spool or {}).get("remaining_weight"))
+        (spool or {}).get("id"), (spool or {}).get("remaining_weight"), filament=filament)
 
 
 def new_spool_prompt_text(spool):

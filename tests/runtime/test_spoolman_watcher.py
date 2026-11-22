@@ -218,9 +218,9 @@ def test_deleted_ids_drop_out_of_the_known_set(tmp_path):
 
 
 def test_display_label_uses_the_one_picker_shape():
-    assert mel.spool_display_label(spool(21)) == "Matte White · PLA+ · #21 · 1000 g left"
+    assert mel.spool_display_label(spool(21)) == "White Matte, PLA+ · #21 · 1000 g left"
     assert mel.spool_display_label({"id": 5, "filament": {}}) == \
-        "color unknown · material unknown · #5 · grams unknown"
+        "color unknown, material unknown · #5 · grams unknown"
     assert "#21" in mel.new_spool_prompt_text(spool(21))
     assert "/spool change <slot> 21" in mel.new_spool_plain_text(spool(21))
 

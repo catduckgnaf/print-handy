@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from print_handy.core import filament_type as ft
+from print_handy.runtime.discord_print_summary import spool_picker_label
 
 
 def fil(name, material, **extra):
@@ -199,3 +200,45 @@ def test_paht_resolves_to_the_pa_family():
     assert ft.from_text("PAHT").family == "PA"
     assert ft.from_text("PAHT-CF").family == "PA-CF"
     assert ft.from_text("Polymaker PAHT CF").family == "PA-CF"
+
+
+def test_picker_label_keeps_id_and_grams():
+    assert spool_picker_label("High Speed Matte Black PETG", "PETG", 22, 812.0) \
+        == "Black Matte, PETG HS · #22 · 812 g left"
+    assert spool_picker_label("Bronze", "PLA+", 19, None) == "Bronze, PLA+ · #19 · grams unknown"
+    assert spool_picker_label(None, None, 5, None) \
+        == "color unknown, material unknown · #5 · grams unknown"
+    assert spool_picker_label("Black", "PLA", 9, 0) == "Black, PLA · #9 · 0 g left"
+
+
+def test_picker_label_prefers_the_filament_record_when_given():
+    filament = fil("Black", "PETG", extra={"finish": '"matte"'})
+    assert spool_picker_label("Black", "PETG", 22, 100.0, filament=filament) \
+        == "Black Matte, PETG · #22 · 100 g left"
+    assert spool_picker_label("Black", "PETG", 22, 100.0) == "Black, PETG · #22 · 100 g left"
+
+
+
+
+# ------------------------------------------------------------------ one function everywhere
+
+def test_lane_name_and_loaded_spool_use_the_same_label():
+    from print_handy.runtime import lane_data_sync, spool_sync
+    spool = {"id": 22, "filament": fil("High Speed Matte Black PETG", "PETG", color_hex="000000")}
+    assert lane_data_sync._spool_label(spool) == "Black Matte, PETG HS"
+    assert spool_sync.build_lane_record(1, spool, now=1)["name"] == "Black Matte, PETG HS"
+    assert spool_sync.build_lane_record(1, spool, name="Screen Name", now=1)["name"] == "Screen Name"
+
+
+def test_source_colors_label_uses_the_shared_shape():
+    from print_handy.core import source_colors
+    assert source_colors._spool_label({"color": "Matte White", "material": "PLA"}) == "White Matte, PLA"
+    assert source_colors._spool_label({"color": "Bronze", "material": "PLA+"}) == "Bronze, PLA+"
+
+
+def test_filament_label_does_not_repeat_material():
+    from print_handy.runtime.discord_print_summary import filament_label
+    assert filament_label("Coffee PLA+", "PLA+") == "Coffee, PLA+"
+    assert filament_label("PLA+", "PLA+") == "PLA+"
+    assert filament_label(None, "PETG", "?") == "?, PETG"
+    assert filament_label("", "") == ""

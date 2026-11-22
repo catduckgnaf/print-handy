@@ -88,45 +88,30 @@ def safe_label(value, fallback="Print"):
 
 
 def filament_label(name, material, name_fallback="", material_fallback=""):
-    """'<name> <material>', without naming the material twice.
+    """'<Color> <Finish>, <Family> <Sub-type>' from a name and a material string.
 
-    Spoolman filament names often already end with the material ("Coffee
-    PLA+"), so appending it again read "Coffee PLA+ PLA+" in alerts.
+    The shared label of core.filament_type (#1788 phase B), so a Spoolman name that already carries
+    the material or its sub-type words ("Coffee PLA+", "High Speed Matte Black PETG") never names them
+    twice or in free-text order: 'Coffee, PLA+', 'Black Matte, PETG HS'.
     """
-    name = str(name or "").strip() or name_fallback
-    material = str(material or "").strip() or material_fallback
-    if name and material and (name.casefold() == material.casefold()
-                              or name.casefold().endswith(" " + material.casefold())):
-        return name
-    return " ".join(part for part in (name, material) if part)
+    from print_handy.core import filament_type
+    return filament_type.text_label(str(name or "").strip() or name_fallback, material,
+                                    color_fallback=name_fallback, material_fallback=material_fallback)
 
 
-def spool_picker_label(name, material, spool_id, grams):
-    """The one label shape every filament/spool picker shows (#792 part 2):
-    'color · material · #id · grams left' — e.g. 'Coffee · PLA+ · #21 · 812 g left'.
+def spool_picker_label(name, material, spool_id, grams, filament=None):
+    """The one label shape every filament/spool picker shows (#792 part 2, #1788 phase B):
+    '<Color> <Finish>, <Family> <Sub-type> · #id · grams left', e.g. 'Black Matte, PETG HS · #22 · 812 g left'.
 
-    ``name`` is the Spoolman filament name (the color, often with the
-    material already appended, which is stripped so it is named once).
-    Unknown fields are said in place — 'color unknown', 'material
-    unknown', 'grams unknown' — never dropped, so two similar spools stay
-    tellable apart and a missing weight reads as missing, not as zero.
+    Pass the Spoolman ``filament`` record when there is one: its structured fields (finish, flags)
+    are then read before any free-text name. Otherwise ``name`` and ``material`` are read as text.
+    Unknown fields are said in place ('color unknown', 'material unknown', 'grams unknown'), never
+    dropped, so two similar spools stay tellable apart and a missing weight reads as missing, not zero.
     """
-    name = str(name or "").strip()
-    material = str(material or "").strip()
-    color = name
-    if material and color.casefold() == material.casefold():
-        color = ""
-    elif material and color.casefold().endswith(" " + material.casefold()):
-        color = color[:-(len(material) + 1)].strip()
-    if color.casefold().startswith("spool #"):
-        color = ""  # the shelf fallback name carries no color at all
-    color = color or "color unknown"
-    material = material or "material unknown"
-    if isinstance(grams, (int, float)) and not isinstance(grams, bool):
-        amount = f"{grams:g} g left"
-    else:
-        amount = "grams unknown"
-    return f"{color} · {material} · #{spool_id} · {amount}"
+    from print_handy.core import filament_type
+    if isinstance(filament, dict):
+        return filament_type.picker_label(filament, spool_id, grams)
+    return filament_type.picker_label_text(name, material, spool_id, grams)
 
 
 def parse_duration(text):
