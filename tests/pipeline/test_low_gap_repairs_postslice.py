@@ -13,10 +13,15 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import ai_fix, model_job, orca_adapter, prepared_intake, support_clearance
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.intake import questions as intake_questions
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from print_handy.intake import support_flow
 
 from .test_intake_support_precheck import _copy, _warning_slice, env, run_flow  # noqa: F401
 from .test_support_clearance_phase2 import box, write_3mf
+from tests.bound_names import setattr_bound
 
 print_next = prepared_intake.print_next
 GAP_MM = 0.562
@@ -31,9 +36,9 @@ def bridge_file(tmp_path, gap=GAP_MM, name='bridge.3mf'):
 @pytest.fixture
 def bridge(env, tmp_path, monkeypatch):  # noqa: F811
     src = bridge_file(tmp_path / 'src_dir' if (tmp_path / 'src_dir').mkdir() is None else tmp_path)
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(src, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(src, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     # No AI anywhere: a call would be the disabled intake fix coming back (#1373).
     def _no_ai(*a, **k):
         raise AssertionError('the AI fix must not be used for a deterministic repair')
@@ -77,7 +82,7 @@ def test_post_slice_gate_offers_the_repairs_and_the_repair_changes_nothing_else(
     adapter, _result, receipt = run_flow(bridge, [0, 3, 0, 2])
     gate = next(q for q in adapter.questions if 'Nothing has been sent to the printer yet.' in q['question'])
     assert gate['choices'] == ['Extend underside to plate', 'Flatten (sink) to plate',
-                               prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+                               intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'post the model again' not in gate['question']
     assert 'Measured low gap' in gate['question']
     # The repair re-sliced a derived copy and nothing started.
@@ -85,9 +90,9 @@ def test_post_slice_gate_offers_the_repairs_and_the_repair_changes_nothing_else(
                for m in adapter.log)
     job = json.loads(Path(receipt['job_json']).read_text())
     assert job['downloaded_file'] != str(Path(env_source(bridge, job)))  # a derived copy
-    assert model_job.file_sha256(job['downloaded_file']) != bridge_sha(bridge)
+    assert gcode_artifact.file_sha256(job['downloaded_file']) != bridge_sha(bridge)
     assert Path(env_source(bridge, job)).read_bytes() == bridge.src_bytes  # original untouched
-    assert job['color_decisions']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
+    assert job['color_decisions']['source_sha256'] == gcode_artifact.file_sha256(job['downloaded_file'])
     assert job['color_decisions']['selection']['slot'] == 1  # selected filament kept
     assert not job.get('clearance_acknowledgement', {}).get('acknowledged')
     assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt.get('started') is not True
@@ -112,7 +117,7 @@ def test_the_repair_does_not_waive_the_separate_coverage_failure(bridge, monkeyp
     from .test_intake_support_unverified_968 import _in_process_heavy
 
     _in_process_heavy(monkeypatch)
-    monkeypatch.setattr(worker, '_heavy', prepared_intake._heavy)
+    monkeypatch.setattr(worker, '_heavy', worker._heavy)
     calls = []
 
     def verify(regions, plates):
@@ -125,7 +130,7 @@ def test_the_repair_does_not_waive_the_separate_coverage_failure(bridge, monkeyp
     adapter, _result, receipt = run_flow(bridge, [0, 3, 0, 1])
     assert len(calls) == 2, 'coverage must be graded again on the repaired slice'
     last = adapter.questions[-1]
-    assert last['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert last['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'found no support of an overhang on Body' in last['question']
     assert 'under 1.0 mm' not in last['question'] and 'Measured low gap' not in last['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt.get('started') is not True
@@ -153,9 +158,9 @@ def test_repaired_slice_still_needs_the_ordinary_start_approval(bridge, monkeypa
 
 def test_a_gap_over_another_part_has_no_repair_and_keeps_the_old_gate(env, tmp_path, monkeypatch):  # noqa: F811
     fixture = Path(__file__).parent.parent / 'fixtures' / 'support_clearance' / '06_part_gap_040_large.3mf'
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(fixture, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(fixture, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     monkeypatch.setattr(support_clearance, 'verify_coverage_by_plate',
                         lambda regions, plates: {'checked': True, 'ok': True, 'unverified': []})
     rep = support_clearance.analyze(str(fixture), first_layer_mm=0.2)

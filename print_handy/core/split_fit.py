@@ -772,7 +772,7 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     not slice or contact the printer.
     """
     from . import color_geometry
-    from . import model_job
+    from ..jobs import slice as jobs_slice
     from . import plate_merge
     from .source_colors import inventory
 
@@ -809,7 +809,7 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     placement_by_object = {row['object_id']: row['placement_mm'] for row in report
                            if row.get('placement_mm')}
     try:
-        authored = model_job.plate_manifest(source)['plates']
+        authored = jobs_slice.plate_manifest(source)['plates']
     except (RuntimeError, zipfile.BadZipFile):
         authored = []
     object_to_plate = {str(object_id): plate['id'] for plate in authored

@@ -12,7 +12,8 @@ from pathlib import Path
 
 # Ensure the repository's namespace package wins over any third-party `tests` package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from print_handy.core import edit_plan, model_job as mj, model_questions
+from print_handy.core import edit_plan, model_questions
+from print_handy.jobs import audit as jobs_audit
 from tests.corpus.edit.runner import build_test_job, generate_mock_gcode, resolve_plan, verify_probe
 
 
@@ -21,7 +22,7 @@ def run_model_edits(model_path, work_dir):
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     try:
-        audit = mj.audit(model_path)
+        audit = jobs_audit.audit(model_path)
     except Exception as exc:
         return {"result": "SKIP", "reason": f"audit skipped: {exc}"}
 

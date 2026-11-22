@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import cad_split, heavy_worker, prepared_intake
+from print_handy.core import cad_split, heavy_worker
+from print_handy.intake import worker as intake_worker
 from print_handy.core.geometry_layout import describe_triangles, write_binary_stl
 from print_handy.core.orca_adapter import read_stl_triangles
 
@@ -269,7 +270,7 @@ def test_heavy_worker_registration():
         ('cad_split', 'prepare_cad_split'),
     ):
         assert entry in heavy_worker.ALLOWED
-        assert entry in prepared_intake._OFFLOAD
+        assert entry in intake_worker._OFFLOAD
 
 
 # ------------------------------------------- real OpenSCAD binary (expansion)

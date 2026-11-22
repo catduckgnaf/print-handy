@@ -9,15 +9,17 @@
 import pytest
 
 from print_handy.core import prepared_intake, support_clearance, yolo
-from print_handy.core import model_job
+from print_handy.intake import questions as intake_questions
+from print_handy.jobs import slice as jobs_slice
 from print_handy.runtime import print_next
 
 from .test_intake_support_precheck import _coverage_only_report, _warning_slice, run_flow
 from .test_intake_support_precheck import env  # noqa: F401  (pytest fixture)
+from tests.bound_names import setattr_bound
 
 
 def test_ready_menu_puts_the_recommendation_on_the_button(env, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     # one color (2 on the #1473 offer), slot 1 (0), Cancel at the Ready menu (last)
     adapter, _result, _receipt = run_flow(env, [2, 0, 6])
     ready = next(q for q in adapter.questions if q['question'].startswith('Ready to slice'))
@@ -32,7 +34,7 @@ def test_ready_menu_puts_the_recommendation_on_the_button(env, monkeypatch):  # 
 def test_bed_clear_note_only_where_a_button_prints(env, monkeypatch):  # noqa: F811
     from print_handy.core import delivery
     monkeypatch.setattr(delivery, 'methods', lambda *a, **k: ['discord'])
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     adapter, _result, _receipt = run_flow(env, [2, 0, 5])
     ready = next(q for q in adapter.questions if q['question'].startswith('Ready to slice'))
     assert ready['choices'][0] == 'Slice with supports (recommended)'
@@ -64,10 +66,10 @@ def test_coverage_text_names_the_part_and_the_plain_finding():
 @pytest.mark.parametrize('pick', [0, 1])
 def test_coverage_question_says_what_each_button_does(env, monkeypatch, pick):  # noqa: F811
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     adapter, _result, _receipt = run_flow(env, [2, 0, 0, pick])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     text = q['question']
     assert 'found no support of an overhang on Body' in text
     assert '- Print anyway: print this slice as it is.' in text

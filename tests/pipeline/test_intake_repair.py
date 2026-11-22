@@ -8,10 +8,13 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.core import link_intake
-from print_handy.core import model_job
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
 from print_handy.core import prepared_intake
 from .test_color_intake import state
 from .test_prepared_intake import Adapter, env
+from tests.bound_names import setattr_bound
 
 URL = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-3848581'
 
@@ -36,14 +39,14 @@ def test_linked_profile_is_selected_automatically(env, monkeypatch):
     # A profileId in the link wins and is announced; no profile button.
     rows = [{'instance_id': 3848581, 'title': '0.2mm layer, 2 walls, 8% infill'},
             {'instance_id': 3873478, 'title': 'Optimize parameters'}]
-    monkeypatch.setattr(model_job, 'maker_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda url: {
         'site': 'makerworld', 'slug': 'frame', 'title': 'Frame', 'sources': rows})
     selected = []
 
     def download(job, chosen, dest):
         selected.append(chosen['instance_id'])
-        return model_job.printables_download(job, chosen, dest)
-    monkeypatch.setattr(model_job, 'maker_download', download)
+        return jobs_sources.printables_download(job, chosen, dest)
+    monkeypatch.setattr(jobs_sources, 'maker_download', download)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None),
               message_id='profiles', text=URL)
     adapter = Adapter([1, 0, 3])
@@ -90,11 +93,11 @@ def test_intake_flow_quantity_prompt_and_duration_answer(env, monkeypatch):
         data['gcode'] = str(gcode)
         data['sliced_copies'] = {'gcode': str(gcode), 'copies': copies or 1}
         data['copies'] = copies
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         env.sliced.append(str(gcode))
         return [gcode]
 
-    monkeypatch.setattr(model_job, 'slice_job', mock_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', mock_slice)
 
     # User message contains model link and duration question
     text = 'https://www.printables.com/model/1-ghost how long would this take?'  # mocked source, never live

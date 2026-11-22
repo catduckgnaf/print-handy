@@ -373,6 +373,7 @@ def test_yolo_never_takes_the_keep_openings_apply_either():
     import asyncio as _asyncio
     from types import SimpleNamespace as S
     from print_handy.core import prepared_intake, yolo
+    from print_handy.intake import questions as intake_questions
     asked = []
 
     async def ask(adapter, source, key, question, choices, timeout, **kwargs):
@@ -389,7 +390,7 @@ def test_yolo_never_takes_the_keep_openings_apply_either():
     token = yolo.ACTIVE.set(True)
     try:
         choices = [ai_fix.APPLY_KEEP_OPENINGS_LABEL, "Cancel"]
-        pick = _asyncio.run(prepared_intake._ask(_A(), S(chat_id="c", thread_id=None), "k",
+        pick = _asyncio.run(intake_questions._ask(_A(), S(chat_id="c", thread_id=None), "k",
                                                  "Apply?", choices, 1))
     finally:
         yolo.ACTIVE.reset(token)

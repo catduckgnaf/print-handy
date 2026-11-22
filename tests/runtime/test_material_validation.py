@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, printer_state
+from print_handy.core import orca_adapter, printer_state
 
 
 @pytest.mark.parametrize("material,match", [("mystery blend", "no PLA fallback"), ("", "no material")])

@@ -23,6 +23,7 @@ from unittest.mock import patch
 import pytest
 
 from print_handy.core import model_job as job
+from print_handy.gcode import verify as gcode_verify
 from print_handy.core import orca_adapter as adapter
 from print_handy.printers.flashforge.zmod import multicolor_contract as contract
 from print_handy.printers.flashforge.zmod import native_startup
@@ -62,7 +63,7 @@ def test_refinalizing_with_the_same_map_keeps_the_bytes_and_writes_nothing(tmp_p
     assert len(calls) == 1, "every finalize normalizes and validates in full"
     assert again == first == hashlib.sha256(finalized).hexdigest()
     assert path.read_bytes() == finalized
-    assert job.zmod_md5_valid(path)
+    assert gcode_verify.zmod_md5_valid(path)
 
 
 def test_a_checksummed_file_with_print_handys_map_lines_is_still_normalized(tmp_path):

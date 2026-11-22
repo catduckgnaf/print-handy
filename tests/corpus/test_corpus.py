@@ -375,18 +375,19 @@ def test_matrix_entries_that_cannot_be_built_are_refused(entry):
 
 
 def test_printer_overrides_vary_the_shared_hardware_record_and_restore_the_planner_constants():
-    from print_handy.core import color_geometry, model_job
+    from print_handy.core import color_geometry
+    from print_handy.jobs import slice as jobs_slice
     from . import printer_overrides
     base = json.loads(harness.FIXTURE_STATE.read_text())
     state = printer_overrides.apply_to_state(base, {"nozzle": 0.25, "bed": 180})
     assert state["nozzle"]["diameter_mm"] == 0.25 and state["bed_mm"] == [180, 180]
     assert state["axis_limits_mm"]["x"] == [0, 183] and base["nozzle"]["diameter_mm"] == 0.4
-    before = (color_geometry.TOWER_MM, color_geometry.BED_MM, model_job.BED_LIMIT_MM)
+    before = (color_geometry.TOWER_MM, color_geometry.BED_MM, jobs_slice.BED_LIMIT_MM)
     with printer_overrides.patched({"tower": 30, "bed": 180}):
         # The planner's tower is the larger of the configured width and the nozzle's tuned width.
         assert (color_geometry.effective_tower_mm(0.2), color_geometry.effective_tower_mm(0.25)) == (30.0, 35.0)
-        assert (color_geometry.TOWER_MM, color_geometry.BED_MM, model_job.BED_LIMIT_MM) == (30.0, 180, 180)
-    assert (color_geometry.TOWER_MM, color_geometry.BED_MM, model_job.BED_LIMIT_MM) == before
+        assert (color_geometry.TOWER_MM, color_geometry.BED_MM, jobs_slice.BED_LIMIT_MM) == (30.0, 180, 180)
+    assert (color_geometry.TOWER_MM, color_geometry.BED_MM, jobs_slice.BED_LIMIT_MM) == before
     for bad in ({"colour": 1}, {"nozzle": 0}, {"slots": 5}, {"tower": "big"}):
         with pytest.raises(ValueError):
             printer_overrides.validate(bad)
@@ -396,13 +397,14 @@ def test_printer_overrides_vary_the_shared_hardware_record_and_restore_the_plann
 def test_million_triangle_mesh_audit_completes_offline(tmp_path, monkeypatch):
     """Generate the million-triangle ring at runtime and exercise real audit and placement paths."""
     from . import make_models
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import audit as jobs_audit
     source = make_models.generate_large_torus(tmp_path / "flexy-ring-million.stl")
     assert source.stat().st_size == 50_000_084
     original_read = orca_adapter.read_stl_triangles
     monkeypatch.setattr(orca_adapter, "read_stl_triangles", original_read)
     started = time.monotonic()
-    audit = model_job.mesh_audit(source, printer_model="Flashforge AD5X")
+    audit = jobs_audit.mesh_audit(source, printer_model="Flashforge AD5X")
     duration = time.monotonic() - started
     assert audit["triangles"] == 1_000_000
     assert audit["dimensions_mm"] == [75.4, 75.4, 19.4]

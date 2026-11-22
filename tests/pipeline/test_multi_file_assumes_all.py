@@ -11,9 +11,10 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy import settings
-from print_handy.core import prepared_intake
+from print_handy.intake import questions as intake_questions
 from print_handy.core.prepared_intake import _choose_files
 from print_handy.runtime import _config
+from tests.bound_names import setattr_bound
 
 PARTS = ('shell.stl', 'plunger.stl', 'spring.stl')
 
@@ -35,7 +36,7 @@ def asked(monkeypatch):
         questions.append({'question': question, 'choices': choices})
         return 0
 
-    monkeypatch.setattr(prepared_intake, '_ask', ask)
+    setattr_bound(monkeypatch, intake_questions, '_ask', ask)
     return questions
 
 

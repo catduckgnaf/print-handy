@@ -24,8 +24,13 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy.core import model_job as mj
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core import source_colors as sc
 from tests.core.test_plate_usage import write_source, two_plate_source, selection
+from tests.bound_names import patch_bound
 
 STATE = {'bed_mm': [220, 220], 'max_print_height_mm': 250,
          'nozzle': {'diameter_mm': 0.4},
@@ -61,7 +66,7 @@ class GateTests(unittest.TestCase):
         jp = self._job_file({'downloaded_file': str(path)})
         job = json.loads(jp.read_text())
         with self.assertRaises(mj.FilamentWarningPending) as caught:
-            mj._enforce_filament_readiness(job, manifest, decisions, [2],
+            jobs_slice._enforce_filament_readiness(job, manifest, decisions, [2],
                                            job_folder=self.work)
         pending = caught.exception
         self.assertTrue(any('plate 2' in w for w in pending.warnings))
@@ -78,11 +83,11 @@ class GateTests(unittest.TestCase):
         jp = self._job_file({'downloaded_file': str(path)})
         job = json.loads(jp.read_text())
         with self.assertRaises(mj.FilamentWarningPending):
-            mj._enforce_filament_readiness(job, manifest, decisions, [2],
+            jobs_slice._enforce_filament_readiness(job, manifest, decisions, [2],
                                            job_folder=self.work)
-        mj.record_filament_warning_acknowledgement(jp)
+        jobs_prompts.record_filament_warning_acknowledgement(jp)
         job = json.loads(jp.read_text())
-        warnings = mj._enforce_filament_readiness(job, manifest, decisions, [2],
+        warnings = jobs_slice._enforce_filament_readiness(job, manifest, decisions, [2],
                                                   job_folder=self.work)
         self.assertTrue(any('plate 2' in w for w in warnings))
         ack = job['filament_warning_acknowledgement']
@@ -100,9 +105,9 @@ class GateTests(unittest.TestCase):
         jp = self._job_file({'downloaded_file': str(path)})
         job = json.loads(jp.read_text())
         with self.assertRaises(mj.FilamentWarningPending):
-            mj._enforce_filament_readiness(job, manifest, decisions, [2],
+            jobs_slice._enforce_filament_readiness(job, manifest, decisions, [2],
                                            job_folder=self.work)
-        mj.record_filament_warning_acknowledgement(jp)
+        jobs_prompts.record_filament_warning_acknowledgement(jp)
         other_path = write_source(self.work / "other.3mf",
                                   [("Base", 1, None), ("Knob2", None, None)], [[0], [1]])
         other = sc.inventory(other_path)
@@ -111,7 +116,7 @@ class GateTests(unittest.TestCase):
                            'selection': selection(1)}
         job = json.loads(jp.read_text())
         with self.assertRaises(mj.FilamentWarningPending):
-            mj._enforce_filament_readiness(job, other, other_decisions, [2],
+            jobs_slice._enforce_filament_readiness(job, other, other_decisions, [2],
                                            job_folder=self.work)
 
     def test_pending_survives_the_worker_error_boundary(self):
@@ -131,9 +136,9 @@ class GateTests(unittest.TestCase):
     def test_recording_an_acceptance_with_no_pending_warnings_is_refused(self):
         jp = self._job_file({'downloaded_file': 'unused'})
         with self.assertRaises(ValueError):
-            mj.record_filament_warning_acknowledgement(jp)
+            jobs_prompts.record_filament_warning_acknowledgement(jp)
         with self.assertRaises(ValueError):
-            mj.record_filament_warning_acknowledgement({}, warnings=[])
+            jobs_prompts.record_filament_warning_acknowledgement({}, warnings=[])
 
     def test_unmapped_filament_is_a_fallback_warning_not_covered_by_another_acceptance(self):
         # Behavior change (#1189, owner decision 2026-11-10): #1190 pinned a
@@ -151,14 +156,14 @@ class GateTests(unittest.TestCase):
             'acknowledged': True, 'warnings': ['some earlier warning'],
             'selected_plates': [2], 'source_sha256': manifest['source_sha256']}
         with self.assertRaises(mj.FilamentWarningPending) as caught:
-            mj._enforce_filament_readiness(job, manifest, decisions, [2], slot_capacity=4,
+            jobs_slice._enforce_filament_readiness(job, manifest, decisions, [2], slot_capacity=4,
                                            job_folder=self.work, state=STATE)
         self.assertEqual(caught.exception.warnings,
                          ["plate 2: source filament 3 is used but has no slot chosen (part Knob); "
                           "it prints from slot 1, the printer's first loaded slot"])
         # Without the printer record (no fallback can be named) it refuses as before.
         with self.assertRaisesRegex(RuntimeError, 'print readiness blocked') as hard:
-            mj._enforce_filament_readiness(job, manifest, decisions, [2], job_folder=self.work)
+            jobs_slice._enforce_filament_readiness(job, manifest, decisions, [2], job_folder=self.work)
         self.assertNotIsInstance(hard.exception, mj.FilamentWarningPending)
 
     def test_decisions_bound_to_another_source_still_refuse(self):
@@ -171,7 +176,7 @@ class GateTests(unittest.TestCase):
             'acknowledged': True, 'warnings': ['some earlier warning'],
             'selected_plates': [2], 'source_sha256': manifest['source_sha256']}}
         with self.assertRaisesRegex(RuntimeError, 'print readiness blocked') as caught:
-            mj._enforce_filament_readiness(job, manifest, decisions, [2], slot_capacity=4,
+            jobs_slice._enforce_filament_readiness(job, manifest, decisions, [2], slot_capacity=4,
                                            job_folder=self.work, state=STATE)
         self.assertNotIsInstance(caught.exception, mj.FilamentWarningPending)
 
@@ -185,7 +190,7 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _patches(self):
-        return (mock.patch.object(mj, "ARCHIVE", self.work),
+        return (patch_bound(jobs_common, "ARCHIVE", self.work),
                 mock.patch.object(mj.printer_state, "load", return_value=STATE),
                 mock.patch.object(mj.printer_state, "check", return_value=(True, [], {})))
 
@@ -202,14 +207,14 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
                                               'color': 'white', 'material': 'PLA'}}}))
         p1, p2, p3 = self._patches()
         with p1, p2, p3, mock.patch.object(
-                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+                jobs_slice, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
             with self.assertRaises(mj.FilamentWarningPending):
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             slicer.assert_not_called()
             saved = json.loads(job_path.read_text())
             self.assertIn('filament_warnings_pending', saved)
-            mj.record_filament_warning_acknowledgement(job_path)
-            result = mj.slice_job(job_path)
+            jobs_prompts.record_filament_warning_acknowledgement(job_path)
+            result = jobs_slice.slice_job(job_path)
             self.assertEqual(result, Path("result.gcode"))
             slicer.assert_called_once()
             saved = json.loads(job_path.read_text())
@@ -222,7 +227,7 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
             self.assertTrue(
                 saved['filament_warning_acknowledgement']['used_by_slice'])
             with self.assertRaises(mj.FilamentWarningPending):
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             self.assertEqual(slicer.call_count, 1)
             saved = json.loads(job_path.read_text())
             self.assertNotIn('filament_warning_acknowledgement', saved)
@@ -246,14 +251,14 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
             'title': 'Damaged claim'}))
         p1, p2, p3 = self._patches()
         with p1, p2, p3, mock.patch.object(
-                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+                jobs_slice, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
             with self.assertRaises(mj.FilamentWarningPending) as caught:
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             self.assertTrue(any('plate 1' in w for w in caught.exception.warnings))
 
             slicer.assert_not_called()
-            mj.record_filament_warning_acknowledgement(job_path)
-            result = mj.slice_job(job_path)
+            jobs_prompts.record_filament_warning_acknowledgement(job_path)
+            result = jobs_slice.slice_job(job_path)
             self.assertEqual(result, Path("result.gcode"))
             slicer.assert_called_once()
 
@@ -272,16 +277,16 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
                                             source_sha256='abc', selected_plates=[2])
         from contextlib import ExitStack
         common = [mock.patch.object(mj.printer_state, "load", return_value={}),
-                  mock.patch.object(mj, "intake_unit_confirmation", return_value=True),
-                  mock.patch.object(mj, "intake_color_choices", return_value=True)]
+                  patch_bound(jobs_prompts, "intake_unit_confirmation", return_value=True),
+                  patch_bound(jobs_prompts, "intake_color_choices", return_value=True)]
         with ExitStack() as stack:
             for patcher in common:
                 stack.enter_context(patcher)
             stack.enter_context(mock.patch.object(
                 sys, "argv", ['model_job.py', 'slice', str(job_path), '--approved']))
-            stack.enter_context(mock.patch.object(mj, "slice_job", side_effect=pending))
+            stack.enter_context(patch_bound(jobs_slice, "slice_job", side_effect=pending))
             out = stack.enter_context(mock.patch('sys.stdout', new_callable=io.StringIO))
-            mj.main()
+            jobs_cli.main()
         self.assertIn('FILAMENT_WARNINGS_PENDING', out.getvalue())
         self.assertIn('plate 2: support usage is unknown', out.getvalue())
         self.assertIn('--accept-filament-warnings', out.getvalue())
@@ -294,9 +299,9 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
                 sys, "argv", ['model_job.py', 'slice', str(job_path), '--approved',
                               '--accept-filament-warnings']))
             slicer = stack.enter_context(
-                mock.patch.object(mj, "slice_job", return_value='fake.gcode'))
+                patch_bound(jobs_slice, "slice_job", return_value='fake.gcode'))
             stack.enter_context(mock.patch('sys.stdout', new_callable=io.StringIO))
-            mj.main()
+            jobs_cli.main()
         slicer.assert_called_once()
         saved = json.loads(job_path.read_text())
         ack = saved['filament_warning_acknowledgement']
@@ -315,9 +320,9 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
             'audit': {'plates': 2, 'size_x': '10', 'size_y': '10', 'size_z': '10'},
             'title': 'Needs choices'}))
         p1, p2, p3 = self._patches()
-        with p1, p2, p3, mock.patch.object(mj, "slice_multi_plate") as slicer:
+        with p1, p2, p3, mock.patch.object(jobs_slice, "slice_multi_plate") as slicer:
             with self.assertRaises(mj.FilamentWarningPending) as caught:
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             slicer.assert_not_called()
             self.assertEqual(caught.exception.warnings,
                              ['color choices were never made for this print; every part prints '
@@ -347,7 +352,7 @@ class WholeSourceMultiPlateTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _patches(self):
-        return (mock.patch.object(mj, "ARCHIVE", self.work),
+        return (patch_bound(jobs_common, "ARCHIVE", self.work),
                 mock.patch.object(mj.printer_state, "load", return_value=STATE),
                 mock.patch.object(mj.printer_state, "check", return_value=(True, [], {})))
 
@@ -365,15 +370,15 @@ class WholeSourceMultiPlateTests(unittest.TestCase):
                                     'mode': 'single_color', 'selection': _SLOT1})
         p1, p2, p3 = self._patches()
         with p1, p2, p3, mock.patch.object(
-                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+                jobs_slice, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
             with self.assertRaises(mj.FilamentWarningPending) as caught:
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             slicer.assert_not_called()
             self.assertTrue(any('plate 2' in w and 'objects filament usage is unknown' in w
                                 for w in caught.exception.warnings), caught.exception.warnings)
             self.assertEqual(caught.exception.selected_plates, [])
-            mj.record_filament_warning_acknowledgement(job_path)
-            self.assertEqual(mj.slice_job(job_path), Path("result.gcode"))
+            jobs_prompts.record_filament_warning_acknowledgement(job_path)
+            self.assertEqual(jobs_slice.slice_job(job_path), Path("result.gcode"))
             slicer.assert_called_once()
 
     def test_known_usage_slices_with_no_warning_round(self):
@@ -383,8 +388,8 @@ class WholeSourceMultiPlateTests(unittest.TestCase):
                                       'mode': 'single_color', 'selection': _SLOT1})
         p1, p2, p3 = self._patches()
         with p1, p2, p3, mock.patch.object(
-                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
-            self.assertEqual(mj.slice_job(job_path), Path("result.gcode"))
+                jobs_slice, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+            self.assertEqual(jobs_slice.slice_job(job_path), Path("result.gcode"))
             slicer.assert_called_once()
         self.assertNotIn('filament_warnings_pending', json.loads(job_path.read_text()))
 
@@ -413,8 +418,8 @@ class WholeSourceMultiPlateTests(unittest.TestCase):
         job_path = self._job(source, decisions, color_schema='part_slots_v1')
         p1, p2, p3 = self._patches()
         with p1, p2, p3, mock.patch.object(
-                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
-            self.assertEqual(mj.slice_job(job_path), Path("result.gcode"))
+                jobs_slice, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+            self.assertEqual(jobs_slice.slice_job(job_path), Path("result.gcode"))
             slicer.assert_called_once()
         self.assertNotIn('filament_warnings_pending', json.loads(job_path.read_text()))
 

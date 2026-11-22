@@ -22,6 +22,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job as model_job
+from print_handy.gcode import verify as gcode_verify
 from print_handy.jobs import slice as jobs_slice
 from print_handy.jobs.store import _job_adapter
 
@@ -138,7 +139,7 @@ def test_secondary_slice_fails_when_the_family_guard_refuses(tmp_path, monkeypat
     _fake_slice(monkeypatch, FOREIGN_GCODE, seen)
     job_path = _job(tmp_path)
     with pytest.raises(RuntimeError, match="another vendor's start code"):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
     # The slicer was handed the job's own (Prusa) adapter, not the default's.
     assert seen.get("adapter") is not None and seen["adapter"].key == "prusa.mk4s"
     saved = json.loads(job_path.read_text())
@@ -151,7 +152,7 @@ def test_secondary_slice_verifies_and_only_then_stamps_verified(tmp_path, monkey
     seen = {}
     _fake_slice(monkeypatch, CLEAN_GCODE, seen)
     job_path = _job(tmp_path)
-    out = model_job.slice_job(job_path)
+    out = jobs_slice.slice_job(job_path)
     assert Path(out).name == "plate_1.gcode"
     saved = json.loads(job_path.read_text())
     assert saved["printer_model"] == "prusa.mk4s"
@@ -188,4 +189,4 @@ def test_finalize_multicolor_with_the_ad5x_adapter_still_finalizes(two_printers,
                                             adapter=_job_adapter({"printer_id": "garage-ad5x"}))
     assert result is not None
     assert path.read_bytes().startswith(b"; MD5:")
-    assert model_job.zmod_md5_valid(path)
+    assert gcode_verify.zmod_md5_valid(path)

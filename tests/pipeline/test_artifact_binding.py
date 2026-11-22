@@ -3,10 +3,20 @@ from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
 from print_handy.core import model_job as mj
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.core import orca_adapter
 from .test_color_intake import source, state
 from .test_discord_color_intake import Transport
 from print_handy.core.discord_color_intake import collect
+from tests.bound_names import setattr_bound
 
 
 def setup_job(tmp_path, monkeypatch):
@@ -15,7 +25,7 @@ def setup_job(tmp_path, monkeypatch):
         slot['physical_color_verified']=True
     p=source(tmp_path); jp=tmp_path/'JOB.json'
     jp.write_text(json.dumps({'downloaded_file':str(p),'audit':{'plates':1,'size_x':40,'size_y':10,'size_z':1}}))
-    mj.intake_color_choices(jp,st,'single_color',[1])
+    jobs_prompts.intake_color_choices(jp,st,'single_color',[1])
     monkeypatch.setattr(mj.printer_state,'load',lambda:st)
     monkeypatch.setattr(mj.printer_state,'check',lambda _: (True,[],{}))
     def slice_fake(src,folder,st,brim,color_decisions,filament_slot=None, copies=1):
@@ -23,10 +33,10 @@ def setup_job(tmp_path, monkeypatch):
         out.write_text(json.dumps(color_decisions,sort_keys=True))
         return out,{'offline_test':True},[]
     monkeypatch.setattr(orca_adapter,'slice_model',slice_fake)
-    monkeypatch.setattr(mj,'verify_gcode',lambda _:None)
+    setattr_bound(monkeypatch, gcode_verify,'verify_gcode',lambda _:None)
     from print_handy.printers.flashforge.zmod import multicolor_contract
     monkeypatch.setattr(multicolor_contract,'finalize',lambda *a,**k:None)
-    old=mj.slice_job(jp)
+    old=jobs_slice.slice_job(jp)
     return jp,st,Path(old)
 
 
@@ -35,19 +45,19 @@ async def test_persisted_derived_binding_hash_keys_roundtrip_and_tamper_refusal(
     jp, st, gcode = setup_job(tmp_path, monkeypatch)
     job = json.loads(jp.read_text())
     job['derived_plates'] = [{'slot': 4, 'gcode': str(gcode)}]
-    job['artifact_binding'] = {'source_sha256': mj.file_sha256(job['downloaded_file']),
-        'decisions_sha256': mj.decisions_digest(job['color_decisions']),
-        'gcode_sha256': {'4': mj.file_sha256(gcode)},
+    job['artifact_binding'] = {'source_sha256': gcode_artifact.file_sha256(job['downloaded_file']),
+        'decisions_sha256': jobs_store.decisions_digest(job['color_decisions']),
+        'gcode_sha256': {'4': gcode_artifact.file_sha256(gcode)},
         'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256']}
     job['gcode'] = str(gcode)
     job['gcode_verified'] = True
     jp.write_text(json.dumps(job))
     persisted = json.loads(jp.read_text())
-    mj.require_current_artifact(persisted, gcode)
+    launch_gates.require_current_artifact(persisted, gcode)
     altered = json.loads(json.dumps(persisted))
     altered['artifact_binding']['gcode_sha256']['4'] = '0' * 64
     with pytest.raises(RuntimeError, match='stale color artifact'):
-        mj.require_current_artifact(altered, gcode)
+        launch_gates.require_current_artifact(altered, gcode)
 
 
 
@@ -77,13 +87,13 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
     monkeypatch.setattr(color_geometry, 'export_single_color_plate', plate_fake)
     # The fixture's parts share build objects across slots and the exporter is
     # faked; this test is about artifact binding, not the #820 assembly guard.
-    monkeypatch.setattr(mj, 'refuse_assembly_split', lambda *a, **k: None)
+    monkeypatch.setattr(jobs_slice, 'refuse_assembly_split', lambda *a, **k: None)
     monkeypatch.setattr(orca_adapter, 'slice_model', slice_fake)
     # #1473: decline the proposed mapping (1), then the authored per-part picks.
     asyncio.run(collect(jp, st, Transport([1, 0, 3]), 'offline', 'first', timeout=1))
     first = json.loads(jp.read_text())['color_decisions']
     assert sorted(c['slot'] for c in first['choices'].values()) == [1, 4]
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     bound = json.loads(jp.read_text())
     old = {row['slot']: (Path(row['gcode']), Path(row['gcode']).read_bytes()) for row in bound['derived_plates']}
     assert set(old) == {1, 4}
@@ -102,39 +112,39 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
     submissions = []
     def no_upload(*a, **k):
         raise AssertionError('stale artifact reached upload')
-    monkeypatch.setattr(mj, '_mr', transport(st, submissions))
+    setattr_bound(monkeypatch, jobs_common, '_mr', transport(st, submissions))
     from .test_multicolor_contract import spoolman
-    monkeypatch.setattr(mj, 'request_json', spoolman)
+    setattr_bound(monkeypatch, jobs_common, 'request_json', spoolman)
     monkeypatch.setattr(mj.subprocess, 'run', no_upload)
     with pytest.raises(RuntimeError, match='stale color artifact'):
-        mj.print_now(str(jp))
+        launch_print_now.print_now(str(jp))
     for path, _ in old.values():
         with pytest.raises(RuntimeError, match='stale color artifact'):
-            mj.print_now(str(path))
+            launch_print_now.print_now(str(path))
     assert submissions == []
     # Reslice under the corrected decisions, then launch exactly once.
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     fresh = json.loads(jp.read_text())
     assert fresh['gcode_verified'] is True and set(fresh['artifact_binding']['gcode_sha256']) == {'1', '4'}
     g = Path(fresh['gcode'])
     assert g not in {path for path, _ in old.values()}
     text = g.read_text()
-    assert '; hermes_tool_slots = {"0":{"physical_slot":1,' in text and mj.zmod_md5_valid(g)
+    assert '; hermes_tool_slots = {"0":{"physical_slot":1,' in text and gcode_verify.zmod_md5_valid(g)
     assert first != fresh['color_decisions']
     def upload(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 0, json.dumps({'result': {'item': {'root': 'gcodes', 'path': cmd[3]}}}), '')
     monkeypatch.setattr(mj.subprocess, 'run', upload)
-    monkeypatch.setattr(mj, '_printer_phase', lambda _: ('standby', '', 'Ready'))
-    monkeypatch.setattr(mj, 'mesh_readiness', lambda _: {'display_off': 0, 'profile': 'MESH_DATA', 'problem': None})
-    monkeypatch.setattr(mj, 'screen_z_offset', lambda _: -0.05)
-    monkeypatch.setattr(mj, 'read_stock_detail', lambda _: detail(st))
-    monkeypatch.setattr(mj, '_fetch_remote_gcode_sha256', lambda *a: mj.file_sha256(g))
-    monkeypatch.setattr(mj, '_wait_printing', lambda *a, **k: 'printing')
-    monkeypatch.setattr(mj, 'record_start', lambda *a, **k: tmp_path / 'record.md')
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase', lambda _: ('standby', '', 'Ready'))
+    setattr_bound(monkeypatch, launch_gates, 'mesh_readiness', lambda _: {'display_off': 0, 'profile': 'MESH_DATA', 'problem': None})
+    setattr_bound(monkeypatch, launch_gates, 'screen_z_offset', lambda _: -0.05)
+    setattr_bound(monkeypatch, jobs_filament, 'read_stock_detail', lambda _: detail(st))
+    monkeypatch.setattr(mj, '_fetch_remote_gcode_sha256', lambda *a: gcode_artifact.file_sha256(g))
+    monkeypatch.setattr(launch_print_now, '_wait_printing', lambda *a, **k: 'printing')
+    setattr_bound(monkeypatch, launch_print_now, 'record_start', lambda *a, **k: tmp_path / 'record.md')
     routed = []
-    real_mapped = mj.print_mapped_native
-    monkeypatch.setattr(mj, 'print_mapped_native', lambda *a, **k: routed.append(a[3]) or real_mapped(*a, **k))
-    out = mj.print_now(str(jp))
+    real_mapped = launch_print_now.print_mapped_native
+    monkeypatch.setattr(launch_print_now, 'print_mapped_native', lambda *a, **k: routed.append(a[3]) or real_mapped(*a, **k))
+    out = launch_print_now.print_now(str(jp))
     assert routed == [{'0': 1}] and out['submission_count'] == 1
     assert len(submissions) == 1
     command = submissions[0]['script']
@@ -142,14 +152,14 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
     assert 'T0=1' in command and 'T0=4' not in command and 'AUTO_ASSIGN=0' in command
     # A replay cannot resubmit: the approval is single use.
     with pytest.raises(SystemExit, match='already used'):
-        mj.print_now(str(jp))
+        launch_print_now.print_now(str(jp))
     assert len(submissions) == 1
     # The checkpoint records one launch attempt (print-again reads it), so it stays; but it must not
     # outlive its attempt as a block: an explicit reprint (a new bed-clear approval, multi-copy plates)
     # is a new attempt and replaces it. Only an unapproved replay is refused (test_launch_state).
     first_attempt = json.loads(g.with_suffix('.launch.json').read_text())
     assert first_attempt['accepted'] is True and first_attempt['lease_token']
-    out = mj.print_now(str(jp), reprint=True)
+    out = launch_print_now.print_now(str(jp), reprint=True)
     assert len(submissions) == 2 and out['submission_count'] == 1
     second_attempt = json.loads(g.with_suffix('.launch.json').read_text())
     assert second_attempt['lease_token'] != first_attempt['lease_token']

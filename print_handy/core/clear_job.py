@@ -80,7 +80,8 @@ class CancelFailure(RuntimeError):
 
 def native_read():
     from . import model_job
-    return model_job.read_stock_detail(model_job.printer_state.load())
+    from ..jobs import filament as jobs_filament
+    return jobs_filament.read_stock_detail(model_job.printer_state.load())
 
 
 def main():

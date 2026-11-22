@@ -7,7 +7,8 @@ import sys
 import pytest
 
 from print_handy import diagnostics
-from print_handy.core import owned_worker, prepared_intake, slice_failure, worker_errors
+from print_handy.core import owned_worker, slice_failure, worker_errors
+from print_handy.intake import worker as intake_worker
 from print_handy.core.resources import ResourceLimitError
 from print_handy.core.slice_refusal import unconfirmed_slot_color
 
@@ -70,9 +71,9 @@ runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
         return await real_run([sys.executable, '-c', script], payload, **kwargs)
 
     monkeypatch.setattr(owned_worker, 'run', child)
-    from print_handy.core import model_job
+    from print_handy.jobs import slice as jobs_slice
     with pytest.raises(RuntimeError) as info:
-        asyncio.run(prepared_intake._heavy(model_job.slice_job, str(tmp_path / 'JOB.json')))
+        asyncio.run(intake_worker._heavy(jobs_slice.slice_job, str(tmp_path / 'JOB.json')))
     assert diagnostics.classify(info.value).value == category
     post = slice_failure.post(info.value)
     assert phrase in post and 'SECRET' not in post
@@ -192,10 +193,10 @@ runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
         return await real_run([sys.executable, '-c', script], payload, **kwargs)
 
     monkeypatch.setattr(owned_worker, 'run', child)
-    from print_handy.core import model_job
+    from print_handy.jobs import slice as jobs_slice
     with caplog.at_level('ERROR', logger='print_handy.core.prepared_intake'):
         with pytest.raises(worker_errors.RemoteError) as info:
-            asyncio.run(prepared_intake._heavy(model_job.slice_job, str(tmp_path / 'JOB.json')))
+            asyncio.run(intake_worker._heavy(jobs_slice.slice_job, str(tmp_path / 'JOB.json')))
     assert "'NoneType' object has no attribute 'group'" in str(info.value)
     assert 'failing_build_item_edit' in info.value.worker_traceback
     assert 'failing_build_item_edit' in caplog.text and 'worker traceback' in caplog.text

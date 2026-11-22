@@ -293,6 +293,9 @@ class RecordStartNativeListTests(unittest.TestCase):
     def test_record_start_stashes_per_tool_list_in_slicer_settings(self):
         from unittest import mock as _mock
         from print_handy.core import model_job
+        from print_handy.jobs import store as jobs_store
+        from print_handy.launch import print_now as launch_print_now
+        from tests.bound_names import patch_bound
         from print_handy.runtime import print_records
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -303,7 +306,7 @@ class RecordStartNativeListTests(unittest.TestCase):
                      "spool": {"diameter_mm": 1.75, "density": 1.24,
                                "spoolman_id": 3, "material": "PLA", "name": "Red"}}
             with _mock.patch.object(print_records, "PRINTS_DIR", root / "Prints"), \
-                 _mock.patch.object(model_job, "_job_for_gcode",
+                 patch_bound(jobs_store, "_job_for_gcode",
                                     return_value={"title": "Widget"}), \
                  _mock.patch.object(model_job.printer_state, "load", return_value=state), \
                  _mock.patch.object(model_job.printer_state, "summary",
@@ -311,8 +314,8 @@ class RecordStartNativeListTests(unittest.TestCase):
                  _mock.patch.object(model_job.printers, "current",
                                     return_value=_mock.Mock(multi_slot=False,
                                                             native_or_none=None)), \
-                 _mock.patch.object(model_job, "CONTEXT", context_path):
-                record_path = model_job.record_start(str(gcode),
+                 patch_bound(jobs_store, "CONTEXT", context_path):
+                record_path = launch_print_now.record_start(str(gcode),
                                                      started_at="2026-11-02T00:00:00Z")
             record = json.loads(Path(record_path).read_text())
         settings = record["slicer_settings"]

@@ -437,14 +437,15 @@ async def _prompt_wait_answer(cm, cid, timeout):
 
 
 async def collect_link(event, adapter, state, root, timeout=300):
-    from .model_job import resolve_filament_selection, build_slot_labels, build_tool_labels, configured_slots, position_limit
+    from .model_job import build_slot_labels, build_tool_labels
+    from ..jobs.filament import resolve_filament_selection, configured_slots, position_limit
     from .. import printers
     source = event.source
     url = model_link(event.text)
     message_id = getattr(event, 'message_id', None)
     if not url or not message_id:
         raise ValueError('plain model link requires a stable Discord message ID')
-    from .model_job import intake_id_from_message
+    from ..jobs.store import intake_id_from_message
     intake_id = intake_id_from_message(source, message_id)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,12 @@
 import pytest
 
 from print_handy import printers, settings
-from print_handy.core import model_job, printer_state, spoolman_client
+from print_handy.core import printer_state, spoolman_client
+from tests.bound_names import setattr_bound
+from print_handy.gcode import bounds as gcode_bounds
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.launch import gates as launch_gates
 
 
 def test_live_check_spoolman_offline_is_warning_not_fatal(monkeypatch):
@@ -58,9 +63,9 @@ def test_verify_gcode_continues_when_spoolman_offline(monkeypatch, tmp_path, cap
     monkeypatch.setattr(printer_state, "check", lambda st, **_kw: (True, [], {
         "warnings": ["Spoolman lookup failed: timed out"]
     }))
-    monkeypatch.setattr(model_job, "_mr", lambda *a, **k: {"result": {"status": {"save_variables": {"variables": {}}}}})
-    monkeypatch.setattr(model_job, "_native", lambda: False)
-    monkeypatch.setattr(model_job, "cached_motion_bounds", lambda *a: {"x": (10, 20), "y": (10, 20), "z": (0.2, 0.4)})
+    setattr_bound(monkeypatch, jobs_common, "_mr", lambda *a, **k: {"result": {"status": {"save_variables": {"variables": {}}}}})
+    setattr_bound(monkeypatch, launch_gates, "_native", lambda: False)
+    setattr_bound(monkeypatch, gcode_bounds, "cached_motion_bounds", lambda *a: {"x": (10, 20), "y": (10, 20), "z": (0.2, 0.4)})
     gcode = tmp_path / "plate.gcode"
     gcode.write_text("""; nozzle_diameter = 0.4
 ; filament_type = PLA
@@ -77,5 +82,5 @@ G1 X10 Y10 Z0.2 E1
 G1 X20 Y20 Z0.4 E2
 PRINT_END
 """)
-    assert model_job.verify_gcode(gcode)
+    assert gcode_verify.verify_gcode(gcode)
     assert "WARNING: Spoolman lookup failed: timed out" in capsys.readouterr().err

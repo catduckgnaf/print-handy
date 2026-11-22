@@ -14,8 +14,13 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import delivery, launch_state, model_job
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.bambulab.client import (BambuLanClient, BambuLanError,
                                                   project_file_payload)
+from tests.bound_names import setattr_bound
 
 SERIAL = "00M00A000000000"
 CODE = "12345678"
@@ -180,18 +185,18 @@ def rig(monkeypatch, tmp_path):
     gcode = tmp_path / "plate_1.gcode"
     gcode.write_text("G1 X1\n")
     ftp = FakeFTP()
-    monkeypatch.setattr(model_job, "verify_gcode", lambda path: {"offline": True})
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda path: {"offline": True})
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
     monkeypatch.setattr(launch_state, "acquire",
                         lambda *a, **kw: events.append("acquire") or FakeLease(events))
-    monkeypatch.setattr(model_job, "_consume_approval",
+    monkeypatch.setattr(launch_gates, "_consume_approval",
                         lambda *a, **kw: events.append("consume_approval"))
-    monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: events.append("record") or "/records/1")
+    setattr_bound(monkeypatch, launch_print_now, "record_start", lambda g, remote, **kw: events.append("record") or "/records/1")
     # The confirmation window (#271) runs on a fake clock: 30 s, polled every 10 s = up to 4 snapshots.
     clock = FakeClock()
-    monkeypatch.setattr(model_job, "_confirm_clock", clock)
-    monkeypatch.setattr(model_job, "_confirm_sleep", clock.sleep)
-    monkeypatch.setattr(model_job, "_bambu_start_confirm_window", lambda: 30.0)
+    monkeypatch.setattr(launch_print_now, "_confirm_clock", clock)
+    monkeypatch.setattr(launch_print_now, "_confirm_sleep", clock.sleep)
+    monkeypatch.setattr(launch_print_now, "_bambu_start_confirm_window", lambda: 30.0)
     return {"adapter": adapter, "package": package, "gcode": gcode, "ftp": ftp, "events": events,
             "job": {"printer_model": "bambulab.a1", "gcode": str(gcode)},
             "job_path": tmp_path / "JOB.json", "clock": clock}
@@ -214,7 +219,7 @@ def test_print_bambu_happy_path_order_and_confirmation(monkeypatch, rig):
     remote = rig["package"].name
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), [],
                                    snapshot_script("RUNNING", filename=remote)])
-    out = model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+    out = launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert out["started"] is True and out["outcome"] == "printing" and out["file"] == remote
     assert rig["events"] == ["acquire", "consume_approval", "submitting", "release", "record"]
     assert rig["ftp"].stored[remote] == rig["package"].read_bytes()
@@ -223,21 +228,21 @@ def test_print_bambu_happy_path_order_and_confirmation(monkeypatch, rig):
 def test_print_bambu_refuses_a_busy_printer_before_any_gate(monkeypatch, rig):
     wire_client(monkeypatch, rig, [snapshot_script("RUNNING")])
     with pytest.raises(SystemExit, match="REFUSED:.*busy"):
-        model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+        launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert rig["events"] == [] and rig["ftp"].stored == {}
 
 
 def test_print_bambu_refuses_when_developer_mode_is_off(monkeypatch, rig):
     wire_client(monkeypatch, rig, [snapshot_script(fun=DEV_OFF)])
     with pytest.raises(SystemExit, match="REFUSED:.*Developer Mode is off"):
-        model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+        launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert rig["events"] == [] and rig["ftp"].stored == {}
 
 
 def test_print_bambu_unconfirmed_start_is_uncertain_not_a_resubmit(monkeypatch, rig):
     # Idle on every snapshot of the whole window: four reads at 0, 10, 20 and 30 s, then uncertain.
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), []] + [snapshot_script()] * 4)
-    out = model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+    out = launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert out["started"] is False and out["phase"] == "awaiting_confirmation"
     assert out["confirmation"] == {"snapshots": 4, "window_s": 30.0} and rig["clock"].now == 30.0
     assert rig["events"][:3] == ["acquire", "consume_approval", "submitting"]
@@ -253,7 +258,7 @@ def test_print_bambu_confirms_on_the_second_poll_when_the_printer_reaches_prepar
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), [],
                                    snapshot_script("IDLE"),
                                    snapshot_script("PREPARE", filename=remote, stage="2")])
-    out = model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+    out = launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert out["started"] is True and out["outcome"] == "printing"
     assert out["confirmation"] == {"snapshots": 2, "window_s": 30.0}
     assert out["live"]["gcode_state"] == "PREPARE" and out["live"]["stage"] == "2"
@@ -270,7 +275,7 @@ def test_print_bambu_confirms_when_prepare_without_the_file_turns_into_running(m
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), [],
                                    snapshot_script("PREPARE"),  # busy, but not yet naming the file
                                    snapshot_script("RUNNING", filename=remote, stage="2")])
-    out = model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+    out = launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert out["started"] is True and out["confirmation"]["snapshots"] == 2
     assert out["live"]["state"] == "printing" and out["live"]["filename"] == remote
 
@@ -280,7 +285,7 @@ def test_print_bambu_window_ending_in_standby_keeps_the_lease_uncertain_with_the
     monkeypatch.setattr(launch_state, "acquire", REAL_ACQUIRE)
     remote = rig["package"].name
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), []] + [snapshot_script("IDLE")] * 4)
-    out = model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+    out = launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert out["started"] is False and out["confirmation"]["snapshots"] == 4
     [row] = launch_state.pending()
     assert row["phase"] == "uncertain" and row["remote"] == remote
@@ -295,7 +300,7 @@ def test_print_bambu_window_ending_in_standby_keeps_the_lease_uncertain_with_the
                for l in polls)
     # And a later start on this printer is refused until the operator reconciles: never resubmitted.
     with pytest.raises(SystemExit, match="REFUSED: an earlier start on this printer is uncertain"):
-        REAL_ACQUIRE(model_job._printer_key(RECORD), remote=remote)
+        REAL_ACQUIRE(jobs_store._printer_key(RECORD), remote=remote)
 
 
 def test_print_bambu_confirmation_keeps_polling_through_a_failed_snapshot(monkeypatch, rig):
@@ -303,7 +308,7 @@ def test_print_bambu_confirmation_keeps_polling_through_a_failed_snapshot(monkey
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), [],
                                    FakeMqtt(connect_rc=5),  # this read is refused; the window goes on
                                    snapshot_script("RUNNING", filename=remote)])
-    out = model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+    out = launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert out["started"] is True and out["confirmation"]["snapshots"] == 2
 
 
@@ -311,7 +316,7 @@ def test_print_bambu_uncertain_detail_reports_the_last_readable_state(monkeypatc
     monkeypatch.setattr(launch_state, "acquire", REAL_ACQUIRE)
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), [],
                                    snapshot_script("IDLE")] + [FakeMqtt(connect_rc=5)] * 3)
-    out = model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+    out = launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert out["started"] is False and out["live"]["state"] == "standby"
     [row] = launch_state.pending()
     assert "state standby (IDLE)" in row["detail"] and "last of 4 snapshot(s)" in row["detail"]
@@ -332,15 +337,15 @@ def test_bambu_reports_file_accepts_preparing_and_running_with_the_submitted_nam
 
 def test_bambu_start_confirm_window_comes_from_settings(monkeypatch):
     monkeypatch.setattr(settings, "current", lambda: {"bambu": {"start_confirm_s": 45}})
-    assert model_job._bambu_start_confirm_window() == 45.0
+    assert launch_print_now._bambu_start_confirm_window() == 45.0
     monkeypatch.setattr(settings, "current", lambda: {"bambu": {}})
-    assert model_job._bambu_start_confirm_window() == float(model_job.BAMBU_START_CONFIRM_S) == 90.0
+    assert launch_print_now._bambu_start_confirm_window() == float(launch_print_now.BAMBU_START_CONFIRM_S) == 90.0
 
 
 def test_print_bambu_upload_failure_is_uncertain(monkeypatch, rig):
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script()], ftp=FakeFTP(fail_store=True))
     with pytest.raises(SystemExit, match="submission failed or uncertain"):
-        model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+        launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert any(e.startswith("uncertain:") for e in rig["events"])
 
 
@@ -352,7 +357,7 @@ def test_print_bambu_refuses_a_multi_plate_package(monkeypatch, tmp_path, rig):
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
     wire_client(monkeypatch, rig, [snapshot_script()])
     with pytest.raises(SystemExit, match="REFUSED:.*single-plate package"):
-        model_job._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
+        launch_print_now._print_bambu(rig["adapter"], RECORD, rig["gcode"], rig["job"], rig["job_path"], 25, False)
     assert rig["events"] == []
 
 

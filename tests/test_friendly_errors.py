@@ -186,11 +186,11 @@ def test_guided_debugging_findings_do_not_carry_raw_exceptions(tmp_path):
 # --------------------------------------------------------------------- model_job pipeline exits
 
 def test_model_job_detail_tail_demotes_raw_text():
-    from print_handy.core import model_job
-    assert model_job._detail_tail("") == ""
-    tail = model_job._detail_tail("some\n  raw   stderr tail")
+    from print_handy.jobs import store as jobs_store
+    assert jobs_store._detail_tail("") == ""
+    tail = jobs_store._detail_tail("some\n  raw   stderr tail")
     assert tail == "\nDetail: some raw stderr tail"
-    assert len(model_job._detail_tail("x" * 1000)) <= len("\nDetail: ") + 300
+    assert len(jobs_store._detail_tail("x" * 1000)) <= len("\nDetail: ") + 300
 
 
 # --------------------------------------------------------------------- the negative pin

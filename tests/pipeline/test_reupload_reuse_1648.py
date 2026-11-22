@@ -14,11 +14,15 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, prepared_intake, printer_state
+from print_handy.core import orca_adapter, prepared_intake, printer_state
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
 from print_handy.core import slice_recipe as sr
 from print_handy.jobs import slice as slicing
 from .test_color_intake import state
 from .test_prepared_intake import Adapter, env, print_next  # noqa: F401  (pytest fixture)
+from tests.bound_names import setattr_bound
 
 # Taken at import, before the env fixture swaps model_job.slice_job (an alias of this name).
 PRODUCTION_SLICE_JOB = slicing.slice_job
@@ -36,7 +40,7 @@ def slicer(env, monkeypatch):  # noqa: F811
     def orca_stand_in(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
         job = json.loads(Path(job_path).read_text())
         st = printer_state.load(job['printer_id']) if job.get('printer_id') else printer_state.load()
-        source_sha = model_job.file_sha256(job['downloaded_file'])
+        source_sha = gcode_artifact.file_sha256(job['downloaded_file'])
         recipe = sr.record(sr.slice_recipe(job, source_sha, st, copies=copies, scale=scale,
                                            brim_override=brim_override))
         assert recipe_sha256 in (None, recipe['sha256'])
@@ -51,17 +55,17 @@ def slicer(env, monkeypatch):  # noqa: F811
                              f'; run {len(runs)} plate {number}\nG1 X1\n')
             gcodes.append(gcode)
         job['slice_recipe'] = recipe
-        job['artifact_binding'] = {**model_job._recipe_binding(job),
+        job['artifact_binding'] = {**jobs_store._recipe_binding(job),
                                    'source_sha256': source_sha,
-                                   'decisions_sha256': model_job.decisions_digest(job.get('color_decisions')),
-                                   'gcode_sha256': model_job.file_sha256(gcodes[0])}
+                                   'decisions_sha256': jobs_store.decisions_digest(job.get('color_decisions')),
+                                   'gcode_sha256': gcode_artifact.file_sha256(gcodes[0])}
         if plates > 1:
             job['derived_plates'] = [{'gcode': str(g), 'plate_id': n, 'slot': n, 'binding_key': f'plate:{n}'}
                                      for n, g in enumerate(gcodes, 1)]
-            job['artifact_binding']['gcode_sha256'] = {f'plate:{n}': model_job.file_sha256(g)
+            job['artifact_binding']['gcode_sha256'] = {f'plate:{n}': gcode_artifact.file_sha256(g)
                                                        for n, g in enumerate(gcodes, 1)}
         job.update(gcode=str(gcodes[0]), gcode_verified=True, sliced_at='2026-11-17T22:30:00-0500')
-        model_job.write_job(Path(job_path).parent, job)
+        jobs_store.write_job(Path(job_path).parent, job)
         runs.append(str(job_path))
         return gcodes if plates > 1 else gcodes[0]
 
@@ -70,7 +74,7 @@ def slicer(env, monkeypatch):  # noqa: F811
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **pose: 1)
     # A plain function (not slice_job itself) keeps the call in this process, so the
     # stand-in above is the slicer the production entry falls through to.
-    monkeypatch.setattr(model_job, 'slice_job', lambda *args, **kwargs: PRODUCTION_SLICE_JOB(*args, **kwargs))
+    setattr_bound(monkeypatch, slicing, 'slice_job', lambda *args, **kwargs: PRODUCTION_SLICE_JOB(*args, **kwargs))
     return runs
 
 
@@ -79,7 +83,7 @@ def intake(env, picks, mid):  # noqa: F811
               text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
-    iid = model_job.intake_id_from_message(event.source, mid)
+    iid = jobs_store.intake_id_from_message(event.source, mid)
     receipt = json.loads((env.root / f'{iid}.json').read_text())
     return adapter, result, receipt
 
@@ -127,7 +131,7 @@ def test_resend_reuses_the_decisions_and_the_verified_gcode_without_slicing(env,
     # The start still went through the bed-clear button and the print_next gates for the copy.
     assert receipt['status'] == 'STARTED' and len(env.starts) == 2
     assert env.starts[-1]['gcode'] == job['gcode']
-    assert env.starts[-1]['gcode_sha256'] == model_job.file_sha256(job['gcode'])
+    assert env.starts[-1]['gcode_sha256'] == gcode_artifact.file_sha256(job['gcode'])
     assert receipt['bed_clear_approval']['gcode'] == job['gcode']
 
 
@@ -158,7 +162,7 @@ def break_all(receipts, damage):
     for receipt in receipts:
         job = job_of(receipt)
         damage(job)
-        model_job.write_job(Path(receipt['job_json']).parent, job)
+        jobs_store.write_job(Path(receipt['job_json']).parent, job)
 
 
 def test_missing_gcode_is_never_offered(env, slicer):  # noqa: F811
@@ -202,7 +206,7 @@ def test_other_source_bytes_are_never_offered(env, slicer, monkeypatch):  # noqa
         out = dest / 'ghost.3mf'
         out.write_bytes(other.read_bytes())
         return out
-    monkeypatch.setattr(model_job, 'printables_download', other_download)
+    monkeypatch.setattr(jobs_sources, 'printables_download', other_download)
     assert reuse_question(cancel_at_first_question(env, state(), 'm3')) is None
 
 
@@ -230,7 +234,7 @@ def intake_as(env, picks, mid, user_id):  # noqa: F811
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(
         event, adapter, state(), env.root, timeout=1))
-    iid = model_job.intake_id_from_message(event.source, mid)
+    iid = jobs_store.intake_id_from_message(event.source, mid)
     return adapter, result, json.loads((env.root / f'{iid}.json').read_text())
 
 
@@ -573,7 +577,7 @@ def intake_labeled(env, picks, mid):  # noqa: F811
     adapter = PickByLabel(picks)
     result = asyncio.run(prepared_intake.prepare_link(
         event, adapter, state(), env.root, timeout=1))
-    iid = model_job.intake_id_from_message(event.source, mid)
+    iid = jobs_store.intake_id_from_message(event.source, mid)
     return adapter, result, json.loads((env.root / f'{iid}.json').read_text())
 
 
@@ -698,9 +702,9 @@ def test_painted_multi_plate_keeps_last_times_size_without_asking(env, slicer, m
         out = dest / 'ghost.3mf'
         out.write_bytes(painted.read_bytes())
         return out
-    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(jobs_sources, 'printables_download', copy_painted)
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **pose: 0)
-    monkeypatch.setattr(model_job, 'painted_fit_for_job',
+    monkeypatch.setattr(slicing, 'painted_fit_for_job',
                         lambda path, decisions, state=None: {'scale': 0.95, 'plates': 2, 'blocking_plate': None})
     # Keep the painted regions with the proposed colors, accept 95% as 2 plates, print plate 1.
     first_adapter, _, first = intake(env, [0] * 20, 'm1')

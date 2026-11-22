@@ -386,15 +386,15 @@ def test_apply_fix_confirms_the_slot_and_never_overwrites_a_valid_hex(monkeypatc
 
 
 def test_validate_slot_selection_material_mismatch_is_never_waved_through():
-    from print_handy.core import model_job
+    from print_handy.jobs import filament as jobs_filament
     state = {"filament_slots": {"1": {"spoolman_id": 16, "material": "PETG", "hex": "FFFFFF",
                                  "physical_color_verified": False}}}
     with pytest.raises(RuntimeError, match="selected IFS slot 1") as caught:
-        model_job._validate_slot_selection(state, {"slot": 1, "spoolman_id": 16, "material": "PLA"})
+        jobs_filament._validate_slot_selection(state, {"slot": 1, "spoolman_id": 16, "material": "PLA"})
     assert caught.value.fix is None  # never a one-tap override for a different material
     assert caught.value.plain == ("Slot 1 (PETG) does not match the spool chosen for this job (PLA), "
                                   "so I stopped before slicing.")
     state["filament_slots"]["1"]["material"] = "PLA"
     with pytest.raises(slice_refusal.SliceRefusal) as refusal:
-        model_job._validate_slot_selection(state, {"slot": 1, "spoolman_id": 16, "material": "PLA"})
+        jobs_filament._validate_slot_selection(state, {"slot": 1, "spoolman_id": 16, "material": "PLA"})
     assert refusal.value.fix["slot"] == "1"

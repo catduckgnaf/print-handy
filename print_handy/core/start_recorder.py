@@ -408,7 +408,7 @@ def follow(path, *, interval_s=None, store_after=None):
     state = handoff.get("state") or {}
     if store_after is None:
         try:
-            from .model_job import _entries_after_watermark as store_after
+            from ..launch.print_now import _entries_after_watermark as store_after
         except Exception:
             store_after = None
     rec = StartRecorder.__new__(StartRecorder)

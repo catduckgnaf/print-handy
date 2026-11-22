@@ -15,7 +15,10 @@ from pathlib import Path
 import pytest
 
 from print_handy import settings
-from print_handy.core import color_geometry, model_job, orca_adapter, source_colors
+from print_handy.core import color_geometry, orca_adapter, source_colors
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import slice as jobs_slice
 from tests.corpus import make_models as mm
 
 REAL = os.environ.get("PRINT_HANDY_REAL_SLICER") == "1"
@@ -45,7 +48,7 @@ def _source(path, shapes, filaments=2):
 
 
 def _decisions(state, manifest, second_slot_object=None):
-    sel = {s: model_job.resolve_filament_selection(state, dict(state["filament_slots"][str(s)], slot=s)) for s in (1, 2)}
+    sel = {s: jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"][str(s)], slot=s)) for s in (1, 2)}
     choices = {}
     for part in manifest["parts"]:
         choices["part:" + part["key"]] = sel[2 if str(part["object_id"]) == str(second_slot_object) else 1]
@@ -81,8 +84,8 @@ def _single(tmp, shapes, brim):
         item_shifts={str(p["object_id"]): [0.0, 0.0, 0.0] for p in manifest["parts"]})
     out, _prov, _cfg = orca_adapter.slice_model(plate, tmp / "out", state, brim, preserve_layout=True,
                                                 filament_slot=1)
-    model_job.finalize_multicolor(out, None, state, {"0": 1})
-    model_job.verify_gcode_offline(out, state)
+    jobs_slice.finalize_multicolor(out, None, state, {"0": 1})
+    gcode_verify.verify_gcode_offline(out, state)
     return _extents(out)
 
 
@@ -95,7 +98,7 @@ def _multi(tmp, shapes, tower_xy, monkeypatch):
     out, _prov, _cfg = orca_adapter.slice_model(
         src, tmp / "out", state, None, color_decisions=decisions,
         item_shifts={str(p["object_id"]): [0.0, 0.0, 0.0] for p in manifest["parts"]})
-    model_job.verify_gcode_offline(out, state)
+    gcode_verify.verify_gcode_offline(out, state)
     return _extents(out)
 
 

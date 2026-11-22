@@ -8,8 +8,16 @@ from unittest.mock import patch
 
 import pytest
 from print_handy.core import model_job as job
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.flashforge.zmod import multicolor_contract as contract
 from print_handy.core import orca_adapter
+from tests.bound_names import patch_bound
 
 
 def state():
@@ -60,7 +68,7 @@ def spoolman(url, **kwargs):
 
 def cli(args):
     with patch.object(sys, 'argv', ['model_job.py'] + args):
-        job.main()
+        jobs_cli.main()
 
 
 def test_t0_single_color_plate_uses_explicit_physical_slot_not_project_material_count():
@@ -117,20 +125,20 @@ def test_public_prepare_verify_launch(tmp_path, n, mapping, bare_upload):
         return type('R', (), {'returncode':0, 'stdout':json.dumps(result if bare_upload else {'result':result}), 'stderr':''})()
     with patch.object(job.printer_state,'load',return_value=st), \
          patch.object(job.printer_state,'check',return_value=(True,[],{})), \
-         patch.object(job,'_mr',side_effect=transport(st,submissions)), \
-         patch.object(job,'request_json',side_effect=spoolman), \
-         patch.object(job,'_printer_phase',return_value=('standby','','Ready')), \
-         patch.object(job,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
-         patch.object(job,'read_stock_detail',return_value=detail(st)), \
+         patch_bound(jobs_common,'_mr',side_effect=transport(st,submissions)), \
+         patch_bound(jobs_common,'request_json',side_effect=spoolman), \
+         patch_bound(launch_gates,'_printer_phase',return_value=('standby','','Ready')), \
+         patch_bound(launch_gates,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
+         patch_bound(jobs_filament,'read_stock_detail',return_value=detail(st)), \
          patch.object(job.subprocess,'run',side_effect=upload), \
-         patch.object(job,'_fetch_remote_gcode_sha256',side_effect=lambda *a: job.file_sha256(path)), \
-         patch.object(job,'_wait_printing',return_value='printing'), \
-         patch.object(job,'record_start',return_value=tmp_path/'record.md'):
+         patch.object(job,'_fetch_remote_gcode_sha256',side_effect=lambda *a: gcode_artifact.file_sha256(path)), \
+         patch.object(launch_print_now,'_wait_printing',return_value='printing'), \
+         patch_bound(launch_print_now,'record_start',return_value=tmp_path/'record.md'):
         cli(['finalize-gcode',str(path),'--tool-map',str(mapfile)])
         finalized=path.read_bytes()
         cli(['finalize-gcode',str(path),'--tool-map',str(mapfile)])
         assert path.read_bytes()==finalized
-        assert job.zmod_md5_valid(path)
+        assert gcode_verify.zmod_md5_valid(path)
         from print_handy.printers.flashforge.zmod.native_startup import commands
         expected_body = original
         assert commands(expected_body) == commands(path.read_text())
@@ -172,10 +180,10 @@ def test_launch_invalid_zero_submission(tmp_path,fault):
     submissions=[]
     with patch.object(job.printer_state,'load',return_value=st), \
          patch.object(job.printer_state,'check',return_value=(True,[],{})), \
-         patch.object(job,'_mr',side_effect=transport(st,submissions)), \
-         patch.object(job,'request_json',side_effect=spoolman), \
-         patch.object(job,'_printer_phase',return_value=('standby','','Ready')), \
-         patch.object(job,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
+         patch_bound(jobs_common,'_mr',side_effect=transport(st,submissions)), \
+         patch_bound(jobs_common,'request_json',side_effect=spoolman), \
+         patch_bound(launch_gates,'_printer_phase',return_value=('standby','','Ready')), \
+         patch_bound(launch_gates,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
          patch.object(job.subprocess,'run',side_effect=AssertionError('invalid upload reached')):
         with pytest.raises(SystemExit,match='did not pass its safety checks'):
             cli(['print-now',str(path)])
@@ -214,14 +222,14 @@ def test_idle_guard_refusal_happens_before_approval_upload_and_start(tmp_path):
         return {'result': {'status': {'save_variables': {'variables': {'display_off': 0}}, **moon}}}
     with patch.object(job.printer_state, 'load', return_value=st), \
          patch.object(job.printer_state, 'check', return_value=(True, [], {})), \
-         patch.object(job, '_mr', side_effect=transport), \
-         patch.object(job, '_printer_phase', return_value=('standby', '', 'Ready')), \
-         patch.object(job, 'mesh_readiness', return_value=mesh), \
-         patch.object(job, 'read_stock_detail', return_value=native), \
+         patch_bound(jobs_common, '_mr', side_effect=transport), \
+         patch_bound(launch_gates, '_printer_phase', return_value=('standby', '', 'Ready')), \
+         patch_bound(launch_gates, 'mesh_readiness', return_value=mesh), \
+         patch_bound(jobs_filament, 'read_stock_detail', return_value=native), \
          patch.object(job.subprocess, 'run', side_effect=upload):
         with patch.object(sys, 'argv', ['model_job.py', 'print-now', str(job_path)]):
             with pytest.raises(SystemExit, match='REFUSED: idle guard failed.*Nothing uploaded or started'):
-                job.main()
+                jobs_cli.main()
     assert json.loads(job_path.read_text())['approvals'] == []
     assert mapped_job['approvals'] == []
     assert submissions == []
@@ -233,11 +241,11 @@ def test_single_color_shared_finalization(tmp_path):
     orca_adapter.finalize_zmod(path,'#067749','PLA')
     raw=path.read_bytes()
     orca_adapter.finalize_zmod(path,'#067749','PLA')
-    assert raw==path.read_bytes() and job.zmod_md5_valid(path)
+    assert raw==path.read_bytes() and gcode_verify.zmod_md5_valid(path)
     with patch.object(job.printer_state,'load',return_value=st), \
          patch.object(job.printer_state,'check',return_value=(True,[],{})), \
-         patch.object(job,'_mr',side_effect=transport(st,[])):
-        assert job.verify_gcode(path)
+         patch_bound(jobs_common,'_mr',side_effect=transport(st,[])):
+        assert gcode_verify.verify_gcode(path)
 
 
 @pytest.mark.parametrize('mapping',[None,{}, {'0':1,'1':9}, {'0':1,'2':3}, {'0':True}, {'0':1,'1':2}])
@@ -272,15 +280,15 @@ def test_startup_controls_normal_cli(tmp_path, n, initial, header):
         return type('R', (), {'returncode':0, 'stdout':json.dumps({'item':{'root':'gcodes','path':cmd[3]}}), 'stderr':''})()
     with patch.object(job.printer_state,'load',return_value=st), \
          patch.object(job.printer_state,'check',return_value=(True,[],{})), \
-         patch.object(job,'_mr',side_effect=transport(st,submissions)), \
-         patch.object(job,'request_json',side_effect=spoolman), \
-         patch.object(job,'_printer_phase',return_value=('standby','','Ready')), \
-         patch.object(job,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
-         patch.object(job,'read_stock_detail',return_value=detail(st)), \
+         patch_bound(jobs_common,'_mr',side_effect=transport(st,submissions)), \
+         patch_bound(jobs_common,'request_json',side_effect=spoolman), \
+         patch_bound(launch_gates,'_printer_phase',return_value=('standby','','Ready')), \
+         patch_bound(launch_gates,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
+         patch_bound(jobs_filament,'read_stock_detail',return_value=detail(st)), \
          patch.object(job.subprocess,'run',side_effect=upload), \
-         patch.object(job,'_fetch_remote_gcode_sha256',side_effect=lambda *a: job.file_sha256(path)), \
-         patch.object(job,'_wait_printing',return_value='printing'), \
-         patch.object(job,'record_start',return_value=tmp_path/'record.md'):
+         patch.object(job,'_fetch_remote_gcode_sha256',side_effect=lambda *a: gcode_artifact.file_sha256(path)), \
+         patch.object(launch_print_now,'_wait_printing',return_value='printing'), \
+         patch_bound(launch_print_now,'record_start',return_value=tmp_path/'record.md'):
         cli(['finalize-gcode',str(path),'--tool-map',str(mapfile)])
         finalized = path.read_bytes()
         cli(['finalize-gcode',str(path),'--tool-map',str(mapfile)])
@@ -288,11 +296,11 @@ def test_startup_controls_normal_cli(tmp_path, n, initial, header):
         from print_handy.printers.flashforge.zmod.native_startup import commands
         expected_body = original.replace(start, 'M190 S60\nM104 S210 T0\n'+start, 1) if variant == 'bare' else original
         assert commands(path.read_text()) == commands(expected_body)
-        assert job.zmod_md5_valid(path)
+        assert gcode_verify.zmod_md5_valid(path)
         cli(['verify-gcode',str(path)])
         cli(['print-now',str(path)])
     assert len(submissions) == 1
-    assert job.native_heater_lines_valid(path.read_text(),60,210)
+    assert gcode_verify.native_heater_lines_valid(path.read_text(),60,210)
 
 
 @pytest.mark.parametrize('fault', ['post-conflict', 'intervening-motion', 'masked-post-conflict',
@@ -324,10 +332,10 @@ def test_startup_defects_normal_cli_zero_transport(tmp_path, fault):
     submissions = []
     with patch.object(job.printer_state,'load',return_value=st), \
          patch.object(job.printer_state,'check',return_value=(True,[],{})), \
-         patch.object(job,'_mr',side_effect=transport(st,submissions)), \
-         patch.object(job,'request_json',side_effect=spoolman), \
-         patch.object(job,'_printer_phase',return_value=('standby','','Ready')), \
-         patch.object(job,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
+         patch_bound(jobs_common,'_mr',side_effect=transport(st,submissions)), \
+         patch_bound(jobs_common,'request_json',side_effect=spoolman), \
+         patch_bound(launch_gates,'_printer_phase',return_value=('standby','','Ready')), \
+         patch_bound(launch_gates,'mesh_readiness',return_value={'display_off':0,'profile':'MESH_DATA','problem':None}), \
          patch.object(job.subprocess,'run',side_effect=AssertionError('invalid upload reached')):
         with pytest.raises(RuntimeError,match='native startup'):
             cli(['finalize-gcode',str(path),'--tool-map',str(mapfile)])
@@ -457,7 +465,7 @@ def test_sparse_tool_map_finalizes_and_reads_back(tmp_path):
     assert contract.embedded_mapping(text, st) == {'0': 1, '2': 3}
     assert '; zmod_color_data = 0|' in text and '; zmod_color_data = 2|' in text
     assert '; zmod_color_data = 1|' not in text
-    assert job.zmod_md5_valid(path)
+    assert gcode_verify.zmod_md5_valid(path)
 
 
 def test_sparse_map_material_mismatch_names_the_sparse_tool():
@@ -535,20 +543,20 @@ def test_sparse_public_prepare_verify_launch(tmp_path):
         return type('R', (), {'returncode': 0, 'stdout': json.dumps({'result': result}), 'stderr': ''})()
     with patch.object(job.printer_state, 'load', return_value=st), \
          patch.object(job.printer_state, 'check', return_value=(True, [], {})), \
-         patch.object(job, '_mr', side_effect=transport(st, submissions)), \
-         patch.object(job, 'request_json', side_effect=spoolman), \
-         patch.object(job, '_printer_phase', return_value=('standby', '', 'Ready')), \
-         patch.object(job, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \
-         patch.object(job, 'read_stock_detail', return_value=detail(st)), \
+         patch_bound(jobs_common, '_mr', side_effect=transport(st, submissions)), \
+         patch_bound(jobs_common, 'request_json', side_effect=spoolman), \
+         patch_bound(launch_gates, '_printer_phase', return_value=('standby', '', 'Ready')), \
+         patch_bound(launch_gates, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \
+         patch_bound(jobs_filament, 'read_stock_detail', return_value=detail(st)), \
          patch.object(job.subprocess, 'run', side_effect=upload), \
-         patch.object(job, '_fetch_remote_gcode_sha256', side_effect=lambda *a: job.file_sha256(path)), \
-         patch.object(job, '_wait_printing', return_value='printing'), \
-         patch.object(job, 'record_start', return_value=tmp_path / 'record.md'):
+         patch.object(job, '_fetch_remote_gcode_sha256', side_effect=lambda *a: gcode_artifact.file_sha256(path)), \
+         patch.object(launch_print_now, '_wait_printing', return_value='printing'), \
+         patch_bound(launch_print_now, 'record_start', return_value=tmp_path / 'record.md'):
         cli(['finalize-gcode', str(path), '--tool-map', str(mapfile)])
         finalized = path.read_bytes()
         cli(['finalize-gcode', str(path), '--tool-map', str(mapfile)])
         assert path.read_bytes() == finalized
-        assert job.zmod_md5_valid(path)
+        assert gcode_verify.zmod_md5_valid(path)
         cli(['verify-gcode', str(path)])
         cli(['print-now', str(path)])
     assert len(submissions) == 1
@@ -580,15 +588,15 @@ def test_live_slot_label_pla_accepts_pla_plus_spool(tmp_path):
         return type('R', (), {'returncode': 0, 'stdout': json.dumps({'result': {'item': {'root': 'gcodes', 'path': cmd[3]}}}), 'stderr': ''})()
     with patch.object(job.printer_state, 'load', return_value=st), \
          patch.object(job.printer_state, 'check', return_value=(True, [], {})), \
-         patch.object(job, '_mr', side_effect=coarse), \
-         patch.object(job, 'request_json', side_effect=spoolman), \
-         patch.object(job, '_printer_phase', return_value=('standby', '', 'Ready')), \
-         patch.object(job, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \
-         patch.object(job, 'read_stock_detail', return_value=detail(st)), \
+         patch_bound(jobs_common, '_mr', side_effect=coarse), \
+         patch_bound(jobs_common, 'request_json', side_effect=spoolman), \
+         patch_bound(launch_gates, '_printer_phase', return_value=('standby', '', 'Ready')), \
+         patch_bound(launch_gates, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \
+         patch_bound(jobs_filament, 'read_stock_detail', return_value=detail(st)), \
          patch.object(job.subprocess, 'run', side_effect=upload), \
-         patch.object(job, '_fetch_remote_gcode_sha256', side_effect=lambda *a: job.file_sha256(path)), \
-         patch.object(job, '_wait_printing', return_value='printing'), \
-         patch.object(job, 'record_start', return_value=tmp_path/'record.md'):
+         patch.object(job, '_fetch_remote_gcode_sha256', side_effect=lambda *a: gcode_artifact.file_sha256(path)), \
+         patch.object(launch_print_now, '_wait_printing', return_value='printing'), \
+         patch_bound(launch_print_now, 'record_start', return_value=tmp_path/'record.md'):
         cli(['finalize-gcode', str(path), '--tool-map', str(mapfile)])
         cli(['print-now', str(path)])
     assert len(submissions) == 1

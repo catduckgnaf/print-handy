@@ -5,6 +5,7 @@ import pytest
 
 from print_handy.core import projects
 from print_handy.jobs import store
+from tests.bound_names import setattr_bound
 
 
 def test_source_checkpoint_persists_authored_identity_scope_and_no_approval(tmp_path):
@@ -42,13 +43,13 @@ def test_source_checkpoint_persists_authored_identity_scope_and_no_approval(tmp_
 
 
 def test_scoped_checkpoint_lookup_survives_restart_and_rejects_changed_source(tmp_path, monkeypatch):
-    from print_handy.core import model_job
+    from print_handy.gcode import artifact as gcode_artifact
 
     folder = tmp_path / "archive" / "intake-a"
     folder.mkdir(parents=True)
     source = folder / "source.3mf"
     source.write_bytes(b"immutable authored source")
-    sha = model_job.file_sha256(source)
+    sha = gcode_artifact.file_sha256(source)
     job = {
         "title": "Painted model", "downloaded_file": str(source),
         "selected_source": {"name": "source.3mf", "path": str(source)},
@@ -74,7 +75,7 @@ def test_scoped_checkpoint_lookup_survives_restart_and_rejects_changed_source(tm
 
 
 def test_checkpoint_discovery_reads_all_jobs_but_hashes_only_selected_record(tmp_path, monkeypatch):
-    from print_handy.core import model_job
+    from print_handy.gcode import artifact as gcode_artifact
 
     archive = tmp_path / "archive"
     scope = {"platform": "discord", "requester_id": "u1",
@@ -85,7 +86,7 @@ def test_checkpoint_discovery_reads_all_jobs_but_hashes_only_selected_record(tmp
         folder.mkdir(parents=True)
         source = folder / "source.3mf"
         source.write_bytes(f"source {index}".encode())
-        digest = model_job.file_sha256(source)
+        digest = gcode_artifact.file_sha256(source)
         job = {"downloaded_file": str(source), "source_checkpoint": {
             "schema": projects.SOURCE_CHECKPOINT_SCHEMA, "status": "available",
             "request_scope": scope, "source_path": str(source), "source_sha256": digest,
@@ -101,12 +102,12 @@ def test_checkpoint_discovery_reads_all_jobs_but_hashes_only_selected_record(tmp
             reads.append(str(path))
         return original_read_text(path, *args, **kwargs)
     hashes = []
-    original_hash = model_job.file_sha256
+    original_hash = gcode_artifact.file_sha256
     def count_hash(path):
         hashes.append(str(path))
         return original_hash(path)
     monkeypatch.setattr(Path, "read_text", count_read)
-    monkeypatch.setattr(model_job, "file_sha256", count_hash)
+    setattr_bound(monkeypatch, gcode_artifact, "file_sha256", count_hash)
 
     # Discovery must omit internally inconsistent legacy job-level digests.
     inconsistent = json.loads(paths[3][0].read_text())

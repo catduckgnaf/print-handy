@@ -12,7 +12,9 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy import doctor, printers, settings
-from print_handy.core import model_job, plate_merge, purge, source_colors
+from print_handy.core import plate_merge, purge, source_colors
+from print_handy.jobs import slice as jobs_slice
+from print_handy.launch import print_now as launch_print_now
 from print_handy.core.background_slice import slice_binding
 from print_handy.webui import status as webui_status
 
@@ -211,7 +213,7 @@ def _two_wide_parts(tmp_path):
     _source(source, {'1': (190, 95, 10), '2': (190, 95, 10)}, [['1', '2']])
     manifest = source_colors.inventory(source)
     slots = {p['key']: (1 if p['object_id'] == '1' else 2) for p in manifest['parts']}
-    return source, manifest, model_job.plate_manifest(source)['plates'], slots
+    return source, manifest, jobs_slice.plate_manifest(source)['plates'], slots
 
 
 def test_fit_reserves_no_tower_for_a_printer_chute_and_the_old_tower_otherwise(tmp_path, monkeypatch):
@@ -360,7 +362,7 @@ def test_launch_guard_only_informs_when_the_mode_is_unknown_or_two(monkeypatch, 
 
 
 def test_the_mapped_start_runs_the_launch_guard_before_any_printer_write():
-    body = inspect.getsource(model_job.print_mapped_native)
+    body = inspect.getsource(launch_print_now.print_mapped_native)
     # The guard is handed to _gate as a callable (_gate("purge",
     # purge.require_launch_safe, ...)), so match the reference, not a
     # direct call: _gate runs it at this point and re-raises its refusal

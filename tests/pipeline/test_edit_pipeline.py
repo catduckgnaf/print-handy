@@ -11,8 +11,12 @@ import pytest
 
 from print_handy.core import edit_plan as ep
 from print_handy.core import model_job as mj
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core import orca_adapter
 from .test_color_intake import source, state
+from tests.bound_names import setattr_bound
 
 
 def _gcode_for(kwargs):
@@ -55,10 +59,10 @@ def _edited_job(tmp_path, monkeypatch, edit_settings=None, orientation=None):
     jp.write_text(json.dumps({"downloaded_file": str(p), "color_schema": "part_slots_v1",
                               "color_manifest": source_colors.inventory(p),
                               "audit": {"plates": 1, "size_x": 40, "size_y": 10, "size_z": 1}}))
-    mj.intake_color_choices(jp, st, "single_color", [1])
+    jobs_prompts.intake_color_choices(jp, st, "single_color", [1])
     monkeypatch.setattr(mj.printer_state, "load", lambda: st)
     monkeypatch.setattr(mj.printer_state, "check", lambda _: (True, [], {}))
-    monkeypatch.setattr(mj, "verify_gcode", lambda _: None)
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda _: None)
     from print_handy.printers.flashforge.zmod import multicolor_contract
     monkeypatch.setattr(multicolor_contract, "finalize", lambda *a, **k: None)
     job = json.loads(jp.read_text())
@@ -76,7 +80,7 @@ def test_standalone_supports_edit_reaches_slice_model_without_rotation(tmp_path,
     jp, _st = _edited_job(tmp_path, monkeypatch,
                           edit_settings={"supports": {"enabled": True, "type": "tree",
                                                       "plate_only": None}})
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     assert calls, "slice_model was never called"
     assert all(call.get("supports") is True for call in calls)
     assert all(call.get("edits", {}).get("support_type") == "tree" for call in calls)
@@ -91,7 +95,7 @@ def test_no_edit_means_no_supports_override(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(orca_adapter, "slice_model", _recording_fake(calls))
     jp, _st = _edited_job(tmp_path, monkeypatch)
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     assert calls and all("supports" not in call or call["supports"] is None
                          or call.get("rotation") for call in calls)
     assert all("edits" not in call for call in calls)
@@ -105,7 +109,7 @@ def test_layer_height_infill_and_mirror_ride_as_edits(tmp_path, monkeypatch):
         tmp_path, monkeypatch,
         edit_settings={"layer_height": 0.12, "infill_percent": 25},
         orientation={"mirror": mirror})
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     edits = calls[0]["edits"]
     assert edits["layer_height"] == 0.12 and edits["infill_percent"] == 25.0
     assert edits["mirror"] == mirror
@@ -115,14 +119,14 @@ def test_recipe_v3_records_edit_settings_as_an_input(tmp_path, monkeypatch):
     monkeypatch.setattr(orca_adapter, "slice_model", _recording_fake([]))
     jp, _st = _edited_job(tmp_path, monkeypatch,
                           edit_settings={"infill_percent": 25})
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     job = json.loads(jp.read_text())
     assert job["slice_recipe"]["version"] == 3
     assert job["slice_recipe"]["recipe"]["edits"] == {"infill_percent": 25}
     first_sha = job["slice_recipe"]["sha256"]
     job["edit_settings"] = {"infill_percent": 40}
     jp.write_text(json.dumps(job))
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     changed = json.loads(jp.read_text())
     assert changed["slice_recipe"]["sha256"] != first_sha  # an edit never reuses an old slice
 
@@ -171,9 +175,9 @@ def test_per_part_plates_receive_the_edit_settings(tmp_path, monkeypatch):
                               "audit": {"plates": 1, "size_x": 40, "size_y": 10, "size_z": 1}}))
     monkeypatch.setattr(mj.printer_state, "load", lambda: st)
     monkeypatch.setattr(mj.printer_state, "check", lambda _: (True, [], {}))
-    monkeypatch.setattr(mj, "verify_gcode_offline", lambda *a, **k: {"ok": True})
-    monkeypatch.setattr(mj, "finalize_multicolor", lambda *a, **k: None)
-    monkeypatch.setattr(mj, "refuse_assembly_split", lambda *a, **k: None)
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode_offline", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(jobs_slice, "finalize_multicolor", lambda *a, **k: None)
+    monkeypatch.setattr(jobs_slice, "refuse_assembly_split", lambda *a, **k: None)
 
     def plate_fake(src, target, decisions, part_keys, bed=None, slot_colors=None, **kw):
         Path(target).write_text(json.dumps(part_keys))
@@ -199,7 +203,7 @@ def test_per_part_plates_receive_the_edit_settings(tmp_path, monkeypatch):
     job["edit_settings"] = {"supports": {"enabled": True, "type": "tree", "plate_only": None},
                             "infill_percent": 30}
     jp.write_text(json.dumps(job))
-    mj.slice_job(jp)
+    jobs_slice.slice_job(jp)
     assert len(calls) >= 2  # one call per derived plate
     assert all(call.get("supports") is True for call in calls)
     assert all(call.get("edits", {}).get("support_type") == "tree" for call in calls)

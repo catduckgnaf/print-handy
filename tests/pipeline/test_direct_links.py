@@ -14,7 +14,8 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import intake_resources, link_intake, model_job, prepared_intake
+from print_handy.core import intake_resources, link_intake, prepared_intake
+from print_handy.jobs import sources as jobs_sources
 from .test_color_intake import state  # noqa: F401  (used by the e2e flow)
 from .test_prepared_intake import Adapter, env  # noqa: F401  (env is the shared harness fixture)
 
@@ -52,7 +53,7 @@ class FakeResponse:
 
 @pytest.fixture
 def public_dns(monkeypatch):
-    monkeypatch.setattr(model_job, "_resolve_host_ips", lambda host: set(PUBLIC))
+    monkeypatch.setattr(jobs_sources, "_resolve_host_ips", lambda host: set(PUBLIC))
     return PUBLIC
 
 
@@ -63,7 +64,7 @@ def serve(monkeypatch, handler):
         calls.append(url)
         return handler(url)
 
-    monkeypatch.setattr(model_job, "_open_once", fake_open)
+    monkeypatch.setattr(jobs_sources, "_open_once", fake_open)
     return calls
 
 
@@ -74,7 +75,7 @@ def redirect(location, code=302):
 
 
 def job_and_source(url=DIRECT_URL):
-    job = model_job.inventory_for_url(url)
+    job = jobs_sources.inventory_for_url(url)
     return job, job["sources"][0]
 
 
@@ -115,7 +116,7 @@ def test_inventory_routes_direct_url():
 
 def test_inventory_unknown_non_file_link_names_direct_links():
     with pytest.raises(ValueError) as caught:
-        model_job.inventory_for_url("https://example.com/model/123")
+        jobs_sources.inventory_for_url("https://example.com/model/123")
     assert "direct link to a .stl/.3mf file" in str(caught.value)
 
 
@@ -127,14 +128,14 @@ def test_dropbox_share_link_rewritten_to_download_form():
 
 
 def test_dropbox_scl_link_keeps_rlkey_and_sets_dl1():
-    fetch = model_job.dropbox_fetch_url(
+    fetch = jobs_sources.dropbox_fetch_url(
         "https://www.dropbox.com/scl/fi/xyz/part.3mf?rlkey=abc&dl=0")
     assert "rlkey=abc" in fetch and "dl=1" in fetch
 
 
 def test_dropboxusercontent_link_used_as_is():
     url = "https://dl.dropboxusercontent.com/s/abc123/benchy.stl"
-    assert model_job.dropbox_fetch_url(url) == url
+    assert jobs_sources.dropbox_fetch_url(url) == url
 
 
 # --------------------------------------------------------------------- guarded download
@@ -142,14 +143,14 @@ def test_dropboxusercontent_link_used_as_is():
 def test_download_direct_stl(public_dns, monkeypatch, tmp_path):
     serve(monkeypatch, lambda url: FakeResponse(STL, {"Content-Type": "application/octet-stream"}))
     job, source = job_and_source()
-    dest = model_job.download_for_site(job, source, tmp_path / "source")
+    dest = jobs_sources.download_for_site(job, source, tmp_path / "source")
     assert dest.name == "benchy.stl" and dest.read_bytes() == STL
 
 
 def test_download_direct_3mf(public_dns, monkeypatch, tmp_path):
     serve(monkeypatch, lambda url: FakeResponse(TMF, {"Content-Type": "application/octet-stream"}))
     job, source = job_and_source("https://files.example/part.3mf")
-    dest = model_job.direct_download(job, source, tmp_path / "source")
+    dest = jobs_sources.direct_download(job, source, tmp_path / "source")
     assert dest.name == "part.3mf" and dest.read_bytes() == TMF
 
 
@@ -157,8 +158,8 @@ def test_download_names_file_from_content_disposition(public_dns, monkeypatch, t
     headers = {"Content-Type": "application/octet-stream",
                "Content-Disposition": 'attachment; filename="big-model.stl"'}
     serve(monkeypatch, lambda url: FakeResponse(STL, headers))
-    job = model_job.inventory_for_url("https://www.dropbox.com/s/abc123?dl=0")
-    dest = model_job.direct_download(job, job["sources"][0], tmp_path / "source")
+    job = jobs_sources.inventory_for_url("https://www.dropbox.com/s/abc123?dl=0")
+    dest = jobs_sources.direct_download(job, job["sources"][0], tmp_path / "source")
     assert dest.name == "big-model.stl"
 
 
@@ -170,7 +171,7 @@ def test_download_follows_public_redirect(public_dns, monkeypatch, tmp_path):
 
     calls = serve(monkeypatch, handler)
     job, source = job_and_source()
-    dest = model_job.direct_download(job, source, tmp_path / "source")
+    dest = jobs_sources.direct_download(job, source, tmp_path / "source")
     assert dest.name == "final.stl" and len(calls) == 2
 
 
@@ -178,16 +179,16 @@ def test_download_redirect_to_private_address_refused(public_dns, monkeypatch, t
     calls = serve(monkeypatch, lambda url: (_ for _ in ()).throw(
         redirect("http://127.0.0.1/evil.stl")))
     job, source = job_and_source()
-    with pytest.raises(model_job.DirectLinkError, match="not a public address"):
-        model_job.direct_download(job, source, tmp_path / "source")
+    with pytest.raises(jobs_sources.DirectLinkError, match="not a public address"):
+        jobs_sources.direct_download(job, source, tmp_path / "source")
     assert len(calls) == 1  # the private target was never opened
 
 
 def test_download_redirect_loop_refused(public_dns, monkeypatch, tmp_path):
     serve(monkeypatch, lambda url: (_ for _ in ()).throw(redirect(DIRECT_URL)))
     job, source = job_and_source()
-    with pytest.raises(model_job.DirectLinkError, match="redirected too many times"):
-        model_job.direct_download(job, source, tmp_path / "source")
+    with pytest.raises(jobs_sources.DirectLinkError, match="redirected too many times"):
+        jobs_sources.direct_download(job, source, tmp_path / "source")
 
 
 @pytest.mark.parametrize("url", [
@@ -197,18 +198,18 @@ def test_download_redirect_loop_refused(public_dns, monkeypatch, tmp_path):
 ])
 def test_download_non_public_or_credentialed_refused(monkeypatch, tmp_path, url):
     calls = serve(monkeypatch, lambda u: FakeResponse(STL))
-    job = model_job.direct_inventory(url)
-    with pytest.raises(model_job.DirectLinkError):
-        model_job.direct_download(job, job["sources"][0], tmp_path / "source")
+    job = jobs_sources.direct_inventory(url)
+    with pytest.raises(jobs_sources.DirectLinkError):
+        jobs_sources.direct_download(job, job["sources"][0], tmp_path / "source")
     assert calls == []
 
 
 def test_download_private_hostname_refused_before_connect(monkeypatch, tmp_path):
-    monkeypatch.setattr(model_job, "_resolve_host_ips", lambda host: {"192.168.0.9"})
+    monkeypatch.setattr(jobs_sources, "_resolve_host_ips", lambda host: {"192.168.0.9"})
     calls = serve(monkeypatch, lambda u: FakeResponse(STL))
     job, source = job_and_source()
-    with pytest.raises(model_job.DirectLinkError, match="not a public address"):
-        model_job.direct_download(job, source, tmp_path / "source")
+    with pytest.raises(jobs_sources.DirectLinkError, match="not a public address"):
+        jobs_sources.direct_download(job, source, tmp_path / "source")
     assert calls == []
 
 
@@ -217,8 +218,8 @@ def test_download_html_page_refused(public_dns, monkeypatch, tmp_path):
         b"<html><body>preview</body></html>", {"Content-Type": "text/html; charset=utf-8"}))
     job, source = job_and_source()
     target = tmp_path / "source"
-    with pytest.raises(model_job.DirectLinkError, match="web page instead of a print file"):
-        model_job.direct_download(job, source, target)
+    with pytest.raises(jobs_sources.DirectLinkError, match="web page instead of a print file"):
+        jobs_sources.direct_download(job, source, target)
     assert list(target.iterdir()) == []
 
 
@@ -227,16 +228,16 @@ def test_download_html_bytes_at_stl_url_refused(public_dns, monkeypatch, tmp_pat
         b"<!DOCTYPE html><html>share page</html>", {"Content-Type": "application/octet-stream"}))
     job, source = job_and_source()
     target = tmp_path / "source"
-    with pytest.raises(model_job.DirectLinkError, match="web page instead of a print file"):
-        model_job.direct_download(job, source, target)
+    with pytest.raises(jobs_sources.DirectLinkError, match="web page instead of a print file"):
+        jobs_sources.direct_download(job, source, target)
     assert list(target.iterdir()) == []  # the spoofed file was removed, not saved as a model
 
 
 def test_download_non_zip_3mf_refused(public_dns, monkeypatch, tmp_path):
     serve(monkeypatch, lambda url: FakeResponse(STL, {"Content-Type": "application/octet-stream"}))
     job, source = job_and_source("https://files.example/part.3mf")
-    with pytest.raises(model_job.DirectLinkError, match="not a 3MF file"):
-        model_job.direct_download(job, source, tmp_path / "source")
+    with pytest.raises(jobs_sources.DirectLinkError, match="not a 3MF file"):
+        jobs_sources.direct_download(job, source, tmp_path / "source")
 
 
 def test_download_unsupported_type_refused(public_dns, monkeypatch, tmp_path):
@@ -244,8 +245,8 @@ def test_download_unsupported_type_refused(public_dns, monkeypatch, tmp_path):
                "Content-Disposition": 'attachment; filename="model.zip"'}
     serve(monkeypatch, lambda url: FakeResponse(b"PK\x03\x04rest", headers))
     job, source = job_and_source()
-    with pytest.raises(model_job.DirectLinkError, match="not a print file"):
-        model_job.direct_download(job, source, tmp_path / "source")
+    with pytest.raises(jobs_sources.DirectLinkError, match="not a print file"):
+        jobs_sources.direct_download(job, source, tmp_path / "source")
 
 
 def test_download_oversize_aborted_at_intake_cap(public_dns, monkeypatch, tmp_path):
@@ -255,7 +256,7 @@ def test_download_oversize_aborted_at_intake_cap(public_dns, monkeypatch, tmp_pa
     job, source = job_and_source()
     target = tmp_path / "source"
     with pytest.raises(intake_resources.IntakeLimitExceeded, match="exceeds"):
-        model_job.direct_download(job, source, target)
+        jobs_sources.direct_download(job, source, target)
     assert list(target.iterdir()) == []  # save_download removes the partial file
 
 
@@ -265,8 +266,8 @@ def test_download_host_unreachable_named(public_dns, monkeypatch, tmp_path):
 
     serve(monkeypatch, handler)
     job, source = job_and_source()
-    with pytest.raises(model_job.DirectLinkError, match="could not reach the host"):
-        model_job.direct_download(job, source, tmp_path / "source")
+    with pytest.raises(jobs_sources.DirectLinkError, match="could not reach the host"):
+        jobs_sources.direct_download(job, source, tmp_path / "source")
 
 
 def test_download_http_404_named(public_dns, monkeypatch, tmp_path):
@@ -275,15 +276,15 @@ def test_download_http_404_named(public_dns, monkeypatch, tmp_path):
 
     serve(monkeypatch, handler)
     job, source = job_and_source()
-    with pytest.raises(model_job.DirectLinkError, match="HTTP 404"):
-        model_job.direct_download(job, source, tmp_path / "source")
+    with pytest.raises(jobs_sources.DirectLinkError, match="HTTP 404"):
+        jobs_sources.direct_download(job, source, tmp_path / "source")
 
 
 # --------------------------------------------------------------------- prepared intake e2e
 
 def test_prepared_intake_direct_link_html_refusal_names_cause(env, monkeypatch):
-    monkeypatch.setattr(model_job, "_resolve_host_ips", lambda host: set(PUBLIC))
-    monkeypatch.setattr(model_job, "_open_once", lambda url: FakeResponse(
+    monkeypatch.setattr(jobs_sources, "_resolve_host_ips", lambda host: set(PUBLIC))
+    monkeypatch.setattr(jobs_sources, "_open_once", lambda url: FakeResponse(
         b"<html><body>share page</body></html>", {"Content-Type": "text/html"}))
 
     async def fake_preview(*args, **kw):

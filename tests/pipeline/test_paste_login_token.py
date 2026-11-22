@@ -17,12 +17,14 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import link_intake, model_job, prepared_intake, site_accounts
+from print_handy.core import link_intake, prepared_intake, site_accounts
+from print_handy.jobs import sources as jobs_sources
 from print_handy.core.site_accounts import LOGIN_SITES, accept_pasted, save_token, token_path
 from .test_color_intake import state  # noqa: F401
 from .test_prepared_intake import Adapter, env  # noqa: F401
 from .test_login_token_sites import (NEXPRINT_URL, _event, _quiet_preview,  # noqa: F401
                                      _single_source_job, home)
+from tests.bound_names import setattr_bound
 
 GOOD = {
     'makerworld': 'eyJhbGciOiJIUzI1NiJ9.' + 'a' * 40 + '.sig',
@@ -191,7 +193,7 @@ def test_a_cookie_string_in_the_file_reads_back_normalized(home):
     path = token_path('crealitycloud')
     path.parent.mkdir(parents=True)
     path.write_text('model_token=4f2a9c8b7d6e5f40312a; model_user_id=1234567890\n')
-    assert model_job.crealitycloud_token() == '1234567890:4f2a9c8b7d6e5f40312a'
+    assert jobs_sources.crealitycloud_token() == '1234567890:4f2a9c8b7d6e5f40312a'
 
 
 # ------------------------------------------------------------------ the intake flow
@@ -236,12 +238,12 @@ def _nexprint_download(monkeypatch, attempts, tokens_seen):
         tokens_seen.append(site_accounts.stored('nexprint')[0])
         site_accounts.read_token('nexprint')  # raises until a token is in place
         raise RuntimeError('sentinel: download retried')
-    monkeypatch.setattr(model_job, 'download_for_site', fake_download)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', fake_download)
 
 
 def _setup(env, monkeypatch):
     monkeypatch.delenv('NEXPRINT_TOKEN', raising=False)
-    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    monkeypatch.setattr(jobs_sources, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
     return _event(NEXPRINT_URL).source
 
@@ -271,7 +273,7 @@ def test_lead_wording_follows_the_reason(env, home, monkeypatch, reason, text):
 
     def raiser(job, chosen, dest):
         raise SiteLoginNeededFor(reason)
-    monkeypatch.setattr(model_job, 'download_for_site', raiser)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', raiser)
     adapter = TypingAdapter([1], source)
     _run(env, adapter)
     assert text in adapter.questions[0]['question']
@@ -356,7 +358,7 @@ def test_a_pasted_token_the_site_refuses_goes_round_again(env, home, monkeypatch
         calls.append(1)
         site_accounts.read_token('nexprint')
         raise site_accounts.refused('nexprint')
-    monkeypatch.setattr(model_job, 'download_for_site', refused)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', refused)
     adapter = TypingAdapter(['first-' + 'f' * 30, 'second-' + 's' * 30, 1], source)
     _run(env, adapter)
     assert len(adapter.questions) == 3
@@ -402,7 +404,7 @@ def test_the_token_is_not_in_logs_receipts_replies_or_errors(env, home, monkeypa
         attempts.append(1)
         site_accounts.read_token('nexprint')
         raise site_accounts.refused('nexprint')  # then fails for good
-    monkeypatch.setattr(model_job, 'download_for_site', fake_download)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', fake_download)
     caplog.set_level(logging.DEBUG)
     adapter = TypingAdapter(['not a token at all', secret, 1], source)
     _run(env, adapter)

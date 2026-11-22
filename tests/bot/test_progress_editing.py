@@ -14,7 +14,7 @@ from types import SimpleNamespace as S
 
 from print_handy.bot import matrix, telegram
 from print_handy.bot.adapter import StandaloneAdapter as DiscordAdapter
-from print_handy.core import prepared_intake
+from print_handy.intake import fit_flow as intake_fit_flow
 
 USER = "424242"
 CHAT = "-1001234567890"
@@ -134,7 +134,7 @@ def test_fit_status_edits_its_one_message_on_a_production_adapter():
     source = S(chat_id=CHAT, thread_id=None)
 
     async def flow():
-        status = prepared_intake.FitStatus(adapter, source, {})
+        status = intake_fit_flow.FitStatus(adapter, source, {})
         assert status.can_edit
         await status.show("Checking the fit: first (0 s).")
         await status.show("Still checking the fit: first (15 s).")

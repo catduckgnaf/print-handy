@@ -32,8 +32,12 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import model_job, orca_adapter, spoolman_client
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import moonraker_discord_announcements as watcher
 from print_handy.runtime import print_records
+from tests.bound_names import patch_bound
 
 DEAD = "http://127.0.0.1:9"  # nothing ever connects: urlopen is faked below
 
@@ -156,10 +160,10 @@ def test_print_start_with_spoolman_down_proceeds_and_records_pending(monkeypatch
     active = [10]
     reply, calls = _mr_transport(active)
     saved = {}
-    with mock.patch.object(model_job, "_mr", side_effect=reply), \
+    with patch_bound(jobs_common, "_mr", side_effect=reply), \
          mock.patch.object(model_job.printer_state, "load", return_value=_sync_state()), \
          mock.patch.object(model_job.printer_state, "save", side_effect=lambda fresh: saved.update(fresh)):
-        result = model_job._sync_active_spool(st, 2)  # must not raise
+        result = launch_print_now._sync_active_spool(st, 2)  # must not raise
     assert result["spoolman_pending"] is True
     assert active[0] == 11  # the Moonraker accounting pointer still moved
     assert ("/server/spoolman/spool_id", {"spool_id": 11}) in calls
@@ -173,11 +177,11 @@ def test_print_start_with_spool_pointer_write_down_proceeds_pending(monkeypatch)
     spool = {"archived": False, "filament": {"material": "PLA", "name": "Pink PLA"}}
     active = [10]
     reply, _calls = _mr_transport(active, fail_write=True)
-    with mock.patch.object(model_job, "_mr", side_effect=reply), \
+    with patch_bound(jobs_common, "_mr", side_effect=reply), \
          mock.patch.object(model_job.spoolman_client, "get_spool", return_value=spool), \
          mock.patch.object(model_job.printer_state, "load", return_value=_sync_state()), \
          mock.patch.object(model_job.printer_state, "save"):
-        result = model_job._sync_active_spool(st, 2)  # must not raise
+        result = launch_print_now._sync_active_spool(st, 2)  # must not raise
     assert result["spoolman_pending"] is True
     assert result["spool_id"] == 11
 
@@ -237,8 +241,8 @@ def test_multi_slot_clear_removes_stale_active_spool(monkeypatch):
     # active spool, or Moonraker keeps deducting all extrusion from it.
     active = [10]
     reply, calls = _mr_clear_transport(active)
-    with mock.patch.object(model_job, "_mr", side_effect=reply):
-        result = model_job._clear_active_spool(_sync_state())
+    with patch_bound(jobs_common, "_mr", side_effect=reply):
+        result = launch_print_now._clear_active_spool(_sync_state())
     assert active[0] is None
     assert ("/server/spoolman/spool_id", {}) in calls
     assert result["changed"] is True
@@ -249,8 +253,8 @@ def test_multi_slot_clear_removes_stale_active_spool(monkeypatch):
 def test_multi_slot_clear_is_a_noop_when_nothing_is_active(monkeypatch):
     active = [None]
     reply, calls = _mr_clear_transport(active)
-    with mock.patch.object(model_job, "_mr", side_effect=reply):
-        result = model_job._clear_active_spool(_sync_state())
+    with patch_bound(jobs_common, "_mr", side_effect=reply):
+        result = launch_print_now._clear_active_spool(_sync_state())
     assert result["changed"] is False
     assert all(data is None for _path, data in calls)  # reads only, no write
 
@@ -261,8 +265,8 @@ def test_multi_slot_clear_write_failure_proceeds_as_pending(monkeypatch):
     # as pending for reconciliation instead of refusing the launch.
     active = [10]
     reply, _calls = _mr_clear_transport(active, fail_write=True)
-    with mock.patch.object(model_job, "_mr", side_effect=reply):
-        result = model_job._clear_active_spool(_sync_state())  # must not raise
+    with patch_bound(jobs_common, "_mr", side_effect=reply):
+        result = launch_print_now._clear_active_spool(_sync_state())  # must not raise
     assert result["spoolman_pending"] is True
     assert result["previous"] == 10
 
@@ -272,18 +276,18 @@ def test_multi_slot_clear_readback_still_set_refuses(monkeypatch):
     # contradiction (same posture as the sync readback): refuse the launch.
     active = [10]
     reply, _calls = _mr_clear_transport(active, stuck=True)
-    with mock.patch.object(model_job, "_mr", side_effect=reply):
+    with patch_bound(jobs_common, "_mr", side_effect=reply):
         with pytest.raises(RuntimeError):
-            model_job._clear_active_spool(_sync_state())
+            launch_print_now._clear_active_spool(_sync_state())
 
 
 def test_multi_slot_clear_read_failure_refuses(monkeypatch):
     # Moonraker is a launch dependency: its active-spool read failing refuses.
     active = [10]
     reply, _calls = _mr_clear_transport(active, fail_read=True)
-    with mock.patch.object(model_job, "_mr", side_effect=reply):
+    with patch_bound(jobs_common, "_mr", side_effect=reply):
         with pytest.raises(RuntimeError):
-            model_job._clear_active_spool(_sync_state())
+            launch_print_now._clear_active_spool(_sync_state())
 
 
 # ------------------------------------------- launch pending -> completion
@@ -334,12 +338,12 @@ def test_record_start_propagates_launch_pending_into_context(monkeypatch, tmp_pa
     job = {"title": "Pending Job", "spoolman_usage_pending": dict(LAUNCH_PENDING)}
     context_path = tmp_path / "print_handy_context.json"
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=job), \
          mock.patch.object(model_job.printer_state, "load", return_value=_sync_state()), \
          mock.patch.object(model_job.printers, "current",
                            return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
-         mock.patch.object(model_job, "CONTEXT", context_path):
-        record_path = model_job.record_start(str(gcode), started_at="2026-11-02T00:00:00Z")
+         patch_bound(jobs_store, "CONTEXT", context_path):
+        record_path = launch_print_now.record_start(str(gcode), started_at="2026-11-02T00:00:00Z")
     side = json.loads(context_path.read_text())
     entry = side["jobs"]["job.gcode"]
     assert entry["spoolman_usage_pending"]["spool_id"] == 11
@@ -355,12 +359,12 @@ def test_record_start_stamps_this_launchs_print_number(monkeypatch, tmp_path):
     job = {"title": "Numbered Job"}
     context_path = tmp_path / "print_handy_context.json"
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=job), \
          mock.patch.object(model_job.printer_state, "load", return_value=_sync_state()), \
          mock.patch.object(model_job.printers, "current",
                            return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
-         mock.patch.object(model_job, "CONTEXT", context_path):
-        record_path = model_job.record_start(str(gcode), started_at="2026-11-02T00:00:00Z",
+         patch_bound(jobs_store, "CONTEXT", context_path):
+        record_path = launch_print_now.record_start(str(gcode), started_at="2026-11-02T00:00:00Z",
                                              print_number=87)
     side = json.loads(context_path.read_text())
     assert side["jobs"]["job.gcode"]["print_number"] == 87

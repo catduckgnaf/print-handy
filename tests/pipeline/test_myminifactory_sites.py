@@ -18,10 +18,13 @@ from unittest import mock
 import pytest
 
 from print_handy.core import model_job as model_job
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import sources as jobs_sources
 from print_handy.core import prepared_intake
 from print_handy.core.link_intake import model_link
 from .test_color_intake import source, state  # noqa: F401  (state used by the e2e flow)
 from .test_prepared_intake import Adapter, env  # noqa: F401  (env is the shared harness fixture)
+from tests.bound_names import setattr_bound
 
 MMF_URL = 'https://www.myminifactory.com/object/3d-print-benchy-boat-12345'
 OBJ_LIST_FILES = {
@@ -55,7 +58,7 @@ def _api(monkeypatch, obj=OBJ_LIST_FILES):
         calls.append(url)
         return obj
 
-    monkeypatch.setattr(model_job, 'request_json', fake_request_json)
+    setattr_bound(monkeypatch, jobs_common, 'request_json', fake_request_json)
     return calls
 
 
@@ -73,19 +76,19 @@ def test_model_link_myminifactory(text, hit):
 
 
 def test_myminifactory_id():
-    assert model_job.myminifactory_id(MMF_URL) == '12345'
-    assert model_job.myminifactory_id('https://www.myminifactory.com/object/12345') == '12345'
-    assert model_job.myminifactory_id(MMF_URL + '?download_show=1') == '12345'
+    assert jobs_sources.myminifactory_id(MMF_URL) == '12345'
+    assert jobs_sources.myminifactory_id('https://www.myminifactory.com/object/12345') == '12345'
+    assert jobs_sources.myminifactory_id(MMF_URL + '?download_show=1') == '12345'
     with pytest.raises(ValueError, match=r'/object/'):
-        model_job.myminifactory_id('https://www.myminifactory.com/designer/someone')
+        jobs_sources.myminifactory_id('https://www.myminifactory.com/designer/someone')
     with pytest.raises(ValueError, match=r'/object/'):
-        model_job.myminifactory_id('https://www.myminifactory.com/object/3d-print-benchy-boat')
+        jobs_sources.myminifactory_id('https://www.myminifactory.com/object/3d-print-benchy-boat')
 
 
 def test_myminifactory_inventory_list_files_shape(tmp_path, monkeypatch):
     _key_home(tmp_path, monkeypatch)
     calls = _api(monkeypatch)
-    job = model_job.myminifactory_inventory(MMF_URL)
+    job = jobs_sources.myminifactory_inventory(MMF_URL)
     assert job['site'] == 'myminifactory'
     assert job['model_id'] == '12345'
     assert job['title'] == 'Benchy Boat'
@@ -104,7 +107,7 @@ def test_myminifactory_inventory_list_files_shape(tmp_path, monkeypatch):
 def test_myminifactory_inventory_items_files_shape(tmp_path, monkeypatch):
     _key_home(tmp_path, monkeypatch)
     _api(monkeypatch, obj=OBJ_ITEMS_FILES)
-    job = model_job.myminifactory_inventory(
+    job = jobs_sources.myminifactory_inventory(
         'https://www.myminifactory.com/object/3d-print-gear-777')
     assert job['model_id'] == '777'
     assert job['license'] == 'CC BY-SA'  # license as a plain string passes through
@@ -116,7 +119,7 @@ def test_myminifactory_no_geometry_names_the_reason(tmp_path, monkeypatch):
     _api(monkeypatch, obj={'id': 55, 'name': 'Notes Only', 'license': None,
                            'files': [{'id': 1, 'filename': 'readme.txt', 'size': 5},
                                      {'id': 2, 'filename': 'pack.zip', 'size': 9}]})
-    job = model_job.myminifactory_inventory('https://www.myminifactory.com/object/3d-print-notes-55')
+    job = jobs_sources.myminifactory_inventory('https://www.myminifactory.com/object/3d-print-notes-55')
     assert job['sources'] == []
     assert 'exposes no STL/3MF' in job['no_geometry_reason']
 
@@ -124,15 +127,15 @@ def test_myminifactory_no_geometry_names_the_reason(tmp_path, monkeypatch):
 def test_myminifactory_missing_key_error(tmp_path, monkeypatch):
     _key_home(tmp_path, monkeypatch, key=None)
     with pytest.raises(RuntimeError, match=r'\.config/myminifactory/token'):
-        model_job.myminifactory_inventory(MMF_URL)
+        jobs_sources.myminifactory_inventory(MMF_URL)
     with pytest.raises(RuntimeError, match=r'\.config/myminifactory/token'):
-        model_job.myminifactory_api_key()
+        jobs_sources.myminifactory_api_key()
 
 
 def test_myminifactory_empty_key_error(tmp_path, monkeypatch):
     _key_home(tmp_path, monkeypatch, key='')
     with pytest.raises(RuntimeError, match='MyMiniFactory API key empty'):
-        model_job.myminifactory_api_key()
+        jobs_sources.myminifactory_api_key()
 
 
 def _http_error(code):
@@ -143,9 +146,9 @@ def _http_error(code):
 @pytest.mark.parametrize('code', [401, 403])
 def test_myminifactory_refusal_is_plain(tmp_path, monkeypatch, code):
     _key_home(tmp_path, monkeypatch, key='SECRETKEY123')
-    monkeypatch.setattr(model_job, 'request_json', mock.Mock(side_effect=_http_error(code)))
+    setattr_bound(monkeypatch, jobs_common, 'request_json', mock.Mock(side_effect=_http_error(code)))
     with pytest.raises(RuntimeError, match=r'401/403') as excinfo:
-        model_job.myminifactory_inventory(MMF_URL)
+        jobs_sources.myminifactory_inventory(MMF_URL)
     # The key value never appears in any raised message.
     assert 'SECRETKEY123' not in str(excinfo.value)
 
@@ -170,15 +173,15 @@ JOB = {'site': 'myminifactory', 'model_id': '111400', 'title': 'winged benchy'}
 def test_myminifactory_download_uses_the_oauth_sign_in(tmp_path, monkeypatch):
     _oauth_home(tmp_path, monkeypatch)
     calls, fetched = [], []
-    monkeypatch.setattr(model_job, '_web_api', lambda method, url, **kw: (
+    monkeypatch.setattr(jobs_sources, '_web_api', lambda method, url, **kw: (
         calls.append((url, kw.get('headers'))) or (200, FILE_INFO)))
 
     def fake_download(url, target, headers=None):
         fetched.append((url, headers))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b'solid benchy\n')
-    monkeypatch.setattr(model_job, 'download', fake_download)
-    dest = model_job.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
+    monkeypatch.setattr(jobs_sources, 'download', fake_download)
+    dest = jobs_sources.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
     assert dest.name == 'flying-benchy.stl' and dest.read_bytes() == b'solid benchy\n'
     assert calls == [('https://www.myminifactory.com/api/v2/files/373940',
                       {'Authorization': 'Bearer oauth-token'})]
@@ -195,38 +198,38 @@ def test_myminifactory_sign_in_accepts_the_pasted_redirect_url(tmp_path, monkeyp
 
 def test_myminifactory_cloudflare_challenge_is_a_plain_stop(tmp_path, monkeypatch):
     _oauth_home(tmp_path, monkeypatch)
-    monkeypatch.setattr(model_job, '_web_api', lambda method, url, **kw: (200, FILE_INFO))
+    monkeypatch.setattr(jobs_sources, '_web_api', lambda method, url, **kw: (200, FILE_INFO))
 
     def challenged(url, target, headers=None):
         raise urllib.error.HTTPError(url, 403, 'Forbidden', {'cf-mitigated': 'challenge'}, None)
-    monkeypatch.setattr(model_job, 'download', challenged)
+    monkeypatch.setattr(jobs_sources, 'download', challenged)
     with pytest.raises(RuntimeError, match='Cloudflare robot check') as caught:
-        model_job.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
+        jobs_sources.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
     assert 'never tries to get past' in str(caught.value)
 
 
 def test_myminifactory_challenge_page_saved_as_200_is_refused(tmp_path, monkeypatch):
     _oauth_home(tmp_path, monkeypatch)
-    monkeypatch.setattr(model_job, '_web_api', lambda method, url, **kw: (200, FILE_INFO))
+    monkeypatch.setattr(jobs_sources, '_web_api', lambda method, url, **kw: (200, FILE_INFO))
 
     def page(url, target, headers=None):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b'<!DOCTYPE html><html><title>Just a moment...</title>')
-    monkeypatch.setattr(model_job, 'download', page)
+    monkeypatch.setattr(jobs_sources, 'download', page)
     with pytest.raises(RuntimeError, match='sent a web page instead of the file'):
-        model_job.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
+        jobs_sources.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
     assert not list((tmp_path / 'src').glob('*'))
 
 
 def test_myminifactory_no_download_link_and_refused_token(tmp_path, monkeypatch):
     from print_handy.core.site_accounts import SiteLoginNeeded
     _oauth_home(tmp_path, monkeypatch)
-    monkeypatch.setattr(model_job, '_web_api', lambda method, url, **kw: (200, dict(FILE_INFO, download_url=None)))
+    monkeypatch.setattr(jobs_sources, '_web_api', lambda method, url, **kw: (200, dict(FILE_INFO, download_url=None)))
     with pytest.raises(RuntimeError, match='did not give a download link'):
-        model_job.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
-    monkeypatch.setattr(model_job, '_web_api', lambda method, url, **kw: (401, {'error': 'access_denied'}))
+        jobs_sources.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
+    monkeypatch.setattr(jobs_sources, '_web_api', lambda method, url, **kw: (401, {'error': 'access_denied'}))
     with pytest.raises(SiteLoginNeeded) as caught:
-        model_job.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
+        jobs_sources.myminifactory_download(JOB, CHOSEN, tmp_path / 'src')
     assert caught.value.reason == 'refused'
 
 
@@ -234,9 +237,9 @@ def test_myminifactory_download_without_sign_in_never_networks(tmp_path, monkeyp
     from print_handy.core.site_accounts import SiteLoginNeeded
     _key_home(tmp_path, monkeypatch)  # an API key alone cannot download
     monkeypatch.delenv('MYMINIFACTORY_OAUTH_TOKEN', raising=False)
-    monkeypatch.setattr(model_job, '_web_api', mock.Mock(side_effect=AssertionError('network contacted')))
+    monkeypatch.setattr(jobs_sources, '_web_api', mock.Mock(side_effect=AssertionError('network contacted')))
     with pytest.raises(SiteLoginNeeded) as caught:
-        model_job.download_for_site(JOB, CHOSEN, tmp_path / 'src')
+        jobs_sources.download_for_site(JOB, CHOSEN, tmp_path / 'src')
     assert caught.value.site == 'myminifactory' and caught.value.reason == 'missing'
     assert 'oauth_token' in str(caught.value)
 
@@ -244,27 +247,27 @@ def test_myminifactory_download_without_sign_in_never_networks(tmp_path, monkeyp
 def test_myminifactory_inventory_falls_back_to_the_sign_in(tmp_path, monkeypatch):
     _oauth_home(tmp_path, monkeypatch)  # no API key file
     seen = []
-    monkeypatch.setattr(model_job, 'request_json',
+    setattr_bound(monkeypatch, jobs_common, 'request_json',
                         lambda url, headers=None, **kw: seen.append((url, headers)) or OBJ_ITEMS_FILES)
-    model_job.myminifactory_inventory('https://www.myminifactory.com/object/3d-print-gear-777')
+    jobs_sources.myminifactory_inventory('https://www.myminifactory.com/object/3d-print-gear-777')
     assert seen == [('https://www.myminifactory.com/api/v2/objects/777',
                      {'Authorization': 'Bearer oauth-token'})]
 
 
 def test_inventory_for_url_routes_myminifactory(monkeypatch):
     sentinel = {'site': 'myminifactory'}
-    monkeypatch.setattr(model_job, 'myminifactory_inventory', lambda url: sentinel)
-    assert model_job.inventory_for_url(MMF_URL) is sentinel
+    monkeypatch.setattr(jobs_sources, 'myminifactory_inventory', lambda url: sentinel)
+    assert jobs_sources.inventory_for_url(MMF_URL) is sentinel
     with pytest.raises(ValueError, match='MyMiniFactory'):
-        model_job.inventory_for_url('https://example.com/object/3d-print-x-1')
+        jobs_sources.inventory_for_url('https://example.com/object/3d-print-x-1')
 
 
 def test_design_fetch_myminifactory_downloads_a_single_file(tmp_path, monkeypatch):
     # /design goes through the same signed-in download, never the Printables lookup.
     from print_handy.core import design
-    monkeypatch.setattr(model_job, 'printables_inventory',
+    monkeypatch.setattr(jobs_sources, 'printables_inventory',
                         mock.Mock(side_effect=AssertionError('printables lookup attempted')))
-    monkeypatch.setattr(model_job, 'myminifactory_inventory', lambda url: dict(
+    monkeypatch.setattr(jobs_sources, 'myminifactory_inventory', lambda url: dict(
         JOB, sources=[CHOSEN]))
     seen = []
 
@@ -273,7 +276,7 @@ def test_design_fetch_myminifactory_downloads_a_single_file(tmp_path, monkeypatc
         dest.mkdir(parents=True, exist_ok=True)
         (dest / chosen['name']).write_bytes(b'solid x\n')
         return dest / chosen['name']
-    monkeypatch.setattr(model_job, 'myminifactory_download', fake_download)
+    monkeypatch.setattr(jobs_sources, 'myminifactory_download', fake_download)
     assert design.fetch_link_source(MMF_URL, tmp_path / 'src').name == 'flying-benchy.stl'
     assert seen == [CHOSEN]
 
@@ -286,7 +289,7 @@ def test_prepared_intake_myminifactory_offers_the_connect_flow(env, tmp_path, mo
     home.mkdir()
     monkeypatch.setenv('HOME', str(home))
     monkeypatch.delenv('MYMINIFACTORY_OAUTH_TOKEN', raising=False)
-    monkeypatch.setattr(model_job, 'myminifactory_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'myminifactory_inventory', lambda url: {
         'site': 'myminifactory', 'model_id': '111400', 'slug': 'winged-benchy',
         'title': 'winged benchy', 'license': 'CC BY-NC-SA', 'sources': [CHOSEN]})
 
@@ -313,7 +316,7 @@ def test_download_never_carries_the_token_to_another_host():
     # MyMiniFactory redirects a signed-in download to signed storage on
     # another host: the token must not go there (and that host rejects it).
     import urllib.request
-    handler = model_job._DropAuthOnHostChange()
+    handler = jobs_sources._DropAuthOnHostChange()
     req = urllib.request.Request('https://www.myminifactory.com/download/1?downloadfile=a.stl',
                                  headers={'Authorization': 'Bearer t', 'User-Agent': 'x'})
     away = handler.redirect_request(req, None, 302, 'Found', {},
@@ -332,7 +335,7 @@ def test_myminifactory_refused_sign_in_at_the_lookup_offers_renew(tmp_path, monk
 
     def refuse(url, headers=None, **kw):
         raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, None)
-    monkeypatch.setattr(model_job, 'request_json', refuse)
+    setattr_bound(monkeypatch, jobs_common, 'request_json', refuse)
     with pytest.raises(SiteLoginNeeded) as caught:
-        model_job.myminifactory_inventory(MMF_URL)
+        jobs_sources.myminifactory_inventory(MMF_URL)
     assert caught.value.reason == 'refused' and caught.value.site == 'myminifactory'

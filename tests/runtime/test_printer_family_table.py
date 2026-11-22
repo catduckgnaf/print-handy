@@ -20,6 +20,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import family_control
 from print_handy.runtime import print_alert_buttons as pab
 
@@ -99,11 +100,11 @@ def _polled_verdict(connection, raw):
     """The outcome a polled family's print path reports for one status read."""
     model, _build, _read, remote, reports = FAMILIES[connection]
     adapter = _adapter(model)
-    poll = model_job._poll_start_confirmation(lambda: adapter.normalize_status(raw), remote, window_s=0,
+    poll = launch_print_now._poll_start_confirmation(lambda: adapter.normalize_status(raw), remote, window_s=0,
                                               reports=reports)
     lease = FakeLease()
-    with mock.patch.object(model_job, "release_start_announcement"):
-        out = model_job._settle_polled_start(lease, poll, remote, method=connection)
+    with mock.patch.object(launch_print_now, "release_start_announcement"):
+        out = launch_print_now._settle_polled_start(lease, poll, remote, method=connection)
     return out, lease.calls
 
 

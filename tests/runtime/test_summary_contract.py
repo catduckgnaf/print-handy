@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 
 from print_handy.core import discord_color_intake
-from print_handy.core import model_job
 from print_handy.runtime import print_records
 
 

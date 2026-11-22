@@ -14,9 +14,14 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter as oa, prepared_intake as pi
+from print_handy.core import orca_adapter as oa, prepared_intake as pi
+from print_handy.intake import fit_flow as intake_fit_flow
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from .test_color_intake import state
 from .test_prepared_intake import Adapter, env  # noqa: F401  (pytest fixture)
+from tests.bound_names import setattr_bound
 
 TURN = {'name': 'Turn 126° on the bed', 'axis': '+Z', 'scale': 0.963, 'supports': False, 'brim': False,
         'rotation': [-0.588, -0.809, 0, 0.809, -0.588, 0, 0, 0, 1], 'dims_mm': [213.8, 213.9, 130.0],
@@ -29,51 +34,51 @@ DESK = {'scales': [0.916, 0.75, 0.5], 'rotations': [TURN, END], 'extent_mm': [23
 
 
 def test_the_better_rotation_is_a_button_and_the_dominated_shrink_is_not():
-    rows = pi.fit_choice_rows(DESK)
+    rows = intake_fit_flow.fit_choice_rows(DESK)
     assert [row['label'] for row in rows] == ['96.3% · turned 126°', 'Cancel']
     assert rows[0]['kind'] == 'rotate' and rows[0]['scale'] == 0.963 and rows[0]['rotation'] == TURN['rotation']
-    assert pi._fit_choice_reply('96.3%', rows) == 0
-    assert pi._fit_choice_reply('shrink', rows) == 0  # "shrink" means the largest smaller size on offer
-    assert pi._fit_choice_reply('cancel', rows) == 1
+    assert intake_fit_flow._fit_choice_reply('96.3%', rows) == 0
+    assert intake_fit_flow._fit_choice_reply('shrink', rows) == 0  # "shrink" means the largest smaller size on offer
+    assert intake_fit_flow._fit_choice_reply('cancel', rows) == 1
 
 
 def test_shrink_stays_when_no_rotation_beats_it_and_supports_need_to_win():
     low_turn = dict(TURN, scale=0.9)
-    rows = pi.fit_choice_rows({**DESK, 'rotations': [low_turn, END]})
+    rows = intake_fit_flow.fit_choice_rows({**DESK, 'rotations': [low_turn, END]})
     # 91.6% shrink beats the 90% turn; the supports rotation (95.1%) beats both.
     assert [row['label'] for row in rows] == [
         '95.1% · rotated 90° on Y + supports', 'Shrink to 91.6%', '90% · turned 126°', 'Cancel']
     assert [row['scale'] for row in rows[:-1]] == sorted((row['scale'] for row in rows[:-1]), reverse=True)
     assert len(rows) <= 4
     # A supports rotation smaller than a no-support one is not worth a button.
-    rows = pi.fit_choice_rows({**DESK, 'rotations': [TURN, dict(END, scale=0.9)], 'scales': [0.8]})
+    rows = intake_fit_flow.fit_choice_rows({**DESK, 'rotations': [TURN, dict(END, scale=0.9)], 'scales': [0.8]})
     assert [row['label'] for row in rows] == ['96.3% · turned 126°', 'Cancel']
 
 
 def test_full_size_rows_keep_their_place_ahead_of_smaller_sizes():
-    rows = pi.fit_choice_rows({**DESK, 'full_size_split': True})
+    rows = intake_fit_flow.fit_choice_rows({**DESK, 'full_size_split': True})
     assert [row['label'] for row in rows] == ['Split plates at 100%', '96.3% · turned 126°', 'Cancel']
-    assert pi._fit_choice_reply('split', rows) == 0
+    assert intake_fit_flow._fit_choice_reply('split', rows) == 0
 
 
 def test_hint_lists_only_offered_actions():
-    rows = pi.fit_choice_rows(DESK)
-    assert pi.fit_hint(rows) == 'Pick a fit option, or type shrink / cancel.'
-    with_split = pi.fit_choice_rows({**DESK, 'full_size_split': True})
-    assert pi.fit_hint(with_split) == 'Pick a fit option, or type split / 100% / shrink / cancel.'
-    assert pi.fit_hint([{'kind': 'cancel', 'label': 'Cancel'}]) == 'Pick a fit option, or type cancel.'
-    text = pi.fit_question('Desk organizer', DESK)
+    rows = intake_fit_flow.fit_choice_rows(DESK)
+    assert intake_fit_flow.fit_hint(rows) == 'Pick a fit option, or type shrink / cancel.'
+    with_split = intake_fit_flow.fit_choice_rows({**DESK, 'full_size_split': True})
+    assert intake_fit_flow.fit_hint(with_split) == 'Pick a fit option, or type split / 100% / shrink / cancel.'
+    assert intake_fit_flow.fit_hint([{'kind': 'cancel', 'label': 'Cancel'}]) == 'Pick a fit option, or type cancel.'
+    text = intake_fit_flow.fit_question('Desk organizer', DESK)
     assert text.endswith('Pick a fit option, or type shrink / cancel.')
     assert 'split' not in text.splitlines()[-1] and '100%' not in text.splitlines()[-1]
 
 
 def test_question_shows_measured_size_and_hides_a_brim_that_is_not_in_play():
-    text = pi.fit_question('Desk organizer', DESK)
+    text = intake_fit_flow.fit_question('Desk organizer', DESK)
     assert text.startswith('Desk organizer (231.31 × 157.01 × 135 mm) does not fit')
     assert 'measured dimensions unavailable' not in text
     assert 'Rotated: Turn 126° on the bed fits at 96.3% (213.8 x 213.9 x 130 mm)' in text
     assert 'brim policy' not in text
-    braced = pi.fit_question('Desk organizer', {**DESK, 'rotations': [],
+    braced = intake_fit_flow.fit_question('Desk organizer', {**DESK, 'rotations': [],
                                                  'brim_policy': {'type': 'outer_only', 'width_mm': 3.0,
                                                                  'label': 'Outer-only brim, 3 mm'}})
     assert 'Tight-fit brim policy: Outer-only brim, 3 mm.' in braced
@@ -82,9 +87,9 @@ def test_question_shows_measured_size_and_hides_a_brim_that_is_not_in_play():
 def test_a_turned_row_never_inherits_the_authored_layouts_brim():
     shrink_policy = {'type': 'outer_only', 'width_mm': 3.0, 'label': 'Outer-only brim, 3 mm'}
     options = {'brim_policy': shrink_policy}
-    assert pi.row_brim_policy({'kind': 'scale'}, options) == shrink_policy
-    assert pi.row_brim_policy({'kind': 'rotate', 'brim': False}, options)['width_mm'] == 0.0
-    assert pi.row_brim_policy({'kind': 'rotate', 'brim': True}, options) is None  # keeps the 5 mm orientation brim
+    assert intake_fit_flow.row_brim_policy({'kind': 'scale'}, options) == shrink_policy
+    assert intake_fit_flow.row_brim_policy({'kind': 'rotate', 'brim': False}, options)['width_mm'] == 0.0
+    assert intake_fit_flow.row_brim_policy({'kind': 'rotate', 'brim': True}, options) is None  # keeps the 5 mm orientation brim
 
 
 def _stl(path, boxes):
@@ -152,21 +157,21 @@ def test_hull_prune_never_changes_the_hull():
 
 def test_single_body_detection_is_conservative():
     one = {'audit': {'plates': 1, 'mesh_audit': {'shells': 1, 'dimensions_mm': [231.31, 157.01, 135.0]}}}
-    assert pi._single_body(one, {'parts': []}) is True
-    assert pi._single_body(one, {'parts': [{'key': '1:1'}]}) is True
-    assert pi._single_body(one, {'parts': [{'key': '1:1'}, {'key': '2:2'}]}) is False
-    assert pi._single_body({'audit': {'mesh_audit': {'shells': 2}}}, {'parts': []}) is False
-    assert pi._single_body({'audit': {'plates': 2, 'mesh_audit': {'shells': 1}}}, {'parts': []}) is False
-    assert pi._single_body({'audit': {'plates': 1}}, {'parts': []}) is False  # shell count unknown
-    assert pi._single_body({}, None) is False
-    assert pi.audit_dimensions(one) == [231.31, 157.01, 135.0]
-    assert pi.audit_dimensions({'audit': {}}) is None
+    assert intake_fit_flow._single_body(one, {'parts': []}) is True
+    assert intake_fit_flow._single_body(one, {'parts': [{'key': '1:1'}]}) is True
+    assert intake_fit_flow._single_body(one, {'parts': [{'key': '1:1'}, {'key': '2:2'}]}) is False
+    assert intake_fit_flow._single_body({'audit': {'mesh_audit': {'shells': 2}}}, {'parts': []}) is False
+    assert intake_fit_flow._single_body({'audit': {'plates': 2, 'mesh_audit': {'shells': 1}}}, {'parts': []}) is False
+    assert intake_fit_flow._single_body({'audit': {'plates': 1}}, {'parts': []}) is False  # shell count unknown
+    assert intake_fit_flow._single_body({}, None) is False
+    assert intake_fit_flow.audit_dimensions(one) == [231.31, 157.01, 135.0]
+    assert intake_fit_flow.audit_dimensions({'audit': {}}) is None
 
 
 def test_single_body_flow_skips_rearrange_and_split_and_offers_the_turned_size(env, monkeypatch):
     from print_handy.core import orca_adapter, plate_merge, split_fit
     calls = []
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'desk', 'title': 'Desk organizer',
         'sources': [{'name': 'desk_oganizer.stl', 'instance_id': 1}]})
 
@@ -176,10 +181,10 @@ def test_single_body_flow_skips_rearrange_and_split_and_offers_the_turned_size(e
         _stl(out, [(0, 0, 0, 231.31, 157.01, 135.0)])
         return out
 
-    monkeypatch.setattr(model_job, 'printables_download', download)
-    monkeypatch.setattr(model_job, 'audit', lambda path: {
+    monkeypatch.setattr(jobs_sources, 'printables_download', download)
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {
         'plates': 1, 'mesh_audit': {'shells': 1, 'dimensions_mm': [231.31, 157.01, 135.0]}})
-    monkeypatch.setattr(model_job, 'full_size_one_plate', lambda *a, **k: calls.append('rearrange'))
+    monkeypatch.setattr(jobs_slice, 'full_size_one_plate', lambda *a, **k: calls.append('rearrange'))
     monkeypatch.setattr(split_fit, 'split_plan_100', lambda *a, **k: calls.append('split_plan'))
     monkeypatch.setattr(plate_merge, 'full_size_split_possible', lambda *a, **k: calls.append('split'))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
@@ -214,7 +219,7 @@ def test_chosen_rotation_is_confirmed_with_the_exact_single_probe(env, monkeypat
     multi-copy limit the probe arranges instead, and a part that only fits
     as one centered copy is refused as 'no longer verifies a fit'."""
     from print_handy.core import orca_adapter, plate_merge, split_fit
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'desk', 'title': 'Desk organizer',
         'sources': [{'name': 'desk_oganizer.stl', 'instance_id': 1}]})
 
@@ -224,10 +229,10 @@ def test_chosen_rotation_is_confirmed_with_the_exact_single_probe(env, monkeypat
         _stl(out, [(0, 0, 0, 231.31, 157.01, 135.0)])
         return out
 
-    monkeypatch.setattr(model_job, 'printables_download', download)
-    monkeypatch.setattr(model_job, 'audit', lambda path: {
+    monkeypatch.setattr(jobs_sources, 'printables_download', download)
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {
         'plates': 1, 'mesh_audit': {'shells': 1, 'dimensions_mm': [231.31, 157.01, 135.0]}})
-    monkeypatch.setattr(model_job, 'full_size_one_plate', lambda *a, **k: None)
+    monkeypatch.setattr(jobs_slice, 'full_size_one_plate', lambda *a, **k: None)
     monkeypatch.setattr(split_fit, 'split_plan_100', lambda *a, **k: None)
     monkeypatch.setattr(plate_merge, 'full_size_split_possible', lambda *a, **k: False)
 

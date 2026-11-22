@@ -111,7 +111,9 @@ def _edit_probe(job, plan):
     the result. Returns (ok, lines). The real job is never touched."""
     import shutil
     import tempfile
-    from print_handy.core import edit_plan, model_job as mj
+    from print_handy.core import edit_plan
+    from ..jobs import slice as jobs_slice
+    from ..jobs import store as jobs_store
     scratch = Path(tempfile.mkdtemp(prefix='print-handy-edit-probe-'))
     try:
         probe_dir = scratch / 'job'
@@ -131,9 +133,9 @@ def _edit_probe(job, plan):
             # profiles that ship with labels off (Codex P2 on #908).
             probe['edit_settings'] = dict(probe.get('edit_settings') or {}, label_objects=True)
         probe_path = probe_dir / 'JOB.json'
-        mj.write_job(probe_dir, probe)
+        jobs_store.write_job(probe_dir, probe)
         try:
-            outputs = mj.slice_job(str(probe_path))
+            outputs = jobs_slice.slice_job(str(probe_path))
         except Exception as exc:
             return False, [f'FAILED: the edited slice did not run: {exc}']
         if not outputs:
@@ -168,8 +170,8 @@ async def _edit_question(event, gateway, source, adapter, kind):
     """Answer a question about the current job (#903) from its slice result and
     mesh; a supports question on an unsupported slice offers the #904 choice."""
     from print_handy.core import model_questions
-    from print_handy.core import model_job as mj
-    from print_handy.core.prepared_intake import PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL
+    from ..jobs import store as jobs_store
+    from ..intake.support_flow import PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
 
     async def say(content):
@@ -196,13 +198,13 @@ async def _edit_question(event, gateway, source, adapter, kind):
                           [RESLICE_SUPPORTS_LABEL, PRINT_NO_SUPPORTS_LABEL], timeout,
                           live_key=gateway._session_key_for_source(source), approval=True)
     if pick == RESLICE_SUPPORTS_LABEL:
-        mj.record_support_decision(job_path.parent, True)
+        jobs_store.record_support_decision(job_path.parent, True)
         job = json.loads(job_path.read_text())
         await say('Re-slicing with supports.')
         await _edit_reenter(event, gateway, source, adapter, job)
         return {'action': 'skip', 'reason': 'question answered: re-slice with supports'}
     if pick == PRINT_NO_SUPPORTS_LABEL:
-        mj.record_support_decision(job_path.parent, False)
+        jobs_store.record_support_decision(job_path.parent, False)
         await say('Recorded: print without supports. The slice is unchanged.')
         return {'action': 'skip', 'reason': 'question answered: print without supports'}
     await say('No change made.')
@@ -224,9 +226,9 @@ async def _edit_reenter(event, gateway, source, adapter, job):
 
 def _edit_new_job(root, source, event):
     """The job record the re-entered intake just wrote for this event."""
-    from print_handy.core import model_job as mj
+    from ..jobs import store as jobs_store
     try:
-        iid = mj.intake_id_from_message(source, getattr(event, 'message_id', None))
+        iid = jobs_store.intake_id_from_message(source, getattr(event, 'message_id', None))
         receipt = json.loads((Path(root) / (iid + '.json')).read_text())
         job_path = Path(receipt['job_json'])
         return job_path, json.loads(job_path.read_text())
@@ -237,7 +239,8 @@ def _edit_new_job(root, source, event):
 async def _edit_finish_record(root, source, event, *, verification):
     """Complete the provenance record on the NEW job (the resume carried
     it over) with the verification result and the new G-code's hash."""
-    from print_handy.core import edit_plan, model_job as mj
+    from print_handy.core import edit_plan
+    from ..jobs import store as jobs_store
     job_path, new_job = _edit_new_job(root, source, event)
     if new_job is None:
         return
@@ -245,12 +248,13 @@ async def _edit_finish_record(root, source, event, *, verification):
     edit_plan.finish_edit_record(
         new_job, verification=verification,
         output_sha256=edit_plan.file_sha256(gcode) if gcode else None)
-    mj.write_job(job_path.parent, new_job)
+    jobs_store.write_job(job_path.parent, new_job)
 
 
 async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, lane):
     """Probe-verify, record, apply and re-enter one confirmed plan."""
-    from print_handy.core import edit_plan, model_job as mj
+    from print_handy.core import edit_plan
+    from ..jobs import store as jobs_store
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
 
     async def say(content):
@@ -267,7 +271,7 @@ async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, l
     record = edit_plan.record_edit(job, plan, actor=actor, lane=lane,
                                    source_sha256=edit_plan.file_sha256(source_path))
     edit_plan.apply_plan(job, plan)
-    mj.write_job(job_path.parent, job)
+    jobs_store.write_job(job_path.parent, job)
     try:
         result = await _edit_reenter(event, gateway, source, adapter, job)
     except Exception as exc:
@@ -275,7 +279,7 @@ async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, l
         # true: write the pristine record back over the applied edit
         # (whose provenance record goes with it — the attempt is in
         # the log, and a failed edit must not steer later edits/undo).
-        mj.write_job(job_path.parent, original)
+        jobs_store.write_job(job_path.parent, original)
         logger.warning('edit re-entry failed after a verified probe slice: %r', exc)
         await say('The edit verified on a test slice, but re-slicing the job for presentation '
                   'failed, so the job above is unchanged. Nothing was started.')
@@ -287,7 +291,8 @@ async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, l
 
 
 async def _edit_undo(event, gateway, source, adapter, job_path, job):
-    from print_handy.core import edit_plan, model_job as mj
+    from print_handy.core import edit_plan
+    from ..jobs import store as jobs_store
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
 
     async def say(content):
@@ -299,7 +304,7 @@ async def _edit_undo(event, gateway, source, adapter, job_path, job):
     from print_handy.core import ai_fix
     fix = ai_fix.undo_last_fix(job, actor=actor)
     if fix is not None:
-        mj.write_job(job_path.parent, job)
+        jobs_store.write_job(job_path.parent, job)
         result = await _edit_reenter(event, gateway, source, adapter, job)
         await _edit_finish_record(_h()._state_dir() / 'model-link-intakes', source, event,
                                   verification=['undo: the AI fix was reverted and the original '
@@ -315,7 +320,7 @@ async def _edit_undo(event, gateway, source, adapter, job_path, job):
     if undone is None:
         await say('Every edit on the current job has already been undone.')
         return {'action': 'skip', 'reason': 'nothing to undo'}
-    mj.write_job(job_path.parent, job)
+    jobs_store.write_job(job_path.parent, job)
     result = await _edit_reenter(event, gateway, source, adapter, job)
     await _edit_finish_record(_h()._state_dir() / 'model-link-intakes', source, event,
                               verification=['undo: the restored state was re-sliced by the '
@@ -523,7 +528,9 @@ async def _repair_flow(event, gateway, source, adapter):
     then the job re-enters the intake, which re-slices and re-runs every
     post-slice gate on the fixed model.
     """
-    from print_handy.core import ai_fix, edit_plan, model_job as mj
+    from print_handy.core import ai_fix, edit_plan
+    from ..jobs import filament as jobs_filament
+    from ..jobs import store as jobs_store
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
 
     async def say(content):
@@ -557,7 +564,7 @@ async def _repair_flow(event, gateway, source, adapter):
         return {'action': 'skip', 'reason': 'repair: out of fix attempts'}
     actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
     ai_fix.note_attempt(job, actor=actor, surface='chat')
-    mj.write_job(job_path.parent, job)
+    jobs_store.write_job(job_path.parent, job)
     source_sha = edit_plan.file_sha256(source_path)
     mesh = await asyncio.to_thread(ai_fix.mesh_report, source_path)
     problem = _sanitize_mentions(text)
@@ -646,7 +653,7 @@ async def _repair_flow(event, gateway, source, adapter):
             from print_handy.core import printer_state
             pid = job.get('printer_id') or _h()._routed_printer_id(source, gateway)
             fix_state = printer_state.load(**_h()._pkw(pid))
-            resolver = lambda sel: mj.resolve_filament_selection(fix_state, sel)  # noqa: E731
+            resolver = lambda sel: jobs_filament.resolve_filament_selection(fix_state, sel)  # noqa: E731
         except Exception:
             logger.debug("could not build the filament resolver for the repair", exc_info=True)
         if resolver is None:
@@ -671,11 +678,11 @@ async def _repair_flow(event, gateway, source, adapter):
         # drop them so the intake analyses the fixed model afresh.
         job.pop('support_clearance', None)
         job.pop('clearance_acknowledgement', None)
-    mj.write_job(job_path.parent, job)
+    jobs_store.write_job(job_path.parent, job)
     try:
         result = await _edit_reenter(event, gateway, source, adapter, job)
     except Exception as exc:
-        mj.write_job(job_path.parent, original)
+        jobs_store.write_job(job_path.parent, original)
         logger.warning('repair re-entry failed: %r', exc)
         await say('The fix was built, but preparing the fixed job failed, so the job above is '
                   'unchanged. Nothing was started.')

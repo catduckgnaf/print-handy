@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from print_handy.core import model_job, orca_adapter, package_remap, slice_route, source_colors
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_color_geometry
 from tests.corpus.make_models import box, write_3mf
 
@@ -50,7 +51,7 @@ def decisions(source, picks):
         match = re.fullmatch(r"filament:(\d+)", row["key"])
         part = next((p for p in manifest["parts"] if "part:" + p["key"] == row["key"]), None)
         slot = picks[int(match.group(1)) if match else part["source_extruder"]]
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     return {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
             "choices": choices}

@@ -5,7 +5,8 @@ import re
 from pathlib import Path
 
 from print_handy import settings
-from print_handy.core import prepared_intake, slice_guard, source_colors
+from print_handy.core import slice_guard, source_colors
+from print_handy.intake import worker as intake_worker
 
 from .test_color_intake import source
 
@@ -39,7 +40,7 @@ def test_shipped_protected_baseline_matches_the_orca_machine_template():
 def test_heavy_steps_really_run_in_a_child_process(tmp_path):
     path = source(tmp_path)
     expected = json.loads(json.dumps(source_colors.inventory(path), default=str))
-    got = asyncio.run(prepared_intake._heavy(source_colors.inventory, path))
+    got = asyncio.run(intake_worker._heavy(source_colors.inventory, path))
     assert json.loads(json.dumps(got, default=str)) == expected
 
 

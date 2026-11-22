@@ -13,7 +13,9 @@ from unittest import mock
 import pytest
 
 from print_handy.core import prepared_intake
+from print_handy.intake import questions as intake_questions
 from print_handy.intake import slot_verify as sv
+from tests.bound_names import patch_bound
 
 PLA_RECORD = {"material": "PLA+", "color": "Black PLA+", "spoolman_id": 21}
 SLOTS = {"1": {"material": "PLA", "color": "Matte White", "spoolman_id": 16},
@@ -290,7 +292,7 @@ def test_intake_asks_through_its_own_question_and_cancel_returns_false(tmp_path)
         assert "Before slicing" in text
         return labels.index("Cancel")
 
-    with mock.patch.object(prepared_intake, "_ask", fake_ask), \
+    with patch_bound(intake_questions, "_ask", fake_ask), \
             mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
             mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
         ok = asyncio.run(prepared_intake._verify_slots(adapter, source, "k", {}, {}, "flashforge-ad5x", 60))
@@ -308,7 +310,7 @@ def test_verify_slots_with_no_timeout_still_asks_and_continues(tmp_path):
         seen.append(rest[0])
         return None
 
-    with mock.patch.object(prepared_intake, "_ask", fake_ask), \
+    with patch_bound(intake_questions, "_ask", fake_ask), \
             mock.patch.object(prepared_intake, "_question_timeout", lambda t: 60 if t is None else t), \
             mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
             mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
@@ -395,7 +397,7 @@ def test_intake_question_is_bounded_and_expiry_does_not_cancel(tmp_path):
         seen["timeout"] = timeout
         raise type("PromptExpired", (RuntimeError,), {})("expired")
 
-    with mock.patch.object(prepared_intake, "_ask", expired_ask), \
+    with patch_bound(intake_questions, "_ask", expired_ask), \
             mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
             mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
         ok = asyncio.run(prepared_intake._verify_slots(adapter, source, "k", {}, {}, "flashforge-ad5x", 900,

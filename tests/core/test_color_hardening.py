@@ -10,7 +10,7 @@ in tests/pipeline/test_launch_state.py next to the `mapped` fixture.
 import pytest
 
 from print_handy.core import filament_color as fc
-from print_handy.core import model_job
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core import spool_lifecycle as sl
 from print_handy.runtime import spool_sync
 from print_handy.printers.bambulab import ams
@@ -246,7 +246,7 @@ def test_bug6_a_different_spools_old_hex_is_never_inherited():
 
 def _selection(configured_color, chosen_color):
     state = {"filament_slots": {"1": {"spoolman_id": 7, "color": configured_color, "material": "PLA"}}}
-    return model_job.resolve_filament_selection(
+    return jobs_filament.resolve_filament_selection(
         state, {"slot": 1, "spoolman_id": 7, "color": chosen_color, "material": "PLA"})
 
 

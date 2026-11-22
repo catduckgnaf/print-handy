@@ -16,7 +16,9 @@ import pytest
 
 from print_handy.bot import edit_chat
 from print_handy.core import edit_plan as ep
-from print_handy.core import model_job as mj
+from tests.bound_names import setattr_bound
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import store as jobs_store
 
 ROOT = Path(__file__).parents[1]
 PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
@@ -107,7 +109,7 @@ def edit_env(tmp_path, monkeypatch, request):
         new_job["downloaded_file"] = job["downloaded_file"]
         new_path = new_folder / "JOB.json"
         new_path.write_text(json.dumps(new_job))
-        iid = mj.intake_id_from_message(source, event.message_id)
+        iid = jobs_store.intake_id_from_message(source, event.message_id)
         (root / (iid + ".json")).write_text(json.dumps(
             {"chat_id": "c", "thread_id": None, "job_json": str(new_path), "status": "SLICED"}))
         return {"action": "skip", "reason": "reentered"}
@@ -561,7 +563,7 @@ def test_copies_probe_turns_on_object_labels(tmp_path, monkeypatch):
                          "; printing object box id:1 copy 1\nG1 X2 E2\n")
         return [str(gcode)]
 
-    monkeypatch.setattr(mj, "slice_job", fake_slice_job)
+    setattr_bound(monkeypatch, jobs_slice, "slice_job", fake_slice_job)
     ok, lines = edit_chat._edit_probe(job, {"kind": "copies", "count": 2})
     assert ok, lines
     assert seen["job"]["edit_settings"]["label_objects"] is True

@@ -1246,7 +1246,7 @@ def verify_slice(plan, *, gcode_text, before_dims, config=None):
     with its reason, never silently printed. `config` defaults to the
     config block parsed from the G-code itself.
     """
-    from . import model_job as mj  # lazy: model_job imports this module
+    from ..gcode import bounds as gcode_bounds
     config = gcode_config(gcode_text) if config is None else config
     lines = []
     ok = True
@@ -1264,7 +1264,7 @@ def verify_slice(plan, *, gcode_text, before_dims, config=None):
             # plate of copies, none of which is the model's size.
             measured = object_toolpath_dims(gcode_text)
             if measured is None:
-                bounds = mj.gcode_motion_bounds(gcode_text)
+                bounds = gcode_bounds.gcode_motion_bounds(gcode_text)
                 measured = tuple(round(bounds[a][1] - bounds[a][0], 3) for a in "xyz")
         except Exception as exc:
             measured = None

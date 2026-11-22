@@ -14,7 +14,7 @@ import socket
 
 import pytest
 
-from print_handy.core import model_job
+from print_handy.jobs import sources as jobs_sources
 
 PUBLIC_IP = "93.184.216.34"
 LOOPBACK = "127.0.0.1"
@@ -87,10 +87,10 @@ def _getaddrinfo_loopback(host, port, *args, **kwargs):
 def test_open_once_dials_the_validated_address_not_a_rebound_one(monkeypatch, fake_transport):
     dialed, sockets = fake_transport
     # Validation sees a public address; any later lookup rebinds to loopback.
-    monkeypatch.setattr(model_job, "_resolve_host_ips", lambda host: {PUBLIC_IP})
+    monkeypatch.setattr(jobs_sources, "_resolve_host_ips", lambda host: {PUBLIC_IP})
     monkeypatch.setattr(socket, "getaddrinfo", _getaddrinfo_loopback)
 
-    response = model_job._open_once("http://files.example/model.stl")
+    response = jobs_sources._open_once("http://files.example/model.stl")
 
     assert response.read() == BODY
     # The one connection went to the validated public address, never loopback,
@@ -102,12 +102,12 @@ def test_open_once_dials_the_validated_address_not_a_rebound_one(monkeypatch, fa
 def test_fetch_refuses_when_resolution_rebinds_to_private(monkeypatch, fake_transport):
     dialed, _sockets = fake_transport
     answers = iter([{PUBLIC_IP}, {LOOPBACK}])
-    monkeypatch.setattr(model_job, "_resolve_host_ips",
+    monkeypatch.setattr(jobs_sources, "_resolve_host_ips",
                         lambda host: next(answers, {LOOPBACK}))
     monkeypatch.setattr(socket, "getaddrinfo", _getaddrinfo_loopback)
 
-    with pytest.raises(model_job.DirectLinkError, match="not a public address"):
-        model_job._fetch_direct_response("https://files.example/model.stl")
+    with pytest.raises(jobs_sources.DirectLinkError, match="not a public address"):
+        jobs_sources._fetch_direct_response("https://files.example/model.stl")
     assert dialed == []  # nothing connected anywhere
 
 
@@ -124,7 +124,7 @@ def test_pinned_https_connection_preserves_tls_server_name(monkeypatch):
         socket, "create_connection",
         lambda address, timeout=None, source_address=None:
             dialed.append(address) or FakeSocket(b""))
-    conn = model_job._PinnedHTTPSConnection(
+    conn = jobs_sources._PinnedHTTPSConnection(
         "files.example", port=8443, _pinned_ip=PUBLIC_IP,
         context=FakeContext())
     conn.connect()

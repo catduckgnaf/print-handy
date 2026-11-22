@@ -114,10 +114,11 @@ def test_stl_triangle_budget(tmp_path):
 
 
 def test_oversized_direct_entry_points_never_parse(tmp_path):
-    from print_handy.core import model_job, source_colors, geometry_layout
+    from print_handy.core import source_colors, geometry_layout
+    from print_handy.jobs import audit as jobs_audit
     source = tmp_path / 'large.3mf'
     source.write_bytes(b'not even a zip')
     with patch.object(limits, 'MAX_DOWNLOAD_BYTES', 1):
-        for entry in (model_job.audit, source_colors.inventory, geometry_layout.load_parts):
+        for entry in (jobs_audit.audit, source_colors.inventory, geometry_layout.load_parts):
             with pytest.raises(limits.IntakeLimitExceeded, match='file exceeds'):
                 entry(source)

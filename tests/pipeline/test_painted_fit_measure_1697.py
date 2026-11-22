@@ -12,7 +12,7 @@ happens, on sources whose fit verdicts are unchanged.
 """
 from __future__ import annotations
 
-from print_handy.core import color_geometry, model_job, source_colors
+from print_handy.core import color_geometry, source_colors
 from print_handy.jobs import slice as slice_mod
 
 from .test_color_geometry import _painted_two_plate_source
@@ -35,7 +35,7 @@ def _counted_fit(monkeypatch):
 def test_tower_refusal_recovers_the_tool_map_without_measuring_again(tmp_path, monkeypatch):
     path = _dense_painted_source(tmp_path / 'dense.3mf')
     manifest, decisions = _decisions(path)
-    view = model_job._per_part_view(manifest, decisions)
+    view = slice_mod._per_part_view(manifest, decisions)
     exports, inventories = _counted_fit(monkeypatch)
     fitted = slice_mod._plate_fit(path, view, {'1'}, 3.0, None)
     # The verdict is the one the three-export fit produced.
@@ -53,7 +53,7 @@ def test_one_tool_plate_is_not_measured_again_towerless_at_the_same_scale(tmp_pa
     manifest, decisions = _decisions(path)
     for row in decisions['choices'].values():
         row['slot'] = 1
-    view = model_job._per_part_view(manifest, decisions)
+    view = slice_mod._per_part_view(manifest, decisions)
     exports, _inventories = _counted_fit(monkeypatch)
     fitted = slice_mod._plate_fit(path, view, {'1'}, 1.0, None)
     assert fitted == {'scale': 1.0, 'yaw': 0.0, 'extent_mm': [90.0, 90.0, 2.0], 'tower_mm': 0.0}

@@ -16,11 +16,16 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job, orca_adapter, prepared_intake, source_colors
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from print_handy.printers.base import MultiColorUnsupported
 
 from .test_color_intake import state as ad5x_state
 from .test_forgebridge_edge_cases import layered
 from .test_prepared_intake import Adapter, env  # noqa: F401  (env is a fixture)
+from tests.bound_names import setattr_bound
 
 
 def _copy(source_path):
@@ -34,7 +39,7 @@ def _copy(source_path):
 
 
 def _run(env, picks, st, monkeypatch, source_path, mid="layered"):
-    monkeypatch.setattr(model_job, "printables_download", _copy(source_path))
+    monkeypatch.setattr(jobs_sources, "printables_download", _copy(source_path))
     event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
               message_id=mid, text="https://www.printables.com/model/1-ghost")
     adapter = Adapter(picks)
@@ -130,7 +135,7 @@ def _single_state():
 
 def test_cli_gate_stops_a_single_extruder_job_without_a_height_choice(tmp_path):
     with pytest.raises(MultiColorUnsupported, match="changes color by height"):
-        model_job.intake_color_choices(_ad5m_job(tmp_path), _single_state())
+        jobs_prompts.intake_color_choices(_ad5m_job(tmp_path), _single_state())
 
 
 def test_cli_gate_accepts_a_recorded_pause_choice(tmp_path):
@@ -139,7 +144,7 @@ def test_cli_gate_accepts_a_recorded_pause_choice(tmp_path):
     decisions = {"schema": "part_slots_v1", "mode": "single_color",
                  "source_sha256": manifest["source_sha256"], "height_colors": "pause",
                  "selection": {"slot": 1, "color": "white", "material": "PLA", "spoolman_id": 10}}
-    assert model_job.intake_color_choices(_ad5m_job(tmp_path, decisions), _single_state()) is True
+    assert jobs_prompts.intake_color_choices(_ad5m_job(tmp_path, decisions), _single_state()) is True
 
 
 # ------------------------------------------------------- the production slice job honours the choice
@@ -183,9 +188,9 @@ def test_slice_job_slices_the_pause_choice_on_a_single_extruder(tmp_path, monkey
         out.write_text("G1 X1 Y1\n")
         return out, {}, []
     monkeypatch.setattr(model_job.printer_state, "load", lambda *a, **k: _ad5m_st())
-    monkeypatch.setattr(model_job, "_verify_routed", lambda *a, **k: None)
+    setattr_bound(monkeypatch, gcode_verify, "_verify_routed", lambda *a, **k: None)
     monkeypatch.setattr(orca_adapter, "slice_model", fake_slice_model)
-    model_job.slice_job(jp)
+    jobs_slice.slice_job(jp)
     # The recorded choice reached the slicer instead of being dropped or refused.
     assert captured["color_decisions"]["height_colors"] == "pause"
     assert captured["color_decisions"]["mode"] == "single_color"
@@ -199,7 +204,7 @@ def test_slice_job_still_refuses_a_height_color_source_with_no_choice(tmp_path, 
     monkeypatch.setattr(orca_adapter, "slice_model",
                         lambda *a, **k: pytest.fail("slicer must not run"))
     with pytest.raises(MultiColorUnsupported):
-        model_job.slice_job(jp)
+        jobs_slice.slice_job(jp)
 
 
 # ---------------------------------------------------------------- slice time: pauses reach Orca

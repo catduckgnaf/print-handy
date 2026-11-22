@@ -136,7 +136,8 @@ def test_clock_skew_shift_lets_a_stale_history_settle_the_lease():
 
 def _history_env(monkeypatch, jobs, skew):
     from print_handy.core import model_job
-    monkeypatch.setattr(model_job, "_mr", lambda st, path, **kw: {"result": {"jobs": jobs}})
+    from print_handy.jobs import common as jobs_common
+    setattr_bound(monkeypatch, jobs_common, "_mr", lambda st, path, **kw: {"result": {"jobs": jobs}})
     monkeypatch.setattr(launch_state, "printer_clock_skew", lambda url, **kw: skew)
     return model_job
 
@@ -180,6 +181,7 @@ def test_pre_reset_run_cannot_confirm_a_lease_with_an_empty_baseline(monkeypatch
 import io
 import json
 import urllib.request
+from tests.bound_names import setattr_bound
 
 
 def _sync_env(monkeypatch, *, skew, state="standby", filename="", active=False, after=0.0):

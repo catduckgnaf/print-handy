@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, prepared_intake, source_colors
+from print_handy.core import orca_adapter, prepared_intake, source_colors
+from print_handy.intake import worker as intake_worker
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core.background_slice import BackgroundSlice
 
 
@@ -182,7 +184,7 @@ def test_deadline_terminates_then_kills_and_reaps_the_whole_process_group(fake):
     fake.limits(DEADLINE_S=0.5, GRACE_S=0.3)
 
     async def run():
-        return await asyncio.wait_for(prepared_intake._heavy(source_colors.inventory, 'model.3mf'), 8)
+        return await asyncio.wait_for(intake_worker._heavy(source_colors.inventory, 'model.3mf'), 8)
 
     began = time.monotonic()
     with pytest.raises(RuntimeError, match='did not finish within') as caught:
@@ -200,7 +202,7 @@ def test_cancel_terminates_the_group_and_waits_for_it(fake):
     fake.limits(GRACE_S=2.0)
 
     async def run():
-        task = asyncio.ensure_future(prepared_intake._heavy(source_colors.inventory, 'model.3mf'))
+        task = asyncio.ensure_future(intake_worker._heavy(source_colors.inventory, 'model.3mf'))
         await fake.started()
         began = time.monotonic()
         task.cancel()
@@ -220,7 +222,7 @@ def test_shutdown_stops_every_running_worker(fake):
     from print_handy.core import owned_worker
 
     async def run():
-        task = asyncio.ensure_future(prepared_intake._heavy(source_colors.inventory, 'model.3mf'))
+        task = asyncio.ensure_future(intake_worker._heavy(source_colors.inventory, 'model.3mf'))
         await fake.started()
         await owned_worker.shutdown()
         with pytest.raises(RuntimeError, match='shutting down'):
@@ -266,7 +268,7 @@ def test_worker_output_is_size_limited(fake):
     fake.limits(OUTPUT_LIMIT=1 << 20, GRACE_S=0.3)
 
     async def run():
-        return await asyncio.wait_for(prepared_intake._heavy(source_colors.inventory, 'model.3mf'), 8)
+        return await asyncio.wait_for(intake_worker._heavy(source_colors.inventory, 'model.3mf'), 8)
 
     with pytest.raises(RuntimeError, match='output limit'):
         asyncio.run(run())
@@ -282,7 +284,7 @@ def test_discarded_background_slice_is_stopped_and_cannot_write_after_cleanup(fa
     async def run():
         runner = BackgroundSlice()
         await runner.start(job_path, 'decisions', lambda jp, work, _runner:
-                           prepared_intake._heavy(model_job.slice_job, str(jp)))
+                           intake_worker._heavy(jobs_slice.slice_job, str(jp)))
         await fake.started()
         began = time.monotonic()
         await runner.discard()
@@ -331,9 +333,9 @@ def test_slicer_steps_run_one_at_a_time(fake, tmp_path):
     fake.mode('ok', FAKE_SLEEP=0.4)
 
     async def run():
-        await asyncio.gather(prepared_intake._heavy(model_job.slice_job, str(job_path)),
-                             prepared_intake._heavy(orca_adapter.fit_options, folder / 'model.3mf', {}),
-                             prepared_intake._heavy(orca_adapter.orca_plate_capacity, folder / 'model.3mf', {}))
+        await asyncio.gather(intake_worker._heavy(jobs_slice.slice_job, str(job_path)),
+                             intake_worker._heavy(orca_adapter.fit_options, folder / 'model.3mf', {}),
+                             intake_worker._heavy(orca_adapter.orca_plate_capacity, folder / 'model.3mf', {}))
 
     asyncio.run(asyncio.wait_for(run(), 10))
     runs = fake.intervals()
@@ -348,7 +350,7 @@ def test_slicer_queue_is_bounded(fake, tmp_path):
     fake.limits(**{'SLICER.waiting': 1})
 
     async def run():
-        steps = [prepared_intake._heavy(model_job.slice_job, str(job_path)) for _ in range(4)]
+        steps = [intake_worker._heavy(jobs_slice.slice_job, str(job_path)) for _ in range(4)]
         return await asyncio.gather(*steps, return_exceptions=True)
 
     results = asyncio.run(asyncio.wait_for(run(), 10))
@@ -363,7 +365,7 @@ def test_running_slice_records_only_what_explains_an_interruption(fake, tmp_path
     fake.limits(GRACE_S=2.0)
 
     async def run():
-        task = asyncio.ensure_future(prepared_intake._heavy(model_job.slice_job, str(job_path)))
+        task = asyncio.ensure_future(intake_worker._heavy(jobs_slice.slice_job, str(job_path)))
         await fake.started()
         record = json.loads((folder / 'WORKER.json').read_text())
         task.cancel()

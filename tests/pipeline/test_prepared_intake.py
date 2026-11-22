@@ -14,12 +14,23 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.core import model_job  # noqa: E402
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
 from print_handy.core import prepared_intake  # noqa: E402
+from print_handy.intake import fit_flow as intake_fit_flow
+from print_handy.intake import questions as intake_questions
+from print_handy.intake import worker as intake_worker
 from print_handy.core.background_slice import slice_binding  # noqa: E402
 from print_handy.core.slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 from .helpers import external  # noqa: E402
 print_next = external("print_next")
 from .test_color_intake import source, state  # noqa: E402
+from tests.bound_names import setattr_bound
 
 
 class Adapter:
@@ -94,13 +105,13 @@ def env(tmp_path, monkeypatch):
         _orig_init(self)
         self.release.clear()
     monkeypatch.setattr(background_slice.BackgroundSlice, '__init__', _held_init)
-    _orig_ask = prepared_intake._ask
+    _orig_ask = intake_questions._ask
 
     async def _ask_without_release(*args, on_shown=None, **kw):
         if isinstance(getattr(on_shown, '__self__', None), asyncio.Event):
             on_shown = None  # the question being shown must not start the slice
         return await _orig_ask(*args, on_shown=on_shown, **kw)
-    monkeypatch.setattr(prepared_intake, '_ask', _ask_without_release)
+    setattr_bound(monkeypatch, intake_questions, '_ask', _ask_without_release)
 
     async def _logged_with_stop(adapter, source_, key, metadata, text, work, **kw):
         if text and text.startswith('Waiting for the background slice'):
@@ -115,14 +126,14 @@ def env(tmp_path, monkeypatch):
         return await _orig_with_stop(adapter, source_, key, metadata, text, work, **kw)
     monkeypatch.setattr(prepared_intake, '_with_stop', _logged_with_stop)
     folder_root = tmp_path / 'archive'
-    monkeypatch.setattr(model_job, 'ARCHIVE', folder_root)
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', folder_root)
     from print_handy.runtime import _config as runtime_config
     monkeypatch.setattr(runtime_config, 'cache_dir', lambda: tmp_path / 'cache')
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'ghost', 'title': 'Ghost Stand',
         'sources': [{'name': 'ghost.3mf', 'instance_id': 1}]})
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(src, dest))
-    monkeypatch.setattr(model_job, 'audit', lambda path: {'plates': 1})
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(src, dest))
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {'plates': 1})
     # This fixture's synthetic 3MF intentionally lacks triangles; these intake tests
     # exercise approvals/lifecycle, so model a separately verified one-copy fit.
     from print_handy.core import orca_adapter
@@ -138,13 +149,13 @@ def env(tmp_path, monkeypatch):
         gcode.write_text('; estimated printing time (normal mode) = 1h 0m 0s\nG1 X1\n')
         data = json.loads(Path(job_path).read_text())
         data['derived_plates'] = [{'gcode': str(gcode), 'plate_id': 1, 'slot': 1}]
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         try:
             return [gcode]
         finally:
             if gcode.exists():  # a discarded early slice removes it before this returns
                 sliced.append(str(gcode))
-    monkeypatch.setattr(model_job, 'slice_job', fake_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
     stub = tmp_path / 'print-now-stub'
     stub.write_text('#!/bin/sh\necho "started $2"\n')
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
@@ -192,7 +203,7 @@ def test_resource_refusal_precedes_audit_and_color_prompts(env, monkeypatch):
     def unexpected_audit(path):
         pytest.fail('oversized source reached audit')
 
-    monkeypatch.setattr(model_job, 'audit', unexpected_audit)
+    setattr_bound(monkeypatch, jobs_audit, 'audit', unexpected_audit)
     adapter, result, receipt = run_flow(env, [])
     assert result['action'] == 'skip'
     assert receipt['status'] == 'FAILED'
@@ -204,22 +215,22 @@ def test_resource_refusal_precedes_audit_and_color_prompts(env, monkeypatch):
 
 
 def test_fit_choice_rows_are_four_or_fewer_and_never_offer_preview():
-    rows = prepared_intake.fit_choice_rows({'scales': [0.98, 0.75, 0.5], 'rotations': [],
+    rows = intake_fit_flow.fit_choice_rows({'scales': [0.98, 0.75, 0.5], 'rotations': [],
                                             'full_size_split': True})
     assert [row['label'] for row in rows] == ['Split plates at 100%', 'Shrink to 98%', 'Cancel']
     assert len(rows) <= 4
-    packed = prepared_intake.fit_choice_rows({'split_plan': {'plates': [['a'], ['b']]},
+    packed = intake_fit_flow.fit_choice_rows({'split_plan': {'plates': [['a'], ['b']]},
                                               'scales': [0.98], 'rotations': []})
     assert packed[0]['label'] == '100% · split 2 plates' and packed[0]['plates'] == [['a'], ['b']]
-    assert prepared_intake._fit_choice_reply('split', packed) == 0
+    assert intake_fit_flow._fit_choice_reply('split', packed) == 0
     assert len(packed) <= 4
-    assert prepared_intake._fit_choice_reply('100%', rows) == 0
-    assert prepared_intake._fit_choice_reply('split', rows) == 0
-    assert prepared_intake._fit_choice_reply('98%', rows) == 1
-    assert prepared_intake._fit_choice_reply('98', rows) == 1
-    assert prepared_intake._fit_choice_reply('cancel', rows) == 2
+    assert intake_fit_flow._fit_choice_reply('100%', rows) == 0
+    assert intake_fit_flow._fit_choice_reply('split', rows) == 0
+    assert intake_fit_flow._fit_choice_reply('98%', rows) == 1
+    assert intake_fit_flow._fit_choice_reply('98', rows) == 1
+    assert intake_fit_flow._fit_choice_reply('cancel', rows) == 2
     with pytest.raises(ValueError, match='not available'):
-        prepared_intake._fit_choice_reply('100%', rows[1:])
+        intake_fit_flow._fit_choice_reply('100%', rows[1:])
 
 
 def test_one_click_slice_and_print_needs_no_typed_approval(env):
@@ -241,7 +252,7 @@ def test_one_click_slice_and_print_needs_no_typed_approval(env):
     assert not any('Approved' in q['question'] for q in adapter.questions)
     # The confirmed recipe is the one the worker was asked to slice, and it is the job's current recipe.
     job = json.loads(Path(approval['job_json']).read_text())
-    current = binding_sha256(slice_binding(job, model_job.file_sha256(job['downloaded_file'])))
+    current = binding_sha256(slice_binding(job, gcode_artifact.file_sha256(job['downloaded_file'])))
     assert env.recipes == [current]
     assert receipt['slice_approval']['recipe_version'] == RECIPE_VERSION
     assert receipt['slice_approval']['recipe_sha256'] == current
@@ -369,7 +380,7 @@ def test_scale_bigger_repeats_the_ready_question_and_slices_at_the_new_size(env,
     job = json.loads(Path(receipt['bed_clear_approval']['job_json']).read_text())
     assert job['scale'] == 1.05
     # The slice that was kept is the one bound to the scaled recipe.
-    current = binding_sha256(slice_binding(job, model_job.file_sha256(job['downloaded_file'])))
+    current = binding_sha256(slice_binding(job, gcode_artifact.file_sha256(job['downloaded_file'])))
     assert env.recipes[-1] == current
 
 
@@ -488,24 +499,24 @@ def test_scale_prompts_can_be_backed_out_without_changing_anything(env):
 
 
 def test_scale_typed_replies_resolve_direction_and_percent():
-    assert prepared_intake._scale_direction_reply('bigger') == 0
-    assert prepared_intake._scale_direction_reply('make it smaller') == 1
-    assert prepared_intake._scale_direction_reply('cancel') == 2
-    assert prepared_intake._scale_direction_reply('whatever') is None
-    assert prepared_intake._scale_percent_reply('1') == 0
-    assert prepared_intake._scale_percent_reply('5%') == 1
-    assert prepared_intake._scale_percent_reply('10') == 2
-    assert prepared_intake._scale_percent_reply('back') == 3
-    assert prepared_intake._scale_percent_reply('7') is None
-    assert prepared_intake._scale_fit_offer_reply('scale to the biggest') == 0
-    assert prepared_intake._scale_fit_offer_reply('yes') == 0
-    assert prepared_intake._scale_fit_offer_reply('keep 100%') == 1
-    assert prepared_intake._scale_fit_offer_reply('no') == 1
-    assert prepared_intake._scale_fit_offer_reply('do not scale') == 1
-    assert prepared_intake._scale_fit_offer_reply("don't scale") == 1
-    assert prepared_intake._scale_fit_offer_reply('no, keep the current scale') == 1
-    assert prepared_intake._scale_fit_offer_reply('cancel') == 2
-    assert prepared_intake._scale_fit_offer_reply('whatever') is None
+    assert intake_fit_flow._scale_direction_reply('bigger') == 0
+    assert intake_fit_flow._scale_direction_reply('make it smaller') == 1
+    assert intake_fit_flow._scale_direction_reply('cancel') == 2
+    assert intake_fit_flow._scale_direction_reply('whatever') is None
+    assert intake_fit_flow._scale_percent_reply('1') == 0
+    assert intake_fit_flow._scale_percent_reply('5%') == 1
+    assert intake_fit_flow._scale_percent_reply('10') == 2
+    assert intake_fit_flow._scale_percent_reply('back') == 3
+    assert intake_fit_flow._scale_percent_reply('7') is None
+    assert intake_fit_flow._scale_fit_offer_reply('scale to the biggest') == 0
+    assert intake_fit_flow._scale_fit_offer_reply('yes') == 0
+    assert intake_fit_flow._scale_fit_offer_reply('keep 100%') == 1
+    assert intake_fit_flow._scale_fit_offer_reply('no') == 1
+    assert intake_fit_flow._scale_fit_offer_reply('do not scale') == 1
+    assert intake_fit_flow._scale_fit_offer_reply("don't scale") == 1
+    assert intake_fit_flow._scale_fit_offer_reply('no, keep the current scale') == 1
+    assert intake_fit_flow._scale_fit_offer_reply('cancel') == 2
+    assert intake_fit_flow._scale_fit_offer_reply('whatever') is None
 
 
 def test_expired_slice_confirmation_discards_the_background_slice(env):
@@ -555,7 +566,7 @@ def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypat
         gcode.write_text('G1 X1\n')
         return [gcode]
 
-    monkeypatch.setattr(model_job, 'slice_job', slow_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', slow_slice)
 
     class StopAdapter:
         """No picks/clicks attributes: _with_stop must run its real flow."""
@@ -599,12 +610,12 @@ def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
     (here HTTP 404) must post the known-cause wording (#683), not the older
     branch that shadowed it and repeated the raw error text only."""
     def refused(url):
-        raise model_job.DirectLinkError(
+        raise jobs_sources.DirectLinkError(
             'The host for that link answered with HTTP 404, so the file was '
             'not downloaded. Check the link is public and the file is still '
             'there, then send it again.')
 
-    monkeypatch.setattr(model_job, 'inventory_for_url', refused)
+    setattr_bound(monkeypatch, jobs_sources, 'inventory_for_url', refused)
     adapter, result, receipt = run_flow(env, [])
     assert result == {'action': 'skip', 'reason': 'source-first intake failed closed'}
     assert receipt['status'] == 'FAILED'
@@ -640,7 +651,7 @@ def test_unanswered_or_cancelled_resume_closes_the_intake(env, monkeypatch, resu
             raise prepared_intake.IntakeExpired('no answer')
         raise prepared_intake.IntakeCancelled('cancelled')
 
-    monkeypatch.setattr(prepared_intake, '_ask', expire_then_close)
+    setattr_bound(monkeypatch, intake_questions, '_ask', expire_then_close)
     adapter, result, receipt = run_flow(env, [])
     assert len(calls) == 2 and 'expired' in calls[1].lower()
     assert receipt['status'] == ('FAILED' if resume_outcome == 'expired' else 'CANCELLED')
@@ -667,14 +678,14 @@ def test_resume_continues_the_saved_intake_instead_of_stopping_at_the_marker(env
 
 
 def test_changed_gcode_after_slice_is_refused_by_existing_gate(env, monkeypatch):
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
 
     def tamper(job_path, **kwargs):
         out = real_slice(job_path, **kwargs)
         starts_target = Path(out[0])
         # change the bytes after the sha is taken by prepare_link? simulate via start wrapper below
         return out
-    monkeypatch.setattr(model_job, 'slice_job', tamper)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', tamper)
     original = print_next.start
 
     async def tampered(target):
@@ -687,7 +698,7 @@ def test_changed_gcode_after_slice_is_refused_by_existing_gate(env, monkeypatch)
 
 
 def test_failed_slice_retry_needs_fresh_approval_and_start_button(env, monkeypatch):
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
     calls = []
 
     def fail_once(job_path, *args, **kwargs):
@@ -696,7 +707,7 @@ def test_failed_slice_retry_needs_fresh_approval_and_start_button(env, monkeypat
             raise RuntimeError('synthetic slice failure')
         return real_slice(job_path, *args, **kwargs)
 
-    monkeypatch.setattr(model_job, 'slice_job', fail_once)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fail_once)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0, 0], mid='retry-approved')
 
     retry = [q for q in adapter.questions if q['choices'][0] == 'Retry slice once (no print)']
@@ -718,7 +729,7 @@ def test_cancelled_slice_retry_cannot_be_replayed(env, monkeypatch):
         calls.append(str(job_path))
         raise RuntimeError('synthetic slice failure')
 
-    monkeypatch.setattr(model_job, 'slice_job', always_fail)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', always_fail)
     adapter, _result, receipt = run_flow(env, [2, 0, 0, 1], mid='retry-cancelled')
     assert len(calls) == 1 and env.starts == []
     assert receipt['status'] == 'CANCELLED' and receipt['sliced'] is False
@@ -1015,11 +1026,11 @@ def test_duplicate_event_does_not_start_twice(env):
 def test_message_identity_is_a_sha256_not_the_raw_discord_snowflake(env, monkeypatch):
     """A Discord snowflake stays event metadata, never a --intake-id value."""
     mid = '1000000000000000001'
-    expected = model_job.intake_id_from_message(
+    expected = jobs_store.intake_id_from_message(
         S(profile='3dprinting', chat_id='c1', thread_id=None), mid)
     assert len(expected) == 64 and expected == expected.lower()
     assert expected != mid
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'identity', 'title': 'Identity',
         'sources': [{'name': 'identity.3mf', 'instance_id': 1}]})
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
@@ -1037,7 +1048,7 @@ AD5X_ROW = {'name': 'ghost.3mf', 'instance_id': 1, 'site_printer': 'Flashforge A
 
 
 def run_preview(env, monkeypatch, summary, row, picks=(3,), send_fails=False):
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'ghost', 'title': 'Ghost Stand', 'summary': summary, 'sources': [row]})
     log = []
 
@@ -1062,7 +1073,7 @@ def test_intake_spool_projection_uses_total_once_for_a_single_color_job():
     job = {'color_decisions': {'mode': 'single_color', 'selection':
            {'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 10}}}
     manifest = {'filament_stats': {'total_g': 18.5, 'extruders': {1: {'g': 11}, 2: {'g': 7.5}}}}
-    assert model_job.intake_spool_projection(job, {10: 250}, manifest) == [{
+    assert jobs_prompts.intake_spool_projection(job, {10: 250}, manifest) == [{
         'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 10,
         'estimated_used_g': 18.5, 'remaining_g': 250.0, 'projected_remaining_g': 231.5}]
 
@@ -1073,7 +1084,7 @@ def test_intake_spool_projection_groups_multicolor_choices_by_spool():
     job = {'color_decisions': {'mode': 'per_part', 'choices': {
         'part:1': white, 'filament:1': white, 'filament:2': black}}}
     manifest = {'filament_stats': {'total_g': 13, 'extruders': {1: {'g': 5}, 2: {'g': 8}}}}
-    assert model_job.intake_spool_projection(job, {10: 50, 12: 30}, manifest) == [
+    assert jobs_prompts.intake_spool_projection(job, {10: 50, 12: 30}, manifest) == [
         {'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 10,
          'estimated_used_g': 5.0, 'remaining_g': 50.0, 'projected_remaining_g': 45.0},
         {'slot': 3, 'color': 'black', 'material': 'PLA', 'spoolman_id': 12,
@@ -1084,35 +1095,35 @@ def test_intake_spool_projection_scales_by_copies_and_flags_shortfall():
     job = {'color_decisions': {'mode': 'single_color', 'selection':
            {'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 10}}}
     manifest = {'filament_stats': {'total_g': 40}}
-    rows = model_job.intake_spool_projection(job, {10: 100}, manifest, copies=3)
+    rows = jobs_prompts.intake_spool_projection(job, {10: 100}, manifest, copies=3)
     assert rows[0]['estimated_used_g'] == 120.0 and rows[0]['projected_remaining_g'] == -20.0
-    assert model_job.format_spool_projection(rows) == (
+    assert jobs_prompts.format_spool_projection(rows) == (
         'Slot 1 white PLA: needs about 120 g; spool has 100 g, short by about 20 g.')
 
 
 def test_intake_spool_weights_prefers_spoolman_then_slot_record_never_guesses():
     st = {'filament_slots': {'1': {'spoolman_id': 10, 'remaining_grams': 500},
                         '3': {'spoolman_id': 12}}}
-    assert model_job.intake_spool_weights(st, [10, 12]) == {10: 500.0}
-    assert model_job.intake_spool_weights(st, [10, 12], lambda sid: {'remaining_weight': 321.5}) == {
+    assert jobs_prompts.intake_spool_weights(st, [10, 12]) == {10: 500.0}
+    assert jobs_prompts.intake_spool_weights(st, [10, 12], lambda sid: {'remaining_weight': 321.5}) == {
         10: 321.5, 12: 321.5}
 
     def down(sid):
         raise OSError('spoolman down')
-    fallback = model_job.intake_spool_weights(st, [10, 12], down)
+    fallback = jobs_prompts.intake_spool_weights(st, [10, 12], down)
     assert fallback == {10: 500.0}
     # The fallback must carry the failure with it (#839 Codex): production
     # intake_spool_weights never raises, so a caller that only sees the
     # weights cannot tell a live check from the cached slot record.
     assert fallback.fetch_failed is True
-    assert model_job.intake_spool_weights(
+    assert jobs_prompts.intake_spool_weights(
         st, [10], lambda sid: {'remaining_weight': 321.5}).fetch_failed is False
-    assert model_job.intake_spool_weights(st, [10]).fetch_failed is False
-    rows = model_job.intake_spool_projection(
+    assert jobs_prompts.intake_spool_weights(st, [10]).fetch_failed is False
+    rows = jobs_prompts.intake_spool_projection(
         {'color_decisions': {'mode': 'single_color', 'selection': {'slot': 3, 'color': 'black',
                                                                     'material': 'PLA', 'spoolman_id': 12}}},
         {}, {'filament_stats': {'total_g': 9}})
-    assert model_job.format_spool_projection(rows) == 'Slot 3 black PLA: needs about 9 g; spool weight unknown.'
+    assert jobs_prompts.format_spool_projection(rows) == 'Slot 3 black PLA: needs about 9 g; spool weight unknown.'
 
 
 def test_color_save_prompt_shows_spool_projection_and_estimate_before_print_choice(env, monkeypatch):
@@ -1219,7 +1230,7 @@ def test_linked_maker_profile_is_selected_automatically(env, monkeypatch):
         {'instance_id': 3848581, 'title': '0.2 mm layer'},
         {'instance_id': 3873478, 'title': 'Optimized parameters'},
     ]
-    monkeypatch.setattr(model_job, 'maker_inventory', lambda _url: {
+    monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda _url: {
         'site': 'makerworld', 'slug': 'frame', 'title': 'Frame', 'sources': rows})
     selected = []
 
@@ -1227,7 +1238,7 @@ def test_linked_maker_profile_is_selected_automatically(env, monkeypatch):
         selected.append(chosen['instance_id'])
         return _copy(env.tmp / 'source.3mf', dest)
 
-    monkeypatch.setattr(model_job, 'maker_download', download)
+    monkeypatch.setattr(jobs_sources, 'maker_download', download)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='profiles', text=url)
     # Contract (2026-10-12): the URL profileId is used directly; no profile button.
@@ -1255,10 +1266,10 @@ def test_quantity_buttons_choose_midpoint_and_answer_duration(env, monkeypatch):
         # The real single plate path: Orca clones the copies and records how many.
         data['gcode'] = str(gcode)
         data['sliced_copies'] = {'gcode': str(gcode), 'copies': copies or 1}
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         return [gcode]
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
     monkeypatch.setattr(prepared_intake, '_preview_estimate', lambda _row: None)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='duration', text='https://www.printables.com/model/1-ghost how long would this take?')
@@ -1285,7 +1296,7 @@ def test_typed_quantity_uses_value_not_button_position(env, monkeypatch):
         calls.append(copies)
         return []
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
     monkeypatch.setattr(prepared_intake, '_preview_estimate', lambda _row: None)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='typed-quantity', text='https://www.printables.com/model/1-ghost')
@@ -1315,7 +1326,7 @@ def test_capacity_zero_full_size_split_saves_separate_mode_before_slice(env, mon
     from .test_plate_merge import _source
     path = env.tmp / 'two-large-parts.3mf'
     _source(path, {'1': (150, 150, 10), '2': (150, 150, 10)}, [['1', '2']])
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
                         lambda path, st, scale=1.0, copy_limit=16, **kw: 0 if scale == 1.0 else 1)
     monkeypatch.setattr(orca_adapter, 'fit_options',
@@ -1332,11 +1343,11 @@ def test_capacity_zero_full_size_split_saves_separate_mode_before_slice(env, mon
             gcodes.append(gcode)
             rows.append({'gcode': str(gcode), 'plate_id': index, 'slot': 1, 'part_keys': keys})
         data['derived_plates'] = rows
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         env.sliced.extend(map(str, gcodes))
         return gcodes
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_split_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([1, 0, 0, 1, 2])  # ..., slice only, then Cancel in the plate picker
@@ -1364,7 +1375,7 @@ def test_capacity_zero_full_size_split_names_the_reorientation_and_its_supports(
     from .test_split_fit import _frame_source
     path = env.tmp / 'frame-and-box.3mf'
     _frame_source(path)
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
                         lambda path, st, scale=1.0, copy_limit=16, **kw: 0 if scale == 1.0 else 1)
     monkeypatch.setattr(orca_adapter, 'fit_options',
@@ -1381,11 +1392,11 @@ def test_capacity_zero_full_size_split_names_the_reorientation_and_its_supports(
             gcodes.append(gcode)
             rows.append({'gcode': str(gcode), 'plate_id': index, 'slot': 1, 'part_keys': keys})
         data['derived_plates'] = rows
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         env.sliced.extend(map(str, gcodes))
         return gcodes
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_split_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-reorient', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([1, 0, 0, 1, 2])  # ..., slice only, then Cancel in the plate picker
@@ -1412,7 +1423,7 @@ def test_capacity_zero_full_size_split_names_a_diagonal_reorientation_turn(env, 
     path = env.tmp / 'stand-and-base.3mf'
     _solid_source(path, {'1': _box_tris(0, 130, 0, 230, 0, 30),
                          '2': _box_tris(0, 195, 0, 200, 0, 119.8)}, [['1'], ['2']])
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
                         lambda path, st, scale=1.0, copy_limit=16, **kw: 0 if scale == 1.0 else 1)
     monkeypatch.setattr(orca_adapter, 'fit_options',
@@ -1429,11 +1440,11 @@ def test_capacity_zero_full_size_split_names_a_diagonal_reorientation_turn(env, 
             gcodes.append(gcode)
             rows.append({'gcode': str(gcode), 'plate_id': index, 'slot': 1, 'part_keys': keys})
         data['derived_plates'] = rows
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         env.sliced.extend(map(str, gcodes))
         return gcodes
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_split_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-stand', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([1, 0, 0, 1, 2])  # ..., slice only, then Cancel in the plate picker
@@ -1499,7 +1510,7 @@ def _per_part_oversized(env, monkeypatch, honored, answers):
     def per_part(path, decisions, options, bed):
         seen.append((decisions['mode'], bed, options))
         return {**options, 'scales': [s for s in options['scales'] if s in honored], 'rotations': []}
-    monkeypatch.setattr(model_job, 'per_part_fit_options', per_part)
+    monkeypatch.setattr(jobs_slice, 'per_part_fit_options', per_part)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='per-part-too-large', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(answers)
@@ -1534,14 +1545,14 @@ def test_per_part_with_no_honored_fit_explains_single_color_resend(env, monkeypa
 def _many_profiles(env, monkeypatch, answers):
     url = 'https://makerworld.com/en/models/386963-build-plate-cleaner#profileId-287445'
     rows = [{'instance_id': 287440 + i, 'title': f'Profile {i}'} for i in range(1, 8)]
-    monkeypatch.setattr(model_job, 'maker_inventory', lambda _url: {
+    monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda _url: {
         'site': 'makerworld', 'slug': 'cleaner', 'title': 'Cleaner', 'sources': rows})
     selected = []
 
     def download(job, chosen, dest):
         selected.append(chosen['instance_id'])
         return _copy(env.tmp / 'source.3mf', dest)
-    monkeypatch.setattr(model_job, 'maker_download', download)
+    monkeypatch.setattr(jobs_sources, 'maker_download', download)
 
     class Typed(Adapter):
         async def send_clarify(self, **kw):
@@ -1567,10 +1578,10 @@ def test_url_profile_id_wins_even_with_many_profiles(env, monkeypatch):
 def test_many_profiles_without_fragment_still_require_a_button(env, monkeypatch):
     url = 'https://makerworld.com/en/models/386963-build-plate-cleaner'
     rows = [{'instance_id': 287440 + i, 'title': f'Profile {i}'} for i in range(1, 8)]
-    monkeypatch.setattr(model_job, 'maker_inventory', lambda _url: {
+    monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda _url: {
         'site': 'makerworld', 'slug': 'cleaner', 'title': 'Cleaner', 'sources': rows})
     selected = []
-    monkeypatch.setattr(model_job, 'maker_download',
+    monkeypatch.setattr(jobs_sources, 'maker_download',
                         lambda job, chosen, dest: selected.append(chosen['instance_id']) or _copy(env.tmp / 'source.3mf', dest))
     adapter = Adapter([7])  # last button is Cancel
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='many2', text=url)
@@ -1595,7 +1606,7 @@ def _slow_inventory_flow(env, monkeypatch, audit_manifest=None):
         return real_inventory(path)
     monkeypatch.setattr(source_colors, 'inventory', slow_inventory)
     if audit_manifest is not None:
-        monkeypatch.setattr(model_job, 'audit', lambda path: {'plates': 1, 'color_manifest': audit_manifest(path)})
+        setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {'plates': 1, 'color_manifest': audit_manifest(path)})
 
     order = []
 
@@ -1669,8 +1680,8 @@ def test_dropped_3mf_runs_same_intake_without_any_site(env, monkeypatch):
     def boom(*a, **k):
         raise AssertionError('no site may be contacted for a dropped file')
     for name in ('maker_inventory', 'maker_download', 'printables_inventory', 'printables_download'):
-        monkeypatch.setattr(model_job, name, boom)
-    src = next(Path(model_job.ARCHIVE).parent.rglob('*.3mf'), None) or env.tmp / 'x'
+        setattr_bound(monkeypatch, jobs_sources, name, boom)
+    src = next(Path(jobs_common.ARCHIVE).parent.rglob('*.3mf'), None) or env.tmp / 'x'
     drop = env.tmp / 'doc_0123456789ab_Can Holder.3mf'
     drop.write_bytes(Path(src).read_bytes() if Path(src).is_file() else b'')
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m9',
@@ -1710,7 +1721,7 @@ def test_reprint_offers_last_model_and_never_downloads(env, monkeypatch):
     def boom(*a, **k):
         raise AssertionError('reprint must not contact any site')
     for name in ('maker_inventory', 'maker_download', 'printables_inventory', 'printables_download'):
-        monkeypatch.setattr(model_job, name, boom)
+        setattr_bound(monkeypatch, jobs_sources, name, boom)
     prev = prepared_intake.newest_archived_job()
     assert prev and prev['title'] == 'Ghost Stand'
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='again',
@@ -1822,7 +1833,7 @@ def _split_env(env, monkeypatch, tag):
     from .test_plate_merge import _source
     path = env.tmp / f'{tag}.3mf'
     _source(path, {'1': (150, 150, 10), '2': (150, 150, 10)}, [['1', '2']])
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
                         lambda path, st, scale=1.0, copy_limit=16, **kw: 0 if scale == 1.0 else 1)
     monkeypatch.setattr(orca_adapter, 'fit_options',
@@ -1839,10 +1850,10 @@ def _split_env(env, monkeypatch, tag):
             gcodes.append(gcode)
             rows.append({'gcode': str(gcode), 'plate_id': index, 'slot': 1, 'part_keys': keys})
         data['derived_plates'] = rows
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         env.sliced.extend(map(str, gcodes))
         return gcodes
-    monkeypatch.setattr(model_job, 'slice_job', fake_split_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
     monkeypatch.setattr(prepared_intake.print_summary, 'find_job',
                         lambda filename, *a: (json.loads(Path(filename).parents[1].joinpath('JOB.json').read_text()),
                                               {'gcode': str(filename), 'plate': int(Path(filename).stem[-1]),
@@ -1919,7 +1930,7 @@ def test_single_plate_has_no_picker(env):
     ({'full_size_split_plan': {'plates': [['a'], ['b']]}}, False),
 ])
 def test_copies_supported_only_for_single_plate_jobs(job, expected):
-    assert model_job.copies_supported(job) is expected
+    assert jobs_slice.copies_supported(job) is expected
 
 
 def test_per_part_job_is_never_offered_copies(env, monkeypatch):
@@ -2045,7 +2056,7 @@ def _box_stl(path, width, depth, height):
 
 
 def _run_small_stl_upload(env, monkeypatch, unit_pick):
-    monkeypatch.setattr(model_job, 'audit', lambda path: {
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {
         'plates': 1, 'size_x': '5', 'size_y': '2', 'size_z': '2'})
     drop = env.tmp / 'pin.stl'
     _box_stl(drop, 5, 2, 2)
@@ -2064,7 +2075,7 @@ def test_small_stl_upload_asks_units_and_mm_answer_stays_authored_size(env, monk
     assert 'do not record units' in adapter.questions[0]['question']
     assert adapter.questions[0]['choices'][0].startswith('Millimeters')
     assert job['unit_decision']['units'] == 'mm'
-    assert job['unit_decision']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
+    assert job['unit_decision']['source_sha256'] == gcode_artifact.file_sha256(job['downloaded_file'])
     assert job['unit_provenance']['source'] == 'user_confirmation'
     assert receipt['unit_decision']['units'] == 'mm'
     assert 'auto_scale' not in job and 'scale' not in job
@@ -2092,7 +2103,7 @@ def test_deterministic_slice_refusal_explains_and_offers_the_one_tap_fix(env, mo
     # Live 2026-10-29: an unconfirmed slot refused the slice, chat said only
     # "did not work ... PB_SLICING_UNKNOWN" and the blind retry failed the same way.
     from print_handy.core import slice_refusal
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
     calls, fixes = [], []
 
     def refuse_once(job_path, *args, **kwargs):
@@ -2103,7 +2114,7 @@ def test_deterministic_slice_refusal_explains_and_offers_the_one_tap_fix(env, mo
                 'selected IFS slot 1 is unverified or its material/spool mapping differs')
         return real_slice(job_path, *args, **kwargs)
 
-    monkeypatch.setattr(model_job, 'slice_job', refuse_once)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', refuse_once)
     monkeypatch.setattr(slice_refusal, 'apply_fix', lambda fix, **kw: fixes.append(fix) or 'ok')
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0, 0], mid='refusal-fixed')
     asked = [q for q in adapter.questions if 'never confirmed' in q['question']]
@@ -2124,7 +2135,7 @@ def test_slice_refusal_without_a_safe_fix_says_why_and_offers_no_blind_retry(env
         calls.append(str(job_path))
         raise slice_refusal.unconfirmed_slot_color(2, {'material': 'PLA'}, 'IFS slot color/material mapping is unverified')
 
-    monkeypatch.setattr(model_job, 'slice_job', refuse)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', refuse)
     adapter, result, receipt = run_flow(env, [2, 0, 0], mid='refusal-plain')
     assert len(calls) == 1
     assert not [q for q in adapter.questions if q['choices'][0] == 'Retry slice once (no print)']
@@ -2148,7 +2159,7 @@ def test_failed_first_slice_does_not_show_doomed_ready_prompt(env, monkeypatch):
     def fail(*args, **kwargs):
         raise SliceFailure('SECRET timeout', kind='timeout', slicer='OrcaSlicer')
 
-    monkeypatch.setattr(model_job, 'slice_job', fail)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fail)
     from print_handy.core import background_slice
     held_init = background_slice.BackgroundSlice.__init__
 
@@ -2198,7 +2209,7 @@ def test_slice_failure_journey_reports_cause_and_remedy(env, monkeypatch, copies
         raise (worker_errors.decode(json.loads(json.dumps(worker_errors.encode(error))))
                if worker_roundtrip else error)
 
-    monkeypatch.setattr(model_job, 'slice_job', fail)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fail)
     # One color, slot, quantity, Slice and print now; cancel the optional retry.
     # A spare Cancel also lets this test fail on the released handler's actual
     # generic message, rather than failing because its blind retry exhausted picks.
@@ -2229,7 +2240,7 @@ def test_second_slice_failure_keeps_reference_and_diagnostics_step(env, monkeypa
         calls.append(1)
         raise SliceFailure('SECRET timeout', kind='timeout', slicer='OrcaSlicer')
 
-    monkeypatch.setattr(model_job, 'slice_job', fail)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fail)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0], mid='retry-fails-helpfully')
     final = adapter.sent[-1]
     assert 'The one retry also failed' in final and 'time limit' in final
@@ -2241,7 +2252,7 @@ def test_second_slice_failure_keeps_reference_and_diagnostics_step(env, monkeypa
 
 def test_retry_clears_the_first_failure_record_and_replaces_it_on_a_second_failure(env, monkeypatch):
     from print_handy.core.slice_failure import SliceFailure
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
     calls = []
 
     def once_then_ok(job_path, *args, **kwargs):
@@ -2250,7 +2261,7 @@ def test_retry_clears_the_first_failure_record_and_replaces_it_on_a_second_failu
             raise SliceFailure('x', kind='timeout', slicer='OrcaSlicer')
         return real_slice(job_path, *args, **kwargs)
 
-    monkeypatch.setattr(model_job, 'slice_job', once_then_ok)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', once_then_ok)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0, 0], mid='retry-clears-failure')
     assert len(calls) == 2 and receipt['status'] == 'STARTED'
     assert 'failure' not in receipt and 'slice_error' not in receipt
@@ -2264,7 +2275,7 @@ def test_second_slice_failure_replaces_the_first_failure_record(env, monkeypatch
     def fail(*args, **kwargs):
         raise errors.pop(0)
 
-    monkeypatch.setattr(model_job, 'slice_job', fail)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fail)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0], mid='retry-replaces-failure')
     assert receipt['status'] == 'SLICE_FAILED'
     assert receipt['failure']['signature'] == 'model_unreadable' and receipt['failure']['stage'] == 'parse'
@@ -2290,7 +2301,7 @@ def ask_which_parts():
 def _parts_model(env, monkeypatch, names, answers, typed=None, size=None):
     """A Printables model whose files are tiny STL boxes (or a 3MF); returns adapter, downloads, JOB.json."""
     from .test_model_parts import cube_stl
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'uno-box', 'title': 'Rugged box for UNO game cards', 'model_id': 1875711,
         'sources': [{'id': 100 + i, 'name': n, 'kind': 'stls'} for i, n in enumerate(names)]})
     downloads = []
@@ -2300,7 +2311,7 @@ def _parts_model(env, monkeypatch, names, answers, typed=None, size=None):
         if chosen['name'].endswith('.3mf'):
             return _copy(env.tmp / 'source.3mf', dest)
         return cube_stl(Path(dest) / chosen['name'], size or (30 + 5 * len(downloads), 20, 10))
-    monkeypatch.setattr(model_job, 'printables_download', download)
+    monkeypatch.setattr(jobs_sources, 'printables_download', download)
 
     class Typed(Adapter):
         async def send_clarify(self, **kw):
@@ -2406,18 +2417,18 @@ def test_one_3mf_among_stls_is_preferred(env, monkeypatch):
 
 def test_a_file_already_downloaded_for_an_earlier_parts_job_is_reused(tmp_path, monkeypatch):
     from .test_model_parts import cube_stl
-    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path)
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path)
     part = cube_stl(tmp_path / 'old' / 'source' / 'parts' / '2' / 'lid.stl')
     (tmp_path / 'old' / 'JOB.json').write_text(json.dumps({
         'site': 'printables', 'model_id': 7, 'selected_source': {'kind': 'parts', 'name': 'x-parts.3mf'},
         'downloaded_file': str(tmp_path / 'old' / 'source' / 'x-parts.3mf'),
         'selected_sources': [{'id': 5, 'name': 'lid.stl', 'downloaded_file': str(part)}]}))
-    assert model_job._cached_source('printables', 'id', 5, 7) == part
-    assert model_job._cached_source('printables', 'id', 6, 7) is None
+    assert jobs_sources._cached_source('printables', 'id', 5, 7) == part
+    assert jobs_sources._cached_source('printables', 'id', 6, 7) is None
 
 
 def _slice_for_creator5_pro(monkeypatch, material=None):
-    inner = model_job.slice_job
+    inner = jobs_slice.slice_job
 
     def slice_for_creator5_pro(job_path, recipe_sha256=None):
         out = inner(job_path, recipe_sha256=recipe_sha256)
@@ -2428,10 +2439,10 @@ def _slice_for_creator5_pro(monkeypatch, material=None):
                 pick['material'] = material
             if data.get('filament_selection'):
                 data['filament_selection']['material'] = material
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         return out
 
-    monkeypatch.setattr(model_job, 'slice_job', slice_for_creator5_pro)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', slice_for_creator5_pro)
 
 
 def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, monkeypatch):
@@ -2467,7 +2478,7 @@ def test_start_question_has_no_thermal_lines_without_a_registered_model(env):
 
 def _run_oversize_stl_upload(env, monkeypatch, picks, fit_fraction=0.86):
     from print_handy.core import orca_adapter
-    monkeypatch.setattr(model_job, 'audit', lambda path: {
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {
         'plates': 1, 'size_x': '9', 'size_y': '9', 'size_z': '9'})
     monkeypatch.setattr(orca_adapter, 'largest_fitting_fraction',
                         lambda path, st, factor, **kw: fit_fraction)
@@ -2488,8 +2499,8 @@ def test_inch_fit_search_is_a_serialized_slicer_worker_step():
     # overlap another slice on the Flatpak Orca deployment and collide.
     from print_handy.core import heavy_worker
     entry = ('orca_adapter', 'largest_fitting_fraction')
-    assert entry in prepared_intake._OFFLOAD
-    assert entry in prepared_intake._SLICER_STEPS
+    assert entry in intake_worker._OFFLOAD
+    assert entry in intake_worker._SLICER_STEPS
     assert entry in heavy_worker.ALLOWED
 
 
@@ -2531,12 +2542,12 @@ def test_oversize_inch_without_a_fitting_scale_offers_no_scale_button(env, monke
 def test_fit_failure_names_the_measured_extent_and_usable_area():
     job = {'title': 'Widget', 'selected_source': {'title': 'plate one'},
            'audit': {'mesh_audit': {'dimensions_mm': [250.0, 100.0, 20.0]}}}
-    text = prepared_intake._fit_failure(job, 0)
+    text = intake_fit_flow._fit_failure(job, 0)
     assert '(250 x 100 mm vs usable 204 x 204 mm)' in text
 
 
 def test_fit_failure_without_measurements_keeps_the_plain_text():
-    text = prepared_intake._fit_failure({'title': 'Widget', 'selected_source': {}}, 0)
+    text = intake_fit_flow._fit_failure({'title': 'Widget', 'selected_source': {}}, 0)
     assert 'vs usable' not in text and 'calculated capacity is 0 copy' in text
 
 
@@ -2545,7 +2556,7 @@ def _projection_mj(fetch_failed=False):
     # raise when Spoolman is down — it falls back to the cached weights and
     # flags the failure on the result.
     def weights(state, ids, fetch):
-        result = model_job.IntakeSpoolWeights({5: 250.0})
+        result = jobs_prompts.IntakeSpoolWeights({5: 250.0})
         result.fetch_failed = fetch_failed
         return result
     return S(filament_usage_by_selection=lambda job, manifest: [({'spoolman_id': 5}, None)],
@@ -2627,7 +2638,7 @@ def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monke
     # "Set the spool with /spool" named the wrong remedy. The failure post
     # names the slot and the /spool form that records its spool.
     from print_handy.core import slice_refusal
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
     calls = []
 
     def refuse_once(job_path, *args, **kwargs):
@@ -2640,7 +2651,7 @@ def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monke
 
     def broken_fix(fix, **kw):
         raise OSError('state file is read-only')
-    monkeypatch.setattr(model_job, 'slice_job', refuse_once)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', refuse_once)
     monkeypatch.setattr(slice_refusal, 'apply_fix', broken_fix)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0], mid='refusal-fix-fails')
     assert result['reason'] == 'slice refusal fix failed'
@@ -2698,9 +2709,10 @@ def test_resumed_job_fit_probe_forwards_resumed_transforms(env, monkeypatch):
     with zipfile.ZipFile(dummy_file, 'w') as z:
         z.writestr('[Content_Types].xml', '<Types/>')
         z.writestr('3D/3dmodel.model', '<model/>')
-    from print_handy.core import model_job as mj
-    sha = mj.file_sha256(dummy_file)
-    monkeypatch.setattr(mj, 'audit', lambda p: {'plates': 1, 'color_manifest': {'source_sha256': mj.file_sha256(p), 'plates': 1}})
+    from print_handy.gcode import artifact as gcode_artifact
+    from print_handy.jobs import audit as jobs_audit
+    sha = gcode_artifact.file_sha256(dummy_file)
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda p: {'plates': 1, 'color_manifest': {'source_sha256': gcode_artifact.file_sha256(p), 'plates': 1}})
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='res1',
               text='https://www.printables.com/model/1-ghost')
     resumed = {
@@ -2754,8 +2766,8 @@ def test_multiple_stl_attachments_are_one_project_and_preserve_left_right(env, m
     # _choose_files + _fetch_parts + single-color prep are shared with links.
     def no_site(*a, **kw):
         raise AssertionError('a local multi-file upload must not contact a model website')
-    monkeypatch.setattr(model_job, 'printables_inventory', no_site)
-    monkeypatch.setattr(model_job, 'printables_download', no_site)
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', no_site)
+    monkeypatch.setattr(jobs_sources, 'printables_download', no_site)
     adapter, job = _uploaded_parts(env, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
                                    [0, 1, 0, 3])
     assert job['site'] == 'upload' and job['source_kind'] == 'upload_group'
@@ -2774,8 +2786,8 @@ def test_two_uploads_with_the_same_name_stay_two_parts(env, monkeypatch):
     folder, never one overwriting the other."""
     def no_site(*a, **kw):
         raise AssertionError('a local multi-file upload must not contact a model website')
-    monkeypatch.setattr(model_job, 'printables_inventory', no_site)
-    monkeypatch.setattr(model_job, 'printables_download', no_site)
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', no_site)
+    monkeypatch.setattr(jobs_sources, 'printables_download', no_site)
     adapter, job = _uploaded_parts(env, ['arm.stl', 'arm.stl', 'base.stl'], [0, 1, 0, 3])
     names = [x['name'] for x in job['selected_sources']]
     assert names.count('arm.stl') == 2 and 'base.stl' in names
@@ -2853,7 +2865,7 @@ def test_source_zip_reaches_the_project_builder_with_only_printable_parts(env, m
     from .test_model_parts import cube_stl
     def no_site(*a, **kw):
         raise AssertionError('a local ZIP must not contact a model website')
-    monkeypatch.setattr(model_job, 'printables_inventory', no_site)
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', no_site)
     stls = {name: cube_stl(env.tmp / 'src' / name, (30 + i * 5, 20, 10)).read_bytes()
             for i, name in enumerate(['arm_left.stl', 'arm_right.stl', 'base.stl'], 1)}
     members = {f'Rack/{name}': data for name, data in stls.items()}

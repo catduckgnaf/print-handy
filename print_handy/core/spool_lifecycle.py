@@ -292,7 +292,7 @@ def reconcile_four_slot_state(
     detail_slots: dict[int, bool | None] = {}
     if detail_data is not None:
         try:
-            from .model_job import read_stock_filament_slots_from_detail
+            from ..jobs.filament import read_stock_filament_slots_from_detail
             detail_slots = read_stock_filament_slots_from_detail(detail_data)
         except Exception as exc:
             drifts.append({
@@ -759,7 +759,7 @@ def generate_job_accounting_receipt(
 def fetch_native_detail(state: dict[str, Any], *, timeout: float = 3.0) -> dict[str, Any] | None:
     """Fetch native /detail if available (read-only telemetry)."""
     try:
-        from .model_job import read_stock_detail
+        from ..jobs.filament import read_stock_detail
         return read_stock_detail(state)
     except Exception:
         return None

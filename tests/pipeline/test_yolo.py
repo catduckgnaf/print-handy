@@ -8,8 +8,17 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.core import model_job, prepared_intake, yolo
+from print_handy.gcode import bounds as gcode_bounds
+from print_handy.gcode import verify as gcode_verify
+from print_handy.intake import questions as intake_questions
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import sources as jobs_sources
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from .helpers import external
 from .test_intake_support_precheck import Adapter, env, run_flow, _warning_slice, V12_FIXTURE, _copy  # noqa: F401
+from tests.bound_names import setattr_bound
 
 print_next = external("print_next")
 
@@ -85,19 +94,19 @@ def _within_limits_gcode(tmp_path, body):
     ('START_PRINT BED_TEMP=60 EXTRUDER_TEMP=480\n', 'nozzle target 480 C'),
 ])
 def test_mechanical_limits_refuse(tmp_path, monkeypatch, body, problem):
-    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(gcode_bounds, 'BOUNDS_CACHE', tmp_path / 'cache')
     adapter = S(fact=lambda name: {'max_hotend_c': 300, 'max_bed_c': 110}[name])
     with pytest.raises(RuntimeError, match='mechanical limits are never waived') as caught:
-        model_job.require_mechanical_limits(_within_limits_gcode(tmp_path, body),
+        launch_gates.require_mechanical_limits(_within_limits_gcode(tmp_path, body),
                                             {'nozzle': {'type': 'hardened_steel'}}, adapter)
     assert problem in str(caught.value)
 
 
 def test_mechanical_limits_pass_an_ordinary_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(gcode_bounds, 'BOUNDS_CACHE', tmp_path / 'cache')
     adapter = S(fact=lambda name: {'max_hotend_c': 300, 'max_bed_c': 110}[name])
     g = _within_limits_gcode(tmp_path, 'M140 S60\nM104 S220 T0\nM109 R215\nG1 X200 Y200 Z30\n')
-    assert model_job.require_mechanical_limits(g, {'nozzle': {'type': 'brass'}}, adapter) is None
+    assert launch_gates.require_mechanical_limits(g, {'nozzle': {'type': 'brass'}}, adapter) is None
 
 
 def test_gcode_file_and_package_extraction(tmp_path):
@@ -128,7 +137,7 @@ def test_ask_under_yolo_hands_a_restart_question_to_a_person(monkeypatch):
     async def ask(adapter, source, key, question, choices, timeout, **kwargs):
         asked.append(list(choices))
         return 1
-    monkeypatch.setattr(prepared_intake, 'ask', ask)
+    setattr_bound(monkeypatch, prepared_intake, 'ask', ask)
     sent = []
 
     class _A:
@@ -136,7 +145,7 @@ def test_ask_under_yolo_hands_a_restart_question_to_a_person(monkeypatch):
             sent.append(content)
     token = yolo.ACTIVE.set(True)
     try:
-        pick = asyncio.run(prepared_intake._ask(_A(), S(chat_id='c', thread_id=None), 'k', 'Printer stuck?',
+        pick = asyncio.run(intake_questions._ask(_A(), S(chat_id='c', thread_id=None), 'k', 'Printer stuck?',
                                                 ['Force restart printer now', 'Cancel restart'], 1))
     finally:
         yolo.ACTIVE.reset(token)
@@ -158,61 +167,61 @@ def test_package_extraction_refuses_an_oversized_plate(tmp_path, monkeypatch):
 
 def test_waive_refuses_normally_and_reports_under_yolo(capsys):
     with pytest.raises(SystemExit, match='REFUSED: nope'):
-        model_job._refuse('demo', 'REFUSED: nope. Nothing uploaded or started.')
-    token = model_job._YOLO.set(True)
+        launch_gates._refuse('demo', 'REFUSED: nope. Nothing uploaded or started.')
+    token = launch_gates._YOLO.set(True)
     try:
-        model_job._refuse('demo', 'REFUSED: nope. Nothing uploaded or started.')
-        assert model_job._gate('raiser', lambda: (_ for _ in ()).throw(RuntimeError('bad temp'))) is None
+        launch_gates._refuse('demo', 'REFUSED: nope. Nothing uploaded or started.')
+        assert launch_gates._gate('raiser', lambda: (_ for _ in ()).throw(RuntimeError('bad temp'))) is None
     finally:
-        model_job._YOLO.reset(token)
+        launch_gates._YOLO.reset(token)
     out = capsys.readouterr().out
     assert model_job.yolo_waivers(out) == ['demo: nope', 'raiser: bad temp']
 
 
 def test_gate_never_swallows_a_non_refusal_exit():
-    token = model_job._YOLO.set(True)
+    token = launch_gates._YOLO.set(True)
     try:
         with pytest.raises(SystemExit):
-            model_job._gate('exit', lambda: (_ for _ in ()).throw(SystemExit(2)))
+            launch_gates._gate('exit', lambda: (_ for _ in ()).throw(SystemExit(2)))
         with pytest.raises(KeyError):
-            model_job._gate('bug', lambda: {}['missing'])
+            launch_gates._gate('bug', lambda: {}['missing'])
     finally:
-        model_job._YOLO.reset(token)
+        launch_gates._YOLO.reset(token)
 
 
 def test_print_now_cli_and_print_next_carry_the_flag(monkeypatch, tmp_path):
     seen = {}
-    monkeypatch.setattr(model_job, '_print_now_cli', lambda target, **kw: seen.update(target=target, **kw))
+    monkeypatch.setattr(jobs_cli, '_print_now_cli', lambda target, **kw: seen.update(target=target, **kw))
     monkeypatch.setattr(model_job.sys, 'argv', ['model_job', 'print-now', 'x.gcode', '--yolo'])
-    model_job._main()
+    jobs_cli._main()
     assert seen['yolo'] is True and seen['target'] == 'x.gcode'
     monkeypatch.setattr(model_job.sys, 'argv', ['model_job', 'print-now', 'x.gcode'])
     seen.clear()
-    model_job._main()
+    jobs_cli._main()
     assert 'yolo' not in seen
 
 
 def test_print_now_yolo_waives_checks_but_keeps_the_busy_printer_refusal(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(gcode_bounds, 'BOUNDS_CACHE', tmp_path / 'cache')
     g = tmp_path / 'part.gcode'
     g.write_text('G90\nG1 X1 Y1 Z0.2\n')
     adapter = S(transport=None, connection='lan', multi_slot=False, label='AD5X',
                 native=None, config={'printer': {}}, model=S(vendor_key='generic'))
     monkeypatch.setattr(model_job.printers, 'current', lambda: adapter)
     monkeypatch.setattr(model_job.printer_state, 'load', lambda *a, **k: {})
-    monkeypatch.setattr(model_job, '_printer_phase', lambda st: ('printing', 'other.gcode', 'Printing'))
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase', lambda st: ('printing', 'other.gcode', 'Printing'))
     for yolo_flag in (False, True):
         with pytest.raises(SystemExit, match='printer is busy'):
-            model_job.print_now(str(g), yolo=yolo_flag)
+            launch_print_now.print_now(str(g), yolo=yolo_flag)
 
     calls = []
-    monkeypatch.setattr(model_job, '_printer_phase', lambda st: ('standby', '', 'Ready'))
-    monkeypatch.setattr(model_job, 'mesh_readiness', lambda st: {'problem': 'could not read the bed mesh',
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase', lambda st: ('standby', '', 'Ready'))
+    setattr_bound(monkeypatch, launch_gates, 'mesh_readiness', lambda st: {'problem': 'could not read the bed mesh',
                                                                  'display_off': None})
-    monkeypatch.setattr(model_job, '_verify_routed',
+    setattr_bound(monkeypatch, gcode_verify, '_verify_routed',
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError('BED_TEMP 60 != spool 65')))
-    monkeypatch.setattr(model_job, '_refuse_multicolor', lambda text: None)
-    monkeypatch.setattr(model_job, '_verify_filament_readiness',
+    setattr_bound(monkeypatch, gcode_verify, '_refuse_multicolor', lambda text: None)
+    setattr_bound(monkeypatch, launch_gates, '_verify_filament_readiness',
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError('filament readiness refused: x')))
 
     class Stop(Exception):
@@ -221,38 +230,38 @@ def test_print_now_yolo_waives_checks_but_keeps_the_busy_printer_refusal(monkeyp
     def _upload(*a, **k):
         calls.append('upload')
         raise Stop()
-    monkeypatch.setattr(model_job, '_zmod_upload_artifact', _upload)
+    monkeypatch.setattr(launch_print_now, '_zmod_upload_artifact', _upload)
     with pytest.raises(SystemExit, match='bed mesh'):
-        model_job.print_now(str(g))
+        launch_print_now.print_now(str(g))
     assert calls == []
     with pytest.raises(Stop):
-        model_job.print_now(str(g), yolo=True)
+        launch_print_now.print_now(str(g), yolo=True)
     assert calls == ['upload']  # every waivable gate reported, the upload reached
     waived = model_job.yolo_waivers(capsys.readouterr().out)
     assert any(w.startswith('bed mesh: could not read the bed mesh') for w in waived)
     assert any(w.startswith('G-code safety checks: BED_TEMP 60 != spool 65') for w in waived)
     assert any(w.startswith('filament readiness: ') for w in waived)
-    assert model_job.yolo_active() is False  # the context never leaks past the run
+    assert launch_gates.yolo_active() is False  # the context never leaks past the run
 
 
 def test_print_now_yolo_never_waives_the_axis_limits(monkeypatch, tmp_path, capsys):
     """S6: the G-code checks are waived under yolo, the axis limits are not."""
-    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(gcode_bounds, 'BOUNDS_CACHE', tmp_path / 'cache')
     g = tmp_path / 'part.gcode'
     g.write_text('G90\nG1 X10 Y10 Z0.2\nG91;rel\nG1 X100\nG1 X100\nG1 X100\n')
     adapter = S(transport=None, connection='lan', multi_slot=False, label='AD5X',
                 native=None, config={'printer': {}}, model=S(vendor_key='generic'))
     monkeypatch.setattr(model_job.printers, 'current', lambda: adapter)
     monkeypatch.setattr(model_job.printer_state, 'load', lambda *a, **k: {})
-    monkeypatch.setattr(model_job, '_printer_phase', lambda st: ('standby', '', 'Ready'))
-    monkeypatch.setattr(model_job, 'mesh_readiness', lambda st: {'problem': None, 'display_off': None})
-    monkeypatch.setattr(model_job, '_verify_routed',
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase', lambda st: ('standby', '', 'Ready'))
+    setattr_bound(monkeypatch, launch_gates, 'mesh_readiness', lambda st: {'problem': None, 'display_off': None})
+    setattr_bound(monkeypatch, gcode_verify, '_verify_routed',
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError('X bounds exceed')))
-    monkeypatch.setattr(model_job, '_refuse_multicolor', lambda text: None)
+    setattr_bound(monkeypatch, gcode_verify, '_refuse_multicolor', lambda text: None)
     uploads = []
-    monkeypatch.setattr(model_job, '_zmod_upload_artifact', lambda *a, **k: uploads.append(1))
+    monkeypatch.setattr(launch_print_now, '_zmod_upload_artifact', lambda *a, **k: uploads.append(1))
     with pytest.raises(SystemExit, match='mechanical limits are never waived: X bounds 10.000..310.000'):
-        model_job.print_now(str(g), yolo=True)
+        launch_print_now.print_now(str(g), yolo=True)
     assert uploads == []
     assert any(w.startswith('G-code safety checks:') for w in model_job.yolo_waivers(capsys.readouterr().out))
 
@@ -269,7 +278,7 @@ def _gcode_event(tmp_path, text, name='doc_0123456789ab_hook.gcode', body='G1 X1
 
 @pytest.fixture
 def gcode_env(tmp_path, monkeypatch):
-    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path / 'archive')
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path / 'archive')
     monkeypatch.setattr(yolo, 'may_yolo', lambda user_id, platform='discord', cfg=None: user_id == 'u')
     starts = []
 
@@ -344,7 +353,7 @@ def _yolo_flow(env, text_prefix='yolo ', picks=()):
 
 def test_yolo_model_answers_every_question_out_loud_and_starts_with_the_flag(env, monkeypatch):
     monkeypatch.setattr(yolo, 'may_yolo', lambda user_id, platform='discord', cfg=None: True)
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
     started_targets = []

@@ -121,11 +121,11 @@ def test_start_claim_matches_exact_moonraker_filename(tmp_path, monkeypatch, job
 
 
 def test_print_now_start_claim_normalizes_moonraker_filename(tmp_path, monkeypatch):
-    from print_handy.core import model_job
+    from print_handy.launch import print_now as launch_print_now
     claims = tmp_path / "claims.json"
-    monkeypatch.setattr(model_job, "START_CLAIMS", claims)
+    monkeypatch.setattr(launch_print_now, "START_CLAIMS", claims)
     remote = "plate_1_" + "a" * 64 + ".gcode"
-    model_job.claim_start_announcement(remote, now=1000)
+    launch_print_now.claim_start_announcement(remote, now=1000)
     assert json.loads(claims.read_text()) == {remote: 1000}
     monkeypatch.setattr(mel, "START_CLAIMS", claims)
     assert mel.start_claimed("gcodes/" + remote, now=1001)

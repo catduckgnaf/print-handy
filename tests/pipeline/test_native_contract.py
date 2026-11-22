@@ -11,6 +11,13 @@ from unittest.mock import patch
 import pytest
 from print_handy.core import orca_adapter as adapter
 from print_handy.core import model_job as job
+from tests.bound_names import patch_bound
+from print_handy.gcode import bounds as gcode_bounds
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 
 
 def state():
@@ -41,12 +48,12 @@ def test_offline_verification_requires_effective_nozzle_temperature(tmp_path, mo
     )
     artifact = tmp_path / "effective.gcode"
     artifact.write_text(content)
-    with patch.object(job, "cached_motion_bounds", return_value={"x": (10, 10), "y": (10, 10), "z": (0.2, 0.2)}):
-        job.verify_gcode_offline(artifact, state_data)
+    with patch_bound(gcode_bounds, "cached_motion_bounds", return_value={"x": (10, 10), "y": (10, 10), "z": (0.2, 0.2)}):
+        gcode_verify.verify_gcode_offline(artifact, state_data)
     artifact.write_text(content.replace("S225", "S220").replace("EXTRUDER_TEMP=225.0", "EXTRUDER_TEMP=220.0"))
-    with patch.object(job, "cached_motion_bounds", return_value={"x": (10, 10), "y": (10, 10), "z": (0.2, 0.2)}):
+    with patch_bound(gcode_bounds, "cached_motion_bounds", return_value={"x": (10, 10), "y": (10, 10), "z": (0.2, 0.2)}):
         with pytest.raises(RuntimeError, match="effective nozzle temperature"):
-            job.verify_gcode_offline(artifact, state_data)
+            gcode_verify.verify_gcode_offline(artifact, state_data)
 
 
 def test_native_slice_uses_baseline_mesh(tmp_path):
@@ -103,7 +110,7 @@ def test_derived_plate_records_explicit_t0_slot(tmp_path):
     assert b'; filament_type = PLA+' in raw
     assert b'; hermes_tool_slots = {"0":{"physical_slot":2,"spoolman_id":' in raw
     assert f'; zmod_color_data = 0|#{slot["hex"].lstrip("#").upper()}|{slot["material"]}'.encode() in raw
-    assert job.zmod_md5_valid(output)
+    assert gcode_verify.zmod_md5_valid(output)
     machine = json.loads((tmp_path / 'out/machine.json').read_text())
     assert machine.get('single_extruder_multi_material') != '1'
     assert not (tmp_path / 'out/filament_tool_0.json').exists()
@@ -125,7 +132,7 @@ def test_slice_finalizes_checksum_and_color_metadata(tmp_path):
         output, provenance, _ = adapter.slice_model(source, tmp_path / 'out', state())
     raw = output.read_bytes()
     assert raw.startswith(b'; MD5:')
-    assert job.zmod_md5_valid(output)
+    assert gcode_verify.zmod_md5_valid(output)
     assert b'; zmod_color_data = 0|#067749|PLA' in raw
     assert provenance['gcode_sha256'] == hashlib.sha256(raw).hexdigest()
 
@@ -147,7 +154,7 @@ def test_layer_progress_gcode_preserves_native_startup_contract():
                 'SET_PRINT_STATS_INFO CURRENT_LAYER=1\nTIMELAPSE_TAKE_FRAME\n'
                 'END_PRINT\n')
     assert 'START_PRINT BED_TEMP=60 EXTRUDER_TEMP=210 MESH=MESH_DATA' in rendered
-    assert job.native_heater_lines_valid(rendered, 60, 210)
+    assert gcode_verify.native_heater_lines_valid(rendered, 60, 210)
 
 
 def _write_box_3mf(path, width=200.0, depth=100.0, height=10.0):
@@ -198,8 +205,8 @@ def test_readiness_selects_native_baseline_not_auto():
             return {'result': {'status': {'bed_mesh': {'profiles': {'auto': {}, 'MESH_DATA': {}}},
                 'save_variables': {'variables': {'display_off': 0, 'print_leveling': 0}}}}}
         return {'result': []}
-    with patch.object(job, '_mr', side_effect=reply), patch.object(job, 'screen_z_offset', return_value=0.025):
-        result = job.mesh_readiness(st)
+    with patch_bound(jobs_common, '_mr', side_effect=reply), patch_bound(launch_gates, 'screen_z_offset', return_value=0.025):
+        result = launch_gates.mesh_readiness(st)
     assert result['problem'] is None
     assert result['profile'] == 'MESH_DATA'
 
@@ -208,29 +215,29 @@ def test_readiness_selects_native_baseline_not_auto():
                                   'START_PRINT MESH=MESH_DATA FORCE_LEVELING=true', 'START_PRINT MESH=MESH_DATA FORCE_KAMP=true'])
 def test_native_start_refuses_conflicting_mapping(call):
     with pytest.raises(RuntimeError, match='saved-mesh'):
-        job.validate_saved_mesh_start(call, {'display_off': 0, 'profile': 'MESH_DATA'})
+        launch_gates.validate_saved_mesh_start(call, {'display_off': 0, 'profile': 'MESH_DATA'})
 
 
 def test_native_start_accepts_baseline_without_offset():
-    result = job.validate_saved_mesh_start('START_PRINT MESH=MESH_DATA', {'display_off': 0, 'profile': 'MESH_DATA'})
+    result = launch_gates.validate_saved_mesh_start('START_PRINT MESH=MESH_DATA', {'display_off': 0, 'profile': 'MESH_DATA'})
     assert result is None
 
 @pytest.mark.parametrize('status', ['printing', 'paused', 'busy', None, 'unknown'])
 def test_native_guard_blocks_nonidle(status):
     with pytest.raises(RuntimeError, match='native'):
-        job.validate_native_start({'status': status, 'matlStationInfo': {'currentLoadSlot': 4}}, {'slot': 4})
+        launch_gates.validate_native_start({'status': status, 'matlStationInfo': {'currentLoadSlot': 4}}, {'slot': 4})
 
 
 def test_native_guard_blocks_wrong_loaded_slot():
     detail = {'status': 'ready', 'hasMatlStation': True, 'matlStationInfo': {
         'currentLoadSlot': 1, 'slotInfos': [{'slotId': 4, 'hasFilament': True}]}}
     with pytest.raises(RuntimeError, match='no verified automatic route'):
-        job.validate_native_start(detail, {'slot': 4})
+        launch_gates.validate_native_start(detail, {'slot': 4})
 
 def test_native_guard_accepts_ready_present_matching_slot():
     detail = {'status': 'ready', 'hasMatlStation': True, 'matlStationInfo': {
         'currentLoadSlot': 4, 'slotInfos': [{'slotId': 4, 'hasFilament': True}]}}
-    result = job.validate_native_start(detail, {'slot': 4})
+    result = launch_gates.validate_native_start(detail, {'slot': 4})
     assert result is None
 
 @pytest.mark.parametrize('detail', [
@@ -240,7 +247,7 @@ def test_native_guard_accepts_ready_present_matching_slot():
 ])
 def test_native_guard_requires_fresh_slot_occupancy(detail):
     with pytest.raises(RuntimeError, match='presence is unknown or empty'):
-        job.validate_native_start(detail, {'slot': 4})
+        launch_gates.validate_native_start(detail, {'slot': 4})
 
 
 def test_print_now_native_busy_cannot_consume_or_upload(tmp_path):
@@ -249,14 +256,14 @@ def test_print_now_native_busy_cannot_consume_or_upload(tmp_path):
     manifest = tmp_path / 'JOB.json'
     manifest.write_text(json.dumps({'gcode': str(gcode), 'filament_selection': {'slot': 4}}))
     with mock.patch.object(job.printer_state, 'load', return_value={'display_off': 0}), \
-         mock.patch.object(job, '_printer_phase', return_value=('standby', '', 'Ready')), \
-         mock.patch.object(job, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \
-         mock.patch.object(job, 'verify_gcode'), \
-         mock.patch.object(job, '_verify_filament_readiness'), \
-         mock.patch.object(job, 'read_stock_detail', return_value={'status': 'printing'}), \
-         mock.patch.object(job, '_consume_approval') as consume, \
+         patch_bound(launch_gates, '_printer_phase', return_value=('standby', '', 'Ready')), \
+         patch_bound(launch_gates, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \
+         patch_bound(gcode_verify, 'verify_gcode'), \
+         patch_bound(launch_gates, '_verify_filament_readiness'), \
+         patch_bound(jobs_filament, 'read_stock_detail', return_value={'status': 'printing'}), \
+         mock.patch.object(launch_gates, '_consume_approval') as consume, \
          mock.patch.object(job.subprocess, 'run', side_effect=AssertionError('upload reached')) as upload:
         with pytest.raises(SystemExit, match='native printer is not ready'):
-            job.print_now(manifest)
+            launch_print_now.print_now(manifest)
         consume.assert_not_called()
         upload.assert_not_called()

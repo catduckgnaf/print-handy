@@ -12,6 +12,7 @@ import pytest
 HERE = Path(__file__).resolve().parent
 from print_handy.runtime import print_next
 from print_handy.runtime import print_records
+from tests.bound_names import setattr_bound
 
 
 def make_job(tmp_path, plates=2):
@@ -671,11 +672,12 @@ def test_start_spawns_print_now_from_the_repo_root(tmp_path):
 def _adapter_with(monkeypatch, transport, check):
     """Route live_idle_check through a fake adapter transport and a fake printer_state.check."""
     from print_handy import printers
-    from print_handy.core import model_job, printer_state
+    from print_handy.core import printer_state
+    from print_handy.launch import gates as launch_gates
     monkeypatch.setattr(printers, 'current', lambda: S(transport=transport))
     monkeypatch.setattr(printer_state, 'load', lambda: {'printer': 'fake'})
     monkeypatch.setattr(printer_state, 'check', lambda st: check)
-    monkeypatch.setattr(model_job, '_printer_phase',
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase',
                         lambda st: pytest.fail('Moonraker queried for a non-Moonraker printer'))
 
 
@@ -704,13 +706,14 @@ def test_live_idle_check_uses_the_adapter_status_for_octoprint(monkeypatch):
 
 def test_live_idle_check_still_queries_moonraker_for_moonraker_printers(monkeypatch):
     from print_handy import printers
-    from print_handy.core import model_job, printer_state
+    from print_handy.core import printer_state
+    from print_handy.launch import gates as launch_gates
     monkeypatch.setattr(printers, 'current', lambda: S(transport='moonraker'))
     monkeypatch.setattr(printer_state, 'load', lambda: {})
     monkeypatch.setattr(printer_state, 'check', lambda st: pytest.fail('adapter status used for a Moonraker printer'))
-    monkeypatch.setattr(model_job, '_printer_phase', lambda st: ('standby', '', 'Ready'))
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase', lambda st: ('standby', '', 'Ready'))
     print_next.live_idle_check()
-    monkeypatch.setattr(model_job, '_printer_phase', lambda st: ('printing', 'a.gcode', 'Printing'))
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase', lambda st: ('printing', 'a.gcode', 'Printing'))
     with pytest.raises(RuntimeError, match='not idle'):
         print_next.live_idle_check()
 
@@ -770,14 +773,15 @@ def _routed_adapter_with(monkeypatch, connection, phase, native=False):
     execution state comes from the fake _printer_phase.
     """
     from print_handy import printers, settings
-    from print_handy.core import model_job, printer_state
+    from print_handy.core import printer_state
+    from print_handy.launch import gates as launch_gates
     adapter = S(transport=None, connection=connection, has_native_screen=native)
     monkeypatch.setattr(settings, 'by_id', lambda pid: {'model': 'klipper.generic'})
     monkeypatch.setattr(settings, 'view_for', lambda pid: {})
     monkeypatch.setattr(printers, 'get', lambda model, view: adapter)
     monkeypatch.setattr(printer_state, 'load', lambda pid=None: {'printer': 'routed'})
     monkeypatch.setattr(printer_state, 'check', lambda st, printer_id=None, adapter=None: (True, [], {}))
-    monkeypatch.setattr(model_job, '_printer_phase', phase)
+    setattr_bound(monkeypatch, launch_gates, '_printer_phase', phase)
 
 
 def test_live_idle_check_routed_moonraker_refuses_a_paused_printer(monkeypatch):

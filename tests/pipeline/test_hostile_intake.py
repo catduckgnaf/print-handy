@@ -33,7 +33,8 @@ from xml.etree.ElementTree import ParseError
 import pytest
 from PIL import Image
 
-from print_handy.core import geometry_layout, intake_resources as limits, model_job
+from print_handy.core import geometry_layout, intake_resources as limits
+from print_handy.jobs import audit as jobs_audit
 from print_handy.core import prepared_intake, source_colors
 
 NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
@@ -81,7 +82,7 @@ def test_external_entity_payload_is_refused_by_every_intake_entry_point(tmp_path
     assert source.stat().st_size < 4096  # the refusal is about the shape, not the size
     started = time.monotonic()
     for entry in (limits.check_source, geometry_layout.load_parts,
-                  source_colors.inventory, model_job.audit):
+                  source_colors.inventory, jobs_audit.audit):
         with pytest.raises(limits.IntakeLimitExceeded, match="document type") as caught:
             entry(source)
         assert SENTINEL not in str(caught.value)

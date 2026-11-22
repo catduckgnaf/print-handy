@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, owned_worker, prepared_intake, source_colors
+from print_handy.core import orca_adapter, owned_worker, prepared_intake, source_colors
+from print_handy.intake import fit_flow as intake_fit_flow
+from print_handy.intake import worker as intake_worker
+from print_handy.jobs import audit as jobs_audit
 
 
 def _cube(size=1.0, offset=(0.0, 0.0, 0.0)):
@@ -123,19 +126,19 @@ def test_binary_stl_source_triangles_and_malformed_files(tmp_path):
 
 def test_model_job_audit_reports_digest_dimensions_topology_and_printer(tmp_path):
     path = _write_stl(tmp_path / 'closed.stl', _cube())
-    report = model_job.mesh_audit(path, printer_model='A1')
+    report = jobs_audit.mesh_audit(path, printer_model='A1')
     assert report['schema_version'] == 1
     assert report['printer_model'] == 'A1'
     assert report['dimensions_mm'] == [1.0, 1.0, 1.0]
     assert report['triangles'] == 12
     assert report['sha256'] == report['source_sha256']
     assert report['placement_candidates']
-    assert model_job.mesh_topology(_cube())['manifold'] is True
+    assert jobs_audit.mesh_topology(_cube())['manifold'] is True
 
 
 def test_mesh_topology_counts_open_degenerate_and_disconnected_shells():
     open_face = [[(0, 0, 0), (1, 0, 0), (0, 1, 0)]]
-    report = model_job.mesh_topology(open_face + [[(0, 0, 0), (0, 0, 0), (0, 1, 0)]] + _cube(offset=(5, 0, 0)))
+    report = jobs_audit.mesh_topology(open_face + [[(0, 0, 0), (0, 0, 0), (0, 1, 0)]] + _cube(offset=(5, 0, 0)))
     assert report['boundary_edges'] == 3
     assert report['degenerate_triangles'] == 1
     assert report['shells'] == 2
@@ -147,7 +150,7 @@ def test_large_model_notice_stl_boundary_is_exact(tmp_path, size, expect):
     path = tmp_path / 'size.stl'
     with path.open('wb') as f:
         f.truncate(size)
-    notice = prepared_intake.large_model_notice(path)
+    notice = intake_fit_flow.large_model_notice(path)
     assert (notice is not None) is expect
     if expect:
         assert notice is not None and 'not stuck' in notice
@@ -158,20 +161,20 @@ def test_large_model_notice_counts_model_entries_only_and_handles_bad_inputs(tmp
     with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('3D/3dmodel.model', b' ' * 21_000_000)
         archive.writestr('notes.txt', b'x' * 100)
-    notice = prepared_intake.large_model_notice(path)
+    notice = intake_fit_flow.large_model_notice(path)
     assert notice is not None and '21 MB of mesh' in notice
     at_threshold = tmp_path / 'threshold.3mf'
     with zipfile.ZipFile(at_threshold, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('3D/3dmodel.model', b' ' * 20_000_000)
-    assert prepared_intake.large_model_notice(at_threshold) is not None
+    assert intake_fit_flow.large_model_notice(at_threshold) is not None
     only_other = tmp_path / 'metadata-only.3mf'
     _3mf(only_other, model=b'<model/>', extra={'3D/other.model': b'x' * 20_000_001})
-    other_model_notice = prepared_intake.large_model_notice(only_other)
+    other_model_notice = intake_fit_flow.large_model_notice(only_other)
     assert other_model_notice is not None and '20 MB of mesh' in other_model_notice
-    assert prepared_intake.large_model_notice(tmp_path / 'missing.stl') is None
+    assert intake_fit_flow.large_model_notice(tmp_path / 'missing.stl') is None
     malformed = tmp_path / 'malformed.3mf'
     malformed.write_bytes(b'not zip')
-    assert prepared_intake.large_model_notice(malformed) is None
+    assert intake_fit_flow.large_model_notice(malformed) is None
 
 
 def test_large_model_notice_handles_zip_declared_size_without_expanding(tmp_path):
@@ -180,7 +183,7 @@ def test_large_model_notice_handles_zip_declared_size_without_expanding(tmp_path
         info = zipfile.ZipInfo('3D/3dmodel.model')
         info.compress_type = zipfile.ZIP_STORED
         z.writestr(info, bytes(100_000_000))
-    notice = prepared_intake.large_model_notice(archive)
+    notice = intake_fit_flow.large_model_notice(archive)
     assert notice is not None and '100 MB of mesh' in notice
 
 
@@ -188,7 +191,7 @@ def test_3mf_adversarial_xml_and_missing_model_are_rejected(tmp_path):
     missing = tmp_path / 'missing-model.3mf'
     with zipfile.ZipFile(missing, 'w') as z:
         z.writestr('notes.txt', 'nothing')
-    assert prepared_intake.large_model_notice(missing) is None
+    assert intake_fit_flow.large_model_notice(missing) is None
     malformed = tmp_path / 'bad-xml.3mf'
     _3mf(malformed, model=b'<model><broken>')
     with pytest.raises((RuntimeError, KeyError, zipfile.BadZipFile, __import__('xml.etree.ElementTree', fromlist=['ParseError']).ParseError)):
@@ -209,7 +212,7 @@ def test_3mf_path_traversal_component_path_does_not_read_outside_archive(tmp_pat
 
 @pytest.mark.parametrize('triangles', [[], [[(0, 0, 0), (1, 0, 0), (0, 1, 0)]]])
 def test_topology_empty_and_single_triangle_counts(triangles):
-    report = model_job.mesh_topology(triangles)
+    report = jobs_audit.mesh_topology(triangles)
     assert report['triangles'] == len(triangles)
     assert report['boundary_edges'] == (3 if triangles else 0)
     assert report['manifold'] is (not triangles)
@@ -221,7 +224,7 @@ def test_heavy_worker_killed_garbage_and_empty_stderr_fail_readably(monkeypatch)
             return stdout, stderr
         monkeypatch.setattr(prepared_intake.owned_worker, 'run', fake)
         with pytest.raises(RuntimeError) as exc:
-            await prepared_intake._heavy(model_job.audit, Path('/does/not/exist.stl'))
+            await intake_worker._heavy(jobs_audit.audit, Path('/does/not/exist.stl'))
         return str(exc.value)
     message = asyncio.run(run_case(b'not json', b''))
     assert 'it stopped without reporting why (killed or crashed)' in message
@@ -249,7 +252,7 @@ def test_heavy_worker_log_lines_are_forwarded_and_context_is_sent(monkeypatch, c
     token = prepared_intake.logs.bind(intake='t-55')
     try:
         with caplog.at_level(logging.DEBUG, logger='print_handy.core.prepared_intake'):
-            result = asyncio.run(prepared_intake._heavy(model_job.audit, Path('/does/not/exist.stl')))
+            result = asyncio.run(intake_worker._heavy(jobs_audit.audit, Path('/does/not/exist.stl')))
     finally:
         prepared_intake.logs.unbind(token)
     assert result == {'plates': 1}
@@ -273,7 +276,7 @@ def test_heavy_worker_log_lines_are_forwarded_on_an_error_reply(monkeypatch, cap
     monkeypatch.setattr(prepared_intake.owned_worker, 'run', fake)
     with caplog.at_level(logging.DEBUG, logger='print_handy.core.prepared_intake'):
         with pytest.raises(RuntimeError, match='slice exploded'):
-            asyncio.run(prepared_intake._heavy(model_job.audit, Path('/does/not/exist.stl')))
+            asyncio.run(intake_worker._heavy(jobs_audit.audit, Path('/does/not/exist.stl')))
     assert any(r.levelname == 'ERROR' and 'orca exited -50' in r.getMessage() for r in caplog.records)
 
 
@@ -301,7 +304,7 @@ def test_sigkilled_worker_and_malformed_stdout_fail_readably(monkeypatch, tmp_pa
                                 b'', label='killed audit worker', lane=owned_worker.GENERAL)
     monkeypatch.setattr(owned_worker, 'run', killed)
     with pytest.raises(RuntimeError, match=r'audit worker failed: it stopped without reporting why \(killed or crashed\)'):
-        asyncio.run(prepared_intake._heavy(model_job.audit, tmp_path / 'mesh.stl'))
+        asyncio.run(intake_worker._heavy(jobs_audit.audit, tmp_path / 'mesh.stl'))
 
 
 def test_owned_worker_concurrent_calls_observe_lane_limits():

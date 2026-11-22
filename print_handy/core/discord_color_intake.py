@@ -36,10 +36,11 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
     from . import prompts as _prompt_wait
     cm = _prompts()
     from .. import printers
-    from .model_job import (intake_color_choices, set_color_decisions, resolve_filament_selection,
-                            write_job, decisions_digest, build_slot_labels, build_tool_labels,
-                            configured_slots, position_limit, _job_adapter, file_sha256,
-                            FilamentWarningPending, record_filament_warning_acknowledgement)
+    from .model_job import build_slot_labels, build_tool_labels, FilamentWarningPending
+    from ..jobs.prompts import intake_color_choices, record_filament_warning_acknowledgement
+    from ..jobs.store import set_color_decisions, write_job, decisions_digest, _job_adapter
+    from ..jobs.filament import resolve_filament_selection, configured_slots, position_limit
+    from ..gcode.artifact import file_sha256
     from .source_colors import (inventory, prompts, canonical_prompts, validate_decisions,
                                 distinct_source_colours, prompt_source_colour, color_groups,
                                 propose_mapping, remembered_color_mapping, mapping_summary,

@@ -20,6 +20,8 @@ from urllib.error import HTTPError
 import pytest
 
 from print_handy.core import model_job, spoolman_client
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import print_now as launch_print_now
 
 from tests.runtime.test_spool_usage_runaway_1374 import (
     BASELINE_G, PRINT_MM, SPOOL, FakeSpoolman, _drive,
@@ -28,6 +30,7 @@ from tests.runtime.test_spool_usage_runaway_1374 import (
 from .test_launch_state import make_job, printer  # noqa: F401  (fixture)
 from .test_spool_usage_launch_1374 import _record_start, _state
 from .test_start_path import MoonrakerScript, moonraker_status
+from tests.bound_names import patch_bound
 
 # The sliced file's own header: 216 mm, 0.65 g of one filament.
 SLICED_G = 0.65
@@ -64,8 +67,8 @@ def _launch(printer, *, linked, monkeypatch, settings_accounting=None):  # noqa:
     _gcode(g)
     state = {**_state(1), "moonraker_url": "http://printer.invalid"}
     with mock.patch.object(model_job.printer_state, "load", return_value=state), \
-         mock.patch.object(model_job, "_wait_printing", lambda *a, **k: "printing"):
-        out = model_job.print_now(jp)
+         mock.patch.object(launch_print_now, "_wait_printing", lambda *a, **k: "printing"):
+        out = launch_print_now.print_now(jp)
     assert out["started"] is True and script.posts == 1
     return jp, g
 
@@ -153,11 +156,11 @@ def test_a_context_from_another_spool_is_not_charged(printer, monkeypatch, tmp_p
     from print_handy.runtime import print_records
     from .test_spool_usage_launch_1374 import FILE, REAL_RECORD_START, _iso
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=json.loads(jp.read_text())), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=json.loads(jp.read_text())), \
          mock.patch.object(model_job.printer_state, "load", return_value=other), \
          mock.patch.object(model_job.printers, "current",
                            return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
-         mock.patch.object(model_job, "CONTEXT", context_path):
+         patch_bound(jobs_store, "CONTEXT", context_path):
         REAL_RECORD_START(str(g), FILE, started_at=_iso(time.time()), print_number=113)
     context = json.loads(context_path.read_text())["jobs"][FILE]
     assert "spool_charge_at_end" not in context

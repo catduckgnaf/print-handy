@@ -15,7 +15,15 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job, orca_adapter, printer_state
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.base import MultiColorUnsupported
+from tests.bound_names import patch_bound, setattr_bound
 
 ZMOD_STEPS = re.compile(r"SET_EXTRUDER_SLOT|\bSTART_PRINT\b|CHANGE_ZCOLOR|SET_ZCOLOR|LOAD_ZOFFSET|\bM8\d\d\b|"
                         r"zmod|display_off|save_variables|Adventurer5M|8898|/detail|\bIFS\b", re.I)
@@ -85,12 +93,12 @@ uploads = []
 def rig(monkeypatch, tmp_path):
     uploads.clear()
     fake = FakeMoonraker()
-    monkeypatch.setattr(model_job, "request_json", fake)
+    setattr_bound(monkeypatch, jobs_common, "request_json", fake)
     monkeypatch.setattr(printer_state, "load", lambda: dict(STATE))
     monkeypatch.setattr(printer_state, "check",
                         lambda st=None, printer_id=None, adapter=None, *, live=True: (True, [], {}))
     monkeypatch.setattr(model_job.subprocess, "run", upload_run)
-    monkeypatch.setattr(model_job, "record_start", lambda *a, **k: str(tmp_path / "note.md"))
+    setattr_bound(monkeypatch, launch_print_now, "record_start", lambda *a, **k: str(tmp_path / "note.md"))
     monkeypatch.setattr(model_job.time, "sleep", lambda s: None)
     gcode = tmp_path / "plate_1.gcode"
     gcode.write_text(GCODE)
@@ -107,7 +115,7 @@ def write_job(tmp_path, gcode, **extra):
 def test_generic_print_now_runs_no_zmod_step(monkeypatch, rig, tmp_path):
     adapter = use_model(monkeypatch, "klipper.generic")
     fake, gcode = rig
-    out = model_job.print_now(write_job(tmp_path, gcode, printer_model="klipper.generic"))
+    out = launch_print_now.print_now(write_job(tmp_path, gcode, printer_model="klipper.generic"))
     assert out["started"] is True
     starts = [r for r in fake.requests if r["path"] == "/printer/print/start"]
     assert [r["body"]["filename"] for r in starts] == [fake.started]
@@ -124,9 +132,9 @@ def test_generic_readiness_comes_from_the_adapter(monkeypatch, rig, tmp_path):
     use_model(monkeypatch, "klipper.generic")
     fake, gcode = rig
     fake.print_state = "printing"
-    with mock.patch.object(model_job, "_printer_phase", return_value=("standby", "", "Ready")):
+    with patch_bound(launch_gates, "_printer_phase", return_value=("standby", "", "Ready")):
         with pytest.raises(SystemExit, match=r"REFUSED: .*Generic Klipper readiness unavailable.*busy \(printing\).*Nothing uploaded"):
-            model_job.print_now(gcode)
+            launch_print_now.print_now(gcode)
     assert not uploads
     assert not [r for r in fake.requests if r["path"] == "/printer/print/start"]
 
@@ -136,17 +144,17 @@ def test_generic_refuses_multicolor_gcode_cleanly(monkeypatch, rig, tmp_path):
     fake, gcode = rig
     gcode.write_text(GCODE + "T1\nG1 X5\n")
     with pytest.raises(SystemExit, match=r"REFUSED: .*single extruder.*Nothing uploaded or started"):
-        model_job.print_now(gcode)
+        launch_print_now.print_now(gcode)
     assert not uploads
 
 
 def test_generic_verify_gcode_needs_its_own_start_macro(monkeypatch, rig):
     use_model(monkeypatch, "klipper.generic")
     fake, gcode = rig
-    assert model_job.verify_gcode(gcode) is True
+    assert gcode_verify.verify_gcode(gcode) is True
     gcode.write_text(GCODE.replace("PRINT_START BED=60", "PRINT_START BED=70"))
     with pytest.raises(RuntimeError, match="missing PRINT_START matching bed 60"):
-        model_job.verify_gcode(gcode)
+        gcode_verify.verify_gcode(gcode)
     assert not [r for r in fake.requests if ZMOD_STEPS.search(json.dumps(r))]
 
 
@@ -156,10 +164,10 @@ def test_generic_verify_gcode_reads_a_quoted_material(monkeypatch, rig):
     use_model(monkeypatch, "klipper.generic")
     fake, gcode = rig
     gcode.write_text(GCODE.replace("; filament_type = PLA", '; filament_type = "Silk PLA"'))
-    assert model_job.verify_gcode(gcode) is True
+    assert gcode_verify.verify_gcode(gcode) is True
     gcode.write_text(GCODE.replace("; filament_type = PLA", '; filament_type = "Silk PETG"'))
     with pytest.raises(RuntimeError, match="G-code filament_type"):
-        model_job.verify_gcode(gcode)
+        gcode_verify.verify_gcode(gcode)
 
 
 # A job sliced by the Sovol Zero profiles (issue #612, rpcyan586/svzero-profiles):
@@ -216,7 +224,7 @@ def test_generic_verify_gcode_accepts_a_sovol_style_start(monkeypatch, rig, text
     use_model(monkeypatch, "klipper.generic")
     fake, gcode = rig
     gcode.write_text(text)
-    assert model_job.verify_gcode(gcode) is True
+    assert gcode_verify.verify_gcode(gcode) is True
 
 
 def test_generic_verify_gcode_refuses_a_sovol_style_start_with_wrong_heaters(monkeypatch, rig):
@@ -224,21 +232,21 @@ def test_generic_verify_gcode_refuses_a_sovol_style_start_with_wrong_heaters(mon
     fake, gcode = rig
     gcode.write_text(SVZERO_STOCK.replace("M109 S215", "M109 S200"))
     with pytest.raises(RuntimeError, match=r"missing PRINT_START matching bed 60.*accepted starts"):
-        model_job.verify_gcode(gcode)
+        gcode_verify.verify_gcode(gcode)
 
 
 def test_sovol_style_start_arguments_are_the_contract_when_present():
     # With BED_TEMP/EXTRUDER_TEMP arguments the arguments decide, in both
     # directions: heater lines cannot rescue a wrong-argument start.
     heaters = "M190 S60\nM109 S215\n"
-    assert model_job.sovol_style_start_matches(
+    assert gcode_verify.sovol_style_start_matches(
         "START_PRINT BED_TEMP=60 EXTRUDER_TEMP=215\n" + heaters, 60, 215)
-    assert not model_job.sovol_style_start_matches(
+    assert not gcode_verify.sovol_style_start_matches(
         "START_PRINT BED_TEMP=70 EXTRUDER_TEMP=215\n" + heaters, 60, 215)
-    assert model_job.sovol_style_start_matches("START_PRINT\n" + heaters, 60, 215)
-    assert not model_job.sovol_style_start_matches("START_PRINT\nM190 S60\n", 60, 215)
-    assert not model_job.sovol_style_start_matches("START_PRINT_EXTRA\n" + heaters, 60, 215)
-    assert not model_job.sovol_style_start_matches(heaters, 60, 215)
+    assert gcode_verify.sovol_style_start_matches("START_PRINT\n" + heaters, 60, 215)
+    assert not gcode_verify.sovol_style_start_matches("START_PRINT\nM190 S60\n", 60, 215)
+    assert not gcode_verify.sovol_style_start_matches("START_PRINT_EXTRA\n" + heaters, 60, 215)
+    assert not gcode_verify.sovol_style_start_matches(heaters, 60, 215)
 
 
 @pytest.mark.parametrize("configured,recorded", [("klipper.generic", "flashforge.ad5x"),
@@ -251,7 +259,7 @@ def test_model_mismatch_refuses_before_upload(monkeypatch, rig, tmp_path, config
     extra = {"printer_model": recorded} if recorded else {}
     with pytest.raises(SystemExit, match=r"REFUSED: this job was prepared for .*configured printer model is "
                                          + configured + r".*nothing uploaded"):
-        model_job.print_now(write_job(tmp_path, gcode, **extra))
+        launch_print_now.print_now(write_job(tmp_path, gcode, **extra))
     assert not uploads and not fake.requests
 
 
@@ -281,13 +289,13 @@ def test_printer_override_is_recorded_on_the_job(monkeypatch, tmp_path):
     argv = ["model_job.py", "slice", str(job), "--approved", "--printer", "sovol.sv06"]
     with mock.patch.object(sys, "argv", argv), \
          mock.patch.object(model_job.printer_state, "load", return_value=dict(STATE)), \
-         mock.patch.object(model_job, "intake_color_choices", return_value=True), \
-         mock.patch.object(model_job, "slice_job", return_value="x.gcode") as sliced:
-        model_job.main()
+         patch_bound(jobs_prompts, "intake_color_choices", return_value=True), \
+         patch_bound(jobs_slice, "slice_job", return_value="x.gcode") as sliced:
+        jobs_cli.main()
     assert json.loads(job.read_text())["printer_model"] == "sovol.sv06"
     sliced.assert_called_once()
     with mock.patch.object(sys, "argv", argv[:-1] + ["prusa"]), pytest.raises(SystemExit) as bad:
-        model_job.main()
+        jobs_cli.main()
     assert bad.value.code == 2
 
 
@@ -315,8 +323,8 @@ def test_generic_slice_records_model_and_skips_zmod_finalize(monkeypatch, tmp_pa
     with mock.patch("print_handy.printers.flashforge.zmod.multicolor_contract.finalize", forbid), \
          mock.patch("print_handy.printers.flashforge.zmod.finalize", forbid), \
          mock.patch.object(orca_adapter, "slice_model", return_value=(out, {}, [])) as sliced, \
-         mock.patch.object(model_job, "verify_gcode") as verify:
-        assert model_job.slice_job(job) == out
+         patch_bound(gcode_verify, "verify_gcode") as verify:
+        assert jobs_slice.slice_job(job) == out
     recorded = json.loads(job.read_text())
     assert recorded["printer_model"] == "klipper.generic"
     assert "filament_slot" not in sliced.call_args.kwargs
@@ -330,16 +338,16 @@ def test_generic_slice_refuses_multicolor_source(monkeypatch, tmp_path):
     with mock.patch("print_handy.core.source_colors.inventory", return_value=manifest), \
          mock.patch.object(orca_adapter, "slice_model") as sliced:
         with pytest.raises(MultiColorUnsupported, match="single extruder"):
-            model_job.slice_job(job)
+            jobs_slice.slice_job(job)
         sliced.assert_not_called()
     with mock.patch("print_handy.core.source_colors.inventory", return_value=manifest):
         with pytest.raises(MultiColorUnsupported, match="single extruder"):
-            model_job.intake_color_choices(job, dict(STATE))
+            jobs_prompts.intake_color_choices(job, dict(STATE))
     argv = ["model_job.py", "slice", str(job), "--approved"]
     with mock.patch.object(sys, "argv", argv), \
-         mock.patch.object(model_job, "intake_color_choices", side_effect=MultiColorUnsupported("one extruder only")):
+         patch_bound(jobs_prompts, "intake_color_choices", side_effect=MultiColorUnsupported("one extruder only")):
         with pytest.raises(SystemExit, match="REFUSED: one extruder only"):
-            model_job.main()
+            jobs_cli.main()
 
 
 def test_orca_adapter_skips_zmod_md5_for_generic(monkeypatch):
@@ -393,9 +401,9 @@ def test_generic_verify_gcode_requires_the_configured_end_macro(monkeypatch, rig
     use_generic_with_end_macro(monkeypatch, "END_MY_PRINT")
     fake, gcode = rig
     with pytest.raises(RuntimeError, match="missing END_MY_PRINT"):
-        model_job.verify_gcode(gcode)
+        gcode_verify.verify_gcode(gcode)
     gcode.write_text(GCODE.replace("PRINT_END", "END_MY_PRINT"))
-    assert model_job.verify_gcode(gcode) is True
+    assert gcode_verify.verify_gcode(gcode) is True
 
 
 def test_generic_verify_gcode_default_end_macro_keeps_standard_ends(monkeypatch, rig):
@@ -403,6 +411,6 @@ def test_generic_verify_gcode_default_end_macro_keeps_standard_ends(monkeypatch,
     # (foreign-sliced files such as the Sovol Zero pack end in END_PRINT).
     use_model(monkeypatch, "klipper.generic")
     fake, gcode = rig
-    assert model_job.verify_gcode(gcode) is True
+    assert gcode_verify.verify_gcode(gcode) is True
     gcode.write_text(GCODE.replace("PRINT_END", "END_PRINT"))
-    assert model_job.verify_gcode(gcode) is True
+    assert gcode_verify.verify_gcode(gcode) is True

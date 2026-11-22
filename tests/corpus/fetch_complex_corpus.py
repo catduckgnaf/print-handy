@@ -178,11 +178,12 @@ def makerworld_link(instance_id):
     reported, never solved or worked around."""
     import urllib.error
     sys.path.insert(0, str(HERE.parents[1]))
-    from print_handy.core import model_job
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import sources as jobs_sources
     try:
-        data = model_job.request_json(
+        data = jobs_common.request_json(
             f"https://api.bambulab.com/v1/design-service/instance/{instance_id}/f3mf?type=download",
-            headers=model_job.maker_headers())
+            headers=jobs_sources.maker_headers())
     except urllib.error.HTTPError as exc:
         if exc.code == 418:
             raise RuntimeError("MakerWorld answered with a robot check (418); not bypassed - "

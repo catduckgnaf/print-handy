@@ -1,7 +1,7 @@
 """Issue #17: per-plate and per-part estimates, aggregate totals, and the split-plan estimate fields."""
 import json
 
-from print_handy.core import prepared_intake
+from print_handy.intake import fit_flow as intake_fit_flow
 from print_handy.runtime import discord_print_summary as summary
 from print_handy.runtime import print_records as records
 
@@ -112,7 +112,7 @@ def test_split_plan_records_estimates_so_remaining_duration_is_known(tmp_path):
     jp.write_text(json.dumps(job))
     manifest = {'parts': job['color_manifest']['parts']}
     gcodes = [r['gcode'] for r in job['derived_plates']]
-    plan = prepared_intake.write_split_plan(jp, job, manifest, gcodes, 'intake-est', plans_dir=tmp_path)
+    plan = intake_fit_flow.write_split_plan(jp, job, manifest, gcodes, 'intake-est', plans_dir=tmp_path)
     assert [p['plate_estimate_seconds'] for p in plan['parts']] == [5400, 2700, 7200]
     assert [p['estimated_part_seconds'] for p in plan['parts']] == [5400, 2700, 7200]
     assert [p['estimated_filament_g'] for p in plan['parts']] == [40.0, 20.0, 10.0]

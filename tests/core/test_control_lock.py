@@ -19,7 +19,7 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import control_lock as cl
-from print_handy.core import model_job
+from print_handy.launch import print_now as launch_print_now
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -135,7 +135,7 @@ def test_print_now_refuses_while_a_control_action_holds_the_lock(tmp_path):
         target = tmp_path / "x.gcode"
         target.write_text("G1 X0\n")
         with pytest.raises(SystemExit) as exc:
-            model_job.print_now(target)
+            launch_print_now.print_now(target)
         assert "control action" in str(exc.value)
     finally:
         held.release()
@@ -159,7 +159,7 @@ def test_print_now_gcode_target_takes_the_owning_jobs_lock(tmp_path, monkeypatch
     # default printer's lock, so it blocked (and was blocked by) the wrong
     # printer's control actions.
     gcode = _gcode_job(tmp_path, monkeypatch)
-    lock = model_job._print_now_control_lock(str(gcode))
+    lock = launch_print_now._print_now_control_lock(str(gcode))
     assert lock is cl.control_lock("printer-b")
     assert lock is not cl.control_lock(None)
 
@@ -167,14 +167,14 @@ def test_print_now_gcode_target_takes_the_owning_jobs_lock(tmp_path, monkeypatch
 def test_print_now_job_json_target_takes_the_jobs_lock(tmp_path, monkeypatch):
     gcode = _gcode_job(tmp_path, monkeypatch)
     job_json = gcode.parents[3] / "JOB.json"
-    assert model_job._print_now_control_lock(str(job_json)) is cl.control_lock("printer-b")
+    assert launch_print_now._print_now_control_lock(str(job_json)) is cl.control_lock("printer-b")
 
 
 def test_print_now_loose_gcode_keeps_the_default_lock(tmp_path, monkeypatch):
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp-elsewhere"))
     loose = tmp_path / "loose.gcode"
     loose.write_text("G1 X0\n")
-    assert model_job._print_now_control_lock(str(loose)) is cl.control_lock(None)
+    assert launch_print_now._print_now_control_lock(str(loose)) is cl.control_lock(None)
 
 
 def test_print_now_gcode_start_contends_with_its_own_printers_control_action(tmp_path, monkeypatch):
@@ -183,7 +183,7 @@ def test_print_now_gcode_start_contends_with_its_own_printers_control_action(tmp
     assert held.acquire(blocking=False)
     try:
         with pytest.raises(SystemExit) as exc:
-            model_job.print_now(gcode)
+            launch_print_now.print_now(gcode)
         assert "control action" in str(exc.value)
     finally:
         held.release()
@@ -195,7 +195,7 @@ def test_print_now_gcode_start_ignores_the_default_printers_control_action(tmp_p
     assert held.acquire(blocking=False)
     try:
         with pytest.raises(SystemExit) as exc:
-            model_job.print_now(gcode)
+            launch_print_now.print_now(gcode)
         assert "control action" not in str(exc.value)
     finally:
         held.release()
@@ -205,7 +205,7 @@ def test_print_now_gcode_start_ignores_the_default_printers_control_action(tmp_p
 
 def test_launch_target_resolves_the_job_once(tmp_path, monkeypatch):
     gcode = _gcode_job(tmp_path, monkeypatch)
-    launch = model_job._resolve_launch_target(str(gcode))
+    launch = launch_print_now._resolve_launch_target(str(gcode))
     assert launch.gcode == gcode.resolve()
     assert launch.job_path == (tmp_path / "job" / "JOB.json")
     assert launch.printer_id == "printer-b"
@@ -217,7 +217,7 @@ def test_launch_target_resolves_the_job_once(tmp_path, monkeypatch):
 
 def test_launch_target_for_a_job_json_target_names_its_gcode(tmp_path, monkeypatch):
     gcode = _gcode_job(tmp_path, monkeypatch)
-    launch = model_job._resolve_launch_target(str(tmp_path / "job" / "JOB.json"))
+    launch = launch_print_now._resolve_launch_target(str(tmp_path / "job" / "JOB.json"))
     assert launch.gcode == gcode.resolve()
     assert launch.printer_id == "printer-b"
 
@@ -226,17 +226,17 @@ def test_print_now_refuses_when_the_owning_job_cannot_be_read(tmp_path, monkeypa
     gcode = _gcode_job(tmp_path, monkeypatch)
     (tmp_path / "job" / "JOB.json").write_text("{ not json")
     with pytest.raises(SystemExit) as exc:
-        model_job._print_now_control_lock(str(gcode))
+        launch_print_now._print_now_control_lock(str(gcode))
     assert "could not read the job" in str(exc.value)
     with pytest.raises(SystemExit) as exc:
-        model_job.print_now(gcode)
+        launch_print_now.print_now(gcode)
     assert "could not read the job" in str(exc.value)
 
 
 def test_control_lock_accepts_a_launch_target(tmp_path, monkeypatch):
     gcode = _gcode_job(tmp_path, monkeypatch)
-    launch = model_job._resolve_launch_target(str(gcode))
-    assert model_job._print_now_control_lock(launch) is cl.control_lock("printer-b")
+    launch = launch_print_now._resolve_launch_target(str(gcode))
+    assert launch_print_now._print_now_control_lock(launch) is cl.control_lock("printer-b")
 
 
 # -- msvcrt fallback (#1587) --------------------------------------------------------

@@ -401,7 +401,7 @@ def live_idle_check(printer_id: str | None = None) -> None:
     """
     from print_handy import printers
     from print_handy.core import printer_state
-    from print_handy.core.model_job import _printer_phase
+    from ..launch.gates import _printer_phase
 
     if printer_id:
         from print_handy import settings

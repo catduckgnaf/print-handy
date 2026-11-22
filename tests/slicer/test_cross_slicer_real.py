@@ -37,9 +37,9 @@ from unittest import mock
 import pytest
 
 from print_handy import settings
-from print_handy.core import (author_settings, editable_export, model_job,
-                              orca_adapter, plate_statistics, source_colors,
+from print_handy.core import (author_settings, editable_export, orca_adapter, plate_statistics, source_colors,
                               source_descriptor, spoolman_client)
+from print_handy.jobs import filament as jobs_filament
 
 REAL = os.environ.get("PRINT_HANDY_REAL_SLICER") == "1"
 pytestmark = pytest.mark.skipif(
@@ -148,7 +148,7 @@ def _production_slice(source, folder):
     manifest = source_colors.inventory(source)
     choices = {}
     for row in source_colors.canonical_prompts(manifest):
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"]["1"], slot=1))
     decisions = {"schema": "part_slots_v1", "mode": "per_part",
                  "source_sha256": manifest["source_sha256"],

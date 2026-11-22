@@ -10,11 +10,20 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import model_job as mj
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.core import orca_adapter, printer_state
 from print_handy.core import slice_recipe as recipe_module
 from print_handy.core.background_slice import slice_binding
 
 from .test_artifact_binding import setup_job
+from tests.bound_names import setattr_bound
 
 UPRIGHT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 ON_SIDE = [[1, 0, 0], [0, 0, -1], [0, 1, 0]]
@@ -122,9 +131,9 @@ def test_slice_records_versioned_recipe_hash_in_the_artifact(tmp_path, monkeypat
     assert job['artifact_binding']['recipe_version'] == recipe_module.RECIPE_VERSION
     assert job['artifact_binding']['recipe_sha256'] == record['sha256']
     from print_handy.core import slice_recipe
-    expected = slice_binding(job, mj.file_sha256(job['downloaded_file']))
+    expected = slice_binding(job, gcode_artifact.file_sha256(job['downloaded_file']))
     assert record['sha256'] == slice_recipe.binding_sha256(expected)
-    mj.require_current_artifact(job, job['gcode'])
+    launch_gates.require_current_artifact(job, job['gcode'])
 
 
 def test_launch_refuses_when_the_nozzle_changes_after_slicing(tmp_path, monkeypatch):
@@ -134,12 +143,12 @@ def test_launch_refuses_when_the_nozzle_changes_after_slicing(tmp_path, monkeypa
     import copy
     jp, st, gcode = setup_job(tmp_path, monkeypatch)
     persisted = json.loads(jp.read_text())
-    mj.require_current_artifact(persisted, gcode)  # unchanged inputs: still accepted
+    launch_gates.require_current_artifact(persisted, gcode)  # unchanged inputs: still accepted
     changed = copy.deepcopy(st)
     changed['nozzle']['diameter_mm'] = 0.4  # the fixture slices with a 0.6 nozzle
     monkeypatch.setattr(mj.printer_state, 'load', lambda: changed)
     with pytest.raises(RuntimeError, match='stale color artifact'):
-        mj.require_current_artifact(persisted, gcode)
+        launch_gates.require_current_artifact(persisted, gcode)
 
 
 def test_launch_refuses_when_a_job_transform_changes_after_slicing(tmp_path, monkeypatch):
@@ -149,7 +158,7 @@ def test_launch_refuses_when_a_job_transform_changes_after_slicing(tmp_path, mon
     persisted = json.loads(jp.read_text())
     persisted['scale'] = 0.5
     with pytest.raises(RuntimeError, match='stale color artifact'):
-        mj.require_current_artifact(persisted, gcode)
+        launch_gates.require_current_artifact(persisted, gcode)
 
 
 def test_launch_refuses_when_slice_settings_change_after_slicing(tmp_path, monkeypatch):
@@ -162,7 +171,7 @@ def test_launch_refuses_when_slice_settings_change_after_slicing(tmp_path, monke
     changed['prime_tower'] = {**changed['prime_tower'], 'size_mm': 99}
     monkeypatch.setattr(settings, 'current', lambda: changed)
     with pytest.raises(RuntimeError, match='stale color artifact'):
-        mj.require_current_artifact(persisted, gcode)
+        launch_gates.require_current_artifact(persisted, gcode)
 
 
 def test_worker_refuses_a_request_bound_to_another_recipe(tmp_path, monkeypatch):
@@ -171,7 +180,7 @@ def test_worker_refuses_a_request_bound_to_another_recipe(tmp_path, monkeypatch)
     calls = []
     monkeypatch.setattr(orca_adapter, 'slice_model', lambda *a, **k: calls.append(a))
     with pytest.raises(RuntimeError, match='recipe'):
-        mj.slice_job(str(jp), recipe_sha256='0' * 64)
+        jobs_slice.slice_job(str(jp), recipe_sha256='0' * 64)
     assert calls == [] and jp.read_bytes() == before
 
 
@@ -188,7 +197,7 @@ def test_recipe_change_during_slicing_never_marks_the_artifact_ready(tmp_path, m
     monkeypatch.setattr(orca_adapter, 'slice_model', slice_then_rotate)
     previous = json.loads(jp.read_text())['artifact_binding']
     with pytest.raises(RuntimeError, match='changed during slicing'):
-        mj.slice_job(str(jp))
+        jobs_slice.slice_job(str(jp))
     assert json.loads(jp.read_text())['artifact_binding'] == previous
 
 
@@ -199,7 +208,7 @@ def test_artifact_sliced_before_recipe_identity_is_refused_not_guessed(tmp_path,
     job['artifact_binding'] = legacy
     job.pop('slice_recipe', None)
     with pytest.raises(RuntimeError, match='slice recipe'):
-        mj.require_current_artifact(job, gcode)
+        launch_gates.require_current_artifact(job, gcode)
 
 
 def test_tampered_recipe_record_is_refused(tmp_path, monkeypatch):
@@ -207,7 +216,7 @@ def test_tampered_recipe_record_is_refused(tmp_path, monkeypatch):
     job = json.loads(jp.read_text())
     job['slice_recipe']['recipe']['copies'] = 4
     with pytest.raises(RuntimeError, match='slice recipe'):
-        mj.require_current_artifact(job, gcode)
+        launch_gates.require_current_artifact(job, gcode)
 
 
 def test_worker_accepts_the_recipe_intake_bound_before_the_first_slice(tmp_path, monkeypatch):
@@ -221,7 +230,7 @@ def test_worker_accepts_the_recipe_intake_bound_before_the_first_slice(tmp_path,
     jp = tmp_path / 'JOB.json'
     jp.write_text(json.dumps({'downloaded_file': str(source(tmp_path)),
                               'audit': {'plates': 1, 'size_x': 40, 'size_y': 10, 'size_z': 1}}))
-    mj.intake_color_choices(jp, st, 'single_color', [1])
+    jobs_prompts.intake_color_choices(jp, st, 'single_color', [1])
     monkeypatch.setattr(mj.printer_state, 'load', lambda: st)
     job = json.loads(jp.read_text())
     job['copies'] = 2
@@ -234,11 +243,11 @@ def test_worker_accepts_the_recipe_intake_bound_before_the_first_slice(tmp_path,
         out.write_text('G1 X1\n')
         return out, {'offline_test': True}, []
     monkeypatch.setattr(orca_adapter, 'slice_model', slice_fake)
-    monkeypatch.setattr(mj, 'verify_gcode', lambda _: None)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', lambda _: None)
     from print_handy.printers.flashforge.zmod import multicolor_contract
     monkeypatch.setattr(multicolor_contract, 'finalize', lambda *a, **k: None)
-    requested = slice_recipe.binding_sha256(slice_binding(job, mj.file_sha256(job['downloaded_file'])))
-    mj.slice_job(str(jp), copies=2, recipe_sha256=requested)
+    requested = slice_recipe.binding_sha256(slice_binding(job, gcode_artifact.file_sha256(job['downloaded_file'])))
+    jobs_slice.slice_job(str(jp), copies=2, recipe_sha256=requested)
     sliced = json.loads(jp.read_text())
     assert sliced['printer_model'] and sliced['artifact_binding']['recipe_sha256'] == requested
 
@@ -273,19 +282,19 @@ def test_remap_slot_keeps_a_bound_job_launchable_but_still_refuses_other_changes
     native = SimpleNamespace(normalize_mapping=lambda mapping, st: mapping, finalize=lambda *a: None,
                              used_tools=lambda text: {0})
     routed = SimpleNamespace(native=native)
-    monkeypatch.setattr(mj, 'resolve_filament_selection', lambda st, request: selection)
-    monkeypatch.setattr(mj, '_verify_routed', lambda *a, **k: None)
+    setattr_bound(monkeypatch, jobs_filament, 'resolve_filament_selection', lambda st, request: selection)
+    setattr_bound(monkeypatch, gcode_verify, '_verify_routed', lambda *a, **k: None)
     with monkeypatch.context() as scoped:
         # Only the remap itself runs against the stub adapter; the launch-time
         # recipe recompute below needs the job's real adapter.
-        scoped.setattr(mj, '_job_adapter', lambda job: routed)
+        setattr_bound(scoped, jobs_store, '_job_adapter', lambda job: routed)
         scoped.setattr(mj.printers, 'current', lambda: routed)
-        mj.remap_slot(jp, 2, state=_st)
+        launch_print_now.remap_slot(jp, 2, state=_st)
     after = json.loads(jp.read_text())
     assert after['filament_selection']['slot'] == 2
     assert after['slice_recipe']['recipe']['filament']['selected_slot'] == 2
     assert after['artifact_binding']['recipe_sha256'] == after['slice_recipe']['sha256'] != before['slice_recipe']['sha256']
-    mj.require_current_artifact(after, gcode)  # the remapped job still launches
+    launch_gates.require_current_artifact(after, gcode)  # the remapped job still launches
     after['scale'] = 0.5  # a real input change after the remap is still stale
     with pytest.raises(RuntimeError, match='stale color artifact'):
-        mj.require_current_artifact(after, gcode)
+        launch_gates.require_current_artifact(after, gcode)

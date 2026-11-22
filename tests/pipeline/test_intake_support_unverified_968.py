@@ -15,10 +15,14 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import model_job, prepared_intake, support_clearance, yolo
+from print_handy.core import prepared_intake, support_clearance, yolo
+from print_handy.intake import questions as intake_questions
+from print_handy.intake import worker as intake_worker
+from print_handy.jobs import slice as jobs_slice
 from .helpers import external
 from .test_color_intake import state
 from .test_intake_support_precheck import Adapter, env, run_flow, _warning_slice, _coverage_only_report  # noqa: F401
+from tests.bound_names import setattr_bound
 
 print_next = external("print_next")
 
@@ -40,12 +44,12 @@ def _in_process_heavy(monkeypatch):
     """Run offloaded steps in a thread so a monkeypatched inner function is the one that runs."""
     async def thread_heavy(func, *args, **kwargs):
         return await asyncio.to_thread(func, *args, **kwargs)
-    monkeypatch.setattr(prepared_intake, '_heavy', thread_heavy)
+    setattr_bound(monkeypatch, intake_worker, '_heavy', thread_heavy)
 
 
 def _coverage_only_flow(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
 
 
 @pytest.mark.parametrize('pick, status', [(0, 'STARTED'), (1, 'SLICED_NOT_STARTED')])
@@ -57,7 +61,7 @@ def test_unverified_with_no_clearance_finding_asks(env, monkeypatch, pick, statu
     # one color (2 on the #1473 offer), slot 1 (0), with supports (0), then the override question
     adapter, result, receipt = run_flow(env, [2, 0, 0, pick])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
     assert UNREADABLE_REASON in q['question']
     assert 'under 1.0 mm' not in q['question']
@@ -83,7 +87,7 @@ def test_unverified_on_the_resliced_slice_asks(env, monkeypatch):
     # Print anyway at the unverified question (0), start (0)
     adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 0, 0])
     asked = [q for q in adapter.questions
-             if q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]]
+             if q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]]
     assert len(asked) == 1
     assert "Support coverage couldn't be verified:" in asked[0]['question']
     assert receipt['status'] == 'STARTED'
@@ -100,7 +104,7 @@ def test_unverified_source_bounds_unreadable_asks(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'leaves', _no_leaves)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
     assert 'source bounds unreadable' in q['question']
     assert receipt['status'] == 'STARTED'
@@ -118,7 +122,7 @@ def test_unverified_coverage_check_raising_asks(env, monkeypatch):
     _in_process_heavy(monkeypatch)  # the patched inner function must be seen, not a child process's
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
     assert 'coverage check failed: kaboom' in q['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
@@ -140,7 +144,7 @@ def test_unverified_unreadable_plate_file_asks_and_cancel_stops(env, monkeypatch
     monkeypatch.setattr(prepared_intake.delivery, 'sha256', _sha256_then_delete)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
     assert 'G-code unreadable' in q['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
@@ -178,7 +182,7 @@ def test_unverified_multi_plate_no_match_asks(env, monkeypatch):
     _stub_unverified(monkeypatch, reason=reason)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
     assert reason in q['question']
     assert receipt['status'] == 'STARTED'

@@ -28,6 +28,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job, orca_adapter, printer_state, spoolman_client
+from print_handy.gcode import verify as gcode_verify
 
 FIXTURE = Path(__file__).parent / "fixtures" / "printer_hardware.json"
 
@@ -205,7 +206,7 @@ def test_verify_gcode_proceeds_and_warns_when_spoolman_down(monkeypatch, tmp_pat
          mock.patch.object(spoolman_client, "request", spoolman_request(down)):
         gcode = tmp_path / "plate_1.gcode"
         gcode.write_text(GCODE)
-        assert model_job.verify_gcode(gcode) is True
+        assert gcode_verify.verify_gcode(gcode) is True
     captured = capsys.readouterr()
     # Warning channel unified with #240 during the merge of origin/main:
     # check warnings are reported on stderr, the G-code verdict stays on stdout.

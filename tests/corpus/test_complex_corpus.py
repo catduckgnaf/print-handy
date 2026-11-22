@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from . import fetch_complex_corpus
+from tests.bound_names import setattr_bound
 
 
 @pytest.mark.parametrize('error', [RuntimeError('private technical detail'), TimeoutError('private timeout')])
@@ -150,15 +151,16 @@ def test_expected_failures_are_error_substring_lists_on_ready_cases():
 
 
 def test_makerworld_link_uses_the_production_download_call(monkeypatch):
-    from print_handy.core import model_job
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import sources as jobs_sources
     seen = {}
 
     def fake_request_json(url, headers=None, **_kw):
         seen.update(url=url, headers=headers)
         return {"name": "x.3mf", "url": "https://example.test/x.3mf"}
 
-    monkeypatch.setattr(model_job, "maker_headers", lambda: {"Authorization": "Bearer t"})
-    monkeypatch.setattr(model_job, "request_json", fake_request_json)
+    monkeypatch.setattr(jobs_sources, "maker_headers", lambda: {"Authorization": "Bearer t"})
+    setattr_bound(monkeypatch, jobs_common, "request_json", fake_request_json)
     assert fetch_complex_corpus.makerworld_link("976429") == "https://example.test/x.3mf"
     assert seen["url"].endswith("/design-service/instance/976429/f3mf?type=download")
     assert seen["headers"] == {"Authorization": "Bearer t"}
@@ -166,13 +168,14 @@ def test_makerworld_link_uses_the_production_download_call(monkeypatch):
 
 def test_makerworld_robot_check_is_reported_not_bypassed(monkeypatch):
     import urllib.error
-    from print_handy.core import model_job
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import sources as jobs_sources
 
     def robot_check(url, **_kw):
         raise urllib.error.HTTPError(url, 418, "I'm a teapot", None, None)
 
-    monkeypatch.setattr(model_job, "maker_headers", lambda: {})
-    monkeypatch.setattr(model_job, "request_json", robot_check)
+    monkeypatch.setattr(jobs_sources, "maker_headers", lambda: {})
+    setattr_bound(monkeypatch, jobs_common, "request_json", robot_check)
     with pytest.raises(RuntimeError, match="robot check"):
         fetch_complex_corpus.makerworld_link("976429")
 

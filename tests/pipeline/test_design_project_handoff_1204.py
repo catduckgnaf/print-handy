@@ -16,6 +16,7 @@ from types import SimpleNamespace as S
 from unittest import mock
 
 from print_handy.core import design, prepared_intake, printer_state
+from print_handy.intake import fit_flow as intake_fit_flow
 from print_handy.runtime import _config
 from .helpers import external
 from .test_prepared_intake import Adapter, ask_which_parts, env, state  # noqa: F401  (fixtures)
@@ -169,7 +170,7 @@ def _split(env, job, plan_id):
     plans.mkdir(exist_ok=True)
     with mock.patch.object(prepared_intake._external.load("discord_print_summary"),
                            "plate_estimates", return_value=[]):
-        plan = prepared_intake.write_split_plan(jp, job, manifest, gcodes, plan_id,
+        plan = intake_fit_flow.write_split_plan(jp, job, manifest, gcodes, plan_id,
                                                 plans_dir=plans)
     return plan, plans, gcodes
 

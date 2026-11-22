@@ -9,6 +9,7 @@ from print_handy.printers.flashforge_stock.client import (
     StockClient,
     StockLanError,
 )
+from tests.bound_names import setattr_bound
 
 
 @pytest.fixture
@@ -198,7 +199,10 @@ class _FakeStock:
 
 
 def _stock_print(monkeypatch, tmp_path, details, *, slot=1, after=None, gcode_text="G1 X1\n"):
-    from print_handy.core import launch_state, model_job
+    from print_handy.core import launch_state
+    from print_handy.gcode import verify as gcode_verify
+    from print_handy.launch import gates as launch_gates
+    from print_handy.launch import print_now as launch_print_now
     from print_handy.printers.flashforge_stock.adapter import StockFlashforgeAdapter
 
     events = []
@@ -212,10 +216,10 @@ def _stock_print(monkeypatch, tmp_path, details, *, slot=1, after=None, gcode_te
         "flashforge_stock": {"host": "192.0.2.10"},
     })
     monkeypatch.setattr(adapter, "client", lambda: fake)
-    monkeypatch.setattr(model_job, "verify_gcode", lambda path: {"offline": True})
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda path: {"offline": True})
     monkeypatch.setattr(launch_state, "acquire", lambda *a, **kw: events.append("acquire") or _Lease(events))
-    monkeypatch.setattr(model_job, "_consume_approval", lambda *a, **kw: events.append("consume"))
-    monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: "/records/1")
+    monkeypatch.setattr(launch_gates, "_consume_approval", lambda *a, **kw: events.append("consume"))
+    setattr_bound(monkeypatch, launch_print_now, "record_start", lambda g, remote, **kw: "/records/1")
     if after is not None:
         started = list(fake.started)
 
@@ -228,13 +232,13 @@ def _stock_print(monkeypatch, tmp_path, details, *, slot=1, after=None, gcode_te
         fake.print_gcode = print_gcode
         del started
     job = {"filament_selection": {"slot": slot}}
-    out = model_job._print_flashforge_stock(
+    out = launch_print_now._print_flashforge_stock(
         adapter, {}, gcode, job, tmp_path / "JOB.json", 25, False)
     return out, fake, events
 
 
 def test_stock_print_refuses_an_empty_slot_before_upload(monkeypatch, tmp_path):
-    from print_handy.core import model_job
+    from print_handy.launch import print_now as launch_print_now
     from print_handy.printers.flashforge_stock.adapter import StockFlashforgeAdapter
 
     gcode = tmp_path / "plate.gcode"
@@ -248,14 +252,14 @@ def test_stock_print_refuses_an_empty_slot_before_upload(monkeypatch, tmp_path):
     })
     monkeypatch.setattr(adapter, "client", lambda: fake)
     with pytest.raises(SystemExit, match="REFUSED:.*slot 2"):
-        model_job._print_flashforge_stock(
+        launch_print_now._print_flashforge_stock(
             adapter, {}, gcode, {"filament_selection": {"slot": 2}},
             tmp_path / "JOB.json", 25, False)
     assert fake.uploads == [] and fake.started == []
 
 
 def test_stock_print_refuses_start_print_before_upload(monkeypatch, tmp_path):
-    from print_handy.core import model_job
+    from print_handy.launch import print_now as launch_print_now
     from print_handy.printers.flashforge_stock.adapter import StockFlashforgeAdapter
 
     gcode = tmp_path / "plate.gcode"
@@ -269,7 +273,7 @@ def test_stock_print_refuses_start_print_before_upload(monkeypatch, tmp_path):
     })
     monkeypatch.setattr(adapter, "client", lambda: fake)
     with pytest.raises(SystemExit, match="REFUSED:.*START_PRINT"):
-        model_job._print_flashforge_stock(
+        launch_print_now._print_flashforge_stock(
             adapter, {}, gcode, {"filament_selection": {"slot": 1}},
             tmp_path / "JOB.json", 25, False)
     assert fake.uploads == [] and fake.started == []
@@ -369,17 +373,19 @@ def test_stock_verification_runs_the_recorded_job_checks_with_state(monkeypatch)
 
 def test_stock_g_code_verification_never_reaches_moonraker(monkeypatch, tmp_path):
     from print_handy import printers
-    from print_handy.core import model_job, printer_state
+    from print_handy.core import printer_state
+    from print_handy.gcode import verify as gcode_verify
+    from print_handy.jobs import common as jobs_common
     gcode = tmp_path / "plate.gcode"
     gcode.write_text("G1 X1\n")
     monkeypatch.setattr(printers, "current", _stock_adapter)
     monkeypatch.setattr(printer_state, "load", lambda *a, **kw: {"temps_c": {}})
     monkeypatch.setattr(printer_state, "check", lambda st, *a, **kw: (True, [], {}))
-    monkeypatch.setattr(model_job, "_mr", lambda *a, **kw: pytest.fail("Moonraker was queried"))
-    monkeypatch.setattr(model_job, "_verify_offline",
+    setattr_bound(monkeypatch, jobs_common, "_mr", lambda *a, **kw: pytest.fail("Moonraker was queried"))
+    monkeypatch.setattr(gcode_verify, "_verify_offline",
                         lambda path, state, adapter=None: {"offline": True, "connection": "flashforge_stock"})
-    assert model_job.verify_gcode(gcode)["connection"] == "flashforge_stock"
-    assert model_job.verify_gcode_offline(gcode, {"temps_c": {}})["connection"] == "flashforge_stock"
+    assert gcode_verify.verify_gcode(gcode)["connection"] == "flashforge_stock"
+    assert gcode_verify.verify_gcode_offline(gcode, {"temps_c": {}})["connection"] == "flashforge_stock"
 
 
 def test_the_printer_check_reads_stock_detail_not_moonraker(monkeypatch):

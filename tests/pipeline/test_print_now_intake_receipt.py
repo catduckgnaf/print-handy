@@ -13,7 +13,13 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy.core import model_job
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import print_next
+from tests.bound_names import patch_bound
 
 IID = "a" * 64
 
@@ -28,14 +34,14 @@ def mock_upload_run(cmd, *args, **kwargs):
 
 class PrintNowIntakeReceiptTests(unittest.TestCase):
     def setUp(self):
-        p = mock.patch.object(model_job, "live_snapshot",
+        p = mock.patch.object(launch_print_now, "live_snapshot",
                               return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"})
         p.start(); self.addCleanup(p.stop)
-        for p in (mock.patch.object(model_job, "mesh_readiness", return_value={
+        for p in (patch_bound(launch_gates, "mesh_readiness", return_value={
                       "profile": "auto", "saved_at": None, "print_leveling": 0, "problem": None,
                       "stale": None, "z_offset_mm": -0.005, "offset_source": "saved gcode offset"}),
-                  mock.patch.object(model_job, "screen_z_offset", return_value=0.025),
-                  mock.patch.object(model_job, "_zmod_version", return_value=None),
+                  patch_bound(launch_gates, "screen_z_offset", return_value=0.025),
+                  mock.patch.object(launch_print_now, "_zmod_version", return_value=None),
                   mock.patch.object(model_job, "_fetch_remote_gcode_sha256",
                                     side_effect=lambda url, name: name.rsplit(".", 1)[0].split("_", 1)[1]
                                     if "_" in name else "")):
@@ -48,7 +54,7 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
         g.write_text("START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60 Z_OFFSET=-0.2\n")
         jp = folder / "JOB.json"
         jp.write_text(json.dumps({"title": "X", "gcode": str(g), "intake_id": IID}))
-        sha = model_job.file_sha256(g)
+        sha = gcode_artifact.file_sha256(g)
         receipts = Path(d) / "model-link-intakes"; receipts.mkdir()
         receipt = {"intake_id": IID, "url": "https://example.invalid/x", "status": "SLICED_NOT_STARTED",
                    "sliced": True, "uploaded": False, "started": False,
@@ -60,17 +66,17 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
         return jp, g, sha, receipt_path
 
     def _patches(self, d):
-        return [mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"),
-                mock.patch.object(model_job, "INTAKE_RECEIPTS", Path(d) / "model-link-intakes"),
+        return [mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"),
+                mock.patch.object(launch_print_now, "INTAKE_RECEIPTS", Path(d) / "model-link-intakes"),
                 mock.patch.object(print_next, "CLAIMS_DIR", Path(d) / "print-next-claims"),
                 mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}),
-                mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")),
-                mock.patch.object(model_job, "verify_gcode"),
-                mock.patch.object(model_job, "_verify_filament_readiness"),
-                mock.patch.object(model_job, "_mr"),
-                mock.patch.object(model_job, "_wait_printing", return_value="printing"),
-                mock.patch.object(model_job, "record_start", return_value="/vault/x.md"),
-                mock.patch.object(model_job, "_assign_print_number", return_value=83),
+                patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")),
+                patch_bound(gcode_verify, "verify_gcode"),
+                patch_bound(launch_gates, "_verify_filament_readiness"),
+                patch_bound(jobs_common, "_mr"),
+                mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"),
+                patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"),
+                mock.patch.object(launch_print_now, "_assign_print_number", return_value=83),
                 mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run)]
 
     def test_print_now_on_sliced_not_started_intake_updates_receipt(self):
@@ -79,7 +85,7 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
             ps = self._patches(d)
             for p in ps: p.start()
             try:
-                out = model_job.print_now(jp)
+                out = launch_print_now.print_now(jp)
             finally:
                 for p in ps: p.stop()
             self.assertTrue(out["started"])
@@ -97,7 +103,7 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
             ps = self._patches(d)
             for p in ps: p.start()
             try:
-                model_job.print_now(jp)
+                launch_print_now.print_now(jp)
             finally:
                 for p in ps: p.stop()
             # The chat start path (print_next.start) must now refuse the same
@@ -123,7 +129,7 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
             for p in ps: p.start()
             try:
                 with self.assertLogs("print_handy.core.model_job", level="WARNING") as logs:
-                    out = model_job.print_now(jp)
+                    out = launch_print_now.print_now(jp)
             finally:
                 for p in ps: p.stop()
             self.assertTrue(out["started"])  # the print itself still started
@@ -138,7 +144,7 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
             ps = self._patches(d)
             for p in ps: p.start()
             try:
-                out = model_job.print_now(jp)
+                out = launch_print_now.print_now(jp)
             finally:
                 for p in ps: p.stop()
             self.assertTrue(out["started"])

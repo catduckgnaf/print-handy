@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import model_job
+from print_handy.gcode import artifact as gcode_artifact
 from print_handy.core.background_slice import BackgroundSlice, slice_binding
 
 
@@ -113,11 +113,11 @@ def test_changed_decision_digest_and_source_hash_never_match_prior_slice(tmp_pat
     first = _job()
     source = tmp_path / 'source.3mf'
     source.write_bytes(b'original source')
-    original = slice_binding(first, model_job.file_sha256(source))
+    original = slice_binding(first, gcode_artifact.file_sha256(source))
     changed_colors = {**first, 'color_decisions': {'mode': 'single_color', 'selection': {'slot': 2}}}
-    assert slice_binding(changed_colors, model_job.file_sha256(source)) != original
+    assert slice_binding(changed_colors, gcode_artifact.file_sha256(source)) != original
     source.write_bytes(b'changed source')
-    assert slice_binding(first, model_job.file_sha256(source)) != original
+    assert slice_binding(first, gcode_artifact.file_sha256(source)) != original
 
 
 def _slice_writes_metadata(path, work, marker):
@@ -185,7 +185,7 @@ def test_await_background_slice_reraises_cancellation(tmp_path):
     """P2-58: take() absorbs CancelledError while it waits out its slice
     task; the intake's wrapper must surface a cancellation again, or a Stop
     pressed during the background-slice wait is silently lost."""
-    from print_handy.core import prepared_intake
+    from print_handy.intake import worker as intake_worker
 
     async def run():
         folder = tmp_path / 'intake'
@@ -200,7 +200,7 @@ def test_await_background_slice_reraises_cancellation(tmp_path):
 
         await runner.start(job_path, 'binding', never)
         await runner.started.wait()
-        task = asyncio.ensure_future(prepared_intake._await_background_slice(runner, 'binding'))
+        task = asyncio.ensure_future(intake_worker._await_background_slice(runner, 'binding'))
         await asyncio.sleep(0.05)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

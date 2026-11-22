@@ -31,7 +31,10 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import gcode_3mf, model_job, printer_state
+from print_handy.gcode import bounds as gcode_bounds
+from print_handy.gcode import verify as gcode_verify
 from print_handy.printers.flashforge.zmod import multicolor_contract as contract
+from tests.bound_names import setattr_bound
 
 # ---------------------------------------------------------------- used_tools
 
@@ -86,7 +89,7 @@ def test_gcode_tools_matches_the_per_line_reference(text):
     # heater-declaration fallback multicolor_contract adds.
     expected = {int(m.group(1)) for line in text.splitlines()
                 if (m := _TOOL_LINE.fullmatch(line.strip()))}
-    assert model_job._gcode_tools(text) == expected
+    assert gcode_verify._gcode_tools(text) == expected
 
 
 def test_used_tools_on_a_dense_generated_file():
@@ -98,20 +101,20 @@ def test_used_tools_on_a_dense_generated_file():
     lines.append("T5 ; final tool, no trailing newline variant")
     text = "\n".join(lines)
     assert contract.used_tools(text) == _reference_used_tools(text) == {0, 1, 2, 3, 4, 5}
-    assert model_job._gcode_tools(text) == {0, 1, 2, 3, 4, 5}
+    assert gcode_verify._gcode_tools(text) == {0, 1, 2, 3, 4, 5}
 
 
 # ------------------------------------------------------------- motion bounds
 
 def test_motion_bounds_absolute_basics():
     text = "G90\nG1 X10 Y20 Z0.2\nG1 X-5 Y30\nG0 Z5\n"
-    assert model_job.gcode_motion_bounds(text) == {
+    assert gcode_bounds.gcode_motion_bounds(text) == {
         "x": (-5.0, 10.0), "y": (20.0, 30.0), "z": (0.2, 5.0)}
 
 
 def test_motion_bounds_comment_tokens_do_not_count():
     text = "G90\nG1 X10 Y10 Z0.2 ; X999 Y999 Z999\n; G1 X500 Y500 Z500\n"
-    assert model_job.gcode_motion_bounds(text) == {
+    assert gcode_bounds.gcode_motion_bounds(text) == {
         "x": (10.0, 10.0), "y": (10.0, 10.0), "z": (0.2, 0.2)}
 
 
@@ -119,54 +122,54 @@ def test_motion_bounds_glued_and_partial_number_tokens():
     # No space between axis words, and a number the original NUMBER pattern
     # reads as a prefix: both must keep the original reading.
     text = "G90\nG1 X10Y20 Z0.2\nG1 X1.2.3\n"
-    bounds = model_job.gcode_motion_bounds(text)
+    bounds = gcode_bounds.gcode_motion_bounds(text)
     assert bounds["x"] == (1.2, 10.0)
     assert bounds["y"] == (20.0, 20.0)
 
 
 def test_motion_bounds_relative_mode():
     text = "G90\nG1 X10 Y10 Z1\nG91\nG1 X5 Y-2 Z0.5\nG90\nG1 X0\n"
-    assert model_job.gcode_motion_bounds(text) == {
+    assert gcode_bounds.gcode_motion_bounds(text) == {
         "x": (0.0, 15.0), "y": (8.0, 10.0), "z": (1.0, 1.5)}
 
 
 def test_motion_bounds_relative_before_absolute_refused():
     with pytest.raises(RuntimeError, match=r"line 2: relative X motion before an absolute X position"):
-        model_job.gcode_motion_bounds("G91\nG1 X5 Y5 Z5\n")
+        gcode_bounds.gcode_motion_bounds("G91\nG1 X5 Y5 Z5\n")
 
 
 def test_motion_bounds_forbidden_and_arc_refusals_keep_line_numbers():
     with pytest.raises(RuntimeError, match=r"line 3: unsupported motion-affecting command G28"):
-        model_job.gcode_motion_bounds("G90\nG1 X1 Y1 Z1\nG28\n")
+        gcode_bounds.gcode_motion_bounds("G90\nG1 X1 Y1 Z1\nG28\n")
     with pytest.raises(RuntimeError, match=r"line 2: G92 changes XYZ coordinates"):
-        model_job.gcode_motion_bounds("G90\nG92 X10\nG1 X1 Y1 Z1\n")
+        gcode_bounds.gcode_motion_bounds("G90\nG92 X10\nG1 X1 Y1 Z1\n")
     with pytest.raises(RuntimeError, match=r"line 2: arc motion is unsupported"):
-        model_job.gcode_motion_bounds("G90\nG2 X10 Y10 I5 J5\n")
+        gcode_bounds.gcode_motion_bounds("G90\nG2 X10 Y10 I5 J5\n")
 
 
 def test_motion_bounds_g92_extruder_only_is_benign():
     text = "G90\nG92 E0\nG1 X10 Y10 Z0.2 E5\n"
-    assert model_job.gcode_motion_bounds(text)["x"] == (10.0, 10.0)
+    assert gcode_bounds.gcode_motion_bounds(text)["x"] == (10.0, 10.0)
 
 
 def test_motion_bounds_no_motion_and_missing_axis():
     with pytest.raises(RuntimeError, match="no bounded XYZ motion found"):
-        model_job.gcode_motion_bounds("G90\nM104 S210\n")
+        gcode_bounds.gcode_motion_bounds("G90\nM104 S210\n")
     with pytest.raises(RuntimeError, match="missing bounded motion for axis Z"):
-        model_job.gcode_motion_bounds("G90\nG1 X10 Y10 E5\n")
+        gcode_bounds.gcode_motion_bounds("G90\nG1 X10 Y10 E5\n")
 
 
 def test_motion_bounds_lowercase_and_crlf():
     text = "g90\r\ng1 x10 y20 z0.2\r\ng1 x30\r\n"
-    assert model_job.gcode_motion_bounds(text) == {
+    assert gcode_bounds.gcode_motion_bounds(text) == {
         "x": (10.0, 30.0), "y": (20.0, 20.0), "z": (0.2, 0.2)}
 
 
 def test_motion_bounds_empty_and_tiny():
     with pytest.raises(RuntimeError, match="no bounded XYZ motion found"):
-        model_job.gcode_motion_bounds("")
+        gcode_bounds.gcode_motion_bounds("")
     with pytest.raises(RuntimeError, match="missing bounded motion for axis"):
-        model_job.gcode_motion_bounds("G1 X1\n")
+        gcode_bounds.gcode_motion_bounds("G1 X1\n")
 
 
 # ------------------------------------------------------- verified-artifact skip
@@ -195,7 +198,7 @@ RIG_STATE = {'temps_c': {'nozzle': 210, 'bed': 60},
 def _verified_job(path, sha=None, state=RIG_STATE):
     digest = sha if sha is not None else hashlib.sha256(Path(path).read_bytes()).hexdigest()
     return {'gcode': str(path), 'gcode_verified': True,
-            'gcode_full_verified_sha256': model_job._full_verified_marker(digest, state),
+            'gcode_full_verified_sha256': gcode_verify._full_verified_marker(digest, state),
             'artifact_binding': {'gcode_sha256': digest}}
 
 
@@ -212,7 +215,7 @@ def skip_rig(tmp_path, monkeypatch):
 
 def test_routed_verify_skips_body_parse_for_a_verified_unchanged_artifact(skip_rig):
     path, adapter, state = skip_rig
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=_verified_job(path))
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=_verified_job(path))
     assert result == {'offline': True, 'connection': 'offline', 'skipped_reparse': True}
     assert adapter.calls == 0  # the G-code body was never re-parsed
 
@@ -221,7 +224,7 @@ def test_routed_verify_reparses_when_the_sha_no_longer_matches(skip_rig):
     path, adapter, state = skip_rig
     job = _verified_job(path)
     path.write_text(GCODE + 'G1 X20\n')  # artifact changed after verification
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
@@ -230,7 +233,7 @@ def test_routed_verify_reparses_without_the_verified_flag(skip_rig):
     path, adapter, state = skip_rig
     job = _verified_job(path)
     job['gcode_verified'] = False
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
@@ -239,7 +242,7 @@ def test_routed_verify_reparses_without_a_binding(skip_rig):
     path, adapter, state = skip_rig
     job = _verified_job(path)
     del job['artifact_binding']
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
@@ -248,10 +251,10 @@ def test_routed_verify_skip_supports_a_split_job_plate_hash(skip_rig):
     path, adapter, state = skip_rig
     sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     job = {'gcode': '/elsewhere/first.gcode', 'gcode_verified': True,
-           'gcode_full_verified_sha256': model_job._full_verified_marker(sha, state),
+           'gcode_full_verified_sha256': gcode_verify._full_verified_marker(sha, state),
            'derived_plates': [{'gcode': str(path), 'slot': 1}],
            'artifact_binding': {'gcode_sha256': {'1': sha}}}
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert result.get('skipped_reparse') is True
     assert adapter.calls == 0
 
@@ -264,13 +267,13 @@ def test_routed_verify_reparses_a_legacy_job_without_the_full_verify_marker(skip
     path, adapter, state = skip_rig
     job = _verified_job(path)
     del job['gcode_full_verified_sha256']
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
     # The full pass records the marker, so the next launch may skip.
-    assert job['gcode_full_verified_sha256'] == model_job._full_verified_marker(
+    assert job['gcode_full_verified_sha256'] == gcode_verify._full_verified_marker(
         hashlib.sha256(Path(path).read_bytes()).hexdigest(), state)
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert result.get('skipped_reparse') is True
     assert adapter.calls == 1
 
@@ -281,7 +284,7 @@ def test_routed_verify_reparses_a_bare_digest_marker(skip_rig):
     path, adapter, state = skip_rig
     job = _verified_job(path)
     job['gcode_full_verified_sha256'] = job['artifact_binding']['gcode_sha256']
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
@@ -298,7 +301,7 @@ def test_routed_verify_reparses_after_a_hardware_change(skip_rig, change):
     path, adapter, state = skip_rig
     job = _verified_job(path, state=state)
     change(state)
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
@@ -306,8 +309,8 @@ def test_routed_verify_reparses_after_a_hardware_change(skip_rig, change):
 def test_routed_verify_reparses_after_a_bounds_parser_upgrade(skip_rig, monkeypatch):
     path, adapter, state = skip_rig
     job = _verified_job(path, state=state)
-    monkeypatch.setattr(model_job, 'BOUNDS_PARSER_VERSION', model_job.BOUNDS_PARSER_VERSION + 1)
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    setattr_bound(monkeypatch, gcode_bounds, 'BOUNDS_PARSER_VERSION', gcode_bounds.BOUNDS_PARSER_VERSION + 1)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=job)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
@@ -320,13 +323,13 @@ def test_routed_verify_skip_still_runs_the_live_printer_check(skip_rig, monkeypa
     monkeypatch.setattr(model_job.printer_state, 'check',
                         lambda *a, **k: (False, ['live nozzle diameter changed'], {}))
     with pytest.raises(RuntimeError, match='the printer check did not pass'):
-        model_job._verify_routed(path, adapter, state, 'p1', job=_verified_job(path))
+        gcode_verify._verify_routed(path, adapter, state, 'p1', job=_verified_job(path))
     assert adapter.calls == 0
 
 
 def test_routed_verify_never_skips_without_a_job(skip_rig):
     path, adapter, state = skip_rig
-    result = model_job._verify_routed(path, adapter, state, 'p1', job=None)
+    result = gcode_verify._verify_routed(path, adapter, state, 'p1', job=None)
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
@@ -414,6 +417,6 @@ def test_large_file_scan_agrees_with_reference(tmp_path):
         fh.write("END_PRINT\n")
     text = path.read_text()
     assert contract.used_tools(text) == _reference_used_tools(text) == {0, 1}
-    bounds = model_job.gcode_motion_bounds(text)
+    bounds = gcode_bounds.gcode_motion_bounds(text)
     assert bounds["x"] == (0.5, 209.5)
     assert bounds["z"] == (0.2, 0.4)

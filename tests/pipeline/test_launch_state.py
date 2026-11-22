@@ -17,6 +17,13 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import launch_state, model_job
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers import flashforge
 from print_handy.printers.flashforge.zmod import screen as zmod_screen
 
@@ -76,21 +83,21 @@ def printer(tmp_path):
     phase = mock.Mock(return_value=("standby", "", "Ready"))
     run = mock.Mock(side_effect=upload_ok)
     mr = mock.Mock(return_value={"result": "ok"})
-    patches = [mock.patch.object(model_job, "START_CLAIMS", tmp_path / "claims.json"),
+    patches = [mock.patch.object(launch_print_now, "START_CLAIMS", tmp_path / "claims.json"),
                mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": PRINTER}),
-               mock.patch.object(model_job, "_printer_phase", phase),
-               mock.patch.object(model_job, "verify_gcode"),
-               mock.patch.object(model_job, "_verify_filament_readiness"),
-               mock.patch.object(model_job, "_mr", mr),
-               mock.patch.object(model_job, "_wait_printing", return_value="printing"),
-               mock.patch.object(model_job, "record_start", return_value="/vault/x.md"),
-               mock.patch.object(model_job, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"}),
-               mock.patch.object(model_job, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0,
+               patch_bound(launch_gates, "_printer_phase", phase),
+               patch_bound(gcode_verify, "verify_gcode"),
+               patch_bound(launch_gates, "_verify_filament_readiness"),
+               patch_bound(jobs_common, "_mr", mr),
+               mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"),
+               patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"),
+               mock.patch.object(launch_print_now, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"}),
+               patch_bound(launch_gates, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0,
                                                                               "problem": None, "stale": None, "z_offset_mm": 0.0,
                                                                               "offset_source": "saved gcode offset"}),
-               mock.patch.object(model_job, "screen_z_offset", return_value=0.0),
-               mock.patch.object(model_job, "_announce_print_name"),
-               mock.patch.object(model_job, "_publish_job_card"),
+               patch_bound(launch_gates, "screen_z_offset", return_value=0.0),
+               mock.patch.object(launch_print_now, "_announce_print_name"),
+               mock.patch.object(launch_print_now, "_publish_job_card"),
                mock.patch.object(model_job.subprocess, "run", run)]
     for p in patches:
         p.start()
@@ -113,9 +120,9 @@ def start_requests(mr):
 def test_stale_snapshots_cannot_consume_one_approval_twice(tmp_path):
     jp, g = make_job(tmp_path, "a")
     first, second = json.loads(jp.read_text()), json.loads(jp.read_text())
-    model_job._consume_approval(jp, first, g)
+    launch_gates._consume_approval(jp, first, g)
     with pytest.raises(SystemExit, match="already used"):
-        model_job._consume_approval(jp, second, g)
+        launch_gates._consume_approval(jp, second, g)
     assert len(json.loads(jp.read_text())["approvals"]) == 1
 
 
@@ -128,7 +135,7 @@ def test_simultaneous_callers_consume_one_approval_exactly_once(tmp_path):
     def caller(job):
         gate.wait()
         try:
-            model_job._consume_approval(jp, job, g)
+            launch_gates._consume_approval(jp, job, g)
             won.append(job)
         except SystemExit as exc:
             refused.append(str(exc))
@@ -145,16 +152,16 @@ def test_a_stale_job_write_cannot_resurrect_a_consumed_approval(tmp_path):
     """Another JOB.json writer (slice, remap) saving an older snapshot must not erase the consumption."""
     jp, g = make_job(tmp_path, "a")
     stale = json.loads(jp.read_text())
-    model_job._consume_approval(jp, json.loads(jp.read_text()), g)
-    model_job.write_job(jp.parent, stale)  # lost update: approvals list gone from JOB.json
+    launch_gates._consume_approval(jp, json.loads(jp.read_text()), g)
+    jobs_store.write_job(jp.parent, stale)  # lost update: approvals list gone from JOB.json
     with pytest.raises(SystemExit, match="already used"):
-        model_job._consume_approval(jp, json.loads(jp.read_text()), g)
+        launch_gates._consume_approval(jp, json.loads(jp.read_text()), g)
 
 
 def test_reprint_is_still_a_new_explicit_approval(tmp_path):
     jp, g = make_job(tmp_path, "a")
-    model_job._consume_approval(jp, json.loads(jp.read_text()), g)
-    model_job._consume_approval(jp, json.loads(jp.read_text()), g, reprint=True)
+    launch_gates._consume_approval(jp, json.loads(jp.read_text()), g)
+    launch_gates._consume_approval(jp, json.loads(jp.read_text()), g, reprint=True)
     assert [a["kind"] for a in json.loads(jp.read_text())["approvals"]] == ["bed_clear", "reprint"]
 
 
@@ -163,9 +170,9 @@ def test_consumption_still_runs_the_artifact_guard_on_current_state(tmp_path):
     stale = json.loads(jp.read_text())
     current = dict(stale, artifact_binding={"gcode_sha256": "0" * 64}, gcode_verified=True,
                    downloaded_file=str(g))
-    model_job.write_job(jp.parent, current)  # resliced/rebound since the caller read it
+    jobs_store.write_job(jp.parent, current)  # resliced/rebound since the caller read it
     with pytest.raises(RuntimeError, match="stale color artifact"):
-        model_job._consume_approval(jp, stale, g)
+        launch_gates._consume_approval(jp, stale, g)
     assert "approvals" not in json.loads(jp.read_text())
 
 
@@ -183,11 +190,11 @@ def test_second_job_is_refused_while_the_first_launch_is_in_flight(printer):
             # refusal may come from it instead of the launch lease; either in-flight
             # guard refusing is the property this test pins.
             with pytest.raises(SystemExit, match="REFUSED: another (launch .*in progress|printer control action .*is in flight)"):
-                model_job.print_now(b)  # B also saw an idle printer before A submitted
+                launch_print_now.print_now(b)  # B also saw an idle printer before A submitted
         return upload_ok(cmd, *args, **kwargs)
 
     printer.run.side_effect = upload_a_then_race_b
-    assert model_job.print_now(a)["started"] is True
+    assert launch_print_now.print_now(a)["started"] is True
     assert len(uploads(printer.run)) == 1 and len(start_requests(printer.mr)) == 1
     assert "approvals" not in json.loads(b.read_text())  # a refused lease consumes nothing
 
@@ -195,7 +202,7 @@ def test_second_job_is_refused_while_the_first_launch_is_in_flight(printer):
 def test_stale_idle_check_cannot_start_a_second_job_after_the_first_started(printer):
     a, _ = make_job(printer.root, "a")
     b, _ = make_job(printer.root, "b")
-    model_job.print_now(a)
+    launch_print_now.print_now(a)
     remote = uploads(printer.run)[0]
     calls = []
 
@@ -205,7 +212,7 @@ def test_stale_idle_check_cannot_start_a_second_job_after_the_first_started(prin
 
     printer.phase.side_effect = idle_once_then_busy  # B's early check predates A's start
     with pytest.raises(SystemExit, match="REFUSED: printer is busy"):
-        model_job.print_now(b)
+        launch_print_now.print_now(b)
     assert len(uploads(printer.run)) == 1 and len(start_requests(printer.mr)) == 1
     assert "approvals" not in json.loads(b.read_text())
 
@@ -221,7 +228,7 @@ def test_unreachable_moonraker_at_the_start_guard_is_a_named_refusal(printer, tr
     jp, g = make_job(printer.root, "a")
     printer.phase.side_effect = transport_error  # _printer_phase's Moonraker read fails in transport
     with pytest.raises(SystemExit) as excinfo:
-        model_job.print_now(jp)
+        launch_print_now.print_now(jp)
     assert str(excinfo.value) == ("REFUSED: printer is offline/unreachable. "
                                   "Nothing uploaded or started.")
     assert printer.run.call_count == 0  # no upload or any other subprocess ran
@@ -234,7 +241,7 @@ def test_a_state_read_error_at_the_start_guard_is_not_relabelled_offline(printer
     jp, g = make_job(printer.root, "a")
     printer.phase.side_effect = RuntimeError("Moonraker print state unknown: 'weird'")
     with pytest.raises(RuntimeError, match="print state unknown"):
-        model_job.print_now(jp)
+        launch_print_now.print_now(jp)
     assert printer.run.call_count == 0
 
 
@@ -255,14 +262,14 @@ def test_crash_after_submission_leaves_the_printer_uncertain(printer):
     b, _ = make_job(printer.root, "b")
     crash_on_start(printer.mr)
     with pytest.raises(Crash):
-        model_job.print_now(a)
+        launch_print_now.print_now(a)
     simulate_restart()
     rows = leases()
     assert len(rows) == 1 and rows[0]["phase"] in ("submitting", "uncertain")
     printer.mr.side_effect = None
     for target, kw in ((a, {"reprint": True}), (b, {})):
         with pytest.raises(SystemExit, match="REFUSED: .*uncertain"):
-            model_job.print_now(target, **kw)
+            launch_print_now.print_now(target, **kw)
     assert len(uploads(printer.run)) == 1  # nothing replayed
     assert "approvals" not in json.loads(b.read_text())
 
@@ -272,14 +279,14 @@ def test_uncertain_submission_reconciles_from_printer_evidence_not_replay(printe
     b, _ = make_job(printer.root, "b")
     crash_on_start(printer.mr)
     with pytest.raises(Crash):
-        model_job.print_now(a)
+        launch_print_now.print_now(a)
     simulate_restart()
     remote = uploads(printer.run)[0]
     printer.mr.side_effect = None
     printer.phase.return_value = ("complete", remote, "Ready")  # the printer did run A's exact file
     with pytest.raises(SystemExit, match="already used"):
-        model_job.print_now(a)  # reconciled as submitted; the approval stays consumed
-    assert model_job.print_now(b)["started"] is True
+        launch_print_now.print_now(a)  # reconciled as submitted; the approval stays consumed
+    assert launch_print_now.print_now(b)["started"] is True
     assert leases() == []
     assert len(uploads(printer.run)) == 2  # A once, then B; A was never resubmitted
 
@@ -289,16 +296,16 @@ def test_operator_reconciles_an_uncertain_submission_without_replaying_it(printe
     a, _ = make_job(printer.root, "a")
     crash_on_start(printer.mr)
     with pytest.raises(Crash):
-        model_job.print_now(a)
+        launch_print_now.print_now(a)
     simulate_restart()
     printer.mr.side_effect = None
     # Since #334 the lease row is keyed by the roster printer id, the same key
     # the reconcile-launch CLI resolves with, not by the Moonraker URL.
-    assert launch_state.resolve(model_job._printer_key(), "not_started")["phase"] in ("submitting", "uncertain")
+    assert launch_state.resolve(jobs_store._printer_key(), "not_started")["phase"] in ("submitting", "uncertain")
     assert leases() == []
     with pytest.raises(SystemExit, match="already used"):
-        model_job.print_now(a)  # a new start needs a new explicit approval
-    assert model_job.print_now(a, reprint=True)["started"] is True
+        launch_print_now.print_now(a)  # a new start needs a new explicit approval
+    assert launch_print_now.print_now(a, reprint=True)["started"] is True
 
 
 def test_crash_during_upload_is_released_after_restart_and_the_approval_stays_unused(printer):
@@ -311,11 +318,11 @@ def test_crash_during_upload_is_released_after_restart_and_the_approval_stays_un
         raise Crash("process died while uploading")
     printer.run.side_effect = crash_during_upload
     with pytest.raises(Crash):
-        model_job.print_now(a)
+        launch_print_now.print_now(a)
     printer.run.side_effect = upload_ok
     simulate_restart()
     assert "approvals" not in json.loads(a.read_text())
-    assert model_job.print_now(a)["started"] is True
+    assert launch_print_now.print_now(a)["started"] is True
     assert leases() == []
 
 
@@ -323,7 +330,7 @@ def test_upload_failure_releases_the_lease(printer):
     a, _ = make_job(printer.root, "a")
     printer.run.side_effect = lambda cmd, *a_, **k: mock.Mock(returncode=1, stdout="", stderr="boom")
     with pytest.raises(SystemExit, match="could not be uploaded to the printer"):
-        model_job.print_now(a)
+        launch_print_now.print_now(a)
     assert leases() == []
 
 
@@ -367,9 +374,9 @@ def octoprint(tmp_path):
     st = {"temps_c": {"bed": 60, "nozzle": 210}, "nozzle": {"type": "hardened_steel"}}
     with mock.patch.object(model_job.printers, "current", return_value=fake), \
          mock.patch.object(model_job.printer_state, "load", return_value=st), \
-         mock.patch.object(model_job, "_with_gcode_temperatures", side_effect=lambda state, text, recorded=None: state), \
-         mock.patch.object(model_job, "verify_gcode"), \
-         mock.patch.object(model_job, "record_start", return_value="/vault/x.md"):
+         patch_bound(gcode_verify, "_with_gcode_temperatures", side_effect=lambda state, text, recorded=None: state), \
+         patch_bound(gcode_verify, "verify_gcode"), \
+         patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"):
         fake.root = tmp_path
         yield fake
 
@@ -384,20 +391,21 @@ def test_octoprint_unconfirmed_start_is_uncertain_until_the_printer_reports_it(o
     a, b = octo_job(octoprint.root, "a"), octo_job(octoprint.root, "b")
     idle = {"state": "standby", "filename": ""}
     octoprint.statuses = [idle, idle, idle]  # pre-check, in-lease check, readback: never confirmed
-    assert model_job.print_now(a)["outcome"] == "unconfirmed"
+    assert launch_print_now.print_now(a)["outcome"] == "unconfirmed"
     assert [r["phase"] for r in leases()] == ["uncertain"]
     octoprint.statuses = [idle]
     with pytest.raises(SystemExit, match="uncertain"):
-        model_job.print_now(b)
+        launch_print_now.print_now(b)
     done = {"state": "standby", "filename": octoprint.uploads[0]}  # OctoPrint shows A's file: it ran
     octoprint.statuses = [done, done, lambda: {"state": "printing", "filename": octoprint.uploads[-1]}]
-    assert model_job.print_now(b)["outcome"] == "printing"
+    assert launch_print_now.print_now(b)["outcome"] == "printing"
     assert len(octoprint.uploads) == 2 and leases() == []
 
 
 # Native mapped route (SET_ZCOLOR): the idle guard runs again inside the lease.
 
 from print_handy.printers.flashforge.zmod import native_idle  # noqa: E402
+from tests.bound_names import patch_bound
 
 mapped_presence = [True]  # zmod_color hasFilament for slot 1 in the mapped fixture
 mapped_label = ["PLA"]  # zmod_color Material for slot 1 in the mapped fixture
@@ -437,18 +445,18 @@ def mapped(tmp_path):
 
     st = {"moonraker_url": PRINTER, "filament_slots": {"1": {"material": "PLA", "hex": "#000000"}}}
     with mock.patch.object(model_job.printers, "current", return_value=adapter), \
-         mock.patch.object(model_job, "START_CLAIMS", tmp_path / "claims.json"), \
-         mock.patch.object(model_job, "validate_saved_mesh_start"), \
-         mock.patch.object(model_job, "_mr", side_effect=fake_mr), \
-         mock.patch.object(model_job, "read_stock_detail", return_value={}), \
-         mock.patch.object(model_job, "read_stock_filament_slots_from_detail", return_value={1: True}), \
-         mock.patch.object(model_job, "_sync_active_spool"), \
-         mock.patch.object(model_job, "_announce_print_name"), \
-         mock.patch.object(model_job, "_publish_job_card"), \
-         mock.patch.object(model_job, "_assign_print_number", return_value=None), \
-         mock.patch.object(model_job, "record_start", return_value="/vault/x.md"), \
-         mock.patch.object(model_job, "_wait_printing", return_value="standby"), \
-         mock.patch.object(model_job, "_preparation_evidence", return_value=False), \
+         mock.patch.object(launch_print_now, "START_CLAIMS", tmp_path / "claims.json"), \
+         patch_bound(launch_gates, "validate_saved_mesh_start"), \
+         patch_bound(jobs_common, "_mr", side_effect=fake_mr), \
+         patch_bound(jobs_filament, "read_stock_detail", return_value={}), \
+         patch_bound(jobs_filament, "read_stock_filament_slots_from_detail", return_value={1: True}), \
+         patch_bound(launch_print_now, "_sync_active_spool"), \
+         mock.patch.object(launch_print_now, "_announce_print_name"), \
+         mock.patch.object(launch_print_now, "_publish_job_card"), \
+         mock.patch.object(launch_print_now, "_assign_print_number", return_value=None), \
+         patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"), \
+         mock.patch.object(launch_print_now, "_wait_printing", return_value="standby"), \
+         mock.patch.object(launch_print_now, "_preparation_evidence", return_value=False), \
          mock.patch.object(model_job.subprocess, "run", side_effect=upload_ok) as run:
         yield mock.Mock(native=native, scripts=scripts, run=run, st=st, root=tmp_path)
 
@@ -456,14 +464,14 @@ def mapped(tmp_path):
 def launch_mapped(m, name):
     jp, g = make_job(m.root, name)
     job = json.loads(jp.read_text())
-    return jp, lambda: model_job.print_mapped_native(g, m.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    return jp, lambda: launch_print_now.print_mapped_native(g, m.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
 
 
 @pytest.mark.parametrize("foreign", [False, True])
 def test_mapped_launch_reconciles_lost_post_response_by_exact_file(mapped, monkeypatch, foreign):
     jp, g = make_job(mapped.root, "timeout-start")
     job = json.loads(jp.read_text())
-    original = model_job._mr.side_effect  # the mapped fixture owns the patch
+    original = jobs_common._mr.side_effect  # the mapped fixture owns the patch
     post_count = 0
 
     def lose_post(st, path, data=None, timeout=30):
@@ -488,8 +496,8 @@ def test_mapped_launch_reconciles_lost_post_response_by_exact_file(mapped, monke
                 "virtual_sdcard": {"is_active": True}, "webhooks": {"state": "ready"}}}}
         return original(st, path, data=data, timeout=timeout)
 
-    model_job._mr.side_effect = lose_post
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    jobs_common._mr.side_effect = lose_post
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["phase"] == ("preparing_or_unresolved" if foreign else "executing")
     assert post_count == 1 and len(mapped.scripts) == 1
     assert len(uploads(mapped.run)) == 1
@@ -497,7 +505,7 @@ def test_mapped_launch_reconciles_lost_post_response_by_exact_file(mapped, monke
         assert any(row['phase'] == 'uncertain' for row in leases())
     if foreign:
         with pytest.raises((RuntimeError, SystemExit)):
-            model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+            launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
         assert post_count == 1
 
 
@@ -522,9 +530,9 @@ def test_mapped_launch_screenless_starts_from_klipper_state_alone(mapped):
     starts with exactly one SET_ZCOLOR, as ZMod's own print-file macro does."""
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    with mock.patch.object(model_job, "read_stock_detail",
+    with patch_bound(jobs_filament, "read_stock_detail",
                            side_effect=AssertionError("stock /detail read in screenless mode")):
-        out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+        out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert len(uploads(mapped.run)) == 1
     assert len(mapped.scripts) == 1 and mapped.scripts[0].startswith("SET_ZCOLOR FILENAME=")
     assert out["submission_count"] == 1
@@ -536,9 +544,9 @@ def test_mapped_launch_screenless_refuses_an_empty_slot_before_upload(mapped):
     mapped_presence[0] = False
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    with mock.patch.object(model_job, "read_stock_detail", side_effect=AssertionError("stock read")), \
+    with patch_bound(jobs_filament, "read_stock_detail", side_effect=AssertionError("stock read")), \
             pytest.raises(RuntimeError, match="occupancy is unknown or unconfirmed"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert uploads(mapped.run) == [] and mapped.scripts == [] and leases() == []
 
 
@@ -546,7 +554,7 @@ def test_mapped_launch_refuses_an_unknown_screen_mode(mapped):
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
     with pytest.raises(SystemExit, match="REFUSED: ZMod reports an unknown screen mode.*Nothing uploaded"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": None}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": None}, {"0": 1}, job, jp, 0, False)
     assert uploads(mapped.run) == [] and mapped.scripts == [] and leases() == []
 
 
@@ -576,7 +584,7 @@ def test_screenless_set_zcolor_timeout_during_warmup_is_not_a_refusal(mapped, mo
     start was refused while the AD5X began printing 2.5 minutes later."""
     jp, g = make_job(mapped.root, "warmup-timeout")
     job = json.loads(jp.read_text())
-    original = model_job._mr.side_effect  # the mapped fixture owns the patch
+    original = jobs_common._mr.side_effect  # the mapped fixture owns the patch
 
     def held_open(st, path, data=None, timeout=30):
         if path.startswith("/printer/gcode/script"):
@@ -590,13 +598,13 @@ def test_screenless_set_zcolor_timeout_during_warmup_is_not_a_refusal(mapped, mo
                 "extruder": {"target": 0}, "heater_bed": {"target": 0}}}}
         return original(st, path, data=data, timeout=timeout)
 
-    model_job._mr.side_effect = held_open
+    jobs_common._mr.side_effect = held_open
     # #836: the mapped path re-reads heater evidence immediately before the POST; that read must
     # see the heaters as they were before the POST went out (off), not the warmup that follows it.
-    model_job._preparation_evidence.side_effect = lambda st: bool(mapped.scripts) and heating
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    launch_print_now._preparation_evidence.side_effect = lambda st: bool(mapped.scripts) and heating
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert len(mapped.scripts) == 1  # never resubmitted
-    claims = model_job._read_claims()
+    claims = launch_print_now._read_claims()
     if heating:
         assert out["phase"] == "preparing" and out["accepted"] is True and out["started"] is True
         assert claims  # the intake announces this start; the listener must not post a second card
@@ -613,7 +621,7 @@ def test_mapped_unresolved_start_is_uncertain_and_blocks_the_next_job(mapped):
     assert [r["phase"] for r in leases()] == ["uncertain"]
     # 2026-10-30: the intake did not announce this start, so the listener must
     # still be free to post "Print started" once the printer reaches it.
-    assert model_job._read_claims() == {}
+    assert launch_print_now._read_claims() == {}
     _, launch_b = launch_mapped(mapped, "b")
     with pytest.raises(SystemExit, match="uncertain"):
         launch_b()
@@ -626,15 +634,15 @@ def test_mapped_launch_uploads_3mf_package_when_zmod_is_current(mapped, monkeypa
     adapter = model_job.printers.current()
     adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
     adapter.model.vendor_key = "flashforge"
-    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 5))
+    monkeypatch.setattr(launch_print_now, "_zmod_version", lambda st: (1, 7, 5))
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
     cmds = [c.args[0] for c in mapped.run.call_args_list if len(c.args[0]) >= 4 and c.args[0][1] == "upload"]
     assert len(cmds) == 1
     cmd = cmds[0]
     assert cmd[2].endswith(".gcode.3mf") and cmd[3].endswith(".gcode.3mf")
-    assert cmd[4] == model_job.file_sha256(Path(cmd[2]))
+    assert cmd[4] == gcode_artifact.file_sha256(Path(cmd[2]))
     assert mapped.scripts and mapped.scripts[0].startswith("SET_ZCOLOR FILENAME=" + cmd[3])
     assert out["delivery_format"]["format"] == "3mf"
     # The note lands on the job dict, which write_job persists (best effort in this
@@ -651,16 +659,16 @@ def test_mapped_3mf_launch_checkpoint_records_both_hashes(mapped, monkeypatch):
     adapter = model_job.printers.current()
     adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
     adapter.model.vendor_key = "flashforge"
-    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 5))
+    monkeypatch.setattr(launch_print_now, "_zmod_version", lambda st: (1, 7, 5))
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
     checkpoint = json.loads(g.with_suffix(".launch.json").read_text())
     upload = next(c.args[0] for c in mapped.run.call_args_list
                   if len(c.args[0]) >= 4 and c.args[0][1] == "upload")
     assert checkpoint["file"] == upload[3] and checkpoint["file"].endswith(".gcode.3mf")
-    assert checkpoint["gcode_sha256"] == model_job.file_sha256(g)
-    assert checkpoint["upload_sha256"] == model_job.file_sha256(Path(upload[2]))
+    assert checkpoint["gcode_sha256"] == gcode_artifact.file_sha256(g)
+    assert checkpoint["upload_sha256"] == gcode_artifact.file_sha256(Path(upload[2]))
     assert checkpoint["upload_sha256"] != checkpoint["gcode_sha256"]
     assert checkpoint["delivery_format"]["format"] == "3mf"
     assert checkpoint["sha256"] == checkpoint["gcode_sha256"]  # the legacy key still reads as before
@@ -672,14 +680,14 @@ def test_stale_gcode_checkpoint_does_not_block_3mf_resubmission(mapped, monkeypa
     adapter = model_job.printers.current()
     adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
     adapter.model.vendor_key = "flashforge"
-    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 5))
+    monkeypatch.setattr(launch_print_now, "_zmod_version", lambda st: (1, 7, 5))
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    sha = model_job.file_sha256(g)
-    gcode_remote = model_job.remote_name(g, sha, job)
+    sha = gcode_artifact.file_sha256(g)
+    gcode_remote = jobs_store.remote_name(g, sha, job)
     g.with_suffix(".launch.json").write_text(json.dumps(
         {"phase": "submission_pending", "file": gcode_remote, "sha256": sha}))
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
     assert out["delivery_format"]["format"] == "3mf"
     checkpoint = json.loads(g.with_suffix(".launch.json").read_text())
     assert checkpoint["file"].endswith(".gcode.3mf")
@@ -690,7 +698,7 @@ def test_mapped_launch_stays_on_plain_gcode_when_version_is_unknown(mapped, monk
     adapter = model_job.printers.current()
     adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
     adapter.model.vendor_key = "flashforge"
-    monkeypatch.setattr(model_job, "_zmod_version", lambda st: None)
+    monkeypatch.setattr(launch_print_now, "_zmod_version", lambda st: None)
     _, launch = launch_mapped(mapped, "a")
     out = launch()
     cmds = [c.args[0] for c in mapped.run.call_args_list if len(c.args[0]) >= 4 and c.args[0][1] == "upload"]
@@ -724,7 +732,7 @@ def test_mapped_launch_accepts_the_screen_label_print_handy_writes(mapped, label
     mapped.st["filament_slots"]["1"]["material"] = material
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["submission_count"] == 1 and len(uploads(mapped.run)) == 1
 
 
@@ -736,7 +744,7 @@ def test_mapped_launch_refuses_a_slot_label_that_disagrees_before_upload(mapped,
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
     with pytest.raises(SystemExit, match=r"REFUSED: printer slot 1 is labeled .* but Spoolman has .*Nothing uploaded"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert uploads(mapped.run) == [] and mapped.scripts == [] and leases() == []
 
 
@@ -750,11 +758,11 @@ def test_mapped_launch_prints_anyway_on_an_accepted_label_difference(mapped, cap
     job = json.loads(jp.read_text())
     job["label_mismatch_accepted"] = {
         "gcode_sha256": "0" * 64,  # some other G-code: must not waive this launch
-        "slots": [model_job.label_mismatch_key(1, "PETG", "PLA")]}
+        "slots": [launch_print_now.label_mismatch_key(1, "PETG", "PLA")]}
     with pytest.raises(SystemExit, match=r"REFUSED: printer slot 1 is labeled PETG"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
-    job["label_mismatch_accepted"]["gcode_sha256"] = model_job.file_sha256(g)
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    job["label_mismatch_accepted"]["gcode_sha256"] = gcode_artifact.file_sha256(g)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["submission_count"] == 1 and len(uploads(mapped.run)) == 1
     assert "the operator chose Print anyway" in capsys.readouterr().out
 
@@ -769,7 +777,7 @@ def test_mapped_launch_names_a_label_and_a_color_difference_in_one_refusal(mappe
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
     with pytest.raises(SystemExit) as caught:
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     text = str(caught.value)
     assert "is labeled PETG but Spoolman has PLA there (T0)" in text
     assert "color is #E53935 but Spoolman has #000000 there (T0)" in text
@@ -862,11 +870,11 @@ def hold_uncertain(key, remote):
 def test_mapped_launch_settles_a_finished_uncertain_start_from_history(mapped):
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    hold_uncertain(model_job._printer_key(mapped.st, job), HELD)
+    hold_uncertain(jobs_store._printer_key(mapped.st, job), HELD)
     import time
     mapped_history.append({"filename": "3mf_print/Bag-Clip_plate_1_bf4e.gcode", "start_time": time.time(),
                            "status": "completed"})
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["submission_count"] == 1 and len(uploads(mapped.run)) == 1
     assert all(row["job_json"] != "/archive/earlier/JOB.json" for row in leases())  # the held start is settled
 
@@ -874,12 +882,12 @@ def test_mapped_launch_settles_a_finished_uncertain_start_from_history(mapped):
 def test_mapped_launch_stays_refused_when_history_does_not_show_the_held_file(mapped):
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    hold_uncertain(model_job._printer_key(mapped.st, job), HELD)
+    hold_uncertain(jobs_store._printer_key(mapped.st, job), HELD)
     import time
     mapped_history.append({"filename": "3mf_print/Bag-Clip_plate_1_bf4e.gcode", "start_time": time.time() - 3600,
                            "status": "completed"})
     with pytest.raises(SystemExit, match="REFUSED: an earlier start on this printer is uncertain"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert uploads(mapped.run) == [] and mapped.scripts == []
     assert [row["phase"] for row in leases()] == ["uncertain"]
 
@@ -892,7 +900,7 @@ def launch_mapped_screenless(m, record, printer_hex):
     mapped_hex[0] = printer_hex
     jp, g = make_job(m.root, "color")
     job = json.loads(jp.read_text())
-    return lambda: model_job.print_mapped_native(g, m.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    return lambda: launch_print_now.print_mapped_native(g, m.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
 
 
 @pytest.mark.parametrize("record_hex, printer_hex", [
@@ -1039,13 +1047,13 @@ def _accepting_job(m, accepted_sha):
     job = json.loads(jp.read_text())
     job["color_mismatch_accepted"] = {
         "gcode_sha256": accepted_sha(g),
-        "slots": [model_job.color_mismatch_key(1, "#E53935", "#CD7F32")]}
+        "slots": [launch_print_now.color_mismatch_key(1, "#E53935", "#CD7F32")]}
     return jp, g, job
 
 
 def test_print_anyway_lets_this_exact_gcode_start_with_a_warning(mapped, capsys):
-    jp, g, job = _accepting_job(mapped, model_job.file_sha256)
-    model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    jp, g, job = _accepting_job(mapped, gcode_artifact.file_sha256)
+    launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert len(uploads(mapped.run)) == 1
     assert "operator chose Print anyway" in capsys.readouterr().out
 
@@ -1053,7 +1061,7 @@ def test_print_anyway_lets_this_exact_gcode_start_with_a_warning(mapped, capsys)
 def test_print_anyway_never_carries_over_to_a_different_gcode(mapped):
     jp, g, job = _accepting_job(mapped, lambda g: "0" * 64)
     with pytest.raises(SystemExit, match=r"REFUSED: printer slot 1 color is #E53935 but Spoolman has #CD7F32"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert uploads(mapped.run) == []
 
 
@@ -1063,7 +1071,7 @@ def _two_mismatched_slots(m):
     m.st["filament_slots"]["1"] = {"material": "PLA", "hex": "CD7F32", "hex_source": "spoolman"}
     m.st["filament_slots"]["2"] = {"material": "PLA", "hex": "43A047", "hex_source": "spoolman"}
     mapped_hex[0] = "E53935"
-    one_slot = model_job._mr.side_effect
+    one_slot = jobs_common._mr.side_effect
 
     def two_slots(st, path, data=None, timeout=30):
         out = one_slot(st, path, data, timeout)
@@ -1072,13 +1080,13 @@ def _two_mismatched_slots(m):
             status["zmod_color"]["slots"].append({"ID": 2, "Material": "PLA", "HEX": "1E88E5", "hasFilament": True})
         return out
 
-    model_job._mr.side_effect = two_slots
+    jobs_common._mr.side_effect = two_slots
     jp, g = make_job(m.root, "two-colors")
     return jp, g, json.loads(jp.read_text())
 
 
 def _run_two_slots(m, jp, g, job):
-    model_job.print_mapped_native(g, m.st, {"display_off": 1}, {"0": 1, "1": 2}, job, jp, 0, False)
+    launch_print_now.print_mapped_native(g, m.st, {"display_off": 1}, {"0": 1, "1": 2}, job, jp, 0, False)
 
 
 def test_every_mismatched_slot_is_named_in_one_refusal_before_upload(mapped):
@@ -1093,14 +1101,14 @@ def test_every_mismatched_slot_is_named_in_one_refusal_before_upload(mapped):
 
 def test_print_anyway_for_both_slots_uploads_once_and_one_slot_alone_does_not(mapped):
     jp, g, job = _two_mismatched_slots(mapped)
-    keys = [model_job.color_mismatch_key(1, "#E53935", "#CD7F32"),
-            model_job.color_mismatch_key(2, "#1E88E5", "#43A047")]
-    job["color_mismatch_accepted"] = {"gcode_sha256": model_job.file_sha256(g), "slots": keys[:1]}
+    keys = [launch_print_now.color_mismatch_key(1, "#E53935", "#CD7F32"),
+            launch_print_now.color_mismatch_key(2, "#1E88E5", "#43A047")]
+    job["color_mismatch_accepted"] = {"gcode_sha256": gcode_artifact.file_sha256(g), "slots": keys[:1]}
     with pytest.raises(SystemExit, match=r"printer slot 2 color is #1E88E5"):
         _run_two_slots(mapped, jp, g, job)
     assert uploads(mapped.run) == []
     job["color_mismatch_accepted"]["slots"] = keys
-    with mock.patch.object(model_job, "_clear_active_spool", return_value={}):
+    with mock.patch.object(launch_print_now, "_clear_active_spool", return_value={}):
         _run_two_slots(mapped, jp, g, job)
     assert len(uploads(mapped.run)) == 1
 
@@ -1109,10 +1117,10 @@ def _launch_two_slots(mapped, authority):
     from print_handy.launch import print_now as print_now_module
     jp, g, job = _two_mismatched_slots(mapped)
     job["color_mismatch_accepted"] = {
-        "gcode_sha256": model_job.file_sha256(g),
-        "slots": [model_job.color_mismatch_key(1, "#E53935", "#CD7F32"),
-                  model_job.color_mismatch_key(2, "#1E88E5", "#43A047")]}
-    with mock.patch.object(model_job, "_clear_active_spool", return_value={}) as clear, \
+        "gcode_sha256": gcode_artifact.file_sha256(g),
+        "slots": [print_now_module.color_mismatch_key(1, "#E53935", "#CD7F32"),
+                  print_now_module.color_mismatch_key(2, "#1E88E5", "#43A047")]}
+    with mock.patch.object(print_now_module, "_clear_active_spool", return_value={}) as clear, \
          mock.patch.object(print_now_module, "_launch_accounting_authority", return_value=authority):
         _run_two_slots(mapped, jp, g, job)
     return clear, job
@@ -1141,20 +1149,20 @@ def _launch_on_slot3(mapped, monkeypatch, name, gcode_bytes):
     mapped.native.used_tools.side_effect = flashforge.zmod.used_tools
     mapped.native.normalize_mapping.side_effect = lambda m, st: {"0": 3}
     mapped.st["filament_slots"]["3"] = {"material": "PLA", "hex": "#000000"}
-    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 6))
+    monkeypatch.setattr(launch_print_now, "_zmod_version", lambda st: (1, 7, 6))
     # zmod_color in the fixture reports slot ID 1; name it 3 for this launch.
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
 
     def slot3(st, path, data=None, timeout=30):
         out = original(st, path, data, timeout)
         for item in (((out.get("result") or {}).get("status") or {}).get("zmod_color") or {}).get("slots", []):
             item["ID"] = 3
         return out
-    model_job._mr.side_effect = slot3
+    jobs_common._mr.side_effect = slot3
     jp, g = make_job(mapped.root, name)
     g.write_bytes(gcode_bytes)
     job = json.loads(jp.read_text())
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 3}, job, jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 3}, job, jp, 0, False)
     assert g.read_bytes() == gcode_bytes  # the archived G-code is untouched
     upload = next(c.args[0] for c in mapped.run.call_args_list
                   if len(c.args[0]) >= 4 and c.args[0][1] == "upload")
@@ -1193,18 +1201,18 @@ def _launch_plain_on_slot3(mapped, monkeypatch, name, gcode_bytes, mapping=None)
     mapped.native.used_tools.side_effect = flashforge.zmod.used_tools
     mapped.native.normalize_mapping.side_effect = lambda m, st: dict(mapping)
     mapped.st["filament_slots"][str(slot)] = {"material": "PLA", "hex": "#000000"}
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
 
     def named(st, path, data=None, timeout=30):
         out = original(st, path, data, timeout)
         for item in (((out.get("result") or {}).get("status") or {}).get("zmod_color") or {}).get("slots", []):
             item["ID"] = slot
         return out
-    model_job._mr.side_effect = named
+    jobs_common._mr.side_effect = named
     jp, g = make_job(mapped.root, name)
     g.write_bytes(gcode_bytes)
     job = json.loads(jp.read_text())
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, dict(mapping), job, jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, dict(mapping), job, jp, 0, False)
     assert g.read_bytes() == gcode_bytes  # the archived G-code is untouched
     upload = next(c.args[0] for c in mapped.run.call_args_list
                   if len(c.args[0]) >= 4 and c.args[0][1] == "upload")

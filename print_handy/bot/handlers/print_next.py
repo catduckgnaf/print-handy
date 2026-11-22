@@ -201,8 +201,9 @@ async def print_next_dispatch(event, gateway, **kwargs):
             # routed form normalizes the default printer to None, which used
             # to skip this check in the default printer's own channel.
             from print_handy.core import model_job as _mj
+            from ...jobs import store as jobs_store
             _job = json.loads(Path(target['job_json']).read_text())
-            _job_pid = _mj._job_printer_id(_job)
+            _job_pid = jobs_store._job_printer_id(_job)
             if _job_pid != channel_pid:
                 raise print_next.NextPlateError(
                     f"that plan belongs to {_printer_label(_job_pid)}, not this channel's printer "
@@ -214,9 +215,9 @@ async def print_next_dispatch(event, gateway, **kwargs):
                 # A shared channel decides nothing (#536), but the plan's
                 # job already knows its printer: resolve from the job
                 # record instead of asking — or worse, defaulting.
-                from print_handy.core import model_job as _mj
+                from ...jobs import store as jobs_store
                 _job = json.loads(Path(target['job_json']).read_text())
-                _owner = _mj._job_printer_id(_job)
+                _owner = jobs_store._job_printer_id(_job)
                 pid = _routed_form(_owner)
                 live_key = _live_key_for(source, gateway, _owner)
         if part_id is None:

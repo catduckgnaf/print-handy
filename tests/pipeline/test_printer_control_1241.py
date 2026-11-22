@@ -16,7 +16,8 @@ from unittest import mock
 import pytest
 
 from print_handy import printers, settings
-from print_handy.core import heater_ceiling, launch_state, model_job, printer_state
+from print_handy.core import heater_ceiling, launch_state, printer_state
+from print_handy.launch import gates as launch_gates
 from print_handy.runtime import family_control
 from print_handy.printers.bambulab.listener import BambuListener
 from print_handy.webui import controls
@@ -58,7 +59,7 @@ def test_an_ad5x_gets_the_same_ceiling_from_the_web_ui_and_the_gcode_check(tmp_p
     with _record(tmp_path, record):
         webui = (controls.temperature_limit(adapter, view, "nozzle", PRINTER),
                  controls.temperature_limit(adapter, view, "bed", PRINTER))
-        assert webui == model_job._heater_limits(printer_state.load(PRINTER), adapter)
+        assert webui == launch_gates._heater_limits(printer_state.load(PRINTER), adapter)
     assert webui[0] == 300  # the AD5X's published hotend maximum, whatever is fitted
 
 

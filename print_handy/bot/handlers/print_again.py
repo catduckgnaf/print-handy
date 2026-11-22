@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 def _job_owner_pid(job_json):
     """The roster printer a JOB.json belongs to: its recorded printer_id, else the default printer."""
     try:
-        from print_handy.core import model_job
-        return model_job._job_printer_id(json.loads(Path(job_json).read_text()))
+        from ...jobs import store as jobs_store
+        return jobs_store._job_printer_id(json.loads(Path(job_json).read_text()))
     except Exception:
         return None
 

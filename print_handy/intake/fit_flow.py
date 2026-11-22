@@ -268,8 +268,8 @@ def write_split_plan(job_path, job, manifest, gcodes, plan_id, plans_dir=None, s
         'title': job.get('title') or 'Multi-plate project',
         'source_kind': source_kind, 'components': [],
     })
-    from ..core import model_job as mj
-    mj.write_job(Path(job_path).parent, latest)  # atomic; JOB.json is read concurrently
+    from ..jobs import store as jobs_store
+    jobs_store.write_job(Path(job_path).parent, latest)  # atomic; JOB.json is read concurrently
     return plan
 
 
@@ -291,9 +291,9 @@ def _printer_name(job=None):
     except Exception:
         logger.debug("Best-effort recovery from Exception", exc_info=True)
     try:
-        from ..core import model_job as mj
+        from ..jobs import store as jobs_store
         from .. import printers
-        adapter = mj._job_adapter(job if isinstance(job, dict) else None)
+        adapter = jobs_store._job_adapter(job if isinstance(job, dict) else None)
         return adapter.display_name if adapter.key == printers.current().key else adapter.label
     except Exception:
         from .. import printers

@@ -70,7 +70,10 @@ def patched(table):
     table = validate(table)
     with contextlib.ExitStack() as stack:
         if table:
-            from print_handy.core import color_geometry, model_job, plate_merge
+            from print_handy.core import color_geometry, plate_merge
+            from print_handy.jobs import common as jobs_common
+            from print_handy.jobs import slice as jobs_slice
+            from tests.bound_names import patch_bound
             patch = lambda *args: stack.enter_context(mock.patch.object(*args))  # noqa: E731
             if "tower" in table:
                 patch(color_geometry, "TOWER_MM", table["tower"])
@@ -78,6 +81,6 @@ def patched(table):
             if "bed" in table:
                 bed = int(table["bed"])
                 patch(color_geometry, "BED_MM", bed)
-                patch(model_job, "BED_MM", bed)
-                patch(model_job, "BED_LIMIT_MM", bed)
+                stack.enter_context(patch_bound(jobs_common, "BED_MM", bed))
+                patch(jobs_slice, "BED_LIMIT_MM", bed)
         yield

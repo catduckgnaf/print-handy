@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from print_handy import printers
 from print_handy.core import model_job as job
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core import orca_adapter as adapter
 
 
@@ -49,7 +51,7 @@ def test_finalize_inserts_nothing_for_a_printer_without_the_zmod_contract(tmp_pa
     gcode = tmp_path / 'plate_1.gcode'
     gcode.write_text('T0\nG90\n')
     with patch.object(printers, 'current', stock):
-        assert job.finalize_multicolor(gcode, None, state(), {'0': 2}) is None
+        assert jobs_slice.finalize_multicolor(gcode, None, state(), {'0': 2}) is None
     assert gcode.read_text() == 'T0\nG90\n'
 
 
@@ -70,5 +72,5 @@ def test_the_zmod_ad5x_still_gets_its_slot_map_and_checksum(tmp_path):
     with patch.object(adapter.subprocess, 'run', side_effect=fake_slice):
         output, _, _ = adapter.slice_model(source, tmp_path / 'out', state(), filament_slot=2)
     raw = output.read_bytes()
-    assert raw.startswith(b'; MD5:') and job.zmod_md5_valid(output)
+    assert raw.startswith(b'; MD5:') and gcode_verify.zmod_md5_valid(output)
     assert b'; hermes_tool_slots =' in raw

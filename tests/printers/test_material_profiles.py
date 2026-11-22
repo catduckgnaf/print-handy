@@ -16,6 +16,8 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import color_geometry, model_job, orca_adapter, printer_state, slice_guard, source_colors, spoolman_client
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import filament as jobs_filament
 
 from tests.corpus import make_models as mm
 
@@ -288,7 +290,7 @@ def multicolor(tmp_path, monkeypatch):
         mm.write_3mf(src, [("Part 1", 1, mm.box(30, 30, 10), (60, 60)), ("Part 2", 1, mm.box(20, 20, 10), (110, 110))],
                      [("Plate 1", [0, 1])], [("#FFFFFF", "PLA"), ("#FF00FF", "PLA")])
         manifest = source_colors.inventory(src)
-        picks = {s: model_job.resolve_filament_selection(state, dict(state["filament_slots"][str(s)], slot=s))
+        picks = {s: jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"][str(s)], slot=s))
                  for s in (1, 2)}
         choices = {"part:" + part["key"]: picks[2 if str(part["object_id"]) == "3" else 1] for part in manifest["parts"]}
         for row in source_colors.canonical_prompts(manifest):
@@ -354,13 +356,13 @@ def test_ad5x_refuses_a_different_material_family(multicolor):
 
 def test_verification_accepts_the_per_slot_result_and_checks_each_tool(multicolor):
     job = multicolor.slice(ad5x_state(["PLA", "Silk PLA"]))
-    assert model_job.verify_gcode_offline(job.out, job.state)["offline"] is True
+    assert gcode_verify.verify_gcode_offline(job.out, job.state)["offline"] is True
     text = Path(job.out).read_text()
     wrong = Path(job.out).with_name("wrong.gcode")
     wrong.write_text(text.replace("nozzle_temperature_initial_layer = 215,225", "nozzle_temperature_initial_layer = 215,215")
                      if "215,225" in text else re.sub(r"(nozzle_temperature_initial_layer = )(\d+),\d+", r"\g<1>\2,\2", text))
     with pytest.raises(RuntimeError, match=r"tool T1 \(Silk PLA\) is set to \d+ C but its spool resolves to"):
-        model_job.verify_gcode_offline(wrong, job.state)
+        gcode_verify.verify_gcode_offline(wrong, job.state)
 
 
 def test_gcode_temperatures_start_tool_sets_the_nozzle_and_a_wrong_header_refuses():
@@ -504,11 +506,11 @@ def test_prusalink_and_sdcp_verification_goes_through_the_record_checks(tmp_path
         state = guard_state(temps_c={"nozzle": 210, "bed": 60})  # PLA's default, which the G-code's spool resolves to
         good = tmp_path / f"{model}.gcode"
         good.write_text(guard_gcode(adapter, hotend=210))
-        assert model_job._verify_offline(good, state)["offline"] is True
+        assert gcode_verify._verify_offline(good, state)["offline"] is True
         bad = tmp_path / f"{model}_bad.gcode"
         bad.write_text(guard_gcode(adapter, material="PETG", nozzle="0.6", hotend=235))
         with pytest.raises(RuntimeError) as refused:
-            model_job._verify_offline(bad, state)
+            gcode_verify._verify_offline(bad, state)
         assert "G-code filament_type 'PETG' != loaded 'PLA'" in str(refused.value)
         assert "G-code nozzle 0.6 mm != installed 0.4 mm" in str(refused.value)
         # #1336: a mismatched file is held to its OWN temperatures (what Print as sliced

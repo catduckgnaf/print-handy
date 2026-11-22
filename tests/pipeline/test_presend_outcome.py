@@ -3,17 +3,19 @@
 Since #688 any failure without a REFUSED line read as "Start sent, do not send it again", including
 slot, mesh, occupancy and upload failures that never asked the printer to start (2026-10-31 audit).
 """
-from unittest import mock
 
 import pytest
 
-from print_handy.core import launch_state, model_job, prepared_intake
+from print_handy.core import launch_state, prepared_intake
+from tests.bound_names import patch_bound
+from print_handy.jobs import cli as jobs_cli
+from print_handy.launch import print_now as launch_print_now
 
 
 def run_cli(behaviour):
-    with mock.patch.object(model_job, "print_now", side_effect=behaviour):
+    with patch_bound(launch_print_now, "print_now", side_effect=behaviour):
         with pytest.raises(SystemExit) as exc:
-            model_job._print_now_cli("job.gcode")
+            jobs_cli._print_now_cli("job.gcode")
     return str(exc.value)
 
 
@@ -39,8 +41,8 @@ def test_a_failure_after_submission_stays_uncertain(tmp_path, monkeypatch):
 def test_refusals_and_successes_pass_through_unchanged():
     assert run_cli(SystemExit("REFUSED: idle guard failed: busy. Nothing uploaded or started.")).startswith(
         "REFUSED: idle guard failed")
-    with mock.patch.object(model_job, "print_now", return_value={"started": True}):
-        assert model_job._print_now_cli("job.gcode") == {"started": True}
+    with patch_bound(launch_print_now, "print_now", return_value={"started": True}):
+        assert jobs_cli._print_now_cli("job.gcode") == {"started": True}
 
 
 def test_each_run_starts_unsubmitted():

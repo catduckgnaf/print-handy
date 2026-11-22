@@ -20,7 +20,8 @@ import pytest
 from corpus import harness
 from gcode_factory import TOOLPATH, gcode_text
 from pipeline.native_bounds_corpus import CASES as BOUNDS_CASES
-from print_handy.core import model_job, printer_state
+from print_handy.core import printer_state
+from print_handy.gcode import verify as gcode_verify
 from print_handy.core.gcode_lines import Anchor, GcodeLines
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -143,7 +144,7 @@ TEXTS = {**_fixture_texts(), **ADVERSARIAL}
 def test_one_scan_gives_the_removed_path_answers(name):
     text = TEXTS[name]
     for macros in MACROS:
-        lines = model_job._verify_lines(text, _Adapter(*macros))
+        lines = gcode_verify._verify_lines(text, _Adapter(*macros))
         assert new_answers(lines, *macros) == old_answers(text, *macros), macros
         assert lines.scans == 1
 
@@ -194,11 +195,11 @@ def test_verify_asks_its_questions_from_one_scan(monkeypatch):
     monkeypatch.setattr(re, "search", guard(plain_search))
     monkeypatch.setattr(re, "findall", guard(plain_findall))
     state = {"spool": {"material": "PLA", "spoolman_id": 1}, "temps_c": {"nozzle": 215, "bed": 60}}
-    lines = model_job._verify_lines(single, _Adapter("PRINT_START", "PRINT_END"))
-    assert model_job._with_gcode_temperatures(state, single, lines=lines)["temps_c"] == {"nozzle": 215, "bed": 60}
-    assert model_job.sovol_style_start_matches(single, 60, 215, lines=lines) is False
+    lines = gcode_verify._verify_lines(single, _Adapter("PRINT_START", "PRINT_END"))
+    assert gcode_verify._with_gcode_temperatures(state, single, lines=lines)["temps_c"] == {"nozzle": 215, "bed": 60}
+    assert gcode_verify.sovol_style_start_matches(single, 60, 215, lines=lines) is False
     assert lines.scans == 1
-    multi = model_job._verify_lines(text, _Adapter("PRINT_START", "PRINT_END"))
+    multi = gcode_verify._verify_lines(text, _Adapter("PRINT_START", "PRINT_END"))
     try:
         printer_state.gcode_tool_temperatures(state, ["PLA", "PETG"], text, lines=multi)
     except RuntimeError:

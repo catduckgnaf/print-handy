@@ -11,10 +11,13 @@ from unittest import mock
 import pytest
 
 from print_handy.core import model_job as model_job
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import sources as jobs_sources
 from print_handy.core import prepared_intake
 from print_handy.core.link_intake import model_link
 from .test_color_intake import source, state  # noqa: F401  (state used by the e2e flow)
 from .test_prepared_intake import Adapter, env  # noqa: F401  (env is the shared harness fixture)
+from tests.bound_names import setattr_bound
 
 THING_URL = 'https://www.thingiverse.com/thing:763622'
 THING = {'id': 763622, 'name': '3DBenchy', 'license': 'Creative Commons - Attribution',
@@ -46,7 +49,7 @@ def _api(monkeypatch, thing=THING, files=FILES):
             return files
         return thing
 
-    monkeypatch.setattr(model_job, 'request_json', fake_request_json)
+    setattr_bound(monkeypatch, jobs_common, 'request_json', fake_request_json)
     return calls
 
 
@@ -62,16 +65,16 @@ def test_model_link_thingiverse(text, hit):
 
 
 def test_thingiverse_id():
-    assert model_job.thingiverse_id(THING_URL) == '763622'
-    assert model_job.thingiverse_id(THING_URL + '-3dbenchy') == '763622'
+    assert jobs_sources.thingiverse_id(THING_URL) == '763622'
+    assert jobs_sources.thingiverse_id(THING_URL + '-3dbenchy') == '763622'
     with pytest.raises(ValueError, match=r'/thing:<number>'):
-        model_job.thingiverse_id('https://www.thingiverse.com/designer')
+        jobs_sources.thingiverse_id('https://www.thingiverse.com/designer')
 
 
 def test_thingiverse_inventory_shape_and_geometry_filter(tmp_path, monkeypatch):
     _token_home(tmp_path, monkeypatch)
     calls = _api(monkeypatch)
-    job = model_job.thingiverse_inventory(THING_URL)
+    job = jobs_sources.thingiverse_inventory(THING_URL)
     assert job['site'] == 'thingiverse'
     assert job['model_id'] == '763622'
     assert job['title'] == '3DBenchy'
@@ -85,15 +88,15 @@ def test_thingiverse_inventory_shape_and_geometry_filter(tmp_path, monkeypatch):
 def test_thingiverse_missing_token_error(tmp_path, monkeypatch):
     _token_home(tmp_path, monkeypatch, token=None)
     with pytest.raises(RuntimeError, match=r'\.config/thingiverse/token'):
-        model_job.thingiverse_inventory(THING_URL)
+        jobs_sources.thingiverse_inventory(THING_URL)
     with pytest.raises(RuntimeError, match='thingiverse.com/developers'):
-        model_job.thingiverse_headers()
+        jobs_sources.thingiverse_headers()
 
 
 def test_thingiverse_empty_token_error(tmp_path, monkeypatch):
     _token_home(tmp_path, monkeypatch, token='')
     with pytest.raises(RuntimeError, match='Thingiverse token empty'):
-        model_job.thingiverse_headers()
+        jobs_sources.thingiverse_headers()
 
 
 def _http_error(code, headers=None):
@@ -102,23 +105,23 @@ def _http_error(code, headers=None):
 
 def test_thingiverse_challenge_is_reported_plainly(tmp_path, monkeypatch):
     _token_home(tmp_path, monkeypatch)
-    monkeypatch.setattr(model_job, 'request_json',
+    setattr_bound(monkeypatch, jobs_common, 'request_json',
                         mock.Mock(side_effect=_http_error(403, {'Cf-Mitigated': 'challenge'})))
     with pytest.raises(RuntimeError, match='Cloudflare robot check'):
-        model_job.thingiverse_inventory(THING_URL)
+        jobs_sources.thingiverse_inventory(THING_URL)
 
 
 def test_thingiverse_401_is_reported_plainly(tmp_path, monkeypatch):
     _token_home(tmp_path, monkeypatch)
-    monkeypatch.setattr(model_job, 'request_json', mock.Mock(side_effect=_http_error(401)))
+    setattr_bound(monkeypatch, jobs_common, 'request_json', mock.Mock(side_effect=_http_error(401)))
     with pytest.raises(RuntimeError, match='401/403'):
-        model_job.thingiverse_inventory(THING_URL)
+        jobs_sources.thingiverse_inventory(THING_URL)
 
 
 def test_thingiverse_download_and_cache_reuse(tmp_path, monkeypatch):
     _token_home(tmp_path, monkeypatch)
     _api(monkeypatch)
-    job = model_job.thingiverse_inventory(THING_URL)
+    job = jobs_sources.thingiverse_inventory(THING_URL)
     chosen = job['sources'][0]
     downloads = []
 
@@ -128,8 +131,8 @@ def test_thingiverse_download_and_cache_reuse(tmp_path, monkeypatch):
         target.write_bytes(b'solid benchy')
         return target
 
-    monkeypatch.setattr(model_job, 'download', fake_download)
-    out = model_job.thingiverse_download(job, chosen, tmp_path / 'src')
+    monkeypatch.setattr(jobs_sources, 'download', fake_download)
+    out = jobs_sources.thingiverse_download(job, chosen, tmp_path / 'src')
     assert out == tmp_path / 'src' / 'benchy.stl' and out.read_bytes() == b'solid benchy'
     assert downloads[0][0] == chosen['download_url']
     assert downloads[0][1]['Authorization'] == 'Bearer test-token'
@@ -145,22 +148,22 @@ def test_thingiverse_download_and_cache_reuse(tmp_path, monkeypatch):
     (folder / 'JOB.json').write_text(json.dumps({
         'site': 'thingiverse', 'model_id': '763622',
         'selected_source': {'id': 101}, 'downloaded_file': str(cached_file)}))
-    monkeypatch.setattr(model_job, 'ARCHIVE', archive)
-    monkeypatch.setattr(model_job, 'request_json', mock.Mock(side_effect=AssertionError('site contacted')))
-    monkeypatch.setattr(model_job, 'download', mock.Mock(side_effect=AssertionError('site contacted')))
-    reused = model_job.thingiverse_download(job, chosen, tmp_path / 'src2')
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', archive)
+    setattr_bound(monkeypatch, jobs_common, 'request_json', mock.Mock(side_effect=AssertionError('site contacted')))
+    monkeypatch.setattr(jobs_sources, 'download', mock.Mock(side_effect=AssertionError('site contacted')))
+    reused = jobs_sources.thingiverse_download(job, chosen, tmp_path / 'src2')
     assert reused.read_bytes() == b'solid benchy'
 
 
 def test_thingiverse_download_challenge_is_reported_plainly(tmp_path, monkeypatch):
     _token_home(tmp_path, monkeypatch)
-    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path / 'empty-archive')
-    monkeypatch.setattr(model_job, 'download',
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path / 'empty-archive')
+    monkeypatch.setattr(jobs_sources, 'download',
                         mock.Mock(side_effect=_http_error(403, {'Cf-Mitigated': 'challenge'})))
     job = {'site': 'thingiverse', 'model_id': '763622'}
     chosen = {'id': 101, 'name': 'benchy.stl', 'download_url': 'https://api.thingiverse.com/files/101/download'}
     with pytest.raises(RuntimeError, match='Cloudflare robot check'):
-        model_job.thingiverse_download(job, chosen, tmp_path / 'src')
+        jobs_sources.thingiverse_download(job, chosen, tmp_path / 'src')
 
 
 def test_printables_empty_geometry_names_the_real_reason(monkeypatch):
@@ -170,8 +173,8 @@ def test_printables_empty_geometry_names_the_real_reason(monkeypatch):
         'license': {'name': 'Creative Commons - Attribution - Share Alike'},
         'stls': [], 'otherFiles': [],
         'gcodes': [{'id': '2636', 'name': 'benchy.gcode', 'fileSize': 17007184}]}}}
-    monkeypatch.setattr(model_job, 'gql', lambda q, v: payload)
-    job = model_job.printables_inventory('https://www.printables.com/model/3111-3d-benchy')
+    monkeypatch.setattr(jobs_sources, 'gql', lambda q, v: payload)
+    job = jobs_sources.printables_inventory('https://www.printables.com/model/3111-3d-benchy')
     assert job['sources'] and all(s['kind'] == 'gcodes' for s in job['sources'])
     assert 'exposes no STL/3MF via the Printables API' in job['no_geometry_reason']
     assert 'only pre-sliced G-code' in job['no_geometry_reason']
@@ -181,18 +184,18 @@ def test_printables_with_geometry_has_no_refusal_reason(monkeypatch):
     payload = {'data': {'print': {
         'id': '67300', 'name': 'Ghost', 'slug': 'ghost', 'license': {'name': 'CC'},
         'stls': [{'id': '1', 'name': 'ghost.stl', 'fileSize': 5}], 'gcodes': [], 'otherFiles': []}}}
-    monkeypatch.setattr(model_job, 'gql', lambda q, v: payload)
-    job = model_job.printables_inventory('https://www.printables.com/model/67300-ghost')
+    monkeypatch.setattr(jobs_sources, 'gql', lambda q, v: payload)
+    job = jobs_sources.printables_inventory('https://www.printables.com/model/67300-ghost')
     assert 'no_geometry_reason' not in job
 
 
 def test_prepared_intake_thingiverse_end_to_end(env, monkeypatch):
     src = source(env.tmp)
-    monkeypatch.setattr(model_job, 'thingiverse_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'thingiverse_inventory', lambda url: {
         'site': 'thingiverse', 'model_id': '763622', 'slug': 'benchy', 'title': 'Benchy',
         'license': 'Creative Commons - Attribution',
         'sources': [{'id': 101, 'name': 'benchy.stl', 'bytes': 10, 'kind': 'files'}]})
-    monkeypatch.setattr(model_job, 'thingiverse_download',
+    monkeypatch.setattr(jobs_sources, 'thingiverse_download',
                         lambda job, chosen, dest: _copy_named(src, dest, 'benchy.stl'))
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='tv1', text=THING_URL)
@@ -206,7 +209,7 @@ def test_prepared_intake_thingiverse_end_to_end(env, monkeypatch):
 
 
 def test_prepared_intake_printables_gcode_only_refuses_with_specific_reason(env, monkeypatch):
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'model_id': '3111', 'slug': 'benchy', 'title': 'Benchy',
         'sources': [{'id': '2636', 'name': 'benchy.gcode', 'kind': 'gcodes'}],
         'no_geometry_reason': 'Printables listing for model 3111 exposes no STL/3MF via the '

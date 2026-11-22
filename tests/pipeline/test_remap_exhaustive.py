@@ -25,7 +25,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import layer_gcode, model_job, package_remap, painted_geometry, source_colors
+from print_handy.core import layer_gcode, package_remap, painted_geometry, source_colors
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import (_declare_one_filament, export_color_geometry,
                                              export_production_plate, export_single_color_plate)
 from tests.corpus.make_models import box, write_3mf
@@ -44,7 +45,7 @@ def _slot_choices(manifest, picks):
         if not match:
             continue
         slot = picks[int(match.group(1))]
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     return {"schema": "part_slots_v1", "mode": "per_part",
             "source_sha256": manifest["source_sha256"], "choices": choices}
@@ -298,7 +299,7 @@ def _two_part_source(path):
 def _single_decisions(source, slot=1):
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    white = model_job.resolve_filament_selection(state, dict(state["filament_slots"][str(slot)], slot=slot))
+    white = jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"][str(slot)], slot=slot))
     decisions = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
                  "choices": {row["key"]: white for row in source_colors.canonical_prompts(manifest)}}
     return manifest, decisions
@@ -343,7 +344,7 @@ def test_rebuilt_export_refuses_height_range_extruders_by_name(tmp_path):
     state = json.loads(STATE.read_text())
     choices = {}
     for row in source_colors.canonical_prompts(manifest):
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"]["1"], slot=1))
     decisions = {"schema": "part_slots_v1", "mode": "per_part",
                  "source_sha256": manifest["source_sha256"], "choices": choices}
@@ -380,7 +381,7 @@ def test_rebuilt_layer_change_keeps_the_color_attribute(tmp_path):
     for row in source_colors.canonical_prompts(manifest):
         match = re.fullmatch(r"(?:part:.+|filament:(\d+))", row["key"])
         slot = picks.get(int(match.group(1)), 1) if match and match.group(1) else 1
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     decisions = {"schema": "part_slots_v1", "mode": "per_part",
                  "source_sha256": manifest["source_sha256"], "choices": choices}
@@ -411,7 +412,7 @@ def test_rebuilt_export_names_dropped_per_part_settings(tmp_path):
             archive.writestr(name, data)
     manifest = source_colors.inventory(source)
     state = json.loads(STATE.read_text())
-    choices = {row["key"]: model_job.resolve_filament_selection(
+    choices = {row["key"]: jobs_filament.resolve_filament_selection(
         state, dict(state["filament_slots"]["1"], slot=1))
         for row in source_colors.canonical_prompts(manifest)}
     decisions = {"schema": "part_slots_v1", "mode": "per_part",

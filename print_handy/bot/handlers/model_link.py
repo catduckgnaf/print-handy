@@ -236,8 +236,8 @@ async def model_link_dispatch(event, gateway, **kwargs):
         chosen = None
         if reuse is not None:
             try:
-                from print_handy.core import model_job
-                chosen = model_job._job_printer_id(reuse)
+                from ...jobs import store as jobs_store
+                chosen = jobs_store._job_printer_id(reuse)
             except Exception:
                 chosen = None
             if chosen not in candidates:

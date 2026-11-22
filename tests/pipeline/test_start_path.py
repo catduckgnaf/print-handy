@@ -22,12 +22,19 @@ from unittest import mock
 import pytest
 
 from print_handy.core import launch_state, model_job, prepared_intake
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import print_next
 
 from .test_launch_state import dead_pid, leases, make_job, uploads
 from .test_launch_state import mapped, printer  # noqa: F401  (fixtures shared with the lease tests)
+from tests.bound_names import patch_bound, setattr_bound
 
-REAL_WAIT_PRINTING = model_job._wait_printing
+REAL_WAIT_PRINTING = launch_print_now._wait_printing
 
 
 # --------------------------------------------------------------------------- helpers
@@ -57,10 +64,10 @@ class Run(tuple):
 
 def run_cli(monkeypatch, capsys, fn):
     """Run one launch the way the print-now subprocess does."""
-    monkeypatch.setattr(model_job, "print_now", lambda target, **kw: fn())
+    setattr_bound(monkeypatch, launch_print_now, "print_now", lambda target, **kw: fn())
     ok = True
     try:
-        model_job._print_now_cli("job.gcode")
+        jobs_cli._print_now_cli("job.gcode")
     except SystemExit as exc:
         ok = exc.code in (0, None)
         if not ok:
@@ -185,14 +192,14 @@ def rig(tmp_path, monkeypatch):
     package = tmp_path / "plate_1.gcode.3mf"
     with zipfile.ZipFile(package, "w") as archive:
         archive.writestr("Metadata/plate_1.gcode", "G1 X1\n")
-    monkeypatch.setattr(model_job, "START_CLAIMS", tmp_path / "claims.json")
-    monkeypatch.setattr(model_job, "verify_gcode", lambda path, **kw: {"offline": True})
-    monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: "/records/1")
+    monkeypatch.setattr(launch_print_now, "START_CLAIMS", tmp_path / "claims.json")
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda path, **kw: {"offline": True})
+    setattr_bound(monkeypatch, launch_print_now, "record_start", lambda g, remote, **kw: "/records/1")
     monkeypatch.setattr(model_job.printers, "current", lambda *a, **k: FakeAdapter("octoprint", None))
     def with_gcode_temperatures(state, text, recorded=None):  # model_job's real signature
         return {**state, "temps_c": {"bed": 60, "nozzle": 210}}
-    monkeypatch.setattr(model_job, "_with_gcode_temperatures", with_gcode_temperatures)
-    monkeypatch.setattr(model_job, "_bambu_start_confirm_window", lambda: 30.0)
+    setattr_bound(monkeypatch, gcode_verify, "_with_gcode_temperatures", with_gcode_temperatures)
+    monkeypatch.setattr(launch_print_now, "_bambu_start_confirm_window", lambda: 30.0)
     from print_handy.core import delivery
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
     monkeypatch.setattr(ams_mapping, "resolve_for_print", lambda *a, **k: ([0], "job"))
@@ -215,7 +222,7 @@ def launch(kind, rig, client):
         # #1147: the stock start names its IFS bay; the record's spool for bay 1 supplies it.
         state["filament_slots"] = {"1": {"material": "PLA", "hex": "#FFFFFF"}}
     job = {"filament_selection": {"slot": 1}, "printer_model": "bambulab.a1"}
-    return getattr(model_job, KINDS[kind])(adapter, state, rig.gcode, job, None, 25, False)
+    return getattr(launch_print_now, KINDS[kind])(adapter, state, rig.gcode, job, None, 25, False)
 
 
 def printing(remote):
@@ -291,7 +298,7 @@ def test_client_transport_failure_table(kind, case, rig, monkeypatch, capsys):
     if case == "readback_idle_forever":
         assert client.reads > 4  # the window was polled, not one immediate readback
     if want_leases == ["uncertain"] and client.uploads:
-        assert model_job._read_claims() == {}  # unannounced: the listener can still post the start
+        assert launch_print_now._read_claims() == {}  # unannounced: the listener can still post the start
 
 
 @pytest.mark.parametrize("kind", sorted(KINDS))
@@ -309,7 +316,7 @@ def test_item1_a_start_confirmed_after_a_few_polls_is_not_called_unconfirmed(kin
 
 def test_start_family_monitor_passes_the_jobs_printer_id_to_the_worker(rig):
     from print_handy.runtime import octo_watch
-    model_job._start_family_monitor(octo_watch, None, "part.gcode", {"printer_id": "voron"})
+    launch_print_now._start_family_monitor(octo_watch, None, "part.gcode", {"printer_id": "voron"})
     assert rig.spawned == [("print_handy.runtime.octo_watch", "part.gcode", "voron")]
 
 
@@ -327,14 +334,14 @@ def test_item1_transitional_states_keep_the_window_open_and_name_the_state(kind,
 def test_item2_every_transport_prints_the_uniform_outcome_line(kind, rig, capsys):
     client = ScriptedClient(post=[IDLE])
     out = launch(kind, rig, client)
-    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith(model_job.START_OUTCOME_MARK)]
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith(launch_print_now.START_OUTCOME_MARK)]
     assert len(lines) == 1
-    parsed = json.loads(lines[0][len(model_job.START_OUTCOME_MARK):])
+    parsed = json.loads(lines[0][len(launch_print_now.START_OUTCOME_MARK):])
     assert parsed["phase"] == "awaiting_confirmation" == out["phase"] and parsed["file"] == out["file"]
 
 
 def test_item2_the_marker_is_shared_between_the_writer_and_the_parsers():
-    assert model_job.START_OUTCOME_MARK == print_next.OUTCOME_MARK
+    assert launch_print_now.START_OUTCOME_MARK == print_next.OUTCOME_MARK
 
 
 def test_item2_intake_never_posts_started_for_an_unresolved_exit_zero():
@@ -445,7 +452,7 @@ GENERIC_CASES = {
 def test_generic_moonraker_failure_table(case, printer, monkeypatch, capsys, patch):
     build, want_ok, want_leases, want_phase, want_status = GENERIC_CASES[case]
     script = MoonrakerScript(printer, **build())
-    patch(model_job, "_wait_printing",
+    patch(launch_print_now, "_wait_printing",
           mock.Mock(side_effect=script.wait_raises) if script.wait_raises else (lambda *a, **k: "standby"))
     jp, _ = make_job(printer.root, "a")
     ok, tail, full = run_cli(monkeypatch, capsys, lambda: REAL_PRINT_NOW(jp))
@@ -458,51 +465,51 @@ def test_generic_moonraker_failure_table(case, printer, monkeypatch, capsys, pat
     if status == "START_REFUSED":
         assert "rejected the start request" in message and "Must home" in message or "File not found" in message
     if want_leases == ["uncertain"] and want_phase in ("awaiting_confirmation", "preparing_or_unresolved"):
-        assert model_job._read_claims() == {}
+        assert launch_print_now._read_claims() == {}
 
 
-REAL_PRINT_NOW = model_job.print_now
+REAL_PRINT_NOW = launch_print_now.print_now
 
 
 def test_item5_generic_readback_error_after_the_start_is_a_clean_uncertain_line(printer, monkeypatch, capsys, patch):
     MoonrakerScript(printer)
-    patch(model_job, "_wait_printing", mock.Mock(side_effect=http_error(503, "Service Unavailable")))
+    patch(launch_print_now, "_wait_printing", mock.Mock(side_effect=http_error(503, "Service Unavailable")))
     jp, _ = make_job(printer.root, "a")
-    out = model_job.print_now(jp, wait_s=0)
+    out = launch_print_now.print_now(jp, wait_s=0)
     text = capsys.readouterr().out
     assert out["phase"] == "awaiting_confirmation" and "UNCERTAIN: the start was sent" in text
-    assert phases() == ["uncertain"] and model_job._read_claims() == {}
+    assert phases() == ["uncertain"] and launch_print_now._read_claims() == {}
 
 
 def test_item5_a_failing_print_number_or_record_does_not_hide_a_confirmed_start(printer, monkeypatch, patch):
     MoonrakerScript(printer, after=lambda r: moonraker_status(filename=r, state="printing"))
-    patch(model_job, "_assign_print_number", mock.Mock(side_effect=OSError("disk full")))
-    patch(model_job, "record_start", mock.Mock(side_effect=OSError("disk full")))
+    patch(launch_print_now, "_assign_print_number", mock.Mock(side_effect=OSError("disk full")))
+    patch(launch_print_now, "record_start", mock.Mock(side_effect=OSError("disk full")))
     jp, _ = make_job(printer.root, "a")
-    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
-    out = model_job.print_now(jp)
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "printing")
+    out = launch_print_now.print_now(jp)
     assert out["started"] is True and out["print_number"] is None and phases() == []
 
 
 def test_item6_start_rejection_is_only_a_typed_4xx():
-    assert model_job._start_rejection(http_error(400, "Must home axis first")) == "HTTP 400: Must home axis first"
-    assert model_job._start_rejection(http_error(404, "File not found")).startswith("HTTP 404")
+    assert launch_print_now._start_rejection(http_error(400, "Must home axis first")) == "HTTP 400: Must home axis first"
+    assert launch_print_now._start_rejection(http_error(404, "File not found")).startswith("HTTP 404")
     for exc in (http_error(500), http_error(503), http_error(408), http_error(429), TimeoutError("t"),
                 ConnectionResetError("reset"), urllib.error.URLError("refused"), RuntimeError("HTTP 400")):
-        assert model_job._start_rejection(exc) is None
+        assert launch_print_now._start_rejection(exc) is None
 
 
 def test_item6_a_rejected_start_leaves_the_printer_free_for_the_next_job(printer, monkeypatch, capsys, patch):
     MoonrakerScript(printer, start=raises(http_error(400, "Must home axis first")))
-    patch(model_job, "_wait_printing", lambda *a, **k: "standby")
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "standby")
     jp, _ = make_job(printer.root, "a")
     with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(HTTP 400: Must home"):
-        model_job.print_now(jp)
-    assert leases() == [] and model_job._read_claims() == {}
+        launch_print_now.print_now(jp)
+    assert leases() == [] and launch_print_now._read_claims() == {}
     # The printer is not wedged: a second job takes the lease and starts.
     printer.mr.side_effect = MoonrakerScript(printer, after=lambda r: moonraker_status(filename=r, state="printing")).mr
     b, _ = make_job(printer.root, "b")
-    assert model_job.print_now(b)["started"] is True
+    assert launch_print_now.print_now(b)["started"] is True
 
 
 def test_item8_generic_lost_post_is_reconciled_like_the_mapped_path(printer, monkeypatch, patch):
@@ -510,15 +517,15 @@ def test_item8_generic_lost_post_is_reconciled_like_the_mapped_path(printer, mon
     script = MoonrakerScript(printer, start=raises(TimeoutError("timed out")),
                              after=lambda r: moonraker_status(filename="3mf_print/" + r, state="printing"))
     jp, _ = make_job(printer.root, "a")
-    patch(model_job, "_wait_printing", lambda *a, **k: "standby")
-    out = model_job.print_now(jp)
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "standby")
+    out = launch_print_now.print_now(jp)
     assert out["phase"] == "executing" and out["accepted"] is True and script.posts == 1
     assert phases() == ["uncertain"]  # the duplicate guard holds until the printer reports the file
     # Heaters alone count only from a proven-off baseline.
     for proven_off, want in ((True, "preparing"), (False, "preparing_or_unresolved")):
-        with mock.patch.object(model_job, "_preparation_evidence", return_value=True):  # heaters on now
+        with mock.patch.object(launch_print_now, "_preparation_evidence", return_value=True):  # heaters on now
             MoonrakerScript(printer)
-            verdict, _ = model_job._settle_lost_start(mock.Mock(), {}, "x.gcode", TimeoutError(),
+            verdict, _ = launch_print_now._settle_lost_start(mock.Mock(), {}, "x.gcode", TimeoutError(),
                                                       base={"file": "x.gcode"}, heaters_were_off=proven_off)
             assert verdict["phase"] == want
 
@@ -548,7 +555,7 @@ def test_a_reprints_leftover_complete_state_is_never_reported_started(start, wan
     """A lost (or answered) start on a reprint used to read the previous run's state=complete with the
     same file name (and homed axes) as "preparing": STARTED, lease released, though nothing ran."""
     script = ReprintScript(printer, start=start, after=leftover_complete)
-    patch(model_job, "_wait_printing", lambda *a, **k: "complete")
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "complete")
     jp, _ = make_job(printer.root, "a")
     ok, tail, full = run_cli(monkeypatch, capsys, lambda: REAL_PRINT_NOW(jp))
     assert ok, tail
@@ -565,7 +572,7 @@ def test_a_reprint_that_heats_from_a_cold_baseline_is_still_preparing(printer, m
         status["result"]["status"]["extruder"] = {"target": 215}
         return status
     ReprintScript(printer, start=raises(TimeoutError("timed out")), after=heating)
-    patch(model_job, "_wait_printing", lambda *a, **k: "complete")
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "complete")
     jp, _ = make_job(printer.root, "a")
     ok, tail, full = run_cli(monkeypatch, capsys, lambda: REAL_PRINT_NOW(jp))
     assert print_next.start_outcome(full).get("phase") == "preparing", full
@@ -573,7 +580,7 @@ def test_a_reprint_that_heats_from_a_cold_baseline_is_still_preparing(printer, m
 
 def test_wait_printing_does_not_end_on_the_previous_jobs_cancelled_state(monkeypatch):
     reads = iter([("cancelled", "x.gcode", "Idle")] * 3 + [("printing", "x.gcode", "Printing")])
-    monkeypatch.setattr(model_job, "_printer_phase", lambda st: next(reads))
+    setattr_bound(monkeypatch, launch_gates, "_printer_phase", lambda st: next(reads))
     monkeypatch.setattr(model_job.time, "sleep", lambda s: None)
     baseline = {"print_stats": {"state": "cancelled", "filename": "x.gcode"}}
     assert REAL_WAIT_PRINTING({}, "x.gcode", 30, baseline=baseline) == "printing"
@@ -585,8 +592,8 @@ def test_item8_both_paths_share_one_reconcile():
     import inspect
     # print_now is a thin wrapper since the SAFE-6 control lock (P1-33); its body
     # is _print_now_locked. Both start paths must call the one reconcile helper.
-    source = (inspect.getsource(model_job.print_now) + inspect.getsource(model_job._print_now_locked)
-              + inspect.getsource(model_job.print_mapped_native))
+    source = (inspect.getsource(launch_print_now.print_now) + inspect.getsource(launch_print_now._print_now_locked)
+              + inspect.getsource(launch_print_now.print_mapped_native))
     assert source.count("_settle_lost_start(") == 2
 
 
@@ -616,7 +623,7 @@ MAPPED_CASES = {
 @pytest.mark.parametrize("case", sorted(MAPPED_CASES))
 def test_mapped_native_failure_table(case, mapped, monkeypatch, capsys, patch):
     options = MAPPED_CASES[case][0](mapped)
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
     posts = []
 
     def mr(st, path, data=None, timeout=30):
@@ -631,17 +638,17 @@ def test_mapped_native_failure_table(case, mapped, monkeypatch, capsys, patch):
                                           "virtual_sdcard": {"is_active": True}, "webhooks": {"state": "ready"}}}}
         return original(st, path, data=data, timeout=timeout)
 
-    model_job._mr.side_effect = mr
+    jobs_common._mr.side_effect = mr
     if options.get("wait"):
-        patch(model_job, "_wait_printing", mock.Mock(side_effect=options["wait"]))
+        patch(launch_print_now, "_wait_printing", mock.Mock(side_effect=options["wait"]))
     if options.get("printing"):
-        patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+        patch(launch_print_now, "_wait_printing", lambda *a, **k: "printing")
     # #836: heater evidence is read immediately before the POST too, and a timeless mock would
     # answer that read with the post-POST state. Evidence counts only once the POST has gone out.
-    model_job._preparation_evidence.side_effect = lambda st: bool(posts) and bool(options.get("heating"))
+    launch_print_now._preparation_evidence.side_effect = lambda st: bool(posts) and bool(options.get("heating"))
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    ok, tail, full = run_cli(monkeypatch, capsys, lambda: model_job.print_mapped_native(
+    ok, tail, full = run_cli(monkeypatch, capsys, lambda: launch_print_now.print_mapped_native(
         g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False))
     assert ok is want_ok(case), tail
     _, _, want_leases, want_phase, want_status = MAPPED_CASES[case]
@@ -658,11 +665,11 @@ def test_mapped_native_failure_table(case, mapped, monkeypatch, capsys, patch):
     if status == "START_REFUSED":
         assert "rejected the start request" in message and checkpoint["phase"] == "rejected"
     if want_leases == ["uncertain"] and want_phase == "preparing_or_unresolved":
-        assert model_job._read_claims() == {}
+        assert launch_print_now._read_claims() == {}
     if want_phase == "preparing":
         # #836: a provisional preparing start was announced by this path, so its claim stays
         # held for the listener's warmup/abandoned edits; only the lease stays uncertain.
-        assert model_job._read_claims() != {}
+        assert launch_print_now._read_claims() != {}
 
 
 def want_ok(case):
@@ -670,21 +677,21 @@ def want_ok(case):
 
 
 def test_item5_mapped_record_and_number_failures_do_not_mask_the_start(mapped, monkeypatch, patch):
-    patch(model_job, "_assign_print_number", mock.Mock(side_effect=OSError("disk full")))
-    patch(model_job, "record_start", mock.Mock(side_effect=OSError("disk full")))
-    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+    patch(launch_print_now, "_assign_print_number", mock.Mock(side_effect=OSError("disk full")))
+    patch(launch_print_now, "record_start", mock.Mock(side_effect=OSError("disk full")))
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "printing")
     jp, g = make_job(mapped.root, "a")
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
     assert out["started"] is True and out["print_number"] is None and phases() == []
 
 
 def test_item5_mapped_readback_error_is_uncertain_not_a_traceback(mapped, monkeypatch, capsys, patch):
-    patch(model_job, "_wait_printing", mock.Mock(side_effect=http_error(503, "Service Unavailable")))
+    patch(launch_print_now, "_wait_printing", mock.Mock(side_effect=http_error(503, "Service Unavailable")))
     jp, g = make_job(mapped.root, "a")
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
     text = capsys.readouterr().out
     assert out["phase"] == "preparing_or_unresolved" and "UNCERTAIN: the start was sent" in text
-    assert "MAPPED START READBACK" in text and phases() == ["uncertain"] and model_job._read_claims() == {}
+    assert "MAPPED START READBACK" in text and phases() == ["uncertain"] and launch_print_now._read_claims() == {}
 
 
 # --------------------------------------------------------------------------- #836: start truthfulness
@@ -702,36 +709,36 @@ def test_836_a_preheat_during_the_upload_refuses_before_sending(mapped, monkeypa
             heated["on"] = True
         return result
     mapped.run.side_effect = upload_then_preheat
-    model_job._preparation_evidence.side_effect = lambda st: heated["on"]
+    launch_print_now._preparation_evidence.side_effect = lambda st: heated["on"]
     jp, g = make_job(mapped.root, "a")
     with pytest.raises(SystemExit, match="heaters are already on"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
     assert mapped.scripts == [] and len(uploads(mapped.run)) == 1  # uploaded, but never sent
-    assert phases() == [] and model_job._read_claims() == {}
+    assert phases() == [] and launch_print_now._read_claims() == {}
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "not_submitted"
     # The refusal leaves no side effect of a start behind: the active spool, the display
     # message and the Home Assistant job card all come after the heater re-read.
-    model_job._sync_active_spool.assert_not_called()
-    model_job._announce_print_name.assert_not_called()
-    model_job._publish_job_card.assert_not_called()
+    launch_print_now._sync_active_spool.assert_not_called()
+    launch_print_now._announce_print_name.assert_not_called()
+    launch_print_now._publish_job_card.assert_not_called()
 
 
 def test_a_sent_mapped_start_still_sets_the_spool_display_and_job_card_before_the_post(mapped, patch):
     order = []
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
 
     def mr(st, path, data=None, timeout=30):
         if path == "/printer/gcode/script":
             order.append("post")
         return original(st, path, data=data, timeout=timeout)
-    model_job._mr.side_effect = mr
-    model_job._preparation_evidence.side_effect = lambda st: order.append("reread") or False
-    model_job._sync_active_spool.side_effect = lambda *a, **k: order.append("spool") or {}
-    model_job._announce_print_name.side_effect = lambda *a, **k: order.append("display")
-    model_job._publish_job_card.side_effect = lambda *a, **k: order.append("card")
+    jobs_common._mr.side_effect = mr
+    launch_print_now._preparation_evidence.side_effect = lambda st: order.append("reread") or False
+    launch_print_now._sync_active_spool.side_effect = lambda *a, **k: order.append("spool") or {}
+    launch_print_now._announce_print_name.side_effect = lambda *a, **k: order.append("display")
+    launch_print_now._publish_job_card.side_effect = lambda *a, **k: order.append("card")
     jp, g = make_job(mapped.root, "a")
-    model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
+    launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
     assert order[:5] == ["reread", "spool", "display", "card", "post"], order
 
 
@@ -739,7 +746,7 @@ def test_836_a_lost_post_is_not_credited_when_the_pre_post_baseline_was_unproven
     """The re-read immediately before the POST could not prove the heaters were off (None), so
     heater targets after a lost POST response are not this job's evidence: unresolved, not
     preparing. (Before #836 the mapped path passed heaters_were_off=True unconditionally.)"""
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
     posts = []
 
     def mr(st, path, data=None, timeout=30):
@@ -747,12 +754,12 @@ def test_836_a_lost_post_is_not_credited_when_the_pre_post_baseline_was_unproven
             posts.append(data["script"])
             raise TimeoutError("timed out")
         return original(st, path, data=data, timeout=timeout)
-    model_job._mr.side_effect = mr
+    jobs_common._mr.side_effect = mr
     # Unreadable before the POST (no baseline proven), on after it. The old code never read the
     # pre-POST baseline and credited the "on" read; the fix passes the real baseline through.
-    model_job._preparation_evidence.side_effect = lambda st: True if posts else None
+    launch_print_now._preparation_evidence.side_effect = lambda st: True if posts else None
     jp, g = make_job(mapped.root, "a")
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                         json.loads(jp.read_text()), jp, 0, False)
     assert out["phase"] == "preparing_or_unresolved" and out["accepted"] is False
     assert phases() == ["uncertain"] and len(posts) == 1
@@ -762,7 +769,7 @@ def test_836_a_bang_bang_gcode_store_reply_is_a_refusal(mapped, patch):
     """Klipper answers a failed SET_ZCOLOR with HTTP 200 and a `!!` line in the gcode store.
     The receipt is inspected: START_REFUSED naming the `!!` text, checkpoint rejected, lease
     released, exactly one POST."""
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
     posts = []
 
     def mr(st, path, data=None, timeout=30):
@@ -776,18 +783,18 @@ def test_836_a_bang_bang_gcode_store_reply_is_a_refusal(mapped, patch):
             entries = [{"message": '!! Unknown command:"SET_ZCOLOR"', "time": time.time()}] if posts else []
             return {"result": {"gcode_store": entries}}
         return original(st, path, data=data, timeout=timeout)
-    model_job._mr.side_effect = mr
+    jobs_common._mr.side_effect = mr
     jp, g = make_job(mapped.root, "a")
     with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(!! Unknown command"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
-    assert len(posts) == 1 and phases() == [] and model_job._read_claims() == {}
+    assert len(posts) == 1 and phases() == [] and launch_print_now._read_claims() == {}
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
 
 
 def test_836_a_bang_bang_line_in_the_receipt_itself_is_a_refusal(mapped, patch):
     """The `!!` line can also ride in the POST receipt itself; no gcode-store read is needed."""
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
     posts = []
 
     def mr(st, path, data=None, timeout=30):
@@ -795,10 +802,10 @@ def test_836_a_bang_bang_line_in_the_receipt_itself_is_a_refusal(mapped, patch):
             posts.append(data["script"])
             return {"result": '!! Unknown command:"SET_ZCOLOR"'}
         return original(st, path, data=data, timeout=timeout)
-    model_job._mr.side_effect = mr
+    jobs_common._mr.side_effect = mr
     jp, g = make_job(mapped.root, "a")
     with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(!! Unknown command"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
     assert len(posts) == 1 and phases() == []
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
@@ -816,29 +823,29 @@ def test_848_start_receipt_error_attributes_by_watermark_not_by_clock():
     now = time.time()
     before = {"message": "!! Must home axis first", "time": now - 1}  # 1 s before the send
     after_skewed = {"message": '!! Unknown command:"SET_ZCOLOR"', "time": now - 3600}  # skewed clock
-    with mock.patch.object(model_job, "_mr", side_effect=[
+    with patch_bound(jobs_common, "_mr", side_effect=[
             _store_reply([before]), _store_reply([before])]):
-        watermark = model_job._gcode_store_watermark({})
-        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
-    with mock.patch.object(model_job, "_mr", side_effect=[
+        watermark = launch_print_now._gcode_store_watermark({})
+        assert launch_print_now._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
+    with patch_bound(jobs_common, "_mr", side_effect=[
             _store_reply([before]), _store_reply([before, {"message": "echo: all good", "time": now},
                                                   after_skewed])]):
-        watermark = model_job._gcode_store_watermark({})
-        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) \
+        watermark = launch_print_now._gcode_store_watermark({})
+        assert launch_print_now._start_receipt_error({}, {"result": "ok"}, watermark=watermark) \
             == '!! Unknown command:"SET_ZCOLOR"'
     # No watermark (the store was unreadable before the POST): store lines are not attributed
     # to this submission at all — no evidence, never a refusal.
-    with mock.patch.object(model_job, "_mr", side_effect=OSError("offline")):
-        assert model_job._gcode_store_watermark({}) is None
-    with mock.patch.object(model_job, "_mr", return_value=_store_reply([after_skewed])):
-        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=None) is None
+    with patch_bound(jobs_common, "_mr", side_effect=OSError("offline")):
+        assert launch_print_now._gcode_store_watermark({}) is None
+    with patch_bound(jobs_common, "_mr", return_value=_store_reply([after_skewed])):
+        assert launch_print_now._start_receipt_error({}, {"result": "ok"}, watermark=None) is None
     # An unreadable readback store is likewise no evidence.
-    with mock.patch.object(model_job, "_mr", side_effect=[_store_reply([before]), OSError("offline")]):
-        watermark = model_job._gcode_store_watermark({})
-        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
+    with patch_bound(jobs_common, "_mr", side_effect=[_store_reply([before]), OSError("offline")]):
+        watermark = launch_print_now._gcode_store_watermark({})
+        assert launch_print_now._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
     # A `!!` line in the receipt itself still refuses, watermark or not.
-    with mock.patch.object(model_job, "_mr", side_effect=OSError("offline")):
-        assert model_job._start_receipt_error({}, {"result": '!! Unknown command:"SET_ZCOLOR"'},
+    with patch_bound(jobs_common, "_mr", side_effect=OSError("offline")):
+        assert launch_print_now._start_receipt_error({}, {"result": '!! Unknown command:"SET_ZCOLOR"'},
                                               watermark=None) == '!! Unknown command:"SET_ZCOLOR"'
 
 
@@ -846,16 +853,16 @@ def test_848_a_bang_line_logged_just_before_the_post_is_not_this_starts_refusal(
     """End to end on the mapped path: an unrelated console error 1 s before the SET_ZCOLOR POST
     (the old code's 5 s window blamed it) does not refuse a start the printer goes on to print."""
     store = [{"message": "!! Must home axis first", "time": time.time()}]  # already in the store pre-POST
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
 
     def mr(st, path, data=None, timeout=30):
         if path.startswith("/server/gcode_store"):
             return _store_reply(store)
         return original(st, path, data=data, timeout=timeout)
-    model_job._mr.side_effect = mr
-    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+    jobs_common._mr.side_effect = mr
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "printing")
     jp, g = make_job(mapped.root, "a")
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                         json.loads(jp.read_text()), jp, 0, False)
     assert out["started"] is True and out["phase"] == "executing"
     assert len(mapped.scripts) == 1
@@ -866,7 +873,7 @@ def test_848_a_bang_line_after_the_post_refuses_even_with_a_skewed_old_timestamp
     the old time filter skipped it and waited out a pending start; the watermark counts it,
     because it entered the store after the watermark was captured."""
     store, posts = [], []
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
 
     def mr(st, path, data=None, timeout=30):
         if path == "/printer/gcode/script":
@@ -876,23 +883,23 @@ def test_848_a_bang_line_after_the_post_refuses_even_with_a_skewed_old_timestamp
         if path.startswith("/server/gcode_store"):
             return _store_reply(store)
         return original(st, path, data=data, timeout=timeout)
-    model_job._mr.side_effect = mr
+    jobs_common._mr.side_effect = mr
     jp, g = make_job(mapped.root, "a")
     with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(!! Unknown command"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
-    assert len(posts) == 1 and phases() == [] and model_job._read_claims() == {}
+    assert len(posts) == 1 and phases() == [] and launch_print_now._read_claims() == {}
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
 
 
 # --------------------------------------------------------------------------- item 3: the checkpoint
 
 def launch_twice(mapped, patch, second_reprint):
-    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "printing")
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    first = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, None, 0, False)
-    return g, first, lambda: model_job.print_mapped_native(
+    first = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, None, 0, False)
+    return g, first, lambda: launch_print_now.print_mapped_native(
         g, mapped.st, {"display_off": 1}, {"0": 1}, job, None, 0, second_reprint)
 
 
@@ -913,17 +920,17 @@ def test_item3_an_unapproved_replay_is_still_refused_before_anything_is_uploaded
 
 
 def test_item3_an_attempt_that_never_reached_the_printer_does_not_block_a_retry(mapped, monkeypatch, patch):
-    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "printing")
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
-    original = model_job._mr.side_effect
-    model_job._mr.side_effect = lambda st, path, data=None, timeout=30: (
+    original = jobs_common._mr.side_effect
+    jobs_common._mr.side_effect = lambda st, path, data=None, timeout=30: (
         (_ for _ in ()).throw(http_error(400, "Must home axis first")) if path == "/printer/gcode/script"
         else original(st, path, data=data, timeout=timeout))
     with pytest.raises(SystemExit, match="rejected the start request"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, None, 0, False)
-    model_job._mr.side_effect = original
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, None, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, None, 0, False)
+    jobs_common._mr.side_effect = original
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, None, 0, False)
     assert out["started"] is True  # no --reprint needed: the first attempt provably sent nothing
 
 
@@ -1011,7 +1018,7 @@ def test_item1_a_launch_function_stops_when_its_lease_was_stolen(rig, monkeypatc
         launch_state.Lease._set(self, "leased")  # no-op for the stolen row
         return real(self)
     monkeypatch.setattr(launch_state.Lease, "submitting", stolen)
-    monkeypatch.setattr(model_job, "_printer_key", lambda *a, **k: "p1")
+    setattr_bound(monkeypatch, jobs_store, "_printer_key", lambda *a, **k: "p1")
     with pytest.raises(SystemExit, match="lost its printer lease"):
         launch("prusa", rig, client)
     assert client.uploads == [] and client.starts == []
@@ -1057,11 +1064,11 @@ def test_item9_the_mapped_fixture_native_mock_rejects_attributes_the_module_lack
 # --------------------------------------------------------------------------- review follow-ups
 
 def test_item3_another_files_printing_is_not_this_start():
-    with mock.patch.object(model_job, "_printer_phase",
+    with patch_bound(launch_gates, "_printer_phase",
                            return_value=("printing", "someone-elses.gcode", "Moonraker reports active execution")), \
             mock.patch.object(model_job.time, "sleep"):
         assert REAL_WAIT_PRINTING({}, "mine.gcode", 0.05) == "busy"
-    with mock.patch.object(model_job, "_printer_phase", return_value=("printing", "mine.gcode", "x")):
+    with patch_bound(launch_gates, "_printer_phase", return_value=("printing", "mine.gcode", "x")):
         assert REAL_WAIT_PRINTING({}, "mine.gcode", 0.05) == "printing"
 
 
@@ -1076,9 +1083,9 @@ def test_item4_a_cut_off_outcome_line_is_pending_not_started():
 
 
 def test_item4_the_mapped_detail_goes_on_its_own_earlier_line(mapped, patch, capsys):
-    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+    patch(launch_print_now, "_wait_printing", lambda *a, **k: "printing")
     jp, g = make_job(mapped.root, "a")
-    model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
+    launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
     lines = capsys.readouterr().out.splitlines()
     detail = [i for i, ln in enumerate(lines) if ln.startswith("MAPPED START DETAIL ")]
     final = [i for i, ln in enumerate(lines) if ln.startswith("MAPPED START READBACK ")]
@@ -1090,14 +1097,14 @@ def test_item5_a_failure_before_submitting_releases_the_start_claim_on_the_mappe
     seen = []
 
     def card(*a, **k):
-        seen.append(bool(model_job._read_claims()))
+        seen.append(bool(launch_print_now._read_claims()))
         raise RuntimeError("job card failed")
-    model_job._publish_job_card.side_effect = card
+    launch_print_now._publish_job_card.side_effect = card
     jp, g = make_job(mapped.root, "a")
     with pytest.raises(RuntimeError, match="job card failed"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
     assert seen == [True]  # the claim was held when it failed
-    assert model_job._read_claims() == {} and phases() == []
+    assert launch_print_now._read_claims() == {} and phases() == []
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "not_submitted"
 
 
@@ -1105,10 +1112,10 @@ def test_item5_a_failure_before_submitting_releases_the_start_claim_on_the_gener
     seen = []
 
     def card(*a, **k):
-        seen.append(bool(model_job._read_claims()))
+        seen.append(bool(launch_print_now._read_claims()))
         raise RuntimeError("job card failed")
-    model_job._publish_job_card.side_effect = card
+    launch_print_now._publish_job_card.side_effect = card
     jp, _ = make_job(printer.root, "a")
     with pytest.raises(RuntimeError, match="job card failed"):
-        model_job.print_now(jp)
-    assert seen == [True] and model_job._read_claims() == {} and phases() == []
+        launch_print_now.print_now(jp)
+    assert seen == [True] and launch_print_now._read_claims() == {} and phases() == []

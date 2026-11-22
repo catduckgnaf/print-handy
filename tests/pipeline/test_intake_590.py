@@ -4,7 +4,8 @@ import asyncio
 import json
 from types import SimpleNamespace as S
 
-from print_handy.core import model_job, prepared_intake
+from print_handy.core import prepared_intake
+from print_handy.jobs import sources as jobs_sources
 from .test_color_intake import state
 from .test_prepared_intake import Adapter, env  # noqa: F401  (env: shared intake fixture)
 
@@ -17,7 +18,7 @@ TOKEN_ERROR = RuntimeError(
 def _run(env, monkeypatch, error, mid):
     def fail(url):
         raise error
-    monkeypatch.setattr(model_job, "maker_inventory", fail)
+    monkeypatch.setattr(jobs_sources, "maker_inventory", fail)
     event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
               message_id=mid, text=URL)
     adapter = Adapter([])

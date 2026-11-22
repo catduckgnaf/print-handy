@@ -14,7 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from print_handy.core import heavy_worker, model_job, owned_worker, prepared_intake
+from print_handy.core import heavy_worker, owned_worker, prepared_intake
+from print_handy.intake import worker as intake_worker
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core.source_colors import canonical_prompts, inventory
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,9 +33,9 @@ def _decisions(path):
 def test_painted_fit_is_an_offloaded_step():
     entry = ("model_job", "painted_fit_for_job")
     assert entry in heavy_worker.ALLOWED
-    assert entry in prepared_intake._OFFLOAD
-    assert entry not in prepared_intake._SLICER_STEPS  # geometry only: the general lane, never the slicer's
-    assert prepared_intake._STEP_LABELS["painted_fit_for_job"] == "the bed fit check"
+    assert entry in intake_worker._OFFLOAD
+    assert entry not in intake_worker._SLICER_STEPS  # geometry only: the general lane, never the slicer's
+    assert intake_worker._STEP_LABELS["painted_fit_for_job"] == "the bed fit check"
 
 
 def test_heavy_sends_the_painted_fit_to_the_worker_not_a_thread(monkeypatch):
@@ -49,7 +51,7 @@ def test_heavy_sends_the_painted_fit_to_the_worker_not_a_thread(monkeypatch):
     monkeypatch.setattr(prepared_intake.owned_worker, "run", fake_run)
     monkeypatch.setattr(prepared_intake.owned_worker, "in_thread", no_thread)
     decisions = _decisions(PAINTED)
-    result = asyncio.run(prepared_intake._heavy(model_job.painted_fit_for_job, PAINTED, decisions, None))
+    result = asyncio.run(intake_worker._heavy(jobs_slice.painted_fit_for_job, PAINTED, decisions, None))
     assert result == {"scale": 1.0}
     assert seen["request"]["module"] == "model_job" and seen["request"]["func"] == "painted_fit_for_job"
     assert seen["request"]["args"] == [str(PAINTED), decisions, None]
@@ -58,7 +60,7 @@ def test_heavy_sends_the_painted_fit_to_the_worker_not_a_thread(monkeypatch):
 
 def test_the_worker_answers_exactly_what_the_in_process_fit_does():
     decisions = _decisions(PAINTED)
-    expected = model_job.painted_fit_for_job(PAINTED, decisions, None)
+    expected = jobs_slice.painted_fit_for_job(PAINTED, decisions, None)
     payload = json.dumps({"module": "model_job", "func": "painted_fit_for_job",
                           "args": [str(PAINTED), decisions, None], "kwargs": {}})
     done = subprocess.run([sys.executable, "-m", "print_handy.core.heavy_worker"], input=payload.encode(),
@@ -76,7 +78,7 @@ def test_one_painted_fit_inventories_the_source_once(monkeypatch):
     # inventoried once (keyed by its content hash) and the answer is unchanged.
     from print_handy.core import source_colors
     decisions = _decisions(PAINTED)
-    expected = model_job._painted_fit_for_job(PAINTED, decisions, None)
+    expected = jobs_slice._painted_fit_for_job(PAINTED, decisions, None)
     calls = []
     real = source_colors._inventory
 
@@ -85,8 +87,8 @@ def test_one_painted_fit_inventories_the_source_once(monkeypatch):
         return real(path)
 
     monkeypatch.setattr(source_colors, "_inventory", counting)
-    assert model_job.painted_fit_for_job(PAINTED, decisions, None) == expected
+    assert jobs_slice.painted_fit_for_job(PAINTED, decisions, None) == expected
     assert len(calls) == 1
     calls.clear()
-    model_job._painted_fit_for_job(PAINTED, decisions, None)
+    jobs_slice._painted_fit_for_job(PAINTED, decisions, None)
     assert len(calls) > 1, "without the scope the fit inventories the source more than once"

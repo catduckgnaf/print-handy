@@ -15,6 +15,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import link_intake, model_job, prepared_intake
+from print_handy.jobs import filament as jobs_filament
 from .test_color_intake import state as ad5x_state
 from .test_prepared_intake import AD5X_ROW, Adapter, env, run_preview  # noqa: F401  (pytest fixture)
 
@@ -96,64 +97,64 @@ def test_a1_summary_names_the_configured_printer_not_the_ad5x(env, monkeypatch):
 
 def test_single_extruder_slot_one_is_the_configured_spool(monkeypatch):
     use_model(monkeypatch, A1)
-    assert model_job.configured_slots(a1_state()) == {"1": {"color": "white", "material": "PLA",
+    assert jobs_filament.configured_slots(a1_state()) == {"1": {"color": "white", "material": "PLA",
                                                              "spoolman_id": None}}
     # A recorded slot map is used as is; nothing is derived over it.
     recorded = {**a1_state(), "filament_slots": {"1": {"color": "black", "material": "PETG", "spoolman_id": 4}}}
-    assert model_job.configured_slots(recorded) == recorded["filament_slots"]
+    assert jobs_filament.configured_slots(recorded) == recorded["filament_slots"]
     # A spool with no color name is offered by its material; no color is invented for it.
     unnamed = a1_state()
     unnamed["spool"].pop("name")
-    assert model_job.configured_slots(unnamed)["1"]["color"] == "loaded"
-    assert model_job.build_slot_labels([model_job.resolve_filament_selection(unnamed, {"slot": 1})]) == ["Loaded PLA"]
+    assert jobs_filament.configured_slots(unnamed)["1"]["color"] == "loaded"
+    assert model_job.build_slot_labels([jobs_filament.resolve_filament_selection(unnamed, {"slot": 1})]) == ["Loaded PLA"]
     # No spool material: nothing to offer, so intake still stops before any color question.
     bare = a1_state()
     bare["spool"].pop("material")
-    assert model_job.configured_slots(bare) == {}
+    assert jobs_filament.configured_slots(bare) == {}
 
 
 def test_multi_slot_printers_still_require_their_configured_slots(env, monkeypatch):  # noqa: F811
     st = {**ad5x_state(), "filament_slots": {}}
     assert printers.current().multi_slot
-    assert model_job.configured_slots(st) == {}
+    assert jobs_filament.configured_slots(st) == {}
     adapter, result, receipt = run_a1_flow(env, [1, 0, 1], st)
     assert any("requires one to four distinct configured slots" in m for m in adapter.sent)
     assert receipt["status"] != "COLOR_CONFIRMED" and env.sliced == [] and env.starts == []
     # Stock Flashforge is not multi_slot, but it has four IFS bays: no slot is derived for it either.
     use_model(monkeypatch, "flashforge_stock.ad5x")
-    assert model_job.configured_slots(st) == {}
+    assert jobs_filament.configured_slots(st) == {}
 
 
 # ----------------------------------------------------------------------------- Spoolman ID rules
 
 def test_unbound_spool_needs_no_spoolman_id_on_a_single_extruder(monkeypatch):
     use_model(monkeypatch, A1)
-    picked = model_job.resolve_filament_selection(a1_state(), {"slot": 1})
+    picked = jobs_filament.resolve_filament_selection(a1_state(), {"slot": 1})
     assert picked == {"slot": 1, "color": "white", "material": "PLA", "spoolman_id": None}
     # Spoolman being configured (Docker always sets services.spoolman_url) does not change that.
     st = {**a1_state(), "spoolman_url": "http://127.0.0.1:8000"}
-    assert model_job.resolve_filament_selection(st, {"slot": 1})["spoolman_id"] is None
+    assert jobs_filament.resolve_filament_selection(st, {"slot": 1})["spoolman_id"] is None
 
 
 def test_bound_spool_keeps_the_existing_spoolman_id_rules(monkeypatch):
     use_model(monkeypatch, A1)
     st = {**a1_state(spoolman_id=7), "spoolman_url": "http://spoolman.test:7912"}
-    assert model_job.resolve_filament_selection(st, {"slot": 1})["spoolman_id"] == 7
+    assert jobs_filament.resolve_filament_selection(st, {"slot": 1})["spoolman_id"] == 7
     with pytest.raises(ValueError, match="spool mismatch"):
-        model_job.resolve_filament_selection(st, {"slot": 1, "spoolman_id": 8})
+        jobs_filament.resolve_filament_selection(st, {"slot": 1, "spoolman_id": 8})
     with pytest.raises(ValueError, match="positive Spoolman spool ID"):
-        model_job.resolve_filament_selection(a1_state(), {"slot": 1, "spoolman_id": 0})
+        jobs_filament.resolve_filament_selection(a1_state(), {"slot": 1, "spoolman_id": 0})
 
 
 def test_multi_slot_still_requires_a_spoolman_id(monkeypatch):
     unmapped = {**ad5x_state(), "filament_slots": {"1": {"color": "white", "material": "PLA"}}}
     with pytest.raises(ValueError, match="requires an explicit Spoolman spool ID"):
-        model_job.resolve_filament_selection(unmapped, {"slot": 1})
+        jobs_filament.resolve_filament_selection(unmapped, {"slot": 1})
     with pytest.raises(ValueError, match="positive Spoolman spool ID"):
-        model_job.validate_filament_selection({"slot": 1, "color": "white", "material": "PLA"})
+        jobs_filament.validate_filament_selection({"slot": 1, "color": "white", "material": "PLA"})
     use_model(monkeypatch, "flashforge_stock.ad5x")
     with pytest.raises(ValueError, match="requires an explicit Spoolman spool ID"):
-        model_job.resolve_filament_selection(unmapped, {"slot": 1})
+        jobs_filament.resolve_filament_selection(unmapped, {"slot": 1})
 
 
 # ----------------------------------------------------------------------------- guards still refuse
@@ -161,9 +162,9 @@ def test_multi_slot_still_requires_a_spoolman_id(monkeypatch):
 def test_material_mismatch_and_unknown_slots_are_still_refused(monkeypatch):
     use_model(monkeypatch, A1)
     with pytest.raises(ValueError, match="slot 1 material does not match"):
-        model_job.resolve_filament_selection(a1_state(), {"slot": 1, "material": "PETG"})
+        jobs_filament.resolve_filament_selection(a1_state(), {"slot": 1, "material": "PETG"})
     with pytest.raises(ValueError, match="slot 1 color does not match"):
-        model_job.resolve_filament_selection(a1_state(), {"slot": 1, "color": "black"})
+        jobs_filament.resolve_filament_selection(a1_state(), {"slot": 1, "color": "black"})
     # Only slot 1 is derived; a second slot on a single extruder has no record and no spool.
     with pytest.raises(ValueError):
-        model_job.resolve_filament_selection(a1_state(), {"slot": 2, "color": "white", "material": "PLA"})
+        jobs_filament.resolve_filament_selection(a1_state(), {"slot": 2, "color": "white", "material": "PLA"})

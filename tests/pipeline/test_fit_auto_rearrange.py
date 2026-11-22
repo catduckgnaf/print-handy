@@ -16,6 +16,11 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.core import color_geometry, model_job, plate_merge, prepared_intake, source_colors
+from print_handy.intake import fit_flow as intake_fit_flow
+from print_handy.intake import worker as intake_worker
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from .test_plate_merge import STATE, _fake_slice, _prism_source, _two_slot_decisions
 from .test_prepared_intake import Adapter, env  # noqa: F401  (pytest fixture)
 from .test_color_intake import state
@@ -39,9 +44,9 @@ def _plan(source, job):
     st = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
     decisions = _two_slot_decisions(manifest)
-    view = model_job._per_part_view(manifest, decisions)
-    slots = model_job._part_slots(view, manifest)
-    return plate_merge.plan(source, manifest, model_job.plate_manifest(source)['plates'], slots, st, job=job)
+    view = jobs_slice._per_part_view(manifest, decisions)
+    slots = jobs_slice._part_slots(view, manifest)
+    return plate_merge.plan(source, manifest, jobs_slice.plate_manifest(source)['plates'], slots, st, job=job)
 
 
 def _placed_rects(verdict):
@@ -82,14 +87,14 @@ def test_full_size_one_plate_per_part_uses_the_merge_planner(tmp_path):
     _turn_needed_source(source)
     st = json.loads(STATE.read_text())
     decisions = _two_slot_decisions(source_colors.inventory(source))
-    plan = model_job.full_size_one_plate(source, st, decisions)
+    plan = jobs_slice.full_size_one_plate(source, st, decisions)
     assert plan['rearrange_plate'] is True and plan['via'] == 'merge_planner'
     assert plan['part_count'] == 5 and plan['turned_parts'] >= 1 and plan['scale'] == 1.0
     # Two 150 mm squares truly need two plates: no one-plate plan, split stays.
     two = tmp_path / 'two.3mf'
     _prism_source(two, {'1': (_rect(150, 150), 10, (0, 0)), '2': (_rect(150, 150), 10, (160, 0))}, [['1', '2']])
-    assert model_job.full_size_one_plate(two, st, _two_slot_decisions(source_colors.inventory(two))) is None
-    assert model_job.full_size_one_plate(two, st, None) is None
+    assert jobs_slice.full_size_one_plate(two, st, _two_slot_decisions(source_colors.inventory(two))) is None
+    assert jobs_slice.full_size_one_plate(two, st, None) is None
 
 
 def test_full_size_one_plate_honors_the_listings_separate_instruction(tmp_path):
@@ -102,9 +107,9 @@ def test_full_size_one_plate_honors_the_listings_separate_instruction(tmp_path):
     st = json.loads(STATE.read_text())
     decisions = _two_slot_decisions(source_colors.inventory(source))
     job = {'summary': 'Print each part separately, one plate at a time.'}
-    assert model_job.full_size_one_plate(source, st, decisions, job=job) is None
+    assert jobs_slice.full_size_one_plate(source, st, decisions, job=job) is None
     # The same source without the instruction still proves the one-plate fit.
-    assert model_job.full_size_one_plate(source, st, decisions)['rearrange_plate'] is True
+    assert jobs_slice.full_size_one_plate(source, st, decisions)['rearrange_plate'] is True
 
 
 def _per_part_job(tmp_path, source):
@@ -145,7 +150,7 @@ def test_per_part_rearranged_job_slices_one_multicolor_plate(tmp_path, monkeypat
                        f'{labels}G1 X10 Y10 Z0.2\nEND_PRINT\n')
         return out, {'geometry': geometry}, []
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    model_job.slice_job(job_path)
+    jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert len(calls) == 1 and calls[0]['fit_by_object']
     assert saved['plate_merge']['mode'] == 'merge'
@@ -166,7 +171,7 @@ def test_per_part_rearrangement_that_cannot_share_a_plate_packs_each_color_plate
     assert _plan(source, FLAG)['mode'] == 'split'
     fake = _fake_slice()
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
-    model_job.slice_job(job_path)
+    jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     plates = saved['derived_plates']
     assert sorted(row['slot'] for row in plates) == [1, 2]
@@ -190,7 +195,7 @@ def test_without_a_rearrangement_the_per_slot_split_keeps_its_old_behavior(tmp_p
     job_path.write_text(json.dumps(data))
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', _fake_slice())
     with pytest.raises(RuntimeError, match='without cropping'):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
 
 
 # Intake: the one-plate rearrangement is applied without a question.
@@ -204,13 +209,13 @@ def _oversized(env, monkeypatch, one_plate):
         searched.append(st)
         return {'scales': [0.8], 'rotations': []}
     monkeypatch.setattr(orca_adapter, 'fit_options', fit_options)
-    monkeypatch.setattr(model_job, 'per_part_fit_options', lambda path, decisions, options, bed: options)
+    monkeypatch.setattr(jobs_slice, 'per_part_fit_options', lambda path, decisions, options, bed: options)
     checked = []
 
     def full_size_one_plate(path, st, decisions, capacity=None, multi_tool=False, job=None):
         checked.append(decisions)
         return one_plate
-    monkeypatch.setattr(model_job, 'full_size_one_plate', full_size_one_plate)
+    monkeypatch.setattr(jobs_slice, 'full_size_one_plate', full_size_one_plate)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='rearrange', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0, 0, 0, 0, 0, 0])
@@ -246,18 +251,18 @@ def test_without_a_one_plate_rearrangement_the_fit_question_is_still_asked(env, 
 
 
 def test_an_explicit_size_is_never_overridden_by_auto_rearrange():
-    assert prepared_intake._auto_rearrange_eligible({}, {}) is True
-    assert prepared_intake._auto_rearrange_eligible({}, {'scale': 0.8}) is False
-    assert prepared_intake._auto_rearrange_eligible({}, {'orientation': {'rotation': [1] * 9}}) is False
-    assert prepared_intake._auto_rearrange_eligible({'unit_decision': {'units': 'inch'}}, {}) is False
+    assert intake_fit_flow._auto_rearrange_eligible({}, {}) is True
+    assert intake_fit_flow._auto_rearrange_eligible({}, {'scale': 0.8}) is False
+    assert intake_fit_flow._auto_rearrange_eligible({}, {'orientation': {'rotation': [1] * 9}}) is False
+    assert intake_fit_flow._auto_rearrange_eligible({'unit_decision': {'units': 'inch'}}, {}) is False
 
 
 def test_notice_distinguishes_author_layout_from_rearranged():
-    text = prepared_intake.auto_rearrange_notice('Swing', {'part_count': 9, 'turned_parts': 0}, printer='AD5X')
+    text = intake_fit_flow.auto_rearrange_notice('Swing', {'part_count': 9, 'turned_parts': 0}, printer='AD5X')
     assert text == 'Swing does not fit the AD5X bed as the author laid it out, so I rearranged the 9 parts onto one plate at 100%.'
-    turned = prepared_intake.auto_rearrange_notice('Swing', {'part_count': 9, 'turned_parts': 3}, printer='AD5X')
+    turned = intake_fit_flow.auto_rearrange_notice('Swing', {'part_count': 9, 'turned_parts': 3}, printer='AD5X')
     assert 'rotated and rearranged the 9 parts' in turned
-    question = prepared_intake.fit_question('Swing', {'scales': [0.8], 'rearrange_100': {'part_count': 9}})
+    question = intake_fit_flow.fit_question('Swing', {'scales': [0.8], 'rearrange_100': {'part_count': 9}})
     assert 'as the author laid it out' in question and 'Rearranged: all 9 parts fit one plate at full size.' in question
 
 
@@ -288,9 +293,9 @@ class _EditingAdapter:
 
 def _run_phases(adapter, monkeypatch, durations):
     clock = _Clock()
-    monkeypatch.setattr(prepared_intake, 'FIT_HEARTBEAT_S', 0.01)
-    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 0)
-    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'}, clock=clock)
+    monkeypatch.setattr(intake_fit_flow, 'FIT_HEARTBEAT_S', 0.01)
+    monkeypatch.setattr(intake_fit_flow, 'FIT_QUIET_S', 0)
+    status = intake_fit_flow.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'}, clock=clock)
 
     async def work(seconds):
         # Each heartbeat tick advances the fake clock by 10 s of "work".
@@ -357,7 +362,7 @@ def test_duplo_shaped_per_part_job_is_rearranged_without_asking_and_slices(env, 
     from print_handy.core import orca_adapter
     source = env.tmp / 'turns.3mf'
     _turn_needed_source(source)
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy_to(source, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy_to(source, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 0)
     monkeypatch.setattr(orca_adapter, 'fit_options',
                         lambda path, st: pytest.fail('the option search ran after a one-plate fit'))
@@ -416,7 +421,7 @@ def test_duplo_shaped_job_with_a_06_nozzle_is_not_auto_rearranged_and_searches_f
     from print_handy.core import orca_adapter
     source = env.tmp / 'turns.3mf'
     _turn_needed_source(source)
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy_to(source, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy_to(source, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 0)
     searched = []
 
@@ -436,7 +441,7 @@ def test_duplo_shaped_job_with_a_06_nozzle_is_not_auto_rearranged_and_searches_f
     assert 'full_size_rearrange_plan' not in job
 
 
-_real_slice_job = model_job.slice_job
+_real_slice_job = jobs_slice.slice_job
 
 
 def _copy_to(src, dest):
@@ -507,7 +512,7 @@ def _duplo_source(path):
 
 def _slots_by_name(manifest, rule):
     st = json.loads(STATE.read_text())
-    sel = {s: model_job.resolve_filament_selection(st, dict(st['filament_slots'][str(s)], slot=s)) for s in (1, 2, 4)}
+    sel = {s: jobs_filament.resolve_filament_selection(st, dict(st['filament_slots'][str(s)], slot=s)) for s in (1, 2, 4)}
     name_of = {str(i): name for i, (name, _w, _d) in enumerate(DUPLO_PARTS, 1)}
     choices = {}
     for part in manifest['parts']:
@@ -532,12 +537,12 @@ def test_duplo_shape_is_one_multicolor_plate_at_the_minimum_preset(tmp_path, mon
     source = _duplo_source(tmp_path / 'duplo.3mf')
     st = json.loads(STATE.read_text())
     decisions = _slots_by_name(source_colors.inventory(source), rule)
-    plan = model_job.full_size_one_plate(source, st, decisions)
+    plan = jobs_slice.full_size_one_plate(source, st, decisions)
     assert plan and plan['via'] == 'merge_planner' and plan['part_count'] == 9
     manifest = source_colors.inventory(source)
-    view = model_job._per_part_view(manifest, decisions)
-    verdict = plate_merge.plan(source, manifest, model_job.plate_manifest(source)['plates'],
-                               model_job._part_slots(view, manifest), st, job=FLAG)
+    view = jobs_slice._per_part_view(manifest, decisions)
+    verdict = plate_merge.plan(source, manifest, jobs_slice.plate_manifest(source)['plates'],
+                               jobs_slice._part_slots(view, manifest), st, job=FLAG)
     assert verdict['mode'] == 'merge'
     tower = verdict.get('prime_tower_xy_mm')
     bounds = list(verdict['placed_bounds_mm'].values())
@@ -556,7 +561,7 @@ def test_duplo_shape_at_the_standard_preset_is_not_offered_as_one_plate(tmp_path
     source = _duplo_source(tmp_path / 'duplo.3mf')
     st = json.loads(STATE.read_text())
     decisions = _slots_by_name(source_colors.inventory(source), rule)
-    assert model_job.full_size_one_plate(source, st, decisions) is None
+    assert jobs_slice.full_size_one_plate(source, st, decisions) is None
 
 
 def test_merge_and_rearrange_packing_keep_the_brim_on_the_bed():
@@ -564,9 +569,10 @@ def test_merge_and_rearrange_packing_keep_the_brim_on_the_bed():
     # on a part packed there crosses the bed edge. The merge planner and the
     # per-slot rearranger now pack with the edge margin plus the brim, like
     # the single-plate arranger already did.
-    from print_handy.core import model_job, plate_merge
-    assert model_job._merge_edge(None) == plate_merge.EDGE_MARGIN_MM
-    assert model_job._merge_edge(5) == plate_merge.EDGE_MARGIN_MM + 5
+    from print_handy.core import plate_merge
+    from print_handy.jobs import slice as jobs_slice
+    assert jobs_slice._merge_edge(None) == plate_merge.EDGE_MARGIN_MM
+    assert jobs_slice._merge_edge(5) == plate_merge.EDGE_MARGIN_MM + 5
     edge = plate_merge.EDGE_MARGIN_MM + 5
     placed = plate_merge.pack({'a': (100.0, 100.0), 'b': (60.0, 60.0)}, 220, 2.0, edge=edge)
     assert placed is not None
@@ -585,14 +591,14 @@ def test_prefetched_fit_check_already_done_posts_nothing(monkeypatch):
     # #734: the author-layout probe starts while the color question is open; when the
     # operator answers after it finished, the fit check has nothing to wait for.
     adapter = _EditingAdapter()
-    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
+    status = intake_fit_flow.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
                                        clock=_Clock())
 
     async def probe():
         return 3
 
     async def main():
-        task = prepared_intake._prefetch(probe())
+        task = intake_worker._prefetch(probe())
         await asyncio.sleep(0)  # the operator is still answering; the probe completes
         await asyncio.sleep(0)
         got = await status.run('checking the layout as the author laid it out', task,
@@ -606,9 +612,9 @@ def test_prefetched_fit_check_already_done_posts_nothing(monkeypatch):
 def test_a_fit_check_that_settles_within_the_quiet_window_posts_nothing(monkeypatch):
     # 2026-11-03: a small STL whose probe finished a moment after a quick color answer
     # still flashed "Checking whether it fits the bed." in the channel.
-    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 5)
+    monkeypatch.setattr(intake_fit_flow, 'FIT_QUIET_S', 5)
     adapter = _EditingAdapter()
-    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
+    status = intake_fit_flow.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
                                        clock=_Clock())
 
     async def probe():
@@ -616,7 +622,7 @@ def test_a_fit_check_that_settles_within_the_quiet_window_posts_nothing(monkeypa
         return 2
 
     async def main():
-        task = prepared_intake._prefetch(probe())
+        task = intake_worker._prefetch(probe())
         got = await status.run('checking the layout as the author laid it out', task,
                                first_text='Checking whether it fits the bed.')
         await status.finish('fits.')
@@ -628,8 +634,8 @@ def test_a_fit_check_that_settles_within_the_quiet_window_posts_nothing(monkeypa
 def test_cancelling_the_intake_during_the_quiet_window_cancels_the_fit_worker(monkeypatch):
     # Codex on #859: the quiet wait must sit inside the cleanup that cancels the worker,
     # or a cancelled intake leaves the fit probe holding the slicer lane.
-    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 5)
-    status = prepared_intake.FitStatus(_EditingAdapter(), S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
+    monkeypatch.setattr(intake_fit_flow, 'FIT_QUIET_S', 5)
+    status = intake_fit_flow.FitStatus(_EditingAdapter(), S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
                                        clock=_Clock())
     started = []
 
@@ -650,9 +656,9 @@ def test_cancelling_the_intake_during_the_quiet_window_cancels_the_fit_worker(mo
 
 
 def test_prefetched_fit_check_still_running_shows_the_usual_status(monkeypatch):
-    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 0.01)
+    monkeypatch.setattr(intake_fit_flow, 'FIT_QUIET_S', 0.01)
     adapter = _EditingAdapter()
-    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
+    status = intake_fit_flow.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
                                        clock=_Clock())
 
     async def probe():
@@ -660,7 +666,7 @@ def test_prefetched_fit_check_still_running_shows_the_usual_status(monkeypatch):
         return 1
 
     async def main():
-        task = prepared_intake._prefetch(probe())
+        task = intake_worker._prefetch(probe())
         return await status.run('checking the layout as the author laid it out', task,
                                 first_text='Checking whether it fits the bed.')
     assert asyncio.run(main()) == 1
@@ -672,9 +678,9 @@ def test_prefetched_fit_check_failure_surfaces_when_awaited():
         raise RuntimeError('orca probe failed')
 
     async def main():
-        task = prepared_intake._prefetch(probe())
+        task = intake_worker._prefetch(probe())
         await asyncio.sleep(0)
-        status = prepared_intake.FitStatus(_EditingAdapter(), S(chat_id='c1', thread_id=None), {})
+        status = intake_fit_flow.FitStatus(_EditingAdapter(), S(chat_id='c1', thread_id=None), {})
         with pytest.raises(RuntimeError, match='orca probe failed'):
             await status.run('checking the layout as the author laid it out', task)
     asyncio.run(main())

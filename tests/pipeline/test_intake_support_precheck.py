@@ -8,12 +8,21 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import model_job, prepared_intake, support_clearance, slice_warnings
+from print_handy.core import prepared_intake, support_clearance, slice_warnings
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.intake import questions as intake_questions
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
 from print_handy.core.background_slice import BackgroundSlice, slice_binding
 from print_handy.core.slice_recipe import RECIPE_VERSION, binding_sha256
 from .helpers import external
 print_next = external("print_next")
 from .test_color_intake import source, state
+from tests.bound_names import setattr_bound
 
 V12_FIXTURE = Path(__file__).parent.parent / "fixtures" / "modeled_supports_shelf.3mf"
 
@@ -82,12 +91,12 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(prepared_intake, '_with_stop', _logged_with_stop)
 
     folder_root = tmp_path / 'archive'
-    monkeypatch.setattr(model_job, 'ARCHIVE', folder_root)
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', folder_root)
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'ghost', 'title': 'Ghost Stand',
         'sources': [{'name': 'ghost.3mf', 'instance_id': 1}]})
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(src, dest))
-    monkeypatch.setattr(model_job, 'audit', lambda path: {'plates': 1})
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(src, dest))
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {'plates': 1})
 
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
@@ -106,14 +115,14 @@ def env(tmp_path, monkeypatch):
         data = json.loads(Path(job_path).read_text())
         data['derived_plates'] = [{'gcode': str(gcode), 'plate_id': 1, 'slot': 1}]
         data['gcode'] = str(gcode)
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         try:
             return [gcode]
         finally:
             if gcode.exists():
                 sliced.append(str(gcode))
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
     stub = tmp_path / 'print-now-stub'
     stub.write_text('#!/bin/sh\necho "started $2"\n')
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
@@ -194,10 +203,10 @@ def test_flagged_orca_warning_offers_supports_before_bed_clear(env, monkeypatch)
                 'supports_on': True,
                 'support_decided': True,
             }
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         return [gcode]
 
-    monkeypatch.setattr(model_job, 'slice_job', slice_with_warning)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', slice_with_warning)
 
     # picks: one color (2 on the #1473 offer), slot 1 (0), pick "Slice and print with supports (recommended)" (0)
     adapter, result, receipt = run_flow(env, [2, 0, 0])
@@ -253,7 +262,7 @@ def _warning_slice(env, first_delay=0.0, supports_delay=0.0):
                 'supports_on': True,
                 'support_decided': True,
             }
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         return [gcode]
 
     return slice_with_warning
@@ -267,7 +276,7 @@ def test_slow_first_slice_warning_still_offers_supports_before_bed_clear(env, mo
     missed the question entirely and the case's pinned prompt never fired
     (CI: test_discord_flow[witch-ghost-cults3d]).
     """
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, first_delay=2.0))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env, first_delay=2.0))
     # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print with supports (recommended)" (0)
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     last_q = adapter.questions[-1]
@@ -285,7 +294,7 @@ def test_slow_speculative_slice_does_not_break_slice_approval(env, monkeypatch):
     end, so an operator answer recorded in that window was clobbered and the
     approval guard refused the handoff (CI: test_discord_flow[stl-open-thin-wall]).
     """
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, supports_delay=1.5))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env, supports_delay=1.5))
     # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print without supports" (1)
     adapter, result, receipt = run_flow(env, [2, 0, 1])
     assert receipt['status'] == 'STARTED'
@@ -297,7 +306,7 @@ def test_slow_speculative_slice_does_not_break_slice_approval(env, monkeypatch):
 def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatch):
     """V12 fixture triggers clearance warning, fix buttons, and modeled support disclosure."""
     assert V12_FIXTURE.is_file()
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
@@ -345,7 +354,7 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     override_q = adapter.questions[-1]
     # The gate offers the deterministic low-gap repairs beside the waiver (no AI).
     assert override_q['choices'] == ['Extend underside to plate', 'Flatten (sink) to plate',
-                                     prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+                                     intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     # #1612: this source has more than one placed part and the fake
     # with-supports G-code carries no object labels, so coverage cannot
     # be attributed to each part and the question names it unverified
@@ -361,7 +370,7 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
 
 def test_flagged_v12_with_supports_print_anyway_waives_both_gates_and_starts(env, monkeypatch):
     """With supports + failed gates + Print anyway at the override question starts (#922 dead end)."""
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
@@ -378,7 +387,7 @@ def test_flagged_v12_with_supports_print_anyway_waives_both_gates_and_starts(env
     job = json.loads(Path(receipt['job_json']).read_text())
     ack = job['clearance_acknowledgement']
     assert ack['acknowledged'] is True and ack['via'] == 'print_anyway'
-    assert ack['gcode_sha256'] == model_job.file_sha256(job['gcode'])
+    assert ack['gcode_sha256'] == gcode_artifact.file_sha256(job['gcode'])
 
 
 def _coverage_only_report(path, **_kw):
@@ -394,11 +403,11 @@ def test_coverage_failure_without_clearance_finding_asks_instead_of_dead_ending(
     verification (no low-clearance finding, so no pre-check Print anyway
     button) used to say "choose Print anyway" and return with no buttons."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     # one color (2 on the #1473 offer), slot 1 (0), with supports (0), then the override question
     adapter, result, receipt = run_flow(env, [2, 0, 0, pick])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'Print Handy checked the sliced file and found' in q['question']
     assert 'under 1.0 mm' not in q['question']
     assert receipt['support_coverage']['ok'] is False
@@ -415,7 +424,7 @@ def test_coverage_failure_without_clearance_finding_asks_instead_of_dead_ending(
 def test_flagged_v12_print_anyway_records_explicit_ack_and_starts(env, monkeypatch):
     """The explicit Print anyway choice is the one waiver for a low-clearance finding (#922 gap 2)."""
     assert V12_FIXTURE.is_file()
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
@@ -431,7 +440,7 @@ def test_flagged_v12_print_anyway_records_explicit_ack_and_starts(env, monkeypat
 def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypatch):
     """The Reorient button wires the reorient fix and clears the support decision (#922 gap 7)."""
     assert V12_FIXTURE.is_file()
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
@@ -475,7 +484,7 @@ def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeyp
     one single-color plate per slot.
     """
     from print_handy.core import edit_plan
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
     # The fixture already lies on its largest face: its real lay-flat turn is identity.
@@ -498,7 +507,7 @@ def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeyp
 
 def test_post_slice_support_prompt_cancel_keeps_the_slice(env, monkeypatch):
     """Cancelling at the post-slice support prompt keeps the archived slice (#922 gap 6)."""
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     # Ready menu (flagged, no clearance fixes): sup(0), nosup(1), slice only(2);
     # then the post-slice support prompt: re-slice(0), print without(1), cancel(2).
     adapter, result, receipt = run_flow(env, [2, 0, 2, 2])
@@ -510,7 +519,7 @@ def test_post_slice_support_prompt_cancel_keeps_the_slice(env, monkeypatch):
 
 def test_post_slice_print_without_supports_records_cantilever_override(env, monkeypatch):
     """Print without supports after an Orca warning records the explicit override (#922 gap 3)."""
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     # Ready: slice only(2); support prompt: print without(1); start button: start(0).
     adapter, result, receipt = run_flow(env, [2, 0, 2, 1, 0])
     assert receipt['status'] == 'STARTED'
@@ -518,7 +527,7 @@ def test_post_slice_print_without_supports_records_cantilever_override(env, monk
     rec = job.get('unsupported_cantilever_override') or {}
     assert rec.get('code') == 'UNSUPPORTED_CANTILEVER_OVERRIDE'
     assert rec.get('warning') == ['object Body has floating regions']
-    assert rec.get('source_sha256') == model_job.file_sha256(job['downloaded_file'])
+    assert rec.get('source_sha256') == gcode_artifact.file_sha256(job['downloaded_file'])
 
 
 def test_gcode_3mf_upload_is_named_as_already_sliced_not_corrupt(env, monkeypatch, tmp_path):
@@ -537,7 +546,7 @@ def test_gcode_3mf_upload_is_named_as_already_sliced_not_corrupt(env, monkeypatc
         out = dest / pkg.name
         out.write_bytes(pkg.read_bytes())
         return out
-    monkeypatch.setattr(model_job, 'printables_download', _download)
+    monkeypatch.setattr(jobs_sources, 'printables_download', _download)
     adapter, result, receipt = run_flow(env, [])
     assert result['reason'] == 'source-first intake failed closed'
     assert any('already-sliced G-code package' in m for m in adapter.sent)
@@ -548,7 +557,7 @@ def test_gcode_3mf_upload_is_named_as_already_sliced_not_corrupt(env, monkeypatc
 def test_extend_underside_fix_action_repairs_geometry(env, monkeypatch):
     """Choosing 'Extend underside to plate' modifies the mesh and clears the clearance risk."""
     assert V12_FIXTURE.is_file()
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
@@ -578,9 +587,9 @@ def test_negative_start_guard_refuses_unacknowledged_risk(tmp_path):
         'support_clearance': support_clearance.analyze(str(V12_FIXTURE)),
         'color_decisions': {},
         'artifact_binding': {
-            'source_sha256': model_job.file_sha256(V12_FIXTURE),
-            'decisions_sha256': model_job.decisions_digest({}),
-            'gcode_sha256': model_job.file_sha256(gcode),
+            'source_sha256': gcode_artifact.file_sha256(V12_FIXTURE),
+            'decisions_sha256': jobs_store.decisions_digest({}),
+            'gcode_sha256': gcode_artifact.file_sha256(gcode),
             'recipe_version': RECIPE_VERSION,
             'recipe_sha256': 'dummy',
         },
@@ -589,7 +598,7 @@ def test_negative_start_guard_refuses_unacknowledged_risk(tmp_path):
 
     # Should raise RuntimeError because clearance is risky and no acknowledgement exists
     with pytest.raises(RuntimeError, match='insufficient support clearance'):
-        model_job.require_current_artifact(job, str(gcode))
+        launch_gates.require_current_artifact(job, str(gcode))
 
     # After recording acknowledgement, it passes
     support_clearance.record_clearance_acknowledgement(job, gcode=str(gcode), source_file=str(V12_FIXTURE))
@@ -600,7 +609,7 @@ def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch)
     """After a geometry repair the saved color decisions must bind the new
     source SHA256, or the restarted slice refuses them (Codex P2)."""
     assert V12_FIXTURE.is_file()
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
@@ -611,13 +620,13 @@ def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 2])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
-    assert job['color_decisions']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
+    assert job['color_decisions']['source_sha256'] == gcode_artifact.file_sha256(job['downloaded_file'])
 
 
 def test_print_anyway_on_a_slice_only_install_slices_and_starts_nothing(env, monkeypatch):
     """2.3.2 review: the low-clearance waiver started a print where print delivery is off
     and recorded a bed-clear approval it never asked for. It is "Slice anyway" there."""
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
     monkeypatch.setattr(prepared_intake.delivery, 'methods', lambda: [])
@@ -652,7 +661,7 @@ def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch)
     Print anyway waiver -- "with supports" records none -- so the binding
     is exercised through that choice."""
     assert V12_FIXTURE.is_file()
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
@@ -663,8 +672,8 @@ def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch)
     ack = job['clearance_acknowledgement']
     assert ack['acknowledged'] is True
     assert ack['via'] == 'print_anyway'
-    assert ack['gcode_sha256'] == model_job.file_sha256(job['gcode'])
-    assert ack['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
+    assert ack['gcode_sha256'] == gcode_artifact.file_sha256(job['gcode'])
+    assert ack['source_sha256'] == gcode_artifact.file_sha256(job['downloaded_file'])
 
 
 def test_flagged_slice_labels_when_printer_cannot_print(env, monkeypatch):
@@ -672,7 +681,7 @@ def test_flagged_slice_labels_when_printer_cannot_print(env, monkeypatch):
     takes the slice-only path: no bed-clear approval, no printer start
     (Codex P2)."""
     monkeypatch.setattr(prepared_intake.delivery, 'methods', lambda: [])
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
 
     # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice with supports" (0), then the
     # slice-only delivery menu's "Done, don't print" (1) — Slice and Download offers

@@ -31,9 +31,11 @@ import pytest
 from print_handy import settings
 from print_handy.bot import recent_links, runtime
 from print_handy.bot.router import load_plugin
-from print_handy.core import model_job, prepared_intake, printer_state
+from print_handy.core import prepared_intake, printer_state
+from print_handy.jobs import common as jobs_common
 from print_handy.runtime import _config
 from print_handy.runtime import print_control as pc
+from tests.bound_names import setattr_bound
 
 plugin = load_plugin()
 
@@ -263,7 +265,7 @@ def inverted_archive(tmp_path, monkeypatch):
     _arch_job(arch, "panel-a--aaa", "Panel A Lower V21", launch_age_s=3600, job_age_s=7200)
     _arch_job(arch, "shield--bbb", "NVIDIA Shield Remote Holder", job_age_s=60)
     _arch_job(arch, "benchy--ccc", "Benchy", launch_age_s=3 * 86400, job_age_s=3 * 86400)
-    monkeypatch.setattr(model_job, "ARCHIVE", arch)
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", arch)
     return arch
 
 
@@ -303,7 +305,7 @@ def two_printer_archive(tmp_path, monkeypatch):
     _arch_job(arch, "workshop--b", "Workshop Jig", launch_age_s=7200, job_age_s=7200,
               printer_id=WORKSHOP)
     _arch_job(arch, "workshop--c", "Workshop Unprinted", job_age_s=60, printer_id=WORKSHOP)
-    monkeypatch.setattr(model_job, "ARCHIVE", arch)
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", arch)
     monkeypatch.setattr(pc, "ARCHIVE", arch)
     return arch
 
@@ -369,7 +371,7 @@ def test_unreusable_last_print_is_named_never_replaced_by_an_older_one(cfg, inta
     _arch_job(arch, "older--a", "Older Bracket", launch_age_s=7200, job_age_s=7200)
     newest = _arch_job(arch, "panel-a--b", "Panel A Lower V21", launch_age_s=600, job_age_s=600)
     os.remove(newest["downloaded_file"])
-    monkeypatch.setattr(model_job, "ARCHIVE", arch)
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", arch)
     with pytest.raises(prepared_intake.LastPrintNotReusable) as info:
         prepared_intake.last_printed_job(archive=arch)
     assert info.value.title == "Panel A Lower V21"
