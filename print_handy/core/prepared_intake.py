@@ -2706,22 +2706,38 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                       confirm_target=confirm_target)
 
 
-async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeout):
-    """Ask about slots the printer screen and Print Handy disagree about (#1788); False = cancelled.
+async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeout, used_slots=None, rebound=None):
+    """Advise about used slots the printer screen and Print Handy disagree about (#1788); False = cancelled.
 
-    Reading the screen, the shelf or the ledger is fail-soft inside
-    ``slot_verify`` (no doubt, a log line). The question itself behaves like
-    every other intake question: an unanswered one ends the intake unsliced.
+    Advisory only: reading the screen, the shelf or the ledger is fail-soft
+    inside ``slot_verify``, and an unanswered question, a skip or a failed
+    relink warns and goes on. Only an explicit Cancel returns False.
     """
     from ..intake import slot_verify
 
     async def ask_slot(text, labels):
-        return await _ask(adapter, source, key, text, labels, timeout)
+        return await _ask(adapter, source, key, text, labels, min(timeout, slot_verify.ADVISORY_TIMEOUT_S))
 
     async def say(text):
         await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
 
-    return await slot_verify.verify_slots(state, printer_id, ask_slot, say)
+    return await slot_verify.verify_slots(state, printer_id, ask_slot, say, used_slots=used_slots, rebound=rebound)
+
+
+def _refresh_rebound_selections(decisions, rebound, state):
+    """Point decisions at the spool just confirmed for a rebound slot (never a guess; only after an answer)."""
+    from . import model_job as mj
+
+    def fresh(selection):
+        if isinstance(selection, dict) and selection.get('slot') in rebound:
+            record = mj.configured_slots(state).get(str(selection['slot'])) or {}
+            return mj.resolve_filament_selection(state, dict(record, slot=int(selection['slot'])))
+        return selection
+
+    if decisions.get('mode') == 'single_color':
+        decisions['selection'] = fresh(decisions.get('selection'))
+    else:
+        decisions['choices'] = {k: fresh(v) for k, v in (decisions.get('choices') or {}).items()}
 
 
 async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
@@ -3344,13 +3360,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if getattr(job_adapter, 'has_native_screen', False):
             await asyncio.to_thread(purge.refresh_best_effort, state, job_adapter, job.get('printer_id'))
             purge.require_jacker_capacity(manifest, job_adapter, state)
-            # #1788: a slot the printer screen and Print Handy disagree about is
-            # asked about before the colors are offered or anything is sliced.
-            if not await _verify_slots(adapter, source, key, metadata, state,
-                                       printer_id or job.get('printer_id'), timeout):
-                receipt.update(status='CANCELLED_SLOT_UNVERIFIED')
-                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                return {'action': 'skip', 'reason': 'operator cancelled on an unverified slot'}
         selections = [mj.resolve_filament_selection(state, dict(label, slot=int(slot)))
                       for slot, label in sorted(mj.configured_slots(state).items())]
         # A tool_based printer's positions are tools, never slots (#346, #1198).
@@ -3621,6 +3630,23 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
         mj.set_color_decisions(latest, validated)
+        if getattr(job_adapter, 'has_native_screen', False):
+            # #1788: advise about a slot this print uses when the printer screen and
+            # Print Handy disagree about it. Advisory: only an explicit Cancel stops.
+            used = {int(sel['slot']) for sel in _decision_selections(validated)
+                    if isinstance(sel, dict) and sel.get('slot') is not None}
+            rebound = []
+            if not await _verify_slots(adapter, source, key, metadata, state,
+                                       printer_id or job.get('printer_id'), timeout,
+                                       used_slots=used, rebound=rebound):
+                receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                return {'action': 'skip', 'reason': 'operator cancelled at the spool question'}
+            if rebound:
+                _refresh_rebound_selections(decisions, set(rebound), state)
+                validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                                               selected_plate_ids=selected_plates)
+                mj.set_color_decisions(latest, validated)
         if validated.get('mode') == 'per_part':
             # #1473: remember the accepted mapping for the next post of this
             # file with the same spools loaded (best-effort, never blocking).

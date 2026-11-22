@@ -24,8 +24,12 @@ closes without a chat answer, or an idle insertion prompt. Intake asks about
 a marked slot once. The mark ends with any answer for that slot, and goes
 stale on its own as soon as the slot is bound to a different spool.
 
-Fail-soft by design: an unreadable screen lane, Spoolman or ledger means no
-doubt and a log line, never a blocked intake.
+Advisory, never a gate: the question is asked only about a slot the print
+selected or uses, after the colors are chosen, and an unanswered or skipped
+question, a failed relink or an unreadable screen lane, Spoolman or ledger
+means a log line (and a warning in chat), never a held or cancelled intake.
+Only the operator's explicit Cancel ends the intake. Nothing is rebound
+without an answer.
 """
 from __future__ import annotations
 
@@ -40,6 +44,8 @@ logger = logging.getLogger(__name__)
 
 FILE_NAME = "slot-verify.json"  # keep in step with _path() (tests/test_state_files.py reads the literal)
 CANCEL_LABEL = "Cancel"
+SKIP_LABEL = "Skip, print as is"
+ADVISORY_TIMEOUT_S = 60  # an ignored warning must not hold intake for the full question timeout
 MAX_SHELF_CHOICES = 3
 
 
@@ -176,6 +182,7 @@ def add_choices(doubt: SlotDoubt, shelf: list[dict[str, Any]], spool_label: Call
                 taken.add(spool_id)
     keep = f"Keep #{doubt.record_spool_id} {doubt.record_label}" if doubt.record_spool_id else f"Keep {doubt.record_label}"
     choices.append({"kind": "keep", "label": keep})
+    choices.append({"kind": "skip", "label": SKIP_LABEL})
     choices.append({"kind": "cancel", "label": CANCEL_LABEL})
     doubt.choices = choices
     return doubt
@@ -193,7 +200,7 @@ def question(doubt: SlotDoubt) -> str:
             doubt.reload_cause, "")
         reloaded = f"{where} was reloaded {when}".rstrip()
         return (f"Before slicing: {reloaded} and nobody confirmed which spool went in. Print Handy "
-                f"still has {record} there. Which is loaded? Nothing is sliced until you answer.")
+                f"still has {record} there. Which is loaded? Slicing goes on if you skip this.")
     if doubt.reason == "spool":
         screen = f"spool #{doubt.screen_spool_id}"
         if doubt.screen_material:
@@ -201,7 +208,7 @@ def question(doubt: SlotDoubt) -> str:
     else:
         screen = doubt.screen_material or "a different filament"
     return (f"Before slicing: the printer screen says {where} holds {screen}, but Print Handy has "
-            f"{record} there. Which is loaded? Nothing is sliced until you answer.")
+            f"{record} there. Which is loaded? Slicing goes on if you skip this.")
 
 
 # ------------------------------------------------------------------ ledger
@@ -314,12 +321,17 @@ def read_doubts(state: dict[str, Any], printer_id: str | None) -> list[SlotDoubt
 
 async def verify_slots(state: dict[str, Any], printer_id: str | None,
                        ask: Callable[[str, list[str]], Awaitable[Any]],
-                       send: Callable[[str], Awaitable[Any]]) -> bool:
-    """Ask about every slot in doubt before intake offers colors. Returns False when the operator cancels.
+                       send: Callable[[str], Awaitable[Any]],
+                       used_slots: set[int] | None = None,
+                       rebound: list[int] | None = None) -> bool:
+    """Advise about slots in doubt that the print uses. Returns False only when the operator cancels.
 
     ``ask(question, labels)`` returns the picked index; ``send(text)`` posts a
-    line. A rebind reloads ``state`` in place, so the caller's colors and
-    slicing see the confirmed spool.
+    line. ``used_slots`` limits the advice to the slots the print selected
+    (None = every slot in doubt). An unanswered question (it raises, or
+    returns nothing), Skip and a failed relink all warn and go on. A rebind
+    reloads ``state`` in place and appends the slot to ``rebound`` so the
+    caller can refresh the choices that named it.
     """
     import asyncio
 
@@ -327,14 +339,33 @@ async def verify_slots(state: dict[str, Any], printer_id: str | None,
     from ..runtime import spool_sync
 
     doubts = await asyncio.to_thread(read_doubts, state, printer_id)
+    if used_slots is not None:
+        wanted = {int(slot) for slot in used_slots}
+        for doubt in doubts:
+            if doubt.slot not in wanted:
+                logger.info("slot %s in doubt (%s) but this print does not use it; not asking", doubt.slot,
+                            doubt.reason)
+        doubts = [doubt for doubt in doubts if doubt.slot in wanted]
     for doubt in doubts:
         logger.info("slot %s in doubt (%s): screen spool=%s material=%r, record spool=%s material=%r",
                     doubt.slot, doubt.reason, doubt.screen_spool_id, doubt.screen_material,
                     doubt.record_spool_id, doubt.record_material)
         labels = [choice["label"] for choice in doubt.choices]
-        pick = await ask(question(doubt), labels)
+        try:
+            pick = await ask(question(doubt), labels)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if type(exc).__name__ == "PromptCancelled":
+                raise  # an explicit Cancel or Stop typed at the prompt still cancels the job
+            logger.info("slot %s spool question not answered (%r); continuing", doubt.slot, exc)
+            pick = None
         choice = doubt.choices[pick] if isinstance(pick, int) and 0 <= pick < len(doubt.choices) else None
-        if choice is None or choice["kind"] == "cancel":
+        if choice is None or choice["kind"] == "skip":
+            await send(f"Slot {doubt.slot} may not hold the spool Print Handy has ({doubt.record_label}). "
+                       "Continuing without changing it. Use /spool change if the record is wrong.")
+            continue
+        if choice["kind"] == "cancel":
             await send("Cancelled. Nothing was sliced, uploaded or started.")
             return False
         if choice["kind"] == "keep":
@@ -350,14 +381,16 @@ async def verify_slots(state: dict[str, Any], printer_id: str | None,
                 prior_disposition="shelf", expected_prior_spool_id=doubt.record_spool_id,
                 note="Confirmed at intake: the screen and the record disagreed (#1788)")
         except Exception as exc:
-            # Nothing is sliced from a slot whose binding just failed: stop and say so.
+            # The relink is optional: the print goes on with the record as it was.
             logger.warning("slot %s rebind to #%s failed: %r", doubt.slot, choice["spool_id"], exc)
             await send(f"Could not link spool #{choice['spool_id']} to slot {doubt.slot} ({exc}). "
-                       "Nothing was sliced. Fix the slot with /spool change, then post the model again.")
-            return False
+                       "Continuing with the recorded spool. Use /spool change if the record is wrong.")
+            continue
         await asyncio.to_thread(clear_unconfirmed, doubt.slot)
         await send(spool_sync.bind_text(result))
         fresh = await asyncio.to_thread(printer_state.load, **({"printer_id": printer_id} if printer_id else {}))
         state.clear()
         state.update(fresh)
+        if rebound is not None:
+            rebound.append(doubt.slot)
     return True
