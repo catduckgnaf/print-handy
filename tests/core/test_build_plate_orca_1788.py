@@ -1,5 +1,4 @@
 """Plate -> Orca bed type mapping and the Web UI printer editor field (#1788)."""
-import pytest
 
 from print_handy.core import build_plate
 from print_handy.webui import printer_settings
