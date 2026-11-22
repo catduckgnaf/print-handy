@@ -125,6 +125,24 @@ def source_digest(profiles: Path) -> str:
     return digest.hexdigest()
 
 
+def _require_printer_list(vendor: str, name: str, values: Mapping[str, Any]) -> None:
+    """Refuse a vendor filament preset that ``candidates`` could not match exactly.
+
+    ``candidates`` selects by the explicit ``compatible_printers`` list and does not evaluate Orca's
+    ``compatible_printers_condition`` expressions. At the pinned Orca every vendor-folder preset carries a
+    list and none sets a condition; a bump that adds one fails here, in the bump PR, instead of the preset
+    silently never serving a spool.
+    """
+    condition = values.get("compatible_printers_condition")
+    if isinstance(condition, list):
+        condition = next((c for c in condition if str(c).strip()), None)
+    if condition and str(condition).strip():
+        raise ProfileDatabaseError(f"{vendor} preset {name!r} uses compatible_printers_condition {condition!r}, "
+                                   "which the resolver does not evaluate")
+    if not values.get("compatible_printers"):
+        raise ProfileDatabaseError(f"{vendor} preset {name!r} has no compatible_printers list")
+
+
 def build(profiles: Path, orca_version: str, orca_revision: str) -> dict[str, Any]:
     """The database for one Orca ``resources/profiles`` tree, as plain data (see ``write``)."""
     profiles = Path(profiles)
@@ -153,6 +171,8 @@ def build(profiles: Path, orca_version: str, orca_revision: str) -> dict[str, An
             if not _instantiable(own):
                 continue
             values, chain = flat_filament(vendor, name)
+            if vendor != LIBRARY_VENDOR:
+                _require_printer_list(vendor, name, values)
             vendors.setdefault(vendor, []).append({
                 "name": name,
                 "filament_id": values.get("filament_id"),

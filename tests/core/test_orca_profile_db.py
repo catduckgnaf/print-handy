@@ -222,6 +222,30 @@ def test_own_brand_needs_a_clear_majority():
     assert db.own_brand([rec(f"x{i}", "Other") for i in range(5)]) is None
 
 
+def test_a_vendor_preset_matched_only_by_condition_is_refused(tmp_path):
+    """The resolver matches the explicit printer list; a condition-only preset must fail the build (the bump
+    PR), not silently drop out of resolution."""
+    profiles = _tree(tmp_path)
+    path = profiles / "Acme" / "filament" / "cond.json"
+    path.write_text(json.dumps({"name": "Generic PETG Cond @Acme", "inherits": "fdm_filament_pet",
+                                "instantiation": "true",
+                                "compatible_printers_condition": "printer_model==\"Acme One\""}))
+    with pytest.raises(db.ProfileDatabaseError, match="compatible_printers_condition"):
+        db.build(profiles, "9.9.9", "a" * 40)
+    path.write_text(json.dumps({"name": "Generic PETG Cond @Acme", "inherits": "fdm_filament_pet",
+                                "instantiation": "true"}))
+    with pytest.raises(db.ProfileDatabaseError, match="no compatible_printers"):
+        db.build(profiles, "9.9.9", "a" * 40)
+
+
+def test_the_committed_vendor_presets_all_carry_an_explicit_printer_list():
+    for vendor in db.meta()["vendors"]:
+        if vendor == db.LIBRARY_VENDOR:
+            continue
+        for record in db.vendor_filaments(vendor):
+            assert record["compatible_printers"] and not record["condition"], (vendor, record["name"])
+
+
 def test_inherits_cycle_and_missing_parent_are_refused(tmp_path):
     profiles = tmp_path / "profiles" / "Acme" / "filament"
     profiles.mkdir(parents=True)
