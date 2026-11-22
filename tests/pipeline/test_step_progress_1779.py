@@ -160,7 +160,9 @@ def test_the_discord_stop_view_message_ticks_and_ends_done(monkeypatch):
     ticks, last = edits[:-1], edits[-1]
     assert ticks and all(set(e) == {"content"} and e["content"].startswith("Downloading file 1 of 2… ")
                          for e in ticks)
-    assert last == {"content": "Downloading file 1 of 2: done, 0 s.", "view": None}
+    # Same 0.4 s step as above: a loaded runner past 0.5 s rounds to 1 s.
+    assert last in ({"content": "Downloading file 1 of 2: done, 0 s.", "view": None},
+                    {"content": "Downloading file 1 of 2: done, 1 s.", "view": None})
     assert adapter.clarifies == [] and adapter.sent == []
 
 
