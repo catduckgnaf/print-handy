@@ -54,11 +54,13 @@ full breakdown is on the Web UI cost page.
 
 ## On the Ready card
 
-When a job is sliced, the Ready card carries one line such as
-"Estimated cost: about USD 0.31 in filament and power", priced from the
-sliced file and its assigned spools (the larger variant when both
-support choices are shown). It is information only: it adds no button,
-asks nothing, and a problem working it out only leaves the line off.
+The chat Ready card shows no cost by default. Set `cost.ready_card_estimate`
+to `true` to add one line such as "Estimated cost: about USD 0.31 in
+filament and power", priced from the sliced file and its assigned spools
+(the larger variant when both support choices are shown). It is
+information only: it adds no button, asks nothing, and a problem working
+it out only leaves the line off. `/print-cost`, the Web UI calculator and
+stored cost are not affected by the setting.
 
 The command also appears in the live demo's command list
 (`demo/scenarios.json`), which tracks the production command table.
