@@ -48,7 +48,7 @@ The fake server changes these at run time to play a start (heaters on, then `pri
 the uploaded file, then finished with no file); those transitions are code in `tests/replay/conftest.py`,
 not recordings.
 
-`silk_pla_slot2_sliced.gcode.txt`: the header block (the `hermes_tool_slots` and `zmod_color_data`
+`silk_pla_slot2_sliced.gcode.txt`: the header block (the `print_handy_tool_slots` and `zmod_color_data`
 lines, `"Silk PLA"` quoted as Orca writes it) and the whole `CONFIG_BLOCK` are copied from a real
 slice, minus the first-line MD5 (the printer is screenless, and the body is not the sliced body).
 The executable body is synthesised: the startup heater lines, a six-layer stub with the `;TYPE` and

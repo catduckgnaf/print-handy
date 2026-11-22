@@ -18,7 +18,7 @@ and ``\\b`` still look at the character before ``pos``).
 
 An anchor is a literal line prefix (a ``str``) or an ``Anchor``: a regular
 expression fragment for patterns that do not start with a fixed literal
-(``;\\s*hermes_tool_slots``). An ``Anchor`` joins the scan only as a
+(``[ \\t]*T\\d``). An ``Anchor`` joins the scan only as a
 lookahead, so it never consumes text and can never hide the next line from
 the scan. An anchor that was not declared before the scan, or a literal the
 alternation cannot represent safely (empty, or containing a newline), falls

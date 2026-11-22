@@ -11,6 +11,7 @@ import hashlib, json, math, re, sys
 from .. import printers, settings
 from ..core import material_accept, printer_state
 from ..jobs.common import BED_MM, MAX_HEIGHT_MM, _mr
+from . import tool_map
 from .artifact import GcodeArtifact
 from .bounds import BOUNDS_PARSER_VERSION, cached_motion_bounds
 
@@ -138,7 +139,7 @@ _VERIFY_LINE_PREFIXES = (
     '; filament_type = ', '; nozzle_diameter = ', '; first_layer_height = ', '; initial_layer_print_height = ',
     '; nozzle_temperature_initial_layer = ', '; nozzle_temperature = ',
     'START_PRINT', 'PRINT_START', 'END_PRINT', 'PRINT_END', 'M190', 'M109', 'M104', 'M140', ';LAYER_CHANGE',
-    printer_state.TOOL_LINE_ANCHOR, printer_state.TOOL_SLOTS_ANCHOR,
+    printer_state.TOOL_LINE_ANCHOR, tool_map.ANCHOR,
 )
 
 
@@ -250,7 +251,7 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None, s
     adapter = adapter or printers.current()
     if slot is not None:
         # The job's selected slot fills an empty active-spool record (#1524
-        # review: a stock-firmware artifact carries no hermes_tool_slots map).
+        # review: a stock-firmware artifact carries no tool map).
         state = printer_state.with_artifact_spool(state, None, slot=slot)
     if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
@@ -344,7 +345,7 @@ def _verify_offline(gcode_path, state, adapter=None, recorded_temps=None):
     adapter = adapter or printers.current()
     from ..core.printer_state import _material_temperature_contract
     text = GcodeArtifact.of(gcode_path).read_text(errors='ignore')
-    if not (state.get('spool') or {}).get('material') and 'hermes_tool_slots' in text:
+    if not (state.get('spool') or {}).get('material') and tool_map.mentions(text):
         # Only a mapped artifact can fill an empty record here; the cheap
         # substring check spares the anchored scan on every other file.
         state = printer_state.with_artifact_spool(state, text)

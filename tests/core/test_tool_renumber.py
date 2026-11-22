@@ -3,7 +3,7 @@ import hashlib
 
 from print_handy.core import tool_renumber
 
-HEAD = ('; hermes_tool_slots = {"0":{"physical_slot":3,"spoolman_id":21}}\n'
+HEAD = ('; print_handy_tool_slots = {"0":{"physical_slot":3,"spoolman_id":21}}\n'
         '; zmod_color_data = 0|#161616|PLA+\n'
         '; filament_colour = #161616\n; filament_type = PLA+\n; filament used [g] = 157.58\n'
         'M104 S215 T0\nSTART_PRINT\nT0\nG1 X1 E1\n')
@@ -13,7 +13,7 @@ def test_single_tool_on_slot_three_becomes_t2():
     text, identity = tool_renumber.relabel(HEAD, {"0": {"physical_slot": 3, "spoolman_id": 21}}, {0})
     assert identity == {"2": 3}
     assert "M104 S215 T0\n" in text  # the heater's T0 is the one heater, never a filament
-    assert '; hermes_tool_slots = {"2":{"physical_slot":3,"spoolman_id":21}}' in text
+    assert '; print_handy_tool_slots = {"2":{"physical_slot":3,"spoolman_id":21}}' in text
     assert "; zmod_color_data = 2|#161616|PLA+" in text
     assert "; filament_colour = #161616;#161616;#161616\n" in text
     assert "; filament_type = PLA+;PLA+;PLA+\n" in text
@@ -93,7 +93,7 @@ def test_launch_copy_keeps_line_endings_and_a_valid_md5(tmp_path):
     from print_handy.launch import print_now
     from print_handy.printers.flashforge import zmod
     adapter = SimpleNamespace(native=zmod, slot_count=4)
-    body = b'; hermes_tool_slots = {"0":{"physical_slot":1}}\nM104 S215 T0\nT0\nG1 X1\n'
+    body = b'; print_handy_tool_slots = {"0":{"physical_slot":1}}\nM104 S215 T0\nT0\nG1 X1\n'
     g = _zmod_file(tmp_path, body)
     original = g.read_bytes()
     path, labels = print_now._slot_labeled_copy(adapter, g, {"0": 1})
@@ -105,4 +105,4 @@ def test_launch_copy_keeps_line_endings_and_a_valid_md5(tmp_path):
     assert labels == {"from": {"0": 3}, "to": {"2": 3}}
     first, _, rest = path.read_bytes().partition(b"\n")
     assert first == b"; MD5:" + hashlib.md5(rest).hexdigest().encode() + b"\r"
-    assert rest == b'; hermes_tool_slots = {"2":{"physical_slot":3}}\nM104 S215 T0\nT2\nG1 X1\n'
+    assert rest == b'; print_handy_tool_slots = {"2":{"physical_slot":3}}\nM104 S215 T0\nT2\nG1 X1\n'
