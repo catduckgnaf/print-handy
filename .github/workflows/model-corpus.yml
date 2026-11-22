@@ -4,6 +4,11 @@ on:
   push:
     branches: [ci/model-corpus-171]
   workflow_dispatch:
+    inputs:
+      large_mesh_only:
+        description: Run only the large-mesh intake job (#1790)
+        type: boolean
+        default: false
   schedule:
     - cron: '17 6 * * 1'
 
@@ -12,6 +17,7 @@ permissions:
 
 jobs:
   corpus:
+    if: ${{ !inputs.large_mesh_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -107,6 +113,7 @@ jobs:
 
   edit-corpus:
     name: External edit corpus (shard ${{ matrix.shard }})
+    if: ${{ !inputs.large_mesh_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -162,4 +169,83 @@ jobs:
               f.write(f"## Edit corpus shard {os.environ['SHARD']}\n\n| Model | Result | Seconds | Error |\n|---|---:|---:|---|\n")
               for r in rows:
                   f.write(f"| `{r['model']}` | {r['result']} | {r['seconds']:.2f} | {r['error'].replace('|', '/')} |\n")
+          PY
+
+  large-mesh:
+    # #1790: real multi-MB sources through intake (unit question, load,
+    # combine), with the native mesh kernel and on the Python fallback, with
+    # stage timings. The files (tests/corpus/large_mesh/*/case.toml) are
+    # fetched from their source pinned by SHA-256 on every run and never
+    # cached, committed or released; a refused or changed download fails the
+    # job instead of skipping the case.
+    name: Large-mesh intake (native kernel and Python fallback)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install the pinned Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -c constraints.txt ".[test]" "maturin==1.16.0"
+      - name: Build the native bounds extension into the source package
+        # The same staging as ci.yml's native-bounds job.
+        run: |
+          mkdir -p native/bounds/print_handy/core
+          cp print_handy/__init__.py native/bounds/print_handy/__init__.py
+          cp print_handy/core/__init__.py native/bounds/print_handy/core/__init__.py
+          (cd native/bounds && maturin build --release --locked)
+          python -m pip install native/bounds/target/wheels/*.whl
+          PURELIB="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          cp "$PURELIB"/print_handy/core/_bounds_native*.so print_handy/core/
+          python -c 'from print_handy.core import _bounds_native as m; print("MESH_KERNEL_VERSION", m.MESH_KERNEL_VERSION)'
+      - name: Fetch the large-mesh corpus by SHA-256
+        env:
+          PRINT_HANDY_LARGE_MESH_CORPUS: ${{ runner.temp }}/large-mesh
+        run: python -m tests.corpus.large_mesh.fetch
+      - name: Large-mesh intake with the native kernel (budgets enforced)
+        env:
+          PRINT_HANDY_LARGE_MESH_CORPUS: ${{ runner.temp }}/large-mesh
+          PRINT_HANDY_LARGE_MESH_REQUIRE: "1"
+          PRINT_HANDY_MESH_REQUIRE_NATIVE: "1"
+          PRINT_HANDY_LARGE_MESH_TIMING: ${{ runner.temp }}/large-mesh-timing.jsonl
+        run: python -m pytest -v -s -rs tests/corpus/large_mesh
+      - name: Large-mesh intake on the Python fallback (timed only)
+        env:
+          PRINT_HANDY_LARGE_MESH_CORPUS: ${{ runner.temp }}/large-mesh
+          PRINT_HANDY_LARGE_MESH_REQUIRE: "1"
+          PRINT_HANDY_BOUNDS_IMPL: python
+          PRINT_HANDY_LARGE_MESH_TIMING: ${{ runner.temp }}/large-mesh-timing.jsonl
+        run: python -m pytest -v -s -rs tests/corpus/large_mesh
+      - name: Upload stage timings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: large-mesh-timing
+          path: ${{ runner.temp }}/large-mesh-timing.jsonl
+          if-no-files-found: warn
+      - name: Add timing summary
+        if: always()
+        env:
+          TIMING: ${{ runner.temp }}/large-mesh-timing.jsonl
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ['TIMING'])
+          rows = [json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+          stages = []
+          for row in rows:
+              stages += [k for k in row if k not in ('case', 'impl', 'native') and k not in stages]
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:
+              f.write('## Large-mesh intake stage times (s)\n\n| Case | Path | ' + ' | '.join(stages) + ' |\n')
+              f.write('|---|---|' + '---:|' * len(stages) + '\n')
+              for row in rows:
+                  path = 'native' if row['native'] else 'Python'
+                  f.write(f"| `{row['case']}` | {path} | " + ' | '.join(str(row.get(s, '')) for s in stages) + ' |\n')
           PY

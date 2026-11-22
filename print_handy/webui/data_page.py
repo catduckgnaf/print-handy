@@ -27,6 +27,7 @@ CSS = """
 .data-page .dp-years a {
   padding: 0.3rem 0.75rem; border: 1px solid var(--color-line); border-radius: 999px;
   color: var(--color-ink); text-decoration: none; font-size: 0.875rem;
+  min-height: 2.75rem; display: inline-flex; align-items: center; box-sizing: border-box;
 }
 .data-page .dp-years a[aria-current="page"] { background: var(--color-ink); color: var(--color-bg); }
 .data-page .dp-stats {
@@ -179,7 +180,7 @@ def year_switcher(payload):
     for year in reversed(years):
         mark = ' aria-current="page"' if current == year else ""
         links.append(f'<a href="/data?{urlencode({"year": year})}"{mark}>{_esc(year)}</a>')
-    return f'<nav class="dp-years" aria-label="Choose a year">{"".join(links)}</nav>'
+    return f'<nav class="dp-years data-year-nav" aria-label="Choose a year">{"".join(links)}</nav>'
 
 
 def empty_state(payload):

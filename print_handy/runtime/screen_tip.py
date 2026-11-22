@@ -32,6 +32,7 @@ import json
 import logging
 import threading
 import time
+from collections import OrderedDict
 from typing import Any, Mapping
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,14 @@ TIMEOUT_S = 5
 # start: the config is retained, so once per printer per run is enough.
 _DISCOVERY_SENT: set[str] = set()
 _DISCOVERY_LOCK = threading.Lock()
+
+# Each printer's recent roasts that went out, by event id, oldest first: one
+# roast per print job, so a retried delivery of a recent job does not
+# publish it again (or put an older roast back over a newer one). Bounded
+# per printer; a retry older than the last RECENT_ROASTS jobs is not expected.
+RECENT_ROASTS = 32
+_RECENT_ROASTS: dict[str, OrderedDict[str, None]] = {}
+_RECENT_ROASTS_LOCK = threading.Lock()
 
 # How each roast bank's print ended, for the line behind the tap.
 _ENDINGS = {
@@ -210,14 +219,24 @@ def _mqtt_send(value: dict[str, Any], status: str, printer_id: str,
         payload = dict(value)
         payload["printer_id"] = printer_id
         payload["status"] = status
+        # Claim the printer in the same locked step that checks it, so two
+        # roasts publishing at once cannot both send discovery. The publish
+        # runs outside the lock; a failed one gives the claim back so the
+        # next roast retries.
         with _DISCOVERY_LOCK:
             first = printer_id not in _DISCOVERY_SENT
+            if first:
+                _DISCOVERY_SENT.add(printer_id)
         if first:
-            topic, config = discovery_config(notify, printer_id)
-            if notify_bus.publish_retained(topic, json.dumps(config)):
-                with _DISCOVERY_LOCK:
-                    _DISCOVERY_SENT.add(printer_id)
-            else:
+            sent = False
+            try:
+                topic, config = discovery_config(notify, printer_id)
+                sent = notify_bus.publish_retained(topic, json.dumps(config))
+            finally:
+                if not sent:
+                    with _DISCOVERY_LOCK:
+                        _DISCOVERY_SENT.discard(printer_id)
+            if not sent:
                 logger.info("mqtt roast discovery not published for %s", printer_id)
         if not notify_bus.publish_retained(
                 roast_state_topic(notify, printer_id), json.dumps(payload)):
@@ -281,6 +300,10 @@ def publish_roast(line: str, *, title: str, status: str = "completed", key: str 
                   facts: Mapping[str, Any] | None = None, printer_id: str | None = None) -> bool:
     """Queue a print's roast for that printer's displays. True when a sink queued it.
 
+    One roast per print job: the same job's roast (same event id) for the
+    same printer is queued once, and a repeat of any of that printer's
+    last ``RECENT_ROASTS`` jobs returns False.
+
     ``printer_id`` is the roster id of the printer the print ran on; None is
     the default printer. The sinks are independent: the Moonraker /
     HelixScreen write and the MQTT last-roast publish each go out (or
@@ -290,10 +313,21 @@ def publish_roast(line: str, *, title: str, status: str = "completed", key: str 
     try:
         if not line:
             return False
-        value = record(event_id=event_id(status, key, line), title=line,
-                       details=details(title, status, facts))
+        eid = event_id(status, key, line)
+        pid = str(printer_id or "default")
+        with _RECENT_ROASTS_LOCK:
+            recent = _RECENT_ROASTS.setdefault(pid, OrderedDict())
+            if eid in recent:
+                return False
+            recent[eid] = None
+            while len(recent) > RECENT_ROASTS:
+                recent.popitem(last=False)
+        value = record(event_id=eid, title=line, details=details(title, status, facts))
         queued = _publish_moonraker(value, printer_id)
         queued = _publish_mqtt(value, status, printer_id) or queued
+        if not queued:
+            with _RECENT_ROASTS_LOCK:
+                _RECENT_ROASTS.get(pid, OrderedDict()).pop(eid, None)
         return queued
     except Exception:
         logger.debug("screen tip unavailable", exc_info=True)

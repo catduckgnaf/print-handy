@@ -81,3 +81,16 @@ def test_versions_of_a_part_are_always_asked(asked):
     adapter, _result = _run(rows)
     assert asked and 'Which cap?' in asked[0]['question']
     assert not adapter.sent
+
+
+def test_variant_files_ask_which_version_instead_of_printing_both(asked):
+    """#1779, 2026-11-21: Printables 681884 printed SnackTongs and its
+    FlatProfile variant together, doubling the work and the print."""
+    rows = [{'name': 'SnackTongs.stl'}, {'name': 'SnackTongs_FlatProfile.stl'}]
+    adapter, result = _run(rows)
+    assert not adapter.sent  # no "print together" announcement
+    [question] = asked
+    assert question['question'] == ("These 2 files look like versions of one part, the snack tongs, "
+                                    "not parts that print together, so I'll print one. Which version?")
+    assert question['choices'] == ['standard', 'flat profile', 'Choose files']
+    assert result == [rows[0]]  # the scripted answer picks the first version only

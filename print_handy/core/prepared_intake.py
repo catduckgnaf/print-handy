@@ -338,6 +338,67 @@ async def _race_job_cancel(work, job, text):
 #: typed cancel still reaches the step while it is quiet.
 STEP_QUIET_S = 5.0
 
+#: How often a slow step's standing Stop prompt shows how long the step has
+#: run (#1779): the prompt itself is edited in place ("Slicing… 18 s"), never
+#: a new message per tick. Adapters that cannot edit a prompt keep the
+#: prompt's first text, as before.
+STEP_PROGRESS_TICK_S = 10.0
+
+_STOP_SUFFIXES = (" Press Stop to cancel before it starts.", " Press Stop to request cancellation.",
+                  " Press Stop to cancel.")
+
+
+def _step_progress_text(text, elapsed, done=False):
+    """A step prompt's text with its elapsed time (#1779).
+
+    'Slicing. Press Stop to cancel.' after 18 s reads
+    'Slicing… 18 s. Press Stop to cancel.'; once the step finished it reads
+    'Slicing: done, 18 s.' (the Stop hint goes with the button).
+    """
+    head, suffix = str(text or '').strip(), ''
+    for candidate in _STOP_SUFFIXES:
+        if head.endswith(candidate):
+            head, suffix = head[:-len(candidate)], candidate
+            break
+    head = head.rstrip().rstrip('.')
+    if done:
+        return f'{head}: done, {_elapsed_text(elapsed)}.'
+    return f'{head}… {_elapsed_text(elapsed)}.{suffix}'
+
+
+def _step_prompt_editor(adapter, stop_msg, sent, cid):
+    """An ``edit(text)`` coroutine function that rewrites a posted step prompt
+    while keeping its Stop button, or None when this adapter cannot."""
+    if stop_msg is not None and callable(getattr(stop_msg, 'edit', None)):
+        async def edit_stop_message(content):
+            await stop_msg.edit(content=content)
+            return True
+        return edit_stop_message
+    editor = getattr(adapter, 'edit_prompt', None)
+    if callable(editor) and sent is not None and getattr(sent, 'message_id', None):
+        async def edit_clarify(content):
+            return bool(await editor(cid, content))
+        return edit_clarify
+    return None
+
+
+async def _tick_step_prompt(edit, text, started, clock=time.monotonic, tick_s=None):
+    """Edit a step's prompt to show its elapsed time every ``tick_s`` seconds.
+
+    Runs until cancelled (the step finished) or an edit fails; a failed edit
+    ends the ticker, never the step it reports on.
+    """
+    tick = STEP_PROGRESS_TICK_S if tick_s is None else tick_s
+    while True:
+        await asyncio.sleep(tick)
+        try:
+            ok = await edit(_step_progress_text(text, clock() - started))
+        except Exception:
+            logger.info("step progress edit failed; the prompt keeps its last text", exc_info=True)
+            return
+        if ok is False:
+            return
+
 
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None,
                      quiet_s=None):
@@ -345,7 +406,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
 
     ``quiet_s`` (with ``allow_stop``) holds the Stop prompt back: the step
     posts it only when the work is still running after ``quiet_s`` seconds.
+    A posted Stop prompt shows the step's elapsed time, edited in place
+    (#1779), and reads "done" with the total once the step finishes.
     """
+    started = time.monotonic()
     job = _running_job_for(key)
     if job is not None and job.cancellable:
         # The step name is what a typed "status" reports, and a cancel
@@ -425,6 +489,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     cancel_waiter = None
     if job is not None and job.cancellable:
         cancel_waiter = asyncio.ensure_future(job.cancel_event.wait())
+    prompt_edit = _step_prompt_editor(adapter, stop_msg, sent, cid)
+    ticker = (asyncio.ensure_future(_tick_step_prompt(prompt_edit, text, started))
+              if prompt_edit is not None else None)
+    finished = False  # the work returned on its own (no Stop, no cancel)
     result = None
     try:
         # Race the work against the Stop button. The work finishing must never wait on a press:
@@ -451,7 +519,15 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             # definitive outcome. Preserve it instead of claiming a false cancellation.
             return result
         result = await task
+        finished = True
     finally:
+        if ticker is not None and not ticker.done():
+            ticker.cancel()
+            # Awaited so an edit in flight lands before the final "done" edit.
+            try:
+                await ticker
+            except asyncio.CancelledError:
+                logger.debug("step progress ticker stopped with its step")
         if cancel_waiter is not None and not cancel_waiter.done():
             cancel_waiter.cancel()
         if not task.done():
@@ -472,6 +548,13 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         except Exception:
             logger.debug("clarify waiter did not settle during teardown", exc_info=True)
         cm.wait_for_response(cid, 0.001)
+        # A step that ended on its own reads "done" with its total time
+        # (#1779). Start steps (refusal_context) and failed (False, detail)
+        # results deliver their own outcome, so their prompt is only retired.
+        done_text = None
+        if (finished and refusal_context is None
+                and not (isinstance(result, tuple) and result and result[0] is False)):
+            done_text = _step_progress_text(text, time.monotonic() - started, done=True)
         if stop_msg is not None:
             # The Stop button is dead once the work returns: retire it, and after a confirmed
             # pre-upload refusal turn the same prompt into plain guidance plus Retry.
@@ -496,7 +579,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 refusal_context['prompt_handled'] = handled
             if not handled:
                 try:
-                    await stop_msg.edit(view=None)
+                    if done_text:
+                        await stop_msg.edit(content=done_text, view=None)
+                    else:
+                        await stop_msg.edit(view=None)
                 except Exception:
                     logger.debug("could not retire the stop prompt buttons", exc_info=True)
         elif sent is not None and getattr(sent, "message_id", None):
@@ -513,6 +599,15 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 refusal_context['start_prompt_message_id'] = str(sent.message_id)
                 refusal_context['prompt_handled'] = handled
             if not handled:
+                edit_message = getattr(adapter, "edit_message", None)
+                if done_text and callable(edit_message):
+                    # The finished step reads "done" with its time (#1779);
+                    # adapters whose edit drops the buttons retire them here.
+                    try:
+                        await edit_message(chat_id=str(source.chat_id), message_id=str(sent.message_id),
+                                           content=done_text, metadata=metadata)
+                    except Exception:
+                        logger.debug("could not mark the step prompt done", exc_info=True)
                 retire = getattr(adapter, "retire_prompt", None)
                 if retire is not None:
                     try:
@@ -2208,6 +2303,11 @@ async def _choose_files(adapter, source, key, rows, timeout):
     counts = [f'{names[i]} suggests {n}' for i, n in plan['quantities'].items()]
     if counts:
         lead += f" ({_and(counts)}; I still print one of each, so print more copies separately if you need them.)"
+    if not plan['parts'] and len(groups) == 1:
+        # Nothing prints together (#1779): every file is a version of one
+        # part, so the question is which version, never "one of each".
+        lead = (f"These {len(rows)} files look like versions of one part, the {groups[0]['subject']}, "
+                "not parts that print together, so I'll print one.")
     picked = list(plan['parts'])
     if not groups:
         if not _ask_which_parts():
@@ -2226,7 +2326,8 @@ async def _choose_files(adapter, source, key, rows, timeout):
     for n, group in enumerate(groups):
         options = group['options'][:5]
         labels = [o['label'][:60] for o in options]
-        question = f"Which {group['subject']}?"
+        question = ('Which version?' if not plan['parts'] and len(groups) == 1
+                    else f"Which {group['subject']}?")
         if n == 0:
             more = (f" Showing {len(options)} of {len(group['options'])}; use {CHOOSE_FILES} for the others."
                     if len(options) < len(group['options']) else '')
@@ -2312,13 +2413,21 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
                 adapter, source, key, metadata, f'Downloading file {n} of {len(parts)}.',
                 owned_worker.in_thread(fetch, job, row, dest), allow_stop=True, quiet_s=STEP_QUIET_S))
 
+        paths.append(Path(path))
+    # Every file is here: say once when they are big enough that the checks
+    # and the combine take minutes (#1779), before that work starts.
+    large = await _post_large_source_notice(adapter, source, metadata, paths)
+    for path in paths:
         async def _checked(path=path):
             await owned_worker.in_thread(check_source, path)
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded files.',
                          _checked(), allow_stop=True, quiet_s=STEP_QUIET_S)
-        paths.append(Path(path))
     from . import model_job as mj
+    # Every file is in the job folder (#1779): stamped here, not after the
+    # combine, so a slow combine no longer hides the finished downloads.
+    mj.front_mark('download_done')
+    mj.front_mark('source_checked')
     unit_q = await asyncio.to_thread(mj.parts_unit_question, job, paths)
     inches = False
     if unit_q is not None:
@@ -2331,16 +2440,97 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
             'One answer covers all the STL files.'), unit_q['choices'], timeout)
     target = folder / 'source' / f"{job.get('slug') or 'model'}-parts.3mf"
     bed = list(state.get('bed_mm') or BED)[:2] + ([state['max_print_height_mm']] if state.get('max_print_height_mm') else [])
+    mj.front_mark('combine_begin')
     combined = await _with_stop(adapter, source, key, metadata,
                                 f'Putting the {len(paths)} files together as one project.',
                                 _heavy(model_parts.combine, target, [str(p) for p in paths], bed, stl_inches=inches),
                                 allow_stop=True)
+    mj.front_mark('combine_done')
     job.update(_combined_source(job, parts, paths, combined))
     if unit_q is not None:
         job['unit_provenance'] = {'units': 'inch' if inches else 'mm', 'source': 'user_confirmation',
                                   'original_mm': unit_q['original_mm'],
                                   'factor': mj.INCH_TO_MM if inches else 1.0}
+    job['large_source_notice'] = bool(large)
     return Path(combined['path'])
+
+
+#: A source this big gets one heads-up line before its slow steps (#1779):
+#: on 2026-11-21 two STLs of 56 MB (about 1.1 million triangles) took four
+#: minutes before the first question, with no word. Reaching either limit
+#: (at or above it) is enough.
+LARGE_SOURCE_MB = 20
+LARGE_SOURCE_TRIANGLES = 400_000
+
+
+def _source_size(path):
+    """(mesh bytes, triangles or None) for one source file; (0, None) when unreadable.
+
+    STL: the file size, and the triangle count from a binary header whose
+    length matches the file. 3MF: the uncompressed size of its model parts
+    (a zipped 3MF is much smaller than the mesh it unpacks to), no count.
+    """
+    import struct
+    import zipfile
+    path = Path(path)
+    try:
+        if path.suffix.lower() == '.3mf':
+            with zipfile.ZipFile(path) as archive:
+                return sum(i.file_size for i in archive.infolist()
+                           if i.filename.lower().endswith('.model')), None
+        size = path.stat().st_size
+        with path.open('rb') as handle:
+            head = handle.read(84)
+    except (OSError, zipfile.BadZipFile) as exc:
+        logger.debug("source size unreadable for %s: %s", path.name, exc)
+        return 0, None
+    if len(head) == 84:
+        count = struct.unpack('<I', head[80:84])[0]
+        if size == 84 + 50 * count:
+            return size, count
+    return size, None
+
+
+def _triangles_text(count):
+    if count >= 1_000_000:
+        return f'about {count / 1_000_000:.1f} million triangles'
+    return f'about {round(count, -3):,} triangles'
+
+
+def large_source_notice(paths):
+    """The one-line heads-up for big source files, or None (#1779)."""
+    sizes = [_source_size(p) for p in paths]
+    total = sum(size for size, _count in sizes)
+    counts = [count for _size, count in sizes if count is not None]
+    triangles = sum(counts) if counts else None
+    if total < LARGE_SOURCE_MB * 1e6 and (triangles or 0) < LARGE_SOURCE_TRIANGLES:
+        return None
+    facts = f'{total / 1e6:.0f} MB of mesh' + (f', {_triangles_text(triangles)}' if triangles else '')
+    if len(sizes) > 1:
+        return f'These files are big ({facts}); preparing them takes a few minutes.'
+    return f'This file is big ({facts}); preparing it takes a few minutes.'
+
+
+async def _post_large_source_notice(adapter, source, metadata, paths):
+    """Post the large-source heads-up when it applies; returns the text posted, or None.
+
+    None also when the send failed (raised, or reported no success): the
+    caller then keeps the audit step's own large-model prompt, so a big
+    source is never left without any warning. A heads-up is progress only:
+    a failed send never stops the intake.
+    """
+    text = await asyncio.to_thread(large_source_notice, paths)
+    if not text:
+        return None
+    try:
+        sent = await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+    except Exception:
+        logger.info("large source heads-up not delivered", exc_info=True)
+        return None
+    if not getattr(sent, 'success', True):
+        logger.info("large source heads-up not delivered: %s", getattr(sent, 'error', None))
+        return None
+    return text
 
 
 def designer_pose_text(split_plan, rows, parts_count=None):
@@ -2920,6 +3110,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
             # refuse before the audit can misreport it as bad_3mf_structure.
             raise ValueError(gcode_3mf_message(Path(path).name))
+        large = (job.pop('large_source_notice', None) if parts else
+                 await _post_large_source_notice(adapter, source, metadata, [path]))
         async def _checked_single(path=path):
             await owned_worker.in_thread(check_source, path)
             # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
@@ -2927,6 +3119,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded file.',
                          _checked_single(), allow_stop=True, quiet_s=STEP_QUIET_S)
+        mj.front_mark('source_checked')  # source checks and the working copy (#1779)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         # Cache only pure inspection output, bound to canonical source bytes and
@@ -2948,7 +3141,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         else:
             job['audit'] = await _with_stop(
                 adapter, source, key, metadata,
-                _voiced(large_model_notice(path), 'model_audit', source, iid),
+                # After the heads-up the audit's own prompt need not say "large" again.
+                _voiced('Checking the model. Press Stop to cancel.' if large else large_model_notice(path),
+                        'model_audit', source, iid),
                 _heavy(mj.audit, path), allow_stop=True, quiet_s=STEP_QUIET_S)
         if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during audit; retry intake.')
@@ -2958,6 +3153,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                     inspection_scope, job['audit'])
         if isinstance(job['audit'], dict):
             job['audit'] = intake_inspection_cache.bind_audit_to_path(job['audit'], path)
+        mj.front_mark('audit_done')  # (#1779)
         if isinstance(job['audit'], dict) and job['audit'].get('no_printable_volume'):
             # Refuse at intake (#194): asking for colors and copies first only to fail at slicing wastes the operator's time.
             raise mj.NoPrintableVolume(job['audit']['geometry_error'])
@@ -2979,6 +3175,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             if plate_id not in {str(value) for value in (manifest.get('plate_usage') or {})}:
                 raise ValueError('The archived source no longer identifies that authored plate. Nothing was sliced or started.')
         job['color_manifest'] = manifest
+        mj.front_mark('manifest_done')  # (#1779)
         # An explicit plate request applies only to authored plate IDs from
         # this exact inspected source. An unknown or ambiguous request must
         # not widen to all plates.

@@ -31,6 +31,14 @@ color prompts. Direct audit, color inventory and geometry loading apply the same
 guard. A safety-ceiling refusal explains the exceeded budget and asks you to
 simplify or split the file. Nothing is sliced or started for a refused intake.
 
+## Large-source heads-up
+
+A source under the limits above can still take minutes to check and combine.
+When the downloaded files hold 20 MB of mesh or more, or 400,000 triangles
+or more (a 3MF is measured by its unpacked mesh, a binary STL by its header
+count), the intake posts one line right after the download, naming the size
+and that preparing it takes a few minutes. Smaller sources post nothing extra.
+
 ## Verification limits
 
 Geometry layout, transforms, topology, mesh audit and part annotation now
