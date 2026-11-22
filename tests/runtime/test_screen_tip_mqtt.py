@@ -351,4 +351,34 @@ def test_a_roast_no_sink_took_is_not_remembered(monkeypatch):
     monkeypatch.setattr(settings, "current", lambda: _cfg(mqtt_enabled=False))
     monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "")
     assert _publish() is False
-    assert "bambu1" not in screen_tip._LAST_ROAST
+    assert not screen_tip._RECENT_ROASTS.get("bambu1")
+
+
+def test_a_late_retry_of_an_earlier_job_is_not_republished(broker, monkeypatch):
+    # duckcatgnaf on #1797: jobs A then B, then a retried delivery of A must
+    # not publish A again and put its older roast back over B's.
+    sent = []
+    monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "http://voron:7125")
+    monkeypatch.setattr(screen_tip, "_post", lambda url, value: sent.append(value))
+    assert _publish(key="completed:a.gcode") is True
+    _drain()
+    assert _publish(key="completed:b.gcode") is True
+    _drain()
+    assert _publish(key="completed:a.gcode") is False
+    _drain()
+    assert len(sent) == 2
+    states = [p for p in _publishes(broker) if p[1] == "print-handy/bambu1/last_roast"]
+    assert len(states) == 2
+    assert json.loads(states[-1][2])["id"] == sent[-1]["id"]  # B stays the last roast
+
+
+def test_recent_roasts_stay_bounded_per_printer(monkeypatch):
+    monkeypatch.setattr(screen_tip, "_moonraker_url", lambda printer_id: "http://voron:7125")
+    monkeypatch.setattr(settings, "current", lambda: _cfg(mqtt_enabled=False))
+    for n in range(screen_tip.RECENT_ROASTS + 5):
+        assert _publish(key=f"completed:part-{n}.gcode") is True
+    _drain()
+    assert len(screen_tip._RECENT_ROASTS["bambu1"]) == screen_tip.RECENT_ROASTS
+    # The oldest jobs aged out; the newest are still remembered.
+    assert _publish(key="completed:part-0.gcode") is True
+    assert _publish(key=f"completed:part-{screen_tip.RECENT_ROASTS + 4}.gcode") is False

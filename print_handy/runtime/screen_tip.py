@@ -32,6 +32,7 @@ import json
 import logging
 import threading
 import time
+from collections import OrderedDict
 from typing import Any, Mapping
 
 logger = logging.getLogger(__name__)
@@ -46,10 +47,13 @@ TIMEOUT_S = 5
 _DISCOVERY_SENT: set[str] = set()
 _DISCOVERY_LOCK = threading.Lock()
 
-# Each printer's last roast that went out, by event id: one roast per print
-# job, so a retried delivery of the same job does not publish it again.
-_LAST_ROAST: dict[str, str] = {}
-_LAST_ROAST_LOCK = threading.Lock()
+# Each printer's recent roasts that went out, by event id, oldest first: one
+# roast per print job, so a retried delivery of a recent job does not
+# publish it again (or put an older roast back over a newer one). Bounded
+# per printer; a retry older than the last RECENT_ROASTS jobs is not expected.
+RECENT_ROASTS = 32
+_RECENT_ROASTS: dict[str, OrderedDict[str, None]] = {}
+_RECENT_ROASTS_LOCK = threading.Lock()
 
 # How each roast bank's print ended, for the line behind the tap.
 _ENDINGS = {
@@ -297,7 +301,8 @@ def publish_roast(line: str, *, title: str, status: str = "completed", key: str 
     """Queue a print's roast for that printer's displays. True when a sink queued it.
 
     One roast per print job: the same job's roast (same event id) for the
-    same printer is queued once, and a repeat returns False.
+    same printer is queued once, and a repeat of any of that printer's
+    last ``RECENT_ROASTS`` jobs returns False.
 
     ``printer_id`` is the roster id of the printer the print ran on; None is
     the default printer. The sinks are independent: the Moonraker /
@@ -310,17 +315,19 @@ def publish_roast(line: str, *, title: str, status: str = "completed", key: str 
             return False
         eid = event_id(status, key, line)
         pid = str(printer_id or "default")
-        with _LAST_ROAST_LOCK:
-            if _LAST_ROAST.get(pid) == eid:
+        with _RECENT_ROASTS_LOCK:
+            recent = _RECENT_ROASTS.setdefault(pid, OrderedDict())
+            if eid in recent:
                 return False
-            _LAST_ROAST[pid] = eid
+            recent[eid] = None
+            while len(recent) > RECENT_ROASTS:
+                recent.popitem(last=False)
         value = record(event_id=eid, title=line, details=details(title, status, facts))
         queued = _publish_moonraker(value, printer_id)
         queued = _publish_mqtt(value, status, printer_id) or queued
         if not queued:
-            with _LAST_ROAST_LOCK:
-                if _LAST_ROAST.get(pid) == eid:
-                    del _LAST_ROAST[pid]
+            with _RECENT_ROASTS_LOCK:
+                _RECENT_ROASTS.get(pid, OrderedDict()).pop(eid, None)
         return queued
     except Exception:
         logger.debug("screen tip unavailable", exc_info=True)
