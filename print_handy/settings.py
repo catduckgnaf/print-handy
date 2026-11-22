@@ -211,6 +211,7 @@ OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material
                  "cost_printers"}
 # Keys that can be optionally specified even if absent from base home.yaml.
 OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int,
+                 ("printer", "build_plate"): str,
                  ("printer", "zmod_delivery_format"): str,
                  ("printer", "opencreator_flow_calibration"): str,
                  ("printer", "opencreator_purge"): str,
@@ -302,7 +303,7 @@ PURGE_TOWER_CHOICES = ("auto", "on", "off")
 # make a config with an explicit websocket URL inexpressible in the roster shape.
 PRINTER_ENTRY_STR_KEYS = ("name", "moonraker_url", "moonraker_ws_url", "octoprint_url",
                           "camera_snapshot_url", "lan_host", "lan_serial", "lan_access_code_env",
-                          "link_host", "api_key_env", "host", "nozzle_type",
+                          "link_host", "api_key_env", "host", "nozzle_type", "build_plate",
                           "spoolman_url", "spoolman_accounting")
 # [spool] accounting and an entry's spoolman_accounting (#1536): who counts
 # filament usage for a printer. "" and "auto" decide from the printer's
@@ -1297,7 +1298,7 @@ def _project_entry(data, stub):
     # nozzle_type / tool_count are [printer] overrides: set only when the entry sets them. The
     # defaults base is built from this entry's model (see load()), so a value already there is
     # that model's own default — the same value a legacy config for the model resolves to.
-    for key in ("nozzle_type", "tool_count"):
+    for key in ("nozzle_type", "tool_count", "build_plate"):
         if key in stub:
             printer[key] = stub[key]
     # Geometry overrides likewise: the entry's measured build volume replaces
@@ -1375,7 +1376,7 @@ def _capture_entry(data, stub):
         "spoolman_url": services.get("spoolman_url", ""),
         "spoolman_accounting": str((data.get("spool") or {}).get("accounting") or "").strip().lower(),
     }
-    for key in ("nozzle_type", "tool_count"):
+    for key in ("nozzle_type", "tool_count", "build_plate"):
         if key in printer:
             entry[key] = printer[key]
     for key in PRINTER_ENTRY_GEOMETRY_KEYS:
@@ -1393,6 +1394,17 @@ def _entry_default_name(model):
     return (model.defaults().get("printer") or {}).get("name") or model.label
 
 
+def _normalize_build_plate(printer):
+    """[printer] build_plate (#1788 phase C): one of build_plate.PLATES or its aliases, or unset."""
+    if printer.get("build_plate") is None:
+        return
+    from .core.build_plate import BuildPlateError, normalize
+    try:
+        printer["build_plate"] = normalize(printer["build_plate"])
+    except BuildPlateError as exc:
+        raise SettingsError(f"[printer] build_plate: {exc}") from None
+
+
 def _validate_entry_overrides(scratch, model):
     """An entry's nozzle_type / tool_count overrides, checked as [printer]'s are in validate()."""
     printer = scratch["printer"]
@@ -1407,6 +1419,7 @@ def _validate_entry_overrides(scratch, model):
             supported_types = ", ".join(sorted(model.supported_nozzle_types))
             raise SettingsError(f"[printer] nozzle_type {nozzle_type!r} is not supported by model {model.key!r} (supported: {supported_types})")
         printer["nozzle_type"] = norm_type
+    _normalize_build_plate(printer)
     if "tool_count" in printer:
         printer["tool_count"] = _positive(scratch, "printer", "tool_count", int)
         if printer["tool_count"] != 1 and model.color_system != "multi_tool":
@@ -1446,7 +1459,7 @@ def _validate_entry(stub):
     # entry must resolve the same way or its consumers see a thinner
     # printer than the model describes.
     model_printer = model.defaults().get("printer") or {}
-    for key in ("nozzle_type", "tool_count"):
+    for key in ("nozzle_type", "tool_count", "build_plate"):
         if key in model_printer:
             scratch["printer"][key] = model_printer[key]
         if key in stub:
@@ -1510,7 +1523,7 @@ def _check_mixed_shape(extra, environ):
     for key in ("model", "name", "vendor"):
         if printer.get(key):
             offenders.append(f"[printer] {key}")
-    for key in ("nozzle_type", "tool_count"):
+    for key in ("nozzle_type", "tool_count", "build_plate"):
         if printer.get(key) is not None:
             offenders.append(f"[printer] {key}")
     services = section("services")
@@ -2653,6 +2666,7 @@ def validate(data):
             supported_types = ", ".join(sorted(model.supported_nozzle_types))
             raise SettingsError(f"[printer] nozzle_type {nozzle_type!r} is not supported by model {key!r} (supported: {supported_types})")
         data["printer"]["nozzle_type"] = norm_type
+    _normalize_build_plate(data["printer"])
     if model.color_system != "multi_slot" and data["printer"]["filament_slots"] != 1:
         # The class carries this now: both AD5X profiles are multi_slot (one tool,
         # several IFS bays), so no per-model exception is needed here. Stock

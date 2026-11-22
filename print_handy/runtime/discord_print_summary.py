@@ -498,9 +498,13 @@ def plate_payload(kind, filename, archive=None, context_path=None):
 
 
 def format_preparation(job, plate=None):
-    """Exact bound job/plate summary used before starting; never re-resolves a filename."""
+    """Exact bound job/plate summary used before starting; never re-resolves a filename.
+
+    A material that damages the configured build plate (#1788 phase C, for
+    example PETG on smooth PEI) adds one warning line. It never blocks.
+    """
     row = plate or {}
-    return format_confirmed_print(
+    text = format_confirmed_print(
         model=_title(job or {}), parts=row.get("parts") or (), plate=row.get("plate"),
         slot=row.get("slot"), color=row.get("color"), material=row.get("material"),
         filaments=row.get("filaments"),
@@ -508,6 +512,18 @@ def format_preparation(job, plate=None):
         plates_total=len((job or {}).get("derived_plates") or []) or None,
         print_number=_print_number(job or {}), position_noun=_position_noun(job),
         printer_name=announcement_printer_name(job))
+    return text + "".join(f"\n**Plate:** {line}" for line in _plate_warnings(job, row))
+
+
+def _plate_warnings(job, row):
+    """The build-plate warning lines for this plate's materials (#1788 phase C); [] when none apply."""
+    from ..core import build_plate
+
+    materials = [entry.get("material") for entry in (row.get("filaments") or ()) if isinstance(entry, dict)]
+    if not materials and row.get("material"):
+        materials = [row.get("material")]
+    plate = build_plate.plate_for((job or {}).get("printer_id"))
+    return build_plate.warnings(materials, plate)
 
 
 def format_started(job, plate=None, now=None):
