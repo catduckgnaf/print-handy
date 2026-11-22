@@ -212,7 +212,7 @@ def test_summary_wording_names_toolheads(creator, tmp_path):
     started = summary.format_started(job, {'gcode': str(gcode), 'plate': 1, 'parts': ['Ghost Stand'],
                                            'slot': 3, 'color': 'red', 'material': 'PLA',
                                            'filament_g': None, 'seconds': 3600})
-    assert 'Toolhead 3: red PLA' in started
+    assert 'Toolhead 3: red, PLA' in started
 
 
 # ---------------------------------------------------------------- full prepare_link flow (Hermes intake)
