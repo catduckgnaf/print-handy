@@ -1,0 +1,74 @@
+# Large-mesh intake case for #1790: the Printables link whose two STLs (56 MB,
+# about 1.1 M triangles) took 4 min 26 s from download to the first question on
+# 2026-11-21, while slicing the combined project took 3.5 s.
+#
+# The files are NOT committed and NOT redistributed (no release asset): the
+# large-mesh tier fetches them from Printables pinned by SHA-256 and byte size
+# (tests/corpus/large_mesh/fetch.py) into a local root outside the repo.
+title = "Snacking tongs - Now includes STEP files"
+author = "Printables model 681884 (see source_page for the author's profile)"
+source_page = "https://www.printables.com/model/681884-snacking-tongs-now-includes-step-files"
+site = "printables"
+site_model_id = "681884"
+# License, two sources that disagree; recorded as found, not reconciled:
+# - The owner stated MIT on 2026-11-21 (issue #1790).
+# - The Printables GraphQL API (the call production intake makes) returned
+#   "Creative Commons - Attribution - Noncommercial - Share Alike" for this
+#   model on 2026-11-21.
+# Until that is settled the case is treated like the private tier of the
+# complex corpus: fetched for local and CI runs only, never committed,
+# uploaded or released.
+license = "MIT (stated by the owner, 2026-11-21)"
+license_api = "Creative Commons — Attribution  — Noncommercial  —  Share Alike (Printables API, 2026-11-21)"
+attribution = "Snacking tongs by its Printables author, https://www.printables.com/model/681884"
+redistribute = false
+
+[[file]]
+name = "SnackTongs.stl"
+site_file_id = "2870506"
+bytes = 30294384
+sha256 = "eb4732d5627f5d51c0c5610a86b11aa7f85e18164cc8b6c4a79bb635a5f586cd"
+
+[[file]]
+name = "SnackTongs_FlatProfile.stl"
+site_file_id = "2976075"
+bytes = 25759084
+sha256 = "9be961039b34eea5736163006ce28cb06c90c013e0cef0a3dc7acbfad129f883"
+
+# Measured from the files with the Python oracle on 2026-11-21.
+[expect]
+bed_mm = [220.0, 220.0, 250.0]
+objects = ["SnackTongs", "SnackTongs_FlatProfile"]
+on_one_bed = false
+# SHA-256 of the combined 3D/3dmodel.model member (the archive itself carries
+# timestamps). The same on the native and the Python path.
+model_sha256 = "d1096006ca7b700e8f5453d3ecf070900ad11b2a3ca292d9b48a84b4ed42f373"
+
+[[expect.part]]
+file = "SnackTongs.stl"
+faces = 605886
+dimensions_mm = [43.8997, 113.6551, 23.0]
+shell_count = 1
+watertight = true
+manifold = true
+abs_volume_mm3 = 10581.2741
+area_mm2 = 7400.4936
+
+[[expect.part]]
+file = "SnackTongs_FlatProfile.stl"
+faces = 515180
+dimensions_mm = [58.4804, 117.4457, 27.5002]
+shell_count = 1
+watertight = true
+manifold = true
+abs_volume_mm3 = 14068.0158
+area_mm2 = 8925.1274
+
+# Stage budgets in seconds on a CI runner with the native kernel. Generous on
+# purpose: they catch a fall back to the Python loops (about 10x slower), not
+# runner noise. Every stage time is recorded; only a stage over its budget
+# fails. The Python-only run is recorded with no budget.
+[budget]
+parts_unit_question = 10.0
+load_parts = 15.0
+combine = 45.0

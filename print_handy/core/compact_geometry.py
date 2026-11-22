@@ -190,10 +190,28 @@ class IndexedTriangles(Sequence):
 
 
 class TransformedTriangles(Sequence):
-    """Reiterable scalar transform view; orientations share the source storage."""
-    def __init__(self, source, transform):
+    """Reiterable scalar transform view; orientations share the source storage.
+
+    ``ops`` optionally describes ``transform`` for the native mesh kernel
+    (#1790) as a list of ``(kind, params)`` steps applied in order; use
+    ``rotation_z`` / ``translation`` to build the view and its recipe from
+    one place, so the two can never disagree. Without ``ops`` the view is
+    Python only.
+    """
+    def __init__(self, source, transform, ops=None):
         self.source = source
         self.transform = transform
+        self.ops = ops
+
+    @classmethod
+    def rotation_z(cls, source, c, s):
+        """``(c*x - s*y, s*x + c*y, z)`` per point."""
+        return cls(source, lambda x, y, z: (c * x - s * y, s * x + c * y, z), [('rotz', (c, s))])
+
+    @classmethod
+    def translation(cls, source, dx, dy, dz):
+        """``(x + dx, y + dy, z + dz)`` per point."""
+        return cls(source, lambda x, y, z: (x + dx, y + dy, z + dz), [('translate', (dx, dy, dz))])
 
     def __len__(self):
         return len(self.source)

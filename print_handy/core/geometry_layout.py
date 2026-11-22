@@ -24,7 +24,7 @@ import zlib
 from pathlib import Path
 
 from .compact_geometry import CompactTriangles, IndexedTriangles, transform_vertices_array
-from .mesh_fast import archive_tables, bounds_and_volume
+from .mesh_fast import archive_tables, bounds_and_volume, compact_points
 from .model_job import mesh_topology
 from .orca_adapter import _hull, _printed_faces, _prusa_printed_ranges, read_stl_triangles, transform_mirrors
 from .painted_geometry import paint_census
@@ -151,6 +151,12 @@ def _triangle_area_and_signed_volume(triangles):
                  - a[:, 1] * (b[:, 0] * c[:, 2] - b[:, 2] * c[:, 0])
                  + a[:, 2] * (b[:, 0] * c[:, 1] - b[:, 1] * c[:, 0])) / 6.0))
         return area, abs(signed_vol)
+    # The scalar loop below, natively (#1790): the same per-triangle terms
+    # added one triangle at a time.
+    from .mesh_native import measure
+    native = measure(triangles)
+    if native is not None:
+        return native[2], abs(native[3])
     area = 0.0
     signed_vol = 0.0
     for (ax, ay, az), (bx, by, bz), (cx, cy, cz) in triangles:
@@ -165,7 +171,14 @@ def _triangle_area_and_signed_volume(triangles):
 
 
 def _bounds_from_triangles(triangles):
-    lo, hi, _ = bounds_and_volume(triangles)
+    points = compact_points(triangles)
+    if points is not None:
+        # bounds_and_volume's own branch for a large finite STL part, minus
+        # the signed-volume pass this caller discards (#1790).
+        lo = [float(v) for v in points.min(axis=(0, 1))]
+        hi = [float(v) for v in points.max(axis=(0, 1))]
+    else:
+        lo, hi, _ = bounds_and_volume(triangles)
     ext = [hi[a] - lo[a] for a in range(3)]
     return lo, hi, ext
 
@@ -464,10 +477,10 @@ def rotate_triangles_z(triangles, angle_deg: float):
     rad = math.radians(float(angle_deg))
     c, s = math.cos(rad), math.sin(rad)
     from .compact_geometry import TransformedTriangles
-    rotated = TransformedTriangles(triangles, lambda x, y, z: (c * x - s * y, s * x + c * y, z))
+    rotated = TransformedTriangles.rotation_z(triangles, c, s)
     lo, hi, ext = _bounds_from_triangles(rotated)
     dx, dy, dz = -lo[0], -lo[1], -lo[2]
-    normalized = TransformedTriangles(rotated, lambda x, y, z: (x + dx, y + dy, z + dz))
+    normalized = TransformedTriangles.translation(rotated, dx, dy, dz)
     return normalized, ext, (c, s, lo)
 
 
@@ -702,6 +715,39 @@ def write_binary_stl(triangles, target: Path, header_text: str = 'Print Handy 10
     return target
 
 
+def _mesh_xml_lines(triangles):
+    """The ``<vertex>`` and ``<triangle>`` lines of one geometry-only object.
+
+    Corners weld on their round(v, 6) coordinates in first-corner order. The
+    native kernel (#1790) returns the same text as one newline-joined entry
+    per block, so joining the whole model with newlines gives identical
+    bytes, without 20 M round() calls on a large mesh. The loop below is the
+    oracle.
+    """
+    from .mesh_native import threemf_text
+    native = threemf_text(triangles)
+    if native is not None:
+        vertex_text, triangle_text = native
+        return ([vertex_text] if vertex_text else []), ([triangle_text] if triangle_text else [])
+    v_map = {}
+    v_list = []
+    t_list = []
+    for tri in triangles:
+        idxs = []
+        for pt in tri:
+            key = (round(float(pt[0]), 6), round(float(pt[1]), 6), round(float(pt[2]), 6))
+            v_idx = v_map.get(key)
+            if v_idx is None:
+                v_idx = len(v_list)
+                v_map[key] = v_idx
+                v_list.append(key)
+            idxs.append(v_idx)
+        t_list.append(idxs)
+    vertex_lines = [f'          <vertex x="{vx:.6f}" y="{vy:.6f}" z="{vz:.6f}"/>' for vx, vy, vz in v_list]
+    triangle_lines = [f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>' for v1, v2, v3 in t_list]
+    return vertex_lines, triangle_lines
+
+
 def write_geometry_only_3mf(placed_objects, target: Path) -> Path:
     """Write a clean geometry-only multi-object 3MF in millimeters with distinct selectable objects."""
     target = Path(target)
@@ -740,26 +786,11 @@ def write_geometry_only_3mf(placed_objects, target: Path) -> Path:
         lines.append(f'    <object id="{oid}" name="{safe_xml_name}" type="model">')
         lines.append('      <mesh>')
         lines.append('        <vertices>')
-        v_map = {}
-        v_list = []
-        t_list = []
-        for tri in obj['triangles']:
-            idxs = []
-            for pt in tri:
-                key = (round(float(pt[0]), 6), round(float(pt[1]), 6), round(float(pt[2]), 6))
-                v_idx = v_map.get(key)
-                if v_idx is None:
-                    v_idx = len(v_list)
-                    v_map[key] = v_idx
-                    v_list.append(key)
-                idxs.append(v_idx)
-            t_list.append(idxs)
-        for vx, vy, vz in v_list:
-            lines.append(f'          <vertex x="{vx:.6f}" y="{vy:.6f}" z="{vz:.6f}"/>')
+        vertex_lines, triangle_lines = _mesh_xml_lines(obj['triangles'])
+        lines.extend(vertex_lines)
         lines.append('        </vertices>')
         lines.append('        <triangles>')
-        for v1, v2, v3 in t_list:
-            lines.append(f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>')
+        lines.extend(triangle_lines)
         lines.append('        </triangles>')
         lines.append('      </mesh>')
         lines.append('    </object>')

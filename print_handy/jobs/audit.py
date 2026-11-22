@@ -19,6 +19,12 @@ def mesh_topology(triangles):
     Weld coordinates on a six-decimal grid. Exclude faces whose squared
     double-area is <= 1e-18 source-units**4 from all topology adjacency.
     """
+    # The native kernel (#1790) computes the same counts for typed storage;
+    # the two Python paths below stay the oracle and the fallback.
+    from ..core.mesh_native import topology as native_topology
+    native = native_topology(triangles)
+    if native is not None:
+        return native
     if hasattr(triangles, '__len__') and len(triangles) > 100_000:
         from ..core.compact_topology import mesh_topology_compact
         return mesh_topology_compact(triangles)
