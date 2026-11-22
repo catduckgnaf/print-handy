@@ -943,66 +943,28 @@ def test_mapped_launch_warns_instead_of_refusing_over_a_hex_the_system_guessed(m
     assert "WARNING" in out and "#067749" in out and "#0C6283" in out and "worked out from the spool name" in out
 
 
-def test_adopted_legacy_lease_is_rekeyed_to_the_roster_id(tmp_path, monkeypatch):
-    """P1-74: the legacy launch database keyed its lease by the old Moonraker
-    URL / model key. Adoption copies the file into the default printer's
-    folder, whose lookups use the roster id — an unrekeyed held lease would
-    never be found, so a second launch could start while the adopted
-    submitting/uncertain lease is still unresolved."""
+def test_a_pre_2_4_root_launch_database_is_refused_with_the_move(tmp_path, monkeypatch):
+    """#1817: the root print_handy_launches.sqlite3 is no longer adopted. While it is the
+    default printer's only database, opening one refuses and names the move, so a held
+    uncertain lease is never silently forgotten by starting a fresh jobs.db."""
     monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB", raising=False)
     state = tmp_path / "state"
     state.mkdir()
     monkeypatch.setattr(settings, "state_dir", lambda data=None: state)
     printer_id = settings.default_printer_id()
     legacy = state / "print_handy_launches.sqlite3"
-    con = sqlite3.connect(legacy)
-    for statement in launch_state.SCHEMA:
-        con.execute(statement)
-    con.execute(
-        "INSERT INTO leases (printer, token, phase, job_json, gcode_sha256, remote, pid, host,"
-        " leased_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        ("http://printer.test:7125", "tok-legacy", "uncertain", "/jobs/JOB.json", "sha",
-         "x.gcode", 4242, "oldhost", "2026-01-01T00:00:00+0000", "2026-01-01T00:00:00+0000"))
-    con.execute("INSERT INTO lease_baselines (printer, baseline) VALUES (?,?)",
-                ("http://printer.test:7125", "[]"))
-    con.commit()
-    con.close()
-    rows = launch_state.pending(printer_id)
-    assert [r["printer"] for r in rows] == [printer_id]
-    assert rows[0]["phase"] == "uncertain" and rows[0]["token"] == "tok-legacy"
-    with pytest.raises(SystemExit, match="REFUSED"):
-        launch_state.acquire(printer_id, job_json="/jobs/JOB2.json",
-                             gcode_sha256="sha2", remote="y.gcode")
-    with launch_state.transaction(printer_id) as adopted:
-        baselines = [dict(r) for r in adopted.execute("SELECT * FROM lease_baselines")]
-    assert [r["printer"] for r in baselines] == [printer_id]
-
-
-def test_adopted_legacy_rekey_keeps_the_baseline_of_the_surviving_lease(tmp_path, monkeypatch):
-    """2.2.5 review: with several legacy keys the surviving baseline must be the surviving
-    lease's own, not whichever baseline row came first."""
-    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB", raising=False)
-    state = tmp_path / "state"
-    state.mkdir()
-    monkeypatch.setattr(settings, "state_dir", lambda data=None: state)
-    printer_id = settings.default_printer_id()
-    legacy = state / "print_handy_launches.sqlite3"
-    con = sqlite3.connect(legacy)
-    for statement in launch_state.SCHEMA:
-        con.execute(statement)
-    for key, stamp in (("old-key", "2026-01-01T00:00:00+0000"), ("new-key", "2026-02-01T00:00:00+0000")):
-        con.execute(
-            "INSERT INTO leases (printer, token, phase, job_json, gcode_sha256, remote, pid, host,"
-            " leased_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (key, "tok-" + key, "uncertain", "/jobs/JOB.json", "sha", "x.gcode", 1, "h", stamp, stamp))
-        con.execute("INSERT INTO lease_baselines (printer, baseline) VALUES (?,?)", (key, '["%s"]' % key))
-    con.commit()
-    con.close()
-    rows = launch_state.pending(printer_id)
-    assert [r["token"] for r in rows] == ["tok-new-key"]
-    with launch_state.transaction(printer_id) as adopted:
-        baselines = [dict(r) for r in adopted.execute("SELECT * FROM lease_baselines")]
-    assert baselines == [{"printer": printer_id, "baseline": '["new-key"]'}]
+    sqlite3.connect(legacy).close()
+    target = state / "printers" / printer_id / "jobs.db"
+    with pytest.raises(RuntimeError, match="no longer read") as refused:
+        launch_state.pending(printer_id)
+    assert f"mv {legacy} {target}" in str(refused.value)
+    assert not target.exists()
+    # A second printer never inherited the root database, so it opens normally.
+    assert launch_state.pending("printer-b") == []
+    # Moved as the message says, the default printer opens it.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    legacy.rename(target)
+    assert launch_state.db_path(printer_id) == target
 
 
 def test_submitting_reads_history_outside_the_write_transaction():

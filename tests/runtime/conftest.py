@@ -91,11 +91,21 @@ def _no_live_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _neutral_printer_hardware(monkeypatch):
-    """Tests that read the hardware record get the neutral AD5X fixture, never the home machine's."""
+def _neutral_printer_hardware(tmp_path, monkeypatch):
+    """Tests that read the hardware record get the neutral AD5X fixture, never the home machine's.
+
+    A per-test copy of the read-only fixture, placed where the default
+    printer's record lives (<state>/printers/<id>/), under a temp state root.
+    """
+    import shutil
     from print_handy.core import printer_state
     monkeypatch.setattr(printer_state, "save", lambda *a, **k: None)
-    monkeypatch.setattr(printer_state, "STATE", str(Path(__file__).parents[1] / "pipeline/fixtures/printer_hardware.json"))
+    root = tmp_path / "hardware-state"
+    monkeypatch.setattr(printer_state, "STATE_ROOT", str(root))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    record = printer_state.state_path()
+    record.parent.mkdir(parents=True)
+    shutil.copyfile(Path(__file__).parents[1] / "pipeline/fixtures/printer_hardware.json", record)
 
 
 @pytest.fixture(autouse=True)

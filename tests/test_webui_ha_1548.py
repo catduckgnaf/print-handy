@@ -230,7 +230,7 @@ class NozzleRecordUnitTests(unittest.TestCase):
                       / "printer_hardware.json")
             target.parent.mkdir(parents=True)
             target.write_text(json.dumps(seed))
-            with mock.patch.object(printer_state, "STATE", str(state_file)):
+            with mock.patch.object(printer_state, "STATE_ROOT", str(state_file.parent)):
                 code, body = controls.record_nozzle(
                     data, PRINTER,
                     {"diameter_mm": 0.6, "type": "hardened_steel"})
@@ -417,8 +417,7 @@ class ApiRouteTests(unittest.TestCase):
         # the unreachable printer still answers 200 unavailable.
         with tempfile.TemporaryDirectory() as tmp:
             _httpd, port = self.start(tmp)
-            with mock.patch.object(printer_state, "STATE",
-                                   str(Path(tmp) / "printer_hardware.json")):
+            with mock.patch.object(printer_state, "STATE_ROOT", tmp):
                 code, raw = self.request(
                     port, "GET", f"/api/printers/{PRINTER}/status",
                     headers={server.TOKEN_HEADER: TOKEN})
@@ -478,7 +477,7 @@ class ApiRouteTests(unittest.TestCase):
             target.write_text(json.dumps(
                 {"nozzle": {"diameter_mm": 0.4, "type": "brass",
                             "installed": "2026-01-01"}}))
-            with mock.patch.object(printer_state, "STATE", str(state_file)):
+            with mock.patch.object(printer_state, "STATE_ROOT", str(state_file.parent)):
                 code, raw = self.post_json(
                     port, f"/api/printers/{PRINTER}/nozzle",
                     {"diameter_mm": 0.6, "type": "hardened steel"})

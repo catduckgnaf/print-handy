@@ -27,7 +27,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from .. import moonraker
+from .. import moonraker, settings
 from ..core import fuzzy, projects
 from . import _config
 from . import state_file
@@ -36,7 +36,7 @@ from ._suppress import repeated_failure
 BASE = _config.moonraker_url()
 ARCHIVE = _config.archive_dir()
 PRINT_NUMBERS = _config.state_file("PRINT_NUMBERS_STATE", "print_numbers.json")
-REPRINT_QUEUE = _config.state_file("REPRINT_QUEUE_STATE", "reprint_queue.json")
+REPRINT_QUEUE_ENV = "REPRINT_QUEUE_STATE"
 MAX_COPIES = 20
 
 RESUME_LABEL = "Resume print now"
@@ -1461,28 +1461,21 @@ def split_count(query: str) -> tuple[str, int]:
     return q, 1
 
 
-def _default_printer_id() -> str | None:
-    try:
-        return str(_config.cfg()["printers"][0]["id"])
-    except Exception:
-        return None
-
-
 def _queue_path(path: Path | None = None, printer_id: str | None = None) -> Path:
     """The reprint queue file for one printer (P2-135).
 
     Pending copies are per printer: one global file let printer B's
-    /print-again delete or replace printer A's remaining copies. The
-    default printer keeps the legacy singleton path (its queue was always
-    the singleton's, so nothing is orphaned at upgrade); every other
-    printer gets <state>/printers/<id>/reprint_queue.json, the #334
-    layout. An explicit path always wins.
+    /print-again delete or replace printer A's remaining copies. Every
+    printer, the default included (#1817), gets
+    <state>/printers/<id>/reprint_queue.json, the #334 layout; no printer
+    named is the default printer. An explicit path, then
+    $REPRINT_QUEUE_STATE, wins.
     """
     if path is not None:
         return Path(path)
-    if printer_id and str(printer_id) != _default_printer_id():
-        return _config.state_dir() / "printers" / str(printer_id) / "reprint_queue.json"
-    return REPRINT_QUEUE
+    if os.environ.get(REPRINT_QUEUE_ENV):
+        return Path(os.environ[REPRINT_QUEUE_ENV])
+    return settings.printer_state_dir(str(printer_id) if printer_id else None, _config.cfg()) / "reprint_queue.json"
 
 
 def _read_queue(path: Path | None = None, printer_id: str | None = None) -> dict[str, Any]:

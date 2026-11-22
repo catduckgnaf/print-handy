@@ -211,18 +211,20 @@ def test_bind_slot_clears_a_stale_claim_by_another_spool(tmp_path):
 
 # ---------------------------------------------------------------- reconcile
 
-def test_reconcile_migrates_the_local_cache_on_the_first_run(tmp_path):
+def test_reconcile_seeds_spoolman_from_the_cache_while_it_holds_no_claim(tmp_path):
     fake = FakeSpoolman([_spool(11), _spool(12, "White", "PLA", "FFFFFF")])
     state = _state_file(tmp_path, {"1": _record(11), "2": _record(12, "White PLA", "PLA", "white", "FFFFFF")})
     result = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
                                   pending_path=tmp_path / "pending.json")
-    assert result["ok"] is True and result["migrated"] is True
+    assert result["ok"] is True and result["seeded"] is True
     assert result["assignments"] == {1: 11, 2: 12}
     assert fake.spools[11]["extra"]["ph_slot"] == '"ad5x:1"'
     assert fake.spools[12]["extra"]["ph_slot"] == '"ad5x:2"'
     # The field definition was created as part of the run.
     assert any(f.get("key") == "ph_slot" for f in fake.fields)
-    assert "migrated" in spool_sync.reconcile_text(result)
+    assert "written into Spoolman" in spool_sync.reconcile_text(result)
+    # No marker is kept in the record (#1817): the claims themselves are the state.
+    assert "ph_slot_migrated" not in json.loads(state.read_text())
 
 
 def test_reconcile_rebuilds_the_cache_from_spoolman(tmp_path):
@@ -234,7 +236,7 @@ def test_reconcile_rebuilds_the_cache_from_spoolman(tmp_path):
     state = _state_file(tmp_path, {"1": _record(99, "Gone PLA")})
     result = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
                                   pending_path=tmp_path / "pending.json")
-    assert result["ok"] is True and result["migrated"] is False
+    assert result["ok"] is True and result["seeded"] is False
     assert result["assignments"] == {1: 11, 2: 12}
     saved = json.loads(state.read_text())["filament_slots"]
     assert saved["1"]["spoolman_id"] == 11 and saved["1"]["name"] == "Black PLA"
@@ -333,10 +335,10 @@ def test_reconcile_derives_the_default_printer_from_config():
 
 # ---------------------------------------------------------------- Codex P1 fixes on PR #802
 
-def test_reconcile_second_printer_still_migrates_after_the_first_created_values(tmp_path):
+def test_reconcile_seeds_a_second_printer_after_the_first_created_values(tmp_path):
     # Two printers share one Spoolman: printer A already has ph_slot values,
-    # printer B has not migrated yet. B's first reconcile must migrate its
-    # own cache, not rebuild it away to empty.
+    # newly added printer B has none. B's reconcile must seed Spoolman from
+    # its own cache, not rebuild it away to empty.
     fake = FakeSpoolman(spools=[
         _spool(11, ph_slot="printera:1"),
         _spool(21, name="White", hex_code="FFFFFF"),
@@ -349,7 +351,7 @@ def test_reconcile_second_printer_still_migrates_after_the_first_created_values(
     assert spool_sync.spool_ph_slot(fake.spools[21]) == ("printerb", 2)
     saved = json.loads(state_b.read_text())
     assert saved["filament_slots"]["2"]["spoolman_id"] == 21
-    assert saved["ph_slot_migrated"] is True
+    assert "ph_slot_migrated" not in saved
 
 
 def test_reconcile_does_not_resurrect_a_cleared_assignment(tmp_path):
@@ -358,13 +360,29 @@ def test_reconcile_does_not_resurrect_a_cleared_assignment(tmp_path):
     first = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
                                  pending_path=tmp_path / "pending.json")
     assert first["assignments"] == {1: 5}
-    # The operator clears the assignment in Spoolman itself.
+    # The operator clears the slot: no claim in Spoolman and nothing in the
+    # cache. With no marker kept, the empty cache must not seed it back.
     fake.spools[5]["extra"] = {}
+    state.write_text(json.dumps({"spool": {}, "filament_slots": {}}))
+    fake.calls.clear()
     second = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
                                   pending_path=tmp_path / "pending.json")
-    assert second["assignments"] == {}
+    assert second["assignments"] == {} and second["seeded"] is False
+    assert not any(c[0] == "PATCH" for c in fake.calls)
     saved = json.loads(state.read_text())
     assert saved["filament_slots"] == {}
+
+
+def test_reconcile_seeding_never_takes_a_spool_another_printer_claims(tmp_path):
+    # A stale cache entry on a printer with no claims must not move a spool
+    # Spoolman assigns elsewhere: that seeding now runs on every reconcile.
+    fake = FakeSpoolman(spools=[_spool(11, ph_slot="printera:1"), _spool(12, "White", "PLA", "FFFFFF")])
+    state = _state_file(tmp_path, {"1": _record(11), "2": _record(12, "White PLA", "PLA", "white", "FFFFFF")})
+    result = spool_sync.reconcile("printerb", client=fake, mr=_mr(), state_path=state,
+                                  pending_path=tmp_path / "pending.json")
+    assert result["assignments"] == {2: 12}
+    assert spool_sync.spool_ph_slot(fake.spools[11]) == ("printera", 1)
+    assert any("#11" in c and "printera:1" in c for c in result["conflicts"])
 
 
 def test_reconcile_carries_a_slot_replacement_into_the_active_spool(tmp_path):
@@ -376,7 +394,6 @@ def test_reconcile_carries_a_slot_replacement_into_the_active_spool(tmp_path):
     path.write_text(json.dumps({
         "spool": {"spoolman_id": 11, "name": "Old"},
         "filament_slots": {"1": _record(11, name="Old PLA", color="old", hex_code="111111")},
-        "ph_slot_migrated": True,
     }))
     active = [11]
     result = spool_sync.reconcile(PID, client=fake, mr=_mr(active), state_path=path,

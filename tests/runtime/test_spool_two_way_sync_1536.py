@@ -25,7 +25,7 @@ def _no_screens(monkeypatch):
 
 def _record(tmp_path, slots):
     path = tmp_path / "printer_hardware.json"
-    path.write_text(json.dumps({"spool": {}, "ph_slot_migrated": True, "filament_slots": slots}))
+    path.write_text(json.dumps({"spool": {}, "filament_slots": slots}))
     return path
 
 

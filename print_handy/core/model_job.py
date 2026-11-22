@@ -60,7 +60,7 @@ from ..launch.print_now import (  # moved in 2.3.0 (#1323); old path kept for on
 )
 
 from ..jobs.common import (  # moved in 2.3.0 (#1323); old path kept for one release
-    ARCHIVE, BED_MM, FILAMENT_SLOTS, MAX_HEIGHT_MM, MOONRAKERCTL, PROFILE, STATE, TIMEZONE, UA,
+    ARCHIVE, BED_MM, FILAMENT_SLOTS, MAX_HEIGHT_MM, MOONRAKERCTL, PROFILE, TIMEZONE, UA,
     _moonrakerctl_env, _mr, request_json,
 )
 

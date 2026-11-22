@@ -926,7 +926,7 @@ def main():
 
     if args.cmd == "reconcile":
         if args.state_file:
-            st = filament_color.adopt_renamed_slots_key(json.loads(Path(args.state_file).read_text()))
+            st = json.loads(Path(args.state_file).read_text())
         else:
             st = printer_state.load()
 

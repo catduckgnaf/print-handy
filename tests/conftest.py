@@ -205,7 +205,7 @@ def _close_web_chat_services(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolated_launch_state(tmp_path, monkeypatch):
     """Printer leases and consumed approvals live in a per-test database, never the profile's."""
-    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(tmp_path / "print_handy_launches.sqlite3"))
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(tmp_path / "jobs.db"))
 
 
 @pytest.fixture(autouse=True)

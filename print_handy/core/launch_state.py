@@ -5,11 +5,10 @@ so the check and the write happen in one transaction across processes (the bot, 
 children, a CLI print-now) and one printer's lease or approval table can never leak into
 another's. JOB.json keeps its human-readable approvals list; model archives stay ordinary files.
 
-Upgrade adoption: the first time the default printer's database is opened and it does not
-exist yet, the legacy single database (<state>/print_handy_launches.sqlite3) is copied into
-place — held lease and consumed approvals intact — and the legacy file is left untouched for
-one release so a rollback still finds it. $PRINT_HANDY_LAUNCH_DB keeps naming one explicit
-database and disables the per-printer layout (tests and operator overrides).
+The pre-2.4 single database (<state>/print_handy_launches.sqlite3) is no longer adopted: while
+it is still the default printer's only database, opening one is refused with the move that fixes
+it (print_handy.state_layout, #1817). $PRINT_HANDY_LAUNCH_DB keeps naming one explicit database
+and disables the per-printer layout (tests and operator overrides).
 
 Lease phases: ``leased`` (checks and upload, nothing started), ``submitting`` (persisted before the
 start request), ``uncertain`` (sent, outcome unknown). A confirmed or failed start deletes the row.
@@ -24,10 +23,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import socket
 import sqlite3
-import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -50,116 +47,6 @@ SCHEMA = (
 )
 
 
-_ADOPT_THREAD_LOCK = threading.Lock()
-
-
-@contextmanager
-def _adoption_lock(target, timeout=30.0):
-    lock_path = target.parent / ".adopt.lock"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + timeout
-    remaining = max(0.0, deadline - time.monotonic())
-    if not _ADOPT_THREAD_LOCK.acquire(timeout=remaining):
-        raise TimeoutError(f"legacy adoption thread lock {lock_path} timed out")
-    try:
-        import fcntl
-        fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            while True:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(f"legacy adoption lock {lock_path} timed out")
-                    time.sleep(0.02)
-            yield
-        finally:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            except OSError as exc:
-                logger.warning("could not release legacy adoption lock: %s", exc)
-            os.close(fd)
-    finally:
-        _ADOPT_THREAD_LOCK.release()
-
-
-def _adopt_legacy_db(target, printer_id):
-    """Copy the legacy single launch database into the default printer's folder, once.
-
-    Only the default printer adopts it: the legacy database was the singleton
-    printer's, and copying it to a second printer would duplicate its held
-    lease and consumed approvals. The legacy file (and any WAL sidecars) is
-    left in place for one release.
-    """
-    if printer_id != settings.default_printer_id():
-        return
-    legacy = settings.state_dir() / "print_handy_launches.sqlite3"
-    if target.exists() or not legacy.is_file():
-        return
-    with _adoption_lock(target):
-        if target.exists() or not legacy.is_file():
-            return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(target.name + ".adopting")
-        for stale in (tmp, Path(str(tmp) + "-wal"), Path(str(tmp) + "-shm")):
-            if stale.exists():
-                stale.unlink()  # an interrupted earlier adoption; start clean
-        # SQLite's online backup API yields one consistent snapshot even while a
-        # writer holds the WAL; copying the db and -wal files separately did not.
-        src = sqlite3.connect(legacy.resolve().as_uri() + "?mode=ro", uri=True)
-        try:
-            dst = sqlite3.connect(tmp)
-            try:
-                src.backup(dst)
-            finally:
-                dst.close()
-        finally:
-            src.close()
-        _rekey_adopted_db(tmp, printer_id)
-        os.replace(tmp, target)
-
-
-def _rekey_adopted_db(target, printer_id):
-    """Rekey an adopted legacy database's rows to the roster printer id (P1-74).
-
-    The legacy database keyed its lease (and any history baseline) by the old
-    Moonraker URL / model key, while every lookup in the per-printer layout
-    uses the roster id: copied verbatim, a held submitting/uncertain lease
-    would never be found and a second launch could start over it. ``printer``
-    is each table's PRIMARY KEY, so several distinct legacy keys cannot all
-    survive the rekey: the newest lease row (by ``updated_at``) wins, exactly
-    the one row a singleton database can hold.
-    """
-    con = sqlite3.connect(target)
-    try:
-        tables = {row[0] for row in con.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'")}
-        with con:
-            survivor = None
-            if "leases" in tables:
-                stale = con.execute(
-                    "SELECT rowid, printer FROM leases ORDER BY updated_at DESC").fetchall()
-                survivor = stale[0][1] if stale else None
-                for (rowid, _key) in stale[1:]:
-                    con.execute("DELETE FROM leases WHERE rowid=?", (rowid,))
-                con.execute("UPDATE leases SET printer=? WHERE printer!=?",
-                            (printer_id, printer_id))
-            if "lease_baselines" in tables:
-                # The baseline that goes with the surviving lease, not just the first row: a
-                # baseline from another legacy key would let a run it predates confirm it (2.2.5 review).
-                stale = con.execute("SELECT rowid, printer FROM lease_baselines").fetchall()
-                keep = next((rowid for (rowid, key) in stale if key == survivor),
-                            stale[0][0] if stale else None)
-                for (rowid, _key) in stale:
-                    if rowid != keep:
-                        con.execute("DELETE FROM lease_baselines WHERE rowid=?", (rowid,))
-                con.execute("UPDATE lease_baselines SET printer=? WHERE printer!=?",
-                            (printer_id, printer_id))
-    finally:
-        con.close()
-
-
 def db_path(printer_id=None):
     """The launch database for one printer: $PRINT_HANDY_LAUNCH_DB, else its per-printer jobs.db."""
     override = os.environ.get("PRINT_HANDY_LAUNCH_DB")
@@ -167,7 +54,13 @@ def db_path(printer_id=None):
         return Path(override)
     printer_id = printer_id or settings.default_printer_id()
     target = settings.printer_state_dir(printer_id) / "jobs.db"
-    _adopt_legacy_db(target, printer_id)
+    if not target.exists() and printer_id == settings.default_printer_id():
+        # The pre-2.4 root database is no longer adopted (#1817). Opening a
+        # fresh one beside it would forget a held lease, so refuse instead.
+        from .. import state_layout
+        message = state_layout.stranded_error(settings.state_dir(), printer_id, "jobs.db")
+        if message:
+            raise state_layout.StrandedStateError(message)
     return target
 
 

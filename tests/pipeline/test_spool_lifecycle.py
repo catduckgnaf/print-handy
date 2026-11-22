@@ -444,19 +444,6 @@ class SpoolLifecycleCLITests(unittest.TestCase):
                     sl.main()
                     self.assertTrue(mock_stdout.write.called)
 
-    def test_cli_reconcile_adopts_a_pre_rename_state_file(self):
-        """#677: a record written before the #672 rename keeps its slots under ifs_slots."""
-        with tempfile.TemporaryDirectory() as td:
-            state_file = Path(td) / "state.json"
-            state_file.write_text(json.dumps({"active_slot": 2, "ifs_slots": {"2": {"spoolman_id": 12}}}))
-            with mock.patch("sys.argv", ["spool_lifecycle.py", "reconcile", "--state-file", str(state_file), "--offline"]), \
-                 mock.patch.object(sl, "reconcile_four_slot_state", return_value={}) as reconcile, \
-                 mock.patch("sys.stdout"):
-                sl.main()
-        seen = reconcile.call_args[0][0]
-        self.assertEqual(seen["filament_slots"], {"2": {"spoolman_id": 12}})
-        self.assertNotIn("ifs_slots", seen)
-
     def test_cli_reconcile_offline_with_source_files(self):
         with tempfile.TemporaryDirectory() as td:
             state_file = Path(td) / "state.json"

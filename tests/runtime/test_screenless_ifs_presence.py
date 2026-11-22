@@ -5,6 +5,7 @@ running, so its /detail API refuses every connection; slot presence comes from
 Klipper's zmod_color instead. All printer state here is fake.
 """
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -32,11 +33,13 @@ class ListenerCase(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         for name, value in (("NATIVE_ERROR_STATE", root / "native_error.json"),
-                            ("HARDWARE_STATE", root / "hardware.json"),
                             ("RUNOUT_PAUSE_STATE", root / "runout.json")):
             patch = mock.patch.object(mel, name, value, create=True)
             patch.start()
             self.addCleanup(patch.stop)
+        patch = mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(root / "hardware.json")})
+        patch.start()
+        self.addCleanup(patch.stop)
         for patch in (mock.patch.object(mel.printers, "current", return_value=S(has_native_screen=True)),
                       mock.patch.object(pab, "open_insertion_slots", return_value=set(), create=True)):
             patch.start()

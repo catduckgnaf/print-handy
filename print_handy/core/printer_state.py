@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Installed nozzle + loaded spool: single source of truth and live cross-check.
 
-State file: <state_dir>/printers/<printer_id>/printer_hardware.json (#334, design §2.4);
-with no printer named, the legacy root-level <state_dir>/printer_hardware.json, exactly as
-before. A printer whose per-printer file does not exist yet reads the legacy file (the
-default printer only — it was the singleton's record); new writes go to the per-printer
-location and the legacy file is left in place for one release.
+State file: <state_dir>/printers/<printer_id>/printer_hardware.json (#334, design §2.4) for
+every printer; with no printer named, the default printer's. The pre-2.4 root-level
+<state_dir>/printer_hardware.json is no longer read: a default printer whose record is still
+only there is refused with the move that fixes it (print_handy.state_layout, #1817).
 Live checks: Klipper (via Moonraker) nozzle_diameter + probe z_offset, Moonraker
 active Spoolman spool, Spoolman spool record.
 
@@ -30,7 +29,13 @@ from .. import printers, settings
 from . import filament_color, spoolman_client
 from .gcode_lines import Anchor
 
-STATE = str(settings.state_dir() / "printer_hardware.json")
+# The state folder hardware records live under. None (production) resolves
+# <state_home>/state through runtime._config, the same root every runtime
+# state file uses; tests point it at a temp folder.
+STATE_ROOT = None
+# An explicit hardware-record file that wins for every printer (an operator and
+# test seam, as it always was for the runtime readers).
+HARDWARE_ENV = "PRINTER_HARDWARE_STATE"
 
 
 _FAMILY_BASES = ("PETG", "PCTG", "PLA", "ABS", "ASA", "TPU", "PA", "PC")
@@ -755,56 +760,65 @@ def _material_temperature_contract(state):
         raise RuntimeError(f"Unsupported filament material {material!r}; no PLA fallback is allowed")
 
 
-def state_path(printer_id=None):
+def _settings(data=None):
+    if data is not None:
+        return data
+    from ..runtime import _config
+    return _config.cfg()
+
+
+def state_root(data=None):
+    """The state folder: STATE_ROOT when set, else <state_home>/state (of ``data``, or this process)."""
+    if STATE_ROOT is not None:
+        return Path(STATE_ROOT)
+    return settings.state_dir(_settings(data))
+
+
+def default_printer_id(data=None):
+    """The roster's default printer, resolved through the same settings as state_root()."""
+    return settings.default_printer_id(_settings(data))
+
+
+def state_path(printer_id=None, *, data=None):
     """The hardware record for one printer: <state>/printers/<id>/printer_hardware.json.
 
-    Derived from STATE's folder (the module's one state seam, which tests
-    patch) rather than from settings, so the per-printer layout follows the
-    same root the legacy record lives in. No printer named: the legacy path.
+    The one resolver for every reader and writer (printer_state, spool_sync,
+    the listener, the doctor). No printer named: the default printer. The
+    $PRINTER_HARDWARE_STATE override, when set, wins for every printer.
+    ``data`` resolves against one settings dict (the doctor's) instead of
+    this process's.
     """
-    if printer_id is None:
-        # Once the default printer has its own record, the legacy file is a
-        # stale copy: an unnamed write landing there would never be read
-        # back (a /spool bind the slicer could not see).
-        try:
-            default_id = settings.default_printer_id()
-        except Exception:
-            default_id = None
-        if default_id:
-            own = Path(STATE).parent / "printers" / default_id / "printer_hardware.json"
-            if own.is_file():
-                return own
-        return Path(STATE)
-    return Path(STATE).parent / "printers" / printer_id / "printer_hardware.json"
+    override = os.environ.get(HARDWARE_ENV)
+    if override:
+        return Path(override)
+    return state_root(data) / "printers" / str(printer_id or default_printer_id(data)) / "printer_hardware.json"
 
 
-def _read_path(printer_id=None):
-    """Where a load reads: the per-printer file, or the legacy file it adopts.
+def refuse_stranded_record(path, *, data=None):
+    """Raise when ``path`` is missing because the record is still at the pre-2.4 root (#1817).
 
-    Adoption is read-only and belongs to the default printer alone: a second
-    printer must never inherit the singleton's loaded spool and nozzle.
+    Without this a load would fail as a plain missing file, or a caller that
+    seeds on a missing record would start the printer empty while the real
+    record (loaded spools, nozzle, z-offset) sits unread at the root.
     """
-    target = state_path(printer_id)
-    if printer_id is None or target.exists():
-        return target
-    try:
-        default_id = settings.default_printer_id()
-    except Exception:
-        default_id = None
-    if printer_id == default_id and Path(STATE).is_file():
-        return Path(STATE)
-    return target
+    from .. import state_layout
+    if os.environ.get(HARDWARE_ENV) or Path(path).exists() or Path(path) != state_path(data=data):
+        return
+    message = state_layout.stranded_error(state_root(data), default_printer_id(data), "printer_hardware.json")
+    if message:
+        raise state_layout.StrandedStateError(message)
 
 
 def load(printer_id=None):
-    with open(_read_path(printer_id)) as f:
+    path = state_path(printer_id)
+    refuse_stranded_record(path)
+    with open(path) as f:
         state = json.load(f)
     # A loaded slot with no color code gets one derived from its name (or a
     # neutral default it says out loud), never overwriting a valid hex. The
     # next save persists it; the listener upgrades it from Spoolman or the
     # printer's own report when those answer.
-    from .filament_color import adopt_renamed_slots_key, fill_missing_slot_hexes
-    adopt_renamed_slots_key(state)
+    from .filament_color import fill_missing_slot_hexes
     fill_missing_slot_hexes(state)
     return state
 
@@ -934,6 +948,7 @@ def seed_hardware_record(printer_id, view=None):
     """
     if state_path(printer_id).exists():
         return False
+    refuse_stranded_record(state_path(printer_id))
     view = view if view is not None else settings.view_for(printer_id)
     save(_seed_record(view, printer_id), printer_id)
     return True
@@ -963,17 +978,14 @@ def provision_default_record(view=None):
     including ``printer_state set``, which loads before it saves — failed on
     the missing file, so the mandatory state could only appear by
     hand-writing JSON. The seed is the same minimal record guided onboarding
-    writes for a newly added printer (#537), placed at the legacy singleton
-    path the default printer's per-printer reads adopt. An existing record,
-    legacy or per-printer, is never overwritten. Returns True when a record
-    was created.
+    writes for a newly added printer (#537), written to the default printer's
+    own <state>/printers/<id>/printer_hardware.json. An existing record is
+    never overwritten, and a record still at the pre-2.4 root is refused with
+    the move that fixes it rather than shadowed by an empty seed. Returns
+    True when a record was created.
     """
-    default_id = settings.default_printer_id()
-    if state_path().exists() or state_path(default_id).exists():
-        return False
-    view = view if view is not None else settings.view_for(default_id)
-    save(_seed_record(view, default_id))
-    return True
+    default_id = default_printer_id()
+    return seed_hardware_record(default_id, view)
 
 
 def _get(url, data=None, method=None, timeout=6):

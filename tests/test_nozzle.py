@@ -278,7 +278,7 @@ def test_printer_state_cli_persistence(tmp_path, monkeypatch):
     }
     state_file.write_text(json.dumps(initial_st, indent=2) + "\n")
 
-    monkeypatch.setattr(printer_state, "STATE", str(state_file))
+    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(state_file))
 
     # 1. Update nozzle diameter via CLI
     monkeypatch.setattr("sys.argv", ["printer_state.py", "set", "--nozzle", "0.6", "--no-sync-klipper"])

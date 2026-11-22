@@ -687,8 +687,9 @@ class LaneDataWatcher:
     def _slot_already_empty(self, slot: int) -> bool:
         """True when no Spoolman ``ph_slot`` claim and no slot-cache record holds the slot.
 
-        Both are required: a printer not yet migrated to ``ph_slot`` has no
-        claims at all while its cache still loads the slot. Anything that
+        Both are required: while Spoolman holds no claim for this printer,
+        its cache can still load the slot (the next reconcile seeds Spoolman
+        from it). Anything that
         cannot be read counts as not empty, so the unload converges as before.
         """
         if self._slot_claimants(slot) != []:

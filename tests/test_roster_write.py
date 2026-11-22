@@ -300,7 +300,7 @@ def test_environment_legacy_offender_surfaces_on_conversion(tmp_path):
 
 def test_seed_hardware_record_creates_a_minimal_truthful_record(tmp_path, monkeypatch):
     state = tmp_path / "printer_hardware.json"
-    monkeypatch.setattr(printer_state, "STATE", str(state))
+    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(state))
     view = {"printer": {"name": "Bench P1", "bed_mm": [256, 256], "max_print_height_mm": 256,
                         "nozzle_diameter_mm": 0.4},
             "services": {"moonraker_url": ""},

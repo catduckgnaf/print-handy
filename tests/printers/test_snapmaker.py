@@ -1,5 +1,6 @@
 """Offline tests for the Snapmaker U1. No printer, network or slicer."""
 
+import os
 import pytest
 
 from print_handy import printers
@@ -94,7 +95,7 @@ def test_u1_slice_model_preparation_completes_without_a_spool_color(tmp_path):
 
     adapter = adapter_for("snapmaker.u1")
     hardware = Path(__file__).parent.parent / "pipeline" / "fixtures" / "printer_hardware.json"
-    with mock.patch.object(model_job.printer_state, "STATE", str(hardware)):
+    with mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(hardware)}):
         state = copy.deepcopy(model_job.printer_state.load())
     state["filament_slots"] = {}
     state["spool"].update(material="PLA", density=1.24, color_code=None, color=None)

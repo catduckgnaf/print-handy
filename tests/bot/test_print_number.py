@@ -43,7 +43,7 @@ def archive(tmp_path, monkeypatch):
     """Two archived prints in an isolated archive: Older Widget is #1, Newer Widget is #2."""
     monkeypatch.setattr(pc, "ARCHIVE", tmp_path)
     monkeypatch.setattr(pc, "PRINT_NUMBERS", tmp_path / "print_numbers.json")
-    monkeypatch.setattr(pc, "REPRINT_QUEUE", tmp_path / "reprint_queue.json")
+    monkeypatch.setenv("REPRINT_QUEUE_STATE", str(tmp_path / "reprint_queue.json"))
     older = _printed(tmp_path, "older-widget--a", "Older Widget", 200)
     newer = _printed(tmp_path, "newer-widget--b", "Newer Widget", 100)
     return older, newer

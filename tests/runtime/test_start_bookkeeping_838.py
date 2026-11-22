@@ -2,6 +2,7 @@
 emptied slots (item 7) and the alert Cancel refusal during a Klipper
 shutdown (item 9). Offline only.
 """
+import os
 import json
 import tempfile
 import unittest
@@ -51,11 +52,11 @@ class ClassifyRunoutAttributionTests(unittest.IsolatedAsyncioTestCase):
         self.hardware.write_text(json.dumps({"active_slot": 1, "filament_slots": {
             "1": {"spoolman_id": 10, "material": "PLA", "color": "white"},
             "2": {"spoolman_id": 11, "material": "PLA", "color": "black"}}}))
-        self.old_hardware = mel.HARDWARE_STATE
-        mel.HARDWARE_STATE = self.hardware
+        self._hardware_env = mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(self.hardware)})
+        self._hardware_env.start()
 
     def tearDown(self):
-        mel.HARDWARE_STATE = self.old_hardware
+        self._hardware_env.stop()
         self.tmp.cleanup()
 
     async def test_two_empty_slots_attribute_to_the_newly_emptied_mapped_one(self):
