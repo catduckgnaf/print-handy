@@ -215,6 +215,13 @@ jobs:
           PRINT_HANDY_MESH_REQUIRE_NATIVE: "1"
           PRINT_HANDY_LARGE_MESH_TIMING: ${{ runner.temp }}/large-mesh-timing.jsonl
         run: python -m pytest -v -s -rs tests/corpus/large_mesh
+      - name: Large-mesh intake on the numpy twin, kernel off (its own budgets)
+        env:
+          PRINT_HANDY_LARGE_MESH_CORPUS: ${{ runner.temp }}/large-mesh
+          PRINT_HANDY_LARGE_MESH_REQUIRE: "1"
+          PRINT_HANDY_LARGE_MESH_ENGINE: numpy
+          PRINT_HANDY_LARGE_MESH_TIMING: ${{ runner.temp }}/large-mesh-timing.jsonl
+        run: python -m pytest -v -s -rs tests/corpus/large_mesh
       - name: Large-mesh intake on the Python fallback (timed only)
         env:
           PRINT_HANDY_LARGE_MESH_CORPUS: ${{ runner.temp }}/large-mesh

@@ -151,7 +151,7 @@ def _triangle_area_and_signed_volume(triangles):
                  - a[:, 1] * (b[:, 0] * c[:, 2] - b[:, 2] * c[:, 0])
                  + a[:, 2] * (b[:, 0] * c[:, 1] - b[:, 1] * c[:, 0])) / 6.0))
         return area, abs(signed_vol)
-    # The scalar loop below, natively (#1790): the same per-triangle terms
+    # The scalar loop below, natively or in numpy (#1790): the same per-triangle terms
     # added one triangle at a time.
     from .mesh_fast import _measured
     native = _measured(triangles)
@@ -719,19 +719,43 @@ def _mesh_xml_lines(triangles):
     """The ``<vertex>`` and ``<triangle>`` lines of one geometry-only object.
 
     Corners weld on their round(v, 6) coordinates in first-corner order. The
-    native kernel (#1790) returns the same text as one newline-joined entry
-    per block, so joining the whole model with newlines gives identical
-    bytes, without 20 M round() calls on a large mesh. The loop below is the
-    oracle.
+    native kernel (#1790), or its numpy twin without the wheel, returns the
+    same text as one newline-joined entry per block, so joining the whole
+    model with newlines gives identical bytes, without 20 M round() calls on
+    a large mesh. The loop in ``_mesh_xml_and_tables`` is the oracle.
     """
-    from .mesh_native import threemf_text
-    native = threemf_text(triangles)
-    if native is None:
-        from .mesh_numpy import threemf_text as numpy_threemf_text
-        native = numpy_threemf_text(triangles)
+    vertex_lines, triangle_lines, _tables = _mesh_xml_and_tables(triangles, tables=False)
+    return vertex_lines, triangle_lines
+
+
+def _mesh_xml_and_tables(triangles, tables=True):
+    """``(vertex_lines, triangle_lines, (vertices, faces) or None)`` of one object.
+
+    With ``tables`` the welded vertices (N, 3) float64 and faces (M, 3) are
+    returned too: the values the 3MF reader gets back from the text, for the
+    combine step's mesh sidecar (``mesh_sidecar``).
+    """
+    from .mesh_native import threemf_text, weld
+    from . import mesh_numpy
+    if tables:
+        numpy_text = None
+        native = threemf_text(triangles)
+        welded = weld(triangles, round6=True) if native is not None else None
+        if native is None or welded is None:
+            native, welded = None, None
+            numpy_text = mesh_numpy.threemf_tables(triangles)
+        if numpy_text is not None:
+            vertex_text, triangle_text, welded = numpy_text
+            native = (vertex_text, triangle_text)
+    else:
+        welded = None
+        native = threemf_text(triangles)
+        if native is None:
+            native = mesh_numpy.threemf_text(triangles)
     if native is not None:
         vertex_text, triangle_text = native
-        return ([vertex_text] if vertex_text else []), ([triangle_text] if triangle_text else [])
+        return (([vertex_text] if vertex_text else []), ([triangle_text] if triangle_text else []),
+                welded)
     v_map = {}
     v_list = []
     t_list = []
@@ -748,13 +772,27 @@ def _mesh_xml_lines(triangles):
         t_list.append(idxs)
     vertex_lines = [f'          <vertex x="{vx:.6f}" y="{vy:.6f}" z="{vz:.6f}"/>' for vx, vy, vz in v_list]
     triangle_lines = [f'          <triangle v1="{v1}" v2="{v2}" v3="{v3}"/>' for v1, v2, v3 in t_list]
-    return vertex_lines, triangle_lines
+    welded = None
+    if tables:
+        import numpy as np
+        welded = (np.array(v_list, dtype=np.float64).reshape((-1, 3)),
+                  np.array(t_list, dtype=np.int64).reshape((-1, 3)))
+    return vertex_lines, triangle_lines, welded
 
 
-def write_geometry_only_3mf(placed_objects, target: Path) -> Path:
-    """Write a clean geometry-only multi-object 3MF in millimeters with distinct selectable objects."""
+def write_geometry_only_3mf(placed_objects, target: Path, record_tables: bool = False) -> Path:
+    """Write a clean geometry-only multi-object 3MF in millimeters with distinct selectable objects.
+
+    ``record_tables`` also writes the welded mesh tables beside it
+    (``mesh_sidecar``), so later intake steps read them instead of parsing
+    the model XML again (#1790). The 3MF bytes are the same either way.
+    """
+    from . import mesh_sidecar
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
+    mesh_sidecar.discard(target)
+    bodies = []  # (start, stop, placeholder) of each vertex and triangle block in ``lines``
+    recorded = []
     content_types = (
         b'<?xml version="1.0" encoding="UTF-8"?>\n'
         b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -789,12 +827,15 @@ def write_geometry_only_3mf(placed_objects, target: Path) -> Path:
         lines.append(f'    <object id="{oid}" name="{safe_xml_name}" type="model">')
         lines.append('      <mesh>')
         lines.append('        <vertices>')
-        vertex_lines, triangle_lines = _mesh_xml_lines(obj['triangles'])
+        vertex_lines, triangle_lines, welded = _mesh_xml_and_tables(obj['triangles'], tables=record_tables)
+        bodies.append((len(lines), len(lines) + len(vertex_lines), mesh_sidecar.PLACEHOLDER_VERTEX))
         lines.extend(vertex_lines)
         lines.append('        </vertices>')
         lines.append('        <triangles>')
+        bodies.append((len(lines), len(lines) + len(triangle_lines), mesh_sidecar.PLACEHOLDER_TRIANGLE))
         lines.extend(triangle_lines)
         lines.append('        </triangles>')
+        recorded.append((oid, welded))
         lines.append('      </mesh>')
         lines.append('    </object>')
         tx, ty, tz = obj.get('translation_mm', (0.0, 0.0, 0.0))
@@ -809,6 +850,15 @@ def write_geometry_only_3mf(placed_objects, target: Path) -> Path:
         zf.writestr('[Content_Types].xml', content_types)
         zf.writestr('_rels/.rels', rels)
         zf.writestr('3D/3dmodel.model', model_xml)
+    del model_xml
+    if record_tables and all(welded is not None for _oid, welded in recorded):
+        skeleton, cursor = [], 0
+        for start, stop, placeholder in bodies:
+            skeleton.extend(lines[cursor:start])
+            skeleton.append(placeholder)
+            cursor = stop
+        skeleton.extend(lines[cursor:])
+        mesh_sidecar.write(target, skeleton, [(oid, v, f) for oid, (v, f) in recorded])
     return target
 
 

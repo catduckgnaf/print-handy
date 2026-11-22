@@ -283,7 +283,7 @@ def test_generated_stl_pair_combines_identically(tmp_path, monkeypatch):
         assert got['objects'] == want['objects'] and got['on_one_bed'] == want['on_one_bed']
         assert got_model == want_model
     # numpy really served every stage (not a silent Python fallback).
-    assert {name for name, ok in calls if ok} >= {'topology', 'measure', 'threemf_text'}
+    assert {name for name, ok in calls if ok} >= {'topology', 'measure', 'threemf_tables'}
 
 
 def test_numpy_equals_native_where_the_wheel_is_built(monkeypatch):

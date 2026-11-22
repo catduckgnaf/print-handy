@@ -151,24 +151,53 @@ class _Mesh:
 
 # ------------------------------------------------------------ round(v, 6)
 
+_SPLIT = 134217729.0  # 2**27 + 1: Veltkamp's splitter for a double
+_MILLION_HI, _MILLION_LO = 1e6, 0.0  # 1e6 already fits in 27 bits
+
+
+def _product_error(x, product):
+    """The exact ``x * 1e6 - product`` for ``product = x * 1e6`` (Dekker's two-product).
+
+    Splitting ``x`` into two 26-bit halves makes every partial product
+    exact, so ``x * 1e6 == product + error`` holds exactly for every
+    finite ``x`` this module rounds (``|x| < 4e9``).
+    """
+    c = _SPLIT * x
+    hi = c - (c - x)
+    lo = x - hi
+    return ((hi * _MILLION_HI - product) + hi * _MILLION_LO + lo * _MILLION_HI) + lo * _MILLION_LO
+
+
 def round6(values):
-    """Python's ``round(v, 6)`` of every element of a finite float64 array."""
+    """Python's ``round(v, 6)`` of every element of a finite float64 array.
+
+    CPython rounds the exact binary value of ``v * 10**6`` to an integer,
+    ties to even, and returns that integer divided by ``10**6``, correctly
+    rounded. ``v * 1e6`` in floating point can differ from the exact value
+    only below its last bit, and every half-integer under 2**52 is a
+    double, so the two round alike unless the floating-point product lands
+    exactly on a half-integer; there the exact error (``_product_error``)
+    says which way the true value lies, or that it is a true tie. A zero
+    result keeps ``v``'s sign, as CPython's does. Magnitudes from 4e9 up,
+    where products pass 2**52, take Python's round() one by one (none are
+    printable coordinates).
+    """
     values = np.asarray(values, dtype=np.float64)
     scaled = values * 1e6
     nearest = np.rint(scaled)
+    tie = np.abs(scaled - nearest) == 0.5
+    if tie.any():
+        product = scaled[tie]
+        error = _product_error(values[tie], product)
+        nearest[tie] = np.where(error > 0, product + 0.5,
+                                np.where(error < 0, product - 0.5, nearest[tie]))
     out = nearest / 1e6
-    # ``scaled`` is within half an ulp of the exact product, and
-    # ``scaled - floor(scaled)`` within an ulp of max(|scaled|, 1) of its
-    # true fraction. Away from a tie by more than both, the exact product
-    # rounds to the same integer as ``scaled``; ties and near ties, and the
-    # magnitudes where that bound stops holding, go to Python's round().
-    fraction = scaled - np.floor(scaled)
-    slack = 4.0 * np.spacing(np.maximum(np.abs(scaled), 1.0))
-    unsure = (np.abs(fraction - 0.5) <= slack) | (np.abs(values) >= 4e9)
-    if unsure.any():
+    out = np.where(out == 0.0, np.copysign(0.0, values), out)
+    big = np.abs(values) >= 4e9
+    if big.any():
         flat_out = out.reshape(-1)
         flat_in = values.reshape(-1)
-        for index in np.flatnonzero(unsure.reshape(-1)).tolist():
+        for index in np.flatnonzero(big.reshape(-1)).tolist():
             flat_out[index] = round(float(flat_in[index]), 6)
     return out
 
@@ -279,21 +308,35 @@ def _fixed6(values):
     return sign, scaled // 1_000_000, scaled % 1_000_000
 
 
-def _threemf(mesh):
-    vertices, faces = _weld(mesh, rounded=True)
+def _text(vertices, faces):
     sx, wx, fx = _fixed6(vertices[:, 0])
     sy, wy, fy = _fixed6(vertices[:, 1])
     sz, wz, fz = _fixed6(vertices[:, 2])
     columns = (sx.tolist(), wx.tolist(), fx.tolist(), sy.tolist(), wy.tolist(), fy.tolist(),
                sz.tolist(), wz.tolist(), fz.tolist())
-    vertex_text = '\n'.join(map(_VERTEX.__mod__, zip(*columns)))
+    vertex_text = '\n'.join(map(_VERTEX.__mod__, zip(*columns, strict=True)))
     triangle_text = '\n'.join(map(_TRIANGLE.__mod__, map(tuple, faces.tolist())))
     return vertex_text, triangle_text
+
+
+def _threemf(mesh):
+    return _text(*_weld(mesh, rounded=True))
+
+
+def _threemf_tables(mesh):
+    vertices, faces = _weld(mesh, rounded=True)
+    vertex_text, triangle_text = _text(vertices, faces)
+    return vertex_text, triangle_text, (vertices, faces)
 
 
 def threemf_text(triangles):
     """``mesh_native.threemf_text``'s ``(vertex_lines, triangle_lines)`` text, or None."""
     return _guarded('threemf_text', _threemf, triangles)
+
+
+def threemf_tables(triangles):
+    """``threemf_text`` plus the welded ``(vertices, faces)`` it prints, or None."""
+    return _guarded('threemf_tables', _threemf_tables, triangles)
 
 
 # ------------------------------------------------------------ topology

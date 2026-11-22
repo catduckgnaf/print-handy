@@ -534,7 +534,7 @@ def bounds_and_volume(triangles):
         return _bounds_and_volume_arrays(triangles.vertices, triangles.faces)
     if isinstance(triangles, MeshTable) and len(triangles) >= 32768:
         return _bounds_and_volume_arrays(triangles.vertices, triangles.triangles)
-    # The scalar loop below, natively (#1790): same bounds rule (first of
+    # The scalar loop below, natively or in numpy (#1790): same bounds rule (first of
     # equal values wins) and the same triangle-by-triangle volume sum.
     native = _measured(triangles)
     if native is not None:
@@ -588,6 +588,15 @@ def archive_tables(archive, name):
     hit = _TABLE_CACHE.get(key)
     if hit is not None:
         return hit
+    # The combine step's own tables for this exact file, when it recorded
+    # them (#1790): the same structure and tables this parse would return.
+    from .mesh_sidecar import tables as recorded_tables
+    filename = getattr(archive, 'filename', None)
+    parsed = recorded_tables(filename, info) if filename else None
+    if parsed is not None:
+        structure, tables = parsed
+        _TABLE_CACHE[key] = (structure, tables)
+        return structure, tables
     with archive.open(info) as member:
         parsed = _parse_member(member)
     if parsed is None:
