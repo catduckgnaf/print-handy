@@ -4451,7 +4451,7 @@ class Listener:
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
 
     async def _slot_self_check(self):
-        """Check for a slot mismatch after ZMod activates the job's tool.
+        """Check for a slot mismatch after ZMod's active-tool channels settle.
 
         Compare one snapshot once both channels agree on the requested slot,
         or both have changed to the same other slot. An unchanged wrong slot

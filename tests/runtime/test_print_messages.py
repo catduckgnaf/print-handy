@@ -353,8 +353,10 @@ def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warn
                     (3, active_slot, active_slot, None)])
     monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
     waits = []
+
     async def no_wait(delay):
         waits.append(delay)
+
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
     posts = []
     monkeypatch.setattr(mel, "post", posts.append)
@@ -369,8 +371,10 @@ def test_slot_self_check_does_not_warn_if_activation_is_unobserved(monkeypatch):
     listener = mel.Listener()
     monkeypatch.setattr(listener, "_slot_sources", lambda: (3, 2, 2, None))
     waits = []
+
     async def no_wait(delay):
         waits.append(delay)
+
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
     monkeypatch.setattr(mel, "post", lambda _: pytest.fail("must not report stale channel"))
     asyncio.run(listener._slot_self_check())
