@@ -21,6 +21,7 @@ pytestmark = pytest.mark.skipif(not REAL, reason="set PRINT_HANDY_REAL_SLICER=1 
 
 from .test_orca_edits_real import write_cube  # noqa: E402
 
+JOB_BED = json.loads(STATE.read_text())["temps_c"]["bed"]
 KEY = printers.current().key  # the model the shared hardware fixture describes
 
 
@@ -56,6 +57,7 @@ def test_plate_names_the_bed_type_and_the_bed_heater_keeps_its_temperature(plate
         text = _slice(tmp, plate)
         assert _bed_type(text) == bed_type
         heats = _bed_heats(text)
-        # Print Handy writes the job's bed temperature to every plate's key, so each plate heats to it.
-        assert len(heats) == 1 and next(iter(heats)) > 0
+        # Print Handy writes the job's bed temperature to every plate's key, so each plate heats to exactly
+        # the job's bed temperature (the fixture's), never a stale or default plate temperature.
+        assert heats == {JOB_BED}
         print(plate, bed_type, heats)
