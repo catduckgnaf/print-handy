@@ -274,7 +274,7 @@ def test_intake_question_is_bounded_and_expiry_does_not_cancel(tmp_path):
     source = S(chat_id="c1")
     seen = {}
 
-    async def expired_ask(_adapter, _source, _key, text, labels, timeout, **_kw):
+    async def expired_ask(_adapter, _source, _key, text, labels, timeout, **_kw):  # noqa: ASYNC109 - mirrors the real ask signature
         seen["timeout"] = timeout
         raise type("PromptExpired", (RuntimeError,), {})("expired")
 
