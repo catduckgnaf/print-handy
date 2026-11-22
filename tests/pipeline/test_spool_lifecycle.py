@@ -354,7 +354,7 @@ class JobAccountingReceiptTests(unittest.TestCase):
             "; HEADER_BLOCK_START\n"
             "; total filament used [g] = 35.50\n"
             "; filament used [g] = 20.00, 15.50\n"
-            "; hermes_tool_slots = {\"0\": 2, \"1\": 4}\n"
+            "; print_handy_tool_slots = {\"0\": {\"physical_slot\": 2}, \"1\": {\"physical_slot\": 4}}\n"
             "; estimated printing time (normal mode) = 1h 10m\n"
             "; HEADER_BLOCK_END\n"
             "G90\n"

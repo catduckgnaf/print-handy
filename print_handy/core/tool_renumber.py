@@ -33,10 +33,10 @@ behavior.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 
-MAP_PREFIX = '; hermes_tool_slots = '
+from ..gcode import tool_map as map_line
+
 COLOR_PREFIX = '; zmod_color_data = '
 # Group 3 keeps a CRLF file's '\r' with the line.
 _TOOL_LINE = re.compile(r'^([ \t]*)T(\d+)([ \t]*(?:;.*)?\r?)$')
@@ -56,7 +56,7 @@ def used_tools(text):
     Orca slice has none: its only ``T`` is the heater's ``M104 S<t> T0``,
     which names the one heater, not a filament, so heater lines are never
     read here. Without tool lines the tool comes from what names filament:
-    Print Handy's map line (``; hermes_tool_slots``), else the
+    Print Handy's tool map line (gcode.tool_map), else the
     ``; zmod_color_data`` lines, checked against the first per-filament usage
     list (its entries with nonzero use) when the file has one; with neither,
     the usage list alone. Disagreeing sources, or none, give an empty set,
@@ -70,11 +70,11 @@ def used_tools(text):
             if m:
                 tools.add(int(m.group(2)))
         elif head == ';' and not tools:
-            if line.startswith(MAP_PREFIX):
+            if map_line.is_map_line(line):
                 try:
-                    mapped = {int(k) for k in json.loads(line[len(MAP_PREFIX):])}
-                except (ValueError, TypeError, AttributeError):
-                    mapped = set()  # unreadable map: relabel refuses on the map line as well
+                    mapped = {int(k) for k in map_line.parse_line(line)}
+                except (map_line.ToolMapError, ValueError):
+                    mapped = set()  # unreadable or pre-2.4.0 map: relabel refuses on the map line as well
             elif line.lower().startswith(COLOR_PREFIX):
                 tool = line[len(COLOR_PREFIX):].partition('|')[0].strip()
                 if tool.isdigit():
@@ -186,14 +186,14 @@ def relabel(text, mapping, used, slots=4):
                 selected.add(int(m.group(2)))
                 lines[i] = f"{m.group(1)}T{relabel_map[int(m.group(2))]}{m.group(3)}"
         elif head == ';':
-            if line.startswith(MAP_PREFIX):
+            if map_line.is_map_line(line):
                 cr = '\r' if line.endswith('\r') else ''
                 try:
-                    data = json.loads(line[len(MAP_PREFIX):].rstrip('\r'))
+                    data = map_line.parse_line(line)
                     moved = {str(relabel_map.get(int(k), int(k))): v for k, v in data.items()}
-                except (ValueError, TypeError, AttributeError):
+                except (map_line.ToolMapError, ValueError):
                     return None, None
-                lines[i] = MAP_PREFIX + json.dumps(moved, sort_keys=True, separators=(',', ':')) + cr
+                lines[i] = map_line.format_line(moved) + cr
             elif line.lower().startswith(COLOR_PREFIX):
                 tool, bar, rest = line[len(COLOR_PREFIX):].partition('|')
                 if bar and tool.strip().isdigit() and int(tool) in relabel_map:
