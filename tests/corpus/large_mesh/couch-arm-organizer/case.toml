@@ -1,0 +1,65 @@
+# Print repair fixture for #1777: the couch arm organizer of 2026-11-21 and the
+# file it was fixed into. The original sliced with supports and floating-region
+# warnings that named no place; the fixed file prints without supports
+# (10 h 41 m, 302 g, no slicer warnings). The first island-scan attempt
+# (#1782) refused the original with work-limit errors and then
+# "could not fill section contour at Z 59.3"; these expectations are what the
+# skill's scans must find on the real meshes.
+#
+# The files are the owner's upload, of unknown license: they are NOT committed,
+# NOT released and have no public source (site = "local"). Place them by hand
+# under <large-mesh root>/couch-arm-organizer/; without them the case skips.
+kind = "repair"
+title = "Couch arm organizer (AirPods), original upload and its no-support fix"
+author = "the owner's upload"
+source_page = "none: uploaded to Print Handy by its owner on 2026-11-21; no public page"
+site = "local"
+license = "unknown (the owner's upload); not redistributed"
+attribution = "Uploaded to Print Handy by its owner on 2026-11-21"
+redistribute = false
+
+[[file]]
+name = "Couch_Arm_Organizer_AirPods_REDESIGNED.stl"
+role = "original"
+bytes = 4408684
+sha256 = "3f3158ed60b441b269cac92aab772289c8bce08c054a5413da90447312e5c22f"
+
+[[file]]
+name = "Couch_Arm_Organizer_AirPods_REDESIGNED_no_supports.stl"
+role = "fixed"
+bytes = 5097784
+sha256 = "9e0b4cf737cf9f15fe86adb8f04c9bd42e53dda04f79fa7bfb6fc3cbfd69e84c"
+
+# Scanned at 0.2 mm layers (the job profile), measured on 2026-11-21. Z is
+# above the bed (the mesh's lowest point); XY in the file's coordinates.
+[expect]
+layer_mm = 0.2
+
+[expect.original]
+faces = 88172
+bodies = 1
+# Orca flagged four floating regions on this layer (about Z 92.28).
+island_z = [92.0, 92.6]
+island_areas_mm2 = [153.7, 153.7, 344.7, 346.8]
+# The 26 mm deep shelf on the +X side: a flat underside at Z 27.
+cantilever_z = 27.0
+cantilever_area_mm2 = 1183.8
+cantilever_region = [229.0, 99.5, 255.3, 166.5]
+# The 0.562 mm low-clearance finding near the base is a wall flaring out at
+# about 53 degrees: a false positive.
+flare_clearance_mm = 0.562
+flare_region = [61.5, 66.5, 62.5, 198.0]
+flare_z_range = [0.0, 1.5]
+flare_slope_deg = 52.8
+
+[expect.fixed]
+faces = 101954
+bodies = 1
+islands = 0
+
+# Seconds per scan on a CI runner. Generous: they catch a scan that falls back
+# to per-face Python loops, not runner noise.
+[budget]
+load = 20.0
+island_scan = 30.0
+overhang_scan = 60.0
