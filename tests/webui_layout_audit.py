@@ -55,7 +55,7 @@ PAGE_ROUTES = {
     "/sliced": ("/sliced", "Long synthetic archive job title"),
     "/external-intake": ("/external-intake", None),
     "/u/*": ("/u/{grant}", "Upload a model file"),
-    "/spools/*": ("/spools/{printer}", "Pink · PLA · #20 · 865.722 g left"),
+    "/spools/*": ("/spools/{printer}", "Pink, PLA · #20 · 865.722 g left"),
     "/designs/*": ("/designs/seeded-design-000001", "Synthetic design session 1"),
     "/printers/*/screen": ("/printers/{printer}/screen", None),
     "/conversion-report/*": ("/conversion-report/seeded-multiplate", "layer_height"),
