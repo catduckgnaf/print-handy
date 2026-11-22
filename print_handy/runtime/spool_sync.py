@@ -501,8 +501,11 @@ def build_lane_record(slot: int, spool: dict[str, Any], existing: dict[str, Any]
              or screen_hex(first_hex_of(filament))
              or str(filament.get("name") or "").strip())
     material = str(filament.get("material") or "").strip()
-    display = name or " ".join(part for part in
-                               (str(filament.get("name") or "").strip(), material) if part)
+    # The lane name Print Handy writes is the one spool label (#1788 phase B), built from the spool's
+    # filament. The callers pass the slot record's own name, which is not the label ("Black PETG" for
+    # "High Speed Matte Black PETG"), so it is only the fallback for a filament with nothing to label.
+    from ..core import filament_type
+    display = filament_type.spool_label(filament) or name
     record: dict[str, Any] = {}
     if isinstance(existing, dict):
         for key, value in existing.items():
@@ -2227,7 +2230,7 @@ def list_text(*, client: Client = spoolman, state_path: Path | None = None,
         sid = rec.get("spoolman_id")
         live = by_id.get(sid) or {}
         grams = live.get("remaining_weight")
-        g = f", {grams:.0f} g" if isinstance(grams, (int, float)) else ""
+        g = f"; {grams:.0f} g" if isinstance(grams, (int, float)) else ""  # the label has its own comma
         shown = spool_nickname(live) or rec.get('name') or '?'
         lines.append(f"Slot {slot}: #{sid} {shown}{g}" if sid else f"Slot {slot}: empty")
         if sid:
@@ -2237,7 +2240,7 @@ def list_text(*, client: Client = spoolman, state_path: Path | None = None,
     for s in sorted(shelf, key=lambda s: s.get("id") or 0):
         f = s.get("filament") or {}
         grams = s.get("remaining_weight")
-        g = f", {grams:.0f} g" if isinstance(grams, (int, float)) else ""
+        g = f"; {grams:.0f} g" if isinstance(grams, (int, float)) else ""  # the label has its own comma
         from .discord_print_summary import filament_label
         own = spool_nickname(s)
         label = f"{own} ({filament_label(f.get('name'), f.get('material'), '?')})" if own \

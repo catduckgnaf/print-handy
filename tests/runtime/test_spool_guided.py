@@ -403,9 +403,9 @@ def test_guided_change_archive():
     assert kw.get("expected_prior_spool_id") == 12  # the spool the confirmation named (#515)
     questions = _questions(adapter)
     assert "Slot 2: #12 Red PETG" in questions[0]
-    assert "Matte White · PLA+ · #7 · 400 g left" in questions[1]
+    assert "White Matte, PLA+ · #7 · 400 g left" in questions[1]
     assert "will be archived" in questions[3]
-    assert "Matte White · PLA+ · #7 · 400 g left" in questions[3]  # the exact spool, named
+    assert "White Matte, PLA+ · #7 · 400 g left" in questions[3]  # the exact spool, named
     assert "Spool #12 was archived." in adapter.sent[-1]
 
 
@@ -608,6 +608,6 @@ def test_guided_change_long_shelf_name_resolves_by_full_label(monkeypatch):
     result = asyncio.run(plugin._spool_guided_change(
         FakeAdapter(), source, None, gateway, spool_sync, None, {}))
     shelf_choices = calls[1][1]
-    assert shelf_choices[0] == f"{long_name} · PLA+ · #7 · 400 g left"  # registered whole, not [:80]
+    assert shelf_choices[0] == f"White {'x' * 90} Matte, PLA+ · #7 · 400 g left"  # registered whole, not [:80]
     assert bound == [(2, 7)]
     assert "not clear" not in result
