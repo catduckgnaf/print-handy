@@ -3391,32 +3391,61 @@ def _yaw(degrees):
     return [c, -s, 0, s, c, 0, 0, 0, 1]
 
 
-_POINTS_CACHE: list = []  # [(triangles, points)]: the one model being fitted right now
+# [[triangles, point list or None, point array or None]]: the one model being
+# fitted right now. Each form is built on first use from the other (#1790): the
+# placement report of a large indexed mesh only ever needs the array.
+_POINTS_CACHE: list = []
+
+
+def _points_entry(tris):
+    if _POINTS_CACHE and _POINTS_CACHE[0][0] is tris:
+        return _POINTS_CACHE[0]
+    if isinstance(tris, IndexedTriangles):
+        entry = [tris, None, _unique_indexed_points(tris)]
+    else:
+        entry = [tris, list({p for tri in tris for p in tri}), None]
+    _POINTS_CACHE[:] = [entry]
+    return entry
 
 
 def _unique_points(tris):
     """Deduplicated vertices, shared (do not mutate). One fit search asks for these
     several times for the same cached mesh, so the last answer is kept."""
-    if _POINTS_CACHE and _POINTS_CACHE[0][0] is tris:
-        return _POINTS_CACHE[0][1]
-    points = _unique_points_uncached(tris)
-    _POINTS_CACHE[:] = [(tris, points)]
-    return points
-
-
-def _unique_points_uncached(tris):
-    if isinstance(tris, IndexedTriangles):
-        # Same set the legacy comprehension builds (points referenced by at
-        # least one face, deduplicated by value), without expanding faces.
-        import numpy as np
-        referenced = np.zeros(len(tris.vertices), dtype=bool)
-        referenced[tris.faces.ravel()] = True
-        unique = np.unique(tris.vertices[referenced], axis=0)
+    entry = _points_entry(tris)
+    if entry[1] is None:
         points = []
-        for start in range(0, len(unique), 8192):
-            points.extend(tuple(row) for row in unique[start:start + 8192].tolist())
-        return points
-    return list({p for tri in tris for p in tri})
+        for start in range(0, len(entry[2]), 8192):
+            points.extend(tuple(row) for row in entry[2][start:start + 8192].tolist())
+        entry[1] = points
+    return entry[1]
+
+
+def _unique_points_array(tris):
+    """``_unique_points(tris)`` as an (N, 3) float64 array: same values, same order (#1790)."""
+    entry = _points_entry(tris)
+    if entry[2] is None:
+        from .placement_numpy import points_array
+        entry[2] = points_array(entry[1])
+    return entry[2]
+
+
+def _points_array(points):
+    """An ``_unique_points`` list as its (N, 3) array (the cached one when it is the cached list)."""
+    if _POINTS_CACHE and _POINTS_CACHE[0][1] is points:
+        return _unique_points_array(_POINTS_CACHE[0][0])
+    from .placement_numpy import points_array
+    return points_array(points)
+
+
+def _unique_indexed_points(tris):
+    """The vertices referenced by at least one face, deduplicated by value and sorted
+    by (x, y, z): the set the legacy comprehension builds, without expanding faces,
+    in ``np.unique(..., axis=0)`` order."""
+    import numpy as np
+    referenced = np.zeros(len(tris.vertices), dtype=bool)
+    referenced[tris.faces.ravel()] = True
+    from .placement_numpy import unique_rows
+    return unique_rows(tris.vertices[referenced])
 
 
 def _drop_interior(points):
@@ -3521,10 +3550,7 @@ def _orientation_bound(points, state, rotation, yaw_search=True):
     """Largest uniform scale (<=1) at which ``rotation`` (+ best yaw) fits one copy; returns
     (scale, yaw_degrees, dims_mm_at_full_size)."""
     eff_w, eff_d, max_h = _usable(state)
-    rotated = [_rotate(p, rotation) for p in points]
-    zs = [p[2] for p in rotated]
-    height = max(zs) - min(zs)
-    hull = _hull([(p[0], p[1]) for p in rotated])
+    hull, height = _orientation_hull(points, rotation)
     def footprint(deg):
         c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
         xs = [c * x - s * y for x, y in hull]
@@ -3643,13 +3669,56 @@ def _euler_xyz(rotation):
     return [round(math.degrees(v), 3) for v in (x, y, z)]
 
 
+# From this many points (or hull points times yaws) the placement loops run on
+# arrays (placement_numpy, #1790). Below it the scalar loops are as fast and stay
+# the oracle; tests/pipeline/test_placement_numpy.py moves it to force either path.
+PLACEMENT_NUMPY_MIN_POINTS = 4096
+
+
+def _orientation_hull(points, rotation):
+    """(XY hull, Z extent) of ``points`` (a point list or its array) rotated by ``rotation``."""
+    if len(points) >= PLACEMENT_NUMPY_MIN_POINTS:
+        from . import placement_numpy
+        array = points if isinstance(points, placement_numpy.np.ndarray) else _points_array(points)
+        return placement_numpy.orientation(array, rotation)
+    if not isinstance(points, list):
+        points = [tuple(row) for row in points.tolist()]
+    rotated = [_rotate(p, rotation) for p in points]
+    zs = [p[2] for p in rotated]
+    return _hull([(p[0], p[1]) for p in rotated]), max(zs) - min(zs)
+
+
+def _yaw_extents(hull, yaws):
+    """[(X extent, Y extent)] of an XY hull turned by each bed yaw (degrees)."""
+    if len(hull) * len(yaws) >= PLACEMENT_NUMPY_MIN_POINTS:
+        from . import placement_numpy
+        return placement_numpy.yaw_extents(hull, yaws)
+    found = []
+    for yaw in yaws:
+        ym = _yaw(yaw)
+        moved = [(ym[0]*x + ym[1]*y, ym[3]*x + ym[4]*y) for x, y in hull]
+        found.append((max(p[0] for p in moved) - min(p[0] for p in moved),
+                      max(p[1] for p in moved) - min(p[1] for p in moved)))
+    return found
+
+
 def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max_z_mm=None):
     """Pure offline placement report; never invokes OrcaSlicer or printer services."""
     tris = source_triangles(path_or_triangles) if isinstance(path_or_triangles, (str, Path)) else path_or_triangles
     if not tris:
         raise ValueError('placement report requires non-empty triangles')
-    points = _unique_points(tris)
-    if not all(math.isfinite(component) for point in points for component in point):
+    if isinstance(tris, IndexedTriangles):
+        points = _unique_points_array(tris)
+        if len(points) < PLACEMENT_NUMPY_MIN_POINTS:
+            points = _unique_points(tris)
+    else:
+        points = _unique_points(tris)
+    if len(points) >= PLACEMENT_NUMPY_MIN_POINTS:
+        import numpy as np
+        finite = bool(np.isfinite(points if isinstance(points, np.ndarray) else _points_array(points)).all())
+    else:
+        finite = all(math.isfinite(component) for point in points for component in point)
+    if not finite:
         raise ValueError('placement report requires finite mesh coordinates')
     bed = tuple(float(v) for v in (bed_mm or BED))
     height_limit = float(max_z_mm if max_z_mm is not None else MAX_HEIGHT_MM)
@@ -3659,9 +3728,7 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
     orientations = [('Upright', 'identity', IDENTITY_ROT)]
     orientations.extend((name, axis, matrix) for axis, (name, matrix) in UP_AXES.items())
     for name, axis, matrix in orientations:
-        rotated = [_rotate(p, matrix) for p in points]
-        hull = _hull([(p[0], p[1]) for p in rotated])
-        z_extent = max(p[2] for p in rotated) - min(p[2] for p in rotated)
+        hull, z_extent = _orientation_hull(points, matrix)
         yaw_set = {0.0, 45.0, 90.0}
         for i, a in enumerate(hull):
             b = hull[(i + 1) % len(hull)]
@@ -3674,13 +3741,11 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
             # angle alone rotates the edge farther from both axes.
             yaw_set.add(round(-edge, 6))
             yaw_set.add(round(90.0 - edge, 6))
-        for yaw in sorted(yaw_set):
+        yaws = sorted(yaw_set)
+        # Yaw is about Z, so XY extents come from the 2D hull alone and Z is unchanged.
+        for yaw, (width, depth) in zip(yaws, _yaw_extents(hull, yaws), strict=True):
             rot = _matmul(_yaw(yaw), matrix)
-            # Yaw is about Z, so XY extents come from the 2D hull alone and Z is unchanged.
-            ym = _yaw(yaw)
-            moved = [(ym[0]*x + ym[1]*y, ym[3]*x + ym[4]*y) for x, y in hull]
-            dims = [max(p[0] for p in moved) - min(p[0] for p in moved),
-                    max(p[1] for p in moved) - min(p[1] for p in moved), z_extent]
+            dims = [width, depth, z_extent]
             mx, my, mz = bed[0]-dims[0], bed[1]-dims[1], height_limit-dims[2]
             euler = _euler_xyz(rot)
             rows.append({'label': name, 'axis': axis, 'rx_deg': euler[0], 'ry_deg': euler[1], 'rz_deg': euler[2],
@@ -3693,8 +3758,12 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
                          'min_bed_margin_mm': round(min(mx, my, mz), 3),
                          'fits_bed': dims[0] <= bed[0] and dims[1] <= bed[1] and dims[2] <= height_limit,
                          'diagonal_gain_mm': 0.0, 'rotation': [round(v, 9) for v in rot]})
+    cardinals = {}  # the first yaw-0 row per axis, as a scan of ``rows`` finds it
     for row in rows:
-        cardinal = next((r for r in rows if r['axis'] == row['axis'] and r['yaw_deg'] == 0.0), row)
+        if row['yaw_deg'] == 0.0:
+            cardinals.setdefault(row['axis'], row)
+    for row in rows:
+        cardinal = cardinals.get(row['axis'], row)
         row['diagonal_gain_mm'] = round(max(0.0, cardinal['footprint_mm'][0]-row['footprint_mm'][0],
                                                cardinal['footprint_mm'][1]-row['footprint_mm'][1]), 3)
     rows.sort(key=lambda r: (not r['fits_bed'], 0 if r['axis']=='identity' and r['fits_bed'] else 1,

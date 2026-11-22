@@ -12,7 +12,10 @@ numpy twin serves, as on an install without the wheel; its own budgets) and
 with ``PRINT_HANDY_BOUNDS_IMPL=python`` (the Python loops, timed only).
 Every run must give the measured parts and the same combined 3MF model
 bytes, and the audit of the combined file reads the combine step's recorded
-mesh tables instead of its XML (#1790).
+mesh tables instead of its XML (#1790). The placement report is then timed
+alone and against its scalar oracle, which must give the same rows, and
+``front_total`` records the unit question, combine and audit together: the
+download-to-first-question time #1790 targets.
 
 Stage timings go to stdout and, when PRINT_HANDY_LARGE_MESH_TIMING names a
 file, are appended to it as JSON lines. PRINT_HANDY_LARGE_MESH_REQUIRE=1 (the
@@ -27,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import geometry_layout, mesh_fast, mesh_native, mesh_sidecar, model_parts
+from print_handy.core import geometry_layout, mesh_fast, mesh_native, mesh_sidecar, model_parts, orca_adapter
 from print_handy.core import model_job as mj
 from print_handy.jobs import prompts
 
@@ -131,6 +134,21 @@ def test_large_mesh_intake(name, tmp_path, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(mesh_fast, '_parse_member', no_parse)
         audit = timed('audit', lambda: mj.audit(target))
+    # Download to the first question: the unit question, the combine and the
+    # audit (#1790's acceptance target; recorded, budgeted by its stages).
+    timings['front_total'] = round(sum(timings[s] for s in ('parts_unit_question', 'combine', 'audit')), 3)
+    # The placement report on its own, from cold point caches, and the scalar
+    # oracle on the same mesh: the array path must give the same rows.
+    triangles = orca_adapter.source_triangles(target)
+    orca_adapter._POINTS_CACHE.clear()
+    rows = timed('placement', lambda: orca_adapter.placement_candidates(triangles))
+    assert rows == audit['mesh_audit']['placement_candidates']
+    orca_adapter._POINTS_CACHE.clear()
+    with monkeypatch.context() as patch:
+        patch.setattr(orca_adapter, 'PLACEMENT_NUMPY_MIN_POINTS', 10 ** 12)
+        oracle = timed('placement_scalar', lambda: orca_adapter.placement_candidates(triangles))
+    orca_adapter._POINTS_CACHE.clear()
+    assert rows == oracle
     _record(name, impl, timings)
     assert result['objects'] == expect['objects']
     assert result['on_one_bed'] == expect['on_one_bed']
