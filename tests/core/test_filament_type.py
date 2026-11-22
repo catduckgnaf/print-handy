@@ -166,6 +166,11 @@ def test_color_name_keeps_type_words_that_were_not_parsed_as_flags():
     assert ft.color_name("Matte White", ft.from_text("PLA Matte")) == "White"
 
 
+def test_color_name_keeps_plus_word_when_type_has_no_plus_flag():
+    assert ft.color_name("Red PLA+", ft.from_text("PLA")) == "Red PLA+"
+    assert ft.color_name("Red PLA+", ft.from_text("PLA+")) == "Red"
+
+
 def test_paht_resolves_to_the_pa_family():
     # PAHT is normalized by material_family before _VALID_FAMILY is checked.
     assert ft.from_text("PAHT").family == "PA"

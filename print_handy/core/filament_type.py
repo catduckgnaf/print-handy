@@ -404,6 +404,10 @@ def color_name(name: Any, ftype: FilamentType | None = None) -> str:
         if skipped:
             continue
         token = upper[0]
+        if token.endswith("+") and token != "+" and "plus" not in ftype.flags:
+            out.append(parts[i])  # a '+' word is a type word only when the parsed type has the plus flag
+            i += 1
+            continue
         if token in drop or token == "+" or (token.endswith("+") and _FAMILY_TOKEN.match(token)) \
                 or (_FAMILY_TOKEN.match(token) and _same_family(token, ftype)):
             i += 1
