@@ -267,8 +267,8 @@ def test_verify_slots_with_no_timeout_still_asks_and_continues(tmp_path):
     source = S(chat_id="c1")
     seen = []
 
-    async def fake_ask(_adapter, _source, _key, text, labels, timeout, **_kw):
-        seen.append(timeout)
+    async def fake_ask(_adapter, _source, _key, _text, _labels, *rest, **_kw):
+        seen.append(rest[0])
         return None
 
     with mock.patch.object(prepared_intake, "_ask", fake_ask), \
