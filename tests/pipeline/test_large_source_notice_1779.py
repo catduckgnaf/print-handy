@@ -11,6 +11,8 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace as S
 
+import pytest
+
 
 from print_handy.core import prepared_intake
 
@@ -105,3 +107,91 @@ def test_a_big_single_file_intake_posts_the_heads_up_before_the_checks(tmp_path,
     _adapter, seen = _intake(tmp_path, monkeypatch, ['part_a.stl'])
     assert [m for m in seen['check'] if 'is big' in m] == [
         'This file is big (0 MB of mesh, about 1,000 triangles); preparing it takes a few minutes.']
+
+
+def _3mf_with_mesh(path, size):
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('3D/3dmodel.model', b'0' * size)
+    return path
+
+
+def test_the_limits_are_inclusive_as_documented(tmp_path, monkeypatch):
+    """docs/INTAKE-LIMITS.md: 20 MB of mesh or more, or 400,000 triangles or more."""
+    notice = prepared_intake.large_source_notice
+    # Size limit alone (a 3MF carries no triangle count).
+    assert notice([_3mf_with_mesh(tmp_path / 'at.3mf', 20_000_000)]) is not None
+    assert notice([_3mf_with_mesh(tmp_path / 'under.3mf', 19_999_999)]) is None
+    # Triangle limit alone: the size limit is lifted so it cannot decide.
+    monkeypatch.setattr(prepared_intake, 'LARGE_SOURCE_MB', 10_000)
+    limit = prepared_intake.LARGE_SOURCE_TRIANGLES
+    assert notice([_sized_stl(tmp_path / 'at.stl', limit)]) is not None
+    assert notice([_sized_stl(tmp_path / 'under.stl', limit - 1)]) is None
+
+
+class _Sender:
+    def __init__(self, result=None, error=None):
+        self.result, self.error, self.sent = result, error, []
+
+    async def send(self, chat_id, content, metadata=None):
+        self.sent.append(content)
+        if self.error:
+            raise self.error
+        return self.result
+
+
+@pytest.mark.parametrize('adapter, delivered', [
+    (_Sender(S(success=True)), True),
+    (_Sender(S(success=False, error='rate limited')), False),
+    (_Sender(error=RuntimeError('gateway down')), False),
+])
+def test_only_a_delivered_heads_up_counts_as_posted(tmp_path, adapter, delivered):
+    """#1800 review: a failed send returns None, so the audit keeps its own large-model prompt."""
+    path = _sized_stl(tmp_path / 'a.stl', prepared_intake.LARGE_SOURCE_TRIANGLES)
+    posted = asyncio.run(prepared_intake._post_large_source_notice(
+        adapter, S(chat_id='c1'), None, [path]))
+    assert adapter.sent  # the send was attempted either way
+    assert bool(posted) is delivered
+
+
+def test_a_failed_heads_up_leaves_the_audit_its_large_model_prompt(tmp_path, monkeypatch):
+    from print_handy.core import model_job, intake_resources  # noqa: F401
+    from print_handy.runtime import _config as runtime_config
+    from .test_color_intake import state
+    from .test_running_job_cancel import _IntakeAdapter, _grid_stl
+
+    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path / 'archive')
+    monkeypatch.setattr(runtime_config, 'cache_dir', lambda: tmp_path / 'cache')
+    monkeypatch.setattr(prepared_intake, 'LARGE_SOURCE_TRIANGLES', 500)
+    monkeypatch.setattr(prepared_intake, 'large_model_notice', lambda path: 'LARGE MODEL PROMPT')
+    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+        'site': 'printables', 'slug': 'big-model', 'title': 'Big Model', 'model_id': 1,
+        'sources': [{'id': 1, 'name': 'part_a.stl', 'kind': 'stls'}]})
+    monkeypatch.setattr(model_job, 'printables_download',
+                        lambda job, chosen, dest: str(_grid_stl(Path(dest) / chosen['name'], 20, 20)))
+    audit_texts = []
+    real_voiced = prepared_intake._voiced
+
+    def voiced(text, stage, source, key):
+        if stage == 'model_audit':
+            audit_texts.append(text)
+        return real_voiced(text, stage, source, key)
+
+    def stop(*_a, **_k):
+        raise RuntimeError('stop the intake here')
+
+    monkeypatch.setattr(prepared_intake, '_voiced', voiced)
+    monkeypatch.setattr(model_job, 'audit', stop)
+    monkeypatch.setattr(prepared_intake, '_heavy', lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
+
+    class FailingHeadsUp(_IntakeAdapter):
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            if 'is big' in content:
+                raise RuntimeError('gateway down')
+            return await super().send(chat_id, content, reply_to=reply_to, metadata=metadata)
+
+    adapter = FailingHeadsUp([0])
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='big-failed-send', text='https://www.printables.com/model/1-big-model')
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), tmp_path / 'receipts', timeout=30))
+    assert not any('is big' in m for m in adapter.sent)
+    assert audit_texts == ['LARGE MODEL PROMPT']

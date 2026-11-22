@@ -2350,7 +2350,8 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
 
 #: A source this big gets one heads-up line before its slow steps (#1779):
 #: on 2026-11-21 two STLs of 56 MB (about 1.1 million triangles) took four
-#: minutes before the first question, with no word. Either limit is enough.
+#: minutes before the first question, with no word. Reaching either limit
+#: (at or above it) is enough.
 LARGE_SOURCE_MB = 20
 LARGE_SOURCE_TRIANGLES = 400_000
 
@@ -2406,15 +2407,22 @@ def large_source_notice(paths):
 async def _post_large_source_notice(adapter, source, metadata, paths):
     """Post the large-source heads-up when it applies; returns the text posted, or None.
 
-    A heads-up is progress only: a failed send never stops the intake.
+    None also when the send failed (raised, or reported no success): the
+    caller then keeps the audit step's own large-model prompt, so a big
+    source is never left without any warning. A heads-up is progress only:
+    a failed send never stops the intake.
     """
     text = await asyncio.to_thread(large_source_notice, paths)
     if not text:
         return None
     try:
-        await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+        sent = await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
     except Exception:
         logger.info("large source heads-up not delivered", exc_info=True)
+        return None
+    if not getattr(sent, 'success', True):
+        logger.info("large source heads-up not delivered: %s", getattr(sent, 'error', None))
+        return None
     return text
 
 
