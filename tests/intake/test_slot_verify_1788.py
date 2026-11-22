@@ -257,6 +257,25 @@ def test_intake_asks_through_its_own_question_and_cancel_returns_false(tmp_path)
     assert adapter.sent == ["Cancelled. Nothing was sliced, uploaded or started."]
 
 
+def test_verify_slots_with_no_timeout_still_asks_and_continues(tmp_path):
+    """timeout=None (prepare_link's default) must not raise; an unanswered question goes on."""
+    adapter = FakeAdapter()
+    source = S(chat_id="c1")
+    seen = []
+
+    async def fake_ask(_adapter, _source, _key, text, labels, timeout, **_kw):
+        seen.append(timeout)
+        return None
+
+    with mock.patch.object(prepared_intake, "_ask", fake_ask), \
+            mock.patch.object(prepared_intake, "_question_timeout", lambda t: 60 if t is None else t), \
+            mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        ok = asyncio.run(prepared_intake._verify_slots(adapter, source, "k", {}, {}, "flashforge-ad5x", None))
+    assert ok is not False
+    assert seen and all(isinstance(t, (int, float)) for t in seen)
+
+
 def test_the_intake_checks_slots_after_the_colors_are_chosen_and_never_before():
     """The hook sits after the colors are validated, and the old pre-color native-screen gate is gone."""
     import inspect

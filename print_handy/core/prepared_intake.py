@@ -2715,6 +2715,8 @@ async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeo
     """
     from ..intake import slot_verify
 
+    timeout = _question_timeout(timeout)
+
     async def ask_slot(text, labels):
         return await _ask(adapter, source, key, text, labels, min(timeout, slot_verify.ADVISORY_TIMEOUT_S))
 
