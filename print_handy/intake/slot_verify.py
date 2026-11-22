@@ -390,10 +390,12 @@ async def verify_slots(state: dict[str, Any], printer_id: str | None,
                     printer_state.load, **({"printer_id": printer_id} if printer_id else {}))
                 state.clear()
                 state.update(fresh)
-                if rebound is not None:
-                    rebound.append(doubt.slot)
             except Exception as reload_exc:
                 logger.warning("slot %s record reload after failed rebind failed: %r", doubt.slot, reload_exc)
+            if rebound is not None:
+                # The slot may have changed even if the reload failed, so the
+                # caller must refresh any choice that named it.
+                rebound.append(doubt.slot)
             await send(f"Could not finish linking spool #{choice['spool_id']} to slot {doubt.slot} ({exc}). "
                        "Continuing with whatever Print Handy now has recorded for that slot. "
                        "Use /spool change if the record is wrong.")

@@ -159,6 +159,21 @@ def test_a_failed_optional_relink_warns_and_continues(tmp_path):
     assert "post the model again" not in rec.said[0] and "repost" not in rec.said[0].lower()
 
 
+def test_failed_relink_with_failed_reload_still_marks_the_slot_rebound(tmp_path):
+    rec = Recorder(0)
+    rebound = []
+    state = {"filament_slots": {"3": dict(PLA_RECORD)}}
+    with mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch("print_handy.runtime.spool_sync.bind_slot", mock.Mock(side_effect=RuntimeError("half written"))), \
+            mock.patch("print_handy.runtime.spool_sync.moonraker_for", return_value="mr"), \
+            mock.patch("print_handy.core.printer_state.load", side_effect=OSError("state unreadable")), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        ok = asyncio.run(sv.verify_slots(state, "flashforge-ad5x", rec.ask, rec.send, rebound=rebound))
+    assert ok is True
+    assert rebound == [3]  # the caller refreshes any choice that named the slot
+    assert "Could not finish linking spool #22 to slot 3" in rec.said[0]
+
+
 def test_skip_and_an_unanswered_question_never_hold_intake(tmp_path):
     rec = Recorder(lambda labels: labels.index("Skip, print as is"))
     ok, bind, _ = _run([_doubt()], rec, ledger=tmp_path / "slot-verify.json")
