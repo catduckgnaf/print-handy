@@ -344,12 +344,13 @@ def test_external_start_post_without_a_record_names_no_loaded_channel(job, tmp_p
     assert "maps this job" not in posted[0]
 
 
-@pytest.mark.parametrize("activated_warning, expected", [(None, []), ("still mismatched", ["still mismatched"])])
-def test_slot_self_check_uses_post_activation_channel(monkeypatch, activated_warning, expected):
-    """A stale start Chan is ignored; a persistent post-activation mismatch warns."""
+@pytest.mark.parametrize("active_sources, expected", [((3, 3, 3, None), []), ((3, 2, 2, None), ["still mismatched"])])
+def test_slot_self_check_waits_for_active_channel(monkeypatch, active_sources, expected):
+    """A stale start Chan is ignored until the job's tool is reported active."""
     listener = mel.Listener()
-    samples = iter(["stale start Chan", activated_warning])
-    monkeypatch.setattr(listener, "_slot_agreement", lambda: next(samples))
+    samples = iter([(3, 2, 2, None), active_sources])
+    monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
+    monkeypatch.setattr(listener, "_slot_agreement", lambda: "still mismatched")
     waits = []
     async def no_wait(delay):
         waits.append(delay)
@@ -357,8 +358,22 @@ def test_slot_self_check_uses_post_activation_channel(monkeypatch, activated_war
     posts = []
     monkeypatch.setattr(mel, "post", lambda message: posts.append(message))
     asyncio.run(listener._slot_self_check())
-    assert waits == [2]
+    assert waits == [1]
     assert posts == expected
+
+
+def test_slot_self_check_does_not_warn_if_activation_is_unobserved(monkeypatch):
+    """A timeout is inconclusive; never diagnose the prior job's stale channel."""
+    listener = mel.Listener()
+    monkeypatch.setattr(listener, "_slot_sources", lambda: (3, 2, 2, None))
+    monkeypatch.setattr(mel.time, "monotonic", iter([0, 31]).__next__)
+    waits = []
+    async def no_wait(delay):
+        waits.append(delay)
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(listener, "_slot_agreement", lambda: pytest.fail("must not compare stale channel"))
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1]
 
 
 def test_slot_sources_prefer_this_files_launch_record_over_the_global_active_slot(monkeypatch):

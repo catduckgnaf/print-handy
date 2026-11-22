@@ -4452,16 +4452,25 @@ class Listener:
     async def _slot_self_check(self):
         """Check for a slot mismatch after ZMod activates the job's tool.
 
-        Chan and FFMInfo can still describe the previous print at the
-        printing edge. Wait briefly, then sample again so the warning is
-        based on the activated tool rather than that stale start snapshot.
+        Wait for the active tool's channel to replace the print-start
+        snapshot; a timeout is deliberately inconclusive, never a warning.
         Best-effort and read-only.
         """
         try:
-            # Observe the start snapshot, but do not act on it: it may still
-            # belong to the previous job. Re-read after ZMod's activation window.
-            await asyncio.to_thread(self._slot_agreement)
-            await asyncio.sleep(2)
+            job_slot = (await asyncio.to_thread(self._slot_sources))[0]
+            if job_slot is None:
+                return
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                await asyncio.sleep(1)
+                sources = await asyncio.to_thread(self._slot_sources)
+                # FFMInfo and zmod_ifs are both populated by ZMod's active
+                # tool transition. Don't treat the previous Chan as evidence.
+                if sources[1] == job_slot or sources[2] == job_slot:
+                    break
+            else:
+                log(f"slot self-check inconclusive: active channel did not report job slot {job_slot}")
+                return
             warning = await asyncio.to_thread(self._slot_agreement)
             if warning:
                 await asyncio.to_thread(post, warning)
