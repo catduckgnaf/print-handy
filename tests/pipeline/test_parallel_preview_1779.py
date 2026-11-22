@@ -249,6 +249,34 @@ def test_failed_supports_slice_leaves_no_variant_folder(tmp_path, monkeypatch):
     asyncio.run(run())
 
 
+def test_finished_supports_task_is_reset_when_first_slice_fails(tmp_path, monkeypatch):
+    # Duckcat review 6014273109: a supports slice that already finished must not leave
+    # variant_supports behind when the first slice then fails.
+    monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, **k: True)
+
+    async def run():
+        folder, job_path = _setup(tmp_path)
+        real = _slice_func([])
+        sup_done = asyncio.Event()
+
+        async def slice_func(path, work, runner, **kw):
+            if 'variant_supports' in path:
+                out = await real(path, work, runner, **kw)
+                sup_done.set()
+                return out
+            await asyncio.wait_for(sup_done.wait(), 2)
+            await asyncio.sleep(0)
+            raise RuntimeError('first slice failed')
+        runner = BackgroundSlice()
+        await runner.start(job_path, 'b', slice_func)
+        await runner.settle()
+        assert runner.variant is None and runner.supports_task is None
+        assert not (folder / 'variant_supports').exists()
+        await runner.discard()
+        assert not (folder / 'variant_supports').exists()
+    asyncio.run(run())
+
+
 def test_cancel_stops_both_and_leaves_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, **k: True)
 

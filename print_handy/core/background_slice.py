@@ -290,15 +290,21 @@ class BackgroundSlice:
         self.variant = None
 
     async def _stop_concurrent(self, task):
-        if task is None or task.done():
+        if task is None:
             return
-        task.cancel()
-        try:
-            await owned_worker.settle(task)
-        except asyncio.CancelledError:
-            logger.debug('concurrent supports slice cancelled')
-        except Exception:  # noqa: BLE001 - the stopped slice's failure is logged, then reset below
-            logger.debug('stopped concurrent supports slice raised', exc_info=True)
+        if task.done():
+            # Already finished: nothing to cancel, but its private folder must not outlive the
+            # first slice's verdict, and a failure is consumed and logged here.
+            if not task.cancelled() and task.exception() is not None:
+                logger.debug('finished concurrent supports slice had failed', exc_info=task.exception())
+        else:
+            task.cancel()
+            try:
+                await owned_worker.settle(task)
+            except asyncio.CancelledError:
+                logger.debug('concurrent supports slice cancelled')
+            except Exception:  # noqa: BLE001 - the stopped slice's failure is logged, then reset below
+                logger.debug('stopped concurrent supports slice raised', exc_info=True)
         self._reset_supports()
 
     def _adopt_variant(self):
