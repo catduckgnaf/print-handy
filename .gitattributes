@@ -1,3 +1,5 @@
 # Byte-exact fixtures: SHA256SUMS.txt and the ZIP-member checks hash the committed
 # bytes, so a Windows checkout with core.autocrlf=true must not rewrite line endings (#1017).
 tests/corpus/design/** -text
+# Generated Orca profile database (#1816): scripts/build_orca_profile_db.py --check compares bytes.
+print_handy/data/orca_profiles/** -text
