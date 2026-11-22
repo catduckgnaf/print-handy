@@ -91,9 +91,10 @@ def test_plugin_helper_uses_the_adapter_and_says_what_happened():
     assert "couldn't delete your message" in sent[1]
 
 
-def test_plugin_helper_falls_back_to_the_hermes_discord_client():
+def test_plugin_helper_uses_only_the_adapters_delete_message():
+    # #1817 L7: no fallback to a Hermes adapter's _host or discord.py _client.
     plugin = load_plugin()
-    deleted = []
+    sent, deleted = [], []
 
     class Partial:
         async def delete(self):
@@ -103,13 +104,14 @@ def test_plugin_helper_falls_back_to_the_hermes_discord_client():
         def get_partial_message(self, mid):
             return Partial()
 
-    class Hermes:
+    class NoDelete:
         _client = S(get_channel=lambda cid: Channel())
 
         async def send(self, chat_id, content, metadata=None):
-            pass
-    run(plugin._delete_secret_message(S(message_id='9'), S(chat_id='5', thread_id=None), Hermes()))
-    assert deleted == [1]
+            sent.append(content)
+    run(plugin._delete_secret_message(S(message_id='9'), S(chat_id='5', thread_id=None), NoDelete()))
+    assert deleted == []
+    assert "couldn't delete your message" in sent[0]
 
 
 def test_the_answered_note_never_echoes_a_long_unbroken_string():

@@ -19,10 +19,6 @@ or ``[matrix] room_id``). The claim model:
 from __future__ import annotations
 
 
-class RoutingError(ValueError):
-    """A routing configuration problem (kept for callers that catch it)."""
-
-
 def home_chat_id(cfg, platform_name):
     """The platform's global chat: where the default printer is reached when its entry sets no chat_id."""
     if not isinstance(cfg, dict):

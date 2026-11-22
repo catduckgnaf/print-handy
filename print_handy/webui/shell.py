@@ -18,9 +18,7 @@ PWA_SCRIPT registers the service worker on secure contexts only
 (see :mod:`print_handy.webui.pwa`).
 
 The interface is dark only. There is no theme toggle and no light
-palette. The legacy ``ph-theme`` cookie is never read and ``/theme``
-remains only as a compatibility redirect; a stale ``light`` cookie or
-``/theme?set=light`` request cannot change how any page looks.
+palette.
 
 Every page also carries a source footer (#1158): Print Handy is
 AGPL-3.0-only, and section 13 of that license expects a user
@@ -36,8 +34,6 @@ import html
 
 from .. import __version__
 
-THEME_COOKIE = "ph-theme"
-THEMES = ("dark", "light")
 DEFAULT_THEME = "dark"
 
 # The surfaces the header navigates to: only pages that exist, with
@@ -530,11 +526,6 @@ def _esc(value):
     return html.escape(str(value), quote=True)
 
 
-def theme_from_cookies(cookie_header):
-    """The only supported theme, dark; the legacy ph-theme cookie is ignored."""
-    return DEFAULT_THEME
-
-
 # The navigation for the request being served. The server sets it once per
 # request from the live settings (data.nav_for), so every page shows the
 # same tabs, Data and Wrapped included while they are on, without each page
@@ -658,6 +649,6 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
 
 __all__ = [
     "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "NAV_GROUPS", "PWA_HEAD_TAGS",
-    "PWA_SCRIPT", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
-    "page", "theme_from_cookies",
+    "PWA_SCRIPT", "SUBMIT_SCRIPT",
+    "page",
 ]

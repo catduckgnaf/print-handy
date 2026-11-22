@@ -229,7 +229,7 @@ class _Interaction:
 def _on_interaction(tmp_path, monkeypatch):
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     handlers = {}
-    adapter = S(_is_allowed_user=lambda uid, user, guild=None, channel_ids=None: True)
+    adapter = S(is_allowed_user=lambda uid, user, guild=None, channel_ids=None: True)
     plugin.alert_button_handlers(
         S(add_listener=lambda fn, name: handlers.update({name: fn})), adapter)
     return handlers["on_interaction"]

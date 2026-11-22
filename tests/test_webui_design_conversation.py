@@ -95,7 +95,7 @@ class Browser:
         if self.cookies:
             headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         if fields is not None:
-            body = urllib.parse.urlencode({"_csrf": self.srv.form_token, **fields})
+            body = urllib.parse.urlencode({"_csrf": self.srv.session_store.form_token, **fields})
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         conn.request(method, path, body=body, headers=headers)
         response = conn.getresponse()
@@ -107,7 +107,7 @@ class Browser:
         conn.close()
         return response.status, payload
 
-    def page(self, path="/designs"):
+    def page(self, path="/chat?view=design"):
         status, payload = self.request("GET", path)
         assert status == 200, (path, status)
         return payload.decode("utf-8")

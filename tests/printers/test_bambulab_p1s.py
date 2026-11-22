@@ -10,7 +10,7 @@ import pytest
 from print_handy import printers, settings
 from print_handy.core import orca_adapter
 from print_handy.printers.bambulab import VENDOR, facts, profiles
-from print_handy.printers.bambulab.adapter import BambuOfflineAdapter, LiveUnsupported
+from print_handy.printers.bambulab.adapter import BambuAdapter, LiveUnsupported
 from print_handy.printers.bambulab.p1s import MODEL, P1SAdapter
 from print_handy.printers.base import MultiColorUnsupported
 
@@ -79,7 +79,7 @@ def p1s_gcode(body=None, *, model="Bambu Lab P1S", nozzle="0.4", nozzle_type="st
 def test_model_registration_defaults_and_p1s_specific_hardware(p1s_profiles):
     a = adapter_for()
     assert printers.MODELS[P1S] == MODEL and MODEL.vendor is VENDOR is printers.VENDORS["bambulab"]
-    assert isinstance(a, P1SAdapter) and isinstance(a, BambuOfflineAdapter)
+    assert isinstance(a, P1SAdapter) and isinstance(a, BambuAdapter)
     # The AMS is the P1S's slot system (#671): multi_slot, four slots.
     assert (a.connection, a.slot_count, a.multi_slot) == ("bambulab_lan", 4, True)
     volume = a.build_volume()

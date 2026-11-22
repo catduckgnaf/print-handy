@@ -285,7 +285,6 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
             "/spools": ("Pink, PLA · #20", "865.722 g left"),
             "/data": ("Synthetic AD5X",),
             "/sliced": ("Long synthetic archive job title",),
-            "/designs": ("Synthetic design session",),
         }
         for path, markers in checks.items():
             self.page.goto(self.base + path)
@@ -488,7 +487,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                         and self.httpd.chat_service.close())
 
         self.login()
-        self.page.goto(self.base + "/designs")
+        self.page.goto(self.base + "/chat?view=design")
         self.assertEqual(self.page.locator("form.design-composer").count(), 1)
         self.page.fill("#d-text", "a 40x20 plate with two holes")
         self.page.locator("form.design-composer button[type=submit]").click()
