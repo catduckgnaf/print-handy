@@ -2627,7 +2627,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     if printer_final != final_text:
         output.write_text(printer_final)
         final_text = printer_final
-    post_gate = post_slice(final_text, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
+    # One traversal of the finalized text feeds the post-slice guard and the baseline check (#1779).
+    # The baseline reuses it only while the file on disk is still the bytes that were scanned
+    # (size and mtime unchanged); any other state re-reads the file as before.
+    _scan_started = time.monotonic()
+    gcode_scan = sg.scan_gcode(final_text)
+    _scan_s = time.monotonic() - _scan_started
+    _scanned = output.stat()
+    post_gate = post_slice(final_text, scan=gcode_scan, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
                            bed=bed, filament_slots=(int(printer.slot_count) if multi_tool else FILAMENT_SLOTS), tool_slots=tool_slots,
                            templates=templates, profile_paths=filament_paths,
                            envelope=printer.motion_envelope_mm)
@@ -2642,7 +2649,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         post_gate.block(TOKEN.sub('', problem))
     # Each model approves its own protected settings; a model without a baseline file keeps the shared one.
     baseline_kw = {} if printer.baseline_path is None else {'path': printer.baseline_path}
-    baseline_gate = (sg.enforce_approved_baseline(output, **baseline_kw)
+    _now = output.stat()
+    _same_bytes = (_now.st_size, _now.st_mtime_ns) == (_scanned.st_size, _scanned.st_mtime_ns)
+    baseline_gate = (sg.enforce_approved_baseline(output, scan=gcode_scan if _same_bytes else None, **baseline_kw)
                      if output.stat().st_size > 1000 else sg.Result())
     if baseline_gate.status == 'blocked':
         raise SliceFailure('Post-slice protected-settings guard blocked: ' + '; '.join(baseline_gate.blocked),
