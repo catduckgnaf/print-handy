@@ -226,6 +226,28 @@ class StandaloneAdapter(BasePlatformAdapter):
                                          "question": pieces[-1]})
         return SendResult(True, message_id=str((message or {}).get("message_id") or "") or None)
 
+    async def edit_prompt(self, clarify_id, question):
+        """Rewrite a standing prompt's text and keep its keyboard (#1779: a
+        slow step's Stop prompt shows its elapsed time). editMessageText
+        drops the keyboard unless it is sent again, so it is rebuilt from the
+        recorded choices. False when the prompt is gone or the edit fails."""
+        with _prompts_guard(self):
+            row = self._prompts.get(str(clarify_id))
+        if not row or not row.get("message_id"):
+            return False
+        keyboard = [[{"text": label[:LABEL_LIMIT], "callback_data": custom_id(clarify_id, index)}]
+                    for index, label in enumerate(row.get("choices") or [])]
+        text = str(question)[:self.message_limit]
+        try:
+            await asyncio.to_thread(self._call, "editMessageText",
+                                    {"chat_id": row["chat_id"], "message_id": row["message_id"],
+                                     "text": text, "reply_markup": {"inline_keyboard": keyboard}})
+        except Exception as exc:
+            logger.info("Telegram prompt edit failed: %r", exc)
+            return False
+        row["question"] = text
+        return True
+
     # ------------------------------------------------------------------ answers
 
     async def close_prompt(self, cid, note):

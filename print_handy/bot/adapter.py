@@ -248,6 +248,24 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.warning("Discord batch question failed: %r", exc)
             return SendResult(False, error=str(exc))
 
+    async def edit_prompt(self, clarify_id, question):
+        """Rewrite a standing prompt's text and keep its buttons (#1779: a
+        slow step's Stop prompt shows its elapsed time). False when the
+        prompt is gone or the edit fails."""
+        with _prompts_guard(self):
+            row = self._prompts.get(str(clarify_id))
+        message = (row or {}).get("message")
+        if message is None:
+            return False
+        text = str(question)[:rest.LIMIT]
+        try:
+            await message.edit(content=text)
+        except Exception as exc:
+            logger.info("Discord prompt edit failed: %r", exc)
+            return False
+        row["question"] = text
+        return True
+
     async def retire_prompt(self, clarify_id):
         """Retire a prompt's buttons without an answer (prepared_intake's
         Stop flow): the message loses its view."""

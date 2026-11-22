@@ -143,3 +143,60 @@ def test_fit_status_edits_its_one_message_on_a_production_adapter():
     assert len(stub.payloads("sendMessage")) == 1
     [edit] = stub.payloads("editMessageText")
     assert edit["text"] == "Still checking the fit: first (15 s)."
+
+
+# #1779: a slow step's Stop prompt shows its elapsed time; the edit keeps the choices.
+def test_telegram_prompt_edit_keeps_the_stop_keyboard():
+    stub = TelegramStub()
+    adapter = telegram.StandaloneAdapter(None, [USER], token=FAKE, opener=stub)
+
+    from print_handy.core import prompts
+    prompts.register("cid1", "k", "Slicing.", ["Stop"])
+
+    async def main():
+        await adapter.send_clarify(chat_id=CHAT, question="Slicing.", choices=["Stop"],
+                                   clarify_id="cid1", session_key="k")
+        return await adapter.edit_prompt("cid1", "Slicing… 18 s.")
+
+    assert asyncio.run(main()) is True
+    [payload] = stub.payloads("editMessageText")
+    sent = stub.payloads("sendMessage")[-1]
+    assert payload["text"] == "Slicing… 18 s."
+    assert payload["reply_markup"] == sent["reply_markup"]
+    assert asyncio.run(adapter.edit_prompt("unknown", "x")) is False
+    prompts.cancel_session("k")
+
+
+def test_matrix_prompt_edit_keeps_the_numbered_choices():
+    stub = MatrixStub()
+    adapter = matrix.StandaloneAdapter(None, [USER], homeserver=HOMESERVER, token=FAKE, opener=stub)
+
+    from print_handy.core import prompts
+    prompts.register("cid2", "k", "Slicing.", ["Stop"])
+
+    async def main():
+        await adapter.send_clarify(chat_id=ROOM, question="Slicing.", choices=["Stop"],
+                                   clarify_id="cid2", session_key="k")
+        return await adapter.edit_prompt("cid2", "Slicing… 18 s.")
+
+    assert asyncio.run(main()) is True
+    edit = stub.bodies()[-1]
+    assert edit["m.new_content"]["body"].startswith("Slicing… 18 s.\n\n1. Stop\n")
+    prompts.cancel_session("k")
+
+
+def test_discord_prompt_edit_keeps_the_view():
+    from print_handy.core import prompts
+    edits = []
+
+    class Message:
+        async def edit(self, **kwargs):
+            edits.append(kwargs)
+
+    adapter = DiscordAdapter(None, [USER])
+    prompts.register("cid3", "k3", "Slicing.", ["Stop"])
+    adapter._record_prompt("cid3", {"message": Message(), "choices": ["Stop"], "question": "Slicing."})
+    assert run(adapter.edit_prompt("cid3", "Slicing… 18 s.")) is True
+    assert edits == [{"content": "Slicing… 18 s."}]  # no view argument: the Stop button stays
+    assert run(adapter.edit_prompt("gone", "x")) is False
+    prompts.cancel_session("k3")
