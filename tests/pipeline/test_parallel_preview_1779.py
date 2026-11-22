@@ -1,4 +1,5 @@
 """Parallel preview slices (#1779): scheduling, config and CPU fallback, the two-run cap, isolation, cancel."""
+# ruff: noqa: ASYNC240  (test slicer stubs write tiny files; blocking pathlib is fine here)
 import asyncio
 import json
 from pathlib import Path
@@ -138,7 +139,7 @@ def test_serial_when_off_or_unflagged_or_small_host(tmp_path, monkeypatch):
     for enabled, clearance in ((False, RISKY), (True, None), (True, {'risky': False})):
         monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, enabled=enabled, **k: enabled)
 
-        async def run():
+        async def run(clearance=clearance, enabled=enabled):
             sub = tmp_path / f'{enabled}-{bool(clearance)}'
             sub.mkdir()
             folder, job_path = _setup(sub, clearance)
@@ -148,7 +149,6 @@ def test_serial_when_off_or_unflagged_or_small_host(tmp_path, monkeypatch):
             await runner.settle()
             assert not (folder / 'variant_supports').exists()
             starts = [e for e in log if e[0] == 'start']
-            ends = [e for e in log if e[0] == 'end']
             assert all(s[2] == str(folder) for s in starts)
             # strictly one after the other: every start follows the previous end
             order = [e[0] for e in log]
@@ -212,7 +212,7 @@ def test_parallel_output_matches_serial_output(tmp_path, monkeypatch):
     for mode in (True, False):
         monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, mode=mode, **k: mode)
 
-        async def run():
+        async def run(mode=mode):
             sub = tmp_path / str(mode)
             sub.mkdir()
             folder, job_path = _setup(sub)
