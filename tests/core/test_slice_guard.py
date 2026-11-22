@@ -272,3 +272,55 @@ class ToolpathExclusionTests(unittest.TestCase):
     def test_a_bare_polygon_is_accepted_as_one_exclusion(self):
         problems = self.check("G1 X5 Y5 F30000\nG1 X10 Y5 E0.8\n", exclusions=P1S_EXCLUSION)
         self.assertTrue(any("exclusion" in p for p in problems), problems)
+
+
+class PerSlotFilamentIdTests(unittest.TestCase):
+    """#1816 step 3: post_slice holds each slot to its own filament ID, as the sanitizer pins them."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        (self.root / "filament.json").write_text(json.dumps({"filament_settings_id": ["Flashforge Generic PLA"]}))
+        self.profiles = []
+        for slot, name in ((1, "Flashforge HS PETG @FF AD5X [slot 1]"), (2, "Generic PLA @Flashforge [slot 2]")):
+            path = self.root / f"tool{slot}.json"
+            path.write_text(json.dumps({"filament_settings_id": [name]}))
+            self.profiles.append(path)
+
+    def _check(self, ids, profiles=None):
+        line = '; filament_settings_id = ' + ';'.join(f'"{i}"' for i in ids) + '\n'
+        return sg.post_slice(GOOD_GCODE + line, tool_slots={0: 1}, templates=self.root,
+                             profile_paths=self.profiles if profiles is None else profiles)
+
+    def test_each_slot_with_its_own_id_passes(self):
+        r = self._check(["Flashforge HS PETG @FF AD5X [slot 1]", "Generic PLA @Flashforge [slot 2]"])
+        self.assertFalse([b for b in r.blocked if "filament_settings_id" in b], r.blocked)
+
+    def test_swapped_slot_ids_are_blocked(self):
+        r = self._check(["Generic PLA @Flashforge [slot 2]", "Flashforge HS PETG @FF AD5X [slot 1]"])
+        blocked = [b for b in r.blocked if "filament_settings_id" in b]
+        self.assertEqual(len(blocked), 2, r.blocked)
+        self.assertTrue(any("slot 1" in b for b in blocked) and any("slot 2" in b for b in blocked))
+
+    def test_another_slots_id_copied_onto_a_slot_is_blocked(self):
+        r = self._check(["Flashforge HS PETG @FF AD5X [slot 1]", "Flashforge HS PETG @FF AD5X [slot 1]"])
+        blocked = [b for b in r.blocked if "filament_settings_id" in b]
+        self.assertEqual(len(blocked), 1, r.blocked)
+        self.assertIn("slot 2", blocked[0])
+
+    def test_template_id_on_a_slot_with_a_profile_is_blocked(self):
+        r = self._check(["Flashforge Generic PLA", "Generic PLA @Flashforge [slot 2]"])
+        self.assertTrue(any("filament_settings_id slot 1" in b for b in r.blocked), r.blocked)
+
+    def test_slot_beyond_the_job_profiles_takes_the_template_id(self):
+        ok = self._check(["Flashforge HS PETG @FF AD5X [slot 1]", "Generic PLA @Flashforge [slot 2]",
+                          "Flashforge Generic PLA"])
+        self.assertFalse([b for b in ok.blocked if "filament_settings_id" in b], ok.blocked)
+        bad = self._check(["Flashforge HS PETG @FF AD5X [slot 1]", "Generic PLA @Flashforge [slot 2]",
+                           "Generic PLA @Flashforge [slot 2]"])
+        self.assertTrue(any("filament_settings_id slot 3" in b for b in bad.blocked), bad.blocked)
+
+    def test_without_job_profiles_every_slot_takes_the_template_id(self):
+        r = self._check(["Flashforge Generic PLA", "Flashforge Generic PLA"], profiles=())
+        self.assertFalse([b for b in r.blocked if "filament_settings_id" in b], r.blocked)
