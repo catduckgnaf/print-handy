@@ -19,6 +19,7 @@ import json
 import os
 import time
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -113,3 +114,29 @@ def test_large_mesh_intake(name, tmp_path):
         over = {stage: seconds for stage, seconds in timings.items()
                 if seconds > budget.get(stage.split(':', 1)[0], float('inf'))}
         assert not over, f'stages over budget {budget}: {over}'
+
+
+def test_fetch_refuses_a_changed_file(tmp_path, monkeypatch):
+    """A download whose SHA-256 differs is deleted and fails the run (the CI
+    fetch step), never kept or skipped."""
+    import subprocess
+    import sys
+
+    from tests.corpus import fetch_complex_corpus as fetcher
+    case = {'site': 'printables', 'site_model_id': '1',
+            'file': [{'name': 'part.stl', 'site_file_id': '2', 'bytes': 5, 'sha256': '0' * 64}]}
+    monkeypatch.setattr(fetcher, 'printables_link', lambda file_id, model_id: 'https://example.invalid/x')
+    monkeypatch.setattr(fetcher, 'download', lambda url, dest: Path(dest).write_bytes(b'12345'))
+    with pytest.raises(RuntimeError, match='different SHA-256'):
+        fetch.fetch_case('changed', case, tmp_path)
+    assert not (tmp_path / 'changed' / 'part.stl').exists()
+    # The module entry point exits non-zero on the same refusal.
+    script = ("import sys; from pathlib import Path; from tests.corpus import fetch_complex_corpus as f;"
+              "from tests.corpus.large_mesh import fetch;"
+              "f.printables_link = lambda *a: 'https://example.invalid/x';"
+              "f.download = lambda url, dest: Path(dest).write_bytes(b'changed');"
+              "sys.exit(fetch.main(['--root', sys.argv[1]]))")
+    done = subprocess.run([sys.executable, '-c', script, str(tmp_path)], capture_output=True, text=True,
+                          cwd=Path(__file__).resolve().parents[3])
+    assert done.returncode != 0
+    assert 'refusing a changed file' in done.stderr

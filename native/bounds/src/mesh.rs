@@ -41,9 +41,12 @@
 //!   corner refers to its key's vertex; vertices print with `{:.6f}`.
 //! * STL parsing is `orca_adapter.read_stl_triangles`: binary when the
 //!   data is at least 84 bytes and exactly `84 + 50 * count` long (float32
-//!   corners widened to float64), otherwise ASCII (only pure-ASCII data
-//!   with every token in the plain decimal grammar; anything else is left
-//!   to Python's regex and `float()`).
+//!   corners widened to float64), otherwise ASCII. The ASCII number parser
+//!   accepts only a subset of Python's `float()`: pure-ASCII data with every
+//!   token in the plain decimal grammar
+//!   `[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?`. A token `float()` also
+//!   accepts (`inf`, `nan`, `1_0`, non-ASCII digits) or rejects declines the
+//!   whole file (`MeshDecline`), and Python's regex and `float()` decide it.
 //!
 //! No `unsafe` code.
 

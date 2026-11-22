@@ -17,6 +17,7 @@ print_handy/core/ and PRINT_HANDY_MESH_REQUIRE_NATIVE=1 turns a missing
 kernel from a skip into a failure, so the differential always runs there.
 """
 import contextlib
+from array import array
 import math
 import os
 import random
@@ -294,6 +295,97 @@ def test_weld_matches_python_welding(native, name):
     assert faces.reshape(-1).tolist() == ids
     assert bits([tuple(v) for v in exact_vertices.tolist()]) == bits(exact_order)
     assert exact_faces.reshape(-1).tolist() == exact_ids
+
+
+def _round6_values(seed=1790):
+    """About 3 M finite doubles aimed at round(x, 6)'s hard cases."""
+    rng = np.random.default_rng(seed)
+    parts = []
+    # Random magnitudes from 1e-12 to 1e15, both signs (the fast path ends
+    # at 4e9, the slow path and the integer shortcut cover the rest).
+    exponents = rng.uniform(-12, 15, 600_000)
+    parts.append(rng.choice([-1.0, 1.0], 600_000) * 10.0 ** exponents)
+    # Plain coordinates in the millimeter range.
+    parts.append(rng.uniform(-500.0, 500.0, 600_000))
+    # Decimal ties (k + 0.5) / 1e6 and their neighbors, two ulps each way:
+    # the nearest double is just above or below the tie, so the result
+    # depends on the exact binary value, which is what CPython rounds.
+    k = rng.integers(-5_000_000_000, 5_000_000_000, 200_000).astype(np.float64)
+    ties = (k + 0.5) / 1e6
+    for step in range(-2, 3):
+        moved = ties.copy()
+        for _ in range(abs(step)):
+            moved = np.nextafter(moved, np.inf if step > 0 else -np.inf)
+        parts.append(moved)
+    # Exact binary ties at the sixth decimal (multiples of 1/128 and 1/2**k),
+    # where ties to even decides.
+    grid = rng.integers(-2 ** 40, 2 ** 40, 300_000).astype(np.float64)
+    parts.append(grid / 128.0)
+    parts.append(grid / 2.0 ** rng.integers(7, 30, 300_000))
+    # Around the fast path's limits and the 2**52 integer shortcut.
+    for edge in (4.0e9, 2.0 ** 52, 1e6, 5e-7, 1e-6):
+        around = np.full(20_000, edge)
+        offsets = rng.integers(-400, 400, 20_000)
+        for i, n in enumerate(offsets):
+            around[i] = np.nextafter(edge, np.inf if n > 0 else -np.inf) if n else edge
+        around += rng.uniform(-edge * 1e-9, edge * 1e-9, 20_000)
+        parts.extend([around, -around])
+    values = np.concatenate(parts)
+    values = values[np.isfinite(values)]
+    return np.concatenate([values, [0.0, -0.0, 5e-7, -5e-7, 4e-7, -4e-7, 1e300, -1e300, 5e-324]])
+
+
+def test_round6_matches_cpython_round(native):
+    """The kernel's round(x, 6) against CPython's real round(), value by value.
+
+    mesh_weld with round6 returns, for every corner, the rounded value of
+    its welded key; corners whose keys are equal share one stored value, so
+    the comparison is by value (signed zeros are pinned separately below).
+    """
+    values = _round6_values()
+    pad = (-len(values)) % 9
+    soup = np.concatenate([values, np.zeros(pad)])
+    welded, ids = native.mesh_weld(soup, None, [], True)
+    rounded = np.frombuffer(welded, dtype='<f8').reshape((-1, 3))
+    per_corner = rounded[np.frombuffer(ids, dtype='<i8')].reshape(-1)[:len(values)]
+    want = np.array([round(float(v), 6) for v in values.tolist()], dtype=np.float64)
+    mismatch = np.flatnonzero(per_corner != want)
+    assert len(values) > 3_000_000
+    assert not len(mismatch), [(values[i].hex(), per_corner[i], want[i]) for i in mismatch[:5]]
+
+
+def test_round6_keeps_the_sign_of_zero_like_cpython(native):
+    for value in (-4e-7, -1e-12, -0.0, 4e-7, 0.0, -5e-7, 5e-7):
+        soup = array('d', [value, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+        welded, _ = native.mesh_weld(soup, None, [], True)
+        got = np.frombuffer(welded, dtype='<f8')[0]
+        assert bits(float(got)) == bits(round(value, 6)), value
+
+
+def test_exact_cache_does_not_leak_between_keys(native):
+    """Repeats, signed zeros and values that round to zero, mixed: the bits
+    cache must hand back exactly what the Python welder assigns."""
+    rng = random.Random(1790)
+    pool = [0.0000004, -0.0000004, 0.0, -0.0, 0.0000005, -0.0000005, 0.0000006,
+            1.0000004, 1.0000005, 0.9999996, 1.0, 0.0078125, 0.0078135]
+    tris = [[tuple(rng.choice(pool) for _ in range(3)) for _ in range(3)] for _ in range(4000)]
+    triangles = as_compact(tris)
+    with impl('native'):
+        vertices, faces = mesh_native.weld(triangles, round6=True)
+        text = mesh_native.threemf_text(triangles)
+    keys, order, ids = {}, [], []
+    for t in tris:
+        for p in t:
+            key = tuple(round(float(v), 6) for v in p)
+            if key not in keys:
+                keys[key] = len(order)
+                order.append(key)
+            ids.append(keys[key])
+    assert bits([tuple(v) for v in vertices.tolist()]) == bits(order)
+    assert faces.reshape(-1).tolist() == ids
+    with impl('python'):
+        want = geometry_layout._mesh_xml_lines(triangles)
+    assert text == ('\n'.join(want[0]), '\n'.join(want[1]))
 
 
 def test_transform_matches_the_python_lambdas(native):

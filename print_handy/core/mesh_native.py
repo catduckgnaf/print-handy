@@ -126,7 +126,15 @@ def available():
 
 
 def _call(name, *args):
-    """Run one kernel function; None on a decline or (outside ``native``) a fault."""
+    """Run one kernel function and return its result, or None for "use Python".
+
+    None means the caller runs its own Python code: under the ``python``
+    setting, when the kernel is unavailable or disabled (``auto``), when the
+    kernel declines the input (``MeshDecline``, every setting), and after a
+    kernel fault (``auto``). Under ``native`` an unavailable, disabled or
+    faulting kernel raises RuntimeError instead of returning None; a decline
+    still returns None, because it is the contract, not a fault.
+    """
     global _broken
     setting = _setting()
     if setting == "python":
@@ -270,7 +278,13 @@ def stl_parse(data):
     """``('binary' | 'ascii', coordinates)`` for STL bytes, or None.
 
     ``coordinates`` holds nine float64 values per triangle, exactly what
-    ``orca_adapter.read_stl_triangles`` reads.
+    ``orca_adapter.read_stl_triangles`` reads. The native ASCII number
+    parser accepts only a subset of Python's float(): pure-ASCII text with
+    every token in the plain decimal grammar
+    ``[+-]?(digits[.digits]|.digits)([eE][+-]?digits)?``. Anything float()
+    also accepts (``inf``, ``nan``, underscores, non-ASCII digits) or
+    rejects makes the kernel raise MeshDecline, and this returns None so the
+    Python regex and float() decide the whole file.
     """
     result = _call("stl_parse", data)
     if result is None:

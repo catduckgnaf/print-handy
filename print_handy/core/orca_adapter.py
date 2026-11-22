@@ -14,6 +14,9 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 import zipfile
+
+import numpy as np
+
 from .. import logs, printers, settings
 from ..printers.base import start_code_problems
 from . import author_settings, compat_registry, mesh_fast, painted_geometry, resources, slice_warnings
@@ -634,7 +637,8 @@ def _place_triangles(result, target, scale=1.0, rotation=None, bed=None, mirror=
     return res
 
 
-_STL_ROW = None
+# One binary STL row: normal, three corners, attribute word (50 bytes).
+_STL_ROW = np.dtype([('normal', '<f4', (3,)), ('corners', '<f4', (9,)), ('attribute', '<u2')])
 
 
 def _stl_binary_coordinates(chunk):
@@ -643,10 +647,6 @@ def _stl_binary_coordinates(chunk):
     numpy widens float32 to float64 exactly, as struct's '<f' unpacking does,
     so this equals unpacking the rows one at a time (#1790).
     """
-    import numpy as np
-    global _STL_ROW
-    if _STL_ROW is None:
-        _STL_ROW = np.dtype([('normal', '<f4', (3,)), ('corners', '<f4', (9,)), ('attribute', '<u2')])
     if len(chunk) % 50:
         raise struct.error('binary STL rows are 50 bytes; the file ended inside a row')
     rows = np.frombuffer(chunk, dtype=_STL_ROW)

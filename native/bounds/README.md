@@ -78,7 +78,9 @@ of a mesh or a transformed copy (`mesh_measure`, the scalar loops' order),
 transforms (`mesh_transform`), welding to an indexed mesh (`mesh_weld`), the
 geometry-only 3MF `<vertex>`/`<triangle>` text (`threemf_mesh_text`, the
 `round(v, 6)` welding of `write_geometry_only_3mf`) and STL parsing
-(`stl_parse`). Python `round(x, 6)` is reproduced exactly (ties to even on
+(`stl_parse`; its ASCII number parser accepts only the plain decimal
+subset of Python's `float()` and declines any other token, so Python reads
+that file). Python `round(x, 6)` is reproduced exactly (ties to even on
 the binary value, checked against the general formatter in the crate's
 tests). The dispatcher is `print_handy/core/mesh_native.py`, under the same
 rules (version handshake, golden self-check, Python fallback, the same
