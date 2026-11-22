@@ -52,5 +52,17 @@ HelixScreen, licensed CC BY 4.0. It contains a V10 engine sample from
 licensed CC BY-SA 3.0. It is not covered by this program's AGPL-3.0-only
 license. Full credits: print_handy/data/audio/CREDITS.md.
 
+Bundled slicer profiles
+-----------------------
+
+print_handy/data/orca_profiles/ holds OrcaSlicer's vendor printer and
+filament profiles (resources/profiles), flattened by
+scripts/build_orca_profile_db.py from the OrcaSlicer release that
+docker/orca-prebuilt.sh pins (the release and commit are recorded in
+index.json). They are the work of the OrcaSlicer project and the printer
+and filament vendors who contributed them, licensed AGPL-3.0 as part of
+OrcaSlicer (https://github.com/OrcaSlicer/OrcaSlicer). Values are
+unchanged; only the inherits chains are resolved.
+
 Third-party components keep their own licenses and notices. See
 docs/COMPONENTS.md and the notices in the files concerned.
