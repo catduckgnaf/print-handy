@@ -4450,12 +4450,15 @@ class Listener:
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
 
     async def _slot_self_check(self):
-        """Post the slot mismatch warning once at print start (#1020 D3).
+        """Check for a slot mismatch after ZMod activates the job's tool.
 
-        Best-effort and read-only: a failed read posts nothing, and the
-        warning fires only when the sources actually disagree.
+        Chan and FFMInfo can still describe the previous print at the
+        printing edge. Wait briefly, then sample again so the warning is
+        based on the activated tool rather than that stale start snapshot.
+        Best-effort and read-only.
         """
         try:
+            await asyncio.sleep(2)
             warning = await asyncio.to_thread(self._slot_agreement)
             if warning:
                 await asyncio.to_thread(post, warning)

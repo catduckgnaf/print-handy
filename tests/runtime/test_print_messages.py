@@ -344,6 +344,23 @@ def test_external_start_post_without_a_record_names_no_loaded_channel(job, tmp_p
     assert "maps this job" not in posted[0]
 
 
+@pytest.mark.parametrize("activated_warning, expected", [(None, []), ("still mismatched", ["still mismatched"])])
+def test_slot_self_check_uses_post_activation_channel(monkeypatch, activated_warning, expected):
+    """A stale start Chan is ignored; a persistent post-activation mismatch warns."""
+    listener = mel.Listener()
+    samples = iter(["stale start Chan", activated_warning])
+    monkeypatch.setattr(listener, "_slot_agreement", lambda: next(samples))
+    waits = []
+    async def no_wait(delay):
+        waits.append(delay)
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    posts = []
+    monkeypatch.setattr(mel, "post", lambda message: posts.append(message))
+    asyncio.run(listener._slot_self_check())
+    assert waits == [2]
+    assert posts == expected
+
+
 def test_slot_sources_prefer_this_files_launch_record_over_the_global_active_slot(monkeypatch):
     """#1648: the hardware map's active_slot is printer-wide (the last
     slot any Print Handy start used), so the job's slot comes from this
