@@ -157,6 +157,14 @@ profile, not a hand-picked table, and an Orca update goes through it.
   profile (the AD5X has 0.25, 0.4, 0.6 and 0.8 sets). A profile's slice-relevant flags (`high_speed`, `silk`,
   `plus`) must all be on the spool; finish flags only break ties. Third-party brands in a vendor's folder are
   not used. No vendor profile means level 3, the library generic, as today.
+- **What the slice takes (built, #1816 step 2):** a spool of another family than the printer's template
+  (PETG on the AD5X's PLA template) gets the vendor profile's values for the template's keys over the
+  library family row (`orca_profile_db.vendor_layer`). Not taken: bed type, filament start and end G-code,
+  z-hop (the guard allows only Normal Lift), the spool's own type, density, colour and cost, temperatures
+  (a later step moves vendor temperatures into the resolution that verification shares), and pressure
+  advance (stays the printer's firmware tuning). A spool of the template's own family keeps the template:
+  it is the printer's tested profile (the AD5X PLA recipe, #783), and Silk and PLA+ keep the #512 variant
+  layer. Whether PLA sub-types should move to vendor profiles is a separate decision.
 - **Profile names:** the G-code's `filament_settings_id` names the vendor profile it was sliced with. The
   frozen `Hermes slot <n> <material>` names are retired (a breaking change; old G-code and history need not
   keep working; the other legacy names are #1817).

@@ -271,14 +271,23 @@ def load(folder: Path = DATA_DIR) -> dict[str, Any]:
             "filaments": {v: list(vendor_filaments(v, folder)) for v in data["meta"]["vendors"]}}
 
 
-def printer_preset(printer_model: str, nozzle_diameter: float, folder: Path = DATA_DIR) -> str | None:
-    """The Orca machine preset name for a printer model and nozzle size, or None when Orca has none."""
-    matches = sorted(name for name, p in index(folder)["printers"].items()
+def printer_preset(printer_model: str, nozzle_diameter: float, preferred: str | None = None,
+                   folder: Path = DATA_DIR) -> str | None:
+    """The Orca machine preset for a printer model and nozzle size, or None when Orca has none or no clear one.
+
+    ``preferred`` (the printer template's own preset name) wins when Orca has it for this model and nozzle. A
+    model can have several presets per nozzle (Sovol's SV06 has "0.4 nozzle" and "0.4 High-Speed nozzle");
+    the plain one, whose variant is exactly the nozzle size, is taken, and any other tie gives None.
+    """
+    printers = index(folder)["printers"]
+    matches = sorted(name for name, p in printers.items()
                      if p.get("printer_model") == printer_model and p.get("nozzle_diameter") is not None
                      and abs(float(p["nozzle_diameter"]) - float(nozzle_diameter)) < 1e-6)
+    if preferred in matches:
+        return preferred
     if len(matches) > 1:
-        raise ProfileDatabaseError(f"Orca has {len(matches)} presets for {printer_model} with a "
-                                   f"{nozzle_diameter:g} mm nozzle: {', '.join(matches)}")
+        plain = [name for name in matches if str(printers[name].get("variant") or "") == f"{float(nozzle_diameter):g}"]
+        return plain[0] if len(plain) == 1 else None
     return matches[0] if matches else None
 
 
@@ -376,6 +385,59 @@ def resolve(preset: str, spool: filament_type.FilamentType, brand: str | None = 
     return Resolution(printer_preset=preset, name=record["name"], filament_id=record.get("filament_id"),
                       level="vendor sub-type" if flags & SLICE_FLAGS else "vendor generic",
                       flags=frozenset(flags), values=record["values"], inherits=tuple(record["inherits"]))
+
+
+# ---------------------------------------------------------------------------------------------
+# Applying a resolved profile to a printer template (the slice's vendor layer)
+# ---------------------------------------------------------------------------------------------
+
+# Keys the vendor layer never takes from a vendor profile:
+# - the job and printer own these: the bed type, the filament start and end G-code (the printer
+#   template's, which the start-sequence checks know), and z-hop (the slice guard allows only Normal Lift;
+#   vendor profiles say "nil");
+# - the spool sets these: type, density, colour, cost and vendor;
+# - these come from the temperature resolution, so slicing and verification agree (#1816 moves the
+#   vendor temperatures into that resolution as its own step);
+# - pressure advance stays the printer's: turning it on from a filament profile would override firmware tuning.
+VENDOR_LAYER_SKIP = frozenset({
+    "bed_type", "filament_start_gcode", "filament_end_gcode", "filament_z_hop_types",
+    "filament_type", "filament_density", "filament_colour", "filament_cost", "filament_vendor",
+    "nozzle_temperature", "nozzle_temperature_initial_layer", "idle_temperature",
+    "nozzle_temperature_range_low", "nozzle_temperature_range_high",
+    "cool_plate_temp", "cool_plate_temp_initial_layer", "eng_plate_temp", "eng_plate_temp_initial_layer",
+    "hot_plate_temp", "hot_plate_temp_initial_layer", "textured_plate_temp", "textured_plate_temp_initial_layer",
+    "textured_cool_plate_temp", "textured_cool_plate_temp_initial_layer", "supertack_plate_temp",
+    "supertack_plate_temp_initial_layer",
+    "enable_pressure_advance", "pressure_advance", "adaptive_pressure_advance",
+    "name", "filament_settings_id", "filament_id", "setting_id", "compatible_printers", "inherits",
+})
+
+
+def vendor_layer(template: Mapping[str, Any], resolution: Resolution) -> dict[str, Any]:
+    """The values ``resolution``'s profile sets for the printer template's own keys, minus ``VENDOR_LAYER_SKIP``.
+
+    Only keys the template already has are taken, so the profile keeps the template's shape, and a ``nil``
+    vendor value (inherit) leaves the template's value in place.
+    """
+    out = {}
+    for key in template:
+        if key in VENDOR_LAYER_SKIP or key not in resolution.values or value(resolution.values, key) is None:
+            continue
+        raw = resolution.values[key]
+        out[key] = list(raw) if isinstance(raw, list) else raw
+    return out
+
+
+def profile_name(resolution: Resolution | None, material: str, slot: int | None = None) -> str:
+    """The filament profile name a slice records (``name`` and ``filament_settings_id``).
+
+    The vendor profile's own name when one was resolved ("Flashforge HS PETG @FF AD5X"), otherwise the
+    library generic for the material ("Print Handy PETG (library generic)"), never the printer template's
+    PLA name for another material (#123: PETG G-code labeled "Flashforge Generic PLA"). A multi-slot or
+    multi-toolhead job adds the slot ("[slot 3]") so each tool's preset stays a distinct Orca preset.
+    """
+    base = resolution.name if resolution is not None else f"Print Handy {material} (library generic)"
+    return f"{base} [slot {int(slot)}]" if slot is not None else base
 
 
 # ---------------------------------------------------------------------------------------------

@@ -821,9 +821,9 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             settings[key] = replacement
             changed[key] = [previous, replacement]
     slot_count = max(1, min(int(slot_count), FILAMENT_SLOTS))
-    # Hermes slot names carry the physical slot, so the allowlist bound is the printer's slot count,
-    # not the filaments-used count (2.2.5 review).
-    slot_limit = slot_count if slot_limit is None else int(slot_limit)
+    # slot_limit bounded the retired "Hermes slot N" names (#1816); a project's filament IDs now pass only
+    # when they are exactly the job's own profile name.
+    del slot_limit
     template_filament = json.loads(filament_template.read_text())
     _override = compat_registry.get_rule('imported-template-override').parameters
     per_slot_filament = tuple(key for key in template_filament if key.startswith(_override['per_slot_prefix']) and not key.endswith(_override['per_slot_exclude_suffix']))
@@ -860,7 +860,7 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             count = len(settings[key]) if isinstance(settings[key], list) else slot_count
             existing = settings[key] if isinstance(settings[key], list) else [settings[key]]
             replacement = [
-                item if sg.is_allowed_filament_id(item, {template_id}, slot_count=slot_limit) else template_id
+                item if sg.is_allowed_filament_id(item, {template_id}) else template_id
                 for item in existing
             ]
             if len(replacement) < count:
@@ -1983,21 +1983,69 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         from .printer_state import material_family
         return (settings.current().get("material_tuning") or {}).get(material_family(material)) or {}
 
-    def job_filament(material, density, temps_c, colour, bed_c=None):
-        """(filament profile Orca receives for one spool, its effective nozzle target, family note).
+    from . import filament_type as _ftype
+    from . import orca_profile_db
+
+    def vendor_resolution(material, ftype):
+        """The Orca vendor profile for this spool on this printer and nozzle (#1816), or None (library generic)."""
+        model = machine.get('printer_model')
+        if not model:
+            return None
+        if ftype is None or ftype.family is None:
+            ftype = _ftype.from_text(material)
+        try:
+            preset = orca_profile_db.printer_preset(model, nozzle_dia, preferred=machine.get('name'))
+            return orca_profile_db.resolve(preset, ftype) if preset else None
+        except orca_profile_db.ProfileDatabaseError as exc:
+            logger.warning("Orca profile database unavailable (%s); slicing %s with the library generic",
+                           exc, material)
+            return None
+
+    def family_profile(material, nozzle_temp, ftype=None, slot=None):
+        """(base filament profile for one spool before its own values, note) on a printer with one template.
+
+        Layers, last wins: the printer's template; the material family's library settings
+        (filament_families.toml); the Orca vendor profile for the printer, nozzle and the spool's sub-type
+        (design record section 3). A spool of the template's own family keeps the template, which is the
+        printer's tested profile (the AD5X PLA recipe, #783; Silk and PLA+ through the #512 variant layer), and
+        no vendor layer goes over it. The profile is named after where its values came from.
+        """
+        from .printer_state import material_family
+        data, note = apply_family_overrides(template_filament, material, nozzle_temp)
+        if material_family(material) == material_family((template_filament.get('filament_type') or [''])[0]):
+            base = (template_filament.get('filament_settings_id') or [template_filament.get('name') or material])[0]
+            name = f"{base} [slot {int(slot)}]" if slot is not None else base
+            data.update({'name': name, 'filament_settings_id': [name]})
+            return data, f"{base}: the printer's tuned {material_family(material)} template ({note})"
+        resolution = vendor_resolution(material, ftype)
+        if resolution is not None:
+            data.update(orca_profile_db.vendor_layer(template_filament, resolution))
+            note = f"{resolution.name} ({resolution.level}, Orca {orca_profile_db.meta()['orca_version']})"
+        else:
+            note = f"library generic: {note}"
+        name = orca_profile_db.profile_name(resolution, material, slot)
+        data.update({'name': name, 'filament_settings_id': [name]})
+        return data, note
+
+    def job_filament(material, density, temps_c, colour, bed_c=None, ftype=None, slot=None):
+        """(filament profile Orca receives for one spool, its effective nozzle target, profile note).
 
         A printer with a vendor profile per material (Bambu Lab) already returned that profile as the template.
-        Every other printer has one PLA template, so the material family's settings (fan, volumetric speed,
-        retraction, ranges: filament_families.toml) go on it first; the spool's own type, density, colour,
-        temperatures and flow are applied after that and win.
+        Every other printer has one PLA template: ``family_profile`` puts the library family settings and then
+        the Orca vendor profile for this spool's sub-type on it; the spool's own type, density, colour,
+        temperatures and flow are applied after that and win. ``ftype`` is the spool's filament type (flags
+        pick the vendor sub-type profile); ``slot`` names the tool in a multi-slot or multi-toolhead job.
         """
         import copy
         nozzle_temp = effective_nozzle_temperature(nozzle_type, float(temps_c['nozzle']))
         if printer.vendor_material_profiles:
             data, note = copy.deepcopy(template_filament), 'vendor filament profile'
             include_nozzle_temperature(data, nozzle_temp)
+            if slot is not None:
+                base = (data.get('filament_settings_id') or [data.get('name') or material])[0]
+                data.update({'name': f"{base} [slot {int(slot)}]", 'filament_settings_id': [f"{base} [slot {int(slot)}]"]})
         else:
-            data, note = apply_family_overrides(template_filament, material, nozzle_temp)
+            data, note = family_profile(material, nozzle_temp, ftype, slot)
         data.update({'filament_type': [material], 'filament_density': [str(density)],
                      'filament_colour': [colour or data['filament_colour'][0]],
                      'nozzle_temperature': [str(int(nozzle_temp))],
@@ -2038,17 +2086,33 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             data[key] = data[key + '_initial_layer'] = [bed]
         return data, nozzle_temp, note
 
+    # The job's own spool: its Spoolman filament carries the sub-type flags (HS, Silk, +) that pick the
+    # vendor profile; a record without one reads them from the stored name or color text.
+    from .printer_state import same_material
+    spool_material = state['spool']['material']
+    type_filament = spool_filament
+    if type_filament is None and state['spool'].get('spoolman_id') is not None:
+        # The slice usually is not handed the filament; temperature resolution fetches it the same way.
+        try:
+            type_filament = _fetch_filament(state['spool']['spoolman_id'])
+        except Exception as exc:  # Spoolman is advisory: the stored record's text names the type instead
+            logger.debug("Spoolman filament for the vendor profile unavailable (%s)", exc)
+            type_filament = None
+        if type_filament is not None and not same_material(type_filament.get('material'), spool_material):
+            type_filament = None
+    spool_ftype = _ftype.from_spoolman_filament(type_filament) if type_filament else None
+    if spool_ftype is None or spool_ftype.family is None:
+        spool_ftype = _ftype.from_text(spool_material, state['spool'].get('name') or state['spool'].get('color'))
     filament, effective_nozzle_temp, family_note = job_filament(
-        state['spool']['material'], state['spool']['density'], state['temps_c'], color)
+        spool_material, state['spool']['density'], state['temps_c'], color, ftype=spool_ftype)
     gate_nozzle_temp = effective_nozzle_temp  # the hottest nozzle target of the job, for the pre-slice limits
     if not printer.vendor_material_profiles:
         print(f"FILAMENT PROFILE: {family_note}", flush=True)
         # The imported-project sanitizer pins a project's filament_* settings to the job's profile, so it gets
-        # the family-adjusted template (without the spool's own values), not the PLA one.
+        # the job's base profile (library and vendor layers, without the spool's own values), not the PLA one.
         filament_template = folder / 'filament_template.json'
         filament_template.write_text(json.dumps(
-            apply_family_overrides(template_filament, state['spool']['material'], effective_nozzle_temp)[0],
-            indent=2) + '\n')
+            family_profile(spool_material, effective_nozzle_temp, spool_ftype)[0], indent=2) + '\n')
     # A dedicated support filament (#867): the project named one and intake picked a spool
     # for it. Load that spool as a tool of the job and point the support keys at it, but
     # only when this job actually generates supports; with supports off the designation
@@ -2131,16 +2195,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 temps, resolution = slot_temps[tool]
                 data, tool_nozzle, _note = job_filament(
                     record['material'], record.get('density', state['spool']['density']), temps,
-                    slot_hex(position, record) if record.get('hex') else filament['filament_colour'][0], bed_c=job_bed)
+                    slot_hex(position, record) if record.get('hex') else filament['filament_colour'][0], bed_c=job_bed,
+                    ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
+                    slot=position)
                 gate_nozzle_temp = max(gate_nozzle_temp, tool_nozzle)
                 print(f"SLICE TEMPERATURES: toolhead {position} {record['material']} nozzle {temps['nozzle']} °C, "
                       f"bed {job_bed} °C ({resolution.get('source')})", flush=True)
-                # Frozen profile name: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
-                data.update({'name': f"Hermes toolhead {position} {record['material']}",
-                             'filament_settings_id': [f"Hermes toolhead {position} {record['material']}"],
-                             'filament_is_support': ['0']})
+                print(f"FILAMENT PROFILE: toolhead {position}: {_note}", flush=True)
+                data['filament_is_support'] = ['0']
             else:
                 data = copy.deepcopy(filament)
+                # Each toolhead's preset keeps its own name, an unused one too.
+                unused = f"{(filament.get('filament_settings_id') or [filament.get('name')])[0]} [slot {position}]"
+                data.update({'name': unused, 'filament_settings_id': [unused]})
                 # The base profile carries no filament_is_support, and Orca
                 # rejects the whole preset set (-5, "The input preset file is
                 # invalid") when the profile missing it lands in the last
@@ -2194,14 +2261,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             physical_slot = mapping[tool]
             data, tool_nozzle, _note = job_filament(
                 record['material'], record.get('density', state['spool']['density']), temps,
-                slot_hex(physical_slot, record), bed_c=job_bed)
+                slot_hex(physical_slot, record), bed_c=job_bed,
+                ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
+                slot=physical_slot)
             gate_nozzle_temp = max(gate_nozzle_temp, tool_nozzle)
             print(f"SLICE TEMPERATURES: slot {physical_slot} {record['material']} nozzle {temps['nozzle']} °C, "
                   f"bed {job_bed} °C ({resolution.get('source')})", flush=True)
-            # Frozen profile name: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
-            data.update({'name': f"Hermes slot {physical_slot} {record['material']}",
-                         'filament_settings_id': [f"Hermes slot {physical_slot} {record['material']}"],
-                         'filament_is_support': ['0']})
+            print(f"FILAMENT PROFILE: slot {physical_slot}: {_note}", flush=True)
+            data['filament_is_support'] = ['0']
             path = folder / f'filament_tool_{tool}.json'
             path.write_text(json.dumps(data, indent=2) + '\n')
             filament_paths.append(path)
