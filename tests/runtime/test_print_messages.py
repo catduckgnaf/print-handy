@@ -350,7 +350,12 @@ def test_slot_self_check_waits_for_active_channel(monkeypatch, active_sources, e
     listener = mel.Listener()
     samples = iter([(3, 2, 2, None), active_sources])
     monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
-    monkeypatch.setattr(listener, "_slot_agreement", lambda: "still mismatched")
+    def agreement():
+        # After the wait, agreement sees the final sample.
+        if active_sources[1] == 3 and active_sources[2] == 3:
+            return None
+        return "still mismatched"
+    monkeypatch.setattr(listener, "_slot_agreement", agreement)
     waits = []
     async def no_wait(delay):
         waits.append(delay)
@@ -358,7 +363,7 @@ def test_slot_self_check_waits_for_active_channel(monkeypatch, active_sources, e
     posts = []
     monkeypatch.setattr(mel, "post", lambda message: posts.append(message))
     asyncio.run(listener._slot_self_check())
-    assert waits == [1, 1]
+    assert waits == [1]
     assert posts == expected
 
 
