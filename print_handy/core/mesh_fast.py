@@ -492,6 +492,10 @@ def bounds(triangles):
                 lo[axis] = min(lo[axis], float(chunk_lo[axis]))
                 hi[axis] = max(hi[axis], float(chunk_hi[axis]))
         return lo, hi
+    from .mesh_native import measure
+    native = measure(triangles)
+    if native is not None:
+        return native[0], native[1]
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
     lo = hi = None
     found = False
@@ -521,6 +525,12 @@ def bounds_and_volume(triangles):
         return _bounds_and_volume_arrays(triangles.vertices, triangles.faces)
     if isinstance(triangles, MeshTable) and len(triangles) >= 32768:
         return _bounds_and_volume_arrays(triangles.vertices, triangles.triangles)
+    # The scalar loop below, natively (#1790): same bounds rule (first of
+    # equal values wins) and the same triangle-by-triangle volume sum.
+    from .mesh_native import measure
+    native = measure(triangles)
+    if native is not None:
+        return native[0], native[1], native[3]
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
     lo = hi = None
     volume = 0.0

@@ -71,6 +71,26 @@ being replaced by the iterative native decoder's broader acceptance.
 answers, manifests included; the CI job sets
 `PRINT_HANDY_PAINT_REQUIRE_NATIVE=1` for it too.
 
+The crate also carries the mesh kernel for large mesh intake (`src/mesh.rs`,
+`MESH_KERNEL_VERSION`, #1790): mesh topology (`mesh_topology`, the counts of
+`compact_topology.mesh_topology_compact`), bounds with area and signed volume
+of a mesh or a transformed copy (`mesh_measure`, the scalar loops' order),
+transforms (`mesh_transform`), welding to an indexed mesh (`mesh_weld`), the
+geometry-only 3MF `<vertex>`/`<triangle>` text (`threemf_mesh_text`, the
+`round(v, 6)` welding of `write_geometry_only_3mf`) and STL parsing
+(`stl_parse`). Python `round(x, 6)` is reproduced exactly (ties to even on
+the binary value, checked against the general formatter in the crate's
+tests). The dispatcher is `print_handy/core/mesh_native.py`, under the same
+rules (version handshake, golden self-check, Python fallback, the same
+`PRINT_HANDY_BOUNDS_IMPL` setting). Input outside the kernel's exact contract
+(a non-finite coordinate, ASCII STL numbers outside the plain decimal
+grammar, storage that is not typed float64) raises `MeshDecline` and takes
+the Python code under every setting, `native` included; only a fault
+disables the kernel. `tests/pipeline/test_native_mesh.py` holds the two to
+the same answers bit for bit, and the CI job sets
+`PRINT_HANDY_MESH_REQUIRE_NATIVE=1` for it. The large-mesh corpus tier
+(`tests/corpus/large_mesh/`) times both paths on real multi-MB sources.
+
 Without the built extension everything still works — the Python parser
 handles every input. Set `PRINT_HANDY_BOUNDS_IMPL=python` to force the
 fallback, or `=native` to make a missing/broken extension an error.

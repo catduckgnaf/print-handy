@@ -472,6 +472,11 @@ jobs:
       - name: Build the native bounds wheel
         working-directory: native/bounds
         run: maturin build --release --locked
+      - name: Run the crate's own tests
+        # The mesh kernel's unit tests (#1790) pin Python round(x, 6) and
+        # {:.6f} against the general formatter on random and tie values.
+        working-directory: native/bounds
+        run: cargo test --release --locked --lib
       - name: Install the native bounds wheel
         run: python -m pip install native/bounds/target/wheels/*.whl
       - name: Mirror the extension into the source package
@@ -482,7 +487,17 @@ jobs:
         env:
           PRINT_HANDY_BOUNDS_REQUIRE_NATIVE: "1"
           PRINT_HANDY_PAINT_REQUIRE_NATIVE: "1"
-        run: python -m pytest tests/pipeline/test_native_bounds.py tests/pipeline/test_native_bed_scan.py tests/pipeline/test_native_paint_census.py -q -rs
+          PRINT_HANDY_MESH_REQUIRE_NATIVE: "1"
+        # test_native_mesh.py is the mesh kernel's differential (#1790); the
+        # mesh_fast, topology and layout suites then run their own
+        # old-loop comparisons with the kernel serving them.
+        run: >-
+          python -m pytest -q -rs
+          tests/pipeline/test_native_bounds.py tests/pipeline/test_native_bed_scan.py
+          tests/pipeline/test_native_paint_census.py tests/pipeline/test_native_mesh.py
+          tests/core/test_mesh_fast.py tests/core/test_mesh_fast_adversarial.py
+          tests/core/test_large_stl_fast_paths_1790.py tests/core/test_compact_topology.py
+          tests/core/test_compact_stl.py tests/core/test_geometry_layout.py tests/pipeline/test_model_parts.py
 
   discord-timing:
     needs: scope

@@ -1,4 +1,5 @@
 """Offline Orca adapter. Geometry conversion never imports project machine settings."""
+from array import array
 import hashlib
 import json
 import logging
@@ -633,8 +634,35 @@ def _place_triangles(result, target, scale=1.0, rotation=None, bed=None, mirror=
     return res
 
 
+_STL_ROW = None
+
+
+def _stl_binary_coordinates(chunk):
+    """The float32 corners of whole binary STL rows, widened to a float64 buffer.
+
+    numpy widens float32 to float64 exactly, as struct's '<f' unpacking does,
+    so this equals unpacking the rows one at a time (#1790).
+    """
+    import numpy as np
+    global _STL_ROW
+    if _STL_ROW is None:
+        _STL_ROW = np.dtype([('normal', '<f4', (3,)), ('corners', '<f4', (9,)), ('attribute', '<u2')])
+    if len(chunk) % 50:
+        raise struct.error('binary STL rows are 50 bytes; the file ended inside a row')
+    rows = np.frombuffer(chunk, dtype=_STL_ROW)
+    return rows['corners'].astype(np.float64).tobytes()
+
+
 def read_stl_triangles(path):
-    """Read binary or ASCII STL triangles as [[(x, y, z)] * 3]."""
+    """Read binary or ASCII STL triangles as [[(x, y, z)] * 3].
+
+    A binary STL (at least 84 bytes, exactly 84 + 50 * count long) streams
+    into CompactTriangles of its float32 corners widened to float64, one
+    vectorized chunk at a time (bounded memory). Anything else is ASCII,
+    every ``vertex x y z`` read through float(); the native kernel (#1790)
+    parses that text the same way, and its own refusals fall back to the
+    regex below.
+    """
     path = Path(path)
     with path.open('rb') as stream:
         header = stream.read(84)
@@ -644,10 +672,16 @@ def read_stl_triangles(path):
                 from .compact_geometry import CompactTriangles
                 result = CompactTriangles()
                 while chunk := stream.read(50 * 8192):
-                    for row in struct.iter_unpack('<12fH', chunk):
-                        result.append([row[3:6], row[6:9], row[9:12]])
+                    result.coordinates.frombytes(_stl_binary_coordinates(chunk))
                 return result
     data = path.read_bytes()
+    from .mesh_native import stl_parse
+    native = stl_parse(data)
+    if native is not None and native[0] == 'ascii':
+        values = array('d')
+        values.frombytes(native[1])
+        points = list(zip(values[0::3], values[1::3], values[2::3]))
+        return [points[i:i + 3] for i in range(0, len(points), 3)]
     text = data.decode('utf-8', errors='ignore')
     points = [tuple(map(float, m.groups())) for m in re.finditer(
         r'vertex\s+(\S+)\s+(\S+)\s+(\S+)', text)]

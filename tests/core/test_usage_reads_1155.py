@@ -219,22 +219,27 @@ def painted_grid_source(path, cells=120):
     return path
 
 
-def test_a_second_inventory_in_one_flow_skips_the_paint_pass(tmp_path):
-    import time
+def test_a_second_inventory_in_one_flow_skips_the_paint_pass(tmp_path, monkeypatch):
     source = painted_grid_source(tmp_path / "grid.3mf")
+    passes = []
+    real = sc._inventory
+
+    def counted(path):
+        passes.append(path)
+        return real(path)
+    monkeypatch.setattr(sc, "_inventory", counted)
     with sc.inventory_scope():
-        start = time.perf_counter()
         first = sc.inventory(source)
-        cold = time.perf_counter() - start
-        start = time.perf_counter()
         second = sc.inventory(source)
-        warm = time.perf_counter() - start
+    # The warm call hashes the file and copies the manifest; only the cold
+    # one decodes the 28,800 painted triangles. Counted, not timed: the
+    # native kernels (#1715, #1790) made the cold pass about as fast as the
+    # warm call's source check, so a time ratio no longer separates them.
+    assert len(passes) == 1
     assert first == second == sc.inventory(source)
+    assert len(passes) == 2  # outside the scope nothing is reused
     assert first["painted"]
     assert first["plate_usage"]["1"]["classes"]["painting"]["source_filaments"] == [2]
-    # The warm call hashes the file and copies a manifest; the cold one
-    # decodes 28,800 painted triangles. A generous bound, not a benchmark.
-    assert warm < cold / 3, (cold, warm)
 
 
 # --- PrusaSlicer per-layer files ----------------------------------------------------------------

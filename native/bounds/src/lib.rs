@@ -49,12 +49,14 @@
 //! implementations are equivalent by construction; non-ASCII input
 //! always takes the Python path. No `unsafe` code.
 
+use pyo3::buffer::PyBuffer;
 use pyo3::create_exception;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyBytes, PyDict};
 
 mod bed_scan;
+mod mesh;
 mod paint;
 
 /// Version handshake between this extension and the Python dispatcher.
@@ -601,15 +603,156 @@ fn paint_census(py: Python<'_>, model: &[u8]) -> PyResult<Py<PyDict>> {
     Ok(dict.unbind())
 }
 
+// ---------------------------------------------------------------------------
+// Mesh kernel (#1790; the contracts are in mesh.rs)
+// ---------------------------------------------------------------------------
+
+create_exception!(
+    _bounds_native,
+    MeshDecline,
+    PyValueError,
+    "The input is outside the mesh kernel's exact contract (for example a non-finite coordinate); the Python code decides it."
+);
+
+/// Copy a mesh's storage out of Python buffers, then run `f` on it with the
+/// GIL released, behind the unwind boundary. Input outside the contract
+/// raises `MeshDecline` (the Python code then decides that call); a panic
+/// raises `RuntimeError`, on which the dispatcher disables the kernel.
+fn with_mesh<T: Send>(
+    py: Python<'_>,
+    vertices: PyBuffer<f64>,
+    faces: Option<PyBuffer<i64>>,
+    ops: Vec<(String, Vec<f64>)>,
+    f: impl FnOnce(&mesh::Mesh) -> Result<T, String> + Send,
+) -> PyResult<T> {
+    let vertices = vertices.to_vec(py)?;
+    let faces = match faces {
+        Some(buffer) => Some(buffer.to_vec(py)?),
+        None => None,
+    };
+    let ops = ops
+        .iter()
+        .map(|(kind, params)| mesh::Op::from_parts(kind, params))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(MeshDecline::new_err)?;
+    let outcome = py.detach(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let view = mesh::Mesh::new(&vertices, faces.as_deref(), &ops)?;
+            f(&view)
+        }))
+    });
+    match outcome {
+        Ok(result) => result.map_err(MeshDecline::new_err),
+        Err(_) => Err(PyRuntimeError::new_err("native mesh kernel panicked")),
+    }
+}
+
+fn f64_bytes<'py>(py: Python<'py>, values: impl Iterator<Item = f64>) -> Bound<'py, PyBytes> {
+    let bytes: Vec<u8> = values.flat_map(f64::to_le_bytes).collect();
+    PyBytes::new(py, &bytes)
+}
+
+type Ops = Vec<(String, Vec<f64>)>;
+
+/// `mesh_topology_compact`'s counts for a mesh: `{"triangles", "shells",
+/// "boundary_edges", "non_manifold_edges", "singular_vertices",
+/// "winding_inconsistencies", "degenerate_triangles"}`.
+#[pyfunction]
+#[pyo3(signature = (vertices, faces=None, ops=Vec::new()))]
+fn mesh_topology(py: Python<'_>, vertices: PyBuffer<f64>, faces: Option<PyBuffer<i64>>, ops: Ops) -> PyResult<Py<PyDict>> {
+    let topo = with_mesh(py, vertices, faces, ops, mesh::topology)?;
+    let dict = PyDict::new(py);
+    dict.set_item("triangles", topo.triangles)?;
+    dict.set_item("shells", topo.shells)?;
+    dict.set_item("boundary_edges", topo.boundary_edges)?;
+    dict.set_item("non_manifold_edges", topo.non_manifold_edges)?;
+    dict.set_item("singular_vertices", topo.singular_vertices)?;
+    dict.set_item("winding_inconsistencies", topo.winding_inconsistencies)?;
+    dict.set_item("degenerate_triangles", topo.degenerate_triangles)?;
+    Ok(dict.unbind())
+}
+
+/// `((lo), (hi), area, signed_volume)` with the scalar loops' order.
+#[pyfunction]
+#[pyo3(signature = (vertices, faces=None, ops=Vec::new()))]
+#[allow(clippy::type_complexity)]
+fn mesh_measure(
+    py: Python<'_>,
+    vertices: PyBuffer<f64>,
+    faces: Option<PyBuffer<i64>>,
+    ops: Ops,
+) -> PyResult<((f64, f64, f64), (f64, f64, f64), f64, f64)> {
+    let m = with_mesh(py, vertices, faces, ops, mesh::measure)?;
+    Ok(((m.lo[0], m.lo[1], m.lo[2]), (m.hi[0], m.hi[1], m.hi[2]), m.area, m.signed_volume))
+}
+
+/// The transformed soup as little-endian float64 bytes, nine per triangle.
+#[pyfunction]
+#[pyo3(signature = (vertices, faces=None, ops=Vec::new()))]
+fn mesh_transform<'py>(py: Python<'py>, vertices: PyBuffer<f64>, faces: Option<PyBuffer<i64>>, ops: Ops) -> PyResult<Bound<'py, PyBytes>> {
+    let soup = with_mesh(py, vertices, faces, ops, mesh::transform)?;
+    Ok(f64_bytes(py, soup.into_iter()))
+}
+
+/// An indexed mesh in first-occurrence order: `(vertices, faces)` as
+/// little-endian float64 and int64 bytes. `round` welds on `round(v, 6)`
+/// keys (storing the rounded values); otherwise on exact values.
+#[pyfunction]
+#[pyo3(signature = (vertices, faces=None, ops=Vec::new(), round=true))]
+fn mesh_weld<'py>(
+    py: Python<'py>,
+    vertices: PyBuffer<f64>,
+    faces: Option<PyBuffer<i64>>,
+    ops: Ops,
+    round: bool,
+) -> PyResult<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)> {
+    let (welded, ids) = with_mesh(py, vertices, faces, ops, |m| mesh::weld(m, round))?;
+    let vertex_bytes = f64_bytes(py, welded.into_iter().flatten());
+    let id_bytes: Vec<u8> = ids.into_iter().flat_map(|i| (i as i64).to_le_bytes()).collect();
+    Ok((vertex_bytes, PyBytes::new(py, &id_bytes)))
+}
+
+/// `(vertex_lines, triangle_lines)` of one object of
+/// `write_geometry_only_3mf`, each joined by newlines.
+#[pyfunction]
+#[pyo3(signature = (vertices, faces=None, ops=Vec::new()))]
+fn threemf_mesh_text(py: Python<'_>, vertices: PyBuffer<f64>, faces: Option<PyBuffer<i64>>, ops: Ops) -> PyResult<(String, String)> {
+    with_mesh(py, vertices, faces, ops, mesh::threemf_text)
+}
+
+/// `("binary" | "ascii", coordinates)` for STL bytes, the coordinates as
+/// little-endian float64 bytes, nine per triangle.
+#[pyfunction]
+fn stl_parse<'py>(py: Python<'py>, data: &[u8]) -> PyResult<(&'static str, Bound<'py, PyBytes>)> {
+    let outcome = py.detach(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mesh::parse_stl(data))));
+    let (kind, coords) = match outcome {
+        Ok(result) => result.map_err(MeshDecline::new_err)?,
+        Err(_) => return Err(PyRuntimeError::new_err("native STL parser panicked")),
+    };
+    let name = match kind {
+        mesh::StlKind::Binary => "binary",
+        mesh::StlKind::Ascii => "ascii",
+    };
+    Ok((name, f64_bytes(py, coords.into_iter())))
+}
+
 #[pymodule]
 fn _bounds_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("API_VERSION", API_VERSION)?;
     m.add("BED_SCAN_VERSION", bed_scan::BED_SCAN_VERSION)?;
     m.add("PAINT_CENSUS_VERSION", paint::PAINT_CENSUS_VERSION)?;
+    m.add("MESH_KERNEL_VERSION", mesh::MESH_KERNEL_VERSION)?;
     m.add_function(wrap_pyfunction!(parse_bounds, m)?)?;
     m.add_function(wrap_pyfunction!(first_off_bed, m)?)?;
     m.add_function(wrap_pyfunction!(paint_census, m)?)?;
+    m.add_function(wrap_pyfunction!(mesh_topology, m)?)?;
+    m.add_function(wrap_pyfunction!(mesh_measure, m)?)?;
+    m.add_function(wrap_pyfunction!(mesh_transform, m)?)?;
+    m.add_function(wrap_pyfunction!(mesh_weld, m)?)?;
+    m.add_function(wrap_pyfunction!(threemf_mesh_text, m)?)?;
+    m.add_function(wrap_pyfunction!(stl_parse, m)?)?;
     m.add("BoundsRefusal", m.py().get_type::<BoundsRefusal>())?;
+    m.add("MeshDecline", m.py().get_type::<MeshDecline>())?;
     Ok(())
 }
 

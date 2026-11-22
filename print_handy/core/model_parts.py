@@ -331,7 +331,7 @@ def combine(target, sources, bed=None, gap=10.0, stl_inches=False):
         for part in parts:
             lo, hi = _bounds(part['triangles'])
             dx, dy, dz = -lo[0], -lo[1], -lo[2]
-            tris = TransformedTriangles(part['triangles'], lambda x, y, z, dx=dx, dy=dy, dz=dz: (x + dx, y + dy, z + dz))
+            tris = TransformedTriangles.translation(part['triangles'], dx, dy, dz)
             placed_objects.append({'name': part['id'], 'triangles': tris, 'translation_mm': (cursor, 0.0, 0.0)})
             cursor += (hi[0] - lo[0]) + float(gap)
     write_geometry_only_3mf(placed_objects, target)
