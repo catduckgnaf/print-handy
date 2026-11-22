@@ -117,6 +117,7 @@ GROUP_OF = {
     "printer.start_macro": "slicing",
     "printer.end_macro": "slicing",
     "slicer.flash_studio_path": "slicing",
+    "slicer.parallel_preview": "slicing",
     "bot.platform": "platform",
     "discord.chat_id": "platform",
     "discord.allowed_user_ids": "platform",
@@ -410,6 +411,11 @@ CATALOG = (
            "makes slicing fail with that reason rather than quietly falling back. "
            "Print Handy never downloads or bundles Flash Studio.",
            validator="settings slicer path check"),
+    _field("slicer", "parallel_preview", "Slice both previews at once", "toggle",
+           "On (the default) slices the with-supports and without-supports previews at "
+           "the same time on a host with at least 4 CPUs, never more than two slicer "
+           "runs at once. Off, a Flatpak slicer, or a host with fewer or unknown CPUs "
+           "slices one preview at a time."),
     _field("printer", "build_plate", "Build plate", "picker",
            "The plate on this printer. Empty means unknown: nothing warns and the slicer's default "
            "plate stands. Set, the slicer uses that plate's bed type and temperature, and the "

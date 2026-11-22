@@ -45,6 +45,9 @@ orca:
 slicer:
   # Optional user-installed Flash Studio executable; empty keeps the normal Orca/Bambu behavior.
   flash_studio_path: ''
+  # Slice the with-supports and without-supports previews at once on a host with 4+ CPUs (never more
+  # than two slicer runs). false, a Flatpak slicer, or fewer or unknown CPUs slices one at a time.
+  parallel_preview: true
 # Stock Flashforge LAN. Empty host means the printer stays offline. The serial and
 # check code are never written here; they stay in AD5X_SERIAL and AD5X_CHECK_CODE.
 flashforge_stock:

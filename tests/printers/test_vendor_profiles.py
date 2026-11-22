@@ -68,6 +68,7 @@ def without_added(data):
     data.pop("telegram", None)  # added by #164 stage 2, after the golden files were captured
     data.pop("matrix", None)  # added by #164 stage 3, after the golden files were captured
     data.get("slicer", {}).pop("flash_studio_path", None)  # added by the Flash Studio config, after capture
+    data.get("slicer", {}).pop("parallel_preview", None)  # added by #1779, after capture
     for key in ("piper", "piper_model"):  # added by #981 step 4 (Wrapped narration), after capture
         data.get("paths", {}).pop(key, None)
     data.get("timelapse", {}).pop("mode", None)  # added by #286 stage 3 (the type setting), after capture
