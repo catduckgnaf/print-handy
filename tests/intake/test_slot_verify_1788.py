@@ -148,10 +148,14 @@ def test_cancel_stops_before_anything_is_sliced(tmp_path):
 
 def test_a_failed_optional_relink_warns_and_continues(tmp_path):
     rec = Recorder(0)
-    ok, _bind, _ = _run([_doubt()], rec, bind=mock.Mock(side_effect=RuntimeError("readback mismatch")),
-                        ledger=tmp_path / "slot-verify.json")
+    # bind_slot may have changed the slot before it raised: the record is reloaded, not trusted stale.
+    changed = {"filament_slots": {"3": {"material": "PETG", "spoolman_id": 22}}}
+    ok, _bind, state = _run([_doubt()], rec, state={"filament_slots": {"3": dict(PLA_RECORD)}}, loaded=changed,
+                            bind=mock.Mock(side_effect=RuntimeError("readback mismatch")),
+                            ledger=tmp_path / "slot-verify.json")
     assert ok is True
-    assert "Could not link spool #22 to slot 3" in rec.said[0] and "Continuing with the recorded spool" in rec.said[0]
+    assert state == changed
+    assert "Could not finish linking spool #22 to slot 3" in rec.said[0]
     assert "post the model again" not in rec.said[0] and "repost" not in rec.said[0].lower()
 
 

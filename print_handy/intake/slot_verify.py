@@ -383,8 +383,20 @@ async def verify_slots(state: dict[str, Any], printer_id: str | None,
         except Exception as exc:
             # The relink is optional: the print goes on with the record as it was.
             logger.warning("slot %s rebind to #%s failed: %r", doubt.slot, choice["spool_id"], exc)
-            await send(f"Could not link spool #{choice['spool_id']} to slot {doubt.slot} ({exc}). "
-                       "Continuing with the recorded spool. Use /spool change if the record is wrong.")
+            # bind_slot may have written part of the change before it raised, so
+            # reload the record instead of trusting the pre-attempt copy.
+            try:
+                fresh = await asyncio.to_thread(
+                    printer_state.load, **({"printer_id": printer_id} if printer_id else {}))
+                state.clear()
+                state.update(fresh)
+                if rebound is not None:
+                    rebound.append(doubt.slot)
+            except Exception as reload_exc:
+                logger.warning("slot %s record reload after failed rebind failed: %r", doubt.slot, reload_exc)
+            await send(f"Could not finish linking spool #{choice['spool_id']} to slot {doubt.slot} ({exc}). "
+                       "Continuing with whatever Print Handy now has recorded for that slot. "
+                       "Use /spool change if the record is wrong.")
             continue
         await asyncio.to_thread(clear_unconfirmed, doubt.slot)
         await send(spool_sync.bind_text(result))
