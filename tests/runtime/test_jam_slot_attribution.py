@@ -121,7 +121,10 @@ class AmbiguousLaunchReplay(ReplayCase):
             self.assertIsNone(facts["slot"])
             self.assertIsNone(facts["slot_conflict"])
 
-    def test_ambiguous_launch_names_chan_only_when_launched(self):
+    def test_ambiguous_launch_never_names_chan_alone(self):
+        # Chan may be the previous print's channel even when it is a launched slot.
         with mock.patch.object(mel, "launch_mapped_slots", return_value={1, 4}):
-            self.assertEqual(self.listener(4)._jam_facts()["slot"], 4)
-            self.assertIsNone(self.listener(2)._jam_facts()["slot"])
+            for chan in (4, 1, 2):
+                facts = self.listener(chan)._jam_facts()
+                self.assertIsNone(facts["slot"])
+                self.assertIsNone(facts["slot_conflict"])

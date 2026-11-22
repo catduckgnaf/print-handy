@@ -4365,11 +4365,10 @@ class Listener:
         # proves no feed: a conflict names no slot instead of blaming one.
         mapped = sorted(launch_mapped_slots(self.filename))
         if len(mapped) > 1:
-            # Several launch slots: the hardware active slot is printer-wide, not
-            # this job's request, so it is not used. Chan names a slot only when
-            # it is one of the launched slots; otherwise no slot is named.
-            chan = self.ifs_channel
-            slot, conflict = (chan if chan in mapped else None), None
+            # Several launch slots: the job names no single slot, and Chan alone
+            # may describe the previous print even when it matches one of them,
+            # so no slot is named.
+            slot, conflict = None, None
         else:
             job_slot = mapped[0] if mapped else recovery_slot(self.filename)[0]
             slot, conflict = jam_slot_attribution(job_slot, self.ifs_channel)
