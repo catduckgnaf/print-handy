@@ -124,11 +124,11 @@ class DockerReleaseContract(unittest.TestCase):
         compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
         services = compose["services"]
         # One container runs Print Handy; the other services are the
-        # one-shot first-boot directory initializer (#1144), the one-shot
-        # legacy state-folder migration (#1144) and the optional
-        # profile-gated cloudflared sidecar (#311).
+        # one-shot first-boot directory initializer (#1144) and the optional
+        # profile-gated cloudflared sidecar (#311). The one-shot legacy
+        # state-folder migration service is gone (#1817).
         self.assertEqual(list(services),
-                         ["combined", "print-handy-init", "print-handy-migrate", "cloudflared"])
+                         ["combined", "print-handy-init", "cloudflared"])
         self.assertEqual(services["cloudflared"]["profiles"], ["live-stream"])
         init_service = services["print-handy-init"]
         self.assertEqual(init_service["user"], "0:0")
@@ -142,8 +142,7 @@ class DockerReleaseContract(unittest.TestCase):
         # first boot can reach it; nothing else is published.
         self.assertEqual(service["ports"], ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         self.assertEqual(service["depends_on"],
-                         {"print-handy-init": {"condition": "service_completed_successfully"},
-                          "print-handy-migrate": {"condition": "service_completed_successfully"}})
+                         {"print-handy-init": {"condition": "service_completed_successfully"}})
         self.assertTrue(service["init"])
         self.assertEqual(service["healthcheck"]["test"], ["CMD", "python3", "/usr/local/bin/print-handy-healthcheck"])
         self.assertFalse(any(v.split(":")[-1].startswith("/app") for v in service["volumes"]))
@@ -164,16 +163,22 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertIn("COPY --from=spoolman-build /opt/spoolman /opt/spoolman", dockerfile)
 
     def test_new_installs_neither_create_nor_mount_the_legacy_hermes_folder(self):
-        """#1144: no service binds a hermes folder, so a first `up` creates none."""
+        """#1144, #1817: no service binds or creates a hermes folder, so a
+        first `up` creates none; the init service only looks for one, through
+        a read-only mount of the data folder, to refuse an unmigrated install."""
         compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
         for name, service in compose["services"].items():
             for volume in service.get("volumes", []):
                 with self.subTest(service=name, volume=volume):
                     self.assertNotIn("hermes", volume)
-        init_command = " ".join(compose["services"]["print-handy-init"]["command"])
-        self.assertNotIn("hermes", init_command)
+        init = compose["services"]["print-handy-init"]
+        self.assertIn("${PRINT_HANDY_DATA:-./data}:/host-data:ro", init["volumes"])
+        init_command = " ".join(init["command"])
+        loop = init_command[init_command.index("for path in"):]
+        self.assertNotIn("hermes", loop)
         for path in ("state", "archive", "records", "cache", "spoolman"):
-            self.assertIn(f"/data/{path}", init_command)
+            self.assertIn(f"/data/{path}", loop)
+        self.assertNotIn("mkdir -p /host-data", init_command)
         # The first-run instructions do not create the folder either.
         for doc in ("README.md", "docs/DOCKER.md"):
             for line in (ROOT / doc).read_text().splitlines():
@@ -181,28 +186,15 @@ class DockerReleaseContract(unittest.TestCase):
                     with self.subTest(doc=doc, line=line):
                         self.assertNotIn("hermes", line)
 
-    def test_existing_installs_keep_migrating_through_the_migrate_service(self):
-        """#1144: the legacy folder is copied by a one-shot, read-only, rootless step."""
-        services = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
-        migrate = services["print-handy-migrate"]
-        self.assertEqual(migrate["user"], "1000:1000")
-        self.assertEqual(migrate["restart"], "no")
-        self.assertEqual(migrate["cap_drop"], ["ALL"])
-        self.assertNotIn("cap_add", migrate)
-        self.assertEqual(migrate["security_opt"], ["no-new-privileges:true"])
-        self.assertEqual(migrate["entrypoint"], ["/app/docker/entrypoint.sh"])
-        self.assertEqual(migrate["depends_on"],
-                         {"print-handy-init": {"condition": "service_completed_successfully"}})
-        self.assertEqual(migrate["environment"],
-                         {"PRINT_HANDY_STATE_MIGRATE_ONLY": "1",
-                          "PRINT_HANDY_LEGACY_STATE": "/legacy-data/hermes"})
-        self.assertEqual(migrate["volumes"],
-                         ["${PRINT_HANDY_DATA:-./data}/state:/data/state",
-                          "${PRINT_HANDY_DATA:-./data}:/legacy-data:ro"])
-        # The mode and the legacy-path override it relies on are implemented.
+    def test_the_legacy_state_migration_is_gone(self):
+        """#1817: no migrate service, and the entrypoint has no copy mode."""
+        compose_text = (ROOT / "docker-compose.yml").read_text()
         script = (ROOT / "docker" / "entrypoint.sh").read_text()
-        self.assertIn("PRINT_HANDY_STATE_MIGRATE_ONLY", script)
-        self.assertIn("PRINT_HANDY_LEGACY_STATE", script)
+        for gone in ("print-handy-migrate", "PRINT_HANDY_STATE_MIGRATE_ONLY",
+                     "PRINT_HANDY_LEGACY_STATE", "/legacy-data"):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, compose_text)
+                self.assertNotIn(gone, script)
 
     def test_image_variable_is_explicit_in_the_quickstarts_with_the_reason(self):
         """#1144: no default image by design; both quickstarts say to set it and why."""
@@ -298,35 +290,21 @@ class DockerReleaseContract(unittest.TestCase):
     # #971: runs the shipped image's entrypoint, so it is container-marked
     # (runs in the image and in the CI offline-tests job; skips locally).
     @pytest.mark.container
-    def test_entrypoint_selects_the_single_stable_build_and_aliases_the_removed_preview(self):
+    def test_entrypoint_selects_the_single_stable_build_and_refuses_any_other_channel(self):
         script = ROOT / "docker" / "entrypoint.sh"
         with tempfile.TemporaryDirectory(dir=ROOT / ".") as data:
-            Path(data, "hermes/state").mkdir(parents=True)
             Path(data, "archive").mkdir()
             Path(data, "records").mkdir()
             Path(data, "cache").mkdir()
             command = ["sh", "-c", "printf \"%s\\n\" \"$PRINT_HANDY_ORCA_CMD\""]
-            # The preview channel was removed (one bundled Orca only):
-            # 'preview' still starts, on the single stable build, with a
-            # startup notice saying the channel was removed.
-            env = {"PATH": os.environ["PATH"], "HOME": data, "PRINT_HANDY_ORCA_CHANNEL": "preview"}
-            preview = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
-                                     text=True, capture_output=True, check=True)
-            self.assertEqual(preview.stdout.strip(), "/usr/local/bin/orca-slicer-stable")
-            self.assertIn("the preview channel was removed", preview.stderr)
-            self.assertIn("setting can be dropped", preview.stderr)
-            # 'alpha', the preview channel's pre-#600 name, gets the same
-            # treatment: the single stable build plus the removal notice.
-            env["PRINT_HANDY_ORCA_CHANNEL"] = "alpha"
-            legacy = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
-                                    text=True, capture_output=True, check=True)
-            self.assertEqual(legacy.stdout.strip(), "/usr/local/bin/orca-slicer-stable")
-            self.assertIn("the preview channel was removed", legacy.stderr)
-            self.assertIn("PRINT_HANDY_ORCA_CHANNEL=stable", legacy.stderr)
-            env.pop("PRINT_HANDY_ORCA_CHANNEL")
+            env = {"PATH": os.environ["PATH"], "HOME": data}
             stable = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
                                     text=True, capture_output=True, check=True)
             self.assertEqual(stable.stdout.strip(), "/usr/local/bin/orca-slicer-stable")
+            env["PRINT_HANDY_ORCA_CHANNEL"] = "stable"
+            explicit = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
+                                      text=True, capture_output=True, check=True)
+            self.assertEqual(explicit.stdout.strip(), "/usr/local/bin/orca-slicer-stable")
             # #972: a container-level PRINT_HANDY_ORCA_CMD override wins
             # over the entrypoint default (the image ENV sets the same
             # stable default, so this also covers docker exec inheriting
@@ -336,11 +314,16 @@ class DockerReleaseContract(unittest.TestCase):
                                       text=True, capture_output=True, check=True)
             self.assertEqual(override.stdout.strip(), "/custom/orca-slicer")
             env.pop("PRINT_HANDY_ORCA_CMD")
-            env["PRINT_HANDY_ORCA_CHANNEL"] = "other"
-            invalid = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
-                                     text=True, capture_output=True)
-            self.assertNotEqual(invalid.returncode, 0)
-            self.assertIn("must be 'stable'", invalid.stderr)
+            # #1817: the removed preview channel's names ('preview', and
+            # 'alpha' from before #600) are refused like any other value.
+            for value in ("preview", "alpha", "other"):
+                with self.subTest(channel=value):
+                    env["PRINT_HANDY_ORCA_CHANNEL"] = value
+                    invalid = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
+                                             text=True, capture_output=True)
+                    self.assertEqual(invalid.returncode, 2, invalid.stderr)
+                    self.assertIn(f"must be 'stable'; got '{value}'", invalid.stderr)
+                    self.assertEqual(invalid.stdout, "")
 
     def test_image_env_sets_orca_cmd_for_docker_exec(self):
         """#972: PRINT_HANDY_ORCA_CMD is set in the image ENV, not only in

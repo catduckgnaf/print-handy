@@ -51,27 +51,29 @@ docker exec "$container" sh -ec 'for p in /data/state/state /data/state/logs /da
 test ! -e "$work/data/hermes"
 printf '%s\n' 'clean-directory startup and writable bind persistence: PASS'
 
-# Existing install that still has the pre-2.2.5 hermes folder (#1144): the
-# migrate service must copy it into state once, leave it untouched, and never
-# let a stale copy overwrite newer state on the next start.
+# Existing install whose state is still only in the pre-2.2.5 hermes folder
+# (#1817): that folder is no longer read, so the init service must refuse the
+# start and change nothing; the documented rename then starts it on its data.
 legacy="$work/legacy-install"
 mkdir -p "$legacy/data/hermes/state"
 cp "$work/docker-compose.yml" "$work/compose.acceptance.yml" "$work/.env" "$legacy/"
 printf 'from legacy\n' > "$legacy/data/hermes/state/legacy-probe"
-printf 'also legacy\n' > "$legacy/data/hermes/only-in-legacy"
 # Legacy data is owned by the container user, as the earlier release left it.
 sudo chown -R 1000:1000 "$legacy/data/hermes"
 legacy_compose=(docker compose -p "$project-legacy" -f docker-compose.yml -f compose.acceptance.yml)
-(cd "$legacy" && "${legacy_compose[@]}" up -d --wait --wait-timeout 180)
-test "$(cat "$legacy/data/state/state/legacy-probe")" = "from legacy"
-test "$(cat "$legacy/data/state/only-in-legacy")" = "also legacy"
-test -f "$legacy/data/state/.migrated-from-legacy"
-test ! -e "$legacy/data/state/.migration-incomplete"
+if (cd "$legacy" && "${legacy_compose[@]}" up -d --wait --wait-timeout 180); then
+  echo "an install whose state is only in data/hermes started; it must be refused" >&2
+  exit 1
+fi
+(cd "$legacy" && "${legacy_compose[@]}" logs print-handy-init) \
+  | grep -F "your state is still in the old folder ./data/hermes"
+test -z "$(sudo find "$legacy/data/state" -mindepth 1 ! -type d -print -quit)"
 test "$(cat "$legacy/data/hermes/state/legacy-probe")" = "from legacy"
-# Newer state, stale legacy: the second start must keep the newer file.
 (cd "$legacy" && "${legacy_compose[@]}" down)
-sudo sh -c "printf 'newer\n' > '$legacy/data/state/state/legacy-probe'; printf 'stale\n' > '$legacy/data/hermes/state/legacy-probe'"
+sudo rm -rf "$legacy/data/state"
+sudo mv "$legacy/data/hermes" "$legacy/data/state"
 (cd "$legacy" && "${legacy_compose[@]}" up -d --wait --wait-timeout 180)
-test "$(cat "$legacy/data/state/state/legacy-probe")" = newer
+test "$(sudo cat "$legacy/data/state/state/legacy-probe")" = "from legacy"
+test ! -e "$legacy/data/hermes"
 (cd "$legacy" && "${legacy_compose[@]}" down --volumes --remove-orphans)
-printf '%s\n' 'legacy hermes folder migration (one-time, never overwrites): PASS'
+printf '%s\n' 'old hermes folder refused, and the rename starts on its data: PASS'

@@ -54,7 +54,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `printer.nozzle_type` | `PRINT_HANDY__PRINTER__NOZZLE_TYPE` | unset | Optional nozzle material, limited to the model's supported types |
 | `printer.build_plate` | `PRINT_HANDY__PRINTER__BUILD_PLATE` | unset | The plate on the printer: `smooth_pei`, `textured_pei` (PEI powder-coated), `smooth_pc` or `cool_plate`. Unset means unknown and never warns. Set, the preparation message warns once when the job's material can damage that plate (for example PETG or PCTG on smooth PEI: use the textured plate or a thin layer of glue stick). A warning, never a block. The slicer also uses the plate's Orca bed type (`High Temp Plate`, `Textured PEI Plate`, `Engineering Plate`, `Cool Plate`); unset leaves Orca's default. Set it in the Web UI printer editor (#1788) |
 | `orca.templates` | `PRINT_HANDY__ORCA__TEMPLATES` | the model's folder *model* | Folder with the Orca machine, process and filament JSON |
-| `orca.command` | file only | `["/usr/local/bin/orca-slicer"]` | How to start the OrcaSlicer CLI; Print Handy ships one bundled OrcaSlicer and `PRINT_HANDY_ORCA_CHANNEL=stable` (default) selects it (`preview` and `alpha` start on the same single build with a startup notice; the preview channel was removed); the binary exists only when `WITH_ORCA=true` |
+| `orca.command` | file only | `["/usr/local/bin/orca-slicer"]` | How to start the OrcaSlicer CLI; Print Handy ships one bundled OrcaSlicer and `PRINT_HANDY_ORCA_CHANNEL=stable` (default, the only accepted value) selects it; the binary exists only when `WITH_ORCA=true` |
 | `delivery.methods` | `PRINT_HANDY__DELIVERY__METHODS` | `["printer"]` *model* | Post-slice options offered, from the vendor profile (for example `printer`); comma- or space-separated in the environment, an empty value keeps the file value. Choosing **Slice and Download** in chat always also offers the chat download ("Send the files here") when the vendor profile offers it, whatever this list holds: Slice and Download is a request for the file (#1443) |
 | `bambu.command` | file only | `["/usr/bin/bambu-studio"]` | Bambu Studio CLI: the default slicer for Bambu Lab printers, Orca's one-shot fallback elsewhere; exists only in a `WITH_BAMBU=true` image |
 | `bambu.lan_host` | `PRINT_HANDY__BAMBU__LAN_HOST` | `""` | Bambu Lab printer LAN address for read-only status; must be set together with `lan_serial`; empty disables LAN status |
@@ -565,7 +565,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PRINT_HANDY_ORCA_CHANNEL` | `stable` | Selects the one bundled OrcaSlicer at startup; Print Handy ships a single build (v2.5.1), `preview` and `alpha` start on it with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops the container |
+| `PRINT_HANDY_ORCA_CHANNEL` | `stable` | Selects the one bundled OrcaSlicer at startup; Print Handy ships a single build (v2.5.1), and any other value (including the removed `preview` and `alpha`) stops the container |
 | `PRINT_HANDY_USER_CONFIG` | `$HOME/.config/print-handy/settings.yaml` | Your own settings file, layered over `PRINT_HANDY_CONFIG` and under environment variables. Optional (the default location may be absent), but a path set here must exist or startup stops; image updates never replace it. In Docker `HOME=/data`, so it is `/data/.config/print-handy/settings.yaml`, which is `.config/print-handy/settings.yaml` in the Unraid Appdata folder (Compose maps it to `dot-config` under its data folder) |
 | `PRINT_HANDY_BUNDLED_SPOOLMAN` | `true` | `true` runs the bundled Spoolman API; `false` uses `services.spoolman_url` only |
 | `SPOOLMAN_HOST` | `127.0.0.1` | Bundled Spoolman bind address; widen it only together with an approved port mapping, see docs/DOCKER.md |
@@ -575,7 +575,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 
 ## Build arguments
 
-Image build inputs (`docker build --build-arg NAME=value`), not runtime settings. `PRINT_HANDY_ORCA_CHANNEL` is a runtime environment variable (default `stable`; `preview` and `alpha` start on the same single build with a startup notice, because the preview channel was removed) and requires an image built with `WITH_ORCA=true`.
+Image build inputs (`docker build --build-arg NAME=value`), not runtime settings. `PRINT_HANDY_ORCA_CHANNEL` is a runtime environment variable (default `stable`, the only accepted value) and requires an image built with `WITH_ORCA=true`.
 
 | Argument | Default | What it does |
 |---|---|---|
