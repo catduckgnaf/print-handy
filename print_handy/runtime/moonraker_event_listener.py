@@ -3837,6 +3837,32 @@ def zmod_slot_presence(status):
     return read_zmod_color_slots(status)
 
 
+def _monotonic():
+    """Clock for the slot self-check wait.
+
+    Tests replace this. They must not replace ``time.monotonic``: the event
+    loop reads that itself, and a short iterator there raises StopIteration
+    inside asyncio.
+    """
+    return time.monotonic()
+
+
+def _channels_settled(sources, job_slot, initial):
+    """True when both active-tool channels have finished a transition.
+
+    Both must be present and equal. Matching the job slot counts on any
+    sample, including the first. Any other slot counts only after it differs
+    from the first sample, so the previous print's still-loaded channel is
+    not treated as this job's tool.
+    """
+    ffm, ifs = sources[1], sources[2]
+    if type(ffm) is not int or type(ifs) is not int or ffm != ifs:
+        return False
+    if ffm == job_slot:
+        return True
+    return (ffm, ifs) != (initial[1], initial[2])
+
+
 class Listener:
     def __init__(self):
         self.state = None
@@ -4450,28 +4476,33 @@ class Listener:
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
 
     async def _slot_self_check(self):
-        """Check for a slot mismatch after ZMod activates the job's tool.
+        """Check for a slot mismatch after ZMod's active-tool channels settle.
 
-        Wait for both active-tool channel sources to report the job slot;
-        a timeout is deliberately inconclusive, never a warning.
-        Best-effort and read-only.
+        A partial update (only one of FFMInfo and zmod_ifs on the job slot, or
+        the two channels disagreeing) is not a finished transition. Timing out
+        still on the first sample is inconclusive: that sample is often the
+        previous print's channel, and warning from it is the false mismatch
+        this wait exists to avoid. A later sample where both channels agree,
+        including on a slot other than the job's, is a finished transition and
+        is checked. Best-effort and read-only.
         """
         try:
-            job_slot = (await asyncio.to_thread(self._slot_sources))[0]
+            initial = await asyncio.to_thread(self._slot_sources)
+            job_slot = initial[0]
             if job_slot is None:
                 return
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
-                await asyncio.sleep(1)
-                sources = await asyncio.to_thread(self._slot_sources)
-                # FFMInfo and zmod_ifs are both populated by ZMod's active
-                # tool transition. Require both before treating the transition
-                # as complete; a partial update is not evidence.
-                if sources[1] == job_slot and sources[2] == job_slot:
-                    break
-            else:
-                log(f"slot self-check inconclusive: active channel did not report job slot {job_slot}")
-                return
+            sources = initial
+            if not _channels_settled(sources, job_slot, initial):
+                deadline = _monotonic() + 30
+                while _monotonic() < deadline:
+                    await asyncio.sleep(1)
+                    sources = await asyncio.to_thread(self._slot_sources)
+                    if _channels_settled(sources, job_slot, initial):
+                        break
+                else:
+                    log(f"slot self-check inconclusive: active channel did not "
+                        f"report a finished transition for job slot {job_slot}")
+                    return
             warning = await asyncio.to_thread(self._slot_agreement)
             if warning:
                 await asyncio.to_thread(post, warning)
