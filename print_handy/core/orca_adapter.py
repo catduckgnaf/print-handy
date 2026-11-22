@@ -799,6 +799,16 @@ def _rewrite_project_settings(path, settings, name):
     tmp.replace(path)
 
 
+def _profile_ids(paths):
+    """The filament_settings_id of each profile file, in order (the job's per-tool names)."""
+    ids = []
+    for path in paths or ():
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = data.get('filament_settings_id') or [data.get('name')]
+        ids.append(str(value[0] if isinstance(value, list) else value).strip().strip('"'))
+    return ids
+
+
 def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(), filament_template=None, slot_limit=None,
                                 tower_width=None):
     name = 'Metadata/project_settings.config'
@@ -859,12 +869,17 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             template_id = value[0] if isinstance(value, list) else value
             count = len(settings[key]) if isinstance(settings[key], list) else slot_count
             existing = settings[key] if isinstance(settings[key], list) else [settings[key]]
+            tool_ids = _profile_ids(filament_profiles)
+            own_ids = {template_id, *tool_ids}
+            # Each tool's own name, the template's where the job has no profile for that tool.
+            own_names = [tool_ids[index] if index < len(tool_ids) else template_id
+                         for index in range(max(count, len(existing)))]
             replacement = [
-                item if sg.is_allowed_filament_id(item, {template_id}) else template_id
-                for item in existing
+                item if sg.is_allowed_filament_id(item, own_ids) else own_names[index]
+                for index, item in enumerate(existing)
             ]
             if len(replacement) < count:
-                replacement.extend([template_id] * (count - len(replacement)))
+                replacement.extend(own_names[len(replacement):count])
             elif len(replacement) > count and count > 0:
                 replacement = replacement[:count]
         else:
@@ -895,10 +910,13 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
 
 
 def sanitize_project_settings(path, log_text='', templates=None, slot_count=None, filament_template=None, slot_limit=None,
-                              tower_width=None):
+                              tower_width=None, filament_profiles=()):
     """Normalize Orca sentinels and foreign motion/profile data on private 3MF copies.
 
     filament_template is the job's filament profile; the template folder's filament.json by default.
+    filament_profiles are the job's per-tool filament profiles in tool order (a multi-slot or
+    multi-toolhead job): a project filament ID that is not one of the job's own names is pinned to that
+    tool's own name, the template's when the job has none for it.
     tower_width is the job's effective prime-tower width; the template's when not given."""
     del log_text
     if Path(path).suffix.lower() != '.3mf':
@@ -913,7 +931,8 @@ def sanitize_project_settings(path, log_text='', templates=None, slot_count=None
         slot_count = max((len(imported[key]) if isinstance(imported.get(key), list) else 1
                           for key in ('filament_settings_id', 'filament_type', 'filament_colour')
                           if imported.get(key) is not None), default=1)
-    return _sanitize_imported_settings(path, templates, slot_count, filament_template=filament_template,
+    return _sanitize_imported_settings(path, templates, slot_count, filament_profiles=filament_profiles,
+                                       filament_template=filament_template,
                                        slot_limit=slot_limit, tower_width=tower_width)
 
 
@@ -2413,7 +2432,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         sanitized.update(sanitize_project_settings(
             input_path, templates=templates,
             slot_count=len(filament_paths) if mapped_profile else 1, filament_template=filament_template,
-            slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS, tower_width=tower_mm))
+            slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS, tower_width=tower_mm,
+            filament_profiles=filament_paths if mapped_profile else ()))
         # Then the copy takes the job's own machine, process and filament values (#868): a derived
         # plate is a byte copy of a foreign project, and its settings must not reach Orca.
         rewritten.update(adopt_job_settings(input_path, {**machine, **process, **_adopted_filament}))
