@@ -15,6 +15,15 @@ Spoolman, the slot record and the screen converge. A "keep" answer is
 remembered for that exact screen/record pair, so the same disagreement is not
 asked on every print; any change on either side asks again.
 
+A slot can also be in doubt when both sides agree, because both can be
+stale: the 2026-11-21 swap happened during a runout pause, the slot read
+loaded before and after, the screen still named spool #21, and the runout
+question closed as a refeed with nobody saying so. The listener marks such a
+slot as an unconfirmed reload (``mark_unconfirmed``): a runout question that
+closes without a chat answer, or an idle insertion prompt. Intake asks about
+a marked slot once. The mark ends with any answer for that slot, and goes
+stale on its own as soon as the slot is bound to a different spool.
+
 Fail-soft by design: an unreadable screen lane, Spoolman or ledger means no
 doubt and a log line, never a blocked intake.
 """
@@ -38,7 +47,9 @@ MAX_SHELF_CHOICES = 3
 class SlotDoubt:
     """One slot whose screen lane and Print Handy record disagree."""
     slot: int
-    reason: str  # "spool" (different spool ids) or "material" (same spool, different family)
+    # "spool" (different spool ids), "material" (same spool, different family)
+    # or "reload" (both sides agree, but the slot was reloaded unconfirmed).
+    reason: str
     record_spool_id: int | None
     record_label: str
     record_material: str
@@ -46,6 +57,7 @@ class SlotDoubt:
     screen_material: str
     screen_label: str = ""
     fingerprint: str = ""
+    reload_cause: str = ""  # for "reload": "runout" or "insertion"
     choices: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -71,45 +83,66 @@ def fingerprint(slot: int, lane: dict[str, Any], record: dict[str, Any]) -> str:
                        _int(record.get("spoolman_id")), str(record.get("material") or "").strip().casefold()])
 
 
+def unconfirmed_mark(marks: dict[str, Any] | None, slot: int, record_spool_id: int | None) -> dict | None:
+    """The slot's unconfirmed-reload mark, or None when there is none or it went stale.
+
+    A mark names the spool the record held when it was set; once the slot is
+    bound to a different spool, someone has said what is loaded, so the mark
+    no longer counts.
+    """
+    mark = (marks or {}).get(str(int(slot)))
+    if not isinstance(mark, dict):
+        return None
+    return mark if _int(mark.get("spool_id")) == record_spool_id else None
+
+
 def slot_doubts(slots: dict[str, dict[str, Any]], lanes: dict[int, dict[str, Any]] | None,
-                *, confirmed: dict[str, Any] | None = None) -> list[SlotDoubt]:
-    """Slots whose screen lane disagrees with Print Handy's record, in slot order.
+                *, confirmed: dict[str, Any] | None = None,
+                unconfirmed: dict[str, Any] | None = None) -> list[SlotDoubt]:
+    """Slots whose screen lane disagrees with Print Handy's record, or that were reloaded unconfirmed.
 
     ``slots`` is ``configured_slots(state)``; ``lanes`` is
     ``lane_data_sync.parse_lane_data(...)`` (None when unknown). A lane in
     doubt with itself (``slot_issue``) or naming no material and no spool
     says nothing. A disagreement the operator already confirmed (same
-    fingerprint in ``confirmed``) is not asked again.
+    fingerprint in ``confirmed``) is not asked again. A slot with a live
+    mark in ``unconfirmed`` is asked about even when the lane agrees or is
+    unknown: both sides can be stale after a reload nobody confirmed.
     """
     from ..runtime.lane_data_sync import lane_matches_spool_material
 
-    if not lanes:
-        return []
+    lanes = lanes or {}
     confirmed = confirmed or {}
     out: list[SlotDoubt] = []
     for key, record in sorted((slots or {}).items(), key=lambda item: int(item[0])):
         slot = int(key)
-        lane = lanes.get(slot)
-        if not isinstance(lane, dict) or lane.get("slot_issue") or not isinstance(record, dict):
+        if not isinstance(record, dict):
             continue
+        lane = lanes.get(slot)
+        usable = isinstance(lane, dict) and not lane.get("slot_issue")
+        lane = lane if usable else {}
         screen_id = _int(lane.get("spool_id"))
         screen_material = str(lane.get("material") or "").strip()
         record_id = _int(record.get("spoolman_id"))
         record_material = str(record.get("material") or "").strip()
+        print_ = fingerprint(slot, lane, record)
+        mark = unconfirmed_mark(unconfirmed, slot, record_id)
         if screen_id is not None and record_id is not None and screen_id != record_id:
             reason = "spool"
         elif (screen_material and record_material
               and not lane_matches_spool_material(screen_material, record_material, None)):
             reason = "material"
+        elif mark is not None:
+            reason = "reload"
         else:
             continue
-        print_ = fingerprint(slot, lane, record)
-        if confirmed.get(str(slot)) == print_:
+        if reason != "reload" and confirmed.get(str(slot)) == print_ and mark is None:
             continue
         out.append(SlotDoubt(slot=slot, reason=reason, record_spool_id=record_id,
                              record_label=_record_label(record), record_material=record_material,
                              screen_spool_id=screen_id, screen_material=screen_material,
-                             screen_label=str(lane.get("name") or "").strip(), fingerprint=print_))
+                             screen_label=str(lane.get("name") or "").strip(), fingerprint=print_,
+                             reload_cause=str((mark or {}).get("cause") or "")))
     return out
 
 
@@ -122,15 +155,20 @@ def add_choices(doubt: SlotDoubt, shelf: list[dict[str, Any]], spool_label: Call
         label = spool_label(doubt.screen_spool_id) or doubt.screen_label or "the spool the screen names"
         choices.append({"kind": "bind", "spool_id": doubt.screen_spool_id,
                         "label": f"#{doubt.screen_spool_id} {label} (screen)"})
-    if doubt.screen_material:
+    # A reload with no screen material to go on may have changed the material
+    # too, so any shelf spool is a fair answer.
+    any_material = doubt.reason == "reload" and not doubt.screen_material
+    if doubt.screen_material or any_material:
         taken = {choice.get("spool_id") for choice in choices}
+        taken.add(doubt.record_spool_id)
         for row in shelf or []:
             if len([c for c in choices if c["kind"] == "bind"]) >= MAX_SHELF_CHOICES:
                 break
             spool_id = _int(row.get("spool_id"))
             if spool_id is None or spool_id in taken:
                 continue
-            if lane_matches_spool_material(doubt.screen_material, str(row.get("material") or ""), None):
+            if any_material or lane_matches_spool_material(doubt.screen_material,
+                                                           str(row.get("material") or ""), None):
                 name = str(row.get("name") or "").strip()
                 material = str(row.get("material") or "").strip()
                 text = name if material and name.casefold().endswith(material.casefold()) else f"{name} {material}"
@@ -148,14 +186,20 @@ def question(doubt: SlotDoubt) -> str:
     from ..core import filament_color
 
     where = filament_color.slot_display(doubt.slot)
+    record = (f"spool #{doubt.record_spool_id} {doubt.record_label}" if doubt.record_spool_id
+              else doubt.record_label)
+    if doubt.reason == "reload":
+        when = {"runout": "after a runout", "insertion": "while the printer was idle"}.get(
+            doubt.reload_cause, "")
+        reloaded = f"{where} was reloaded {when}".rstrip()
+        return (f"Before slicing: {reloaded} and nobody confirmed which spool went in. Print Handy "
+                f"still has {record} there. Which is loaded? Nothing is sliced until you answer.")
     if doubt.reason == "spool":
         screen = f"spool #{doubt.screen_spool_id}"
         if doubt.screen_material:
             screen += f" ({doubt.screen_material})"
     else:
         screen = doubt.screen_material or "a different filament"
-    record = (f"spool #{doubt.record_spool_id} {doubt.record_label}" if doubt.record_spool_id
-              else doubt.record_label)
     return (f"Before slicing: the printer screen says {where} holds {screen}, but Print Handy has "
             f"{record} there. Which is loaded? Nothing is sliced until you answer.")
 
@@ -167,23 +211,69 @@ def _path():
     return _config.state_dir() / "slot-verify.json"
 
 
-def load_confirmed(path=None) -> dict[str, Any]:
+def _section(name: str, path=None) -> dict[str, Any]:
     try:
         data = json.loads((path or _path()).read_text())
     except (OSError, ValueError):
         return {}
-    return data.get("confirmed", {}) if isinstance(data, dict) and isinstance(data.get("confirmed"), dict) else {}
+    return data.get(name, {}) if isinstance(data, dict) and isinstance(data.get(name), dict) else {}
+
+
+def _write(path, *, confirmed: dict[str, Any], unconfirmed: dict[str, Any]) -> None:
+    target = path or _path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"confirmed": confirmed, "unconfirmed": unconfirmed,
+                               "updated_at": time.time()}, indent=1) + "\n")
+    os.replace(tmp, target)
+
+
+def load_confirmed(path=None) -> dict[str, Any]:
+    return _section("confirmed", path)
+
+
+def load_unconfirmed(path=None) -> dict[str, Any]:
+    return _section("unconfirmed", path)
 
 
 def remember_keep(doubt: SlotDoubt, path=None) -> None:
-    """Remember that the operator kept the record for exactly this disagreement."""
-    target = path or _path()
-    confirmed = load_confirmed(target)
-    confirmed[str(doubt.slot)] = doubt.fingerprint
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps({"confirmed": confirmed, "updated_at": time.time()}, indent=1) + "\n")
-    os.replace(tmp, target)
+    """Remember that the operator kept the record for exactly this disagreement; ends any reload mark."""
+    confirmed = load_confirmed(path)
+    unconfirmed = load_unconfirmed(path)
+    if doubt.reason != "reload":
+        confirmed[str(doubt.slot)] = doubt.fingerprint
+    unconfirmed.pop(str(doubt.slot), None)
+    _write(path, confirmed=confirmed, unconfirmed=unconfirmed)
+
+
+def mark_unconfirmed(slot, spool_id, cause: str, path=None) -> bool:
+    """Mark a slot as reloaded with nobody confirming which spool went in (listener side).
+
+    ``spool_id`` is the spool the record holds for the slot now; ``cause`` is
+    "runout" or "insertion". Never raises: a mark that cannot be written is
+    a log line, and intake then simply does not ask.
+    """
+    try:
+        key = str(int(slot))
+        unconfirmed = load_unconfirmed(path)
+        unconfirmed[key] = {"spool_id": _int(spool_id), "cause": str(cause), "at": time.time()}
+        _write(path, confirmed=load_confirmed(path), unconfirmed=unconfirmed)
+    except (OSError, TypeError, ValueError) as exc:
+        logger.warning("slot %r reload mark not written (%r)", slot, exc)
+        return False
+    logger.info("slot %s marked as reloaded unconfirmed (%s), record spool #%s", key, cause, spool_id)
+    return True
+
+
+def clear_unconfirmed(slot, path=None) -> None:
+    """End a slot's reload mark: someone said what is loaded. Never raises."""
+    try:
+        unconfirmed = load_unconfirmed(path)
+        if unconfirmed.pop(str(int(slot)), None) is None:
+            return
+        _write(path, confirmed=load_confirmed(path), unconfirmed=unconfirmed)
+    except (OSError, TypeError, ValueError) as exc:
+        logger.warning("slot %r reload mark not cleared (%r)", slot, exc)
 
 
 # ------------------------------------------------------------------ intake hook
@@ -197,9 +287,11 @@ def read_doubts(state: dict[str, Any], printer_id: str | None) -> list[SlotDoubt
         mr = spool_sync.moonraker_for(printer_id)
         lanes = lane_data_sync.parse_lane_data(spool_sync.read_lane_data(mr=mr))
     except Exception as exc:
-        logger.info("slot verification skipped: screen lanes unreadable (%r)", exc)
-        return []
-    doubts = slot_doubts(configured_slots(state), lanes, confirmed=load_confirmed())
+        # Reload marks still count: they do not need the screen.
+        logger.info("slot verification: screen lanes unreadable (%r); checking reload marks only", exc)
+        lanes = None
+    doubts = slot_doubts(configured_slots(state), lanes, confirmed=load_confirmed(),
+                         unconfirmed=load_unconfirmed())
     if not doubts:
         return []
     try:
@@ -247,8 +339,9 @@ async def verify_slots(state: dict[str, Any], printer_id: str | None,
             return False
         if choice["kind"] == "keep":
             await asyncio.to_thread(remember_keep, doubt)
-            await send(f"Keeping {choice['label'][len('Keep '):]} in "
-                       f"slot {doubt.slot}. I won't ask again unless the screen or the record changes.")
+            again = ("" if doubt.reason == "reload"
+                     else " I won't ask again unless the screen or the record changes.")
+            await send(f"Keeping {choice['label'][len('Keep '):]} in slot {doubt.slot}.{again}")
             continue
         try:
             result = await asyncio.to_thread(
@@ -262,6 +355,7 @@ async def verify_slots(state: dict[str, Any], printer_id: str | None,
             await send(f"Could not link spool #{choice['spool_id']} to slot {doubt.slot} ({exc}). "
                        "Nothing was sliced. Fix the slot with /spool change, then post the model again.")
             return False
+        await asyncio.to_thread(clear_unconfirmed, doubt.slot)
         await send(spool_sync.bind_text(result))
         fresh = await asyncio.to_thread(printer_state.load, **({"printer_id": printer_id} if printer_id else {}))
         state.clear()

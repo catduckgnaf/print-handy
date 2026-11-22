@@ -161,9 +161,10 @@ def test_no_doubt_asks_nothing():
     bind.assert_not_called()
 
 
-def test_unreadable_screen_lanes_mean_no_doubt():
+def test_unreadable_screen_lanes_mean_no_doubt(tmp_path):
     with mock.patch("print_handy.runtime.spool_sync.read_lane_data", side_effect=OSError("offline")), \
-            mock.patch("print_handy.runtime.spool_sync.moonraker_for", return_value="mr"):
+            mock.patch("print_handy.runtime.spool_sync.moonraker_for", return_value="mr"), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
         assert sv.read_doubts({"filament_slots": SLOTS}, "flashforge-ad5x") == []
 
 
