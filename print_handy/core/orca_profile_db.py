@@ -419,6 +419,9 @@ def resolve(preset: str, spool: filament_type.FilamentType, brand: str | None = 
 # - these come from the temperature resolution, so slicing and verification agree (#1816 moves the
 #   vendor temperatures into that resolution as its own step);
 # - pressure advance stays the printer's: turning it on from a filament profile would override firmware tuning.
+#   Decision (#1832): vendor pressure advance is never applied. Firmware tuning always wins. No code change.
+# - PLA sub-types (Silk, PLA+, Matte) stay on the tuned PLA template. Decision (#1832): do not move them to
+#   vendor profiles; the existing variant layer (#512) already handles them. No code change.
 VENDOR_LAYER_SKIP = frozenset({
     "bed_type", "filament_start_gcode", "filament_end_gcode", "filament_z_hop_types",
     "filament_type", "filament_density", "filament_colour", "filament_cost", "filament_vendor",

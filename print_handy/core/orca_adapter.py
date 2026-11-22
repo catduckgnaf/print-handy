@@ -2006,8 +2006,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     from . import filament_type as _ftype
     from . import orca_profile_db
 
-    def vendor_resolution(material, ftype):
-        """The Orca vendor profile for this spool on this printer and nozzle (#1816), or None (library generic)."""
+    def vendor_resolution(material, ftype, brand=None):
+        """The Orca vendor profile for this spool on this printer and nozzle (#1816), or None (library generic).
+
+        Brand is passed when known so a branded spool can match a brand-specific vendor profile (#1832).
+        """
         model = machine.get('printer_model')
         if not model:
             return None
@@ -2015,7 +2018,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             ftype = _ftype.from_text(material)
         try:
             preset = orca_profile_db.printer_preset(model, nozzle_dia, preferred=machine.get('name'))
-            return orca_profile_db.resolve(preset, ftype) if preset else None
+            return orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
         except orca_profile_db.ProfileDatabaseError as exc:
             logger.warning("Orca profile database unavailable (%s); slicing %s with the library generic",
                            exc, material)
@@ -2037,7 +2040,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             name = f"{base} [slot {int(slot)}]" if slot is not None else base
             data.update({'name': name, 'filament_settings_id': [name]})
             return data, f"{base}: the printer's tuned {material_family(material)} template ({note})"
-        resolution = vendor_resolution(material, ftype)
+        resolution = vendor_resolution(material, ftype, brand=(state.get("spool") or {}).get("brand"))
         if resolution is not None:
             data.update(orca_profile_db.vendor_layer(template_filament, resolution))
             note = f"{resolution.name} ({resolution.level}, Orca {orca_profile_db.meta()['orca_version']})"
