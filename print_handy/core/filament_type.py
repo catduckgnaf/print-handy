@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "filament_flags.toml"
 
+# PAHT is accepted here and normalized to PA (PAHT-CF to PA-CF) by material_family.
 _FAMILY_TOKEN = re.compile(r"^(?:PETG|PCTG|PLA|ABS|ASA|TPU|PA\d{0,3}|PAHT|PC|PET)(?:-?(?:CF|GF))?\+?$")
 _VALID_FAMILY = re.compile(r"^(?:(?:PETG|PCTG|PLA|ABS|ASA|TPU|PA|PC)(?:-(?:CF|GF))?|SUPPORT-PLA|SUPPORT-PA)$")
 _UNKNOWN_COLOR = "color unknown"
