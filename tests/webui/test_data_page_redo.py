@@ -155,6 +155,10 @@ def test_the_year_switcher_links_every_recorded_year():
     page = _page(RECORDS + [_rec(9, started="2025-06-01T10:00:00Z")], year=2026)
     assert 'href="/data?year=2025"' in page
     assert '<a href="/data?year=2026" aria-current="page">2026</a>' in page
+    from print_handy.webui import data_page
+    links = data_page.year_switcher({"years_available": [2025, 2026], "year": 2026})
+    assert 'class="dp-years data-year-nav"' in links
+    assert links.count('aria-current="page"') == 1
 
 
 def test_the_api_payload_only_gains_fields():

@@ -332,6 +332,9 @@ class LoginTests(unittest.TestCase):
             self.assertIn("Keep me signed in on this browser", body)
             self.assertNotIn('name="remember" value="on" checked', body)
             self.assertIn("30 days", body)
+            # Keep the whole associated label as the pointer target while
+            # leaving the native checkbox itself at its normal size.
+            self.assertIn('<label for="f-remember">Keep me signed in on this browser</label>', body)
 
     def test_login_without_remember_does_not_survive_restart(self):
         with tempfile.TemporaryDirectory() as tmp:

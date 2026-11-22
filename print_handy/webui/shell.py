@@ -378,6 +378,11 @@ img { max-width: 100%; }
   nav.pills a { white-space: normal; }
   .table-scroll form.inline label { white-space: nowrap; }
   .table-scroll form.inline select { max-width: 13rem; }
+  /* File picker buttons are controls too; align their box with other mobile inputs. */
+  input[type="file"] { min-height: 2.75rem; box-sizing: border-box; }
+  /* Enlarge the actual remembered-session label target, not only its checkbox. */
+  form[action="/login"] p:has(> input[type="checkbox"][name="remember"]) { display: flex; align-items: center; gap: 0.5rem; }
+  form[action="/login"] p:has(> input[type="checkbox"][name="remember"]) label { display: inline-flex; align-items: center; min-height: 2.75rem; }
   /* Keep the brand and quick destinations readable above full-width tabs. */
   header.site .wrap { padding-right: 1rem; gap: 0.5rem; }
   .header-quicklinks { margin-left: auto; }
