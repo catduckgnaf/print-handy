@@ -60,28 +60,6 @@ from ..intake.worker import (  # moved in 2.3.0 (#1323); old path kept for one r
 logger = logging.getLogger(__name__)
 
 
-EXPORT_EDITABLE_LABEL = 'Export editable 3MF'
-
-
-async def _send_editable_export(adapter, source, metadata, folder, path):
-    """Export editable 3MF (#1525): deliver the cleaned project as a file.
-
-    A file delivery, not a slice: it starts no print, sends no machine
-    command and touches no spool, and the Ready menu stays open after
-    it. A source that cannot be exported says why in plain words.
-    """
-    from . import editable_export as _editable_export
-    export_target = folder / (path.stem + '-editable.3mf')
-    try:
-        report = await _heavy(_editable_export.export_editable, path, export_target)
-    except _editable_export.ExportRefused as exc:
-        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=str(exc))
-        return
-    await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                       content=_editable_export.export_summary(report),
-                       files=[str(export_target)])
-
-
 def _voice_identity(source):
     """Scope first-time copy jokes to a user and platform, not the job."""
     platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
@@ -1639,12 +1617,16 @@ def _cost_ready_line(variant_jobs):
 
     Information only: priced from the sliced variant (the largest when
     both support choices are shown, so the line never understates one),
-    and never raises. Cost never gates a print.
+    and never raises. Cost never gates a print. Returns "" unless
+    [cost] ready_card_estimate is true (default false); /print-cost, the
+    Web UI calculator and stored cost are unaffected.
     """
     try:
         from print_handy.core import cost as cost_module
         from print_handy.core import spoolman_client
         data = settings.current()
+        if (data.get('cost') or {}).get('ready_card_estimate') is not True:
+            return ''
 
         def lookup(spool_id):
             try:
@@ -2706,22 +2688,40 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                       confirm_target=confirm_target)
 
 
-async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeout):
-    """Ask about slots the printer screen and Print Handy disagree about (#1788); False = cancelled.
+async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeout, used_slots=None, rebound=None):
+    """Advise about used slots the printer screen and Print Handy disagree about (#1788); False = cancelled.
 
-    Reading the screen, the shelf or the ledger is fail-soft inside
-    ``slot_verify`` (no doubt, a log line). The question itself behaves like
-    every other intake question: an unanswered one ends the intake unsliced.
+    Advisory only: reading the screen, the shelf or the ledger is fail-soft
+    inside ``slot_verify``, and an unanswered question, a skip or a failed
+    relink warns and goes on. Only an explicit Cancel returns False.
     """
     from ..intake import slot_verify
 
+    timeout = _question_timeout(timeout)
+
     async def ask_slot(text, labels):
-        return await _ask(adapter, source, key, text, labels, timeout)
+        return await _ask(adapter, source, key, text, labels, min(timeout, slot_verify.ADVISORY_TIMEOUT_S))
 
     async def say(text):
         await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
 
-    return await slot_verify.verify_slots(state, printer_id, ask_slot, say)
+    return await slot_verify.verify_slots(state, printer_id, ask_slot, say, used_slots=used_slots, rebound=rebound)
+
+
+def _refresh_rebound_selections(decisions, rebound, state):
+    """Point decisions at the spool just confirmed for a rebound slot (never a guess; only after an answer)."""
+    from . import model_job as mj
+
+    def fresh(selection):
+        if isinstance(selection, dict) and selection.get('slot') in rebound:
+            record = mj.configured_slots(state).get(str(selection['slot'])) or {}
+            return mj.resolve_filament_selection(state, dict(record, slot=int(selection['slot'])))
+        return selection
+
+    if decisions.get('mode') == 'single_color':
+        decisions['selection'] = fresh(decisions.get('selection'))
+    else:
+        decisions['choices'] = {k: fresh(v) for k, v in (decisions.get('choices') or {}).items()}
 
 
 async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
@@ -3344,13 +3344,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if getattr(job_adapter, 'has_native_screen', False):
             await asyncio.to_thread(purge.refresh_best_effort, state, job_adapter, job.get('printer_id'))
             purge.require_jacker_capacity(manifest, job_adapter, state)
-            # #1788: a slot the printer screen and Print Handy disagree about is
-            # asked about before the colors are offered or anything is sliced.
-            if not await _verify_slots(adapter, source, key, metadata, state,
-                                       printer_id or job.get('printer_id'), timeout):
-                receipt.update(status='CANCELLED_SLOT_UNVERIFIED')
-                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                return {'action': 'skip', 'reason': 'operator cancelled on an unverified slot'}
         selections = [mj.resolve_filament_selection(state, dict(label, slot=int(slot)))
                       for slot, label in sorted(mj.configured_slots(state).items())]
         # A tool_based printer's positions are tools, never slots (#346, #1198).
@@ -3621,6 +3614,23 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
         mj.set_color_decisions(latest, validated)
+        if getattr(job_adapter, 'has_native_screen', False):
+            # #1788: advise about a slot this print uses when the printer screen and
+            # Print Handy disagree about it. Advisory: only an explicit Cancel stops.
+            used = {int(sel['slot']) for sel in _decision_selections(validated)
+                    if isinstance(sel, dict) and sel.get('slot') is not None}
+            rebound = []
+            if not await _verify_slots(adapter, source, key, metadata, state,
+                                       printer_id or job.get('printer_id'), timeout,
+                                       used_slots=used, rebound=rebound):
+                receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                return {'action': 'skip', 'reason': 'operator cancelled at the spool question'}
+            if rebound:
+                _refresh_rebound_selections(decisions, set(rebound), state)
+                validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                                               selected_plate_ids=selected_plates)
+                mj.set_color_decisions(latest, validated)
         if validated.get('mode') == 'per_part':
             # #1473: remember the accepted mapping for the next post of this
             # file with the same spools loaded (best-effort, never blocking).
@@ -4388,10 +4398,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                          'label': PRINT_ANYWAY_RISK_LABEL if can_print else SLICE_ANYWAY_RISK_LABEL})
                 menu_options.append({'kind': 'slice_only', 'label': 'Slice and Download'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
-                # Export editable 3MF (#1525) goes after Scale: Print, Slice
-                # and Scale keep their positions. Cancel stays last because
-                # ask() adds its own Cancel to a menu that does not end on one.
-                menu_options.append({'kind': 'export_editable', 'label': EXPORT_EDITABLE_LABEL})
+                # Cancel stays last because ask() adds its own Cancel to a
+                # menu that does not end on one.
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
                 first_labels = [opt['label'] for opt in menu_options]
             else:
@@ -4400,7 +4408,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     {'kind': 'print', 'label': print_label},
                     {'kind': 'slice_only', 'label': 'Slice and Download'},
                     {'kind': 'scale', 'label': SCALE_LABEL},
-                    {'kind': 'export_editable', 'label': EXPORT_EDITABLE_LABEL},
                     {'kind': 'cancel', 'label': cancel_label},
                 ]
                 if not can_print:
@@ -4419,6 +4426,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                       shortages=shown_shortages, sliced_variants=spool_variants)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
+            # Off by default: the line only appears when [cost] ready_card_estimate is on.
             cost_text = await asyncio.to_thread(_cost_ready_line, spool_variants)
             if cost_text:
                 spool_text = (spool_text + '\n' + cost_text) if spool_text else cost_text
@@ -4646,12 +4654,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 elif opt['kind'] == 'slice_only':
                     choice = 1
                     break
-                elif opt['kind'] == 'export_editable':
-                    # Export editable 3MF (#1525): a file delivery, not a
-                    # slice. It starts no print, sends no machine command
-                    # and touches no spool; the menu stays open afterwards.
-                    await _send_editable_export(adapter, source, metadata, folder, path)
-                    continue
                 elif opt['kind'] == 'cancel':
                     choice = 3
                     break
@@ -4659,11 +4661,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     pass  # drops through to scaling direction question
             else:
                 kind = menu_options[picked]['kind']
-                if kind == 'export_editable':
-                    # Export editable 3MF (#1525): file delivery only, as
-                    # in the flagged dispatch above; the menu stays open.
-                    await _send_editable_export(adapter, source, metadata, folder, path)
-                    continue
                 if kind != 'scale':
                     # The legacy choice numbers the rest of the flow reads:
                     # 0 print, 1 slice-and-download, 3 cancel. Mapped by

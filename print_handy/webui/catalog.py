@@ -88,6 +88,7 @@ GROUP_OF = {
     "printer.name": "printers",
     "printer.model": "printers",
     "printer.slicer": "slicing",
+    "printer.build_plate": "printers",
     "printer.zmod_delivery_format": "printers",
     "printer.opencreator_flow_calibration": "printers",
     "printer.opencreator_purge": "printers",
@@ -158,6 +159,7 @@ GROUP_OF = {
     "cost.cost_mode": "cost",
     "cost.resin_ipa_per_print": "cost",
     "cost.resin_ppe_per_print": "cost",
+    "cost.ready_card_estimate": "cost",
     "notify.mqtt_enabled": "home_assistant",
     "notify.mqtt_host": "home_assistant",
     "notify.mqtt_port": "home_assistant",
@@ -408,6 +410,12 @@ CATALOG = (
            "makes slicing fail with that reason rather than quietly falling back. "
            "Print Handy never downloads or bundles Flash Studio.",
            validator="settings slicer path check"),
+    _field("printer", "build_plate", "Build plate", "picker",
+           "The plate on this printer. Empty means unknown: nothing warns and the slicer's default "
+           "plate stands. Set, the slicer uses that plate's bed type and temperature, and the "
+           "preparation message warns when a material can damage it (PETG on smooth PEI).",
+           choices=("", "smooth_pei", "textured_pei", "smooth_pc", "cool_plate"),
+           validator="settings build plate check"),
     _field("printer", "zmod_delivery_format", "ZMod delivery format", "picker",
            "Flashforge/ZMod printers only: auto sends the sliced .gcode.3mf when the printer "
            "reports ZMod 1.7.5+ and plain .gcode otherwise; gcode always sends .gcode; "
@@ -648,6 +656,11 @@ CATALOG = (
     _field("cost", "resin_ppe_per_print", "Resin cleanup and PPE per print", "number",
            "Gloves, towels and other cleanup per resin print.",
            validator="settings cost check", minimum=0),
+    _field("cost", "ready_card_estimate", "Show estimated cost on the Ready card", "toggle",
+           "Turn this on to add an Estimated cost line to the chat Ready card once a job "
+           "is sliced. Off by default. The /print-cost command, the Web UI calculator "
+           "and the stored cost are not affected.",
+           validator="settings cost check"),
     # Event notifications (#622): print events out of chat, over MQTT
     # and/or ntfy. Neither channel's credential is a field: the MQTT
     # password is MQTT_PASSWORD and the ntfy access token is

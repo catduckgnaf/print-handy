@@ -131,8 +131,6 @@ EXEMPTIONS = {
     ("printer", "max_print_height_mm"): (frozenset({"webui"}), "#657"),
     ("printer", "nozzle_diameter_mm"): (frozenset({"webui"}), "#657"),
     ("printer", "nozzle_type"): (frozenset({"webui"}), "#657"),
-    # The printer editor field lands with #1764.
-    ("printer", "build_plate"): (frozenset({"webui"}), "#1764"),
     ("printer", "tool_count"): (frozenset({"webui"}), "#657"),
     ("printer", "vendor"): (frozenset({"webui"}), "#657"),
     ("prusa", "api_key_env"): (frozenset({"webui"}), "#286"),
