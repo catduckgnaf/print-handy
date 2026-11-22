@@ -7,7 +7,6 @@ loads the same handlers for one release.
 import logging
 import asyncio, contextlib, functools, json, re, time
 from collections import OrderedDict
-from pathlib import Path
 
 from ...runtime import _config
 
@@ -22,24 +21,6 @@ def _state_home():
 
 def _state_dir():
     return _config.state_dir()
-
-
-# ---------------------------------------------------------------------------
-# Hosting profile identity (#574)
-#
-# The bot stamps every source it builds with the fixed hosting profile
-# (print_handy.bot.runtime.PROFILE, _config.DEFAULT_PROFILE); the gates
-# below answer only sources carrying that stamp. The name used to be
-# derived from the Hermes install layout; with that install gone the
-# identity is the constant.
-def _hosting_profile():
-    """The profile identity this module answers for: the fixed hosting profile."""
-    return _config.hosting_profile(Path(__file__))[0]
-
-
-def _is_hosting_profile(value):
-    """True when an event's profile value is the hosting profile's."""
-    return bool(value) and value == _hosting_profile()
 
 
 _seen = OrderedDict()
@@ -95,10 +76,8 @@ def _is_print_discord_event(event):
     source = getattr(event, 'source', None)
     return (source is not None
             and _is_bot_platform(source)
-            and _is_hosting_profile(getattr(source, 'profile', None))
             and not getattr(event, 'internal', False)
-            and not getattr(source, 'is_bot', False)
-            and not getattr(source, 'profile_route_rejected', False))
+            and not getattr(source, 'is_bot', False))
 
 
 def _routed_printer_id(source, gateway=None):
@@ -1287,9 +1266,7 @@ def _control_gate(event, gateway):
     whose text form is not the command itself (the plain 'print 57' form)."""
     source = getattr(event, 'source', None)
     if (source is None or not _is_bot_platform(source)
-            or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
+            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)):
         return None, None
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None, None

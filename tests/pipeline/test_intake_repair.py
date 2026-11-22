@@ -44,7 +44,7 @@ def test_linked_profile_is_selected_automatically(env, monkeypatch):
         selected.append(chosen['instance_id'])
         return model_job.printables_download(job, chosen, dest)
     monkeypatch.setattr(model_job, 'maker_download', download)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None),
+    event = S(source=S(chat_id='c1', thread_id=None),
               message_id='profiles', text=URL)
     adapter = Adapter([1, 0, 3])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -98,7 +98,7 @@ def test_intake_flow_quantity_prompt_and_duration_answer(env, monkeypatch):
 
     # User message contains model link and duration question
     text = 'https://www.printables.com/model/1-ghost how long would this take?'  # mocked source, never live
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='m_dur', text=text)
 
     # picks: one color (2 on the #1473 offer), slot 1 (0), quantity 2 copies (1), confirm 2 copies (0), slice only (1), then cancel (1)

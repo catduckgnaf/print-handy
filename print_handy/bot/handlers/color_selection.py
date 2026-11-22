@@ -6,7 +6,7 @@ loads the same handlers for one release.
 import json, logging, time
 from pathlib import Path
 
-from .common import _adapter_for, _failure_post, _is_bot_platform, _is_hosting_profile, _pkw, _seen
+from .common import _adapter_for, _failure_post, _is_bot_platform, _pkw, _seen
 
 # Per-module logger (#1404): records name the handler module that
 # made them, so [logging] levels rules can target one handler.
@@ -66,9 +66,7 @@ async def color_selection_dispatch(event, gateway, **kwargs):
     if not text.startswith('/print-colors '):
         return None
     if (source is None or not _is_bot_platform(source)
-            or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
+            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)):
         return None
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None

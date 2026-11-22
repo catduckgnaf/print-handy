@@ -23,7 +23,7 @@ def test_natural_part_two_reopens_checkpoint_and_slices_only_that_plate(flow_env
     printer_id = settings.default_printer_id(settings.current())
 
     def event(message_id, text):
-        return S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+        return S(source=S(chat_id='c1', thread_id=None, user_id='u',
                           platform=S(value='discord'), printer_id=printer_id),
                  message_id=message_id, text=text, metadata={})
 
@@ -148,7 +148,7 @@ def test_single_candidate_is_revalidated_before_resume(flow_env, monkeypatch, tm
 
     gateway = S(_is_user_authorized_for_source=lambda _source: True,
                 _session_key_for_source=lambda _source: 'resume-session')
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='discord'), printer_id=printer_id),
               message_id='resume-single', text='/resume-model', metadata={})
     result = asyncio.run(model_link.model_link_dispatch(event, gateway))
@@ -221,7 +221,7 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
     monkeypatch.setattr(prepared_intake, 'prepare_link', capture_prepare)
     gateway = S(_is_user_authorized_for_source=lambda _source: True,
                 _session_key_for_source=lambda _source: 'resume-session')
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='discord'), printer_id=printer_id),
               message_id='resume', text=utterance, metadata={})
     if outcome == 'no adapter':
