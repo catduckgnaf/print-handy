@@ -266,7 +266,7 @@ from . import model_sources as _model_sources
 
 from ..jobs.store import (  # moved in 2.3.0 (#1323); old path kept for one release
     CONTEXT, RECORD_KEYS, _detail_tail, _job_adapter, _job_for_gcode, _job_printer_id,
-    _job_record_for_gcode, _printer_key, _recipe_changed, _recorded_printer_id, _timing,
+    _job_record_for_gcode, _recipe_changed, _recorded_printer_id, _timing,
     decisions_digest, effective_color_decisions, front_begin, front_bind, front_end,
     front_mark, gcode_estimate_s, human_dur, remote_name,
     resolve_print_target, write_job,
@@ -805,9 +805,6 @@ START_TRANSITIONAL_STATES = start_truth.START_TRANSITIONAL_STATES
 
 
 
-def _reports_started(live, remote):
-    """Printing or a transitional state, naming this upload (launch_state.same_remote): start_truth.polled."""
-    return start_truth.polled(live, remote).confirmed
 
 
 
@@ -848,15 +845,6 @@ def _reports_started(live, remote):
 
 
 
-def _bambu_reports_file(live, remote):
-    """True when a normalized Bambu status shows `remote` running or preparing.
-
-    `printing` covers gcode_state RUNNING, PREPARE and SLICING: an A1 unpacking a package sits
-    in PREPARE before RUNNING, and both prove the start reached it. The file name is the
-    `subtask_name` the start command set, so exact; the bare project name (the printer's
-    display spelling of the same package) is accepted too. The rule is start_truth.bambu's.
-    """
-    return start_truth.bambu(live, remote).confirmed
 
 
 

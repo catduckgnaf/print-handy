@@ -173,9 +173,3 @@ def test_polled_fields_keep_a_reported_failure_uncertain():
     assert T.polled_fields(True, False)[:2] == (T.PHASE_EXECUTING, T.OUTCOME_PRINTING)
     assert T.polled_fields(False, False)[:2] == (T.PHASE_AWAITING, T.OUTCOME_UNCONFIRMED)
 
-
-def test_legacy_matcher_keeps_its_old_preparing_rule():
-    truth = T.from_reports(lambda live, remote: True)
-    assert truth({"state": "heating"}, REMOTE).verdict == T.PREPARING
-    assert truth({"state": "printing"}, REMOTE).verdict == T.STARTED
-    assert T.from_reports(lambda live, remote: False)({}, REMOTE).verdict == T.UNCERTAIN

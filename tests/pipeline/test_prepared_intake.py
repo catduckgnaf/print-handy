@@ -1675,8 +1675,7 @@ def test_dropped_3mf_runs_same_intake_without_any_site(env, monkeypatch):
     drop.write_bytes(Path(src).read_bytes() if Path(src).is_file() else b'')
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m9',
               text='', media_urls=[str(drop)])
-    assert prepared_intake.model_file(event) == drop
-    assert prepared_intake.model_file(S(media_urls=[str(drop), str(drop)])) is None
+    assert prepared_intake.model_files(event) == [drop]
     adapter = Adapter([2, 0, 0])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
@@ -2744,7 +2743,6 @@ def _uploaded_parts(env, names, answers, *, typed=None):
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='multipart-upload', text='', media_urls=list(map(str, uploads)))
     assert prepared_intake.model_files(event) == uploads
-    assert prepared_intake.model_file(event) is None
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     files = list((env.tmp / 'archive').glob('*/JOB.json'))
     return adapter, (json.loads(files[0].read_text()) if files else None)
@@ -2807,7 +2805,6 @@ def test_multi_upload_inventory_refuses_missing_or_nonmodel_files(tmp_path):
     event = S(media_urls=[str(file1), str(file2), str(tmp_path/'missing.stl'),
                           str(tmp_path/'notes.txt')])
     assert prepared_intake.model_files(event) == [file1, file2]
-    assert prepared_intake.model_file(event) is None
     job = prepared_intake.upload_job_set([file1, file2])
     assert [r['name'] for r in job['sources']] == ['left.stl', 'right.3mf']
     assert [r['path'] for r in job['sources']] == [str(file1), str(file2)]
@@ -2822,7 +2819,6 @@ def test_single_upload_retains_its_legacy_job_shape(tmp_path):
     one.write_bytes(b'placeholder')
     event = S(media_urls=[str(one)])
     assert prepared_intake.model_files(event) == [one]
-    assert prepared_intake.model_file(event) == one
     assert prepared_intake.upload_job_set([one]) == prepared_intake.upload_job(one)
 
 

@@ -23,8 +23,7 @@ a print counted as risky (set in ``core.model_job`` from
 camera detection during the print (#981). A record counts as
 risk-flagged when ``watch_risk`` is a truthy value (a non-empty string
 in practice, ``True`` defensively). The aggregate names that count
-``risk_flagged``; ``watchdog_flagged`` remains as a deprecated alias
-with the same value for existing payload consumers.
+``risk_flagged``.
 
 Pasta (spaghetti) is a different source entirely: the watchdog events
 file (``<records vault>/Watchdog/events.jsonl``, written always-on by
@@ -1349,15 +1348,9 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     enrich_out = {"per_print": {}, "support_waivers": 0,
                   "almost_made": {"count": 0, "titles": [], "scope_note": ""}}
     if isinstance(enrichments, dict):
-        by_record = enrichments.get("per_color_grams_by_record")
-        if isinstance(by_record, dict):
-            # One entry per PRINT in scope: a number shared by an original
-            # and its pre-#988 reprint counts both prints' grams.
-            joined = [by_record.get(record_key(r)) for r in rows]
-        else:
-            joined = [grams for number, grams in
-                      (enrichments.get("per_color_grams_by_print") or {}).items()
-                      if number in scope_numbers]
+        by_record = enrichments.get("per_color_grams_by_record") or {}
+        # One entry per PRINT in scope, joined by the record's own identity.
+        joined = [by_record.get(record_key(r)) for r in rows] if isinstance(by_record, dict) else []
         for grams_by_color in joined:
             if not isinstance(grams_by_color, dict):
                 continue
@@ -1454,12 +1447,8 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
             "failed": failed,
             "stop_reasons": dict(sorted(stop_reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
             "risk_flagged": len(flagged),
-            # Deprecated alias of risk_flagged (the #956 name); same value.
-            "watchdog_flagged": len(flagged),
         },
         "risk_flagged": len(flagged),
-        # Deprecated alias of risk_flagged (the #956 name); same value.
-        "watchdog_flagged": len(flagged),
         # Pasta, failed and stopped are three separate headline numbers
         # (#981), never merged into one "problems" count. Pasta means
         # watchdog spaghetti events from the events file (v2); with no
@@ -1706,15 +1695,9 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None,
         worst_failure = {"title": display_title(best_failed.get("title")),
                          "print_number": best_failed.get("print_number"),
                          "seconds": _num(best_failed.get("print_duration_seconds"))}
-        # The failed print's OWN stop detail (by record): a number shared
-        # with another print in pre-#988 history must not lend it the
-        # other run's stop reason.
+        # The failed print's OWN stop detail, joined by record.
         by_record = stats["enrichments"].get("stop_detail_by_record")
-        if isinstance(by_record, dict) and by_record:
-            detail = by_record.get(record_key(best_failed))
-        else:
-            detail = (stats["enrichments"]["per_print"].get(
-                best_failed.get("print_number")) or {}).get("stop_detail")
+        detail = by_record.get(record_key(best_failed)) if isinstance(by_record, dict) else None
         if isinstance(detail, dict):
             worst_failure["stop_detail"] = detail
     highlights = {
@@ -1723,9 +1706,7 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None,
         "top_vendor": top_vendor, "top_spool": top_spool,
         "busiest_month": busiest_month, "busiest_month_prints": busiest_count,
         "longest_print": stats["longest_print"], "biggest_by_filament": biggest,
-        "risk_flagged": stats["risk_flagged"],
-        # Deprecated alias of risk_flagged (the #956 name); same value.
-        "watchdog_flagged": stats["watchdog_flagged"], "failed": stats["failed"],
+        "risk_flagged": stats["risk_flagged"], "failed": stats["failed"],
         "worst_failure_streak": _failure_streak(rows),
         "worst_failure": worst_failure,
         "pasta": stats["outcomes"]["pasta"],

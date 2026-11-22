@@ -1011,7 +1011,7 @@ def test_item1_a_launch_function_stops_when_its_lease_was_stolen(rig, monkeypatc
         launch_state.Lease._set(self, "leased")  # no-op for the stolen row
         return real(self)
     monkeypatch.setattr(launch_state.Lease, "submitting", stolen)
-    monkeypatch.setattr(model_job, "_printer_key", lambda *a, **k: "p1")
+    monkeypatch.setattr(model_job, "_job_printer_id", lambda *a, **k: "p1")
     with pytest.raises(SystemExit, match="lost its printer lease"):
         launch("prusa", rig, client)
     assert client.uploads == [] and client.starts == []

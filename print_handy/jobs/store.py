@@ -205,13 +205,13 @@ def _recipe_changed(job, latest, printer_id=None):
     slice_job did when it recorded the recipe: a secondary printer whose
     nozzle or filament slots differ from the default printer's must not
     read as a changed recipe, and reslicing must be able to clear the
-    mismatch. A job with no recorded printer keeps the legacy load.
+    mismatch.
     """
     from ..core.slice_recipe import recipe_sha256, slice_recipe
     sliced = job['slice_recipe']['recipe']
     if printer_id is None:
-        printer_id = _recorded_printer_id(job) or _recorded_printer_id(latest)
-    state = printer_state.load(printer_id) if printer_id else printer_state.load()
+        printer_id = _recorded_printer_id(job) or _job_printer_id(latest)
+    state = printer_state.load(printer_id)
     current = slice_recipe(latest, sliced['source_sha256'], state, **sliced['overrides'])
     return recipe_sha256(current) != job['slice_recipe']['sha256']
 
@@ -281,16 +281,6 @@ def remote_name(gcode, sha, job=None):
     return f"{stem}_{sha}{g.suffix}"
 
 
-def _printer_key(st=None, job=None):
-    """The submission-lease identity for a launch: the job's roster printer id (#334).
-
-    Kept under its old name for the callers and tests that keyed a lease by
-    the hardware record; the record no longer names the lease — the job's
-    printer does, and a job without one belongs to the default printer.
-    """
-    return _job_printer_id(job)
-
-
 def resolve_print_target(target, archive=None):
     """A bare printer file name (what Moonraker shows) maps to the archived local artifact
     that was uploaded under that name. Never searches outside the archive, never downloads."""
@@ -310,7 +300,7 @@ def resolve_print_target(target, archive=None):
             except (OSError, ValueError):
                 continue
             item = d.get("item") if isinstance(d.get("item"), dict) else {}
-            names = [n for n in (d.get("file"), d.get("remote"), d.get("remote_name"), item.get("path")) if n]
+            names = [n for n in (d.get("file"), item.get("path")) if n]
             if raw in names or (reported and any(launch_state.same_remote(raw, n) for n in names)):
                 artifact = rec.with_name(rec.name.split(".", 1)[0] + ".gcode")
                 if artifact.is_file():
@@ -462,23 +452,18 @@ def stamp_job_printer(job, printer_id=None):
 
     A job learns its printer at creation and never re-derives it: every later
     path (state, lease, approval, adapter) keys off JOB.json's printer_id.
-    Jobs written before the upgrade carry no id and belong to the configured
-    single printer — see _job_printer_id.
 
     An explicit ``printer_id`` — the printer the intake channel routes to
     (#335) — wins over the settings default when the job does not name one
     yet; an unknown explicit id raises, naming it, rather than silently
-    stamping a different printer.
+    stamping a different printer. A roster that names no default printer
+    raises too: a job is never left unstamped.
     """
     if isinstance(job, dict) and not job.get("printer_id"):
         if printer_id:
             job["printer_id"] = settings.by_id(str(printer_id))["id"]
         else:
-            try:
-                job["printer_id"] = settings.default_printer_id()
-            except Exception as exc:
-                # Stamping is best-effort; the job stays unstamped and the existing fallback applies.
-                logger.warning("could not stamp the default printer id on the job: %s", exc)
+            job["printer_id"] = settings.default_printer_id()
     return job
 
 

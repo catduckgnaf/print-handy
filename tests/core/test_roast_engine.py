@@ -332,11 +332,13 @@ def test_parse_entry_keeps_the_phase1_shape_working():
         roast.parse_entry("generic", {"text": "No id at all."})
 
 
-def test_a_phase1_state_file_keeps_its_history_under_the_new_ids(tmp_path):
+def test_a_phase1_state_files_ids_are_not_translated_and_age_out(tmp_path):
+    # The Phase 1 id aliases are gone (#1817): a content-hash id names no
+    # current entry, so it stays as stored and matches nothing eligible.
     corpus = roast.load_corpus()
     eid, text = corpus["banks"]["generic"][0]
     legacy = roast.entry_id("generic", text)
-    assert corpus["aliases"][legacy] == eid
+    assert "aliases" not in corpus and legacy != eid
     state = tmp_path / "state.json"
     state.write_text(json.dumps({
         "version": 1, "corpus": "phase-1-digest",
@@ -345,9 +347,9 @@ def test_a_phase1_state_file_keeps_its_history_under_the_new_ids(tmp_path):
         "chosen": {"job@1": {"line": "A stored line.", "id": legacy, "at": 1}},
     }), encoding="utf-8")
     normalized = roast._normalized(roast._load_state(state), corpus)
-    assert normalized["history"] == [eid]
-    assert normalized["bags"] == {"generic": [eid]}
-    assert normalized["chosen"]["job@1"]["id"] == eid
+    assert normalized["history"] == [legacy]
+    assert normalized["bags"] == {"generic": [legacy]}
+    assert normalized["chosen"]["job@1"]["id"] == legacy
     assert normalized["chosen"]["job@1"]["line"] == "A stored line."
 
 

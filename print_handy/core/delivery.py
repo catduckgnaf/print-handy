@@ -386,7 +386,10 @@ def bambu_handoff(job, gcodes, config=None):
     model = current_model(config)
     if BAMBU_HANDOFF not in model.vendor.delivery:
         raise DeliveryRefused(f"{model.label} is not a Bambu Lab printer; no Bambu package was made")
-    job_key = printers.job_model(job)
+    try:
+        job_key = printers.job_model(job)
+    except printers.JobModelMismatch as exc:
+        raise DeliveryRefused(f"{exc}; no Bambu package was made") from exc
     if job_key != model.key:
         raise DeliveryRefused(f"this job was sliced for {job_key}, not {model.key}; no Bambu package was made")
     nozzle = config["printer"].get("nozzle_diameter_mm", 0.4)

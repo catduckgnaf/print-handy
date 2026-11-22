@@ -20,7 +20,8 @@ from .filament import (
 )
 from ..printers.base import MultiColorUnsupported
 from .store import (
-    _job_adapter, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing, artifact_gcodes,
+    _job_adapter, _job_printer_id, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing,
+    artifact_gcodes,
     decisions_digest, gcode_estimate_s, human_dur, stale_build_refusal, stamp_job_printer,
     unverified_artifact, write_job,
 )
@@ -35,11 +36,12 @@ def finalize_multicolor(*args, adapter=None, job=None, **kwargs):
     job itself (``job=``); the native contract consulted is that printer's,
     never the default printer's. A printer without the ZMod contract (the
     stock AD5X, #658) gets nothing inserted: its launch binds the slot from
-    the job. With neither argument the configured printer is used, as
-    legacy callers outside a job context have always done."""
-    if adapter is None and job is not None:
+    the job. One of the two is required."""
+    if adapter is None:
+        if job is None:
+            raise TypeError("finalize_multicolor needs the job's adapter= or the job=")
         adapter = _job_adapter(job)
-    native = (adapter if adapter is not None else printers.current()).native_or_none
+    native = adapter.native_or_none
     return None if native is None else native.finalize(*args, **kwargs)
 
 
@@ -2243,7 +2245,7 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
     if not isinstance(earlier, dict) or not isinstance(earlier.get('slice_recipe'), dict):
         logger.info('reused slice: the earlier job has no slice recipe; slicing again')
         return None
-    st = printer_state.load(job["printer_id"]) if job.get("printer_id") else printer_state.load()
+    st = printer_state.load(_job_printer_id(job))
     if copies:
         job['copies'] = int(copies)
     current = sr.record(sr.slice_recipe(job, file_sha256(job['downloaded_file']), st,
@@ -2324,8 +2326,8 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     # The job's own printer record (#334): slicing a secondary printer's job
     # against the default record would validate its filament selection
     # against the wrong printer's slots and slice for the wrong hardware
-    # (SAFE-4 / P1-78). A job with no recorded printer keeps the legacy load.
-    st = printer_state.load(job["printer_id"]) if job.get("printer_id") else printer_state.load()
+    # (SAFE-4 / P1-78).
+    st = printer_state.load(_job_printer_id(job))
     adapter = _job_adapter(job)
     # "generic" = not sliced through the record-bound IFS machinery (per-slot
     # selections validated against the record map, per-part plates exported by
@@ -2946,6 +2948,7 @@ def prepare_first_layer(slot, color, material, spoolman_id, slicer="orca"):
     job = {"title": "AD5X First Layer Test Square 50x50mm", "slug": folder.name,
            "downloaded_file": str(source), "gcode": str(output), "slice_config": config_desc,
            "filament_selection": selection, "gcode_verified": False,
+           "printer_model": printers.current().key,
            "audit": {"size_x": 50, "size_y": 50, "size_z": 0.2, "parts": 1},
            "provenance": provenance,
            "next_action": "Live readiness and verify-gcode required before authorized print-now"}

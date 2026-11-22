@@ -242,7 +242,6 @@ def test_sovol_style_start_arguments_are_the_contract_when_present():
 
 
 @pytest.mark.parametrize("configured,recorded", [("klipper.generic", "flashforge.ad5x"),
-                                                 ("klipper.generic", None),
                                                  ("flashforge.ad5x", "klipper.generic"),
                                                  ("sovol.sv06", "klipper.generic")])
 def test_model_mismatch_refuses_before_upload(monkeypatch, rig, tmp_path, configured, recorded):
@@ -255,24 +254,24 @@ def test_model_mismatch_refuses_before_upload(monkeypatch, rig, tmp_path, config
     assert not uploads and not fake.requests
 
 
-def test_job_without_the_field_is_a_flashforge_job(monkeypatch):
-    assert printers.job_model({"title": "old"}) == "flashforge.ad5x"
-    assert printers.job_model(None) == "flashforge.ad5x"
+@pytest.mark.parametrize("job", [{"title": "old"}, None, {"printer_family": "flashforge_zmod"},
+                                 {"printer_model": ""}])
+def test_job_without_a_printer_model_is_refused_by_name(monkeypatch, job):
+    # No default model is assumed (#1817): not the AD5X, and not 2.0.2/2.0.3's printer_family.
+    with pytest.raises(printers.JobModelMismatch, match="records no printer model; prepare it again"):
+        printers.job_model(job)
     use_model(monkeypatch, "flashforge.ad5x")
-    printers.check_job_model({"title": "old"})
-    use_model(monkeypatch, "klipper.generic")
-    with pytest.raises(printers.JobModelMismatch):
-        printers.check_job_model({"title": "old"})
-
-
-@pytest.mark.parametrize("family,model", [("flashforge_zmod", "flashforge.ad5x"), ("sovol_klipper", "sovol.sv06"),
-                                          ("generic_klipper", "klipper.generic")])
-def test_job_from_2_0_2_or_2_0_3_keeps_its_printer(monkeypatch, family, model):
-    # Those versions wrote printer_family; /print-again on a Sovol must not read it as an AD5X job.
-    assert printers.job_model({"printer_family": family}) == model
-    use_model(monkeypatch, model)
-    printers.check_job_model({"printer_family": family})
+    with pytest.raises(printers.JobModelMismatch, match="records no printer model"):
+        printers.check_job_model(job)
     assert printers.job_model({"printer_model": "sovol.sv06", "printer_family": "flashforge_zmod"}) == "sovol.sv06"
+
+
+def test_print_now_refuses_a_job_without_a_printer_model_by_name(monkeypatch, rig, tmp_path):
+    use_model(monkeypatch, "flashforge.ad5x")
+    fake, gcode = rig
+    with pytest.raises(SystemExit, match=r"REFUSED: this job records no printer model; prepare it again"):
+        model_job.print_now(write_job(tmp_path, gcode))
+    assert not fake.requests
 
 
 def test_printer_override_is_recorded_on_the_job(monkeypatch, tmp_path):

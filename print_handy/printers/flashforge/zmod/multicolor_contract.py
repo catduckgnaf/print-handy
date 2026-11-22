@@ -150,10 +150,8 @@ def validate_materials(text, material, state, mapping=None, tools=None):
         raise RuntimeError('malformed per-tool filament_type metadata')
     if tools is None:
         tools = used_tools(text)
-    # An operator's explicit map is held to "map only the used tools"; a map
-    # already embedded in a finalized file is not, so files finalized before
-    # #1305 (an unused support tool, a stale T0) keep launching as they did.
-    explicit = mapping is not None
+    # An explicit map and a map embedded in a finalized file are both held to
+    # "map only the used tools" (#1305).
     if mapping is None:
         mapping = embedded_mapping(text, state)
     if mapping is None:
@@ -172,8 +170,8 @@ def validate_materials(text, material, state, mapping=None, tools=None):
     if not tools or tools - set(map(int, mapping)):
         raise RuntimeError('used tools disagree with explicit mapping')
     unused = sorted(set(map(int, mapping)) - tools)
-    if unused and explicit:
-        # An explicit map entry for a tool the file never selects would be
+    if unused:
+        # A map entry for a tool the file never selects would be
         # finalized into zmod_color_data and SET_ZCOLOR, and launch would
         # require that slot loaded and color-matched, for nothing (#1305).
         names = ', '.join(f'T{tool}' for tool in unused)

@@ -14,7 +14,6 @@ print-feedback plugin. Rules learned the hard way (2026-10-10 desk stand):
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -441,34 +440,27 @@ def _printed_jobs_locked(archive: Path | None = None, numbers_path: Path | None 
                 group["record"] = record
     if not groups:
         return []
-    first_launch: dict[Path, float] = {}
-    for group in groups.values():
-        job_path = group["job_json"]
-        first_launch[job_path] = min(first_launch.get(job_path, group["launched_at"]),
-                                     group["launched_at"])
-    numbers = assign_print_numbers(first_launch, numbers_path)
     registry = _load_number_registry(numbers_path)
     launches: list[dict[str, Any]] = registry["launches"]
     dirty = False
-    # Seed a launch entry for every job the registry already numbers: its
-    # number belongs to the job's earliest surviving launch group.
-    for job_key, number in sorted(numbers.items(), key=lambda item: item[1]):
-        if any(entry["number"] == number for entry in launches):
+    # A number converted from the old first-print map has no artifact and no
+    # time: it belongs to the job's earliest surviving launch group.
+    for entry in launches:
+        if entry["artifact"] or entry["at"]:
             continue
-        job_groups = sorted((g for g in groups.values() if str(g["job_json"]) == job_key),
+        job_groups = sorted((g for g in groups.values() if str(g["job_json"]) == entry["job"]),
                             key=lambda g: (g["launched_at"], g["artifact"]))
         if not job_groups:
             continue
         first = job_groups[0]
-        launches.append({"number": number, "job": job_key, "artifact": first["artifact"],
-                         "at": first["launched_at"]})
+        entry["artifact"], entry["at"] = first["artifact"], first["launched_at"]
         dirty = True
     # Number every surviving launch group, oldest first. A group matches the
     # newest launch entry for its artifact when the entry was minted around
     # the launch (minting happens seconds before or after the record lands);
     # a group newer than every entry for its artifact is a launch nobody
     # minted (printer screen, family path) and gets the next number.
-    next_number = max([*numbers.values(), *(e["number"] for e in launches)], default=0) + 1
+    next_number = max((e["number"] for e in launches), default=0) + 1
     group_number: dict[str, int] = {}
     used_entries: set[int] = set()
     for group in sorted(groups.values(), key=lambda g: (g["launched_at"], g["artifact"])):
@@ -571,11 +563,13 @@ class _RegistryLock:
 
 
 def _load_number_registry(numbers_path: Path | None = None) -> dict[str, Any]:
-    """The print-number registry: {'numbers': {job: first number}, 'launches': [...]}.
+    """The print-number registry: {'launches': [...]}, one entry per launch.
 
-    'numbers' is the original per-job map and keeps its meaning (a job's FIRST
-    print number) so every existing reader keeps working. 'launches' is the
-    per-print ledger: one entry per launch, minted in launch order.
+    Files written before per-launch numbering also hold a 'numbers' map (a
+    job's FIRST print number). Each of its numbers that no launch entry
+    holds is converted here into a launch entry with no artifact and no time
+    (``at`` 0), so no number is ever issued twice; the next save drops the
+    map.
     """
     path = Path(numbers_path or PRINT_NUMBERS)
     try:
@@ -584,9 +578,6 @@ def _load_number_registry(numbers_path: Path | None = None) -> dict[str, Any]:
         data = {}
     if not isinstance(data, dict):
         data = {}
-    numbers = data.get("numbers") or {}
-    numbers = {str(k): int(v) for k, v in numbers.items()
-               if isinstance(v, int) and not isinstance(v, bool) and v > 0}
     launches: list[dict[str, Any]] = []
     for entry in data.get("launches") or []:
         if not isinstance(entry, dict):
@@ -600,8 +591,14 @@ def _load_number_registry(numbers_path: Path | None = None) -> dict[str, Any]:
             at = 0.0
         launches.append({"number": number, "job": str(entry.get("job") or ""),
                          "artifact": str(entry.get("artifact") or ""), "at": at})
+    held = {e["number"] for e in launches}
+    first_prints = data.get("numbers")
+    for job, number in (first_prints.items() if isinstance(first_prints, dict) else ()):
+        if isinstance(number, int) and not isinstance(number, bool) and number > 0 and number not in held:
+            launches.append({"number": number, "job": str(job), "artifact": "", "at": 0.0})
+            held.add(number)
     launches.sort(key=lambda e: (e["number"]))
-    return {"numbers": numbers, "launches": launches}
+    return {"launches": launches}
 
 
 def _job_json_key(job_path: Path | str) -> str:
@@ -617,15 +614,12 @@ def latest_number_for_job(job_path: Path | str, numbers_path: Path | None = None
 
     A job printed three times has three numbers; a reader that only knows the
     job (a listener render with no start-record context) means its latest
-    print, never its first. Falls back to the legacy first-print number for
-    a job printed before per-launch numbering. Read-only.
+    print, never its first. Read-only.
     """
     key = _job_json_key(job_path)
     registry = _load_number_registry(numbers_path)
     own = [e["number"] for e in registry["launches"] if e.get("job") == key]
-    if own:
-        return max(own)
-    return registry["numbers"].get(key)
+    return max(own) if own else None
 
 
 def number_for_launch(job_path: Path | str, at: float, numbers_path: Path | None = None,
@@ -635,15 +629,16 @@ def number_for_launch(job_path: Path | str, at: float, numbers_path: Path | None
     For a record that lost its own number: matches the job's launch entry
     closest in time (within LAUNCH_MATCH_WINDOW_S), skipping ``exclude``.
     A job with launch entries but none near ``at`` gets None — never another
-    print's number. A job with no launch entries at all (printed before
-    per-launch numbering) keeps its legacy first-print number. Read-only.
+    print's number. A job whose only entry has no time (a first-print number
+    converted from the old map) keeps that number. Read-only.
     """
     key = _job_json_key(job_path)
     registry = _load_number_registry(numbers_path)
     own = [e for e in registry["launches"] if e.get("job") == key]
     if not own:
-        legacy = registry["numbers"].get(key)
-        return legacy if legacy not in exclude else None
+        return None
+    if len(own) == 1 and not own[0]["at"]:
+        return own[0]["number"] if own[0]["number"] not in exclude else None
     near = [e for e in own if e["number"] not in exclude
             and abs(float(e.get("at") or 0) - at) <= LAUNCH_MATCH_WINDOW_S]
     return min(near, key=lambda e: abs(float(e.get("at") or 0) - at))["number"] if near else None
@@ -651,31 +646,11 @@ def number_for_launch(job_path: Path | str, at: float, numbers_path: Path | None
 
 def _save_number_registry(registry: dict[str, Any], numbers_path: Path | None = None) -> None:
     path = Path(numbers_path or PRINT_NUMBERS)
-    payload = {"numbers": registry["numbers"],
-               "launches": sorted(registry["launches"], key=lambda e: e["number"])}
+    payload = {"launches": sorted(registry["launches"], key=lambda e: e["number"])}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f"{path.suffix}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-
-
-def assign_print_numbers(first_launch: dict[Path, float], numbers_path: Path | None = None) -> dict[str, int]:
-    with _RegistryLock(numbers_path):
-        return _assign_print_numbers_locked(first_launch, numbers_path)
-
-
-def _assign_print_numbers_locked(first_launch: dict[Path, float], numbers_path: Path | None = None) -> dict[str, int]:
-    """Permanent FIRST-print numbers per job. Existing numbers never change; new jobs append in launch order."""
-    registry = _load_number_registry(numbers_path)
-    numbers = registry["numbers"]
-    fresh = sorted((p for p in first_launch if str(p) not in numbers), key=lambda p: (first_launch[p], str(p)))
-    if fresh:
-        nxt = max([*numbers.values(), *(e["number"] for e in registry["launches"])], default=0) + 1
-        for p in fresh:
-            numbers[str(p)] = nxt
-            nxt += 1
-        _save_number_registry(registry, numbers_path)
-    return numbers
 
 
 def mint_launch_number(job_path: Path, at: float | None = None, artifact: Any = None,
@@ -689,18 +664,14 @@ def _mint_launch_number_locked(job_path: Path, at: float | None = None, artifact
     """Mint the next permanent print number for ONE launch of a job.
 
     Every launch mints its own number, including a reprint of a job that
-    already has one. The job's first mint also becomes its legacy 'numbers'
-    entry, so old readers (and the number itself, for 'print N' lookups of
-    that first print) keep working unchanged.
+    already has one.
     """
     registry = _load_number_registry(numbers_path)
-    numbers, launches = registry["numbers"], registry["launches"]
-    number = max([*numbers.values(), *(e["number"] for e in launches)], default=0) + 1
+    launches = registry["launches"]
+    number = max((e["number"] for e in launches), default=0) + 1
     key = str(Path(job_path))
     launches.append({"number": number, "job": key,
                      "artifact": str(artifact) if artifact else "", "at": float(at or time.time())})
-    if key not in numbers:
-        numbers[key] = number
     _save_number_registry(registry, numbers_path)
     return number
 
@@ -1551,11 +1522,16 @@ def pending_copy(path: Path | None = None, printer_id: str | None = None) -> dic
 
 
 def _queued_claim_copy(queue: dict[str, Any], index: int) -> int:
-    """Stable per-queued-entry claim identity, including older saved queues."""
+    """Stable per-queued-entry claim identity, from the queue's claim_nonce.
+
+    A queue saved without one predates this version and is refused.
+    """
+    from .print_next import NextPlateError
+
     nonce = queue.get("claim_nonce")
     if type(nonce) is not int or nonce <= 0:
-        packed = json.dumps(queue, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        nonce = int.from_bytes(hashlib.sha256(packed).digest()[:8], "big") >> 4
+        raise NextPlateError("the queued print was saved by an older version; nothing started. "
+                             "Cancel the queue and select the print again")
     return nonce + index
 
 

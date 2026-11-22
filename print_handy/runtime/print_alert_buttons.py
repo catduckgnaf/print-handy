@@ -1214,25 +1214,22 @@ def create_and_bind_insertion(slot: int, values: dict[str, Any], spool_sync,
             f"({record['name']}).{moved} Inventory updated; printer untouched.")
 
 
-def _owner(printer_id: str | None = None) -> str | None:
+def _owner(printer_id: str | None = None) -> str:
     """The roster id an alert being created belongs to: given, else this process's printer.
 
-    A per-printer listener or monitor process knows its instance printer; the legacy single
-    listener (no instance) is the default printer's. Recording it on every printer alert lets
-    handle_click act on the printer that raised the alert, never on whichever is the default.
-    None only when no roster is readable at all.
+    A per-printer listener or monitor process knows its instance printer; a listener with no
+    instance is the default printer's. Recording it on every printer alert lets handle_click
+    act on the printer that raised the alert, never on whichever is the default. A roster
+    that cannot be read raises: an alert is never recorded without its printer.
     """
     if printer_id:
         return str(printer_id)
-    try:
-        from print_handy import listeners
-        instance = listeners.instance_printer_id()
-        if instance:
-            return str(instance)
-        from print_handy import settings
-        return settings.default_printer_id()
-    except Exception:
-        return None
+    from print_handy import listeners
+    instance = listeners.instance_printer_id()
+    if instance:
+        return str(instance)
+    from print_handy import settings
+    return settings.default_printer_id()
 
 
 def alert_fields(connection: str | None = None, printer_id: str | None = None,
@@ -1255,30 +1252,25 @@ def alert_fields(connection: str | None = None, printer_id: str | None = None,
     return extra
 
 
-ALERT_PRINTER_UNKNOWN = ("This alert was recorded before alerts named their printer, and more than one "
-                         "printer is configured, so I can't tell which printer it came from. Nothing sent. "
-                         "Use the printer's own screen or the Web UI.")
+ALERT_PRINTER_UNKNOWN = ("This alert was recorded before alerts named their printer, so I can't tell "
+                         "which printer it came from. Nothing sent. Use the printer's own screen or the Web UI.")
 
 
 def _alert_printer(alert: dict[str, Any]) -> tuple[str | None, str | None]:
     """(printer_id for the control calls, refusal text) for a button press.
 
     The alert's recorded printer; None (the configured printer) when that is the default printer,
-    so the default keeps its legacy call shape. An old alert row with no printer_id falls back to
-    the configured printer only when exactly one printer is configured; otherwise it is refused.
+    so the default keeps its call shape. An alert row with no printer_id is refused.
     """
+    pid = alert.get("printer_id") or None
+    if not pid:
+        return None, ALERT_PRINTER_UNKNOWN
     try:
         from print_handy import settings
-        roster = settings.printers()
         default = settings.default_printer_id()
     except Exception:
-        roster, default = None, None
-    pid = alert.get("printer_id") or None
-    if pid:
-        return (None if pid == default else str(pid)), None
-    if roster is not None and len(roster) > 1:
-        return None, ALERT_PRINTER_UNKNOWN
-    return None, None
+        default = None
+    return (None if pid == default else str(pid)), None
 
 
 def post_with_buttons(token: str, channel_id: str, content: str, kind: str, filename: str,
@@ -1510,23 +1502,14 @@ def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str,
     and one printer's print ending must not strip the other's live
     Resume/Cancel buttons. Unscoped (None) retires every match, as
     before — the Moonraker listener retires its own printer's alerts
-    that way. An alert stored without a printer_id predates the roster
-    id (or came from the default printer): it belongs to the default
-    printer, so it retires for that printer's scope only (2.2.5 review).
+    that way.
     """
     retired = 0
-    legacy_owner = None
-    if printer_id is not None:
-        try:
-            from print_handy import settings
-            legacy_owner = settings.default_printer_id()
-        except Exception:
-            legacy_owner = None
     with _LOCK:
         data = _load()
         stale = {aid: a for aid, a in data.items() if isinstance(a, dict) and a.get("kind") in kinds
                  and (filename is None or a.get("filename") == filename)
-                 and (printer_id is None or (a.get("printer_id") or legacy_owner) == printer_id)}
+                 and (printer_id is None or a.get("printer_id") == printer_id)}
         for aid in stale:
             data.pop(aid, None)
         _save(data)

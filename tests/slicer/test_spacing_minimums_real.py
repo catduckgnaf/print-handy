@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from print_handy import settings
+from print_handy import printers, settings
 from print_handy.core import color_geometry, model_job, orca_adapter, source_colors
 from tests.corpus import make_models as mm
 
@@ -81,7 +81,7 @@ def _single(tmp, shapes, brim):
         item_shifts={str(p["object_id"]): [0.0, 0.0, 0.0] for p in manifest["parts"]})
     out, _prov, _cfg = orca_adapter.slice_model(plate, tmp / "out", state, brim, preserve_layout=True,
                                                 filament_slot=1)
-    model_job.finalize_multicolor(out, None, state, {"0": 1})
+    model_job.finalize_multicolor(out, None, state, {"0": 1}, adapter=printers.current())
     model_job.verify_gcode_offline(out, state)
     return _extents(out)
 
