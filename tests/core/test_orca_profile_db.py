@@ -104,6 +104,25 @@ def test_pla_sub_types(material, name, profile):
     assert _resolve(material, name).name == profile
 
 
+def test_vendor_brand_differs_from_the_folder_name():
+    brands = db.meta()["own_brands"]
+    assert (brands["Anker"], brands["BBL"], brands["Prusa"], brands["Flashforge"]) == (
+        "AnkerMake", "Bambu Lab", "Prusa Polymers", "Flashforge")
+    assert "Sovol" not in brands  # only third-party profiles in that folder
+    anker = db.printer_preset("Anker M5", 0.4)
+    assert db.resolve(anker, ft.from_text("PLA", "Silk PLA+")).name == "AnkerMake PLA+ Silk @Anker"
+
+
+def test_spool_brand_selects_that_brands_profile_only_for_that_brand():
+    preset = db.printer_preset(AD5X, 0.4)
+    assert db.resolve(preset, ft.from_text("PETG", "PETG"), brand="SUNLU").name == "SUNLU PETG @FF AD5M"
+    assert db.resolve(preset, ft.from_text("PETG", "PETG"), brand="Polymaker").name == "Generic PETG @Flashforge"
+    assert db.resolve(preset, ft.from_text("PETG", "PETG")).name == "Generic PETG @Flashforge"
+    # SUNLU's Marble and Wood profiles never serve a plain SUNLU PLA spool.
+    assert db.resolve(preset, ft.from_text("PLA", "PLA"), brand="SUNLU").name == "Generic PLA @Flashforge"
+    assert db.resolve(preset, ft.from_text("PLA+", "PLA+"), brand="SUNLU").name == "SUNLU PLA+ @FF AD5M"
+
+
 def test_unknown_family_or_no_vendor_profile_falls_back_to_the_library():
     assert db.resolve("Flashforge AD5X 0.4 nozzle", ft.UNKNOWN) is None
     assert db.resolve("No Such Preset", ft.from_text("PLA")) is None
@@ -134,18 +153,23 @@ def _tree(tmp_path, flow="0.98"):
                                             "nozzle_temperature": ["240"], "filament_retraction_length": ["nil"]})
     put("Acme", "filament", {"name": "Generic PETG @Acme", "inherits": "fdm_filament_pet", "instantiation": "true",
                              "filament_id": "G1", "compatible_printers": ["Acme One 0.4 nozzle"]})
-    put("Acme", "filament", {"name": "Acme HS PETG @Acme One", "inherits": "Generic PETG @Acme",
-                             "instantiation": "true", "filament_id": "H1", "filament_vendor": ["Acme"],
+    put("Acme", "filament", {"name": "AcmeWorks HS PETG @Acme One", "inherits": "Generic PETG @Acme",
+                             "instantiation": "true", "filament_id": "H1", "filament_vendor": ["AcmeWorks"],
                              "filament_flow_ratio": [flow], "compatible_printers": ["Acme One 0.4 nozzle"]})
     put("Acme", "filament", {"name": "Brandco HS PETG @Acme One", "inherits": "Generic PETG @Acme",
                              "instantiation": "true", "filament_vendor": ["Brandco"],
                              "compatible_printers": ["Acme One 0.4 nozzle"]})
+    # The folder's own line is branded "AcmeWorks", not "Acme" (like Anker's AnkerMake): four of the five
+    # branded profiles, so it is the own brand; Brandco is a third-party line in the folder.
+    for name in ("AcmeWorks PETG Basic @Acme One", "AcmeWorks PETG Matte @Acme One", "AcmeWorks PETG Marble @Acme One"):
+        put("Acme", "filament", {"name": name, "inherits": "Generic PETG @Acme", "instantiation": "true",
+                                 "filament_vendor": ["AcmeWorks"], "compatible_printers": ["Acme One 0.4 nozzle"]})
     return profiles
 
 
 def test_build_resolves_inherits_through_the_library(tmp_path):
     built = db.build(_tree(tmp_path), "9.9.9", "a" * 40)
-    hs = next(r for r in built["filaments"]["Acme"] if r["name"] == "Acme HS PETG @Acme One")
+    hs = next(r for r in built["filaments"]["Acme"] if r["name"] == "AcmeWorks HS PETG @Acme One")
     assert hs["inherits"] == ["Generic PETG @Acme", "fdm_filament_pet"]
     assert hs["values"]["nozzle_temperature"] == ["240"] and hs["values"]["filament_flow_ratio"] == ["0.98"]
     assert "compatible_printers" not in hs["values"] and hs["filament_id"] == "H1"
@@ -166,13 +190,36 @@ def test_write_is_deterministic_and_loads_back(tmp_path):
     assert loaded["filaments"]["Acme"] == built["filaments"]["Acme"]
 
 
-def test_resolve_skips_third_party_brands_and_prefers_the_vendor_line(tmp_path):
+def test_resolve_uses_the_folders_own_brand_and_skips_third_party_lines(tmp_path):
+    out = tmp_path / "db"
+    built = db.build(_tree(tmp_path), "9.9.9", "a" * 40)
+    assert built["meta"]["own_brands"] == {"Acme": "AcmeWorks"}
+    db.write(built, out)
+    preset = "Acme One 0.4 nozzle"
+    hs = db.resolve(preset, ft.from_text("PETG", "HS PETG"), folder=out)
+    plain = db.resolve(preset, ft.from_text("PETG", "PETG"), folder=out)
+    matte = db.resolve(preset, ft.from_text("PETG", "Matte PETG"), folder=out)
+    assert (hs.name, hs.level) == ("AcmeWorks HS PETG @Acme One", "vendor sub-type")
+    assert (plain.name, plain.level) == ("Generic PETG @Acme", "vendor generic")
+    assert matte.name == "AcmeWorks PETG Matte @Acme One"
+    # Brandco's HS profile serves only a Brandco spool, and then wins over the folder's own HS profile.
+    assert db.resolve(preset, ft.from_text("PETG", "HS PETG"), brand="Brandco", folder=out).name ==         "Brandco HS PETG @Acme One"
+
+
+def test_an_effect_profile_never_serves_a_spool_without_the_effect(tmp_path):
     out = tmp_path / "db"
     db.write(db.build(_tree(tmp_path), "9.9.9", "a" * 40), out)
-    hs = db.resolve("Acme One 0.4 nozzle", ft.from_text("PETG", "HS PETG"), folder=out)
-    plain = db.resolve("Acme One 0.4 nozzle", ft.from_text("PETG", "PETG"), folder=out)
-    assert (hs.name, hs.level) == ("Acme HS PETG @Acme One", "vendor sub-type")
-    assert (plain.name, plain.level) == ("Generic PETG @Acme", "vendor generic")
+    names = [r["name"] for r in db.candidates("Acme One 0.4 nozzle", "PETG", folder=out)]
+    assert "AcmeWorks PETG Marble @Acme One" in names
+    assert db.resolve("Acme One 0.4 nozzle", ft.from_text("PETG", "PETG"), folder=out).name !=         "AcmeWorks PETG Marble @Acme One"
+
+
+def test_own_brand_needs_a_clear_majority():
+    def rec(name, brand):
+        return {"name": name, "values": {"filament_vendor": [brand]}}
+    assert db.own_brand([rec("a", "Polymaker"), rec("b", "SUNLU")]) is None  # Sovol's folder
+    assert db.own_brand([rec(f"x{i}", "AnkerMake") for i in range(3)] + [rec("Generic PLA", "Generic")]) == "AnkerMake"
+    assert db.own_brand([rec(f"x{i}", "Other") for i in range(5)]) is None
 
 
 def test_inherits_cycle_and_missing_parent_are_refused(tmp_path):
@@ -191,7 +238,7 @@ def test_diff_reports_changed_values_for_the_bump_pr(tmp_path):
     old = db.build(_tree(tmp_path / "old"), "1.0", "a" * 40)
     new = db.build(_tree(tmp_path / "new", flow="0.96"), "1.1", "c" * 40)
     report = db.diff(old, new)
-    assert report["filaments_changed"] == [{"vendor": "Acme", "name": "Acme HS PETG @Acme One",
+    assert report["filaments_changed"] == [{"vendor": "Acme", "name": "AcmeWorks HS PETG @Acme One",
                                             "values": {"filament_flow_ratio": ("0.98", "0.96")},
                                             "printers_added": [], "printers_removed": []}]
     text = db.diff_markdown(report)

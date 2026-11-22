@@ -166,8 +166,34 @@ def build(profiles: Path, orca_version: str, orca_revision: str) -> dict[str, An
         records.sort(key=lambda r: r["name"])
     meta = {"format": FORMAT, "orca_version": orca_version, "orca_revision": orca_revision,
             "source_digest": source_digest(profiles), "printer_presets": len(printers),
-            "filament_presets": sum(len(r) for r in vendors.values()), "vendors": sorted(vendors)}
+            "filament_presets": sum(len(r) for r in vendors.values()), "vendors": sorted(vendors),
+            "own_brands": {v: b for v, b in sorted((v, own_brand(r)) for v, r in vendors.items()) if b}}
     return {"meta": meta, "printers": dict(sorted(printers.items())), "filaments": vendors}
+
+
+def own_brand(records: Iterable[Mapping[str, Any]]) -> str | None:
+    """The filament brand a vendor folder's own line uses, or None when the folder has no clear one.
+
+    The brand rarely equals the folder name (Anker's line is "AnkerMake", BBL's "Bambu Lab", Prusa's
+    "Prusa Polymers"), and folders also carry other brands' profiles (Flashforge has FusRock and SUNLU). A
+    brand is the folder's own when it names at least half of the folder's non-generic profiles and at least
+    three of them; a folder of only third-party profiles (Sovol's one Polymaker and one SUNLU) has none.
+    """
+    counts: dict[str, int] = {}
+    total = 0
+    for record in records:
+        if record["name"].startswith("Generic "):
+            continue
+        brands = {str(b).strip() for b in record["values"].get("filament_vendor") or [] if str(b).strip()}
+        if not brands:
+            continue
+        total += 1
+        for brand in brands:
+            counts[brand] = counts.get(brand, 0) + 1
+    if not counts:
+        return None
+    brand, count = min(counts.items(), key=lambda item: (-item[1], item[0]))
+    return brand if count >= 3 and count * 2 >= total and brand.casefold() not in ("generic", "other") else None
 
 
 def _vendor_file(vendor: str) -> str:
@@ -272,54 +298,67 @@ class Resolution:
 
 
 def _profile_type(record: Mapping[str, Any]) -> filament_type.FilamentType:
-    return filament_type.from_text(value(record["values"], "filament_type"), record["name"])
+    return filament_type.from_orca_profile(value(record["values"], "filament_type"), record["name"])
 
 
-def _is_vendor_line(record: Mapping[str, Any], vendor: str) -> bool:
-    """The printer vendor's own line or its generic profiles; third-party brands in the folder are not."""
-    if record["name"].startswith("Generic "):
-        return True
-    brands = record["values"].get("filament_vendor") or []
-    return any(str(b).strip().casefold() == vendor.casefold() for b in brands)
+def _brands(record: Mapping[str, Any]) -> set[str]:
+    return {str(b).strip().casefold() for b in record["values"].get("filament_vendor") or [] if str(b).strip()}
 
 
-def candidates(preset: str, family: str, folder: Path = DATA_DIR) -> list[dict[str, Any]]:
-    """The vendor's filament presets that list ``preset`` as compatible and are of ``family``."""
-    printer = index(folder)["printers"].get(preset)
+def candidates(preset: str, family: str, brand: str | None = None, folder: Path = DATA_DIR) -> list[dict[str, Any]]:
+    """The vendor folder's filament presets for ``preset`` and ``family`` that may serve a spool.
+
+    That is the folder's generic profiles, its own line (``meta.own_brands``: the brand differs from the
+    folder name, Anker's is AnkerMake), and, when the spool's ``brand`` is known, that brand's profiles.
+    Another brand's profile in the folder (Flashforge's folder has SUNLU's) is never used for a spool of
+    a different brand.
+    """
+    data = index(folder)
+    printer = data["printers"].get(preset)
     if printer is None:
         return []
     vendor = printer["vendor"]
+    allowed = {b.casefold() for b in (data["meta"].get("own_brands", {}).get(vendor), brand) if b}
     out = []
     for record in vendor_filaments(vendor, folder):
-        if preset not in record["compatible_printers"] or not _is_vendor_line(record, vendor):
+        if preset not in record["compatible_printers"]:
+            continue
+        if not (record["name"].startswith("Generic ") or _brands(record) & allowed):
             continue
         if _profile_type(record).family == family:
             out.append(record)
     return out
 
 
-def resolve(preset: str, spool: filament_type.FilamentType, folder: Path = DATA_DIR) -> Resolution | None:
-    """The vendor profile a spool of this type is sliced with on this printer preset, or None.
+def resolve(preset: str, spool: filament_type.FilamentType, brand: str | None = None,
+            folder: Path = DATA_DIR) -> Resolution | None:
+    """The vendor profile a spool of this type (and, when known, ``brand``) is sliced with, or None.
 
     A profile qualifies when its slice-relevant flags (``SLICE_FLAGS``) are all on the spool: a high-speed
     profile is never used for a plain spool, and a plain generic still serves a high-speed spool when the
     vendor has no high-speed profile for this nozzle. Among qualifying profiles the most matching
-    slice-relevant flags win, then the most matching finish flags, then a "Generic" name for a flagless match
-    and the vendor's own line for a flagged one, then the name (so the choice is deterministic).
+    slice-relevant flags win, then the most matching finish flags, then the spool's own brand, then a
+    "Generic" name for a flagless match and the vendor's own line for a flagged one, then the name (so the
+    choice is deterministic).
     """
     if spool.family is None:
         return None
-    wanted = spool.flags & SLICE_FLAGS
+    spool_brand = brand.strip().casefold() if brand and brand.strip() else None
     ranked = []
-    for record in candidates(preset, spool.family, folder):
-        flags = _profile_type(record).flags
+    for record in candidates(preset, spool.family, brand, folder):
+        ptype = _profile_type(record)
+        flags = ptype.flags
         slice_flags = flags & SLICE_FLAGS
-        if not slice_flags <= wanted:
+        extra = flags - spool.flags
+        # A slice-relevant flag or an effect fill (marble, wood, glow) the spool lacks rules the profile out;
+        # an extra finish only ranks it behind a profile without one.
+        if extra & SLICE_FLAGS or any(filament_type._kind(f) == "effect" for f in extra):
             continue
         generic = record["name"].startswith("Generic ")
         prefer_generic = not slice_flags
-        ranked.append(((-len(slice_flags), -len(flags & spool.flags - SLICE_FLAGS),
-                        0 if generic == prefer_generic else 1, record["name"]), record, flags))
+        ranked.append(((-len(slice_flags), -len(flags & spool.flags - SLICE_FLAGS), len(extra),
+                        0 if spool_brand and spool_brand in _brands(record) else 1,
+                        0 if generic == prefer_generic else 1, len(ptype.unmapped), record["name"]), record, flags))
     if not ranked:
         return None
     _key, record, flags = min(ranked, key=lambda item: item[0])

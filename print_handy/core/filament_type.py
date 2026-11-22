@@ -213,6 +213,26 @@ def from_text(material: Any, name: Any = None) -> FilamentType:
     return _add_name_flags(result, name)
 
 
+def from_orca_profile(material: Any, name: Any) -> FilamentType:
+    """An OrcaSlicer vendor filament profile (#1816): the family from its ``filament_type``, the flags from
+    every word of its name before the "@<printer>" part.
+
+    Orca's profile names are curated ("SUNLU PLA Marble @FF AD5M", "Flashforge HS PETG @FF AD5X"), so every
+    flag word counts there, not only the ones the table trusts in a free-text spool name. The remaining
+    words (the brand, a version such as "2.0") are kept in ``unmapped``.
+    """
+    result = _from_material_text(material, "orca filament_type")
+    if not result.known:
+        return result
+    head = str(name or "").split("@", 1)[0]
+    tokens = _words(_FILLER_PHRASE.sub(lambda m: m.group(1)[0] + "F", head.upper()))
+    flags, left, _ = _scan(tokens)
+    unmapped = tuple(t for t in left if not _FAMILY_TOKEN.match(t) and t not in ("CF", "GF") and not _SHORE.match(t))
+    flags = set(flags) | set(result.flags)
+    return FilamentType(family=result.family, flags=frozenset(flags), unmapped=unmapped,
+                        sources={flag: "orca profile" for flag in flags})
+
+
 def _add_name_flags(result: FilamentType, name: Any) -> FilamentType:
     if not result.known or not name:
         return result
