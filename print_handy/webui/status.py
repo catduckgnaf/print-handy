@@ -110,7 +110,9 @@ def _bot_section(data, heartbeat):
     shown = None
     if isinstance(record, dict):
         shown = {key: record[key] for key in HEARTBEAT_KEYS if key in record}
-    mode = data["bot"]["mode"]
+    # The runtime mode the bot reports (always "standalone" since [bot] mode was removed, #1817).
+    mode = (record or {}).get("mode") if isinstance(record, dict) else None
+    mode = mode or "standalone"
     ok, reason = bot_verdict(data, record)
     return {
         "platform": data["bot"]["platform"],
@@ -230,7 +232,7 @@ def doctor_checks(data):
                  "status": "warn" if debug_row else "ok",
                  "detail": debug_row or "off"})
     try:
-        ai_state = doctor.check_retired_ai(data)
+        ai_state = doctor.check_ai_endpoint(data)
     except Exception as exc:  # a state problem is a row, never a failed snapshot
         ai_state = ("warn", f"could not check: {exc}")
     if ai_state is not None:

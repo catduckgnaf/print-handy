@@ -66,9 +66,7 @@ bambu:
   # the start is left as uncertain (#271). An A1 can take over a minute to unpack a large package.
   start_confirm_s: 90
 paths:
-  # State, logs and the .env. The key name is historical; Hermes is not required. A native install
-  # that still has data in the old default (~/.hermes/profiles/3dprinting) keeps using it until
-  # you set this key or move the folder.
+  # State, logs and the .env.
   state_home: ~/.local/share/print-handy
   archive: ~/3d-prints
   records_vault: ~/Documents/3D Printing Records
@@ -130,9 +128,6 @@ matrix:
   # media limit when the server reports a smaller one.
   upload_max_bytes: 50000000
 bot:
-  # standalone: python3 -m print_handy.bot talks to Discord directly (the
-  # only mode; the Hermes install and runtime mode were removed).
-  mode: standalone
   platform: discord
   health_port: 0
   health_stale_s: 120
@@ -357,8 +352,7 @@ timelapse:
   # tab independently.
   wrapped_enabled: true
   # Wrapped video (#956): the on-demand local video compile, with the
-  # local commentary (no AI model). The pre-rename spelling
-  # wrapped_ai_video is still accepted as an alias (#1157).
+  # local commentary (no AI model).
   # On by default (#1718), and it needs wrapped_enabled above on.
   wrapped_video: true
   # Wrapped narration (#981): piper (the default, #1718: the local Piper

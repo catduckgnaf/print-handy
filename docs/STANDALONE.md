@@ -32,7 +32,6 @@ Use one bot token for one bot. Two live connections on one token both answer eve
 
 | Key | Default | What it does |
 |---|---|---|
-| `bot.mode` | `standalone` | The only mode: the bot runs itself (`python3 -m print_handy.bot`). A config stating the removed `hermes` mode is refused at load with a message naming the removal |
 | `bot.platform` | `discord` | The chat platform the standalone bot talks to: `discord`, `telegram` or `matrix`. A config without this key keeps `discord` |
 | `telegram.token_env` | `TELEGRAM_BOT_TOKEN` | Name of the environment variable that holds the Telegram bot token |
 | `telegram.chat_id` | empty | The print chat. Group and channel IDs are negative. The bot ignores every other chat (forum topics inside it work like threads) |
@@ -67,7 +66,7 @@ Use one bot token for one bot. Two live connections on one token both answer eve
 | `vision.roast_model` | `luna-latest` | Legacy, unused since #1002 (roasts are local); kept so older configs load |
 
 Every key can come from the environment as `PRINT_HANDY__SECTION__KEY`, for example
-`PRINT_HANDY__BOT__MODE=standalone` or `PRINT_HANDY__DISCORD__ALLOWED_USER_IDS="111 222"`.
+`PRINT_HANDY__DISCORD__ALLOWED_USER_IDS="111 222"`.
 
 For example, set `PRINT_HANDY__DISCORD__BOT_NAME="Workshop Printer"` in the process environment, or
 `bot_name: "Workshop Printer"` inside the YAML `discord:` mapping. Docker Compose reads
@@ -75,7 +74,7 @@ the same variable from `.env`. Restart the bot after changing it. This changes i
 not the Discord account username or server nickname; set those in Discord. The default stays `Print Handy`.
 
 The token is only ever read from the environment variable `discord.token_env` names, or from the `.env` file in
-`paths.state_home` (the data folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x and removed in 2.4.0). With no allow list,
+`paths.state_home` (the data folder). With no allow list,
 everyone in the print channel can use the bot, the channel is the access boundary, and `check` reports
 `access: channel (everyone)`; set `discord.allowed_user_ids` to restrict the bot to listed users, and
 `discord.denied_user_ids` to exclude specific users in any mode. A refused message is logged at INFO with
@@ -84,7 +83,6 @@ the user ID and reason, and answered in channel once per user per hour, never si
 ```yaml
 # config/local.yaml
 bot:
-  mode: standalone
   health_port: 8080
 discord:
   chat_id: "123456789012345678"
@@ -131,7 +129,7 @@ python3 -m print_handy.runtime.moonraker_event_listener          # printer liste
 HEALTHCHECK: python3 -m print_handy.bot health                  # or GET :$PRINT_HANDY__BOT__HEALTH_PORT/healthz
 ```
 
-Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, `PRINT_HANDY__DISCORD__CHAT_ID`,
+Required environment: `DISCORD_BOT_TOKEN`, `PRINT_HANDY__DISCORD__CHAT_ID`,
 `PRINT_HANDY__DISCORD__ALLOWED_USER_IDS`, `PRINT_HANDY__SERVICES__MOONRAKER_URL`. Both processes must share
 `paths.state_home` (state) and `paths.archive`; the bot also writes dropped files under
 `<paths.cache>/discord-uploads`.
@@ -308,7 +306,7 @@ counters and the recent unmatched phrases). Nothing in this layer is transmitted
 | Listener posts | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments; no subprocess poster |
 | "print it" link recall | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json` |
 | /print-design model | The `[design]`/`[llm]` HTTP transport: the configured endpoint answers |
-| Data folder, install script, systemd units | `paths.state_home` is the data folder (called `paths.hermes_home` before 2.3.0); `scripts/install-standalone.sh` and `systemd/*.service.template` |
+| Data folder, install script, systemd units | `paths.state_home` is the data folder; `scripts/install-standalone.sh` and `systemd/*.service.template` |
 
 There is no agent behind the bot: a message no handler claims simply ends (or gets the
 bounded stray-chat reply, above) instead of falling through to an assistant.

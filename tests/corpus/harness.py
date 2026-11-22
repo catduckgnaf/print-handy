@@ -642,7 +642,6 @@ def _standalone_core(case, work, plugin, events, patch, *, auto=True):
 
     discord = fake_discord.FakeDiscord(case.clicks, events=events, auto=auto)
     cfg = copy.deepcopy(_config.cfg())
-    cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id=str(discord.channel.id), allowed_user_ids=str(discord.operator.id),
                           approval_user_id="")
     cfg["paths"]["cache"] = Path(work) / "cache"

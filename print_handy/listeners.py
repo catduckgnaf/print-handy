@@ -280,13 +280,9 @@ def main(argv=None):
         printer_id = args[index + 1]
     try:
         from . import settings
-        warning = settings.defaulted_model_warning()
         unknown_warning = settings.unknown_settings_warning()
     except Exception:  # an advisory check never stops the listener
-        warning = None
         unknown_warning = None
-    if warning:
-        print(f"listener: WARNING {warning}", file=sys.stderr)
     if unknown_warning:
         print(f"listener: WARNING {unknown_warning}", file=sys.stderr)
     try:

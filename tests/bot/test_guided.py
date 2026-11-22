@@ -407,7 +407,6 @@ def test_saved_checklist_holding_a_model_key_resumes_unaffected(tmp_path):
 def diag_cfg(tmp_path, **overrides):
     cfg = settings.load(local=Path(os.devnull), environ={})
     cfg["paths"]["state_home"] = tmp_path / "profile"
-    cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id=CHAT, allowed_user_ids=USER)
     cfg["services"].update(moonraker_url="http://printer.test:7125", spoolman_url="")
     cfg.update(overrides)
@@ -449,7 +448,6 @@ def test_debugging_flags_missing_and_invalid_settings(tmp_path):
 
     cfg = diag_cfg(tmp_path)
     cfg["discord"].update(chat_id="", allowed_user_ids="")
-    cfg["bot"]["mode"] = "standalone"
     report = run_report(tmp_path, cfg, token_getter=lambda _cfg: "")
     assert "✗ permissions" in report and "✗ bot mode and login" in report
 

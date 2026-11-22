@@ -282,14 +282,14 @@ def test_llm_fallback_is_disabled_on_discord_and_other_pure_bot_transports(cfg, 
     assert discord_core.use_llm is False
 
     tg_cfg = copy.deepcopy(cfg)
-    tg_cfg["bot"].update(mode="standalone", platform="telegram")
+    tg_cfg["bot"].update(platform="telegram")
     tg_cfg["telegram"].update(chat_id="-1001", allowed_user_ids="42", approval_user_id="")
     tg_core = runtime.BotCore(telegram.TelegramClient(tg_cfg, "t" * 10, opener=_TelegramOpener()),
                               tg_cfg, router=Router())
     assert tg_core.use_llm is False
 
     mx_cfg = copy.deepcopy(cfg)
-    mx_cfg["bot"].update(mode="standalone", platform="matrix")
+    mx_cfg["bot"].update(platform="matrix")
     mx_cfg["matrix"].update(homeserver_url="https://matrix.example.org",
                             room_id="!r:example.org", allowed_user_ids="@u:example.org",
                             approval_user_id="", bot_user_id="@bot:example.org")
@@ -300,7 +300,7 @@ def test_llm_fallback_is_disabled_on_discord_and_other_pure_bot_transports(cfg, 
 
 
 def test_unmatched_text_on_telegram_gets_the_short_reply_and_no_llm(cfg, monkeypatch):
-    cfg["bot"].update(mode="standalone", platform="telegram")
+    cfg["bot"].update(platform="telegram")
     cfg["telegram"].update(chat_id="-1001", allowed_user_ids="424242", approval_user_id="")
     cfg["llm"].update(chat_url="http://llm.invalid/v1", model="m")
     stub = _TelegramOpener()
@@ -320,7 +320,7 @@ def test_unmatched_text_on_telegram_gets_the_short_reply_and_no_llm(cfg, monkeyp
 
 
 def test_unmatched_text_on_matrix_gets_the_short_reply_and_no_llm(cfg, tmp_path, monkeypatch):
-    cfg["bot"].update(mode="standalone", platform="matrix")
+    cfg["bot"].update(platform="matrix")
     cfg["matrix"].update(homeserver_url="https://matrix.example.org", room_id="!r:example.org",
                          allowed_user_ids="@u:example.org", approval_user_id="",
                          bot_user_id="@bot:example.org")

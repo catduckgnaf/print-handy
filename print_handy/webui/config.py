@@ -118,14 +118,12 @@ def _file_path(local, environ):
 def _layers(home, local, environ):
     """(model_defaults, home_data, file_data, user_data, env_data) snapshots, built with
     settings' own merge/env helpers in settings.load's order."""
-    # Every file layer goes through the alias step load() applies, so a deprecated spelling
-    # shows (and is attributed) under its current name (2.2.5 review of #783).
-    home_data = settings._apply_key_aliases(settings._read(_home_path(home)))
+    home_data = settings._read(_home_path(home))
     file_path = _file_path(local, environ)
-    file_data = (settings._apply_key_aliases(settings._read(file_path))
+    file_data = (settings._read(file_path)
                  if file_path is not None and file_path.is_file() else {})
     user_path = settings.user_config_path(environ)
-    user_data = (settings._apply_key_aliases(settings._read(user_path))
+    user_data = (settings._read(user_path)
                  if user_path is not None and user_path.is_file() else {})
 
     def pick(name):
@@ -275,7 +273,7 @@ def _note_noop_write(target, *, home, environ):
     environment-sourced refusal) also records no tolerated names: the
     save changed nothing, so it succeeds as it always has, and those
     failures are a real save's or the next startup's to surface."""
-    current = (settings._apply_key_aliases(settings._read(target))
+    current = (settings._read(target)
                if target.is_file() else {})
     try:
         _text, tolerated = _validate_candidate(current, target,
@@ -373,12 +371,11 @@ def _validate_candidate(candidate, target, *, home, environ):
     text = _dump(candidate)
     # The baselines a violation is judged pre-existing against: the
     # settings file as it stands (the candidate was built from it), and
-    # the operator's own file, both alias-folded the way the loader
-    # reads them. A key is pre-existing only with its value unchanged.
-    baseline = (settings._apply_key_aliases(settings._read(target))
+    # the operator's own file, read the way the loader reads them. A key is pre-existing only with its value unchanged.
+    baseline = (settings._read(target)
                 if target.is_file() else {})
     user_path = settings.user_config_path(environ)
-    user_baseline = (settings._apply_key_aliases(settings._read(user_path))
+    user_baseline = (settings._read(user_path)
                      if user_path is not None and user_path.is_file() else {})
     working = copy.deepcopy(candidate)
     user_working = copy.deepcopy(user_baseline) if user_path is not None \
@@ -565,7 +562,7 @@ def _printer_name_env_var(environ, printer_id):
 def _raw_layer(path):
     if path is None or not Path(path).is_file():
         return {}
-    return settings._apply_key_aliases(settings._read(path))
+    return settings._read(path)
 
 
 def printer_name_state(data, *, home=None, local=None, environ=None):
@@ -961,7 +958,7 @@ def _write_changes_locked(changes, *, config_path, home, environ, timestamp,
         if _provenance(field, layers) == ENVIRONMENT:
             raise WebUIConfigError(
                 f"{field.id} is overridden by the environment "
-                f"(PRINT_HANDY__{field.section.upper()}__{field.key.upper()} or a legacy name); "
+                f"(PRINT_HANDY__{field.section.upper()}__{field.key.upper()}); "
                 "change or unset that variable instead — the value was not written to the file")
         if _provenance(field, layers) == USER_FILE:
             raise WebUIConfigError(

@@ -377,27 +377,36 @@ def check_debug_mode(data):
 AI_ENDPOINT_LABEL = "AI endpoint"
 
 
-def check_retired_ai(data):
-    """The retired-AI-endpoint state (#1759) as (status, detail), or None.
+# Where a native install kept its data before 2.4.0 (the Hermes profile layout).
+LEGACY_STATE_FOLDER = Path("~/.hermes/profiles/3dprinting")
 
-    ``data`` is the loaded settings dict; the state itself comes from the
-    most recent settings.load() (see settings.retired_ai_state()), which is
-    the load that produced ``data`` in every caller. None when the load saw
-    no retired AI keys, or [llm] was already configured. "ok" when the
-    retired endpoint migrated into [llm]; "warn" when retired AI keys are
-    present but no endpoint could be determined — the detail names the
-    keys, never their values. A warning here is never a failed check: the
-    machine still runs, but the AI the operator configured is off.
+
+def check_legacy_state_folder(data):
+    """FAIL when a native install's data still sits only in the pre-2.4.0 Hermes folder (#1817).
+
+    Before 2.4.0 an unset paths.state_home fell back to ~/.hermes/profiles/3dprinting when that
+    folder existed. That fallback is gone, so such an install would start with an empty state
+    folder (no hardware record, launch database or bot token). The data is still on disk; this
+    row says where and how to move it. None (skip) when there is no old folder.
     """
-    state = settings.retired_ai_state()
-    if state is not None:
-        if state["outcome"] == "migrated":
-            return "ok", state["detail"]
-        # A known-good configured endpoint means the retired alternatives are
-        # inert; don't warn about features that are already operational.
-        if str((data.get("llm") or {}).get("chat_url") or "").strip():
-            return None
-        return "warn", state["detail"]
+    legacy = LEGACY_STATE_FOLDER.expanduser()
+    if not legacy.is_dir() or not any(legacy.iterdir()):
+        return None
+    state = Path(data["paths"]["state_home"]).expanduser()
+    if state.resolve() == legacy.resolve():
+        return f"paths.state_home is set to {legacy}"
+    if state.is_dir() and any(state.iterdir()):
+        return f"{legacy} still exists, but paths.state_home ({state}) holds data; delete the old folder when done"
+    raise RuntimeError(f"{legacy} holds Print Handy data but paths.state_home ({state}) is empty: 2.4.0 no "
+                       f"longer reads the old folder. Move it (mv {legacy} {state}) or set paths.state_home")
+
+
+def check_ai_endpoint(data):
+    """("warn", detail) when an AI feature is switched on but [llm] names no endpoint, else None.
+
+    A warning here is never a failed check: the machine still runs, but the AI the
+    operator switched on is off.
+    """
     # A model can be auto-enabled when an endpoint exists, but is auto-off
     # without one. Only an explicit design switch or the explicit vision
     # switch represents an enabled feature that needs an endpoint here.
@@ -464,14 +473,9 @@ def run(out=sys.stdout):
     report("creator firmware", check_firmware_identity, data)
     report("zmod purge", check_purge, data)
     report("bot mode", check_bot, data)
+    report("legacy state folder", check_legacy_state_folder, data)
     report("logging", check_logging, data)
     report("discord login", check_discord_login, data)
-    try:
-        model_warning = settings.defaulted_model_warning(data)
-    except Exception as exc:  # a state problem is a warning here, never a failed check
-        model_warning = f"could not check: {exc}"
-    if model_warning:
-        print(f"WARN  default model: {model_warning}", file=out)
     try:
         unknown_warning = settings.unknown_settings_warning()
     except Exception as exc:  # a state problem is a warning here, never a failed check
@@ -479,7 +483,7 @@ def run(out=sys.stdout):
     if unknown_warning:
         print(f"WARN  unknown settings: {unknown_warning}", file=out)
     try:
-        ai_state = check_retired_ai(data)
+        ai_state = check_ai_endpoint(data)
     except Exception as exc:  # a state problem is a warning here, never a failed check
         ai_state = ("warn", f"could not check: {exc}")
     if ai_state is not None:

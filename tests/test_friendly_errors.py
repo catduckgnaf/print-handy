@@ -159,7 +159,6 @@ def test_guided_debugging_findings_do_not_carry_raw_exceptions(tmp_path):
     cfg = settings.load(local=Path(os.devnull), environ={})
     cfg["paths"]["state_home"] = tmp_path / "profile"
     (tmp_path / "profile" / "state").mkdir(parents=True, exist_ok=True)
-    cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id="123456", allowed_user_ids="789")
     cfg["services"].update(moonraker_url="http://printer.test:7125", spoolman_url="")
 

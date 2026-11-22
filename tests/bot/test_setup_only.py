@@ -6,7 +6,7 @@ from print_handy.bot import guided
 
 
 def _cfg(platform="discord"):
-    return {"bot": {"platform": platform, "mode": "standalone"}}
+    return {"bot": {"platform": platform}}
 
 
 def test_credential_tier_failure_is_never_setup_only():

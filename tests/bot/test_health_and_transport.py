@@ -103,15 +103,14 @@ def _load(text, tmp_path, environ=None):
 
 def test_bot_settings_defaults_and_validation(tmp_path):
     data = _load("", tmp_path)
-    assert data["bot"] == {"mode": "standalone", "platform": "discord", "health_port": 0, "health_stale_s": 120, "sync_commands": True}
+    assert data["bot"] == {"platform": "discord", "health_port": 0, "health_stale_s": 120, "sync_commands": True}
     assert data["discord"]["token_env"] == "DISCORD_BOT_TOKEN" and data["discord"]["allowed_user_ids"] == ""
     assert data["llm"]["chat_url"] == "" and data["llm"]["api_key_env"] == "LLM_API_KEY"
-    data = _load("bot:\n  mode: standalone\ndiscord:\n  allowed_user_ids: '1, 2 3'\n", tmp_path,
+    data = _load("discord:\n  allowed_user_ids: '1, 2 3'\n", tmp_path,
                  {"PRINT_HANDY__BOT__HEALTH_PORT": "8080"})
-    assert data["bot"]["mode"] == "standalone" and data["bot"]["health_port"] == 8080
+    assert data["bot"]["health_port"] == 8080
     assert settings.user_ids(data["discord"]["allowed_user_ids"]) == ["1", "2", "3"]
-    for text, error in (("bot:\n  mode: chatty\n", "mode must be one of"),
-                        ("bot:\n  platform: smoke-signals\n", "platform must be one of"),
+    for text, error in (("bot:\n  platform: smoke-signals\n", "platform must be one of"),
                         ("discord:\n  allowed_user_ids: 'me'\n", "numeric Discord user IDs"),
                         ("llm:\n  chat_url: http://x\n", "model is required"),
                         ("discord:\n  token_env: 'not a name'\n", "environment variable name"),
@@ -122,7 +121,6 @@ def test_bot_settings_defaults_and_validation(tmp_path):
 
 def test_check_command_names_every_problem(monkeypatch, capsys, tmp_path):
     cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["bot"]["mode"] = "hermes"  # this check run is the Hermes-mode one (#524: no longer the default)
     cfg["paths"]["state_home"] = tmp_path / "profile"
     monkeypatch.setattr(settings, "current", lambda: cfg)
     monkeypatch.setattr(_config, "cfg", lambda: cfg)
@@ -130,7 +128,7 @@ def test_check_command_names_every_problem(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(_config, "profile_env_value", lambda name, **kw: "")
     assert bot_main.check() == 1
     out = capsys.readouterr().out
-    for line in ("FAIL  mode: hermes", "FAIL  token", "FAIL  print channel",
+    for line in ("FAIL  token", "FAIL  print channel",
                  "ok    access: channel (everyone)",
                  "ok    handlers: 36", f"ok    state dir: {tmp_path}"):
         assert line in out, out
@@ -141,7 +139,6 @@ def test_check_design_row_states_off_on_and_missing_openscad(monkeypatch, capsys
     on); on names the model source; enabled without openscad is a FAIL."""
     cfg = settings.load(local=Path(os.devnull), environ={})
     cfg["paths"]["state_home"] = tmp_path / "profile"
-    cfg["bot"]["mode"] = "standalone"
     monkeypatch.setattr(settings, "current", lambda: cfg)
     monkeypatch.setattr(_config, "cfg", lambda: cfg)
     bot_main.check()
@@ -157,7 +154,6 @@ def test_check_design_row_states_off_on_and_missing_openscad(monkeypatch, capsys
     bot_main.check()
     assert "ok    design: auto-on (sol at http://llm.invalid/v1)" in capsys.readouterr().out
     cfg["design"]["enabled"] = True
-    cfg["bot"]["mode"] = "standalone"
     cfg["llm"].update(chat_url="http://llm.invalid/v1", model="sol")
     real_which = shutil.which
     monkeypatch.setattr(shutil, "which",
@@ -188,7 +184,6 @@ def test_run_logs_the_version_at_startup(monkeypatch, caplog):
 
 def test_doctor_reports_mode_and_users(monkeypatch, tmp_path):
     cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id="1", allowed_user_ids="5, 6")
     cfg["paths"]["state_home"] = tmp_path / "data"
     assert doctor.check_bot(cfg) == "standalone, print channel 1, access: whitelist (2 users)"
@@ -196,7 +191,6 @@ def test_doctor_reports_mode_and_users(monkeypatch, tmp_path):
 
 def test_doctor_login_check_uses_the_token(monkeypatch):
     cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["bot"]["mode"] = "standalone"
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "tok")
     with mock.patch("print_handy.bot.rest.whoami", return_value={"id": "9", "username": "printhandy"}) as who:
         assert doctor.check_discord_login(cfg) == "printhandy (9)"
@@ -257,7 +251,7 @@ def test_install_standalone_renders_units_and_data_folder(tmp_path):
     assert first.returncode == 0, first.stderr
     for name in ("print-handy-bot", "print-handy-listener"):
         unit = (tmp_path / "units" / f"{name}.service").read_text()
-        assert "{{" not in unit and "PRINT_HANDY__BOT__MODE=standalone" in unit
+        assert "{{" not in unit and "PRINT_HANDY__BOT__MODE" not in unit
         assert f"EnvironmentFile=-{tmp_path / 'data'}/.env" in unit
         assert "HERMES_HOME" not in unit and "PartOf=" not in unit  # not tied to a Hermes gateway
         assert (tmp_path / "units" / f"{name}.service").stat().st_mode & 0o777 != 0o600

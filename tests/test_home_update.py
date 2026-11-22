@@ -87,7 +87,7 @@ class HomeUpdateTests(unittest.TestCase):
         # a token, and update() runs the checks with a sitecustomize stub
         # (below) answering Discord's users/@me probe.
         (self.home / "config" / "local.toml").write_text(
-            f'[printer]\nname = "Home AD5X"\n\n[orca]\ncommand = ["true"]\n\n[paths]\nstate_home = "{profile}"\n\n[bot]\nmode = "standalone"\n\n[discord]\nchat_id = "123"\n')
+            f'[printer]\nname = "Home AD5X"\n\n[orca]\ncommand = ["true"]\n\n[paths]\nstate_home = "{profile}"\n\n[discord]\nchat_id = "123"\n')
         (profile / ".env").write_text("DISCORD_BOT_TOKEN=fixture-token\n")
         stub = base / "discord-stub"
         stub.mkdir()

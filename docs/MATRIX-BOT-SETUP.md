@@ -69,7 +69,6 @@ printer-bound happens, see "Shared channels" in SETTINGS.md.
 ```yaml
 # config/local.yaml
 bot:
-  mode: standalone
   platform: matrix
 matrix:
   homeserver_url: "https://matrix.org"

@@ -226,8 +226,7 @@ def _field_row(field_value, *, data, errors, submitted, reveal=None):
         parts.append(f'<p class="error">{_esc(error)}</p>')
     if disabled:
         parts.append('<p class="note">Overridden by the environment '
-                     f'(PRINT_HANDY__{field.section.upper()}__{field.key.upper()} or a '
-                     'legacy name): change or unset that variable instead — this field '
+                     f'(PRINT_HANDY__{field.section.upper()}__{field.key.upper()}): change or unset that variable instead — this field '
                      'is not written to the settings file.</p>')
     if field.help:
         parts.append(f'<p class="help">{_esc(field.help)}</p>')

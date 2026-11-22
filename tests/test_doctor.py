@@ -56,7 +56,7 @@ class DoctorTests(unittest.TestCase):
     def run_doctor(self, local_toml="", hardware=None):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "local.toml"
-            path.write_text('[bot]\nmode = "standalone"\n[discord]\nchat_id = "123"\n' + local_toml)
+            path.write_text('[discord]\nchat_id = "123"\n' + local_toml)
             data = settings.load(local=path, environ={"PRINT_HANDY__PATHS__STATE_HOME": str(self.profile)})
         state = settings.state_dir(data)
         state.mkdir(parents=True, exist_ok=True)
@@ -142,13 +142,6 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertIn("ok    zmod version: 1.7.5", text)
 
-    def test_doctor_shows_the_default_model_warning_row(self):
-        """#678: the settings layer decides (see DefaultedModelWarningTests); doctor only shows it."""
-        with mock.patch.object(settings, "defaulted_model_warning", return_value="set PRINT_HANDY__PRINTER__MODEL"):
-            code, text = self.run_doctor()
-        self.assertIn("WARN  default model: set PRINT_HANDY__PRINTER__MODEL", text)
-        self.assertNotIn("default model", self.run_doctor()[1])
-
     def test_doctor_shows_the_unknown_settings_warning_row(self):
         """#1058: unknown settings are a warning row, never a failed check; doctor only shows it."""
         with mock.patch.object(settings, "unknown_settings_warning",
@@ -156,26 +149,6 @@ class DoctorTests(unittest.TestCase):
             code, text = self.run_doctor()
         self.assertIn("WARN  unknown settings: unknown setting(s) ignored: [listener] ticks", text)
         self.assertNotIn("unknown settings", self.run_doctor()[1])
-
-    def test_retired_ai_keys_warn_without_failing(self):
-        """#1759: retired AI keys with no model to migrate to are a WARN row
-        naming the keys, never a failed check — the machine still runs."""
-        code, text = self.run_doctor(
-            '[design]\nchat_url = "https://ai.example.com/v1/chat/completions"\n'
-            'api_key_env = "DESIGN_KEY"\n')
-        self.assertEqual(code, 0, text)
-        self.assertIn("WARN  ai endpoint: AI is not configured: retired AI settings", text)
-        self.assertIn("[design] chat_url", text)
-        self.assertNotIn("ai.example.com", text)
-        self.assertNotIn("DESIGN_KEY", text)
-
-    def test_a_migrated_retired_endpoint_is_an_ok_row(self):
-        """#1759: the same retired keys with a model migrate, so the row is ok."""
-        code, text = self.run_doctor(
-            '[design]\nchat_url = "https://ai.example.com/v1/chat/completions"\n'
-            'api_key_env = "DESIGN_KEY"\n[vision]\nmodel = "luna"\n')
-        self.assertEqual(code, 0, text)
-        self.assertIn("ok    ai endpoint: Retired AI settings migrated into [llm]", text)
 
     def test_missing_orca_binary_fails(self):
         code, text = self.run_doctor('[orca]\ncommand = ["definitely-not-orca-xyz"]\n')
@@ -326,63 +299,18 @@ class ZmodVersionDoctorTests(unittest.TestCase):
         self.assertIsNone(doctor.check_zmod_version(data))
 
 
-class RetiredAiCheckTests(unittest.TestCase):
-    """#1759: the Doctor names retired AI keys as a warning, never a failure."""
+class AiEndpointCheckTests(unittest.TestCase):
+    """The ai endpoint row: an AI feature switched on with no [llm] endpoint warns, never fails."""
 
     def load(self, tmp, text):
         path = Path(tmp) / "local.yaml"
         path.write_text(text, encoding="utf-8")
         return settings.load(local=path, environ={})
 
-    def test_ambiguous_retired_keys_are_a_warn_row(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            data = self.load(tmp,
-                             "ai:\n  chat:\n    chat_url: https://ai.example.com/v1/chat/completions\n"
-                             "    api_key_env: DESIGN_KEY\n"
-                             "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
-                             "  api_key_env: DESIGN_KEY\n")
-        status, detail = doctor.check_retired_ai(data)
-        self.assertEqual(status, "warn")
-        self.assertIn("[design] chat_url", detail)
-        self.assertNotIn("ai.example.com", detail)
-        self.assertNotIn("DESIGN_KEY", detail)
-
-    def test_a_migrated_retired_endpoint_is_an_ok_row(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            data = self.load(tmp,
-                             "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
-                             "  api_key_env: DESIGN_KEY\n"
-                             "vision:\n  model: luna\n")
-        status, detail = doctor.check_retired_ai(data)
-        self.assertEqual(status, "ok")
-        self.assertIn("migrated into [llm]", detail)
-
-    def test_user_file_same_key_overrides_local_retired_value(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            local = Path(tmp) / "local.yaml"
-            user = Path(tmp) / "user.yaml"
-            local.write_text("design:\n  chat_url: https://one.example/v1/chat/completions\n  model: first\n  api_key_env: FIRST_KEY\n")
-            user.write_text("design:\n  chat_url: https://two.example/v1/chat/completions\n  model: second\n  api_key_env: SECOND_KEY\n")
-            data = settings.load(local=local, user=user, environ={})
-        self.assertEqual(data["llm"]["chat_url"], "https://two.example/v1/chat/completions")
-        self.assertEqual(data["llm"]["model"], "second")
-        self.assertIn("migrated", settings.retired_ai_state()["outcome"])
-
-    def test_distinct_retired_keys_still_warn_as_ambiguous(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            # Distinct retired setting names are separate effective candidates,
-            # even if one name repeats at multiple precedence layers.
-            data = self.load(tmp, "design:\n  chat_url: https://one.example/v1/chat/completions\n  model: first\n")
-            settings._note_retired_ai("url", "[ai.chat] chat_url", "https://two.example/v1/chat/completions")
-            # The configured live endpoint causes retired alternatives to be inert.
-            state = settings.retired_ai_state()
-            self.assertEqual(data["llm"]["chat_url"], "https://one.example/v1/chat/completions")
-            self.assertEqual(state["outcome"], "migrated")
-
     def test_ai_feature_enabled_without_endpoint_warns(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = self.load(tmp, "vision:\n  ai_enabled: true\n")
-        status, detail = doctor.check_retired_ai(data)
+        status, detail = doctor.check_ai_endpoint(data)
         self.assertEqual(status, "warn")
         self.assertIn("AI-dependent features are enabled", detail)
         self.assertNotIn("[llm]", detail)
@@ -390,9 +318,44 @@ class RetiredAiCheckTests(unittest.TestCase):
     def test_ai_features_disabled_without_endpoint_have_no_row(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = self.load(tmp, "vision:\n  ai_enabled: false\ndesign:\n  enabled: false\n")
-        self.assertIsNone(doctor.check_retired_ai(data))
+        self.assertIsNone(doctor.check_ai_endpoint(data))
 
-    def test_no_retired_keys_is_no_row(self):
+    def test_a_configured_endpoint_is_no_row(self):
         with tempfile.TemporaryDirectory() as tmp:
-            data = self.load(tmp, "design:\n  model: cad-model\n")
-        self.assertIsNone(doctor.check_retired_ai(data))
+            data = self.load(tmp, "vision:\n  ai_enabled: true\nllm:\n  chat_url: https://ai.example/v1\n  model: m\n")
+        self.assertIsNone(doctor.check_ai_endpoint(data))
+
+
+class LegacyStateFolderTests(unittest.TestCase):
+    """#1817: the ~/.hermes/profiles/3dprinting fallback is gone; the doctor names the move."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.legacy = self.root / "old"
+        patcher = mock.patch.object(doctor, "LEGACY_STATE_FOLDER", self.legacy)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def data(self, state):
+        return {"paths": {"state_home": state}}
+
+    def test_no_old_folder_is_skipped(self):
+        self.assertIsNone(doctor.check_legacy_state_folder(self.data(self.root / "new")))
+
+    def test_old_folder_with_data_and_an_empty_state_home_fails_with_the_move(self):
+        (self.legacy / "state").mkdir(parents=True)
+        new = self.root / "new"
+        with self.assertRaisesRegex(RuntimeError, r"mv .*old .*new"):
+            doctor.check_legacy_state_folder(self.data(new))
+
+    def test_old_folder_beside_a_populated_state_home_is_an_ok_note(self):
+        (self.legacy / "state").mkdir(parents=True)
+        (self.root / "new" / "state").mkdir(parents=True)
+        self.assertIn("delete the old folder", doctor.check_legacy_state_folder(self.data(self.root / "new")))
+
+    def test_state_home_pointing_at_the_old_folder_is_fine(self):
+        (self.legacy / "state").mkdir(parents=True)
+        self.assertIn("set to", doctor.check_legacy_state_folder(self.data(self.legacy)))
+

@@ -61,7 +61,6 @@ printer-bound happens, see "Shared channels" in SETTINGS.md.
 ```yaml
 # config/local.yaml
 bot:
-  mode: standalone
   platform: telegram
 telegram:
   chat_id: "-1001234567890"

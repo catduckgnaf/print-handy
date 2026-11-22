@@ -1889,8 +1889,7 @@ def _manual_text(session):
     else:
         lines.append(f"   - `[printer] model` = `{answers.get('model')}`")
     _section, _chat = _chat_section(answers)
-    lines += ["   - `[bot] mode` = `standalone` and `[bot] platform` = "
-              f"`{answers.get('platform') or 'discord'}`",
+    lines += [f"   - `[bot] platform` = `{answers.get('platform') or 'discord'}`",
               f"   - `[{_section}]` chat/room and `allowed_user_ids` = what you entered above "
               "(blank `allowed_user_ids` = everyone in the channel)"]
     if answers.get("moonraker_url") and not roster:
@@ -1984,7 +1983,7 @@ def _roster_config(answers):
         entries.append(entry)
     section, chat = _chat_section(answers)
     config = {"printers": entries,
-              "bot": {"mode": "standalone", "platform": answers.get("platform") or "discord"},
+              "bot": {"platform": answers.get("platform") or "discord"},
               section: chat}
     if answers.get("spoolman_url"):
         config.setdefault("services", {})["spoolman_url"] = answers["spoolman_url"]
@@ -2052,8 +2051,7 @@ def _apply_answers(answers, config_path):
     else:
         section, chat = _chat_section(answers)
         config = {"printer": {"model": answers["model"]},
-                  "bot": {"mode": "standalone",
-                          "platform": answers.get("platform") or "discord"},
+                  "bot": {"platform": answers.get("platform") or "discord"},
                   section: chat}
         placed = _address_placement(answers.get("model"), answers.get("moonraker_url"))
         if placed:

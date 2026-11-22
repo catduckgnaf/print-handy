@@ -394,7 +394,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | `orca` | `templates` | the model's folder under `print_handy/templates/orca` | Orca machine, process, and filament JSON |
 | | `command` | Flathub OrcaSlicer | How to start the Orca CLI |
 | `bambu` | `command` | Flathub Bambu Studio, no network | Fallback slicer |
-| `paths` | `state_home` | `~/.local/share/print-handy` | The bot's state folder; any folder works. Called `paths.hermes_home` before 2.3.0 (still read through 2.3.x, removed in 2.4.0); an existing `~/.hermes/profiles/3dprinting` is used as a legacy fallback |
+| `paths` | `state_home` | `~/.local/share/print-handy` | The bot's state folder; any folder works. |
 | | `archive`, `records_vault`, `cache` | `~/3d-prints`, `~/Documents/3D Printing Records`, `~/.cache/print-handy` | Job archive, print records, cache |
 | | `ffmpeg` | | Tool locations |
 | `services` | `moonraker_url`, `moonraker_ws_url`, `camera_snapshot_url` | empty | Printer and camera; websocket is derived when empty |

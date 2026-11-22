@@ -239,7 +239,7 @@ def test_discord_unsliced_3mf_drop_answers_not_sliced(discord_cfg, tmp_path):
 @pytest.fixture
 def telegram_cfg(tmp_path, monkeypatch):
     data = copy.deepcopy(_config.cfg())
-    data["bot"].update(mode="standalone", platform="telegram")
+    data["bot"].update(platform="telegram")
     data["telegram"].update(chat_id=tt.CHAT, allowed_user_ids=tt.USER, approval_user_id="")
     data["paths"]["cache"] = tmp_path / "cache"
     data["paths"]["archive"] = str(tmp_path / "archive")
@@ -278,7 +278,7 @@ def test_telegram_caption_phrase_prices_the_file(telegram_cfg):
 @pytest.fixture
 def matrix_cfg(tmp_path, monkeypatch):
     data = copy.deepcopy(_config.cfg())
-    data["bot"].update(mode="standalone", platform="matrix")
+    data["bot"].update(platform="matrix")
     data["matrix"].update(homeserver_url=tm.HOMESERVER, room_id=tm.ROOM,
                           allowed_user_ids=tm.USER, approval_user_id="", bot_user_id=tm.BOT)
     data["paths"]["cache"] = tmp_path / "cache"

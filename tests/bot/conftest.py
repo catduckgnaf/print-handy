@@ -21,7 +21,6 @@ def _restore_bot_globals(monkeypatch):
 @pytest.fixture
 def cfg(tmp_path):
     data = copy.deepcopy(_config.cfg())
-    data["bot"]["mode"] = "standalone"
     data["discord"].update(chat_id="100000000000000001", allowed_user_ids="200000000000000002",
                            approval_user_id="")
     data["paths"]["cache"] = tmp_path / "cache"
