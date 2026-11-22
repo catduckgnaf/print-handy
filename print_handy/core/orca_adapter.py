@@ -2040,7 +2040,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             name = f"{base} [slot {int(slot)}]" if slot is not None else base
             data.update({'name': name, 'filament_settings_id': [name]})
             return data, f"{base}: the printer's tuned {material_family(material)} template ({note})"
-        resolution = vendor_resolution(material, ftype, brand=(state.get("spool") or {}).get("brand"))
+        brand = ((state.get("spool") or {}).get("brand")
+                 or (type_filament or {}).get("vendor")
+                 or (spool_filament or {}).get("vendor"))
+        resolution = vendor_resolution(material, ftype, brand=brand)
         if resolution is not None:
             data.update(orca_profile_db.vendor_layer(template_filament, resolution))
             note = f"{resolution.name} ({resolution.level}, Orca {orca_profile_db.meta()['orca_version']})"
@@ -2073,11 +2076,20 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                      'filament_colour': [colour or data['filament_colour'][0]],
                      'nozzle_temperature': [str(int(nozzle_temp))],
                      'nozzle_temperature_initial_layer': [str(int(nozzle_temp))]})
+        base_flow = None
         if 'filament_flow_ratio' in data and data['filament_flow_ratio']:
             try:
-                data['filament_flow_ratio'] = [str(round(float(data['filament_flow_ratio'][0]) * adj['flow_multiplier'], 4))]
+                base_flow = float(data['filament_flow_ratio'][0])
+                data['filament_flow_ratio'] = [str(round(base_flow * adj['flow_multiplier'], 4))]
             except (ValueError, TypeError):
                 logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
+        # Provenance so the emitted flow can be rebuilt (#1832): vendor (or template) flow × nozzle multiplier.
+        state.setdefault('_flow_provenance', {})[material] = {
+            'nozzle_type': nozzle_type,
+            'flow_multiplier': adj.get('flow_multiplier'),
+            'base_flow_ratio': base_flow,
+            'emitted_flow_ratio': float(data.get('filament_flow_ratio', [1.0])[0]) if data.get('filament_flow_ratio') else None,
+        }
         # flow_ratio is the final ratio Orca receives (the tested number), so it replaces the nozzle
         # type's flow multiplier instead of being scaled by it. A vendor profile (Bambu Lab) keeps its own.
         tuning = {} if printer.vendor_material_profiles else material_tuning(material)
@@ -2858,6 +2870,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     # (a Spoolman outage at verify time would otherwise fall
                     # back to material defaults and refuse a sound file, P2-275).
                     'temperatures': dict(state['temps_c']),
+                    'flow_provenance': state.get('_flow_provenance'),
                     'temperature_resolution': state.get('temperature_resolution'),
                     'config_sha256': {str(p): digest(p) for p in configs}, 'geometry': geometry,
                     'slice_guard': {'status': 'warnings' if warnings else 'ok', 'warnings': warnings,

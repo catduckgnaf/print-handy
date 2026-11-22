@@ -457,11 +457,40 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         family, targets, sources = resolve_material_temperatures(material, filament or {})
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
+    # Vendor profile temperatures feed the shared resolution (#1832) when no explicit Spoolman
+    # temperature is set and a vendor profile can be resolved for this printer/nozzle/material.
+    # Both slice and verification see the same value.
+    try:
+        from . import orca_profile_db, filament_type as _ftype
+        model = state.get("printer_model") or settings.current().get("printer", {}).get("model")
+        nozzle_dia = (state.get("nozzle") or {}).get("diameter_mm")
+        if model and nozzle_dia and sources.get("nozzle") != "Spoolman filament":
+            ftype = _ftype.from_text(material)
+            brand = (filament or {}).get("vendor") or (spool.get("brand"))
+            preset = orca_profile_db.printer_preset(model, float(nozzle_dia))
+            resolution = orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
+            if resolution is not None:
+                v_nozzle = resolution.get("nozzle_temperature")
+                v_bed = resolution.get("hot_plate_temp") or resolution.get("textured_plate_temp")
+                if v_nozzle is not None:
+                    try:
+                        targets["nozzle"] = int(float(v_nozzle)) if float(v_nozzle).is_integer() else float(v_nozzle)
+                        sources["nozzle"] = f"vendor profile ({resolution.name})"
+                    except (ValueError, TypeError):
+                        pass
+                if v_bed is not None and sources.get("bed") != "Spoolman filament":
+                    try:
+                        targets["bed"] = int(float(v_bed)) if float(v_bed).is_integer() else float(v_bed)
+                        sources["bed"] = f"vendor profile ({resolution.name})"
+                    except (ValueError, TypeError):
+                        pass
+    except Exception:
+        pass  # vendor lookup is advisory; fall back to material defaults
     return ({"nozzle": targets["nozzle"], "bed": targets["bed"]},
             {"material_family": family, "material": material, "spoolman_id": spool.get("spoolman_id"),
              "sources": sources,
              "source": next(iter(set(sources.values()))) if len(set(sources.values())) == 1
-             else "material default / Spoolman filament"})
+             else "material default / Spoolman filament / vendor profile"})
 
 
 # One filament profile per slot of a multicolor job. Orca emits an M104 for each tool change (the
