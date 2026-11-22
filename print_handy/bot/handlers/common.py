@@ -2206,6 +2206,9 @@ def alert_button_handlers(bot, adapter):
             logger.debug('could not strip insertion buttons', exc_info=True)
         slot = alert.get('slot')
         if action == 'same':
+            # The answer ends the slot's reload mark (#1788): intake no longer asks.
+            from print_handy.intake import slot_verify
+            await asyncio.to_thread(slot_verify.clear_unconfirmed, slot)
             await interaction.edit_original_response(content=f'Slot {slot}: same spool confirmed. Nothing changed.', view=None)
         elif action == 'existing':
             await insertion_select(interaction, aid, alert)

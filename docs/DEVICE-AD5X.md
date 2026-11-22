@@ -218,6 +218,13 @@ unless you remap it there. To reuse the chosen slot, reprint from Print Handy.
   it to the slot the same way `/spool change` does. **Keep** is remembered
   for that exact disagreement, so it is not asked again until the screen or
   the record changes. If the screen cannot be read, nothing is asked.
+- Print Handy also asks once about a slot that was reloaded with nobody
+  saying which spool went in, even when the screen and its record agree:
+  a runout question that closed on its own (a screen refeed after the
+  print ended, or the slot reading loaded again with the same spool still
+  linked), or an insertion prompt nobody answered. Any answer ends it:
+  **Same spool** on the insertion prompt, **Keep** or a spool at intake, or
+  `/spool change` on that slot.
 - Keep Spoolman's remaining weight honest. Readiness uses Spoolman's grams
   as well as slot presence. A spool that reads negative or far off in
   Spoolman should be corrected there, or Print Handy may offer a slot that

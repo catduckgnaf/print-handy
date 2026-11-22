@@ -2751,6 +2751,12 @@ def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, st
     if cause == "runout" and prior is not None and int(prior) == int(spool_id):
         spool_sync.resume_usage(int(spool_id), mr=mr)
         clear_runout_pause()
+        if (context or {}).get("print_over"):
+            # #1788: a screen "refeed" after the print was cancelled is how the
+            # 2026-11-21 PETG swap went unseen: the screen still named the old
+            # spool. Nobody said in chat what went in, so intake asks once.
+            from ..intake import slot_verify
+            slot_verify.mark_unconfirmed(slot, spool_id, "runout")
         return True
     spool_sync.bind_slot(int(slot), int(spool_id), client=client, mr=mr, state_path=state_path,
                          prior_disposition="depleted" if cause == "runout" else "shelf",
@@ -4123,6 +4129,10 @@ class Listener:
                 warn(f"spool question refeed settle failed: {exc!r}")
             else:
                 log(f"spool question closed as a refeed: slot {slot} is back on spool #{bound}")
+                # #1788: the refeed rule answered for the operator; the slot
+                # reads loaded, but nothing says it is the same roll.
+                from ..intake import slot_verify
+                await asyncio.to_thread(slot_verify.mark_unconfirmed, slot, bound, "runout")
                 await asyncio.to_thread(post, refeed_settled_text(record))
                 return "settled"
         if not record.get("print_over"):
@@ -4197,6 +4207,9 @@ class Listener:
             for slot in found:
                 await asyncio.to_thread(post_insertion_confirmation, slot)
                 log(f"native filament presence transition prompted for slot {slot}")
+                # #1788: until the prompt is answered, intake asks about the slot.
+                from ..intake import slot_verify
+                await asyncio.to_thread(slot_verify.mark_unconfirmed, slot, _mapped_spool(slot), "insertion")
             from . import print_alert_buttons as pab
             self.ifs_monitor.prune_pending(slots, await asyncio.to_thread(pab.open_insertion_slots))
         except Exception as exc:
