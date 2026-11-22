@@ -4,6 +4,7 @@ The 2026-11-21 PETG spool on the AD5X was sliced with the PLA template's values 
 Generic PLA" (#123). These slices go through slice_model with the real AD5X templates and the committed Orca
 profile database; only Orca itself is stubbed (the slice_inputs fixture captures the filament JSON it receives).
 """
+from print_handy.core import filament_type
 from print_handy.core import nozzle as nozzle_mod
 from print_handy.core import orca_profile_db
 
@@ -67,6 +68,6 @@ def test_a_material_orca_has_no_vendor_profile_for_names_the_library_generic(sli
     expected = orca_profile_db.profile_name(
         orca_profile_db.resolve(orca_profile_db.printer_preset("Flashforge AD5X", 0.4,
                                                                preferred="Flashforge AD5X 0.4 nozzle"),
-                                __import__("print_handy.core.filament_type", fromlist=["x"]).from_text("PC")), "PC")
+                                filament_type.from_text("PC")), "PC")
     assert filament["filament_settings_id"] == [expected]
     assert "Flashforge Generic PLA" not in expected
