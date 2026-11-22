@@ -798,7 +798,8 @@ def _amount_text(spool):
 def _picker_label(spool):
     from ..runtime.discord_print_summary import spool_picker_label
     return spool_picker_label(spool.get("color"), spool.get("material"),
-                              spool.get("id"), spool.get("remaining_weight"))
+                              spool.get("id"), spool.get("remaining_weight"),
+                              filament=spool.get("filament"))
 
 
 def _remaining_bar(spool):

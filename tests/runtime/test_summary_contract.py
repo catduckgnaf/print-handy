@@ -33,17 +33,17 @@ def test_sanitized_summary_contract_for_discord_and_homeassistant():
 
 def test_filament_label_does_not_name_the_material_twice():
     from print_handy.runtime.discord_print_summary import filament_label
-    assert filament_label("Coffee PLA+", "PLA+") == "Coffee PLA+"
-    assert filament_label("coffee pla+", "PLA+") == "coffee pla+"
+    assert filament_label("Coffee PLA+", "PLA+") == "Coffee, PLA+"
+    assert filament_label("coffee pla+", "PLA+") == "coffee, PLA+"
     assert filament_label("PLA+", "PLA+") == "PLA+"
-    assert filament_label("Coffee", "PLA+") == "Coffee PLA+"
-    assert filament_label("Coffee PLA", "PLA+") == "Coffee PLA PLA+"  # a different material is kept
-    assert filament_label("Silk PLA", "LA") == "Silk PLA LA"  # whole-word match only
-    assert filament_label(None, "PETG", "?") == "? PETG"
+    assert filament_label("Coffee", "PLA+") == "Coffee, PLA+"
+    assert filament_label("Coffee PLA", "PLA+") == "Coffee, PLA+"  # the structured material field wins over a name word
+    assert filament_label("Silk PLA", "LA") == "Silk PLA, LA"  # an unreadable material is kept as given
+    assert filament_label(None, "PETG", "?") == "?, PETG"
     assert filament_label("", "") == ""
 
 
 def test_alert_slot_line_names_the_material_once():
     from print_handy.runtime.discord_print_summary import format_confirmed_print
     text = format_confirmed_print(kind="paused", model="clip.gcode", slot=2, color="Coffee PLA+", material="PLA+")
-    assert "Slot 2: Coffee PLA+" in text and "PLA+ PLA+" not in text
+    assert "Slot 2: Coffee, PLA+" in text and "PLA+ PLA+" not in text

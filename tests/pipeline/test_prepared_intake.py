@@ -1642,7 +1642,7 @@ def test_multipart_first_prompt_offers_the_proposed_mapping(env, monkeypatch):
     first = adapter.questions[0]
     # #1473: both author colors match loaded spools, so the first prompt is
     # the proposed mapping, not a mode question.
-    assert first['question'] == 'Colors for these parts: Shell: White PLA, Eyes: Black PLA. Use these colors?'
+    assert first['question'] == 'Colors for these parts: Shell: White, PLA; Eyes: Black, PLA. Use these colors?'
     assert first['choices'][:3] == ['Use these colors', 'Change colors', 'One color for everything']
     assert len(first['choices']) == 4
     assert first['choices'][-1] == 'Cancel'

@@ -207,12 +207,12 @@ def test_summary_wording_names_toolheads(creator, tmp_path):
            'color_decisions': {'mode': 'per_part',
                                'choices': {'part:a': {'slot': 3, 'color': 'red', 'material': 'PLA'}}}}
     text = summary.format_slice_summary(job)
-    assert 'red PLA, toolhead 3' in text
+    assert 'toolhead 3: red, PLA' in text
     assert 'slot' not in text.lower()
     started = summary.format_started(job, {'gcode': str(gcode), 'plate': 1, 'parts': ['Ghost Stand'],
                                            'slot': 3, 'color': 'red', 'material': 'PLA',
                                            'filament_g': None, 'seconds': 3600})
-    assert 'Toolhead 3: red PLA' in started
+    assert 'Toolhead 3: red, PLA' in started
 
 
 # ---------------------------------------------------------------- full prepare_link flow (Hermes intake)
@@ -329,7 +329,7 @@ def test_prepare_link_two_colours_completes_with_toolhead_wording(creator, flow_
     asked = [q['question'] for q in adapter.questions]
     offered = [c for q in adapter.questions for c in q['choices']]
     # The start summary names the plate's toolhead, never a slot.
-    assert any('Toolhead 2: black PLA' in text for text in adapter.sent), adapter.sent
+    assert any('Toolhead 2: black, PLA' in text for text in adapter.sent), adapter.sent
     assert not any('Slot' in text for text in adapter.sent + asked + offered), (adapter.sent, asked)
 
 

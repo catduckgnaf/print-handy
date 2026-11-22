@@ -31,12 +31,12 @@ SPEC.loader.exec_module(plugin)
 # ---------------------------------------------------------------- label shape
 
 @pytest.mark.parametrize("name,material,spool_id,grams,expected", [
-    ("Coffee PLA+", "PLA+", 21, 812.0, "Coffee · PLA+ · #21 · 812 g left"),
-    ("Matte White", "PLA+", 7, 400.0, "Matte White · PLA+ · #7 · 400 g left"),
-    ("Black", "PLA", 9, None, "Black · PLA · #9 · grams unknown"),
-    (None, None, 5, None, "color unknown · material unknown · #5 · grams unknown"),
-    ("PLA", "PLA", 3, 250.0, "color unknown · PLA · #3 · 250 g left"),
-    ("Spool #7", "", 7, 10.0, "color unknown · material unknown · #7 · 10 g left"),
+    ("Coffee PLA+", "PLA+", 21, 812.0, "Coffee, PLA+ · #21 · 812 g left"),
+    ("Matte White", "PLA+", 7, 400.0, "White Matte, PLA+ · #7 · 400 g left"),
+    ("Black", "PLA", 9, None, "Black, PLA · #9 · grams unknown"),
+    (None, None, 5, None, "color unknown, material unknown · #5 · grams unknown"),
+    ("PLA", "PLA", 3, 250.0, "color unknown, PLA · #3 · 250 g left"),
+    ("Spool #7", "", 7, 10.0, "color unknown, material unknown · #7 · 10 g left"),
 ])
 def test_spool_picker_label_shape(name, material, spool_id, grams, expected):
     assert spool_picker_label(name, material, spool_id, grams) == expected
@@ -50,8 +50,8 @@ def test_insertion_options_use_the_picker_shape_and_say_unknown_grams():
          "filament": {"name": "Black", "material": "PLA"}},
     ])
     labels = {o["value"]: o["label"] for o in options}
-    assert labels["18"] == "Rose Red · Silk PLA · #18 · grams unknown"
-    assert labels["19"] == "Black · PLA · #19 · 812 g left"
+    assert labels["18"] == "Rose Red Silk, PLA · #18 · grams unknown"
+    assert labels["19"] == "Black, PLA · #19 · 812 g left"
 
 
 def test_color_picker_options_all_carry_color_and_material():
@@ -229,7 +229,7 @@ def test_insertion_select_names_the_exact_spool_and_binds_only_on_confirm(tmp_pa
     on_interaction, binds = _insertion_rig(tmp_path, monkeypatch)
     sink = []
     kind, content, view = _drive_to_bind_confirm(on_interaction, sink)
-    assert "Bind spool Matte White · PLA+ · #7 · 400 g left to slot 2?" in content
+    assert "Bind spool White Matte, PLA+ · #7 · 400 g left to slot 2?" in content
     assert "Spool #12 goes back on the shelf." in content  # shelf by default, named
     assert "archived" not in content
     assert binds == []  # the picker selection alone bound nothing

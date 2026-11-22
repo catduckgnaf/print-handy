@@ -404,9 +404,8 @@ def _action_key(fingerprint: dict[str, Any] | None) -> str:
 
 
 def _spool_label(spool: dict[str, Any]) -> str:
-    filament = (spool or {}).get("filament") or {}
-    parts = [str(filament.get("name") or "").strip(), str(filament.get("material") or "").strip()]
-    return " ".join(part for part in parts if part) or "unknown filament"
+    from ..core import filament_type
+    return filament_type.spool_label((spool or {}).get("filament")) or "unknown filament"
 
 
 def _color_agrees(lane_color: str, spool: dict[str, Any]) -> bool:

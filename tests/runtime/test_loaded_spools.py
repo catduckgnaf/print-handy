@@ -51,7 +51,7 @@ def _state_file(tmp_path, state):
 def test_loaded_text_shows_loaded_only_with_amounts_and_percent(tmp_path):
     text = spool_sync.loaded_text(client=_client(), state_path=_state_file(tmp_path, STATE))
     assert text.startswith("**Loaded filament**")
-    assert "Slot 2: #12 Sunlu Red PETG (#FF0000) — 640 g left (64% of 1000 g)" in text
+    assert "Slot 2: #12 Sunlu Red, PETG (#FF0000) — 640 g left (64% of 1000 g)" in text
     assert "Slot 1: empty" in text and "Slot 4: empty" in text
     # The shelf spool is inventory, not an answer to "what is loaded".
     assert "#7" not in text and "Matte White" not in text and "**Shelf**" not in text
@@ -76,7 +76,7 @@ def test_loaded_text_reports_an_unbound_single_spool(tmp_path):
 def test_loaded_text_single_spool_printer_and_unknown_percent(tmp_path):
     state = {"spool": {"spoolman_id": 7, "name": "Matte White PLA+", "material": "PLA+"}}
     text = spool_sync.loaded_text(client=_client(), state_path=_state_file(tmp_path, state))
-    assert "Spool: #7 Sunlu Matte White PLA+ — 400 g left" in text
+    assert "Spool: #7 Sunlu White Matte, PLA+ — 400 g left" in text
     assert "percent unknown" in text  # no initial_weight on the fake spool
     assert "Slot 1" not in text  # no phantom IFS slots for a one-spool printer
 

@@ -120,6 +120,14 @@ slot-verify questions, the Web UI and the lane name pushed to HelixScreen.
 `source_colors._spool_label`, `print_summary.spool_picker_label` and
 `lane_data_sync._spool_label` become one function.
 
+The label carries its own comma, so it never sits in a comma-joined list.
+Where several labels are listed, or a label is followed by more fields, the
+joiner is `; ` or the position leads the label: `Shell: White, PLA; Eyes:
+Black, PLA`, `slot 2: Bronze, PLA+; slot 3: Black, PLA+`, `#21 Coffee, PLA+;
+800 g`. Separators that are not commas (` · `, ` | `, ` — `, parentheses)
+stay as they are. Color casing is the source's own: a lower-case color from
+the slicer project or the screen stays lower case (`bronze, PLA+`).
+
 ### 5. Verification compares family and flags
 
 `slot_verify` and the lane watcher compare the bound spool's family plus

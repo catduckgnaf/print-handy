@@ -632,7 +632,7 @@ def insertion_select_options(spools: list[dict[str, Any]], mapped: dict[str, Any
         filament = spool.get("filament") or {}
         from .discord_print_summary import spool_picker_label
         label = spool_picker_label(filament.get("name"), filament.get("material"),
-                                   spool.get("id"), spool.get("remaining_weight"))
+                                   spool.get("id"), spool.get("remaining_weight"), filament=filament)
         options.append({"label": label[:100], "value": str(spool.get("id")),
                         "description": "Select this shelf spool"})
     return options
