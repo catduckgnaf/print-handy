@@ -217,6 +217,24 @@ def test_a_new_write_removes_the_old_record(tmp_path):
     assert not mesh_sidecar.path_for(target).exists()
 
 
+def test_a_same_size_replacement_with_its_mtime_restored_is_not_trusted(tmp_path):
+    """The digest is never cached by path, size and mtime: a replaced model of
+    the same size, its modification time put back, must not match the old record."""
+    import os
+    target = tmp_path / 'parts.3mf'
+    model_parts.combine(target, [str(s) for s in _stl_sources(tmp_path)], [220.0, 220.0, 250.0])
+    assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is not None
+    before = target.stat()
+    data = bytearray(target.read_bytes())
+    data[-1] ^= 0xFF
+    target.write_bytes(bytes(data))
+    os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = target.stat()
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+    assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is None
+    assert mesh_sidecar.tables(target, None) is None
+
+
 # ------------------------------------------------------------ only this install's own sidecars are trusted
 
 def _forge(target, counts, *, key=None):

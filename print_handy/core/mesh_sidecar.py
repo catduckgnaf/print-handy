@@ -51,9 +51,6 @@ KEY_NAME = 'mesh-sidecar.key'
 PLACEHOLDER_VERTEX = '          <vertex x="0" y="0" z="0"/>'
 PLACEHOLDER_TRIANGLE = '          <triangle v1="0" v2="0" v3="0"/>'
 
-_HASHES = {}
-
-
 def path_for(model_path):
     model_path = Path(model_path)
     return model_path.with_name(model_path.name + SUFFIX)
@@ -68,16 +65,15 @@ def discard(model_path):
 
 
 def _sha256(path):
-    """SHA-256 of a file, remembered per (path, size, mtime) for this process."""
-    stat = path.stat()
-    key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
-    hit = _HASHES.get(key)
-    if hit is None:
-        with path.open('rb') as source:
-            hit = hashlib.file_digest(source, 'sha256').hexdigest()
-        _HASHES.clear()
-        _HASHES[key] = hit
-    return hit
+    """SHA-256 of the whole file, read fresh on every call.
+
+    Never cached by path, size or modification time: a same-size replacement
+    with its mtime restored would then reuse the old digest, so a stale signed
+    sidecar would appear to match and its counts would be trusted. Hashing the
+    combined 3MF costs some tens of milliseconds (14 MB for the tongs pair).
+    """
+    with path.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
 def _key_path():
