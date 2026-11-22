@@ -1,7 +1,7 @@
 """When the two preview slices (without and with supports) may run at the same time (#1779).
 
 Parallel previews need a host with room for two slicer runs and a slicer that tolerates them:
-``[slicer] parallel_preview`` is on (the default), ``os.cpu_count()`` is known and at least
+``[slicer] parallel_preview`` is turned on (it is off by default), ``os.cpu_count()`` is known and at least
 ``MIN_CPUS``, the container's CPU quota (when one is set) is not below that, and the Orca command
 is not a Flatpak (concurrent Flatpak Orca runs collide, exit 243). Anything else slices one run
 at a time, as before. ``MAX_SLICER_RUNS`` is the most slicer steps ever running at once across
@@ -26,7 +26,7 @@ def enabled(cpu_count='unset', cfg=None, budget='unset'):
     from .. import settings
     from . import resources
     cfg = settings.current() if cfg is None else cfg
-    if (cfg.get('slicer') or {}).get('parallel_preview', True) is not True:
+    if (cfg.get('slicer') or {}).get('parallel_preview', False) is not True:
         return False
     cpus = os.cpu_count() if cpu_count == 'unset' else cpu_count
     if not isinstance(cpus, int) or cpus < MIN_CPUS:

@@ -32,10 +32,26 @@ def test_enabled_rule(cpus, cfg, budget, expected, monkeypatch):
     assert preview_parallel.enabled(cpu_count=cpus, cfg=cfg, budget=budget) is expected
 
 
-def test_default_is_on_for_an_eligible_host(monkeypatch):
+def test_default_is_off_even_for_an_eligible_host(monkeypatch):
     monkeypatch.delenv('PRINT_HANDY_ORCA_CMD', raising=False)
-    assert preview_parallel.enabled(cpu_count=4, cfg={'orca': {'command': ['/usr/local/bin/orca-slicer']}},
+    cfg = {'orca': {'command': ['/usr/local/bin/orca-slicer']}}
+    assert preview_parallel.enabled(cpu_count=8, cfg=cfg, budget=None) is False
+    assert preview_parallel.enabled(cpu_count=8, cfg={**cfg, 'slicer': {}}, budget=None) is False
+    assert preview_parallel.enabled(cpu_count=8, cfg={**cfg, 'slicer': {'parallel_preview': True}},
                                     budget=None) is True
+
+
+def test_shipped_defaults_keep_parallel_preview_off():
+    import re
+    from pathlib import Path
+    import yaml
+    root = Path(__file__).resolve().parents[2]
+    assert yaml.safe_load((root / 'config/home.yaml').read_text())['slicer']['parallel_preview'] is False
+    assert re.search(r'^# PRINT_HANDY__SLICER__PARALLEL_PREVIEW=false$',
+                     (root / '.env.example').read_text(), re.M)
+    from print_handy.webui import catalog
+    field = catalog.field_by_id('slicer.parallel_preview')
+    assert 'Off (the default)' in field.help and 'On (the default)' not in field.help
 
 
 def test_slicer_slots_follow_the_rule_and_never_exceed_two(monkeypatch):
@@ -177,6 +193,31 @@ def test_concurrent_failure_falls_back_to_slicing_in_turn(tmp_path, monkeypatch)
         assert runner.supports_error is None
         sup = await runner.take_supports()
         assert sup and Path(sup[0]).name == 'plate_sup.gcode'
+    asyncio.run(run())
+
+
+def test_failed_supports_slice_leaves_no_variant_folder(tmp_path, monkeypatch):
+    # Duckcat review 6013616708: a failed isolated supports slice must not leave variant_supports behind.
+    monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, **k: True)
+
+    async def run():
+        folder, job_path = _setup(tmp_path)
+        real = _slice_func([])
+
+        async def always_fails(path, work, runner, **kw):
+            if 'variant_supports' in path:
+                Path(path).parent.joinpath('partial.gcode').write_text('G1')
+                raise RuntimeError('orca exit 243')
+            return await real(path, work, runner, **kw)
+        runner = BackgroundSlice()
+        await runner.start(job_path, 'b', always_fails)
+        await runner.settle()
+        with pytest.raises(RuntimeError):  # the failure still reaches the caller, as before
+            await runner.take_supports()
+        assert runner.variant is None
+        assert not (folder / 'variant_supports').exists()
+        await runner.discard()
+        assert not (folder / 'variant_supports').exists()
     asyncio.run(run())
 
 

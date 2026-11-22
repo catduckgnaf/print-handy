@@ -300,7 +300,10 @@ class BackgroundSlice:
     def _adopt_variant(self):
         """Move an isolated supports slice into the intake folder and rebase its recorded paths."""
         folder, self.variant = self.variant, None
-        if folder is None or self.job_with_supports is None:
+        if folder is None:
+            return
+        if self.job_with_supports is None:  # the supports slice failed: leave no partial outputs
+            shutil.rmtree(folder, ignore_errors=True)
             return
         old_root, new_root = str(folder), str(Path(self.job_path).parent)
         moved = []
@@ -444,12 +447,14 @@ class BackgroundSlice:
             # suppress kept with reason (#1455): see settle().
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
-        if self.supports_task is not None:
-            # suppress kept with reason (#1455): see settle() — the outcome is
-            # read from self.supports_error / self.supports_result.
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.supports_task
-        self._adopt_variant()
+        try:
+            if self.supports_task is not None:
+                # suppress kept with reason (#1455): see settle() — the outcome is
+                # read from self.supports_error / self.supports_result.
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self.supports_task
+        finally:  # a failed supports slice raises above; its private folder must not outlive it
+            self._adopt_variant()
         self._write_slice_job(self.job_with_supports, default_supports=True)
         return self.supports_result
 
