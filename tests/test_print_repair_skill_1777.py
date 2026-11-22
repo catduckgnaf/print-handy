@@ -154,6 +154,43 @@ def test_a_mesh_is_loaded_once_per_session(workspace, monkeypatch):
     assert len(calls) == 1
 
 
+def test_an_oversized_mesh_is_refused_before_loading(workspace, monkeypatch):
+    calls = []
+    monkeypatch.setattr(layer_scan, 'load', lambda path: calls.append(path))
+    monkeypatch.setattr(tools, 'MAX_MESH_BYTES', 10)
+    reply = print_repair.Session(workspace).run('bodies', {'mesh': 'source/part.stl'})
+    assert not reply['ok'] and 'is larger than' in reply['error'], reply
+    assert calls == []
+
+
+def test_long_lists_are_clipped_and_the_rest_counted(workspace, monkeypatch):
+    support_clearance._write_binary_stl(
+        workspace / 'source' / 'three.stl',
+        np.concatenate((box(0, 0, 0, 10, 10, 10), box(20, 0, 0, 25, 5, 5), box(40, 0, 0, 42, 2, 2))))
+    monkeypatch.setattr(tools, 'MAX_ITEMS', 1)
+    result = print_repair.Session(workspace).run('bodies', {'mesh': 'source/three.stl'})['result']
+    assert result['count'] == 3
+    assert len(result['bodies']) == 1 and result['bodies_not_listed'] == 2
+    assert result['bodies'][0]['volume_mm3'] == pytest.approx(1000.0)
+
+
+def test_a_short_list_carries_no_not_listed_count(workspace):
+    result = print_repair.Session(workspace).run('bodies', {'mesh': 'source/part.stl'})['result']
+    assert 'bodies_not_listed' not in result
+
+
+def test_clearance_report_shape(workspace):
+    reply = print_repair.Session(workspace).run('clearance_report',
+                                                {'mesh': 'source/part.stl', 'first_layer_mm': 0.2})
+    assert reply['ok'], reply
+    result = reply['result']
+    assert set(result) >= {'risky', 'codes', 'first_layer_mm', 'findings', 'regions'}
+    assert isinstance(result['risky'], bool) and isinstance(result['codes'], list)
+    assert result['first_layer_mm'] == 0.2
+    for item in result['findings'] + result['regions']:
+        assert not {'footprint', 'fixes', 'material'} & set(item)
+
+
 def test_the_workspace_must_exist(tmp_path):
     with pytest.raises(tools.ToolError):
         print_repair.Session(tmp_path / 'missing')
