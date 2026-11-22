@@ -31,6 +31,7 @@ from dataclasses import dataclass, field as _dc_field
 from pathlib import Path
 
 from .. import credential_binding, printers, settings
+from ..core import build_plate
 from . import config as config_api
 from . import pages, shell
 from .catalog import (PRINTER_URL_BY_CONNECTION, choices_for, field_by_id)
@@ -42,7 +43,7 @@ _show = pages._show
 # display order within their sections; the connection field for the
 # printer's own connection kind is inserted after the model.
 _NAME_MODEL = ("printer.name", "printer.model")
-_SLICING = ("printer.slicer", "delivery.methods", "printer.zmod_delivery_format")
+_SLICING = ("printer.build_plate", "printer.slicer", "delivery.methods", "printer.zmod_delivery_format")
 
 # The entry keys that carry a printer's connection, by vendor
 # connection kind: (entry key, label, help). One connection, one
@@ -94,6 +95,10 @@ _ENTRY_LABELS = {
               "defaults, its connection kind and its slicer and "
               "delivery choices, so check the connection fields after "
               "a change."),
+    "build_plate": ("Build plate",
+                    "The plate on this printer. Empty means unknown: nothing warns "
+                    "and the slicer's default plate stands. Set, the slicer uses "
+                    "that plate's bed type and temperature."),
     "chat_id": ("Chat channel",
                 "The channel or room this printer answers in, on the "
                 "platform the bot runs (Discord channel ID, Telegram "
@@ -187,11 +192,13 @@ def _entry_row(key, state, *, model, writable_shape):
                      "to the settings file.")
     elif not writable_shape:
         lock_note = ""  # the section-level roster note carries the reason
-    kind = "picker" if key == "model" else "text"
+    kind = "picker" if key in ("model", "build_plate") else "text"
     choices = ()
     if key == "model":
         choices = tuple(sorted(printers.MODELS,
                                key=lambda k: (printers.MODELS[k].label.casefold(), k)))
+    elif key == "build_plate":
+        choices = ("", *build_plate.PLATES)
     return Row(name=f"entry.{key}", label=label, kind=kind, help=help_text,
                value=key_state.value, choices=choices,
                source=_SOURCE_LABELS.get(key_state.source, key_state.source),
@@ -258,7 +265,7 @@ def build_model(data, printer_id, *, environ=None):
                 _entry_row("chat_id", entry_state, model=model, writable_shape=writable_shape)]
     connection = _entry_connection_rows(entry_state, model=model,
                                         writable_shape=writable_shape)
-    slicing = []
+    slicing = [_entry_row("build_plate", entry_state, model=model, writable_shape=writable_shape)]
     delivery_row = _catalog_row(all_values["delivery.methods"], view)
     delivery_row.note = "Delivery methods are install-wide ([delivery] stays " \
                         "shared by every printer); edited here for convenience."
@@ -334,6 +341,8 @@ def _choice_label(row, choice):
         model = printers.MODELS.get(str(choice))
         if model is not None:
             return model.label
+    if row.name in ("printer.build_plate", "entry.build_plate"):
+        return build_plate.PLATES.get(str(choice), "Unknown (not set)" if not choice else str(choice))
     return str(choice)
 
 
