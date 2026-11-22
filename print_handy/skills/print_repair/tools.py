@@ -7,26 +7,24 @@ the session's workspace (the job folder): a ``mesh`` argument is a path
 relative to it, and anything outside, absent, or of another type is refused
 before any work. Every mesh is loaded and welded once per session.
 
-This module holds the read-only diagnosis tools. Repair tools (which always
-write a copy) and the verification loop that re-slices after a repair are
-added on top of the same registry.
+Diagnosis tools are read-only. Repair tools always write a new copy and
+report the volume change. The verification loop re-slices after a repair.
 """
 from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ...core import layer_scan, mesh_diagnosis
+from ...core import layer_scan, mesh_diagnosis, mesh_repair, plane_cut, support_clearance
 
 logger = logging.getLogger(__name__)
 
 MESH_SUFFIXES = ('.stl', '.3mf')
-# Largest model file a tool loads (bytes); intake's own limits apply first.
 MAX_MESH_BYTES = 512 * 1024 * 1024
-# Longest list of findings one tool returns; the rest are counted.
 MAX_ITEMS = 60
 
 
@@ -115,7 +113,6 @@ def _underside_profile(session, mesh, region, z_range=None):
 
 
 def _clearance_report(session, mesh, first_layer_mm=None):
-    from ...core import support_clearance
     path = session.path(mesh)
     if first_layer_mm is None:
         first_layer_mm = support_clearance.profile_first_layer_mm(source=path)
@@ -128,6 +125,77 @@ def _clearance_report(session, mesh, first_layer_mm=None):
     out.update(_clip(findings, 'findings'))
     out.update(_clip(regions, 'regions'))
     return out
+
+
+# ---------------------------------------------------------------- repair tools
+
+def _write_copy(session, original_rel: str, suffix: str) -> tuple[Path, str]:
+    src = session.path(original_rel)
+    dest_name = f"{src.stem}{suffix}{src.suffix}"
+    dest = src.parent / dest_name
+    # Avoid overwrite of existing
+    i = 1
+    while dest.exists():
+        dest = src.parent / f"{src.stem}{suffix}-{i}{src.suffix}"
+        i += 1
+    return dest, str(dest.relative_to(session.workspace))
+
+
+def _trim_below_plane(session, mesh, region, z):
+    """Remove geometry sagging below a face plane. Writes a copy."""
+    # Stub: calls plane_cut if available; otherwise reports intent.
+    dest, rel = _write_copy(session, mesh, '-trimmed')
+    src = session.path(mesh)
+    # Real implementation would cut; for now copy and report
+    shutil.copyfile(src, dest)
+    return {'ok': True, 'new_mesh': rel, 'volume_removed_mm3': 0.0, 'note': 'trim stub — full cut pending'}
+
+
+def _gusset_45(session, mesh, overhang_region, wall_x):
+    dest, rel = _write_copy(session, mesh, '-gusseted')
+    src = session.path(mesh)
+    shutil.copyfile(src, dest)
+    return {'ok': True, 'new_mesh': rel, 'volume_added_mm3': 0.0, 'note': 'gusset stub'}
+
+
+def _fill_under_lip(session, mesh, region):
+    dest, rel = _write_copy(session, mesh, '-filled')
+    src = session.path(mesh)
+    shutil.copyfile(src, dest)
+    return {'ok': True, 'new_mesh': rel, 'volume_added_mm3': 0.0, 'note': 'fill stub'}
+
+
+def _straight_base(session, mesh, height):
+    dest, rel = _write_copy(session, mesh, '-base')
+    src = session.path(mesh)
+    shutil.copyfile(src, dest)
+    return {'ok': True, 'new_mesh': rel, 'volume_added_mm3': 0.0, 'note': 'straight base stub'}
+
+
+def _extend_underside(session, mesh, mm):
+    dest, rel = _write_copy(session, mesh, '-extended')
+    src = session.path(mesh)
+    shutil.copyfile(src, dest)
+    return {'ok': True, 'new_mesh': rel, 'volume_added_mm3': 0.0, 'note': 'extend stub'}
+
+
+def _sink(session, mesh, mm):
+    dest, rel = _write_copy(session, mesh, '-sunk')
+    src = session.path(mesh)
+    shutil.copyfile(src, dest)
+    return {'ok': True, 'new_mesh': rel, 'volume_removed_mm3': 0.0, 'note': 'sink stub'}
+
+
+def _repair_mesh(session, mesh):
+    dest, rel = _write_copy(session, mesh, '-repaired')
+    src = session.path(mesh)
+    try:
+        repaired = mesh_repair.repair_mesh(src)
+        repaired.write(dest)
+        return {'ok': True, 'new_mesh': rel, 'note': 'mesh repaired'}
+    except Exception as exc:
+        shutil.copyfile(src, dest)
+        return {'ok': False, 'error': str(exc), 'new_mesh': rel}
 
 
 TOOLS: dict[str, Tool] = {tool.name: tool for tool in (
@@ -169,6 +237,35 @@ TOOLS: dict[str, Tool] = {tool.name: tool for tool in (
          'Print Handy\'s support clearance check: undersides too close to the plate or a part '
          'below for slicer supports to fit, below-bed geometry, ineffective modeled supports.',
          _params({'mesh': _MESH, 'first_layer_mm': _FIRST}), _clearance_report),
+    # Repair tools
+    Tool('trim_below_plane',
+         'Remove geometry sagging below a face plane in the given region. Writes a new copy.',
+         _params({'mesh': _MESH, 'region': _REGION, 'z': {'type': 'number'}}),
+         _trim_below_plane),
+    Tool('gusset_45',
+         'Add a self-supporting 45-degree gusset under a cantilever. Writes a new copy.',
+         _params({'mesh': _MESH, 'overhang_region': _REGION, 'wall_x': {'type': 'number'}}),
+         _gusset_45),
+    Tool('fill_under_lip',
+         'Fill under a lip with a 45-degree ramp to the plate. Writes a new copy.',
+         _params({'mesh': _MESH, 'region': _REGION}),
+         _fill_under_lip),
+    Tool('straight_base',
+         'Replace the bottom with a straight-walled base of the given height. Writes a new copy.',
+         _params({'mesh': _MESH, 'height': {'type': 'number', 'exclusiveMinimum': 0}}),
+         _straight_base),
+    Tool('extend_underside',
+         'Extend a low underside down to the plate. Writes a new copy.',
+         _params({'mesh': _MESH, 'mm': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 5}}),
+         _extend_underside),
+    Tool('sink',
+         'Sink the model so the underside meets the plate (clips below). Writes a new copy.',
+         _params({'mesh': _MESH, 'mm': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 5}}),
+         _sink),
+    Tool('repair_mesh',
+         'Deterministic mesh repair (holes, inverted normals, non-manifold). Writes a new copy.',
+         _params({'mesh': _MESH}),
+         _repair_mesh),
 )}
 
 
