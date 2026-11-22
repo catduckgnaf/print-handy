@@ -88,6 +88,7 @@ GROUP_OF = {
     "printer.name": "printers",
     "printer.model": "printers",
     "printer.slicer": "slicing",
+    "printer.build_plate": "printers",
     "printer.zmod_delivery_format": "printers",
     "printer.opencreator_flow_calibration": "printers",
     "printer.opencreator_purge": "printers",
@@ -408,6 +409,12 @@ CATALOG = (
            "makes slicing fail with that reason rather than quietly falling back. "
            "Print Handy never downloads or bundles Flash Studio.",
            validator="settings slicer path check"),
+    _field("printer", "build_plate", "Build plate", "picker",
+           "The plate on this printer. Empty means unknown: nothing warns and the slicer's default "
+           "plate stands. Set, the slicer uses that plate's bed type and temperature, and the "
+           "preparation message warns when a material can damage it (PETG on smooth PEI).",
+           choices=("", "smooth_pei", "textured_pei", "smooth_pc", "cool_plate"),
+           validator="settings build plate check"),
     _field("printer", "zmod_delivery_format", "ZMod delivery format", "picker",
            "Flashforge/ZMod printers only: auto sends the sliced .gcode.3mf when the printer "
            "reports ZMod 1.7.5+ and plain .gcode otherwise; gcode always sends .gcode; "

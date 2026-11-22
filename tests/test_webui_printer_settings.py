@@ -273,6 +273,28 @@ class PrinterSettingsPageTests(unittest.TestCase):
             self.assertEqual((other["name"], other["moonraker_url"]),
                              ("Garage AD5X", "http://ad5x.local:7125"))
 
+    def test_roster_build_plate_round_trip_and_clear(self):
+        """The editor sets, shows and clears the plate (#1788); empty is unknown."""
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, env = self.start(tmp, ROSTER)
+            code, body, csrf = self.get_page(port, "ad5x")
+            self.assertEqual(code, 200, body)
+            self.assertIn("Build plate", body)
+            self.assertIn("Unknown (not set)", body)
+            base = [("_csrf", csrf), ("printer", "ad5x"), ("entry.name", "Garage AD5X"),
+                    ("entry.model", "flashforge.ad5x"), ("entry.chat_id", ""),
+                    ("entry.moonraker_url", "http://ad5x.local:7125"), ("delivery.methods", "printer")]
+            code, body = self.post(port, base + [("entry.build_plate", "textured_pei")])
+            self.assertEqual(code, 200, body)
+            self.assertIn("Saved", body)
+            entry = settings.by_id("ad5x", settings.load(local=local, environ=env))
+            self.assertEqual(entry["build_plate"], "textured_pei")
+            code, body, csrf = self.get_page(port, "ad5x")
+            code, body = self.post(port, [("_csrf", csrf)] + base[1:] + [("entry.build_plate", "")])
+            self.assertEqual(code, 200, body)
+            entry = settings.by_id("ad5x", settings.load(local=local, environ=env))
+            self.assertNotIn("build_plate", entry)
+
     def test_roster_entry_key_locked_by_environment(self):
         locked = {"PRINT_HANDY__PRINTERS__MK4S__CHAT_ID": "999"}
         with tempfile.TemporaryDirectory() as tmp:
