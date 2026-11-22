@@ -169,7 +169,7 @@ def test_write_lane_record_shape_and_helix_preservation():
     assert record["spool_id"] == 19
     assert record["spoolman_vendor_id"] == 2
     assert record["material"] == "PLA" and record["color"] == "FFFFFF"
-    assert record["name"] == "White PLA"
+    assert record["name"] == "White, PLA"  # the shared label, not the passed slot name (#1788 phase B)
     assert record["scan_time"] == 123456
     # Print Handy declares nothing on the user's behalf...
     assert record["helix_locked_color"] is False

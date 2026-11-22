@@ -501,10 +501,11 @@ def build_lane_record(slot: int, spool: dict[str, Any], existing: dict[str, Any]
              or screen_hex(first_hex_of(filament))
              or str(filament.get("name") or "").strip())
     material = str(filament.get("material") or "").strip()
-    # The lane name Print Handy writes is the one spool label (#1788 phase B); a name the caller
-    # passes (the screen's own) is kept as given.
+    # The lane name Print Handy writes is the one spool label (#1788 phase B), built from the spool's
+    # filament. The callers pass the slot record's own name, which is not the label ("Black PETG" for
+    # "High Speed Matte Black PETG"), so it is only the fallback for a filament with nothing to label.
     from ..core import filament_type
-    display = name or filament_type.spool_label(filament)
+    display = filament_type.spool_label(filament) or name
     record: dict[str, Any] = {}
     if isinstance(existing, dict):
         for key, value in existing.items():

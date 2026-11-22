@@ -227,7 +227,12 @@ def test_lane_name_and_loaded_spool_use_the_same_label():
     spool = {"id": 22, "filament": fil("High Speed Matte Black PETG", "PETG", color_hex="000000")}
     assert lane_data_sync._spool_label(spool) == "Black Matte, PETG HS"
     assert spool_sync.build_lane_record(1, spool, now=1)["name"] == "Black Matte, PETG HS"
-    assert spool_sync.build_lane_record(1, spool, name="Screen Name", now=1)["name"] == "Screen Name"
+    # The bind and swap paths pass the slot record's own name ("Black PETG"); the label still wins, and
+    # the passed name only names a lane whose filament has nothing to label (duckcatgnaf, 1928ba74).
+    assert spool_sync.build_lane_record(1, spool, name="Black PETG", now=1)["name"] == "Black Matte, PETG HS"
+    bare = {"id": 23, "filament": {}}
+    assert spool_sync.build_lane_record(1, bare, name="Slot name", now=1)["name"] == "Slot name"
+    assert spool_sync.build_lane_record(1, bare, now=1)["name"] == "Spool #23"
 
 
 def test_source_colors_label_uses_the_shared_shape():
