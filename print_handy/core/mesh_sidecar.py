@@ -196,6 +196,28 @@ def write(model_path, skeleton_lines, objects):
         return None
 
 
+# The members read before the HMAC is checked. ``np.savez`` stores them
+# uncompressed; anything else, or a header past this size, is not ours, and
+# refusing it from the zip directory alone means a forged sidecar is never
+# inflated into memory before it is rejected.
+UNSIGNED_MEMBERS = ('meta.npy', 'signature.npy')
+MAX_HEADER_BYTES = 1 << 20
+
+
+def _small_stored_members(sidecar):
+    """True when the members read before authentication are stored, not deflated, and small."""
+    with zipfile.ZipFile(sidecar) as archive:
+        for name in UNSIGNED_MEMBERS:
+            try:
+                info = archive.getinfo(name)
+            except KeyError:
+                return False
+            if (info.compress_type != zipfile.ZIP_STORED or info.file_size > MAX_HEADER_BYTES
+                    or info.compress_size != info.file_size):
+                return False
+    return True
+
+
 def _load(model_path, want_arrays):
     """The sidecar's ``(meta, npz)`` when it matches ``model_path`` byte for byte, else None."""
     model_path = Path(model_path)
@@ -207,6 +229,9 @@ def _load(model_path, want_arrays):
     if key is None:
         return None
     try:
+        if not _small_stored_members(sidecar):
+            logger.warning('mesh sidecar of %s has an oversized or compressed header; parsing it', model_path.name)
+            return None
         data = np.load(sidecar, allow_pickle=False)
         meta_bytes = bytes(data['meta'])
         signature = bytes(data['signature']).decode()

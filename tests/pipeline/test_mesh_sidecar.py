@@ -294,3 +294,28 @@ def test_tampered_tables_in_a_signed_sidecar_are_ignored(tmp_path):
     info = zipfile.ZipFile(target).getinfo(mesh_sidecar.MODEL)
     assert mesh_sidecar.tables(target, info) is None
     assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is not None  # counts metadata is untouched
+
+
+@pytest.mark.parametrize('shape', ['deflated', 'oversized'])
+def test_a_sidecar_header_is_bounded_before_it_is_read(tmp_path, monkeypatch, shape):
+    """duckcatgnaf (155af8f4): the members read before the HMAC check are vetted
+    from the zip directory, so a forged, deflated or huge header is never inflated."""
+    import numpy as np
+    target = tmp_path / 'parts.3mf'
+    model_parts.combine(target, [str(s) for s in _stl_sources(tmp_path)], [220.0, 220.0, 250.0])
+    sidecar = mesh_sidecar.path_for(target)
+    with np.load(sidecar, allow_pickle=False) as data:
+        arrays = {name: np.array(data[name]) for name in data.files}
+    with sidecar.open('wb') as stream:
+        if shape == 'deflated':
+            np.savez_compressed(stream, **arrays)  # the signed content, only compressed
+        else:
+            arrays['meta'] = np.zeros(mesh_sidecar.MAX_HEADER_BYTES + 1, dtype=np.uint8)
+            np.savez(stream, **arrays)
+
+    def no_load(*args, **kwargs):
+        raise AssertionError('np.load ran on a sidecar whose header was not vetted')
+    monkeypatch.setattr(mesh_sidecar.np, 'load', no_load)
+    assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is None
+    info = zipfile.ZipFile(target).getinfo(mesh_sidecar.MODEL)
+    assert mesh_sidecar.tables(target, info) is None
