@@ -2081,15 +2081,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             try:
                 base_flow = float(data['filament_flow_ratio'][0])
                 data['filament_flow_ratio'] = [str(round(base_flow * adj['flow_multiplier'], 4))]
-            except (ValueError, TypeError):
-                logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
-        # Provenance so the emitted flow can be rebuilt (#1832): vendor (or template) flow × nozzle multiplier.
-        state.setdefault('_flow_provenance', {})[material] = {
-            'nozzle_type': nozzle_type,
-            'flow_multiplier': adj.get('flow_multiplier'),
-            'base_flow_ratio': base_flow,
-            'emitted_flow_ratio': float(data.get('filament_flow_ratio', [1.0])[0]) if data.get('filament_flow_ratio') else None,
-        }
+            except (TypeError, ValueError, IndexError):
+                logger.debug("Best-effort recovery from a nonnumeric filament_flow_ratio", exc_info=True)
         # flow_ratio is the final ratio Orca receives (the tested number), so it replaces the nozzle
         # type's flow multiplier instead of being scaled by it. A vendor profile (Bambu Lab) keeps its own.
         tuning = {} if printer.vendor_material_profiles else material_tuning(material)
@@ -2104,7 +2097,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if layer_min is not None:
             try:
                 current = float((data.get('slow_down_layer_time') or ['0'])[0])
-            except (ValueError, TypeError):
+            except (TypeError, ValueError, IndexError):
                 current = 0.0
             if current < layer_min:
                 data['slow_down_layer_time'] = [format(layer_min, 'g')]
@@ -2112,10 +2105,26 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if flow_max is not None:
             try:
                 current = float((data.get('filament_max_volumetric_speed') or ['0'])[0])
-            except (ValueError, TypeError):
+            except (TypeError, ValueError, IndexError):
                 current = 0.0
             if current <= 0 or current > flow_max:
                 data['filament_max_volumetric_speed'] = [format(flow_max, 'g')]
+        # Provenance so the emitted flow can be rebuilt (#1832): vendor (or template) flow
+        # times the nozzle multiplier, then any tuning override. Recorded after those writes
+        # so a nonnumeric profile value cannot abort the slice.
+        emitted_flow = None
+        raw_flow = data.get('filament_flow_ratio')
+        if raw_flow:
+            try:
+                emitted_flow = float(raw_flow[0])
+            except (TypeError, ValueError, IndexError):
+                emitted_flow = None
+        state.setdefault('_flow_provenance', {})[material] = {
+            'nozzle_type': nozzle_type,
+            'flow_multiplier': adj.get('flow_multiplier'),
+            'base_flow_ratio': base_flow,
+            'emitted_flow_ratio': emitted_flow,
+        }
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
         for key in ('cool_plate_temp', 'eng_plate_temp', 'hot_plate_temp', 'textured_plate_temp'):
             data[key] = data[key + '_initial_layer'] = [bed]
