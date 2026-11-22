@@ -160,7 +160,7 @@ profile, not a hand-picked table, and an Orca update goes through it.
 - **What the slice takes (built, #1816 step 2):** a spool of another family than the printer's template
   (PETG on the AD5X's PLA template) gets the vendor profile's values for the template's keys over the
   library family row (`orca_profile_db.vendor_layer`). Not taken: bed type, filament start and end G-code,
-  z-hop (the guard allows only Normal Lift), the spool's own type, density, colour and cost, temperatures
+  z-hop (the guard allows only Normal Lift), the spool's own type, density, color and cost, temperatures
   (a later step moves vendor temperatures into the resolution that verification shares), and pressure
   advance (stays the printer's firmware tuning). A spool of the template's own family keeps the template:
   it is the printer's tested profile (the AD5X PLA recipe, #783), and Silk and PLA+ keep the #512 variant
