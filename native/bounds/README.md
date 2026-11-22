@@ -93,6 +93,13 @@ the same answers bit for bit, and the CI job sets
 `PRINT_HANDY_MESH_REQUIRE_NATIVE=1` for it. The large-mesh corpus tier
 (`tests/corpus/large_mesh/`) times both paths on real multi-MB sources.
 
+Without the extension, `print_handy/core/mesh_numpy.py` does the same mesh
+work (topology, measures, welding, 3MF text) in whole-array numpy steps under
+the same exact contract, for meshes of `MIN_TRIANGLES` (2048) and up;
+`PRINT_HANDY_BOUNDS_IMPL=python` still runs the original Python loops, the
+oracle. `tests/pipeline/test_numpy_mesh.py` holds numpy to the Python results
+bit for bit, and to the kernel's where the wheel is built.
+
 Without the built extension everything still works — the Python parser
 handles every input. Set `PRINT_HANDY_BOUNDS_IMPL=python` to force the
 fallback, or `=native` to make a missing/broken extension an error.

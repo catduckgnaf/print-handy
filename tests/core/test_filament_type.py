@@ -247,3 +247,13 @@ def test_filament_label_does_not_repeat_material():
     assert filament_label("PLA+", "PLA+") == "PLA+"
     assert filament_label(None, "PETG", "?") == "?, PETG"
     assert filament_label("", "") == ""
+
+
+def test_orca_profile_names_read_every_flag_word():
+    """#1816: Orca's curated profile names carry effects the free-text spool-name reader ignores."""
+    marble = ft.from_orca_profile("PLA", "SUNLU PLA Marble @FF AD5M")
+    assert (marble.family, set(marble.flags)) == ("PLA", {"imitates_marble"})
+    hs = ft.from_orca_profile("PETG", "Flashforge HS PETG @FF AD5X 0.25 nozzle")
+    assert (hs.family, set(hs.flags), hs.unmapped) == ("PETG", {"high_speed"}, ("FLASHFORGE",))
+    assert set(ft.from_orca_profile("PLA", "SUNLU PLA+ 2.0 @FF AD5M").flags) == {"plus"}
+    assert not ft.from_orca_profile(None, "Generic PLA @Flashforge").known

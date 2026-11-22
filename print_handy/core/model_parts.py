@@ -364,5 +364,6 @@ def combine(target, sources, bed=None, gap=10.0, stl_inches=False):
             tris = TransformedTriangles.translation(part['triangles'], dx, dy, dz)
             placed_objects.append({'name': part['id'], 'triangles': tris, 'translation_mm': (cursor, 0.0, 0.0)})
             cursor += (hi[0] - lo[0]) + float(gap)
-    write_geometry_only_3mf(placed_objects, target)
+    # The audit and the source check read these tables instead of the XML (#1790).
+    write_geometry_only_3mf(placed_objects, target, record_tables=True)
     return {'path': str(target), 'objects': [p['name'] for p in placed_objects], 'on_one_bed': on_one_bed}

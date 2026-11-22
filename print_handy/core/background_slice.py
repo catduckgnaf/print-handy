@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import logging
+import tempfile
 import time
 from pathlib import Path
 
@@ -308,7 +309,10 @@ class BackgroundSlice:
         if self.job_with_supports is None:  # the supports slice failed: leave no partial outputs
             shutil.rmtree(folder, ignore_errors=True)
             return
-        old_root, new_root = str(folder), str(Path(self.job_path).parent)
+        old_root = str(folder)
+        # Never publish into the first slice's namespace. Both slices can emit
+        # the same filename, and the supports review binds to the supports bytes.
+        new_root = tempfile.mkdtemp(prefix='adopted_supports_', dir=Path(self.job_path).parent)
         moved = []
 
         def rebase(value):
@@ -325,12 +329,14 @@ class BackgroundSlice:
                 return moved[-1][1]
             return value
 
-        self.job_with_supports = rebase(self.job_with_supports)
-        self.supports_result = rebase(self.supports_result)
+        job = rebase(self.job_with_supports)
+        result = rebase(self.supports_result)
         for src, dest in dict.fromkeys(moved):
-            if Path(src).is_file() and not Path(dest).exists():
+            if Path(src).is_file():
                 Path(dest).parent.mkdir(parents=True, exist_ok=True)
                 os.replace(src, dest)
+        self.job_with_supports = job
+        self.supports_result = result
         shutil.rmtree(folder, ignore_errors=True)
 
     async def _verify_supports_coverage(self):

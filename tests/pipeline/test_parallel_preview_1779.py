@@ -140,14 +140,42 @@ def test_flagged_geometry_runs_both_slices_at_once_in_isolated_folders(tmp_path,
             or json.loads(job_path.read_text())['support_decision'].get('supports') is not True
         sup = await runner.take_supports()
         assert [Path(p).name for p in sup] == ['plate_sup.gcode']
-        assert Path(sup[0]).parent == folder / 'sliced'          # adopted into the intake folder
+        assert Path(sup[0]).is_relative_to(folder)
+        assert Path(sup[0]).parent != folder / 'sliced'
         assert not (folder / 'variant_supports').exists()
         assert Path(sup[0]).read_text() == 'G1 X1\n'
         job = json.loads(job_path.read_text())
-        assert Path(job['gcode']).parent == folder / 'sliced'
+        assert Path(job['gcode']) == Path(sup[0])
         assert (job['support_decision'] or {}).get('supports') is True
         nosup = await runner.take_no_supports()
         assert Path(nosup[0]).name == 'plate_nosup.gcode' and Path(nosup[0]).is_file()
+    asyncio.run(run())
+
+
+def test_same_filename_keeps_distinct_preview_bytes(tmp_path, monkeypatch):
+    monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, **k: True)
+
+    async def run():
+        folder, job_path = _setup(tmp_path)
+
+        async def slice_func(path, work, runner, **kw):
+            data = json.loads(Path(path).read_text())
+            supports = bool((data.get('support_decision') or {}).get('supports'))
+            work.mkdir(parents=True, exist_ok=True)
+            out = work / 'plate.gcode'
+            out.write_text('G1 X1\n' if supports else 'G1 X2\n')
+            data['gcode'] = str(out)
+            Path(path).write_text(json.dumps(data))
+            return [out]
+
+        runner = BackgroundSlice()
+        await runner.start(job_path, 'b', slice_func)
+        supported, = await runner.take_supports()
+        assert Path(json.loads(job_path.read_text())['gcode']) == supported
+        unsupported, = await runner.take_no_supports()
+        assert unsupported == folder / 'sliced' / supported.name
+        assert supported.read_text() == 'G1 X1\n'
+        assert unsupported.read_text() == 'G1 X2\n'
     asyncio.run(run())
 
 
@@ -264,9 +292,10 @@ def test_parallel_output_matches_serial_output(tmp_path, monkeypatch):
             nosup_job = json.loads(job_path.read_text())
             sup = await runner.take_supports()
             sup_job = json.loads(job_path.read_text())
-            norm = lambda v: json.loads(json.dumps(v).replace(str(folder), '<F>'))
+            norm = lambda v: json.loads(json.dumps(v).replace(str(Path(sup[0]).parent), '<F>/sliced')
+                                       .replace(str(folder), '<F>'))
             return {'nosup': [Path(p).read_text() for p in nosup], 'sup': [Path(p).read_text() for p in sup],
                     'nosup_job': norm(nosup_job), 'sup_job': norm(sup_job),
-                    'sup_path': str(sup[0]).replace(str(folder), '<F>')}
+                    'sup_path': norm(str(sup[0]))}
         results[mode] = asyncio.run(run())
     assert results[True] == results[False]
