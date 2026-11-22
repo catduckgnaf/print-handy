@@ -60,10 +60,10 @@ def _mesh(triangles, allow_lists=False):
 
 
 def _guarded(name, work, triangles, allow_lists=False):
-    mesh = _mesh(triangles, allow_lists)
-    if mesh is None:
-        return None
     try:
+        mesh = _mesh(triangles, allow_lists)
+        if mesh is None:
+            return None
         return work(mesh)
     except _Decline:
         return None

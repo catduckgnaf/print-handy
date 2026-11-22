@@ -21,7 +21,7 @@ from print_handy.jobs import audit
 from tests.corpus import make_models
 from tests.pipeline.test_native_mesh import (
     CASES_GRID, CORPUS, MAX_COMBINE_PARTS, MESHES, _binary_stl, _combine_outcome, _load_outcome,
-    _materialize, _native_module, _render, _round6_values, as_compact, bits, chained, impl,
+    _materialize, _native_module, _render, _round6_values, as_compact, as_indexed, bits, chained, impl,
     representations,
 )
 
@@ -235,6 +235,23 @@ def test_untyped_and_non_finite_input_use_python():
             assert mesh_numpy.measure(triangles) is None
             assert mesh_numpy.threemf_text(triangles) is None
         assert audit.mesh_topology(nan) == audit.mesh_topology(_materialize(nan))
+
+
+def test_indexed_mesh_with_an_out_of_range_face_declines():
+    """#1808 review: _mesh ran before _guarded's try, so _Mesh's ValueError escaped.
+
+    A face index outside the vertex table must decline to the Python loops
+    instead of raising.
+    """
+    indexed = as_indexed(MESHES['tetra'])
+    faces = indexed.faces.copy()
+    faces[0, 0] = len(indexed.vertices)  # one past the last vertex
+    broken = IndexedTriangles(indexed.vertices, faces)
+    with impl('auto'):
+        assert mesh_numpy.measure(broken) is None
+        assert mesh_numpy.topology(broken) is None
+        assert mesh_numpy.weld(broken) is None
+        assert mesh_numpy.threemf_text(broken) is None
 
 
 def test_a_numpy_fault_is_logged_and_python_decides(monkeypatch, caplog):
