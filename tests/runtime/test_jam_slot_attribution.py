@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from print_handy.runtime import lane_data_sync, moonraker_event_listener as mel, print_control
+from print_handy.runtime import lane_data_sync, moonraker_event_listener as mel
 
 
 class ReplayCase(unittest.TestCase):
