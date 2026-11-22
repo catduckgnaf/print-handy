@@ -628,6 +628,9 @@ def verify_lane_link(slot: int, spool: dict[str, Any], *, mr: Client = moonraker
             return {"status": "repaired", "found": want}
         return {"status": "stale", "found": again if again is not None else found}
     except Exception:
+        # Advisory only: the bind itself is saved; report the link as unverified.
+        logging.getLogger(__name__).warning(
+            "Could not verify the screen lane link for slot %s", slot, exc_info=True)
         return {"status": "unverified", "found": None}
 
 
@@ -2301,6 +2304,9 @@ def repair_lane_links(state: dict[str, Any], *, mr: Client = moonraker, client: 
                 continue
             link = verify_lane_link(slot, spool, mr=mr)
         except Exception:
+            # One slot's lookup failing must not stop the other slots' repair.
+            logging.getLogger(__name__).warning(
+                "Could not repair the screen lane link for slot %s", slot, exc_info=True)
             continue
         if link["status"] == "repaired":
             out.append(f"Slot {slot}: screen lane relinked to spool #{sid}")
