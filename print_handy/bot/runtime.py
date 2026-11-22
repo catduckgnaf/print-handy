@@ -29,7 +29,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from .. import settings
-from ..core import fuzzy, prompts
+from ..core import fuzzy, prompts, running_jobs
 from ..runtime import _config
 from . import commands, llm, mention, platform, provenance, rest, routing
 from .router import Router
@@ -1547,6 +1547,17 @@ class BotCore(_RoutedAdapter):
             return {"action": "skip", "reason": "typed approval refused"}
         if text and await self.adapter.answer_typed(session_key(source), text, user_id=source.user_id):
             return {"action": "skip", "reason": "typed answer to an open question"}
+        if text:
+            # The owner's plain text reaches their running job while it
+            # prepares (#1789): a stop word cancels it, a status word
+            # reports where it is. Anything else takes the normal fallback
+            # (natural-language answers, the AI lane, did-you-mean); only
+            # its last-resort unmatched reply becomes the job-aware reply
+            # (_unmatched_content, #1793 review).
+            kind = await running_jobs.handle_owner_text(self.adapter, event.source, text, metadata,
+                                                        answer_other=False)
+            if kind is not None:
+                return {"action": "skip", "reason": f"typed {kind} to a running job"}
         if not text:
             return None
         return await self.fallback(event, allow_llm=allow_llm, _llm_replied=_llm_replied)
@@ -1713,9 +1724,13 @@ class BotCore(_RoutedAdapter):
                 await self.adapter.send(chat_id=source.chat_id, content=ai_not_enabled_text(),
                                         reply_to=event.message_id, metadata=metadata)
                 return {"action": "skip", "reason": "ai not enabled"}
-        await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
-                                metadata=metadata)
+        await self.adapter.send(chat_id=source.chat_id, content=self._unmatched_content(source),
+                                reply_to=event.message_id, metadata=metadata)
         return {"action": "skip", "reason": "command list"}
+
+    def _unmatched_content(self, source):
+        """The last-resort reply: about the owner's running job when one prepares (#1789), else the short help."""
+        return running_jobs.unmatched_reply_for(source) or self.unmatched
 
     async def _natural_language_answer(self, event, metadata):
         """A direct deterministic natural-language answer (#1524).
@@ -1813,7 +1828,7 @@ class BotCore(_RoutedAdapter):
         return answer, delivered
 
     async def _suggestion_unmatched(self, event, metadata):
-        await self.adapter.send(chat_id=event.source.chat_id, content=self.unmatched,
+        await self.adapter.send(chat_id=event.source.chat_id, content=self._unmatched_content(event.source),
                                 reply_to=event.message_id, metadata=metadata)
         return {"action": "skip", "reason": "command list"}
 

@@ -55,6 +55,8 @@ class BackgroundSlice:
         self.supports_binding = None
         self.supports_task = None
         self.supports_error = None
+        self.supports_coverage = None
+        self.supports_coverage_identity = None
         self.flagged = False
         self.finding = None
         self.clearance = None
@@ -97,6 +99,8 @@ class BackgroundSlice:
         self.supports_binding = None
         self.supports_task = None
         self.supports_error = None
+        self.supports_coverage = None
+        self.supports_coverage_identity = None
         self.flagged = False
         self.finding = None
         self.clearance = None
@@ -172,11 +176,16 @@ class BackgroundSlice:
                 if any(p.kind == p.VAR_KEYWORD or p.name == 'recipe_sha256' for p in sig.parameters.values()):
                     kw['recipe_sha256'] = sup_recipe_sha
 
-                sup_work = asyncio.ensure_future(slice_func(self.job_path, self.work, self, **kw))
+                async def slice_and_check():
+                    self.supports_result = await slice_func(self.job_path, self.work, self, **kw)
+                    self.job_with_supports = _read_job(self.job_path)
+                    if self.job_with_supports is not None:
+                        await self._verify_supports_coverage()
+
+                sup_work = asyncio.ensure_future(slice_and_check())
                 self.supports_task = sup_work
                 self.flag_decided.set()
-                self.supports_result = await asyncio.shield(sup_work)
-                self.job_with_supports = _read_job(self.job_path)
+                await asyncio.shield(sup_work)
             except asyncio.CancelledError:
                 if self.supports_task and not self.supports_task.done():
                     self.supports_task.cancel()
@@ -187,6 +196,44 @@ class BackgroundSlice:
             finally:
                 self.flag_decided.set()
                 self._write_slice_job(self.job_no_supports)
+
+    async def _verify_supports_coverage(self):
+        """Verify preview G-code in the bounded worker; keep failures explicitly unverified."""
+        from . import coverage_reuse, support_clearance
+        from ..intake.worker import _heavy
+        from . import model_job
+
+        started = time.monotonic()
+        job = self.job_with_supports or {}
+        paths = self.supports_result if isinstance(self.supports_result, (list, tuple)) else [self.supports_result]
+        paths = [str(path) for path in paths if path]
+        report = job.get('support_clearance') or self.clearance or {}
+        if not paths or not report:
+            return
+        try:
+            extent = None
+            bounds_note = None
+            try:
+                source = job.get('downloaded_file')
+                if source:
+                    extent = await _heavy(support_clearance.source_extent, source)
+            except Exception as exc:  # noqa: BLE001 - persisted as unverified; never fail open
+                bounds_note = f'source bounds unreadable ({exc}); coverage compared without a source-to-slice mapping'
+            plates = coverage_reuse.coverage_plates(paths, job, extent, bounds_note)
+            result, identity = await _heavy(coverage_reuse.check_for_preview, paths,
+                                            report.get('regions') or [], coverage_reuse.coverage_inputs(job), plates)
+            if not isinstance(result, dict) or not isinstance(result.get('checked'), bool) or not isinstance(result.get('ok'), bool):
+                raise ValueError('coverage worker returned an invalid result')
+            self.supports_coverage = result
+            self.supports_coverage_identity = identity
+        except Exception as exc:  # noqa: BLE001 - failures are explicit and ask at Ready
+            self.supports_coverage = {'checked': False, 'ok': True, 'regions': [], 'plate_mode': 'none',
+                                      'unverified': [{'plate': None, 'reason': f'the support coverage check could not run ({exc})'}]}
+            self.supports_coverage_identity = None
+        finally:
+            model_job._timing(self.job_path, 'preview_support_coverage_done',
+                              elapsed_s=round(time.monotonic() - started, 3),
+                              checked=bool(self.supports_coverage and self.supports_coverage.get('checked')))
 
     def _write_slice_job(self, slice_job_data, default_supports=None):
         if slice_job_data is None or self.job_path is None:
@@ -289,6 +336,8 @@ class BackgroundSlice:
         self.supports_binding = None
         self.job_no_supports = None
         self.job_with_supports = None
+        self.supports_coverage = None
+        self.supports_coverage_identity = None
         self.flagged = False
         self.finding = None
         self.clearance = None
