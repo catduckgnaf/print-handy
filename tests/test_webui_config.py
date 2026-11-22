@@ -397,8 +397,8 @@ class CatalogTests(unittest.TestCase):
             tuple(sorted(printers.MODELS, key=lambda key: (printers.MODELS[key].label.casefold(), key))),
         )
         self.assertEqual(choices_for(field_by_id("bot.platform")), tuple(KNOWN_PLATFORMS))
-        # bot.mode has one legal value (standalone), so it is no field.
-        self.assertEqual(settings.BOT_MODES, ("standalone",))
+        # #1817: [bot] mode is gone, so it is not a field.
+        self.assertFalse(hasattr(settings, "BOT_MODES"))
         self.assertIsNone(field_by_id("bot.mode"))
         self.assertEqual(choices_for(field_by_id("printer.slicer"), model_key="bambulab.a1"),
                          printers.MODELS["bambulab.a1"].vendor.slicers)

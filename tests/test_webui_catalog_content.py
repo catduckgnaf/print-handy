@@ -152,8 +152,9 @@ class CameraCheckDefaultTests(unittest.TestCase):
                               {"id": "b", "model": "bambulab.p1s"}]
         self.assertIn("bambu", choices_for(field, data=roster))
 
-    def test_the_one_option_bot_mode_is_not_a_field(self):
-        self.assertEqual(settings.BOT_MODES, ("standalone",))
+    def test_bot_mode_is_not_a_field(self):
+        # #1817: [bot] mode is gone, so it is not a catalog field.
+        self.assertFalse(hasattr(settings, "BOT_MODES"))
         self.assertIsNone(field_by_id("bot.mode"))
 
 

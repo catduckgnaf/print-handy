@@ -76,11 +76,11 @@ Code is symlinked, so the pull is the update. Template changes do not touch file
 
 ## Coming from the old Hermes install
 
-The Hermes install is removed. Print Handy used to offer a second install that hosted the bot inside a Hermes Agent profile (`scripts/install-hermes.sh`, `bot.mode: hermes`). That install method and mode are gone, and a config that still says `mode: hermes` is refused at load with a message naming the removal.
+The Hermes install is removed. Print Handy used to offer a second install that hosted the bot inside a Hermes Agent profile (`scripts/install-hermes.sh`, `bot.mode: hermes`). That install method and mode are gone. A config that still says `mode: hermes` is not refused: the key is unknown and load warns by name. Remove the line.
 
 To move an old Hermes-hosted install over:
 
 1. Stop the old gateway's Discord connection first. One bot token, one live connection.
 2. Keep your config and state where they are. `paths.state_home` is just the state folder's path, and it can keep pointing at the old profile directory.
-3. Set `bot.mode` to `standalone`.
+3. Remove any `bot.mode` line. The bot always runs itself.
 4. Install the services as in step 4 above.

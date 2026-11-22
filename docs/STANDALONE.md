@@ -313,14 +313,15 @@ bounded stray-chat reply, above) instead of falling through to an assistant.
 
 ## Moving from a Hermes-hosted install
 
-The Hermes install method and `bot.mode: hermes` are removed; a config stating that mode
-is refused at load with a message naming the removal. Moving an existing install over:
+The Hermes install method and `bot.mode: hermes` are removed. A config that still
+states that mode is not refused: the key is unknown and load warns by name.
+Remove the line. Moving an existing install over:
 
 1. Stop the gateway for this bot (or remove the Discord token from that profile). One
    token, one connection: two live connections on one token answer twice.
 2. Keep `paths.state_home` pointing at the old profile folder to keep its state (print
    numbers, plans, alerts), or copy its `state/` folder to the new data folder.
-3. Set `bot.mode: standalone` (or remove the mode line) and `discord.chat_id`
+3. Remove any `bot.mode` line (it is no longer a setting) and set `discord.chat_id`
    (`discord.allowed_user_ids` is optional), and put `DISCORD_BOT_TOKEN` in the
    environment or the data folder's `.env`.
 4. Run `python3 -m print_handy.bot check`, then `scripts/install-standalone.sh` and enable both units.

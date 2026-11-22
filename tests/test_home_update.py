@@ -11,8 +11,6 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from print_handy.settings import LEGACY_ENV
-
 ROOT = Path(__file__).resolve().parents[1]
 
 # What the throwaway checkout's update check runs: the package imports and its settings load.
@@ -109,15 +107,12 @@ class HomeUpdateTests(unittest.TestCase):
         return git(self.upstream, "rev-parse", "HEAD")
 
     def update(self, home=None):
-        # Environment overrides beat local.toml, so a caller's HERMES_HOME (or any other mapped
-        # variable) would point the doctor at the real install instead of the throwaway profile.
-        # Strip every supported override form (P2-14): the legacy names, the
-        # PRINT_HANDY__SECTION__KEY spellings and the PRINT_HANDY_CONFIG
-        # selector — settings.load() applies all of them ahead of the
-        # throwaway checkout's own config.
+        # Environment overrides beat local.toml, so a caller's
+        # PRINT_HANDY__SECTION__KEY value (or PRINT_HANDY_CONFIG) would
+        # point the doctor at the real install instead of the throwaway
+        # profile. Legacy short names are no longer settings (#1817).
         env = {k: v for k, v in os.environ.items()
-               if k not in LEGACY_ENV and not k.startswith("PRINT_HANDY__")
-               and k != "PRINT_HANDY_CONFIG"}
+               if not k.startswith("PRINT_HANDY__") and k != "PRINT_HANDY_CONFIG"}
         # Run the update's checks with this interpreter. With HOME moved, the script cannot find
         # the agent venv and would fall back to whatever python3 is first on PATH.
         env.setdefault("PYTHON", sys.executable)
