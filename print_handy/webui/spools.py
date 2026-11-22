@@ -763,6 +763,13 @@ CSS = """
 .spools-page .sp-card .sp-actions { margin-top: 0.5rem; }
 .spools-page .sp-card .sp-actions form { margin: 0.25rem 0; }
 .spools-page .sp-card.empty { border-style: dashed; }
+/* A long spool label in a picker wraps inside its card instead of pushing
+   the card (and the page) wider than the screen. */
+.spools-page form.inline label {
+  display: inline-flex; flex-wrap: wrap; align-items: center;
+  gap: 0.25rem 0.5rem; max-width: 100%; min-width: 0;
+}
+.spools-page form.inline select { min-width: 0; max-width: 100%; }
 """
 
 

@@ -45,6 +45,8 @@ PAGE_ROUTES = {
     "/firmware/channel": ("/firmware/channel?printer=fixture-klipper&component=klipper",
                           "Switch klipper to"),
     "/cost": ("/cost", None),
+    # The audit adds a second printer, so /spools is the picker, not a redirect.
+    "/spools": ("/spools", "Pick the printer"),
     "/printers": ("/printers", "Fixture Klipper"),
     "/config": ("/config", None), "/printer-settings": ("/printer-settings", None),
     "/chat": ("/chat", "Slice summary"), "/workflow": ("/workflow", None),
@@ -90,10 +92,21 @@ def measure_layout(page):
       const inlineLink = e => e.matches('a') && getComputedStyle(e).display === 'inline'
         && !e.closest('nav, header') && !e.matches('.button, [role=button]');
       const interactive = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button]';
+      // A checkbox or radio is toggled by a tap on its <label> too, so its tap
+      // target is the larger of its own box and any visible label's box. Each
+      // candidate box must still be at least 44x44 on its own.
+      const hitBox = e => {
+        const own = e.getBoundingClientRect();
+        if (!e.matches('input[type=checkbox], input[type=radio]')) return {box: own, via: 'self'};
+        const labels = [...(e.labels || [])].filter(visible).map(l => l.getBoundingClientRect());
+        const best = [own, ...labels].reduce((a, b) =>
+          Math.min(b.width, b.height) > Math.min(a.width, a.height) ? b : a);
+        return {box: best, via: best === own ? 'self' : 'label'};
+      };
       const smallTargets = [...document.querySelectorAll(interactive)].filter(visible)
         .filter(e => !inlineLink(e) && !e.matches(':disabled, [aria-disabled=true]'))
-        .map(e => ({...describe(e), width: e.getBoundingClientRect().width,
-                                   height: e.getBoundingClientRect().height}))
+        .map(e => { const {box, via} = hitBox(e);
+          return {...describe(e), width: box.width, height: box.height, via}; })
         .filter(e => e.width < 44 || e.height < 44);
       return {docWidth: doc.scrollWidth, overflow, oneChar, smallTargets};
     }""")
