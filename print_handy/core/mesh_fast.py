@@ -426,6 +426,16 @@ def _bounds_and_volume_points(points):
     return lo, hi, volume
 
 
+def _measured(triangles):
+    """``(lo, hi, area, signed_volume)`` from the native kernel, else its numpy twin, else None (#1790)."""
+    from .mesh_native import measure
+    native = measure(triangles)
+    if native is None:
+        from .mesh_numpy import measure as numpy_measure
+        native = numpy_measure(triangles)
+    return native
+
+
 def _scalar_bounds(triangles):
     """Match the historical Python min/max behavior, including NaNs."""
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
@@ -492,8 +502,7 @@ def bounds(triangles):
                 lo[axis] = min(lo[axis], float(chunk_lo[axis]))
                 hi[axis] = max(hi[axis], float(chunk_hi[axis]))
         return lo, hi
-    from .mesh_native import measure
-    native = measure(triangles)
+    native = _measured(triangles)
     if native is not None:
         return native[0], native[1]
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
@@ -527,8 +536,7 @@ def bounds_and_volume(triangles):
         return _bounds_and_volume_arrays(triangles.vertices, triangles.triangles)
     # The scalar loop below, natively (#1790): same bounds rule (first of
     # equal values wins) and the same triangle-by-triangle volume sum.
-    from .mesh_native import measure
-    native = measure(triangles)
+    native = _measured(triangles)
     if native is not None:
         return native[0], native[1], native[3]
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)

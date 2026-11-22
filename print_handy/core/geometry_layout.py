@@ -153,8 +153,8 @@ def _triangle_area_and_signed_volume(triangles):
         return area, abs(signed_vol)
     # The scalar loop below, natively (#1790): the same per-triangle terms
     # added one triangle at a time.
-    from .mesh_native import measure
-    native = measure(triangles)
+    from .mesh_fast import _measured
+    native = _measured(triangles)
     if native is not None:
         return native[2], abs(native[3])
     area = 0.0
@@ -726,6 +726,9 @@ def _mesh_xml_lines(triangles):
     """
     from .mesh_native import threemf_text
     native = threemf_text(triangles)
+    if native is None:
+        from .mesh_numpy import threemf_text as numpy_threemf_text
+        native = numpy_threemf_text(triangles)
     if native is not None:
         vertex_text, triangle_text = native
         return ([vertex_text] if vertex_text else []), ([triangle_text] if triangle_text else [])

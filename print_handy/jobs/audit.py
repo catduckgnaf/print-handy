@@ -23,6 +23,9 @@ def mesh_topology(triangles):
     # the two Python paths below stay the oracle and the fallback.
     from ..core.mesh_native import topology as native_topology
     native = native_topology(triangles)
+    if native is None:
+        from ..core import mesh_numpy
+        native = mesh_numpy.topology(triangles)
     if native is not None:
         return native
     if hasattr(triangles, '__len__') and len(triangles) > 100_000:
