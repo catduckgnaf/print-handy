@@ -215,3 +215,64 @@ def test_a_new_write_removes_the_old_record(tmp_path):
     assert mesh_sidecar.path_for(target).exists()
     geometry_layout.write_geometry_only_3mf([{'name': 'x', 'triangles': MESHES['tetra']}], target)
     assert not mesh_sidecar.path_for(target).exists()
+
+
+# ------------------------------------------------------------ only this install's own sidecars are trusted
+
+def _forge(target, counts, *, key=None):
+    """A sidecar an uploader could place beside their own 3MF: right SHA-256, chosen counts."""
+    import hmac as _hmac
+    import json as _json
+    import numpy as np
+    with zipfile.ZipFile(target) as archive:
+        info = archive.getinfo(mesh_sidecar.MODEL)
+    meta = {'schema': mesh_sidecar.SCHEMA, 'sha256': mesh_sidecar._sha256(target), 'member': mesh_sidecar.MODEL,
+            'crc': info.CRC, 'file_size': info.file_size, 'models': [mesh_sidecar.MODEL], 'objects': [],
+            'counts': counts, 'arrays': {'structure': mesh_sidecar._array_digest(np.zeros(0, dtype=np.uint8))}}
+    meta_bytes = _json.dumps(meta, sort_keys=True).encode()
+    arrays = {'meta': np.frombuffer(meta_bytes, dtype=np.uint8), 'structure': np.zeros(0, dtype=np.uint8)}
+    if key is not None:
+        signature = _hmac.new(key, meta_bytes, 'sha256').hexdigest().encode()
+        arrays['signature'] = np.frombuffer(signature, dtype=np.uint8)
+    with mesh_sidecar.path_for(target).open('wb') as stream:
+        np.savez(stream, **arrays)
+
+
+@pytest.mark.parametrize('forgery', ['unsigned', 'other-install-key'])
+def test_a_sidecar_this_install_did_not_sign_is_ignored(tmp_path, monkeypatch, forgery):
+    """duckcatgnaf (8267b60f): a crafted sidecar with zero counts beside an oversized upload must not pass."""
+    target = tmp_path / 'parts.3mf'
+    model_parts.combine(target, [str(s) for s in _stl_sources(tmp_path)], [220.0, 220.0, 250.0])
+    real = mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL])
+    zero = {'elements': 0, 'vertex': 0, 'triangle': 0}
+    _forge(target, zero, key=None if forgery == 'unsigned' else b'x' * 32)
+    assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is None
+    monkeypatch.setattr(intake_resources, 'MAX_TRIANGLES', real['triangle'] - 1)
+    with pytest.raises(intake_resources.IntakeLimitExceeded, match='triangle count exceeds'):
+        intake_resources.check_source(target)
+
+
+def test_implausible_counts_are_ignored_even_when_signed(tmp_path):
+    target = tmp_path / 'parts.3mf'
+    model_parts.combine(target, [str(s) for s in _stl_sources(tmp_path)], [220.0, 220.0, 250.0])
+    key = mesh_sidecar._key(create=False)
+    assert key is not None
+    _forge(target, {'elements': 0, 'vertex': 0, 'triangle': 0}, key=key)
+    assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is None
+    _forge(target, {'elements': 5, 'vertex': 10, 'triangle': 10}, key=key)
+    assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is None
+
+
+def test_tampered_tables_in_a_signed_sidecar_are_ignored(tmp_path):
+    import numpy as np
+    target = tmp_path / 'parts.3mf'
+    model_parts.combine(target, [str(s) for s in _stl_sources(tmp_path)], [220.0, 220.0, 250.0])
+    sidecar = mesh_sidecar.path_for(target)
+    with np.load(sidecar, allow_pickle=False) as data:
+        arrays = {name: np.array(data[name]) for name in data.files}
+    arrays['v0'] = arrays['v0'] + 1.0  # move the geometry, keep the signed metadata
+    with sidecar.open('wb') as stream:
+        np.savez(stream, **arrays)
+    info = zipfile.ZipFile(target).getinfo(mesh_sidecar.MODEL)
+    assert mesh_sidecar.tables(target, info) is None
+    assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is not None  # counts metadata is untouched
