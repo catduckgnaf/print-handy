@@ -189,7 +189,7 @@ class PausedMessageTests(unittest.TestCase):
         self.assertIn("spool question", text)
         self.assertIn("Resume print", text)
         self.assertIn("/print-resume", text)
-        self.assertIn("only when you press it", text)
+        self.assertIn("Nothing resumes on its own", text)
         self.assertNotIn("I will not resume", text)
 
     def test_runout_message_without_slot_still_names_runout(self):
@@ -422,29 +422,28 @@ class RunoutAlertPromisesOnlyWhatItDelivers(unittest.TestCase):
     def test_slotless_alert_does_not_promise_a_spool_question(self):
         text = mel.paused_message("a.gcode", runout=True, slot=None)
         self.assertNotIn("spool question", text)
-        self.assertIn("1. Load the replacement filament", text)
-        self.assertIn("2. Tap Resume print", text)
+        self.assertIn("Load filament into the active slot at the printer, then tap Resume print", text)
 
     def test_alert_with_a_slot_still_asks_the_spool_question(self):
         text = mel.paused_message("a.gcode", runout=True, slot=3)
         self.assertIn("slot 3 (IFS channel 3)", text)
-        self.assertIn("2. Answer the spool question", text)
-        self.assertIn("3. Tap Resume print", text)
+        self.assertIn("answer the spool question below", text)
+        self.assertIn("then tap Resume print", text)
 
-    def test_step_two_names_the_buttons_the_spool_question_shows(self):
-        """Nov 2026: step 2 said "Existing spool or New spool" while a runout
-        on a known spool shows five buttons. The text names the answers the
-        question really offers."""
-        def answers(spool_id):
-            rows = pab.spool_question_components("a1", prior_spool_id=spool_id, cause="runout")
-            return [b["label"].replace(" — ", ", ") for b in rows[0]["components"] if b["label"] != "Cancel print"]
-
+    def test_the_alert_is_two_lines_and_leaves_the_answers_to_the_question(self):
+        """#1787: the alert says what happened and what to do, in two lines.
+        It no longer lists the spool question's answers (that list once
+        drifted from the buttons); the question's own message names them."""
         known = mel.paused_message("a.gcode", runout=True, slot=3, spool_id=12)
-        for label in answers(12):
-            self.assertIn(label, known)
-        unknown = mel.paused_message("a.gcode", runout=True, slot=3, spool_id=None)
-        self.assertIn("(Existing spool or New spool)", unknown)
-        self.assertEqual(answers(None), ["Existing spool", "New spool"])
+        runout_at = next(i for i, line in enumerate(known.splitlines()) if "Filament runout" in line)
+        self.assertLessEqual(len([line for line in known.splitlines()[runout_at:] if line.strip()]), 2)
+        for label in ("New roll, same filament", "Existing spool", "New spool"):
+            self.assertNotIn(label, known)
+        question = mel.spool_question_text({"slot": 3, "prior_spool_id": 12, "cause": "runout"},
+                                           buttons=True)
+        rows = pab.spool_question_components("a1", prior_spool_id=12, cause="runout")
+        for button in rows[0]["components"]:
+            self.assertIn(button["label"], question)
 
 
 class ScreenlessChannelNamesTheSlot(ListenerRunoutCase):

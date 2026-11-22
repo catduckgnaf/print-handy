@@ -104,10 +104,60 @@ def test_coverage_worker_failure_is_unverified_and_asks_never_a_pass(env, monkey
     assert env.starts == []
 
 
+@pytest.mark.parametrize('change, extra_scan', [('none', False), ('gcode', True), ('placement', True),
+                                               ('unverified', True), ('identity_error', True)])
+def test_ready_coverage_reuses_only_exact_checked_artifacts(env, monkeypatch, change, extra_scan):
+    from print_handy.core import coverage_reuse
+    from print_handy.intake import worker
+
+    calls = []
+    original = {'checked': True, 'ok': False, 'unverified': [], 'plate_mode': 'single', 'plates': [],
+                'regions': [{'coverage': 0.0, 'part': 'Body', 'z_mm': {'min': 5.0}}]}
+
+    def verify(regions, plates):
+        calls.append(plates)
+        if change == 'unverified' and len(calls) == 1:
+            return {**original, 'checked': False, 'unverified': [{'reason': 'preview unavailable'}]}
+        return original
+
+    _setup(env, monkeypatch, verify)
+    monkeypatch.setattr(support_clearance, 'source_extent', lambda _path: {
+        'bounds': [0.0, 0.0, 30.0, 20.0], 'height': 10.0, 'part_count': 1})
+    monkeypatch.setattr(worker, '_heavy', prepared_intake._heavy)
+    real_identity = coverage_reuse.coverage_identity
+
+    async def heavy(func, *args, **kwargs):
+        if func is real_identity:
+            if change == 'identity_error':
+                raise BrokenPipeError('hash worker unavailable')
+            gcodes, regions, inputs, plates = args
+            if change == 'gcode':
+                from pathlib import Path
+                gcode = Path(gcodes[0])
+                await asyncio.to_thread(lambda: gcode.write_bytes(gcode.read_bytes() + b'\n; changed after preview\n'))
+            elif change == 'placement':
+                plates = [{**plate, 'placement_mm': (1.0, 2.0)} for plate in plates]
+                args = (gcodes, regions, inputs, plates)
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(prepared_intake, '_heavy', heavy)
+    adapter, _res, receipt, _gaps = _run_with_ticker(env, [2, 0, 0, 1])
+    ready = next(q['question'] for q in adapter.questions if q['question'].startswith('Ready to slice'))
+    assert 'Slice and print with supports' in ready and 'Slice and print without supports' in ready
+    assert ('couldn\'t verify' if change == 'unverified' else 'gaps found') in ready
+    assert len(calls) == 1 + extra_scan
+    assert adapter.questions[-1]['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert receipt['status'] == 'SLICED_NOT_STARTED' and not env.starts
+    from pathlib import Path
+    timing = Path(receipt['job_json']).with_name('TIMING.jsonl').read_text()
+    assert 'preview_support_coverage_done' in timing
+    assert ('support_coverage_exact_reuse' in timing) is not extra_scan
+
+
 def test_coverage_steps_are_bounded_general_lane_worker_steps():
     from print_handy.core import heavy_worker
-    for name in ('verify_coverage_by_plate', 'source_extent'):
-        entry = ('support_clearance', name)
+    for entry in (('support_clearance', 'verify_coverage_by_plate'), ('support_clearance', 'source_extent'),
+                  ('coverage_reuse', 'check_for_preview'), ('coverage_reuse', 'coverage_identity')):
         assert entry in heavy_worker.ALLOWED
         assert entry in prepared_intake._OFFLOAD
         assert entry not in prepared_intake._SLICER_STEPS  # general lane (2 slots, 8 queued), never the slicer's

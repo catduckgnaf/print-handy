@@ -29,7 +29,8 @@ _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('support_cleara
             ('model_job', 'painted_fit_for_job'),
             # The post-slice support coverage gate walks every G-code line of each plate (#963).
             # Inline it blocked the gateway heartbeat for a minute; the gate result is unchanged.
-            ('support_clearance', 'source_extent'), ('support_clearance', 'verify_coverage_by_plate')}
+            ('support_clearance', 'source_extent'), ('support_clearance', 'verify_coverage_by_plate'),
+            ('coverage_reuse', 'check_for_preview'), ('coverage_reuse', 'coverage_identity')}
 # Steps that moved out of their offload module (#1323) keep its name: the worker
 # imports print_handy.core.<module>, which still re-exports them.
 _OFFLOAD_HOMES = {'print_handy.jobs.slice': 'model_job', 'print_handy.jobs.audit': 'model_job'}

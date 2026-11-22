@@ -196,16 +196,28 @@ printer, web UI metadata, timelapse markers). If a packaged print
 misbehaves on your printer, set `gcode` to go back to the long-standing
 path, and report what you saw in the support Discord or as a GitHub issue.
 
-Both formats carry your slot choice. When a print maps a tool to a slot
+Both formats preserve explicit tool selections on screen reprints. When a print maps a tool to a slot
 other than ZMod's default (T0 to slot 1), Print Handy uploads a copy whose
 tool numbers already name the chosen slots, so a reprint from the printer
 screen or HelixScreen, which sends no slot map, loads the same spools. The
-archived G-code stays as sliced.
+archived G-code stays as sliced. If a single-color file has no explicit tool
+selection, Print Handy applies your slot choice when it starts the print.
+A direct reprint from the printer or HelixScreen uses ZMod's default slot 1
+unless you remap it there. To reuse the chosen slot, reprint from Print Handy.
 
 ## Spools, IFS slots and Spoolman
 
 - Load and unload through the IFS normally; Print Handy follows slot
   presence from `zmod_color`.
+- When the printer screen (HelixScreen) and Print Handy disagree about a
+  slot, Print Handy asks before it offers colors or slices anything: for
+  example, the screen says slot 3 holds PETG while Print Handy still has a
+  PLA+ spool there, or the screen names a different spool. The buttons
+  offer the spool the screen names, shelf spools of the screen's material,
+  **Keep** for Print Handy's record, and **Cancel**. Picking a spool links
+  it to the slot the same way `/spool change` does. **Keep** is remembered
+  for that exact disagreement, so it is not asked again until the screen or
+  the record changes. If the screen cannot be read, nothing is asked.
 - Keep Spoolman's remaining weight honest. Readiness uses Spoolman's grams
   as well as slot presence. A spool that reads negative or far off in
   Spoolman should be corrected there, or Print Handy may offer a slot that

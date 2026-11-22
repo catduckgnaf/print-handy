@@ -863,13 +863,21 @@ restarting does not repeat the same notice.
 A "Filament jam detected (IFS)" pause is the printer's own call: the
 `zmod_ifs` motion sensor declares a jam when the extruder advances
 `detection_length` (10 mm by default) without the encoder's stall bit
-changing for the current port. Print Handy posts the pause with the
-measured facts (duration, layer, slot, `next_cmd_delay`,
-`detection_length`, head switch sensor present or not) and never
-resumes it on its own. To separate a real drag from a false trigger,
+changing for the current port. ZMod reports it only as a console line
+(`!! Filament jam detected (IFS).`); the pause itself carries no
+message. Print Handy reads that line, so a jam is posted as a jam even
+when the line arrives just after the pause (a pause already posted as a
+runout or a plain pause is rewritten as the jam, and a runout spool
+question it opened is withdrawn). The post is two lines: the slot,
+layer and time in, then what to do. It never resumes on its own. If the
+print jams again within two minutes of a resume, the same message is
+rewritten as **Still jammed** instead of a new post. The measured facts
+(`next_cmd_delay`, `detection_length`, head switch sensor) go to the log
+as a `jam facts:` line. To separate a real drag from a false trigger,
 work through this procedure on a test print, not a job you care about:
 
-1. **Read the jam post's facts.** Note the slot (named with its IFS
+1. **Read the jam facts.** Find the `jam facts:` line in the log (or the
+   diagnostics bundle) and note the slot (named with its IFS
    channel), `next_cmd_delay` and `detection_length`. `next_cmd_delay`
    was changed from 0.2 to 0.02 on 2026-11-03; long prints completed at
    0.02 afterwards, so it is a variable to test, not a proven cause.

@@ -106,8 +106,12 @@ def env(tmp_path, monkeypatch):
         if text and text.startswith('Waiting for the background slice'):
             for runner in background_slice._RUNNERS.values():
                 runner.release.set()
-        if kw.get('allow_stop') and text and isinstance(getattr(adapter, 'log', None), list) and hasattr(adapter, 'picks'):
-            adapter.log.append(text)  # the Stop status prompt counts as a posted message
+        # The Stop status prompt counts as a posted message. A quiet step
+        # (#1793 review) posts only when it outlasts its quiet window, and
+        # this harness's steps finish at once, so it posts nothing here.
+        if (kw.get('allow_stop') and not kw.get('quiet_s') and text
+                and isinstance(getattr(adapter, 'log', None), list) and hasattr(adapter, 'picks')):
+            adapter.log.append(text)
         return await _orig_with_stop(adapter, source_, key, metadata, text, work, **kw)
     monkeypatch.setattr(prepared_intake, '_with_stop', _logged_with_stop)
     folder_root = tmp_path / 'archive'

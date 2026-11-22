@@ -21,6 +21,7 @@ ALLOWED = {
     ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
     ('model_parts', 'combine'), ('model_job', 'painted_fit_for_job'),
     ('support_clearance', 'source_extent'), ('support_clearance', 'verify_coverage_by_plate'),
+    ('coverage_reuse', 'check_for_preview'), ('coverage_reuse', 'coverage_identity'),
 }
 
 

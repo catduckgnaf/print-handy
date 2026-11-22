@@ -6,7 +6,7 @@ from print_handy.core import tool_renumber
 HEAD = ('; hermes_tool_slots = {"0":{"physical_slot":3,"spoolman_id":21}}\n'
         '; zmod_color_data = 0|#161616|PLA+\n'
         '; filament_colour = #161616\n; filament_type = PLA+\n; filament used [g] = 157.58\n'
-        'M104 S215 T0\nSTART_PRINT\nG1 X1 E1\n')
+        'M104 S215 T0\nSTART_PRINT\nT0\nG1 X1 E1\n')
 
 
 def test_single_tool_on_slot_three_becomes_t2():
@@ -41,11 +41,11 @@ def test_unsafe_maps_are_not_relabeled():
 
 
 def test_zmod_md5_header_is_recomputed():
-    body = "M104 S215 T0\nG1 X1\n"
+    body = "M104 S215 T0\nT0\nG1 X1\n"
     text = "; MD5:" + hashlib.md5(body.encode()).hexdigest() + "\r\n" + body
     out, _ = tool_renumber.relabel(text, {"0": 3}, {0})
     first, _, rest = out.partition("\n")
-    assert rest == "M104 S215 T0\nG1 X1\n"
+    assert rest == "M104 S215 T0\nT2\nG1 X1\n"
     assert first == "; MD5:" + hashlib.md5(rest.encode()).hexdigest() + "\r"
 
 
@@ -66,7 +66,7 @@ def test_used_tools_never_reads_the_heater_tool():
     """#1648 review: M104 ... T0 names the one heater. Tool lines win; without them the
     filament metadata names the tool, and nothing at all gives an empty set."""
     assert tool_renumber.used_tools("M104 S215 T0\nT1\nG1 X1\n") == {1}
-    assert tool_renumber.used_tools(HEAD) == {0}
+    assert tool_renumber.used_tools(HEAD.replace("\nT0\n", "\n")) == {0}
     assert tool_renumber.used_tools("M104 S215 T0\nG1 X1\n") == set()
     assert tool_renumber.used_tools("; zmod_color_data = 2|#161616|PLA\nM104 S215 T0\n") == {2}
     assert tool_renumber.used_tools("; filament used [g] = 0.00, 0, 12.5\nM104 S215 T0\n") == {2}
@@ -74,32 +74,9 @@ def test_used_tools_never_reads_the_heater_tool():
     assert tool_renumber.used_tools("; zmod_color_data = 0|#161616|PLA\n; filament used [g] = 0, 3.1\n") == set()
 
 
-def test_single_tool_slice_without_tool_lines_still_relabels():
-    """#1648 review: a single-tool slice with no T line and a heater with no tool
-    parameter. The tool comes from the headers, and the relabel moves the metadata
-    to slot 3 (T2) without inventing a tool line."""
-    text = ('; hermes_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
-            "; filament_colour = #161616\n; filament used [g] = 157.58\nM190 S60\nM104 S215\n"
-            "START_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nG1 X1 E1\n")
-    out, identity = tool_renumber.relabel(text, {"0": 3}, tool_renumber.used_tools(text))
-    assert identity == {"2": 3}
-    assert "; zmod_color_data = 2|#161616|PLA\n" in out
-    assert "; filament used [g] = 0, 0, 157.58\n" in out
-    assert "M190 S60\nM104 S215\nSTART_PRINT" in out
-
-
-def test_ad5x_fixture_keeps_the_native_startup_contract():
-    """#1648 review: the recorded AD5X Silk PLA slice on slot 2. Relabeling must leave
-    ``M104 S210 T0`` so native_startup.valid still holds (``T1`` there is refused)."""
-    from pathlib import Path
-    from print_handy.printers.flashforge.zmod import native_startup
-    fixture = Path(__file__).resolve().parents[1] / "fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.gcode.txt"
-    text = fixture.read_bytes().decode().replace("@BED@", "60").replace("@NOZZLE@", "210")
-    assert native_startup.valid(text, 60, 210)
-    out, identity = tool_renumber.relabel(text, {"0": 2}, tool_renumber.used_tools(text))
-    assert identity == {"1": 2}
-    assert native_startup.valid(out, 60, 210)
-    assert "; zmod_color_data = 1|#0C6283|Silk PLA" in out
+def test_single_tool_slice_without_tool_lines_keeps_original_mapping():
+    text = HEAD.replace("\nT0\n", "\n")
+    assert tool_renumber.relabel(text, {"0": 3}, tool_renumber.used_tools(text)) == (None, None)
 
 
 def _zmod_file(tmp_path, body):

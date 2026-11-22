@@ -46,7 +46,7 @@ from . import status_voice  # noqa: E402
 
 from ..intake.support_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
     PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL, supports_decision, supports_recommended,
-    with_supports_line,
+    with_supports_line, repair_actions, gap_repairs, low_gap_text,
 )
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
@@ -287,24 +287,115 @@ def _color_prompt_follows(refusal_context, tail):
                                                          or SPOOL_CHANGED in str(tail)))
 
 
-async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None):
-    """Run work with plain progress by default; opt in to Stop only when cancellation is safe."""
+def _running_job_for(key):
+    """The running job this step belongs to, by intake id (#1789).
+
+    Steps are keyed by their intake ('model-link:<id>'), never by channel:
+    two intakes in one channel are separate jobs, and cancelling the
+    newest must not stop the older one at its next step. A step from any
+    other flow has no running job and behaves exactly as before.
+    """
+    from . import running_jobs
+    if isinstance(key, str) and key.startswith("model-link:"):
+        return running_jobs.lookup_by_intake(key[len("model-link:"):])
+    return None
+
+
+async def _race_job_cancel(work, job, text):
+    """Await work, raising Stopped when the running job's owner cancels it.
+
+    The cancel only ever lands between steps or inside a step the intake
+    is already racing: cancelling the task is what stops the heavy-worker
+    child (its process group is killed by owned_worker) or waits out a
+    thread, exactly as a Stop press does. Nothing here starts, uploads
+    or approves anything. Thread-backed steps run through
+    owned_worker.in_thread, so a cancel waits the thread out before
+    Stopped is raised — a thread cannot be killed, and cleanup must never
+    race a worker still writing or reading the step's files (#1793 review).
+    """
+    task = asyncio.ensure_future(work)
+    waiter = asyncio.ensure_future(job.cancel_event.wait())
+    try:
+        await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                # The cancel itself is the expected outcome, not a failure:
+                # the task was cancelled one line above on the owner's word.
+                logger.debug("Typed cancel stopped the intake step %r", text or "intake")
+            raise Stopped(text or "Cancelled.")
+        return await task
+    finally:
+        if not waiter.done():
+            waiter.cancel()
+
+
+#: A step that finishes within this long posts no Stop prompt (#1793 review):
+#: reading the model page, downloads and file checks usually take well under
+#: a second, and a prompt per step doubled a normal intake's messages. A
+#: typed cancel still reaches the step while it is quiet.
+STEP_QUIET_S = 5.0
+
+
+async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None,
+                     quiet_s=None):
+    """Run work with plain progress by default; opt in to Stop only when cancellation is safe.
+
+    ``quiet_s`` (with ``allow_stop``) holds the Stop prompt back: the step
+    posts it only when the work is still running after ``quiet_s`` seconds.
+    """
+    job = _running_job_for(key)
+    if job is not None and job.cancellable:
+        # The step name is what a typed "status" reports, and a cancel
+        # requested while the last step ran lands here, at the next step.
+        if text:
+            job.set_step(text)
+        if job.cancel_event.is_set():
+            raise Stopped(text or "Cancelled.")
     adapter_state = getattr(adapter, "__dict__", {})
     if "picks" in adapter_state or "clicks" in adapter_state:
         return await work
     if not allow_stop:
-        if not text:
+        if text:
+            status = text
+            for suffix in (" Press Stop to cancel before it starts.", " Press Stop to cancel."):
+                if status.endswith(suffix):
+                    status = status[:-len(suffix)]
+                    break
+            try:
+                await adapter.send(chat_id=str(source.chat_id), content=status, metadata=metadata)
+            except Exception:
+                logger.debug("Best-effort recovery from Exception", exc_info=True)
+        if job is None or not job.cancellable:
             return await work
-        status = text
-        for suffix in (" Press Stop to cancel before it starts.", " Press Stop to cancel."):
-            if status.endswith(suffix):
-                status = status[:-len(suffix)]
-                break
-        try:
-            await adapter.send(chat_id=str(source.chat_id), content=status, metadata=metadata)
-        except Exception:
-            logger.debug("Best-effort recovery from Exception", exc_info=True)
+        return await _race_job_cancel(work, job, text)
+    if not text:
+        # A step with no progress line (a small model's audit) shows no
+        # Stop button — there is nothing to show it on — but a typed
+        # cancel still reaches it through the running job.
+        if job is not None and job.cancellable:
+            return await _race_job_cancel(work, job, text)
         return await work
+    task = None
+    if quiet_s:
+        # Quiet window (#1793 review): run the step first and post its Stop
+        # prompt only if it is still running afterwards. A typed cancel in
+        # the window stops it exactly as it would after the prompt.
+        task = asyncio.ensure_future(work)
+        quiet_cancel = (asyncio.ensure_future(job.cancel_event.wait())
+                        if job is not None and job.cancellable else None)
+        try:
+            await asyncio.wait({task} | ({quiet_cancel} if quiet_cancel else set()),
+                               timeout=quiet_s, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if quiet_cancel is not None and not quiet_cancel.done():
+                quiet_cancel.cancel()
+        if task.done():
+            return await task
+        if quiet_cancel is not None and quiet_cancel.done():
+            return await _race_job_cancel(task, job, text)
     import uuid
     from .prompts import gateway as _prompts
     from . import prompts as _prompt_wait
@@ -323,17 +414,31 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     else:
         sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=text, choices=[STOP_LABEL],
                                           clarify_id=cid, session_key=key, metadata=metadata)
+    pending = task if task is not None else work  # the quiet window may have started it
     if not getattr(sent, "success", True):
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
-        return await work
-    task = asyncio.ensure_future(work)
+        if job is not None and job.cancellable:
+            return await _race_job_cancel(pending, job, text)
+        return await pending
+    task = asyncio.ensure_future(pending)
     waiter = asyncio.ensure_future(_prompt_wait.await_answer(cid, 3600, registry=cm))
+    cancel_waiter = None
+    if job is not None and job.cancellable:
+        cancel_waiter = asyncio.ensure_future(job.cancel_event.wait())
     result = None
     try:
         # Race the work against the Stop button. The work finishing must never wait on a press:
         # awaiting the button first froze every fit check until someone pressed Stop (2.0.6).
-        await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
-        if not task.done() and waiter.done() and waiter.result() == STOP_LABEL:
+        # A typed cancel from the job's owner races the same way (#1789).
+        waiting = {task, waiter}
+        if cancel_waiter is not None:
+            waiting.add(cancel_waiter)
+        await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+        typed_cancel = cancel_waiter is not None and cancel_waiter.done()
+        stop_pressed = False
+        if not task.done() and waiter.done():
+            stop_pressed = waiter.result() == STOP_LABEL
+        if not task.done() and (stop_pressed or typed_cancel):
             task.cancel()
             try:
                 result = await task
@@ -347,6 +452,8 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             return result
         result = await task
     finally:
+        if cancel_waiter is not None and not cancel_waiter.done():
+            cancel_waiter.cancel()
         if not task.done():
             task.cancel()
             # suppress kept with reason (#1455): the task was cancelled by us
@@ -2201,10 +2308,15 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
         dest = folder / 'source' / 'parts' / str(n)
         path = await _with_connect(
             adapter, source, key, metadata, timeout,
-            lambda row=row, dest=dest: _with_stop(adapter, source, key, metadata, None,
-                                                  asyncio.to_thread(fetch, job, row, dest)))
-        await asyncio.to_thread(check_source, path)
-        await asyncio.to_thread(intake_working_copy, path)
+            lambda row=row, dest=dest, n=n: _with_stop(
+                adapter, source, key, metadata, f'Downloading file {n} of {len(parts)}.',
+                owned_worker.in_thread(fetch, job, row, dest), allow_stop=True, quiet_s=STEP_QUIET_S))
+
+        async def _checked(path=path):
+            await owned_worker.in_thread(check_source, path)
+            await owned_worker.in_thread(intake_working_copy, path)
+        await _with_stop(adapter, source, key, metadata, 'Checking the downloaded files.',
+                         _checked(), allow_stop=True, quiet_s=STEP_QUIET_S)
         paths.append(Path(path))
     from . import model_job as mj
     unit_q = await asyncio.to_thread(mj.parts_unit_question, job, paths)
@@ -2221,7 +2333,8 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
     bed = list(state.get('bed_mm') or BED)[:2] + ([state['max_print_height_mm']] if state.get('max_print_height_mm') else [])
     combined = await _with_stop(adapter, source, key, metadata,
                                 f'Putting the {len(paths)} files together as one project.',
-                                _heavy(model_parts.combine, target, [str(p) for p in paths], bed, stl_inches=inches))
+                                _heavy(model_parts.combine, target, [str(p) for p in paths], bed, stl_inches=inches),
+                                allow_stop=True)
     job.update(_combined_source(job, parts, paths, combined))
     if unit_q is not None:
         job['unit_provenance'] = {'units': 'inch' if inches else 'mm', 'source': 'user_confirmation',
@@ -2401,6 +2514,24 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
     return await _prepare_link_intake(event, adapter, state, root, timeout=timeout, reuse=reuse,
                                       printer_id=printer_id, before_start=before_start,
                                       confirm_target=confirm_target)
+
+
+async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeout):
+    """Ask about slots the printer screen and Print Handy disagree about (#1788); False = cancelled.
+
+    Reading the screen, the shelf or the ledger is fail-soft inside
+    ``slot_verify`` (no doubt, a log line). The question itself behaves like
+    every other intake question: an unanswered one ends the intake unsliced.
+    """
+    from ..intake import slot_verify
+
+    async def ask_slot(text, labels):
+        return await _ask(adapter, source, key, text, labels, timeout)
+
+    async def say(text):
+        await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
+
+    return await slot_verify.verify_slots(state, printer_id, ask_slot, say)
 
 
 async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
@@ -2621,6 +2752,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     log_token = logs.bind(intake=iid, job_correlation_id=iid)
     logger.info('intake started origin=%s', logs.redact(str(origin)))
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    # The owner's plain text reaches this job while it prepares (#1789):
+    # registered before any long step, unregistered in the finally below.
+    from . import running_jobs
+    _running_job = running_jobs.register(running_jobs.RunningJob(
+        platform=running_jobs.platform_name(source), chat_id=source.chat_id,
+        thread_id=getattr(source, 'thread_id', None),
+        owner_user_id=str(getattr(source, 'user_id', '') or ''), intake_id=iid))
     jp = None
     try:
         if reuse:
@@ -2673,7 +2811,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                content=_archive_summary(job['source_archive']))
         else:
             job = await _with_connect(adapter, source, key, metadata, timeout,
-                                      lambda: asyncio.to_thread(mj.inventory_for_url, url))
+                                      lambda: _with_stop(adapter, source, key, metadata,
+                                                         'Reading the model page.',
+                                                         owned_worker.in_thread(mj.inventory_for_url, url),
+                                                         allow_stop=True, quiet_s=STEP_QUIET_S))
+        _running_job.attach_job(job)
         rows = job.get('sources', [])
         if job['site'] in FILE_LIST_SITES:
             rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}
@@ -2765,8 +2907,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         else:
             path = await _with_connect(
                 adapter, source, key, metadata, timeout,
-                lambda: _with_stop(adapter, source, key, metadata, None,
-                                   asyncio.to_thread(fetch, job, chosen, folder / 'source')))
+                lambda: _with_stop(adapter, source, key, metadata, 'Downloading the model.',
+                                   owned_worker.in_thread(fetch, job, chosen, folder / 'source'),
+                                   allow_stop=True, quiet_s=STEP_QUIET_S))
             job['downloaded_file'] = str(path)
         if reuse and reuse.get('source_checkpoint_resume'):
             expected = reuse['source_checkpoint_resume']['source_sha256']
@@ -2777,10 +2920,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
             # refuse before the audit can misreport it as bad_3mf_structure.
             raise ValueError(gcode_3mf_message(Path(path).name))
-        await asyncio.to_thread(check_source, path)
-        # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
-        # and slicer all read this copy. The user's bytes are kept under source/original/.
-        await asyncio.to_thread(intake_working_copy, path)
+        async def _checked_single(path=path):
+            await owned_worker.in_thread(check_source, path)
+            # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
+            # and slicer all read this copy. The user's bytes are kept under source/original/.
+            await owned_worker.in_thread(intake_working_copy, path)
+        await _with_stop(adapter, source, key, metadata, 'Checking the downloaded file.',
+                         _checked_single(), allow_stop=True, quiet_s=STEP_QUIET_S)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         # Cache only pure inspection output, bound to canonical source bytes and
@@ -2803,7 +2949,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             job['audit'] = await _with_stop(
                 adapter, source, key, metadata,
                 _voiced(large_model_notice(path), 'model_audit', source, iid),
-                _heavy(mj.audit, path))
+                _heavy(mj.audit, path), allow_stop=True, quiet_s=STEP_QUIET_S)
         if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during audit; retry intake.')
         if audit_cache_key is None:
@@ -2824,7 +2970,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             manifest = await _with_stop(
                 adapter, source, key, metadata,
                 _voiced("Checking the model. Press Stop to cancel.", "color_detection", source, iid),
-                _heavy(inventory, path))
+                _heavy(inventory, path), allow_stop=True, quiet_s=STEP_QUIET_S)
         # STL has no source palette, but still needs an exact-source color decision.
         if not manifest.get('source_sha256'):
             manifest.update(source_sha256=await asyncio.to_thread(mj.file_sha256, path))
@@ -3001,6 +3147,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if getattr(job_adapter, 'has_native_screen', False):
             await asyncio.to_thread(purge.refresh_best_effort, state, job_adapter, job.get('printer_id'))
             purge.require_jacker_capacity(manifest, job_adapter, state)
+            # #1788: a slot the printer screen and Print Handy disagree about is
+            # asked about before the colors are offered or anything is sliced.
+            if not await _verify_slots(adapter, source, key, metadata, state,
+                                       printer_id or job.get('printer_id'), timeout):
+                receipt.update(status='CANCELLED_SLOT_UNVERIFIED')
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                return {'action': 'skip', 'reason': 'operator cancelled on an unverified slot'}
         selections = [mj.resolve_filament_selection(state, dict(label, slot=int(slot)))
                       for slot, label in sorted(mj.configured_slots(state).items())]
         # A tool_based printer's positions are tools, never slots (#346, #1198).
@@ -3950,13 +4103,41 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     nosup_est = 'no estimate (the first slice failed)'
                     if sup_est == 'slicing...':
                         sup_est = 'no estimate (the first slice failed)'
+                # Extend and sink rewrite the authored mesh along its own Z: on a
+                # turned job that is another side of the model, so they are not
+                # offered (#1373 review). Reorient is not offered where its turn
+                # would not reach the slice or would undo a fit: a split or a
+                # rearranged plan slices its own poses, a fit rotation was needed
+                # to fit the bed, and several copies would need a new bed check.
+                turned_job = bool((latest.get('orientation') or {}).get('rotation'))
+                reorient_ok = (offer_reorient and not turned_job and int(chosen_quantity or 1) == 1
+                               and not latest.get('full_size_split_plan')
+                               and not latest.get('full_size_rearrange_plan')
+                               and latest.get('plate_mode') != 'separate')
+                fix_actions, fix_lines = repair_actions(clearance, turned_job=turned_job,
+                                                        reorient_ok=reorient_ok)
+                # A measured low gap that a repair can close is its own finding,
+                # apart from the slicer's floating-region warning: supports help
+                # the one and cannot reach the other, so the repair leads.
+                gap_fix = bool(gap_repairs(fix_actions))
                 flag_lines = [
-                    with_supports_line(sup_reason, sup_est, early.finding, clearance),
+                    with_supports_line(sup_reason, sup_est, early.finding, clearance, gap_repair=gap_fix),
                     f"- Slice and print without supports: {nosup_est}",
                 ]
+                coverage_preview = getattr(early, 'supports_coverage', None)
+                if coverage_preview is not None:
+                    if coverage_preview.get('unverified'):
+                        coverage_line = "- With-supports coverage: couldn't verify; the start check will ask before proceeding"
+                    elif coverage_preview.get('checked') and not coverage_preview.get('ok'):
+                        coverage_line = "- With-supports coverage: gaps found; the start check will ask before proceeding"
+                    elif coverage_preview.get('checked'):
+                        coverage_line = '- With-supports coverage: verified'
+                    else:
+                        coverage_line = '- With-supports coverage: unavailable; the start check will verify before proceeding'
+                    flag_lines.append(coverage_line)
                 # Supports labeled "not recommended" are never the first
                 # option: the without-supports line and button lead.
-                sup_recommended = supports_recommended(early.finding, clearance)
+                sup_recommended = supports_recommended(early.finding, clearance) and not gap_fix
                 if not sup_recommended:
                     flag_lines.reverse()
                 modeled = modeled_supports.safe_describe(path)
@@ -3977,46 +4158,20 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 sup_label = SUPPORTS_RECOMMENDED_LABEL if can_print else 'Slice with supports (recommended)'
                 nosup_label = NO_SUPPORTS_LABEL if can_print else 'Slice without supports'
                 if not sup_recommended:
-                    sup_label = (SUPPORTS_NOT_RECOMMENDED_LABEL
-                                 if can_print else 'Slice with supports (not recommended)')
-
-                fix_actions = []
-                # Extend and sink rewrite the authored mesh along its own Z: on a
-                # turned job that is another side of the model, so they are not
-                # offered (#1373 review). Reorient is not offered where its turn
-                # would not reach the slice or would undo a fit: a split or a
-                # rearranged plan slices its own poses, a fit rotation was needed
-                # to fit the bed, and several copies would need a new bed check.
-                turned_job = bool((latest.get('orientation') or {}).get('rotation'))
-                reorient_ok = (offer_reorient and not turned_job and int(chosen_quantity or 1) == 1
-                               and not latest.get('full_size_split_plan')
-                               and not latest.get('full_size_rearrange_plan')
-                               and latest.get('plate_mode') != 'separate')
-                if clearance and support_clearance.risky(clearance):
-                    for f in clearance.get('findings') or []:
-                        for fix in f.get('fixes') or []:
-                            # "Extend underside to plate" is only a repair when
-                            # the underside faces the plate (#922 gap 5): over
-                            # another part there is no plate to extend to.
-                            if fix.get('fix') == 'extend_underside' and f.get('over') == 'plate' \
-                                    and not turned_job \
-                                    and not any(a['kind'] == 'extend' for a in fix_actions):
-                                fix_actions.append({'kind': 'extend', 'label': 'Extend underside to plate', 'finding': f})
-                                if fix.get('added_volume_mm3') is not None:
-                                    flag_lines.append(
-                                        f"- Extend underside to plate adds about "
-                                        f"{fix['added_volume_mm3']:.0f} mm3 of material below the underside.")
-                            elif fix.get('fix') == 'sink' and not turned_job \
-                                    and not any(a['kind'] == 'sink' for a in fix_actions):
-                                fix_actions.append({'kind': 'sink', 'label': 'Flatten (sink) to plate', 'finding': f})
-                                if fix.get('removed_volume_mm3') is not None:
-                                    flag_lines.append(
-                                        f"- Flatten (sink) to plate removes about "
-                                        f"{fix['removed_volume_mm3']:.0f} mm3 that would end up below the plate.")
-                            elif fix.get('fix') == 'reorient' and reorient_ok \
-                                    and not any(a['kind'] == 'reorient' for a in fix_actions):
-                                fix_actions.append({'kind': 'reorient', 'label': 'Reorient (lay flat)', 'finding': f})
-                    summary_extra = '\n' + '\n'.join(flag_lines)
+                    if early.finding and gap_fix:
+                        # Supports still help the slicer's floating regions; they
+                        # just are not the answer to the measured gap.
+                        sup_label = ('Slice and print with supports (floating regions only)'
+                                     if can_print else 'Slice with supports (floating regions only)')
+                    else:
+                        sup_label = (SUPPORTS_NOT_RECOMMENDED_LABEL
+                                     if can_print else 'Slice with supports (not recommended)')
+                if gap_fix:
+                    flag_lines.insert(0, low_gap_text(fix_actions))
+                    flag_lines.insert(1, '- Recommended: ' + ' or '.join(
+                        a['label'] for a in gap_repairs(fix_actions)) + ' (closes the gap; supports do not).')
+                flag_lines.extend(fix_lines)
+                summary_extra = '\n' + '\n'.join(flag_lines)
 
                 menu_options = [
                     {'kind': 'sup', 'label': sup_label},
@@ -4024,8 +4179,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 ]
                 if not sup_recommended:
                     menu_options.reverse()
-                for act in fix_actions:
-                    menu_options.append(act)
+                # The repair that closes a measured gap leads the menu; the
+                # other repairs (reorient) keep their place after the choices.
+                menu_options = gap_repairs(fix_actions) + menu_options + [
+                    a for a in fix_actions if a['kind'] not in ('extend', 'sink')]
                 if clearance and support_clearance.risky(clearance):
                     # The one explicit waiver for a low-clearance finding
                     # (#922 gap 2): neither "with supports" nor "without
@@ -4703,6 +4860,86 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             return proposal
 
+        async def _gap_repair_attempt(action):
+            """Apply one deterministic low-gap repair to a COPY of the source (no AI).
+
+            The same repair the Ready menu offers (extend or sink, the
+            distances measured on this job), built by the existing copy
+            machinery so the original file is untouched and the repair is
+            undoable. The job is repointed at the copy with the selected
+            filament decisions rebound to its bytes, and the clearance is
+            re-analyzed; the caller re-slices and every gate runs again.
+            It waives nothing, records no acknowledgement and starts
+            nothing. Returns True when applied, False when nothing changed.
+            """
+            nonlocal path, clearance, validated, binding, recipe_sha, latest
+            from . import ai_fix
+            f = action['finding']
+            win = f.get('clearance_mm') or {}
+            kind = action['kind']
+            mm = win.get('min') if kind == 'extend' else win.get('max')
+            try:
+                if not isinstance(mm, (int, float)) or mm <= 0:
+                    raise ai_fix.FixError('the measured gap is unusable')
+                job_now = json.loads(jp.read_text())
+                note = multi_file_fix_note(job_now)
+                if note:
+                    raise ai_fix.FixError(note)
+                proposal = ai_fix.FixProposal(
+                    geometry={'kind': kind, 'mm': float(mm)},
+                    summary='Close the measured low gap to the build plate.',
+                    served_by='deterministic')
+                fixed_path, report = await _heavy(ai_fix.build_fixed_copy, path, proposal, folder,
+                                                  stem='gap-repair')
+            except Exception as exc:  # noqa: BLE001 - nothing changed; said out loud
+                logger.warning('low-gap repair could not be built: %r', exc)
+                detail = f' ({ai_fix.reason(exc)})' if isinstance(exc, ai_fix.FixError) else ''
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=f'That repair could not be built{detail}, so nothing was changed.')
+                return False
+            if not ai_fix.source_unchanged(path, decisions['source_sha256'], mj.file_sha256):
+                ai_fix.discard_fixed_copy(fixed_path)
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='The model file changed while the repair was being prepared, '
+                                           'so it was not applied.')
+                return False
+            fixed_path = ai_fix.commit_fixed_copy(fixed_path, report)
+            latest = json.loads(jp.read_text())
+            actor = (f"{getattr(getattr(source, 'platform', None), 'value', None) or 'discord'}:"
+                     f"{getattr(source, 'user_id', '')}")
+            ai_fix.apply_to_job(latest, proposal, [], fixed_path=fixed_path, actor=actor,
+                                problem='Post-slice low gap', report=report,
+                                file_sha256=mj.file_sha256, lane='gap_repair')
+            new_sha = mj.file_sha256(fixed_path)
+            path = fixed_path
+            decisions['source_sha256'] = new_sha
+            manifest['source_sha256'] = new_sha
+            latest['color_manifest'] = manifest
+            validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                                           selected_plate_ids=selected_plates)
+            mj.set_color_decisions(latest, validated)
+            latest.pop('clearance_acknowledgement', None)  # it belonged to the old file
+            try:
+                first = support_clearance.job_first_layer_mm(latest)
+                clearance = await asyncio.to_thread(support_clearance.safe_analyze, path,
+                                                    first_layer_mm=first)
+                latest['support_clearance'] = clearance
+            except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
+                logger.warning('could not re-analyze the repaired model', exc_info=True)
+                latest.pop('support_clearance', None)
+                clearance = None
+            mj.write_job(folder, latest)
+            binding = slice_binding(latest, new_sha)
+            recipe_sha = binding_sha256(binding)
+            # A Ready approval is bound to the old slice. A geometry repair
+            # changes the recipe and must not inherit that approval.
+            receipt.pop('slice_approval', None)
+            receipt['geometry_repair'] = {
+                'kind': kind, 'mm': float(mm), 'deterministic': True,
+                'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'source_sha256': new_sha}
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            return True
+
         def _fix_failed_before():
             """A fix failed in this intake, or on an earlier intake of this
             same source (recorded on the job, #1474)."""
@@ -5040,7 +5277,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                        gcode_sha256={g: delivery.sha256(g) for g in gcodes})
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
 
-        async def _coverage_result(gcode_list):
+        async def _coverage_result(gcode_list, *, allow_preview=False):
             """The post-slice support coverage result for these plates (#922 gaps 2 and 4).
 
             Coverage is graded per plate with each plate's own bounds
@@ -5057,45 +5294,33 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             report = sliced.get('support_clearance') or clearance
             if not report:
                 return None
-            fit = sliced.get('fit') or {}
-            recorded = sliced.get('scale') or fit.get('scale')
-            placement = fit.get('placement_mm')
-            source_bounds = None
-            source_height = None
+            from . import coverage_reuse
+
+            extent = None
             bounds_note = None
-            source_part_count = None
             try:
-                # Off the chat loop (child process, bounded general lane): reading
-                # every mesh leaf of a large source starved the gateway heartbeat.
+                # Source geometry and G-code reads stay off the chat loop.
                 extent = await _heavy(support_clearance.source_extent, path)
-                source_bounds = tuple(extent['bounds'])
-                source_height = extent['height']
-                # Distinct placed parts in the source (#1612): an
-                # unlabeled multi-part plate cannot be attributed.
-                source_part_count = extent['part_count']
             except Exception as exc:  # noqa: BLE001 - named below, not silent
                 bounds_note = (f'source bounds unreadable ({exc}); coverage compared '
                                'without a source-to-slice mapping')
-            plates = []
-            for g in gcode_list:
-                plate = {'gcode': str(g), 'source_bounds': source_bounds,
-                         'source_height': source_height}
-                if source_part_count:
-                    plate['source_part_count'] = source_part_count
-                if recorded:
-                    plate['recorded_scale'] = float(recorded)
-                if placement:
-                    plate['placement_mm'] = tuple(float(v) for v in placement)
-                if bounds_note:
-                    plate['unverified_reason'] = bounds_note
-                plates.append(plate)
+            regions = report.get('regions') or []
             try:
-                # The G-code walk is the slow part: it runs in the heavy worker, never on
-                # the chat loop. Its result is the in-process one; a worker that cannot
-                # answer (busy lane, deadline, crash) is named unverified, never a pass.
-                return await _heavy(support_clearance.verify_coverage_by_plate,
-                                    report.get('regions') or [], plates)
-            except Exception as exc:  # noqa: BLE001 - CancelledError is BaseException and still propagates (stop behavior)
+                plates = coverage_reuse.coverage_plates(gcode_list, sliced, extent, bounds_note)
+                preview_identity = getattr(early, 'supports_coverage_identity', None)
+                preview_result = getattr(early, 'supports_coverage', None)
+                if allow_preview and preview_identity and coverage_reuse.reusable(preview_result):
+                    try:
+                        current = await _heavy(coverage_reuse.coverage_identity, gcode_list, regions,
+                                               coverage_reuse.coverage_inputs(sliced), plates)
+                    except Exception as exc:  # noqa: BLE001 - cache failure still runs the normal gate
+                        logger.warning('support coverage identity unavailable for intake %s: %s', iid, exc)
+                        current = None
+                    if current == preview_identity:
+                        mj._timing(jp, 'support_coverage_exact_reuse')
+                        return preview_result
+                return await _heavy(support_clearance.verify_coverage_by_plate, regions, plates)
+            except Exception as exc:  # noqa: BLE001 - CancelledError is BaseException and propagates
                 logger.warning('support coverage worker failed for intake %s: %s', iid, exc)
                 return {'checked': False, 'ok': True, 'regions': [], 'plate_mode': 'none',
                         'unverified': [{'plate': None,
@@ -5137,7 +5362,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             never picks the fix. Without the tier, the question gains the
             one-line note that a fix exists when AI is set up.
             """
-            nonlocal gcodes, sliced, clearance_ack_pending
+            nonlocal gcodes, sliced, clearance_ack_pending, choice
             from . import ai_fix as _ai_fix
             heavy = _ai_fix.intake_fix_offered()
             multi_note = _multi_file_fix_note()
@@ -5156,15 +5381,32 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     lines.append('This print has a low-clearance underside (under 1.0 mm) that slicer '
                                  'supports cannot fix.')
                 lines.append('Nothing has been sent to the printer yet.')
+                # The low gap is its own finding, apart from the coverage check
+                # and the slicer's floating-region warning: when a deterministic
+                # repair applies it is offered here, in this same intake (no AI).
+                repairs, repair_lines = [], []
+                if low_clearance and fix_attempts < 3:
+                    gate_job = json.loads(jp.read_text())
+                    repairs, repair_lines = repair_actions(
+                        sliced.get('support_clearance') or clearance,
+                        turned_job=bool((gate_job.get('orientation') or {}).get('rotation')))
+                    repairs = gap_repairs(repairs) if not multi_note else []
+                if repairs:
+                    lines.append(low_gap_text(repairs))
+                    lines.extend(f"- {a['label']}: re-slices a repaired copy of the model (the original "
+                                 'is kept) and runs every check again. It waives nothing and starts nothing.'
+                                 for a in repairs)
+                    lines.extend(repair_lines)
                 lines.append('- Print anyway: print this slice as it is.')
                 lines.append('- Cancel: stop here.'
                              + (' To fix the low gap, post the model again and choose Extend '
-                                'underside to plate or Flatten (sink) to plate.' if low_clearance else ''))
+                                'underside to plate or Flatten (sink) to plate.'
+                                if low_clearance and not repairs else ''))
                 if heavy and not fix_ready and multi_note:
                     lines.append(multi_note)
                 elif heavy and not fix_ready and _fix_budget_left() <= 0:
                     lines.append(_no_fix_left_note())
-                choices = [PRINT_ANYWAY_LABEL]
+                choices = [a['label'] for a in repairs] + [PRINT_ANYWAY_LABEL]
                 if fix_ready:
                     choices.append(_ai_fix.FIX_LABEL)
                 choices.append(print_next.CANCEL_LABEL)
@@ -5186,6 +5428,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                           'approver.']),
                                        offer, timeout)
                     picked_fix = offer[first] == _ai_fix.FIX_LABEL
+                    picked_repair = None
                     if offer[first] == print_next.CANCEL_LABEL:
                         pick = 1  # read as Cancel below
                     elif not picked_fix:
@@ -5199,6 +5442,62 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     pick = await _ask(adapter, source, key, '\n'.join(lines),
                                       choices, timeout, approval=True)
                     picked_fix = fix_ready and choices[pick] == _ai_fix.FIX_LABEL
+                    picked_repair = next((a for a in repairs if a['label'] == choices[pick]), None)
+                    # Index 0 means Print anyway to the code below.
+                    pick = 0 if choices[pick] == PRINT_ANYWAY_LABEL else 1
+                if picked_repair is not None:
+                    fix_attempts += 1
+                    if not await _gap_repair_attempt(picked_repair):
+                        continue  # nothing changed: ask the gate question again
+                    try:
+                        out = await _with_stop(
+                            adapter, source, key, metadata,
+                            'Re-slicing the repaired model. Press Stop to cancel.',
+                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                                {'copies': chosen_quantity}
+                                if chosen_quantity and chosen_quantity > 1 else {})),
+                            allow_stop=True)
+                    except Exception as reslice_error:  # noqa: BLE001 - reported, then cancelled
+                        from . import slice_failure as _slice_failure
+                        logger.exception('low-gap repair re-slice failed')
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content=_slice_failure.post(reslice_error))
+                        return False
+                    clearance_ack_pending = False  # the old artifact's acknowledgement is void
+                    # The Ready button that was pressed approved the slice it
+                    # showed, not this repaired one: the ordinary "Start this
+                    # exact plate?" approval question follows (choice 1), so a
+                    # repair never starts a print by itself.
+                    choice = 1
+                    gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
+                    sliced = json.loads(jp.read_text())
+                    receipt.update(status='SLICED', sliced=True, gcodes=gcodes,
+                                   gcode_sha256={g: delivery.sha256(g) for g in gcodes})
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    cov_result = await _coverage_result(gcodes)
+                    if cov_result is not None and cov_result.get('unverified'):
+                        _record_coverage_unverified(cov_result)
+                    cov_failure = (cov_result if cov_result is not None and cov_result['checked']
+                                   and not cov_result['ok'] else None)
+                    unverified_result = (cov_result if cov_result is not None
+                                         and cov_result.get('unverified') else None)
+                    report = sliced.get('support_clearance') or clearance
+                    low_clearance = False
+                    if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                           and f.get('severity') == 'risk'
+                           for f in (report or {}).get('findings') or []):
+                        ack = sliced.get('clearance_acknowledgement') or {}
+                        low_clearance = (not ack.get('acknowledged')
+                                         or ack.get('via', 'print_anyway')
+                                         not in ('print_anyway', 'geometry_repair'))
+                    if cov_failure is None and not low_clearance and unverified_result is None:
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content='The repaired slice passes the support checks. '
+                                                   'Nothing was waived, and the usual start '
+                                                   'confirmation still follows.')
+                        return 'fixed'
+                    resliced = True
+                    continue
                 if picked_fix:
                     fix_attempts += 1
                     problem = 'Post-slice gate failure. ' + ' '.join(
@@ -5240,6 +5539,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     report = sliced.get('support_clearance') or clearance
                     low_clearance = False
                     if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                           and f.get('severity') == 'risk'
                            for f in (report or {}).get('findings') or []):
                         ack = sliced.get('clearance_acknowledgement') or {}
                         low_clearance = (not ack.get('acknowledged')
@@ -5278,7 +5578,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 return 'waived'
 
         if supports_choice is True:
-            cov_result = await _coverage_result(gcodes)
+            cov_result = await _coverage_result(gcodes, allow_preview=True)
             if cov_result is not None and cov_result.get('unverified'):
                 _record_coverage_unverified(cov_result)
             cov_failure = (cov_result if cov_result is not None and cov_result['checked']
@@ -5293,6 +5593,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # their Phase 1 behavior. Print anyway is the explicit waiver.
             low_clearance = False
             if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                   and f.get('severity') == 'risk'
                    for f in (report or {}).get('findings') or []):
                 ack = sliced.get('clearance_acknowledgement') or {}
                 low_clearance = (not ack.get('acknowledged')
@@ -5396,6 +5697,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 report = sliced.get('support_clearance') or clearance
                 low_clearance = False
                 if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                       and f.get('severity') == 'risk'
                        for f in (report or {}).get('findings') or []):
                     ack = sliced.get('clearance_acknowledgement') or {}
                     low_clearance = (not ack.get('acknowledged')
@@ -5596,6 +5898,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # The start progress notes' one status message (#1471): the watcher records its
         # id here, and the start's final word below updates that same message in place.
         start_progress = {}
+        # Upload starts here: typed text no longer cancels the job (#1789).
+        # The start gates and the printer's own cancel apply from here.
+        _running_job.mark_past_cancel_point()
         uploading = ((prep_msg + "\n") if not prep_sent else "") + "Uploading to the printer. Press Stop to request cancellation."
         try:
             for attempt in range(COLOR_CONFIRM_ROUNDS):
@@ -5914,6 +6219,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     finally:
         if jp is not None:
             drop_runner(jp)
+        running_jobs.unregister(_running_job)
         _LIVE_KEY.reset(live_token)
         mj.front_end(front_token)
         logs.unbind(log_token)

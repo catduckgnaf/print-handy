@@ -85,7 +85,7 @@ GROUPS = (
     ("printers", "Printers"),
     ("platform", "Platform and chat"),
     ("spools", "Spoolman"),
-    ("cost", "Print COST"),
+    ("cost", "Print cost"),
     ("ai", "AI and models"),
     ("camera", "Camera, timelapse and images"),
     ("wrapped", "Wrapped"),

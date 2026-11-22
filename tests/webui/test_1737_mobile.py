@@ -1,5 +1,5 @@
 """#1737 mobile Web UI regressions: Firmware intro, wide tables, the
-printer card, Print COST naming, and the password gate for a phone.
+printer card, Print cost naming, and the password gate for a phone.
 
 Offline: settings from temp YAML, every printer read and the screen are
 stubs. Nothing here touches a printer.
@@ -83,13 +83,14 @@ def test_printer_card_has_one_title_no_screen_button_and_guarded_taps():
 
 
 def test_cost_is_named_print_cost_in_nav_groups_and_page():
-    assert ("/cost", "Print COST") in shell.NAV
-    assert ("cost", "Print COST") in pages.GROUPS
+    assert ("/cost", "Print cost") in shell.NAV
+    assert ("cost", "Print cost") in pages.GROUPS
     with tempfile.TemporaryDirectory() as tmp:
         data = settings.load(local=_cfg(tmp), environ={})
     html = cost_page.render_cost_page(data)
-    assert "<title>Print COST" in html or "Print COST" in html.split("</head>")[0]
-    assert "Cost calculator" not in html and "Print cost" not in html
+    assert "Print cost" in html.split("</head>")[0]
+    assert "<h1>Print cost</h1>" in html
+    assert "Print COST" not in html and "Cost calculator" not in html
 
 
 def _serve(tmp, environ, **funcs):
