@@ -129,7 +129,7 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
     g = Path(fresh['gcode'])
     assert g not in {path for path, _ in old.values()}
     text = g.read_text()
-    assert '; hermes_tool_slots = {"0":{"physical_slot":1,' in text and gcode_verify.zmod_md5_valid(g)
+    assert '; print_handy_tool_slots = {"0":{"physical_slot":1,' in text and gcode_verify.zmod_md5_valid(g)
     assert first != fresh['color_decisions']
     def upload(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 0, json.dumps({'result': {'item': {'root': 'gcodes', 'path': cmd[3]}}}), '')

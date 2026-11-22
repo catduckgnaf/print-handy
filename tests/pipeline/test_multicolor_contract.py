@@ -16,6 +16,7 @@ from print_handy.jobs import filament as jobs_filament
 from print_handy.launch import gates as launch_gates
 from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.flashforge.zmod import multicolor_contract as contract
+from print_handy.gcode import tool_map
 from print_handy.core import orca_adapter
 from tests.bound_names import patch_bound
 
@@ -171,7 +172,7 @@ def test_launch_invalid_zero_submission(tmp_path,fault):
         path.write_bytes(payload)
     else:
         if fault=='unknown-map':
-            payload=b'\n'.join(l for l in payload.split(b'\n') if not l.startswith(contract.MAP_PREFIX.encode()))
+            payload=b'\n'.join(l for l in payload.split(b'\n') if not l.startswith(tool_map.PREFIX.encode()))
         elif fault=='material':
             payload=payload.replace(b'PLA;PLA;PLA;PLA',b'PLA;PETG;PLA;PLA')
         else:
@@ -342,7 +343,7 @@ def test_startup_defects_normal_cli_zero_transport(tmp_path, fault):
         assert path.read_text() == raw
         # Supply checksum-valid mapped metadata without repairing the bad header:
         # launch rejection must be the startup rule, not missing metadata/MD5.
-        payload = (contract.MAP_PREFIX+json.dumps({'0':1,'1':2,'2':3,'3':4})+'\n'+raw).encode()
+        payload = (tool_map.format_line({t: tool_map.entry(int(t) + 1) for t in '0123'})+'\n'+raw).encode()
         path.write_bytes(b'; MD5:'+hashlib.md5(payload).hexdigest().encode()+b'\n'+payload)
         with pytest.raises(SystemExit,match='immediate startup'):
             cli(['print-now',str(path)])
@@ -513,7 +514,7 @@ def test_sparse_map_conflicting_embedded_metadata_refused(tmp_path):
     path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
     contract.finalize(path, None, st, {'0': 1, '2': 3})
     lines = path.read_text().splitlines(keepends=True)
-    dup = [line for line in lines if line.startswith(contract.MAP_PREFIX)]
+    dup = [line for line in lines if line.startswith(tool_map.PREFIX)]
     assert len(dup) == 1
     path.write_text(''.join(lines) + dup[0])
     with pytest.raises(RuntimeError, match='duplicate tool mapping metadata'):
@@ -609,7 +610,7 @@ def test_a_file_finalized_before_1305_with_an_unused_tool_still_launches():
     # explicit map is held to "map only the used tools".
     st = state()
     text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA', 'PLA'])
-    text = text.rstrip('\n') + '\n' + contract.MAP_PREFIX + json.dumps({'0': 1, '1': 2, '2': 3, '3': 4}) + '\n'
+    text = text.rstrip('\n') + '\n' + tool_map.format_line({t: tool_map.entry(int(t) + 1) for t in '0123'}) + '\n'
     assert contract.validate_materials(text, 'PLA;PLA;PLA;PLA', st) == {'0': 1, '1': 2, '2': 3, '3': 4}
 
 

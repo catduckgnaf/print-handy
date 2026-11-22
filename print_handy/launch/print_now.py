@@ -16,6 +16,7 @@ from ..core import (
     spoolman_client,
     start_recorder, start_truth,
 )
+from ..gcode import tool_map
 from ..gcode.artifact import _text_like_read_text, file_sha256
 from ..gcode.verify import (
     _gcode_tools, _refuse_multicolor, _verify_lines, _verify_routed, _with_gcode_temperatures,
@@ -51,10 +52,6 @@ BAMBU_START_CONFIRM_S = 90
 BAMBU_START_POLL_S = 10
 _confirm_clock = time.monotonic
 _confirm_sleep = time.sleep
-
-
-# The G-code tool map anchor. Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
-MAP_PREFIX = "; hermes_tool_slots = "
 
 
 def _sync_active_spool(st, slot, printer_id=None):
@@ -1034,16 +1031,19 @@ def job_card(job, remote, gcode_text=""):
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
-def _publish_job_card(st, job, remote, gcode_text=""):
-    """Best effort: Moonraker database hermes/current_job, read by Home Assistant. Never blocks a print.
+# Where the job card lives in the printer's Moonraker database. Home Assistant
+# reads it with a REST sensor (/server/database/item?namespace=print_handy&key=current_job).
+# Before 2.4.0 the namespace was "hermes" (#1817).
+JOB_CARD_NAMESPACE = "print_handy"
+JOB_CARD_KEY = "current_job"
 
-    The ``hermes`` namespace and ``current_job`` key are a frozen format: see
-    docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
-    """
+
+def _publish_job_card(st, job, remote, gcode_text=""):
+    """Best effort: the job card at Moonraker database JOB_CARD_NAMESPACE/JOB_CARD_KEY. Never blocks a print."""
     try:
         card = job_card(job, remote, gcode_text)
         request_json(st["moonraker_url"] + "/server/database/item",
-                     data={"namespace": "hermes", "key": "current_job", "value": card}, timeout=5,
+                     data={"namespace": JOB_CARD_NAMESPACE, "key": JOB_CARD_KEY, "value": card}, timeout=5,
                      headers={"Content-Type": "application/json"})
         return card
     except Exception as exc:
@@ -2248,15 +2248,14 @@ def remap_slot(target, new_slot, tool=None, state=None):
     if gcode_path.is_file():
         gcode_text = gcode_path.read_text()
         used = routed_adapter.native.used_tools(gcode_text)
-        for line in gcode_text.splitlines():
-            if line.startswith(MAP_PREFIX):
-                try:
-                    data = json.loads(line[len(MAP_PREFIX):])
-                    for t, v in data.items():
-                        raw_tools[str(t)] = v.get("physical_slot") if isinstance(v, dict) else v
-                except Exception:
-                    logger.warning("tool mapping metadata unavailable", exc_info=True)
-                break
+        try:
+            data = tool_map.parse(gcode_text) or {}
+        except tool_map.StaleToolMap:
+            raise
+        except tool_map.ToolMapError:
+            logger.warning("tool mapping metadata unavailable", exc_info=True)
+            data = {}
+        raw_tools = {t: v["physical_slot"] for t, v in data.items()}
     used_names = ", ".join(f"T{t}" for t in sorted(used))
     if tool is None:
         if len(used) > 1:

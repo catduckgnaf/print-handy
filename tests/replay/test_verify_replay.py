@@ -22,7 +22,7 @@ def write(tmp_path, nozzle):
 def test_the_recorded_slice_quotes_its_material():
     text = (FIXTURES / "silk_pla_slot2_sliced.gcode.txt").read_text()
     assert '; filament_type = "Silk PLA"' in text
-    assert '; hermes_tool_slots = {"0":{"physical_slot":2,"spoolman_id":17}}' in text
+    assert '; print_handy_tool_slots = {"0":{"physical_slot":2,"spoolman_id":17}}' in text
 
 
 def test_silk_pla_sliced_at_220_passes_against_the_live_state(ad5x, tmp_path):

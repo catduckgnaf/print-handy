@@ -418,7 +418,7 @@ def test_slice_uses_identity_toolheads_and_four_profiles(model_key, tmp_path, mo
     assert len(filaments) == 4
     by_tool = {p.name: json.loads(p.read_text()) for p in filaments}
     # Filament for tool 2 (index) describes toolhead 3's recorded spool (the first pick).
-    assert by_tool['filament_tool_2.json']['name'] == 'Hermes toolhead 3 PLA'
+    assert by_tool['filament_tool_2.json']['name'].endswith('[slot 3]')
     assert by_tool['filament_tool_2.json']['filament_colour'] == ['#FF0000']
     argv = calls[0]
     load = argv[argv.index('--load-filaments') + 1]
@@ -446,8 +446,8 @@ def test_slice_two_colours_on_nonadjacent_toolheads(model_key, tmp_path, monkeyp
     assert provenance['tool_mapping'] == {'1': 2, '3': 4}
     filaments = {p.name: json.loads(p.read_text()) for p in configs if p.name.startswith('filament_tool_')}
     assert len(filaments) == 4
-    assert filaments['filament_tool_1.json']['name'] == 'Hermes toolhead 2 PLA'
-    assert filaments['filament_tool_3.json']['name'] == 'Hermes toolhead 4 PLA'
+    assert filaments['filament_tool_1.json']['name'].endswith('[slot 2]')
+    assert filaments['filament_tool_3.json']['name'].endswith('[slot 4]')
     assert 'Hermes toolhead' not in filaments['filament_tool_0.json']['name']
     assert 'Hermes toolhead' not in filaments['filament_tool_2.json']['name']
 
@@ -484,7 +484,7 @@ def test_slice_single_colour_uses_the_picked_toolhead(model_key, tmp_path, monke
     assert exported_extruders(folder) == {'3'}
     filaments = {p.name: json.loads(p.read_text()) for p in configs if p.name.startswith('filament_tool_')}
     assert len(filaments) == 4
-    assert filaments['filament_tool_2.json']['name'] == 'Hermes toolhead 3 PLA'
+    assert filaments['filament_tool_2.json']['name'].endswith('[slot 3]')
     assert filaments['filament_tool_2.json']['filament_colour'] == ['#FF0000']
     assert 'Hermes toolhead' not in filaments['filament_tool_0.json']['name']
     argv = calls[0]
@@ -557,7 +557,7 @@ def test_slice_single_colour_xl_uses_the_picked_toolhead(tmp_path, monkeypatch):
     assert exported_extruders(folder) == {'4'}
     filaments = {p.name: json.loads(p.read_text()) for p in configs if p.name.startswith('filament_tool_')}
     assert len(filaments) == 5
-    assert filaments['filament_tool_3.json']['name'] == 'Hermes toolhead 4 PLA'
+    assert filaments['filament_tool_3.json']['name'].endswith('[slot 4]')
     assert filaments['filament_tool_3.json']['filament_colour'] == ['#0000FF']
     assert adapter.normalize_tool_mapping(provenance['tool_mapping'], state) == {'3': 4}
 

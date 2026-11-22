@@ -23,6 +23,7 @@ from pipeline.native_bounds_corpus import CASES as BOUNDS_CASES
 from print_handy.core import printer_state
 from print_handy.gcode import verify as gcode_verify
 from print_handy.core.gcode_lines import Anchor, GcodeLines
+from print_handy.gcode import tool_map
 
 ROOT = Path(__file__).resolve().parents[1]
 NUMBER = r'([+-]?(?:\d+(?:\.\d*)?|\.\d+))'
@@ -56,7 +57,7 @@ def questions(start_macro, end_macro):
     for macro in dict.fromkeys(("PRINT_END", "END_PRINT", end_macro)):
         out.append((f"end {macro}", "search", rf'^{re.escape(macro)}(?:\s|$)', macro))
     out.append(("tools", "findall", r"^[ \t]*T(\d+)\b", printer_state.TOOL_LINE_ANCHOR))
-    out.append(("tool slots", "search", r"^;\s*hermes_tool_slots\s*=\s*(.+)$", printer_state.TOOL_SLOTS_ANCHOR))
+    out.append(("tool slots", "findall", r"^" + re.escape(tool_map.PREFIX) + r"(.*)$", tool_map.ANCHOR))
     return out
 
 
@@ -120,8 +121,9 @@ ADVERSARIAL = {
     "layers adjacent and late": ";LAYER_CHANGE\n;LAYER_CHANGE\n;WIDTH:0.4\n;LAYER_CHANGE;LAYER_CHANGE\nX;LAYER_CHANGE\n",
     "many layers": "".join(f";LAYER_CHANGE\n;Z:{i}\n;WIDTH:0.4\nG1 X{i} E1\n" for i in range(12)),
     "tool lines": "T0\n\tT1\n T12x\nT3 ; c\nTT1\n  T\n T7\n",
-    "tool slots variants": (';hermes_tool_slots={"0": 1}\n; hermes_tool_slots = {"0": {"spoolman_id": 9}}\n'),
-    "tool slots across lines": ';\n  hermes_tool_slots\n=\n{"0": 2}\n',
+    "tool slots variants": (';print_handy_tool_slots={"0": 1}\n; print_handy_tool_slots = {"0": {"spoolman_id": 9}}\n'
+                            ' ; print_handy_tool_slots = {}\n; print_handy_tool_slots = \n'),
+    "tool slots across lines": ';\n  print_handy_tool_slots\n=\n{"0": 2}\n',
     "octoprint heaters": "M190 S60.5\nM109 S\nM109 S215.\nM104 S0\nM140 S0 ; off\nM1040 S0\nM104 S00\n",
     "sovol bare start": "START_PRINT\nM190 S+60\nM109 S.5\nM190 S70\n",
     "sovol word boundary": "START_PRINT_X\nSTART_PRINTER BED_TEMP=1\nSTART_PRINT;c\n",
@@ -135,7 +137,7 @@ ADVERSARIAL["large synthetic plate"] = (
     + "".join(f";LAYER_CHANGE\n;TYPE:Outer wall\n;WIDTH:0.42\n" + TOOLPATH + ("T1\n" if i % 7 == 0 else "")
               for i in range(400))
     + "PRINT_END\n; filament_type = PLA;PETG\n; nozzle_diameter = 0.4\n; nozzle_temperature = 215,240\n"
-    + '; hermes_tool_slots = {"0": 1, "1": 2}\n')
+    + '; print_handy_tool_slots = {"0": {"physical_slot": 1}, "1": {"physical_slot": 2}}\n')
 
 TEXTS = {**_fixture_texts(), **ADVERSARIAL}
 
@@ -171,10 +173,10 @@ def test_an_undeclared_or_unscannable_anchor_falls_back_to_the_plain_call():
 
 
 def test_a_lookahead_anchor_never_hides_the_next_line():
-    text = ";\nhermes_tool_slots=1\nPRINT_END\n"
-    lines = GcodeLines(text, ("PRINT_END", Anchor(r";\s*hermes_tool_slots\s*=")))
+    text = ";\ntool_slots=1\nPRINT_END\n"
+    lines = GcodeLines(text, ("PRINT_END", Anchor(r";\s*tool_slots\s*=")))
     assert lines.search(r'^PRINT_END(?:\s|$)', "PRINT_END").start() == text.index("PRINT_END")
-    assert lines.search(r'^;\s*hermes_tool_slots\s*=\s*(.+)$', Anchor(r";\s*hermes_tool_slots\s*=")).group(1) == "1"
+    assert lines.search(r'^;\s*tool_slots\s*=\s*(.+)$', Anchor(r";\s*tool_slots\s*=")).group(1) == "1"
 
 
 def test_verify_asks_its_questions_from_one_scan(monkeypatch):

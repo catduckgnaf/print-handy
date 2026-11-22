@@ -573,18 +573,18 @@ def parse_slicer_metadata(gcode_text: str) -> dict[str, Any]:
         except ValueError:
             logger.debug("Best-effort recovery from ValueError", exc_info=True)
 
-    # Tool mapping comment if present. The hermes_tool_slots anchor is a frozen
-    # format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
-    m_map = re.search(r"^;\s*hermes_tool_slots\s*=\s*(.+)$", gcode_text, re.M)
-    if m_map:
-        try:
-            parsed_map = json.loads(m_map.group(1).strip())
-            meta["tool_mapping"] = {str(tool): value.get('physical_slot') if isinstance(value, dict) else value
-                                    for tool, value in parsed_map.items()}
-            meta["tool_spool_ids"] = {str(tool): value['spoolman_id'] for tool, value in parsed_map.items()
-                                      if isinstance(value, dict) and value.get('spoolman_id') is not None}
-        except (ValueError, TypeError, AttributeError):
-            logger.debug("Best-effort recovery from (ValueError, TypeError, AttributeError)", exc_info=True)
+    # The tool map line, if present. A receipt is best effort: an unreadable
+    # or pre-2.4.0 map is left out and the receipt uses its other evidence.
+    from ..gcode import tool_map
+    try:
+        parsed_map = tool_map.parse(gcode_text)
+    except tool_map.ToolMapError:
+        logger.debug("tool map unavailable for the receipt", exc_info=True)
+        parsed_map = None
+    if parsed_map:
+        meta["tool_mapping"] = {tool: value["physical_slot"] for tool, value in parsed_map.items()}
+        meta["tool_spool_ids"] = {tool: value["spoolman_id"] for tool, value in parsed_map.items()
+                                  if value.get("spoolman_id") is not None}
 
     return meta
 

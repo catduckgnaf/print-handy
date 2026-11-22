@@ -108,7 +108,7 @@ def test_derived_plate_records_explicit_t0_slot(tmp_path):
     raw = output.read_bytes()
     assert provenance['tool_mapping'] == {'0': 2}
     assert b'; filament_type = PLA+' in raw
-    assert b'; hermes_tool_slots = {"0":{"physical_slot":2,"spoolman_id":' in raw
+    assert b'; print_handy_tool_slots = {"0":{"physical_slot":2,"spoolman_id":' in raw
     assert f'; zmod_color_data = 0|#{slot["hex"].lstrip("#").upper()}|{slot["material"]}'.encode() in raw
     assert gcode_verify.zmod_md5_valid(output)
     machine = json.loads((tmp_path / 'out/machine.json').read_text())
@@ -122,7 +122,7 @@ def test_omitted_slot_does_not_invent_a_tool_map(tmp_path):
     with patch.object(adapter.subprocess, 'run', side_effect=fake_slice):
         output, provenance, _ = adapter.slice_model(source, tmp_path / 'out', state())
     assert provenance['tool_mapping'] is None
-    assert b'; hermes_tool_slots =' not in output.read_bytes()
+    assert b'; print_handy_tool_slots =' not in output.read_bytes()
 
 
 def test_slice_finalizes_checksum_and_color_metadata(tmp_path):
