@@ -181,6 +181,19 @@ def test_color_name_only_strips_pet_for_the_petg_family(material, expected):
     assert ft.color_name("Red PET", ft.from_text(material)) == expected
 
 
+@pytest.mark.parametrize("name, material, expected", [
+    ("Red PAHT", "PA", "Red PAHT"),
+    ("Red PA12", "PA-CF", "Red PA12"),
+    ("Red PA-CF", "PA", "Red PA-CF"),
+    ("Red PA-CF", "PA-CF", "Red"),
+    ("Red PETG-CF", "PETG", "Red PETG-CF"),
+    ("Red PETG+", "PLA+", "Red PETG+"),
+    ("Red +", "PLA", "Red +"),
+])
+def test_color_name_keeps_distinct_material_tokens(name, material, expected):
+    assert ft.color_name(name, ft.from_text(material)) == expected
+
+
 def test_paht_resolves_to_the_pa_family():
     # PAHT is normalized by material_family before _VALID_FAMILY is checked.
     assert ft.from_text("PAHT").family == "PA"

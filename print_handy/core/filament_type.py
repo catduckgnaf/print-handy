@@ -404,12 +404,7 @@ def color_name(name: Any, ftype: FilamentType | None = None) -> str:
         if skipped:
             continue
         token = upper[0]
-        if token.endswith("+") and token != "+" and "plus" not in ftype.flags:
-            out.append(parts[i])  # a '+' word is a type word only when the parsed type has the plus flag
-            i += 1
-            continue
-        if token in drop or token == "+" or (token.endswith("+") and _FAMILY_TOKEN.match(token)) \
-                or (_FAMILY_TOKEN.match(token) and _same_family(token, ftype)):
+        if token in drop or (token == "+" and "plus" in ftype.flags) or _same_family(token, ftype):
             i += 1
             continue
         out.append(parts[i])
@@ -417,13 +412,16 @@ def color_name(name: Any, ftype: FilamentType | None = None) -> str:
     return " ".join(out)
 
 
-def _same_family(token: str, ftype: FilamentType | None) -> bool:
-    """A trailing family word in a name is dropped only when it is the spool's own family."""
-    if ftype is None or ftype.family is None:
+def _same_family(token: str, ftype: FilamentType) -> bool:
+    """Drop only an exact family token or an explicitly supported display alias."""
+    if token.endswith("+") and "plus" not in ftype.flags:
+        return False
+    family = (ftype.family or "").replace("-", "")
+    material = token.rstrip("+")
+    if material == family:
         return True
-    base = ftype.family.split("-", 1)[0]
-    token_base = token.rstrip("+").split("-", 1)[0]
-    return token_base == base or (token_base == "PET" and base == "PETG") or token.startswith(base)
+    # PET is an established alias for the PETG base, including its reinforced family.
+    return material == "PET" and ftype.family in ("PETG", "PETG-CF", "PETG-GF")
 
 
 def label(color: Any, ftype: FilamentType | None, *, color_fallback: str = "", material_fallback: str = "") -> str:
