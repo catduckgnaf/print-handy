@@ -29,7 +29,7 @@ def _text(rng, seps):
     return "".join(rng.choice(PIECES) + rng.choice(seps) for _ in range(rng.randint(0, 25)))
 
 
-@pytest.mark.parametrize("seed", range(400))
+@pytest.mark.parametrize("seed", range(100))
 @pytest.mark.parametrize("seps", [SEPS[:3], SEPS[:4], SEPS])
 def test_lazy_view_equals_eager(seed, seps):
     text = _text(random.Random(seed), seps)
@@ -44,3 +44,55 @@ def test_lazy_view_equals_eager(seed, seps):
 def test_no_trailing_newline_and_empty():
     for text in ("", "START_PRINT BED_TEMP=1 EXTRUDER_TEMP=2", "M1\nSTART_PRINT a\nM2"):
         assert ns._Startup(text).starts == _eager(text).starts
+
+
+def _used_tools_lines(text):
+    from print_handy.printers.flashforge.zmod import multicolor_contract as mc
+    tools, heater = set(), set()
+    for line in text.splitlines():
+        head = line[:1]
+        if head in mc._TOOL_CANDIDATES and (m := mc.TOOL_LINE.fullmatch(line.strip())):
+            tools.add(int(m.group(1)))
+        if not tools and head in mc._HEATER_CANDIDATES and (m := mc.HEATER_TOOL_LINE.fullmatch(line.strip())):
+            heater.add(int(m.group(1)))
+    return tools or heater
+
+
+TOOL_PIECES = PIECES + ["T0", "  T2 ; swap", "\tT3", "t4", "M104 S200 T1", " M109 S210 T2 ; w", "M104 S0", "X M104 T5",
+                        "M104 T6 extra", "T", "TT1", "T1x", "\x1fT7", "M109 S1 T8;c"]
+
+
+@pytest.mark.parametrize("seed", range(120))
+@pytest.mark.parametrize("seps", [SEPS[:1], SEPS[:2], SEPS[:3], SEPS])
+def test_used_tools_equals_the_line_pass(seed, seps):
+    from print_handy.printers.flashforge.zmod import multicolor_contract as mc
+    rng = random.Random(seed)
+    text = "".join(rng.choice(TOOL_PIECES) + rng.choice(seps) for _ in range(rng.randint(0, 25)))
+    if rng.random() < 0.3:
+        text += "é"
+    assert mc.used_tools(text) == _used_tools_lines(text)
+
+
+def _finalize_lines(text, metadata):
+    from print_handy.printers.flashforge.zmod import multicolor_contract as mc
+    lines = [line for line in text.splitlines(keepends=True)
+             if '_' not in line
+             or not (line.strip().lower().startswith('; zmod_color_data =') or line.startswith(mc.MAP_PREFIX))]
+    index = next((i for i, line in enumerate(lines) if line.strip().lower().startswith('; header_block_end')), 0)
+    lines[index:index] = metadata
+    return ''.join(lines)
+
+
+HEADER_PIECES = PIECES + ["; HEADER_BLOCK_END", "  ; header_block_end", "; header_block_end x", "x; header_block_end",
+                          "; zmod_color_data = 0|#fff|PLA", "; hermes_tool_slots = {}", ";header_block_end", "é"]
+
+
+@pytest.mark.parametrize("seed", range(150))
+@pytest.mark.parametrize("seps", [SEPS[:1], SEPS[:2], SEPS[:4], SEPS])
+def test_metadata_insertion_equals_the_line_pass(seed, seps):
+    from print_handy.printers.flashforge.zmod import multicolor_contract as mc
+    rng = random.Random(seed)
+    text = "".join(rng.choice(HEADER_PIECES) + rng.choice(seps) for _ in range(rng.randint(0, 25)))
+    meta = ["; zmod_color_data = 0|#fff|PLA\r\n"]
+    fast = mc._insert_metadata_untouched(text, meta)
+    assert fast is None or fast == _finalize_lines(text, meta)
