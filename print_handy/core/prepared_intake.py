@@ -2413,12 +2413,16 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
                 adapter, source, key, metadata, f'Downloading file {n} of {len(parts)}.',
                 owned_worker.in_thread(fetch, job, row, dest), allow_stop=True, quiet_s=STEP_QUIET_S))
 
+        paths.append(Path(path))
+    # Every file is here: say once when they are big enough that the checks
+    # and the combine take minutes (#1779), before that work starts.
+    large = await _post_large_source_notice(adapter, source, metadata, paths)
+    for path in paths:
         async def _checked(path=path):
             await owned_worker.in_thread(check_source, path)
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded files.',
                          _checked(), allow_stop=True, quiet_s=STEP_QUIET_S)
-        paths.append(Path(path))
     from . import model_job as mj
     # Every file is in the job folder (#1779): stamped here, not after the
     # combine, so a slow combine no longer hides the finished downloads.
@@ -2447,7 +2451,86 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
         job['unit_provenance'] = {'units': 'inch' if inches else 'mm', 'source': 'user_confirmation',
                                   'original_mm': unit_q['original_mm'],
                                   'factor': mj.INCH_TO_MM if inches else 1.0}
+    job['large_source_notice'] = bool(large)
     return Path(combined['path'])
+
+
+#: A source this big gets one heads-up line before its slow steps (#1779):
+#: on 2026-11-21 two STLs of 56 MB (about 1.1 million triangles) took four
+#: minutes before the first question, with no word. Reaching either limit
+#: (at or above it) is enough.
+LARGE_SOURCE_MB = 20
+LARGE_SOURCE_TRIANGLES = 400_000
+
+
+def _source_size(path):
+    """(mesh bytes, triangles or None) for one source file; (0, None) when unreadable.
+
+    STL: the file size, and the triangle count from a binary header whose
+    length matches the file. 3MF: the uncompressed size of its model parts
+    (a zipped 3MF is much smaller than the mesh it unpacks to), no count.
+    """
+    import struct
+    import zipfile
+    path = Path(path)
+    try:
+        if path.suffix.lower() == '.3mf':
+            with zipfile.ZipFile(path) as archive:
+                return sum(i.file_size for i in archive.infolist()
+                           if i.filename.lower().endswith('.model')), None
+        size = path.stat().st_size
+        with path.open('rb') as handle:
+            head = handle.read(84)
+    except (OSError, zipfile.BadZipFile) as exc:
+        logger.debug("source size unreadable for %s: %s", path.name, exc)
+        return 0, None
+    if len(head) == 84:
+        count = struct.unpack('<I', head[80:84])[0]
+        if size == 84 + 50 * count:
+            return size, count
+    return size, None
+
+
+def _triangles_text(count):
+    if count >= 1_000_000:
+        return f'about {count / 1_000_000:.1f} million triangles'
+    return f'about {round(count, -3):,} triangles'
+
+
+def large_source_notice(paths):
+    """The one-line heads-up for big source files, or None (#1779)."""
+    sizes = [_source_size(p) for p in paths]
+    total = sum(size for size, _count in sizes)
+    counts = [count for _size, count in sizes if count is not None]
+    triangles = sum(counts) if counts else None
+    if total < LARGE_SOURCE_MB * 1e6 and (triangles or 0) < LARGE_SOURCE_TRIANGLES:
+        return None
+    facts = f'{total / 1e6:.0f} MB of mesh' + (f', {_triangles_text(triangles)}' if triangles else '')
+    if len(sizes) > 1:
+        return f'These files are big ({facts}); preparing them takes a few minutes.'
+    return f'This file is big ({facts}); preparing it takes a few minutes.'
+
+
+async def _post_large_source_notice(adapter, source, metadata, paths):
+    """Post the large-source heads-up when it applies; returns the text posted, or None.
+
+    None also when the send failed (raised, or reported no success): the
+    caller then keeps the audit step's own large-model prompt, so a big
+    source is never left without any warning. A heads-up is progress only:
+    a failed send never stops the intake.
+    """
+    text = await asyncio.to_thread(large_source_notice, paths)
+    if not text:
+        return None
+    try:
+        sent = await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+    except Exception:
+        logger.info("large source heads-up not delivered", exc_info=True)
+        return None
+    if not getattr(sent, 'success', True):
+        logger.info("large source heads-up not delivered: %s", getattr(sent, 'error', None))
+        return None
+    return text
 
 
 def designer_pose_text(split_plan, rows, parts_count=None):
@@ -3027,6 +3110,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
             # refuse before the audit can misreport it as bad_3mf_structure.
             raise ValueError(gcode_3mf_message(Path(path).name))
+        large = (job.pop('large_source_notice', None) if parts else
+                 await _post_large_source_notice(adapter, source, metadata, [path]))
         async def _checked_single(path=path):
             await owned_worker.in_thread(check_source, path)
             # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
@@ -3056,7 +3141,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         else:
             job['audit'] = await _with_stop(
                 adapter, source, key, metadata,
-                _voiced(large_model_notice(path), 'model_audit', source, iid),
+                # After the heads-up the audit's own prompt need not say "large" again.
+                _voiced('Checking the model. Press Stop to cancel.' if large else large_model_notice(path),
+                        'model_audit', source, iid),
                 _heavy(mj.audit, path), allow_stop=True, quiet_s=STEP_QUIET_S)
         if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during audit; retry intake.')
