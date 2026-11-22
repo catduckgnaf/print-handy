@@ -68,3 +68,18 @@ def test_baseline_uses_a_scan_but_blocks_the_same_edit(tmp_path):
     assert sg.enforce_approved_baseline(artifact, path=base, scan=scan).status == "ok"
     artifact.write_text(artifact.read_text().replace("10.0.0.1", "6.6.6.6"))
     assert sg.enforce_approved_baseline(artifact, path=base).status == "blocked"
+
+
+def test_same_size_rewrite_with_restored_mtime_is_not_trusted(tmp_path):
+    import os
+    artifact = tmp_path / "a.gcode"
+    text = "; print_host = 10.0.0.1\n; host_type = moonraker\nG1 X1\n" + "; pad\n" * 200
+    artifact.write_text(text)
+    before = artifact.stat()
+    assert sg.artifact_matches_text(artifact, text)
+    artifact.write_text(text.replace("10.0.0.1", "66.6.6.6"))  # same length
+    os.utime(artifact, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = artifact.stat()
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+    assert not sg.artifact_matches_text(artifact, text)
+    assert not sg.artifact_matches_text(tmp_path / "missing.gcode", text)

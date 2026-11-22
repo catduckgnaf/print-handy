@@ -2639,7 +2639,6 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     gcode_scan = sg.scan_gcode(final_text)
     _sub['scan_s'] = time.monotonic() - _scan_started
     _t = time.monotonic()
-    _scanned = output.stat()
     post_gate = post_slice(final_text, scan=gcode_scan, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
                            bed=bed, filament_slots=(int(printer.slot_count) if multi_tool else FILAMENT_SLOTS), tool_slots=tool_slots,
                            templates=templates, profile_paths=filament_paths,
@@ -2657,8 +2656,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Each model approves its own protected settings; a model without a baseline file keeps the shared one.
     _t = time.monotonic()
     baseline_kw = {} if printer.baseline_path is None else {'path': printer.baseline_path}
-    _now = output.stat()
-    _same_bytes = (_now.st_size, _now.st_mtime_ns) == (_scanned.st_size, _scanned.st_mtime_ns)
+    # Reuse the scan only if the file still decodes to exactly the scanned text. Size and mtime
+    # are not proof (a same-size rewrite can restore its timestamp), so compare the content.
+    _same_bytes = sg.artifact_matches_text(output, final_text)
     baseline_gate = (sg.enforce_approved_baseline(output, scan=gcode_scan if _same_bytes else None, **baseline_kw)
                      if output.stat().st_size > 1000 else sg.Result())
     _sub['baseline_s'] = time.monotonic() - _t

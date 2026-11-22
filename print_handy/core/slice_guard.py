@@ -806,6 +806,15 @@ def _approve_command(path):
         command += f" --baseline config/{Path(path).name}"
     return command
 
+def artifact_matches_text(artifact, text):
+    """True only when the file on disk still decodes to exactly `text`.
+
+    Size and mtime are not proof: a same-size rewrite can restore its timestamp."""
+    try:
+        return Path(artifact).read_text(errors='replace') == text
+    except OSError:
+        return False
+
 def enforce_approved_baseline(artifact, path=BASELINE_PATH, scan=None):
     r = Result()
     if not Path(path).exists():
