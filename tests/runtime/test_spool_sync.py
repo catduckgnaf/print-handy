@@ -296,7 +296,7 @@ def test_list_text_shelf_names_the_material_once(tmp_path):
     client = lambda method, path, body=None: [
         {"id": 21, "remaining_weight": 800, "filament": {"name": "Coffee PLA+", "material": "PLA+"}}]
     text = spool_sync.list_text(client=client, state_path=state)
-    assert "#21 Coffee PLA+, 800 g" in text and "PLA+ PLA+" not in text
+    assert "#21 Coffee, PLA+; 800 g" in text and "PLA+ PLA+" not in text
 
 
 def test_screen_label_matches_the_type_print_handy_writes():

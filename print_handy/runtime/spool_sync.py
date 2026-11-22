@@ -2229,7 +2229,7 @@ def list_text(*, client: Client = spoolman, state_path: Path | None = None,
         sid = rec.get("spoolman_id")
         live = by_id.get(sid) or {}
         grams = live.get("remaining_weight")
-        g = f", {grams:.0f} g" if isinstance(grams, (int, float)) else ""
+        g = f"; {grams:.0f} g" if isinstance(grams, (int, float)) else ""  # the label has its own comma
         shown = spool_nickname(live) or rec.get('name') or '?'
         lines.append(f"Slot {slot}: #{sid} {shown}{g}" if sid else f"Slot {slot}: empty")
         if sid:
@@ -2239,7 +2239,7 @@ def list_text(*, client: Client = spoolman, state_path: Path | None = None,
     for s in sorted(shelf, key=lambda s: s.get("id") or 0):
         f = s.get("filament") or {}
         grams = s.get("remaining_weight")
-        g = f", {grams:.0f} g" if isinstance(grams, (int, float)) else ""
+        g = f"; {grams:.0f} g" if isinstance(grams, (int, float)) else ""  # the label has its own comma
         from .discord_print_summary import filament_label
         own = spool_nickname(s)
         label = f"{own} ({filament_label(f.get('name'), f.get('material'), '?')})" if own \

@@ -2675,8 +2675,11 @@ def propose_mapping(manifest, selections, selected_plate_ids=None, *, groups=Non
 
 
 def mapping_summary(groups):
-    """'Plaque: Black PLA+, Letters and trim: Bronze PLA+' for proposed groups."""
-    return ', '.join(f"{group['label']}: {group['spool_label']}"
+    """'Plaque: Black, PLA+; Letters and trim: Bronze, PLA+' for proposed groups.
+
+    Groups are joined with '; ' because each spool label carries its own comma
+    (FILAMENT-TYPES-DESIGN section 4)."""
+    return '; '.join(f"{group['label']}: {group['spool_label']}"
                      for group in groups if group.get('slot') is not None)
 
 

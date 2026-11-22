@@ -247,7 +247,7 @@ def _slot_grams(gcode, mapping):
 
 
 def _filament_lines(filaments, position_noun="Slot"):
-    """'Slot 2: bronze PLA+ (~6.8 g)', one per slot of a multi-slot plate; grams only when known."""
+    """'Slot 2: bronze, PLA+ (~6.8 g)', one per slot of a multi-slot plate; grams only when known."""
     lines = []
     for entry in filaments or ():
         grams = entry.get("filament_g")
@@ -860,12 +860,15 @@ def format_slice_summary(job, now=None):
         label = f"Plate {row['plate']}" if row.get("plate") is not None else "Plate"
         parts = ", ".join(row["parts"]) or "all parts"
         slot = f"{noun} {row['slot']}" if row.get("slot") is not None else f"{noun} unknown"
-        fil = (filament_label(safe_label(row['color'], 'color unknown'),
-                              safe_label(row['material'], 'material unknown')) + f", {slot}")
+        # The position leads ('slot 1: Black, PLA'): the filament label carries its own comma, so a
+        # trailing ', slot 1' would read as one more list item (FILAMENT-TYPES-DESIGN section 4).
+        fil = f"{slot}: " + filament_label(safe_label(row['color'], 'color unknown'),
+                                          safe_label(row['material'], 'material unknown'))
         if row.get("filaments"):
-            fil = "; ".join(filament_label(safe_label(entry.get("color"), "color unknown"),
-                                           safe_label(entry.get("material"), "material unknown"))
-                            + f", {noun} {entry.get('slot')}" for entry in row["filaments"])
+            fil = "; ".join(f"{noun} {entry.get('slot')}: "
+                            + filament_label(safe_label(entry.get("color"), "color unknown"),
+                                             safe_label(entry.get("material"), "material unknown"))
+                            for entry in row["filaments"])
         est = human(row["seconds"]) if row.get("seconds") is not None else "estimate unknown"
         grams = row.get("filament_g")
         amount = f" | {grams:g} g" if grams is not None else ""

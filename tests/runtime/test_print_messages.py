@@ -171,7 +171,7 @@ def test_listener_start_uses_model_title_not_hash(job, monkeypatch):
     text = posted[0]
     assert TITLE in text
     assert "Parts: Stand" in text and "Plate 1 of 2" in text
-    assert "Slot 1: Black PLA" in text
+    assert "Slot 1: Black, PLA" in text
     assert f"Estimated total: ~1h 35m (printing: 1h 30m)" in text and "Approx. finish:" in text and "ET" in text
     assert not HEX.search(text)
 
@@ -968,8 +968,8 @@ def test_slice_summary_is_deterministic_and_complete(job):
     assert first == summary.format_slice_summary(job.data, now=now)
     lines = first.splitlines()
     assert lines[0] == f"Sliced: {TITLE}"
-    assert lines[1] == "Plate 1: Stand | Black PLA, slot 1 | 12.3 g | 1h 30m"
-    assert lines[2] == "Plate 2: Clip | White PLA, slot 2 | 12.3 g | 40m"
+    assert lines[1] == "Plate 1: Stand | slot 1: Black, PLA | 12.3 g | 1h 30m"
+    assert lines[2] == "Plate 2: Clip | slot 2: White, PLA | 12.3 g | 40m"
     assert lines[3] == "Total filament: 24.6 g"
     assert lines[4] == "Estimated total: ~2h 15m (printing: 2h 10m)"
     assert lines[5] == "Approx. finish if started now: 11:15 PM Tue ET"

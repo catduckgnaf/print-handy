@@ -56,7 +56,7 @@ def test_binding_a_slot_moves_the_old_spool_back_to_the_shelf(tmp_path):
     assert result["record"]["name"] == "Snow White PETG"
     listing = spool_sync.list_text(client=client, state_path=state)
     assert f"Slot 3: #{new} Snow White PETG" in listing
-    assert f"#{old} Night Black PETG" in listing.split("**Shelf**")[1]
+    assert f"#{old} Night Black, PETG; 1000 g" in listing.split("**Shelf**")[1]
 
 
 def test_archived_spool_is_refused(tmp_path):
