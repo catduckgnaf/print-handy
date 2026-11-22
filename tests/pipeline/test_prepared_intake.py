@@ -1122,7 +1122,7 @@ def test_color_save_prompt_shows_spool_projection_and_estimate_before_print_choi
                         lambda path: {**real(path), 'filament_stats': {'total_g': 25, 'total_m': 8, 'extruders': {}}})
     st = state()
     st['filament_slots']['1']['remaining_grams'] = 200
-    adapter = Adapter([2, 0, 4])  # one color, slot 1, cancel the print request
+    adapter = Adapter([2, 0, 3])  # one color, slot 1, cancel the print request
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='spool1',
               text='https://www.printables.com/model/1-ghost')
     asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))
