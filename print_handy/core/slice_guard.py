@@ -548,26 +548,15 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
         path = template_root / filename
         if path.is_file():
             own_settings.update(json.loads(path.read_text()))
-    # Per-tool names in tool order, as the sanitizer pins them (orca_adapter._profile_ids): slot N
-    # accepts only tool N's own name, or the template's where the job has no profile for that tool.
-    tool_ids = []
+    own_filament_ids = set()
     for path in (Path(p) for p in profile_paths):
         if path.is_file():
             data = json.loads(path.read_text())
-            value = data.get('filament_settings_id') or [data.get('name')]
-            value = value[0] if isinstance(value, list) else value
-            if value:
-                tool_ids.append(str(value).strip().strip('"'))
-    template_values = own_settings.get('filament_settings_id', [])
-    template_values = template_values if isinstance(template_values, list) else [template_values]
-    template_id = next((str(v).strip().strip('"') for v in template_values if str(v).strip().strip('"')), None)
-    own_filament_ids = set(tool_ids) or ({template_id} if template_id else set())
-
-    def slot_filament_ids(slot):
-        """The one filament ID slot ``slot`` (1-based) may carry."""
-        if slot <= len(tool_ids):
-            return {tool_ids[slot - 1]}
-        return {template_id} if template_id else set()
+            values = data.get('filament_settings_id', [])
+            own_filament_ids.update(str(value).strip().strip('"') for value in (values if isinstance(values, list) else [values]))
+    if not own_filament_ids:
+        values = own_settings.get('filament_settings_id', [])
+        own_filament_ids.update(str(value).strip().strip('"') for value in (values if isinstance(values, list) else [values]))
     # The whole-file search costs about 1 s on a 25 MB G-code; it only matters without IDs.
     if not own_filament_ids and re.search(r"(?m)^;\s*filament_settings_id\s*=", text, re.I):
         r.block("Cannot verify filament_settings_id slots: no active template filament IDs are available.")
@@ -599,8 +588,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
             own_ids = {str(value).strip().strip('"') for value in (raw_ids if isinstance(raw_ids, (list, set, tuple)) else [raw_ids])}
             for slot, entry in enumerate(entries, 1):
                 value = entry.strip().strip('"')
-                is_allowed = (is_allowed_filament_id(value, slot_filament_ids(slot)) if key == 'filament_settings_id'
-                              else (value in own_ids))
+                is_allowed = is_allowed_filament_id(value, own_ids) if key == 'filament_settings_id' else (value in own_ids)
                 if not value or not is_allowed:
                     r.block(f"Foreign effective setting {match.group(1)} slot {slot}: {value!r}.")
         match = ARC_FITTING.match(line)
