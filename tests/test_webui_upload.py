@@ -42,11 +42,14 @@ class UploadTests(unittest.TestCase):
             self.assertTrue(reason)
         self.assertEqual(upload.list_inbox(self.data), [])
 
-    def test_stl_over_the_intake_limit_is_refused(self):
-        big = b"x" * (intake_resources.MAX_STL_BYTES + 1)
+    def test_large_stl_is_accepted(self):
+        """An STL larger than the former 32 MiB cap is saved. (#1824)"""
+        # 40 MiB is enough; the real geometry budgets apply later in intake.
+        big = b"x" * (40 * 1024 * 1024)
         saved, reason = upload.save_upload(self.data, "big.stl", big)
-        self.assertIsNone(saved)
-        self.assertIn("32", reason)
+        self.assertIsNotNone(saved)
+        self.assertIsNone(reason)
+        self.assertEqual(saved.stat().st_size, len(big))
 
     def test_a_path_in_the_name_never_reaches_disk(self):
         saved, _ = upload.save_upload(self.data, "../../etc/evil.stl", b"solid")

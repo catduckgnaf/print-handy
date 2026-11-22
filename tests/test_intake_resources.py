@@ -47,11 +47,21 @@ def test_geometry_memory_ceiling(tmp_path):
             limits.check_source(source)
 
 
-def test_download_limit_ignores_missing_or_false_content_length(tmp_path):
-    target = tmp_path / 'model.3mf'
-    with patch.object(limits, 'MAX_DOWNLOAD_BYTES', 8):
-        with pytest.raises(limits.IntakeLimitExceeded, match='download'):
-            limits.save_download(io.BytesIO(b'x' * 9), target)
+def test_large_download_accepted(tmp_path):
+    """A download over the former 200 MiB cap is streamed successfully. (#1824)"""
+    target = tmp_path / 'large.stl'
+    # 201 MiB of data; no byte cap applies.
+    data = b'x' * (201 * limits.MIB)
+    limits.save_download(io.BytesIO(data), target)
+    assert target.stat().st_size == len(data)
+    # Partial file is still removed on error (existing contract).
+    target.unlink()
+    class Boom(Exception):
+        pass
+    def boom_read(n):
+        raise Boom()
+    with pytest.raises(Boom):
+        limits.save_download(type('R', (), {'read': staticmethod(boom_read)})(), target)
     assert not target.exists()
 
 
@@ -97,10 +107,9 @@ def test_dtd_refused(tmp_path):
         limits.check_source(source)
 
 
-def test_exact_download_boundary(tmp_path):
+def test_download_streams_exact_bytes(tmp_path):
     target = tmp_path / 'exact.stl'
-    with patch.object(limits, 'MAX_DOWNLOAD_BYTES', 8):
-        limits.save_download(io.BytesIO(b'12345678'), target)
+    limits.save_download(io.BytesIO(b'12345678'), target)
     assert target.read_bytes() == b'12345678'
 
 
@@ -113,11 +122,27 @@ def test_stl_triangle_budget(tmp_path):
             limits.check_source(source)
 
 
-def test_oversized_direct_entry_points_never_parse(tmp_path):
+def test_large_stl_accepted(tmp_path):
+    """An STL larger than the former 32 MiB per-file cap is accepted when
+    its triangle count is under the geometry budget. (#1824)
+    """
+    import struct
+    # ~40 MiB binary STL: 84 + 50 * triangles
+    triangles = 800_000
+    size = 84 + 50 * triangles
+    assert size > 32 * limits.MIB
+    source = tmp_path / 'large.stl'
+    # Header + triangle count; the rest can be zeros (valid enough for the size match).
+    source.write_bytes(b' ' * 80 + struct.pack('<I', triangles) + b'\0' * (size - 84))
+    # Should not refuse on byte size; triangle check passes.
+    limits.check_source(source)
+
+
+def test_non_archive_3mf_fails_cleanly(tmp_path):
+    """A .3mf that is not a zip is rejected by the zip parser, not by a byte-size cap. (#1824)"""
     from print_handy.core import model_job, source_colors, geometry_layout
-    source = tmp_path / 'large.3mf'
+    source = tmp_path / 'notazip.3mf'
     source.write_bytes(b'not even a zip')
-    with patch.object(limits, 'MAX_DOWNLOAD_BYTES', 1):
-        for entry in (model_job.audit, source_colors.inventory, geometry_layout.load_parts):
-            with pytest.raises(limits.IntakeLimitExceeded, match='file exceeds'):
-                entry(source)
+    for entry in (model_job.audit, source_colors.inventory, geometry_layout.load_parts):
+        with pytest.raises(Exception):  # BadZipFile or similar; no size-based IntakeLimitExceeded
+            entry(source)

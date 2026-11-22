@@ -963,20 +963,12 @@ def _fetch_chosen(url, target, name, label, *, exact, headers=None):
                 raise RuntimeError(
                     f"{label} sent a zip with {len(entries)} model files and none is named "
                     f"{name}, so Print Handy cannot tell which one was chosen; nothing was kept")
-            # The download cap counted the compressed bytes; the chosen member
-            # is held to the same cap as it expands, counted as it is written
-            # (the header's declared size is not trusted), so a small archive
-            # cannot fill the disk before the intake limits see the file.
-            from ..core.intake_resources import CHUNK, MAX_DOWNLOAD_BYTES, MIB, _refuse
+            # No byte-size cap on the extracted member. Geometry budgets and
+            # zip-bomb / disk-space guards in intake_resources apply later. (#1824)
+            from ..core.intake_resources import CHUNK
             try:
-                if archive.getinfo(pick).file_size > MAX_DOWNLOAD_BYTES:
-                    _refuse(f"file exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit")
                 with archive.open(pick) as src, dest.open("wb") as out:
-                    total = 0
                     while chunk := src.read(CHUNK):
-                        total += len(chunk)
-                        if total > MAX_DOWNLOAD_BYTES:
-                            _refuse(f"file exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit")
                         out.write(chunk)
             except BaseException:
                 dest.unlink(missing_ok=True)

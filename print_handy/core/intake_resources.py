@@ -9,12 +9,14 @@ import xml.parsers.expat
 import zipfile
 
 MIB = 1024 * 1024
-MAX_DOWNLOAD_BYTES = 200 * MIB
+# No byte-size download or per-STL cap. Geometry budgets (triangles, vertices,
+# estimated working storage) and zip-bomb / disk-space guards remain.
+# MAX_DOWNLOAD_BYTES and MAX_STL_BYTES removed: a model the slicer can handle
+# is never refused solely for its size in bytes. (#1824)
 MAX_MEMBERS = 4096
-MAX_EXPANDED_BYTES = 512 * MIB
+MAX_EXPANDED_BYTES = 512 * MIB  # total uncompressed size; guards disk use / zip bombs
 MAX_XML_BYTES = 400 * MIB  # expanded model XML is streamed, not retained as a DOM
-MAX_MEMBER_BYTES = 400 * MIB
-MAX_STL_BYTES = 32 * MIB
+MAX_MEMBER_BYTES = 400 * MIB  # single member uncompressed; guards expansion
 # Dense float32/int32 tables plus downstream topology/instance working storage.
 MAX_ESTIMATED_GEOMETRY_BYTES = 1536 * MIB
 MAX_TRIANGLES = 10_000_000
@@ -34,15 +36,15 @@ def _refuse(detail):
 
 
 def save_download(response, target):
-    """Count actual bytes, not untrusted Content-Length; remove partial downloads."""
+    """Stream the response to disk with no byte-size cap; remove partial downloads.
+
+    Geometry and archive-expansion guards are applied later by check_source.
+    A model the slicer can handle is never refused solely for its size in bytes. (#1824)
+    """
     target = Path(target)
     try:
         with target.open('wb') as output:
-            total = 0
             while chunk := response.read(CHUNK):
-                total += len(chunk)
-                if total > MAX_DOWNLOAD_BYTES:
-                    _refuse(f'download exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit')
                 output.write(chunk)
     except BaseException:
         target.unlink(missing_ok=True)
@@ -62,11 +64,10 @@ def check_source(path):
     """Check sizes first, then bounded streaming XML counts without building a tree."""
     path = Path(path)
     size = path.stat().st_size
-    if size > MAX_DOWNLOAD_BYTES:
-        _refuse(f'file exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit')
+    # No overall file-size refusal. Geometry budgets and zip-bomb guards apply below.
     if path.suffix.lower() == '.stl':
-        if size > MAX_STL_BYTES:
-            _refuse(f'STL exceeds {MAX_STL_BYTES // MIB} MiB limit')
+        # Triangle count (when the file is a valid binary STL of matching size)
+        # is the geometry guard. Byte size alone never refuses. (#1824)
         with path.open('rb') as source:
             header = source.read(84)
             if len(header) == 84:
@@ -79,14 +80,14 @@ def check_source(path):
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
         if len(members) > MAX_MEMBERS:
-            _refuse(f'archive exceeds {MAX_MEMBERS:,} members')
+            _refuse(f'archive exceeds {MAX_MEMBERS:,} members (zip-bomb / resource guard)')
         models = [i for i in members if i.filename.lower().endswith('.model')]
         if sum(i.file_size for i in models) > MAX_XML_BYTES:
             _refuse(f'model XML exceeds {MAX_XML_BYTES // MIB} MiB limit')
         if sum(i.file_size for i in members) > MAX_EXPANDED_BYTES:
-            _refuse(f'expanded archive exceeds {MAX_EXPANDED_BYTES // MIB} MiB limit')
+            _refuse(f'expanded archive exceeds {MAX_EXPANDED_BYTES // MIB} MiB (disk-space / zip-bomb guard)')
         if any(i.file_size > MAX_MEMBER_BYTES for i in members):
-            _refuse(f'archive member exceeds {MAX_MEMBER_BYTES // MIB} MiB limit')
+            _refuse(f'archive member exceeds {MAX_MEMBER_BYTES // MIB} MiB uncompressed (expansion guard)')
         recorded = _recorded_counts(path, [i.filename for i in models])
         if recorded is not None:
             return

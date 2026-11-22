@@ -35,14 +35,14 @@ import stat
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from .intake_resources import IntakeLimitExceeded, MAX_DOWNLOAD_BYTES, MIB
+from .intake_resources import IntakeLimitExceeded, MIB
 
 ARCHIVE_EXTS = {'.zip'}
 PRINTABLE_EXTS = {'.stl', '.3mf'}
 
 MAX_ENTRIES = 1000
 MAX_PRINTABLE_FILES = 64
-MAX_FILE_BYTES = MAX_DOWNLOAD_BYTES  # one printable file; check_source still applies its own limits after
+MAX_FILE_BYTES = 10 * 1024 * MIB  # practical ceiling; no download-style refusal for ordinary models (#1824)
 MAX_TOTAL_BYTES = 512 * MIB          # every entry, uncompressed, printable or not
 MAX_RATIO = 100                      # uncompressed / compressed, per entry
 RATIO_FLOOR_BYTES = 1 * MIB          # tiny entries compress absurdly well and are harmless
