@@ -21,7 +21,7 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy import settings
-from print_handy.core import intake_resources, printer_state
+from print_handy.core import printer_state
 from print_handy.runtime import nozzle_change as nc
 from print_handy.webui import controls, server, status, upload
 

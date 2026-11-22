@@ -52,7 +52,7 @@ from email.parser import BytesParser
 from pathlib import Path
 
 from .. import settings
-from ..core import intake_resources, model_sources
+from ..core import model_sources
 from . import shell
 
 _esc = shell._esc

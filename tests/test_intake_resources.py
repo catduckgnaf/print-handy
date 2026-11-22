@@ -138,11 +138,21 @@ def test_large_stl_accepted(tmp_path):
     limits.check_source(source)
 
 
+def test_download_stops_before_filling_the_disk(tmp_path):
+    """A download that would leave the volume under MIN_FREE_BYTES is refused."""
+    target = tmp_path / 'full.stl'
+    usage = type('U', (), {'free': limits.MIN_FREE_BYTES})()
+    with patch('print_handy.core.intake_resources.shutil.disk_usage', return_value=usage):
+        with pytest.raises(limits.IntakeLimitExceeded, match='free disk'):
+            limits.save_download(io.BytesIO(b'x' * 4096), target)
+    assert not target.exists()
+
+
 def test_non_archive_3mf_fails_cleanly(tmp_path):
     """A .3mf that is not a zip is rejected by the zip parser, not by a byte-size cap. (#1824)"""
     from print_handy.core import model_job, source_colors, geometry_layout
     source = tmp_path / 'notazip.3mf'
     source.write_bytes(b'not even a zip')
     for entry in (model_job.audit, source_colors.inventory, geometry_layout.load_parts):
-        with pytest.raises(Exception):  # BadZipFile or similar; no size-based IntakeLimitExceeded
+        with pytest.raises(zipfile.BadZipFile):
             entry(source)

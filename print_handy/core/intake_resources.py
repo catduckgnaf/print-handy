@@ -4,6 +4,7 @@ These are refusal limits, not a promise that every accepted mesh fits in a
 particular RSS budget (component instancing and downstream slicers vary).
 """
 from pathlib import Path
+import shutil
 import struct
 import xml.parsers.expat
 import zipfile
@@ -23,6 +24,10 @@ MAX_TRIANGLES = 10_000_000
 MAX_VERTICES = 10_000_000
 MAX_XML_ELEMENTS = 40_000_000
 CHUNK = 64 * 1024
+# Not a model-size cap (#1824). A download of any size is kept when the
+# volume still has this much free afterwards. Crossing it refuses the
+# download and deletes the partial file, so one response cannot fill the disk.
+MIN_FREE_BYTES = 512 * MIB
 
 
 class IntakeLimitExceeded(ValueError):
@@ -40,11 +45,18 @@ def save_download(response, target):
 
     Geometry and archive-expansion guards are applied later by check_source.
     A model the slicer can handle is never refused solely for its size in bytes. (#1824)
+    The stream still stops when the volume would drop below MIN_FREE_BYTES.
     """
     target = Path(target)
+    parent = target.parent if str(target.parent) else Path(".")
     try:
         with target.open('wb') as output:
             while chunk := response.read(CHUNK):
+                free = shutil.disk_usage(parent).free
+                if free < len(chunk) + MIN_FREE_BYTES:
+                    _refuse(
+                        f'not enough free disk space to keep this download '
+                        f'({MIN_FREE_BYTES // MIB} MiB must stay free)')
                 output.write(chunk)
     except BaseException:
         target.unlink(missing_ok=True)
