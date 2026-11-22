@@ -2723,7 +2723,27 @@ def post_lane_event(event):
     text = lane_data_sync.lane_event_text(event)
     if not text:
         return False
+    slot = (event or {}).get("slot")
+    if (event or {}).get("kind") == "identity_conflict" and slot in (1, 2, 3, 4) \
+            and not _buttonless_standalone():
+        # #1788: the notice asks which spool is really in the slot, so it
+        # carries the insertion prompt's answers (Same / Existing / New
+        # spool) instead of only naming the /spool change command. The
+        # answers are inventory-only, like the insertion prompt's.
+        try:
+            from . import print_alert_buttons as pab
+            content = (f"{text}\n{CONFLICT_BUTTONS_HINT.format(spool_id=event.get('spool_id') or '?')}")
+            if pab.post_insertion_confirmation(_bot_token(), announcer.DISCORD_CHAT_ID, content, slot):
+                log(f"post lane conflict buttons slot={slot}")
+                return True
+            warn(f"lane conflict button post failed slot={slot}; falling back to text")
+        except Exception as exc:
+            warn(f"lane conflict button post error slot={slot}: {exc!r}")
     return post(text)
+
+
+CONFLICT_BUTTONS_HINT = ("**Same spool** keeps spool #{spool_id} (the screen's material is wrong), "
+                         "**Existing spool** picks the real one from the shelf, **New spool** records it.")
 
 
 def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, state_path=None):
