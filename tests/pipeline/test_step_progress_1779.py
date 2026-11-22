@@ -83,7 +83,8 @@ def test_a_slow_step_edits_its_one_prompt_with_the_elapsed_time():
                for edit in adapter.prompt_edits)
     # The finished step reads done, on the same message.
     [(message_id, done)] = adapter.message_edits
-    assert message_id == "m-stop" and done == "Slicing: done, 0 s."
+    # The step sleeps 0.4 s; a loaded CI runner can take past 0.5 s, which rounds to 1 s.
+    assert message_id == "m-stop" and done in ("Slicing: done, 0 s.", "Slicing: done, 1 s.")
 
 
 def test_a_step_inside_its_quiet_window_still_posts_and_edits_nothing():
