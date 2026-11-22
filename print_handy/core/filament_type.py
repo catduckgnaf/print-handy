@@ -386,7 +386,8 @@ def color_name(name: Any, ftype: FilamentType | None = None) -> str:
         return raw  # the family is not known, so no word of the name is known to be a type word
     _singles, phrases = _flag_words()
     rows = _table()["flags"]
-    drop = {w for flag, row in rows.items() if row.get("name_words") for w in row.get("words", ())}
+    drop = {w for flag, row in rows.items()
+            if row.get("name_words") and flag in ftype.flags for w in row.get("words", ())}
     drop = {w.upper() for w in drop}
     parts = raw.replace("_", " ").split()
     out: list[str] = []
@@ -395,7 +396,7 @@ def color_name(name: Any, ftype: FilamentType | None = None) -> str:
         upper = tuple(re.sub(r"[^A-Z0-9+]", "", p.upper()) for p in parts[i:])
         skipped = False
         for phrase, flag in phrases:
-            if rows[flag].get("name_words") and upper[:len(phrase)] == phrase:
+            if rows[flag].get("name_words") and flag in ftype.flags and upper[:len(phrase)] == phrase:
                 i += len(phrase)
                 skipped = True
                 break

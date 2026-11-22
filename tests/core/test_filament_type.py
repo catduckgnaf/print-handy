@@ -158,3 +158,9 @@ def test_the_readers_never_return_a_flag_outside_the_table():
 @pytest.mark.parametrize("text, family", [("Support PLA", "SUPPORT-PLA"), ("SUPPORT-PA", "SUPPORT-PA"), ("PLA", "PLA")])
 def test_support_families_are_recognized(text, family):
     assert ft.from_text(text).family == family
+
+
+def test_color_name_keeps_type_words_that_were_not_parsed_as_flags():
+    plain = ft.from_text("PLA")
+    assert ft.color_name("Plus Blue", plain) == "Plus Blue"
+    assert ft.color_name("Matte White", ft.from_text("PLA Matte")) == "White"
