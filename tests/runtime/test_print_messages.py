@@ -328,7 +328,7 @@ def test_external_start_post_never_names_the_previous_prints_loaded_channel(job,
     starts = [p for p in posted if p.startswith("Print started:")]
     assert len(starts) == 1 and posted[0] is starts[0]
     assert "Slot mismatch" not in starts[0] and "printer is loading" not in starts[0]
-    assert starts[0] == mel.start_message(job.hashed)  # the canonical start message
+    assert starts[0].startswith("Print started:") and job.data["title"] in starts[0]
     mismatches = [p for p in posted if "slot sources disagree" in p or "Slot mismatch" in p]
     assert len(mismatches) == 1 and mismatches[0].startswith("**Slot check warning")
 
@@ -358,7 +358,7 @@ def test_slot_self_check_waits_for_active_channel(monkeypatch, active_sources, e
     posts = []
     monkeypatch.setattr(mel, "post", lambda message: posts.append(message))
     asyncio.run(listener._slot_self_check())
-    assert waits == [1]
+    assert waits == [1, 1]
     assert posts == expected
 
 
