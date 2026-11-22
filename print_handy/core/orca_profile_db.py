@@ -291,7 +291,7 @@ def load(folder: Path = DATA_DIR) -> dict[str, Any]:
             "filaments": {v: list(vendor_filaments(v, folder)) for v in data["meta"]["vendors"]}}
 
 
-def printer_preset(printer_model: str, nozzle_diameter: float, preferred: str | None = None,
+def printer_preset(printer_model: str, nozzle_diameter: float, *, preferred: str | None = None,
                    folder: Path = DATA_DIR) -> str | None:
     """The Orca machine preset for a printer model and nozzle size, or None when Orca has none or no clear one.
 
