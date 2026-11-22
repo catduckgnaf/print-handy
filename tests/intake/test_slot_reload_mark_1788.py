@@ -66,7 +66,7 @@ def test_the_reload_question_names_the_record_and_offers_any_shelf_spool(tmp_pat
              {"spool_id": 7, "name": "Coffee", "material": "PLA+"}]
     sv.add_choices(doubt, shelf, lambda _id: "")
     labels = [c["label"] for c in doubt.choices]
-    assert labels == ["#22 High Speed Matte Black PETG", "#7 Coffee PLA+", "Keep #21 Black PLA+", "Cancel"]
+    assert labels == ["#22 High Speed Matte Black PETG", "#7 Coffee PLA+", "Keep #21 Black PLA+", "Skip, print as is", "Cancel"]
     text = sv.question(doubt)
     assert "slot 3 (IFS channel 3) was reloaded after a runout" in text
     assert "nobody confirmed which spool went in" in text and "spool #21 Black PLA+" in text

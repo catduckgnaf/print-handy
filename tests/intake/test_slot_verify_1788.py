@@ -72,10 +72,10 @@ def test_choices_offer_the_screen_spool_matching_shelf_spools_keep_and_cancel():
     assert "#4 Gray PETG" in labels
     assert not any("Coffee" in label for label in labels)  # PLA+ is not the screen's material
     assert labels.count("#22 High Speed Matte Black PETG (screen)") == 1  # no duplicate of the screen's spool
-    assert labels[-2:] == ["Keep #21 Black PLA+", "Cancel"]
+    assert labels[-3:] == ["Keep #21 Black PLA+", "Skip, print as is", "Cancel"]
     text = sv.question(doubt)
     assert "slot 3 (IFS channel 3)" in text and "spool #22 (PETG)" in text
-    assert "spool #21 Black PLA+" in text and "Nothing is sliced until you answer" in text
+    assert "spool #21 Black PLA+" in text and "Slicing goes on if you skip this" in text
 
 
 # ------------------------------------------------------------------ the answer
@@ -146,12 +146,115 @@ def test_cancel_stops_before_anything_is_sliced(tmp_path):
     assert "Nothing was sliced" in rec.said[0]
 
 
-def test_a_failed_rebind_stops_and_says_so(tmp_path):
+def test_a_failed_optional_relink_warns_and_continues(tmp_path):
     rec = Recorder(0)
-    ok, _bind, _ = _run([_doubt()], rec, bind=mock.Mock(side_effect=RuntimeError("readback mismatch")),
-                        ledger=tmp_path / "slot-verify.json")
-    assert ok is False
-    assert "Could not link spool #22 to slot 3" in rec.said[0] and "Nothing was sliced" in rec.said[0]
+    # bind_slot may have changed the slot before it raised: the record is reloaded, not trusted stale.
+    changed = {"filament_slots": {"3": {"material": "PETG", "spoolman_id": 22}}}
+    ok, _bind, state = _run([_doubt()], rec, state={"filament_slots": {"3": dict(PLA_RECORD)}}, loaded=changed,
+                            bind=mock.Mock(side_effect=RuntimeError("readback mismatch")),
+                            ledger=tmp_path / "slot-verify.json")
+    assert ok is True
+    assert state == changed
+    assert "Could not finish linking spool #22 to slot 3" in rec.said[0]
+    assert "post the model again" not in rec.said[0] and "repost" not in rec.said[0].lower()
+
+
+def test_failed_relink_with_failed_reload_still_marks_the_slot_rebound(tmp_path):
+    rec = Recorder(0)
+    rebound = []
+    state = {"filament_slots": {"3": dict(PLA_RECORD)}}
+    with mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch("print_handy.runtime.spool_sync.bind_slot", mock.Mock(side_effect=RuntimeError("half written"))), \
+            mock.patch("print_handy.runtime.spool_sync.moonraker_for", return_value="mr"), \
+            mock.patch("print_handy.core.printer_state.load", side_effect=OSError("state unreadable")), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        ok = asyncio.run(sv.verify_slots(state, "flashforge-ad5x", rec.ask, rec.send, rebound=rebound))
+    assert ok is True
+    assert rebound == [3]  # the caller refreshes any choice that named the slot
+    assert "Could not finish linking spool #22 to slot 3" in rec.said[0]
+
+
+def test_successful_relink_then_failed_reload_continues_with_last_safe_state(tmp_path):
+    rec = Recorder(0)
+    rebound = []
+    before = {"filament_slots": {"3": dict(PLA_RECORD)}}
+    state = {"filament_slots": {"3": dict(PLA_RECORD)}}
+    bind = mock.Mock(return_value={"slot": 3, "spool_id": 22, "prior_spool_id": 21, "record": {}, "screen": "pushed",
+                                   "usage": "now charged to #22", "prior_disposition": "shelf"})
+    with mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch("print_handy.runtime.spool_sync.bind_slot", bind), \
+            mock.patch("print_handy.runtime.spool_sync.moonraker_for", return_value="mr"), \
+            mock.patch("print_handy.runtime.spool_sync.bind_text", return_value="Slot 3 -> spool #22."), \
+            mock.patch("print_handy.core.printer_state.load", side_effect=OSError("state unreadable")), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        ok = asyncio.run(sv.verify_slots(state, "flashforge-ad5x", rec.ask, rec.send, rebound=rebound))
+    assert ok is True  # advisory intake goes on
+    bind.assert_called_once()  # no second bind and no rollback
+    assert state == before  # last safe in-memory record, not a guessed payload
+    assert rebound == [3]
+    assert rec.said[0] == "Slot 3 -> spool #22."
+    assert "could not reload its record" in rec.said[1] and "may be out of date" in rec.said[1]
+
+
+def test_skip_and_an_unanswered_question_never_hold_intake(tmp_path):
+    rec = Recorder(lambda labels: labels.index("Skip, print as is"))
+    ok, bind, _ = _run([_doubt()], rec, ledger=tmp_path / "slot-verify.json")
+    assert ok is True and "Continuing without changing it" in rec.said[0]
+    bind.assert_not_called()
+
+    async def expired(text, labels):
+        raise type("PromptExpired", (RuntimeError,), {})("expired")
+
+    rec2 = Recorder(0)
+    rec2.ask = expired
+    ok, bind, _ = _run([_doubt()], rec2, ledger=tmp_path / "slot-verify.json")
+    assert ok is True and "Continuing without changing it" in rec2.said[0]
+    bind.assert_not_called()  # no automatic rebind from conflicting telemetry
+    rec3 = Recorder(None)  # the prompt returned no choice
+    ok, bind, _ = _run([_doubt()], rec3, ledger=tmp_path / "slot-verify.json")
+    assert ok is True
+    bind.assert_not_called()
+
+
+def test_a_typed_cancel_at_the_prompt_still_cancels():
+    class PromptCancelled(RuntimeError):
+        pass
+
+    async def cancelled(text, labels):
+        raise PromptCancelled("cancelled")
+
+    rec = Recorder(0)
+    rec.ask = cancelled
+    with pytest.raises(PromptCancelled):
+        _run([_doubt()], rec)
+
+
+def test_a_slot_the_print_does_not_use_is_not_asked_about(tmp_path):
+    rec = Recorder(0)
+    ok, bind, _ = _run([_doubt()], rec, ledger=tmp_path / "slot-verify.json")  # the doubt is on slot 3
+    assert ok is True and len(rec.asked) == 1  # used_slots=None asks about every slot in doubt
+    rec = Recorder(0)
+    with mock.patch.object(sv, "read_doubts", return_value=[_doubt()]):
+        ok = asyncio.run(sv.verify_slots({}, "flashforge-ad5x", rec.ask, rec.send, used_slots={1, 2}))
+    assert ok is True and rec.asked == [] and rec.said == []
+    rec = Recorder(lambda labels: labels.index("Skip, print as is"))
+    with mock.patch.object(sv, "read_doubts", return_value=[_doubt()]):
+        asyncio.run(sv.verify_slots({}, "flashforge-ad5x", rec.ask, rec.send, used_slots={3}))
+    assert len(rec.asked) == 1
+
+
+def test_picking_a_spool_reports_the_rebound_slot(tmp_path):
+    rebound = []
+    rec = Recorder(0)
+    state = {"filament_slots": {"3": dict(PLA_RECORD)}}
+    with mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch("print_handy.runtime.spool_sync.bind_slot", mock.Mock(return_value={})), \
+            mock.patch("print_handy.runtime.spool_sync.moonraker_for", return_value="mr"), \
+            mock.patch("print_handy.runtime.spool_sync.bind_text", return_value="ok"), \
+            mock.patch("print_handy.core.printer_state.load", return_value={"filament_slots": {}}), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        assert asyncio.run(sv.verify_slots(state, "p", rec.ask, rec.send, rebound=rebound)) is True
+    assert rebound == [3]
 
 
 def test_no_doubt_asks_nothing():
@@ -195,13 +298,35 @@ def test_intake_asks_through_its_own_question_and_cancel_returns_false(tmp_path)
     assert adapter.sent == ["Cancelled. Nothing was sliced, uploaded or started."]
 
 
-def test_the_intake_checks_slots_before_offering_colors():
-    """The hook sits after the native-screen purge refresh and before the color selections are built."""
+def test_verify_slots_with_no_timeout_still_asks_and_continues(tmp_path):
+    """timeout=None (prepare_link's default) must not raise; an unanswered question goes on."""
+    adapter = FakeAdapter()
+    source = S(chat_id="c1")
+    seen = []
+
+    async def fake_ask(_adapter, _source, _key, _text, _labels, *rest, **_kw):
+        seen.append(rest[0])
+        return None
+
+    with mock.patch.object(prepared_intake, "_ask", fake_ask), \
+            mock.patch.object(prepared_intake, "_question_timeout", lambda t: 60 if t is None else t), \
+            mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        ok = asyncio.run(prepared_intake._verify_slots(adapter, source, "k", {}, {}, "flashforge-ad5x", None))
+    assert ok is not False
+    assert seen and all(isinstance(t, (int, float)) for t in seen)
+
+
+def test_the_intake_checks_slots_after_the_colors_are_chosen_and_never_before():
+    """The hook sits after the colors are validated, and the old pre-color native-screen gate is gone."""
     import inspect
     body = inspect.getsource(prepared_intake._prepare_link)
     hook = body.index("await _verify_slots(")
-    assert body.index("purge.require_jacker_capacity(") < hook < body.index("selections = [mj.resolve_filament_selection(")
-    assert "CANCELLED_SLOT_UNVERIFIED" in body
+    assert body.index("selections = [mj.resolve_filament_selection(") < hook
+    assert body.index("validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection") < hook
+    assert body.count("await _verify_slots(") == 1
+    assert "CANCELLED_SLOT_UNVERIFIED" not in body
+    assert "used_slots=used" in body  # only slots the print selected
 
 
 # ------------------------------------------------------------------ print #138: a lane naming a deleted spool
@@ -259,3 +384,31 @@ def test_spoolman_unreadable_leaves_the_lane_alone():
             mock.patch("print_handy.jobs.filament.configured_slots", return_value=_slots_23()):
         assert sv.heal_dead_links({}, mr.lanes, None, mr) == []
     assert mr.lanes["lane3"]["spool_id"] == 21
+
+
+def test_intake_question_is_bounded_and_expiry_does_not_cancel(tmp_path):
+    adapter = FakeAdapter()
+    source = S(chat_id="c1")
+    seen = {}
+
+    async def expired_ask(_adapter, _source, _key, text, labels, timeout, **_kw):  # noqa: ASYNC109 - mirrors the real ask signature
+        seen["timeout"] = timeout
+        raise type("PromptExpired", (RuntimeError,), {})("expired")
+
+    with mock.patch.object(prepared_intake, "_ask", expired_ask), \
+            mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        ok = asyncio.run(prepared_intake._verify_slots(adapter, source, "k", {}, {}, "flashforge-ad5x", 900,
+                                                       used_slots={3}))
+    assert ok is True and seen["timeout"] == sv.ADVISORY_TIMEOUT_S
+    assert any("Continuing without changing it" in text for text in adapter.sent)
+
+
+def test_existing_launch_safeguards_are_untouched():
+    """Advisory spool prompt does not touch material accept, bed clearance or readiness gates."""
+    import inspect
+    body = inspect.getsource(prepared_intake._prepare_link)
+    for guard in ("material_accept.pending(", "bed_clear_approval"):
+        assert guard in body
+    src = inspect.getsource(sv)
+    assert "material_accept" not in src and "bed_clear" not in src

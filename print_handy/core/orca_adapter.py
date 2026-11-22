@@ -1704,6 +1704,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # The active printer template, not imported project settings, defines the
     # brim mode; an explicit operator width may still control its extent.
     process['brim_type'] = destination_process['brim_type']
+    # The configured build plate (#1788): name Orca's bed type so the G-code, the start macro and the
+    # bed temperature key agree with the plate on the printer. Unset leaves the template's bed type alone,
+    # and a vendor profile that pins its own plate (Bambu Lab) keeps it.
+    from .build_plate import orca_bed_type, plate_from_config
+    _bed = None if printer.vendor_material_profiles else orca_bed_type(plate_from_config(printer.config))
+    if _bed is not None:
+        process['curr_bed_type'] = _bed[0]
+        _selected('operator', ['curr_bed_type'])
     selected_by.pop('brim_type', None)
     process.update({'filter_out_gap_fill': '0', 'gap_fill_target': carried.get('gap_fill_target', compat_registry.get_rule('gap-fill-default').parameters['default']),
                     'enable_support': author.get('enable_support', '0'), 'brim_width': str(brim) if brim is not None else author.get('brim_width', '0')})

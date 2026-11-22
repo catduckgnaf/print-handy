@@ -23,6 +23,31 @@ PLATES = {
     "cool_plate": "cool plate",
 }
 
+#: Orca's ``curr_bed_type`` value for each plate, and the filament key that carries that plate's bed
+#: temperature. Orca 2.4.2 writes "High Temp Plate" for the smooth PEI plate (its UI label "Smooth PEI
+#: Plate / High Temp Plate" is not a value: Orca falls back to Cool Plate on it) and "Engineering Plate"
+#: for the smooth PC plate; each bed type reads its own ``*_plate_temp`` key.
+ORCA_BED_TYPES = {
+    "smooth_pei": ("High Temp Plate", "hot_plate_temp"),
+    "textured_pei": ("Textured PEI Plate", "textured_plate_temp"),
+    "smooth_pc": ("Engineering Plate", "eng_plate_temp"),
+    "cool_plate": ("Cool Plate", "cool_plate_temp"),
+}
+
+
+def orca_bed_type(plate: str | None) -> tuple[str, str] | None:
+    """(curr_bed_type, temperature key) for a configured plate; None when unset (Orca's default stands)."""
+    return ORCA_BED_TYPES.get(plate or "")
+
+
+def plate_from_config(config) -> str | None:
+    """The configured plate in a printer adapter's settings mapping, None when unset or unreadable."""
+    try:
+        return normalize(((config or {}).get("printer") or {}).get("build_plate"))
+    except BuildPlateError:
+        return None
+
+
 # Common ways people and vendor listings name the plates (Flashforge sells the
 # textured one as "PEI Powder-Coated").
 _ALIASES = {

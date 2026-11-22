@@ -316,7 +316,7 @@ class OverrideTests(unittest.TestCase):
                      "default_margin", "tax_rate", "tax_mode", "marketplace_fee_rate",
                      "overhead_percent", "flat_fee_per_job",
                      "default_filament_cost_per_kg", "cost_mode",
-                     "resin_ipa_per_print", "resin_ppe_per_print"},
+                     "resin_ipa_per_print", "resin_ppe_per_print", "ready_card_estimate"},
             "cost_printers": set(),
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records

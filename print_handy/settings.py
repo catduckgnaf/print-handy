@@ -2612,6 +2612,9 @@ def validate(data):
         if value is not None and (isinstance(value, bool)
                                   or not isinstance(value, (int, float)) or value < 0):
             raise SettingsError(f"[cost] {key} must be a number at or above 0, got {value!r}")
+    ready_estimate = cost_cfg.get("ready_card_estimate", False)
+    if not isinstance(ready_estimate, bool):
+        raise SettingsError(f"[cost] ready_card_estimate must be true or false, got {ready_estimate!r}")
     for key in ("failure_rate_fdm", "failure_rate_resin", "default_margin"):
         value = cost_cfg.get(key)
         if value is not None and (isinstance(value, bool)
