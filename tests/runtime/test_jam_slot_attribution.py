@@ -66,6 +66,7 @@ class StartSelfCheckReplay(ReplayCase):
         self.assertIn("zmod_ifs Chan reports slot 2 (IFS channel 2)", text)
         self.assertIn("can still describe the previous print", text)
         self.assertIn("not proof", text)
+        self.assertIn("may be a false alarm", text)
 
     def test_agreeing_sources_stay_silent(self):
         self.assertIsNone(lane_data_sync.slot_agreement_warning(job_slot=3, ifs_chan=3))
@@ -104,6 +105,20 @@ class JamAttributionReplay(ReplayCase):
     def test_repause_message_uses_the_same_wording(self):
         facts = self.listener(2)._jam_facts()
         self.assertIn("an unverified slot", mel.jam_repause_message("job.gcode", facts, 1, 30))
+
+    def test_repeat_jam_with_head_filament_is_called_a_likely_false_alarm(self):
+        facts = {**self.listener(2)._jam_facts(), "head_sensor": True}
+        text = mel.jam_repause_message("job.gcode", facts, 1, 8)
+        self.assertIn("Likely false IFS jam alarm", text)
+        self.assertIn("8 s after the resume", text)
+        self.assertIn("head sensor still detects filament", text)
+        self.assertNotIn("Still jammed on slot", text)
+        self.assertNotIn("filament is not moving", text)
+
+    def test_repeat_jam_without_head_filament_keeps_existing_warning(self):
+        facts = {**self.listener(2)._jam_facts(), "head_sensor": False}
+        text = mel.jam_repause_message("job.gcode", facts, 1, 8)
+        self.assertIn("Still jammed on", text)
 
 
 class AmbiguousLaunchReplay(ReplayCase):

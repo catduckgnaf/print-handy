@@ -981,6 +981,11 @@ def jam_repause_message(filename, facts, count=1, seconds=None):
     """The one-line rewrite when a print jams again right after a jam resume (#1787)."""
     after = f" {int(seconds)} s after the resume" if isinstance(seconds, (int, float)) and seconds >= 0 else ""
     times = "" if count <= 1 else f" ({count} times now)"
+    if (facts or {}).get("head_sensor") is True:
+        return (f"**Likely false IFS jam alarm**: the printer paused again{after}{times} while "
+                f"printing {clean(filename or 'this print')}, but the head sensor still detects "
+                "filament. Check the feed at the printer before deciding whether to resume. "
+                "Nothing was changed.")
     return (f"**Still jammed** on {_jam_where(facts)}: the printer paused again{after}{times} while "
             f"printing {clean(filename or 'this print')}, so the filament is not moving. Nothing was "
             "changed. Clear the feed at the printer before tapping Resume print again.")

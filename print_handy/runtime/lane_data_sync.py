@@ -322,7 +322,8 @@ def slot_agreement_warning(*, job_slot=None, ffm_channel=None, ifs_chan=None,
             "The filament may not be where the job expects it. Check the loaded slot "
             "at the printer before trusting slot-based alerts for this print. "
             "The printer's channel reports can still describe the previous print, so "
-            "a different channel is not proof that another feeder will feed.")
+            "a different channel is not proof that another feeder will feed. On an AD5X, "
+            "an IFS jam alarm on that disagreeing channel may be a false alarm.")
 
 
 def helix_seated_slot(lanes: dict[int, dict[str, Any]] | None,
