@@ -4458,6 +4458,9 @@ class Listener:
         Best-effort and read-only.
         """
         try:
+            # Observe the start snapshot, but do not act on it: it may still
+            # belong to the previous job. Re-read after ZMod's activation window.
+            await asyncio.to_thread(self._slot_agreement)
             await asyncio.sleep(2)
             warning = await asyncio.to_thread(self._slot_agreement)
             if warning:
