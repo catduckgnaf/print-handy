@@ -1,8 +1,5 @@
 """Slicing a job: slice_job and its single, merged, per-plate, painted and full-size split paths,
 the fit and painted-scale searches, the filament fallbacks and warnings the slice enforces.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import json, logging, math, os, re, time, zipfile
 import xml.etree.ElementTree as ET

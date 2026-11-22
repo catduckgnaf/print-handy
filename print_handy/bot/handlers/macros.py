@@ -1,7 +1,4 @@
 """The macros chat handler.
-
-Moved verbatim from ``plugins/print-feedback/__init__.py`` (#1323). The plugin file still
-loads the same handlers for one release.
 """
 import logging
 import asyncio, time

@@ -26,13 +26,12 @@ from .. import diagnostics, logs, printers, settings
 from . import job_correlation
 from . import _external, delivery, failure_report, owned_worker, plate_merge, purge, split_fit
 
-from ..intake.fit_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
-    BED, FIT_FALLBACK_HEARTBEAT_S, FIT_HEARTBEAT_S, FIT_HINT_PREFIX, FIT_QUIET_S, FitStatus,
-    LARGE_MESH_MB, SCALE_LABEL, SCALE_STEP_PERCENTS, _auto_rearrange_eligible, _elapsed_text,
-    _fit_choice_reply, _fit_failure, _fit_state, _painted_fit_sizes, _painted_no_fit_detail, _pct, _printer_name,
-    _rotation_phrase, _scale_direction_reply, _scale_fit_offer_reply, _scale_percent_reply,
+from ..intake.fit_flow import (
+    BED, FIT_HINT_PREFIX, FitStatus, SCALE_LABEL, SCALE_STEP_PERCENTS, _auto_rearrange_eligible,
+    _elapsed_text, _fit_choice_reply, _fit_state, _painted_fit_sizes, _painted_no_fit_detail, _pct,
+    _printer_name, _scale_direction_reply, _scale_fit_offer_reply, _scale_percent_reply,
     _single_body, _unit_oversize_reply, audit_dimensions, auto_rearrange_notice, fit_choice_rows,
-    fit_hint, fit_question, large_model_notice, row_brim_policy, write_split_plan,
+    fit_hint, fit_question, large_model_notice, row_brim_policy, write_split_plan
 )
 FILAMENT_SLOTS = settings.current()['printer']['filament_slots']
 print_summary = _external.lazy('discord_print_summary')
@@ -44,17 +43,14 @@ from .background_slice import drop_runner, runner_for, slice_binding  # noqa: E4
 from . import slice_warnings  # noqa: E402
 from . import status_voice  # noqa: E402
 
-from ..intake.support_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
+from ..intake.support_flow import (
     PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL, supports_decision, supports_recommended,
-    with_supports_line, repair_actions, gap_repairs, low_gap_text,
+    with_supports_line, repair_actions, gap_repairs, low_gap_text
 )
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
 
-from ..intake.worker import (  # moved in 2.3.0 (#1323); old path kept for one release
-    _LOG_LEVELS, _OFFLOAD, _SLICER_STEPS, _STEP_LABELS, _WORKER_LOG_LINE, _await_background_slice,
-    _forward_worker_log_lines, _heavy, _prefetch,
-)
+from ..intake.worker import _await_background_slice, _heavy, _prefetch
 
 
 logger = logging.getLogger(__name__)
@@ -86,7 +82,7 @@ def _voice(stage, source, key):
 STOP_LABEL = "Stop"
 STOP_CUSTOM_ID = "pbstop:"
 RETRY_CUSTOM_ID = "pbretry:"
-# Set by the print-feedback plugin: async (source, text, clarify_id) -> sent message with a single
+# Set by the chat handlers: async (source, text, clarify_id) -> sent message with a single
 # Stop button. None (tests, no Discord bot) falls back to the gateway clarify prompt.
 STOP_SENDER = None
 # Set by the plugin to edit the original Uploading/Stop prompt and install Retry after a safe refusal.
@@ -595,9 +591,6 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     return result
 
 
-
-
-
 # Start progress (#734): print-now runs as a child process and its result arrives only at
 # the end, while a real start spends 25-75 s between the tap and that result (the start
 # request itself, then the readback while the printer prepares). The child already logs its
@@ -695,32 +688,6 @@ START_PROGRESS = (
 START_PROGRESS_VOICE = {'upload_verified': 'print_start'}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _preview_description(text):
     """Brief source-derived description: first sentence, no URLs, paths, filenames or hashes."""
     text = re.sub(r'https?://\S+', ' ', str(text or ''))
@@ -812,8 +779,6 @@ def _preview_profile(row):
     return _preview_description(label)
 
 
-
-
 def preview_sentence(job, row, filament_note=None):
     title = re.sub(r'\s+', ' ', str((job or {}).get('title') or '')).strip()
     if not title:
@@ -877,46 +842,13 @@ async def send_preview(adapter, source, job, row, metadata, state=None):
         logger.debug("Best-effort recovery from Exception", exc_info=True)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-from ..intake.questions import (  # moved in 2.3.0 (#1323); old path kept for one release
-    COLOR_CONFIRM_ROUNDS, PRINT_ANYWAY_LABEL, SET_SCREEN_LABEL, _COLOR_NAMES, _CONFIRM_COLOR,
-    _CONFIRM_LABEL, _LIVE_KEY, _NOISE, _ask, _color_guess_text, _color_phrase,
-    _raw_preupload_refusal, _retry_choice_reply, _typo_words, accept_color_mismatch,
-    accept_label_mismatch, clear_color_acceptance, clear_label_acceptance, color_confirm,
-    color_confirm_question, label_confirm, label_confirm_question, screen_unpushed_note,
-    SPOOL_CHANGED, USE_LOADED_SPOOL_LABEL,
+from ..intake.questions import (
+    COLOR_CONFIRM_ROUNDS, PRINT_ANYWAY_LABEL, SET_SCREEN_LABEL, _LIVE_KEY, _ask, _color_guess_text,
+    _raw_preupload_refusal, _retry_choice_reply, accept_color_mismatch, accept_label_mismatch,
+    clear_color_acceptance, clear_label_acceptance, color_confirm, color_confirm_question,
+    label_confirm, label_confirm_question, screen_unpushed_note, SPOOL_CHANGED,
+    USE_LOADED_SPOOL_LABEL
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 MODEL_FILE_EXTS = {'.3mf', '.stl'}
@@ -1589,8 +1521,6 @@ async def announce_interrupted(root, adapter, now=None, platform=None):
     return announced
 
 
-
-
 from .link_intake import PromptCancelled as IntakeCancelled  # noqa: E402  typed Cancel/Stop at any prompt
 from .link_intake import PromptExpired as IntakeExpired  # noqa: E402  button question reached its timeout
 from .site_accounts import SiteLoginNeeded  # noqa: E402  a download needs the operator's site login (#464)
@@ -1841,14 +1771,8 @@ async def _connect_account(adapter, source, key, metadata, exc, timeout):
     return saved in (0, SAVED_LABEL)
 
 
-
-
-
-
 _HEATER_TARGET = re.compile(
     r'(rightTargetTemp|platTargetTemp)\s*==\s*0\s*\(observed\s*([0-9]+(?:\.[0-9]+)?)', re.I)
-
-
 
 
 START_PENDING_MESSAGE = ('Start sent, but the printer has not confirmed it yet. It is probably still heating '
@@ -1880,30 +1804,6 @@ def classify_start(ok, tail):
     return StartClass('START_PENDING' if unknown else 'STARTED' if ok or pending else 'START_REFUSED',
                       None if unknown else bool(ok or pending), 'unknown' if unknown else phase or None,
                       unknown, pending)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 async def _post_yolo_waivers(adapter, source, metadata, tail, receipt=None, receipt_path=None):
@@ -2892,12 +2792,6 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
         content = plain_start_failure(tail)
     await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
     return {'action': 'skip', 'reason': f'yolo G-code {outcome.status.lower()}'}
-
-
-
-
-
-
 
 
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
@@ -6417,11 +6311,3 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         _LIVE_KEY.reset(live_token)
         mj.front_end(front_token)
         logs.unbind(log_token)
-
-
-# Code moved out of this module (#1323) still sees assignments made here
-# (mock.patch, monkeypatch) for one release; see print_handy/_relocated.py.
-from .. import _relocated  # noqa: E402
-from ..intake import fit_flow as _fit_flow, questions as _questions  # noqa: E402
-from ..intake import support_flow as _support_flow, worker as _worker  # noqa: E402
-_relocated.keep_old_path(__name__, _worker, _questions, _support_flow, _fit_flow)

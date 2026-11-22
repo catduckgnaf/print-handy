@@ -112,7 +112,6 @@ select = ["E9", "F63", "F7", "F82", "F", "B", "ASYNC", "PLE"]
 # predates the widening (its names are defined by executing the handler
 # modules' code, print_handy/bot/handlers, #1323, which ruff cannot see).
 [tool.ruff.lint.per-file-ignores]
-"plugins/print-feedback/__init__.py" = ["F821"]
 "print_handy/bot/__main__.py" = ["F541", "F841"]
 "print_handy/bot/client.py" = ["F541"]
 "print_handy/bot/edit_chat.py" = ["ASYNC240", "F841"]

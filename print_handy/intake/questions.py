@@ -1,8 +1,5 @@
 """The intake's chat questions: the ask helper, the color and label confirmations and their
 recorded acceptances, and the reply parsers they share.
-
-Moved verbatim from ``print_handy.core.prepared_intake`` (#1323). The old names are still
-importable from there for one release.
 """
 import contextvars, json, logging, re, time
 from pathlib import Path

@@ -1,8 +1,5 @@
 """The operator questions a job asks before slicing (units, colors, filament warnings), the
 filament usage and spool projection, and the job summary.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import logging
 import json, time
@@ -22,9 +19,7 @@ from .store import (
 from ..launch.print_now import _sync_active_spool
 from ..printers.base import MultiColorUnsupported
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.core.model_job")
+logger = logging.getLogger(__name__)
 
 
 def show(job):

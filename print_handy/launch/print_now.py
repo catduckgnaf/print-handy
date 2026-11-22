@@ -1,8 +1,5 @@
 """Starting a sliced job: print_now, the per-family start paths, start confirmation and
 the start records.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import logging
 import hashlib, json, os, re, subprocess, time, zipfile
@@ -43,9 +40,7 @@ from .gates import (
 )
 from ..printers.base import MultiColorUnsupported
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.core.model_job")
+logger = logging.getLogger(__name__)
 
 
 # Bambu Lab start confirmation (#271): the printer can take well over a minute after `project_file`

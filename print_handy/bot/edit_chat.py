@@ -1,8 +1,9 @@
-"""Chat model edits and model questions (#903), moved out of the
-print-feedback plugin. The plugin keeps a thin ``edit_dispatch`` that
-passes its own module namespace as the host, so this module reuses the
-plugin's gate, confirm, state and design helpers without importing the
-plugin file.
+"""Chat model edits and model questions (#903).
+
+The edit handler (``print_handy.bot.handlers.edit``) keeps a thin
+``edit_dispatch`` that passes the shared handler helpers as the host, so
+this module reuses their gate, confirm, state and design helpers without
+importing the handler package.
 """
 import asyncio
 import contextvars

@@ -1,8 +1,5 @@
 """Handler helpers shared by more than one chat command: the gateway plumbing, prompts, printer
 routing and state the handlers use.
-
-Moved verbatim from ``plugins/print-feedback/__init__.py`` (#1323). The plugin file still
-loads the same handlers for one release.
 """
 import logging
 import asyncio, contextlib, functools, json, re, time

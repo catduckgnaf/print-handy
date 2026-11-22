@@ -1,7 +1,7 @@
 """Printer control for Discord: resume a paused print, print the last job again, force restart.
 
-Backs the ``/print-resume``, ``/print-again`` and ``/print-reboot`` commands in the
-print-feedback plugin. Rules learned the hard way (2026-10-10 desk stand):
+Backs the ``/print-resume``, ``/print-again`` and ``/print-reboot`` chat commands.
+Rules learned the hard way (2026-10-10 desk stand):
 
 * A Moonraker resume only works while Klipper is ready and the job is paused.
   After an emergency stop Klipper is shut down; the only live recovery is the

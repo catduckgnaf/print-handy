@@ -1,8 +1,5 @@
 """The job command line: ``python3 -m print_handy.core.model_job`` (fetch, slice, print-now,
 reconcile-launch and the rest). The old module still runs it.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import argparse, json, os, shutil, sys, time
 from pathlib import Path

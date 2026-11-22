@@ -112,8 +112,8 @@ def anchor_for(code: str) -> str:
 
 #: The (subsystem, category) pairs the production boundaries actually
 #: emit, from the #924 whole-repo inventory: every subsystem passed to
-#: plain_post / operator_message / marker in print_handy and
-#: plugins/print-feedback, plus the doctor, debug-mode and startup-exit
+#: plain_post / operator_message / marker in print_handy (the chat
+#: handlers included), plus the doctor, debug-mode and startup-exit
 #: codes. Categories are the ones reachable at that boundary:
 #: classify() never returns hardware, so it appears only for printer,
 #: the one boundary that may pass it explicitly for a physical failure.

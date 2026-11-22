@@ -1,9 +1,6 @@
 """Model sources: inventory and download for every supported site (MakerWorld, Printables,
 Thingiverse, MyMiniFactory, Cults3D, Creality Cloud, Thangs, Nexprint, MakerOnline) and direct
 file links, with the public-address and redirect guards.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import base64, html, ipaddress, json, os, re, shutil, socket, time, zipfile
 import http.client

@@ -1,8 +1,4 @@
 """Settings-derived paths and limits plus the HTTP helpers the job code shares.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323), so the gcode,
-launch and intake modules can use them without importing model_job. The
-old names are still importable from there for one release.
 """
 import json, os
 

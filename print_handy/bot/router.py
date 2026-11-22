@@ -6,51 +6,18 @@ handler package stays the single place a handler is added.
 """
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import inspect
 import logging
-import sys
-from pathlib import Path
-
-from .. import settings
 
 logger = logging.getLogger(__name__)
 
-# The old handler file (plugins/print-feedback), still loadable by path for one release.
-PLUGIN = settings.ROOT / "plugins" / "print-feedback" / "__init__.py"
-MODULE_NAME = "print_handy_print_feedback"
 HANDLERS = "print_handy.bot.handlers"
 
 
-def load_plugin(path=None, name=MODULE_NAME):
-    """The handler module: the ``print_handy.bot.handlers`` package, which a wheel carries.
-
-    ``path`` loads a handler file instead (the old ``plugins/print-feedback``
-    layout), under ``name``.
-    """
-    if path is None:
-        return importlib.import_module(HANDLERS)
-    if name in sys.modules:
-        return sys.modules[name]
-    if not Path(path).is_file():
-        # The handlers live outside the package (plugins/print-feedback), so
-        # an install that ships only the wheel has no command handlers at
-        # all. Fail loudly and name what is missing (#1146) instead of
-        # surfacing a bare FileNotFoundError from the import machinery.
-        raise RuntimeError(
-            f"the print-feedback command handlers were not found at {path}: "
-            "this install is missing plugins/print-feedback/__init__.py, so "
-            "no chat commands can be served. Run from a source checkout or "
-            "an image that includes the plugins folder.")
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        sys.modules.pop(name, None)
-        raise
-    return module
+def load_plugin():
+    """The handler package, ``print_handy.bot.handlers``, which a wheel carries."""
+    return importlib.import_module(HANDLERS)
 
 
 def message_text(event):

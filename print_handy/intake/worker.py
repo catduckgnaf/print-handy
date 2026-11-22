@@ -1,8 +1,5 @@
 """Intake work that runs off the chat loop: the heavy-step child process, its log forwarding,
 the background slice wait and the prefetch.
-
-Moved verbatim from ``print_handy.core.prepared_intake`` (#1323). The old names are still
-importable from there for one release.
 """
 import asyncio, hashlib, json, logging, re, sys
 from pathlib import Path
@@ -10,32 +7,29 @@ from pathlib import Path
 from .. import logs, settings
 from ..core import owned_worker
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.core.prepared_intake")
+logger = logging.getLogger(__name__)
 
 
-_OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('support_clearance', 'safe_analyze'),
+_OFFLOAD = {('jobs.audit', 'audit'), ('jobs.slice', 'slice_job'), ('support_clearance', 'safe_analyze'),
             ('source_colors', 'inventory'),
             ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
             ('orca_adapter', 'largest_fitting_fraction'),
-            ('model_job', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
+            ('jobs.slice', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
             ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
-            ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
+            ('geometry_layout', 'probe_single_plate_rearrange'), ('jobs.slice', 'full_size_one_plate'),
             ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
             ('model_parts', 'combine'),
             # The painted-plate fit (#1153 item 8): pure-Python 3MF geometry export at each ladder
             # scale. In a thread it held the GIL for whole stretches of a chat interaction.
-            ('model_job', 'painted_fit_for_job'),
+            ('jobs.slice', 'painted_fit_for_job'),
             # The post-slice support coverage gate walks every G-code line of each plate (#963).
             # Inline it blocked the gateway heartbeat for a minute; the gate result is unchanged.
             ('support_clearance', 'source_extent'), ('support_clearance', 'verify_coverage_by_plate'),
             ('coverage_reuse', 'check_for_preview'), ('coverage_reuse', 'coverage_identity')}
-# Steps that moved out of their offload module (#1323) keep its name: the worker
-# imports print_handy.core.<module>, which still re-exports them.
-_OFFLOAD_HOMES = {'print_handy.jobs.slice': 'model_job', 'print_handy.jobs.audit': 'model_job'}
+# Each step is keyed by its module as the heavy worker names it: under print_handy.core
+# when it has no dot ('source_colors'), else under print_handy ('jobs.slice').
 # Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
-_SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
+_SLICER_STEPS = {('jobs.slice', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
                  ('orca_adapter', 'largest_fitting_fraction')}
 _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory': 'the color check',
                 'orca_plate_capacity': 'the bed fit check', 'fit_options': 'the bed fit check',
@@ -142,6 +136,14 @@ def enable_warm_worker():
     owned_worker.enable_warm_spare(_settings_stamp, _worker_argv(warm=True), str(settings.ROOT))
 
 
+def _offload_module(module):
+    """The heavy worker's name for module path ``module`` (see heavy_worker.module_path)."""
+    module = module or ''
+    if module.startswith('print_handy.core.'):
+        return module[len('print_handy.core.'):]
+    return module[len('print_handy.'):] if module.startswith('print_handy.') else module
+
+
 async def _heavy(func, *args, **kwargs):
     """Run CPU-heavy intake work in a child process (own GIL) so Discord buttons answer in time.
 
@@ -151,7 +153,7 @@ async def _heavy(func, *args, **kwargs):
     """
     import importlib
     mod, name = getattr(func, '__module__', None), getattr(func, '__name__', None)
-    short = _OFFLOAD_HOMES.get(mod, (mod or '').rsplit('.', 1)[-1])
+    short = _offload_module(mod)
     real = (short, name) in _OFFLOAD and getattr(importlib.import_module(mod), name, None) is func
     if not real:
         return await owned_worker.in_thread(func, *args, **kwargs)
@@ -162,7 +164,7 @@ async def _heavy(func, *args, **kwargs):
                           'log_context': logs.bound_context()}).encode()
     slicer = (short, name) in _SLICER_STEPS
     # A slice worker leaves a record in its intake folder, so a restart mid-slice can be explained.
-    record = Path(args[0]).parent / owned_worker.RECORD if (short, name) == ('model_job', 'slice_job') else None
+    record = Path(args[0]).parent / owned_worker.RECORD if (short, name) == ('jobs.slice', 'slice_job') else None
     out, err = await owned_worker.run(
         _worker_argv(), payload, label=_STEP_LABELS.get(name, name),
         lane=owned_worker.SLICER if slicer else owned_worker.GENERAL, cwd=str(settings.ROOT), record=record,

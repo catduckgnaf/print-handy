@@ -1,7 +1,6 @@
 """Resolve and start the next required plate of a multipart plan.
 
-Used by the ``/print-next <plan_id>`` Discord command in the print-feedback
-plugin. Resolution is exact: the plan part must record the archived
+Used by the ``/print-next <plan_id>`` chat command. Resolution is exact: the plan part must record the archived
 ``job_json`` and absolute ``gcode_path`` written when the plate was sliced.
 Bare filenames are never searched for, because names like ``plate_1.gcode``
 repeat across jobs and a guess could start the wrong plate.

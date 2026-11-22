@@ -9,20 +9,27 @@ import json
 import sys
 from pathlib import Path
 
+# A step's module is named under print_handy.core (``'source_colors'``) or,
+# when it holds a dot, under print_handy (``'jobs.slice'``); see module_path().
 ALLOWED = {
-    ('model_job', 'audit'), ('model_job', 'slice_job'), ('model_job', 'maker_download'),
-    ('model_job', 'printables_download'), ('model_job', 'thingiverse_download'),
+    ('jobs.audit', 'audit'), ('jobs.slice', 'slice_job'), ('jobs.sources', 'maker_download'),
+    ('jobs.sources', 'printables_download'), ('jobs.sources', 'thingiverse_download'),
     ('source_colors', 'inventory'), ('support_clearance', 'safe_analyze'),
     ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
     ('orca_adapter', 'largest_fitting_fraction'),
-    ('model_job', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
+    ('jobs.slice', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
     ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
-    ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
+    ('geometry_layout', 'probe_single_plate_rearrange'), ('jobs.slice', 'full_size_one_plate'),
     ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
-    ('model_parts', 'combine'), ('model_job', 'painted_fit_for_job'),
+    ('model_parts', 'combine'), ('jobs.slice', 'painted_fit_for_job'),
     ('support_clearance', 'source_extent'), ('support_clearance', 'verify_coverage_by_plate'),
     ('coverage_reuse', 'check_for_preview'), ('coverage_reuse', 'coverage_identity'),
 }
+
+
+def module_path(module):
+    """The import path of an offload step's module name."""
+    return f'print_handy.{module}' if '.' in module else f'print_handy.core.{module}'
 
 
 def _plain(value):
@@ -43,7 +50,7 @@ def preload():
     and imports only the module its step needs.
     """
     for module in sorted({module for module, _func in ALLOWED}):
-        importlib.import_module(f'print_handy.core.{module}')
+        importlib.import_module(module_path(module))
 
 
 def main(argv=None):
@@ -67,9 +74,9 @@ def main(argv=None):
     key = (request['module'], request['func'])
     if key not in ALLOWED:
         raise SystemExit(f'not an offloadable step: {key}')
-    func = getattr(importlib.import_module(f'print_handy.core.{key[0]}'), key[1])
+    func = getattr(importlib.import_module(module_path(key[0])), key[1])
     args = list(request.get('args', []))
-    if key != ('model_job', 'slice_job') and args and isinstance(args[0], str):
+    if key != ('jobs.slice', 'slice_job') and args and isinstance(args[0], str):
         args[0] = Path(args[0])  # these take a Path source file; JSON carried it as a string
     result = func(*args, **request.get('kwargs', {}))
     sys.stdout.write('\n' + json.dumps({'ok': True, 'path': isinstance(result, Path), 'result': _plain(result)}))

@@ -1,6 +1,6 @@
 """Guided physical nozzle change (#513).
 
-Backs ``/nozzle change`` in the print-feedback plugin. The procedure mirrors
+Backs the ``/nozzle change`` chat command. The procedure mirrors
 the cold pull's safety posture in :mod:`print_handy.runtime.print_control`:
 
 * Heating is a physical printer action. It happens only after an explicit,
