@@ -202,22 +202,33 @@ def _vendor_file(vendor: str) -> str:
     return f"{vendor}.jsonl"
 
 
+def render(db: Mapping[str, Any]) -> dict[str, str]:
+    """The database's files, name -> text: index.json plus one JSON-lines file per vendor."""
+    files = {}
+    for vendor, records in db["filaments"].items():
+        lines = [json.dumps(r, sort_keys=True, ensure_ascii=False, separators=(",", ":")) for r in records]
+        files[_vendor_file(vendor)] = "\n".join(lines) + "\n"
+    index = {"meta": db["meta"], "printers": db["printers"]}
+    files["index.json"] = json.dumps(index, sort_keys=True, ensure_ascii=False, indent=1) + "\n"
+    return files
+
+
 def write(db: Mapping[str, Any], folder: Path = DATA_DIR) -> None:
-    """Write the database as index.json plus one JSON-lines file per vendor; stale vendor files are removed."""
+    """Write ``render(db)`` into ``folder``; vendor files the database no longer has are removed."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
-    keep = {"index.json"}
-    for vendor, records in db["filaments"].items():
-        name = _vendor_file(vendor)
-        keep.add(name)
-        lines = [json.dumps(r, sort_keys=True, ensure_ascii=False, separators=(",", ":")) for r in records]
-        (folder / name).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    index = {"meta": db["meta"], "printers": db["printers"]}
-    (folder / "index.json").write_text(json.dumps(index, sort_keys=True, ensure_ascii=False, indent=1) + "\n",
-                                       encoding="utf-8", newline="\n")
+    files = render(db)
+    for name, text in files.items():
+        (folder / name).write_text(text, encoding="utf-8", newline="\n")
     for stale in folder.glob("*.jsonl"):
-        if stale.name not in keep:
+        if stale.name not in files:
             stale.unlink()
+
+
+def empty() -> dict[str, Any]:
+    """A database with nothing in it (the 'before' side of a first generation)."""
+    return {"meta": {"format": FORMAT, "orca_version": None, "orca_revision": None, "vendors": []},
+            "printers": {}, "filaments": {}}
 
 
 # ---------------------------------------------------------------------------------------------

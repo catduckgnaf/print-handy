@@ -945,11 +945,16 @@ class Plan:
     provenance: list = field(default_factory=list)
     changes: list = field(default_factory=list)
     release: Release | None = None
-    edits: list = field(default_factory=list)  # [(relative path, new content)]
+    edits: list = field(default_factory=list)  # [(relative path, new content, or None to delete)]
+    body_extra: str = ""  # a section appended to the PR body (the Orca profile database diff)
 
     def apply(self, root):
         for relpath, content in self.edits:
-            (root / relpath).write_text(content)
+            if content is None:
+                (root / relpath).unlink(missing_ok=True)
+                continue
+            (root / relpath).parent.mkdir(parents=True, exist_ok=True)
+            (root / relpath).write_text(content, encoding="utf-8", newline=chr(10))
 
 
 def _age_gate(release, now):
@@ -1917,8 +1922,35 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     return edits
 
 
+ORCA_PROFILE_DB_DIR = "print_handy/data/orca_profiles"
+
+
+def regenerate_orca_profile_db(root, profiles_source, version, revision, work):
+    """The committed Orca profile database regenerated at the new pin (#1816), as plan edits plus the report.
+
+    Runs the repository's own generator (scripts/build_orca_profile_db.py) on the fetched OrcaSlicer
+    source tree, the same out-of-process shape as the identity sweep, and compares against the database the
+    repository holds now. Returns ([(relative path, content or None to delete)], markdown report).
+    """
+    out, report = Path(work) / "orca-profile-db", Path(work) / "orca-profile-db.md"
+    command = [sys.executable, str(root / "scripts" / "build_orca_profile_db.py"),
+               "--orca-root", str(profiles_source), "--version", version, "--revision", revision,
+               "--out", str(out), "--previous", str(root / ORCA_PROFILE_DB_DIR),
+               "--diff-to-markdown", str(report)]
+    result = subprocess.run(command, capture_output=True, text=True, cwd=root)
+    if result.returncode != 0:
+        raise BumpError("regenerating the Orca profile database failed - stopping for a human: "
+                        + (result.stderr or result.stdout).strip()[-800:])
+    edits = [(f"{ORCA_PROFILE_DB_DIR}/{path.name}", path.read_text(encoding="utf-8"))
+             for path in sorted(out.iterdir())]
+    current = root / ORCA_PROFILE_DB_DIR
+    edits += [(f"{ORCA_PROFILE_DB_DIR}/{path.name}", None)
+              for path in sorted(current.glob("*.jsonl")) if not (out / path.name).exists()]
+    return edits, report.read_text(encoding="utf-8")
+
+
 def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
-              cli_source_fetcher=None):
+              cli_source_fetcher=None, profile_regenerator=None):
     text = (root / ORCA_FILE).read_text()
     pin = parse_orca(text)
     target = select_orca_target(api.list_releases(ORCA_REPO))
@@ -1979,6 +2011,9 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
         # extracted bundle).
         source = fetch_source(revision, Path(tmp) / "OrcaSlicer")
         results = sweep(root, locate_orca_tree(source), packed)
+        regenerate = profile_regenerator or regenerate_orca_profile_db
+        db_edits, db_report = regenerate(root, source, target.version, revision, tmp)
+    edits = edits + db_edits
     sweep_lines = verify_orca_identities(results)
     gate_note = (
         "prereleases are exempt from the 3-day release-age gate (single-channel policy)"
@@ -2002,9 +2037,11 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
         "Identity handling: the sweep verifies the new bundle's profiles against the "
         "identities already recorded in the printer facts, using the same flatten + "
         "recorded-identity check the scripts/*-templates.py --check mode performs. "
-        "Print Handy ships no vendor profiles (they are generated on the operator's "
-        "machine from the installed bundle), so there is no generated profile data "
-        "to commit; the planner never writes identity data.",
+        "The per-printer templates are still generated on the operator's machine from "
+        "the installed bundle, and the planner never writes identity data.",
+        "Orca profile database (#1816): print_handy/data/orca_profiles/ regenerated from "
+        "the source tree at the new revision by scripts/build_orca_profile_db.py; the "
+        "changed values are listed in the profile database section below.",
     ]
     changes = [
         f"version: {pin.version} -> {target.version} ({kind})",
@@ -2024,9 +2061,13 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
         "notes, the Bambu model docstrings) are not pin records and are not rewritten; "
         "a human rewords them on the bump PR when the story changes",
     ]
+    changes.append(f"Orca profile database regenerated ({len(db_edits)} file(s) changed or removed "
+                   f"under {ORCA_PROFILE_DB_DIR})")
     return Plan("orca", "bump", version=target.version, old_version=pin.version,
-                files=[relpath for relpath, _ in edits],
-                provenance=provenance, changes=changes, release=target, edits=edits)
+                files=[relpath for relpath, _ in edits if not relpath.startswith(ORCA_PROFILE_DB_DIR + "/")]
+                + [ORCA_PROFILE_DB_DIR + "/ (regenerated)"],
+                provenance=provenance, changes=changes, release=target, edits=edits,
+                body_extra=db_report)
 
 
 PLANNERS = {
@@ -2095,6 +2136,7 @@ def build_pr_body(component, plan):
         if plan.old_version else
         "Step size: not classified (the plan records no replaced version)."
     )
+    profile_section = ("\n" + plan.body_extra.strip() + "\n") if plan.body_extra.strip() else ""
     major_section = ""
     if step == "major":
         hints = "\n".join(
@@ -2137,7 +2179,7 @@ Not applicable - this is routine dependency maintenance, not a bug fix. The pin 
 {changes}
 
 No other files change. Confirmation, readiness, profile, clearance and artifact guards are untouched.
-{major_section}
+{profile_section}{major_section}
 ## Type of change
 
 - [ ] Bug fix

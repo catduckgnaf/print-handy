@@ -712,6 +712,14 @@ def matched_sweep():
     }
 
 
+FAKE_PROFILE_DB_REPORT = "### Orca profile database: 2.5.1 -> 2.5.0\n\n- fake report\n"
+
+
+def FAKE_PROFILE_REGENERATOR(root, source, version, revision, work):
+    """A regenerate_orca_profile_db stand-in: one regenerated file and the report."""
+    return ([(bump.ORCA_PROFILE_DB_DIR + "/index.json", '{"meta": {}}\n')], FAKE_PROFILE_DB_REPORT)
+
+
 def fake_orca_source_fetcher(calls, with_tree=True):
     """A fetch_orca_source stand-in: builds a source tree holding
     the six vendors' JSON indexes (or an empty tree)."""
@@ -748,6 +756,7 @@ class OrcaPlanning(unittest.TestCase):
             fetcher=fetcher or fake_orca_fetcher([]),
             source_fetcher=source_fetcher or fake_orca_source_fetcher([]),
             sweeper=sweeper or (lambda root, tree, packed: matched_sweep()),
+            profile_regenerator=FAKE_PROFILE_REGENERATOR,
         )
 
     def test_current_pin_skips(self):
@@ -829,7 +838,7 @@ class OrcaPlanning(unittest.TestCase):
              ".env.example",
              "docs/ANYCUBIC.md", "docs/CREALITY.md", "docs/ELEGOO.md",
              "docs/PRUSA.md", "docs/QIDI.md", "docs/BAMBU-A1-DOCKER.md",
-             "docs/INSTALL.md"},
+             "docs/INSTALL.md", bump.ORCA_PROFILE_DB_DIR + "/ (regenerated)"},
         )
         self.assertTrue(any("digest field" in line for line in plan.provenance))
         self.assertTrue(any("identity sweep: all 6 identity-checked models" in line
@@ -966,6 +975,7 @@ class OrcaPluginTripwire(unittest.TestCase):
             source_fetcher=fake_orca_source_fetcher([]),
             sweeper=lambda root, tree, packed: matched_sweep(),
             cli_source_fetcher=lambda api, revision: self.CLEAN,
+            profile_regenerator=FAKE_PROFILE_REGENERATOR,
         )
         self.assertEqual(plan.action, "bump")
         self.assertTrue(any("tripwire" in line for line in plan.provenance))
@@ -1769,3 +1779,63 @@ def test_signing_key_temp_file_already_gone_is_not_an_error(monkeypatch, capsys)
     monkeypatch.setattr(bump.subprocess, "run", fake_run)
     assert bump._openssl_sign(b"input", "key") == b"signature"
     assert capsys.readouterr().err == ""
+
+
+
+class OrcaProfileDatabase(unittest.TestCase):
+    """#1816: an Orca bump regenerates the committed profile database and reports the changed values."""
+
+    def test_bump_carries_the_regenerated_database_and_its_report(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = fixture_root(tmp.name)
+        releases = [make_orca_release("2.5.0", assets=orca_assets("2.5.0"))]
+        api = FakeApi(release_lists={bump.ORCA_REPO: releases},
+                      commits={(bump.ORCA_REPO, r.tag): "e" * 40 for r in releases})
+        plan = bump.plan_orca(root, api, NOW, fetcher=fake_orca_fetcher([]),
+                              source_fetcher=fake_orca_source_fetcher([]),
+                              sweeper=lambda root, tree, packed: matched_sweep(),
+                              profile_regenerator=FAKE_PROFILE_REGENERATOR)
+        self.assertIn((bump.ORCA_PROFILE_DB_DIR + "/index.json", '{"meta": {}}\n'), plan.edits)
+        self.assertIn(bump.ORCA_PROFILE_DB_DIR + "/ (regenerated)", plan.files)
+        self.assertNotIn(bump.ORCA_PROFILE_DB_DIR + "/index.json", plan.files)
+        self.assertIn("### Orca profile database", bump.build_pr_body("orca", plan))
+
+    def test_apply_deletes_a_vendor_file_orca_dropped(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        gone = root / bump.ORCA_PROFILE_DB_DIR / "Gone.jsonl"
+        gone.parent.mkdir(parents=True)
+        gone.write_text("{}\n")
+        bump.Plan("orca", "bump", edits=[(bump.ORCA_PROFILE_DB_DIR + "/Gone.jsonl", None),
+                                         (bump.ORCA_PROFILE_DB_DIR + "/index.json", "{}\n")]).apply(root)
+        self.assertFalse(gone.exists())
+        self.assertEqual((root / bump.ORCA_PROFILE_DB_DIR / "index.json").read_bytes(), b"{}\n")
+
+    def test_regenerate_runs_the_repository_generator_against_a_source_tree(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        source = Path(tmp.name) / "OrcaSlicer"
+        folder = source / "resources" / "profiles" / "Acme"
+        (folder / "machine").mkdir(parents=True)
+        (folder / "filament").mkdir()
+        (folder / "machine" / "m.json").write_text(json.dumps(
+            {"name": "Acme One 0.4 nozzle", "instantiation": "true", "printer_model": "Acme One",
+             "nozzle_diameter": ["0.4"]}))
+        (folder / "filament" / "f.json").write_text(json.dumps(
+            {"name": "Generic PLA @Acme", "instantiation": "true", "filament_type": ["PLA"],
+             "compatible_printers": ["Acme One 0.4 nozzle"]}))
+        work = Path(tmp.name) / "work"
+        work.mkdir()
+        repo = Path(__file__).resolve().parent.parent
+        edits, report = bump.regenerate_orca_profile_db(repo, source, "9.9.9", "a" * 40, work)
+        paths = dict(edits)
+        index = json.loads(paths[bump.ORCA_PROFILE_DB_DIR + "/index.json"])
+        self.assertEqual(index["meta"]["orca_version"], "9.9.9")
+        self.assertIn("Acme One 0.4 nozzle", index["printers"])
+        self.assertIn("Generic PLA @Acme", paths[bump.ORCA_PROFILE_DB_DIR + "/Acme.jsonl"])
+        # Every vendor file the synthetic Orca no longer has is deleted, and the report says so.
+        self.assertIsNone(paths[bump.ORCA_PROFILE_DB_DIR + "/Flashforge.jsonl"])
+        self.assertIn("-> 9.9.9", report)
+        self.assertIn("Filament presets removed", report)

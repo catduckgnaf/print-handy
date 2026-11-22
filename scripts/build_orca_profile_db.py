@@ -70,6 +70,8 @@ def main(argv=None) -> int:
     parser.add_argument("--check", action="store_true",
                         help="regenerate into a temporary folder and fail if it differs from --out")
     parser.add_argument("--diff-to-markdown", type=Path, help="write the change report against the current data")
+    parser.add_argument("--previous", type=Path,
+                        help="the database to compare against for --diff-to-markdown (default: --out)")
     args = parser.parse_args(argv)
     pin_version, pin_revision = pinned_orca()
     version, revision = args.version or pin_version, args.revision or pin_revision
@@ -97,9 +99,9 @@ def main(argv=None) -> int:
             return 0
         if args.diff_to_markdown:
             try:
-                previous = db.load(args.out)
+                previous = db.load(args.previous or args.out)
             except db.ProfileDatabaseError:
-                previous = {"meta": {"orca_version": None, "orca_revision": None}, "printers": {}, "filaments": {}}
+                previous = db.empty()
             args.diff_to_markdown.write_text(db.diff_markdown(db.diff(previous, fresh)), encoding="utf-8")
         db.write(fresh, args.out)
         db.index.cache_clear()
