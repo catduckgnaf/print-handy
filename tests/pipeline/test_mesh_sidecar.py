@@ -296,22 +296,41 @@ def test_tampered_tables_in_a_signed_sidecar_are_ignored(tmp_path):
     assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is not None  # counts metadata is untouched
 
 
-@pytest.mark.parametrize('shape', ['deflated', 'oversized'])
+@pytest.mark.parametrize('shape', ['deflated', 'oversized', 'zip-bomb'])
 def test_a_sidecar_header_is_bounded_before_it_is_read(tmp_path, monkeypatch, shape):
     """duckcatgnaf (155af8f4): the members read before the HMAC check are vetted
     from the zip directory, so a forged, deflated or huge header is never inflated."""
+    import io
+
     import numpy as np
     target = tmp_path / 'parts.3mf'
     model_parts.combine(target, [str(s) for s in _stl_sources(tmp_path)], [220.0, 220.0, 250.0])
     sidecar = mesh_sidecar.path_for(target)
     with np.load(sidecar, allow_pickle=False) as data:
         arrays = {name: np.array(data[name]) for name in data.files}
-    with sidecar.open('wb') as stream:
-        if shape == 'deflated':
+    if shape == 'deflated':
+        with sidecar.open('wb') as stream:
             np.savez_compressed(stream, **arrays)  # the signed content, only compressed
-        else:
-            arrays['meta'] = np.zeros(mesh_sidecar.MAX_HEADER_BYTES + 1, dtype=np.uint8)
+    elif shape == 'oversized':
+        arrays['meta'] = np.zeros(mesh_sidecar.MAX_HEADER_BYTES + 1, dtype=np.uint8)
+        with sidecar.open('wb') as stream:
             np.savez(stream, **arrays)
+    else:
+        # A forged sidecar whose meta.npy inflates 64 KiB on disk into 64 MiB
+        # (the same shape scales to gigabytes); the rest is the real sidecar.
+        bomb = io.BytesIO()
+        np.lib.format.write_array(bomb, np.zeros(64 << 20, dtype=np.uint8))
+        with zipfile.ZipFile(sidecar, 'w') as archive:
+            for name, value in arrays.items():
+                if name == 'meta':
+                    archive.writestr('meta.npy', bomb.getvalue(), compress_type=zipfile.ZIP_DEFLATED,
+                                     compresslevel=9)
+                else:
+                    plain = io.BytesIO()
+                    np.lib.format.write_array(plain, value)
+                    archive.writestr(f'{name}.npy', plain.getvalue())
+        info = zipfile.ZipFile(sidecar).getinfo('meta.npy')
+        assert info.compress_size * 100 < info.file_size
 
     def no_load(*args, **kwargs):
         raise AssertionError('np.load ran on a sidecar whose header was not vetted')
