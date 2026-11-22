@@ -116,7 +116,7 @@ def test_creator_two_or_three_filaments_load_four_matching_profiles(model_key, p
     assert len(machine["nozzle_diameter"]) == 4
     for tool, head in mapping.items():
         profile = json.loads((folder / f"filament_tool_{tool}.json").read_text())
-        assert profile["name"] == f"Hermes toolhead {head} PLA"
+        assert profile["name"].endswith(f"[slot {head}]") and "Hermes" not in profile["name"]
 
 
 @pytest.mark.parametrize("model_key", MODELS)

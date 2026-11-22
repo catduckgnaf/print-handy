@@ -20,9 +20,12 @@ PRINT_HANDY_LARGE_MESH_CORPUS=~/print-handy-large-mesh-corpus \
   python -m pytest -s tests/corpus/large_mesh      # skips cleanly when not fetched
 ```
 
-`PRINT_HANDY_BOUNDS_IMPL=python` runs the Python fallback instead of the
-native kernel; both must give the same result and the same combined model
-bytes. `PRINT_HANDY_LARGE_MESH_TIMING=<file>` appends the stage timings as
+`PRINT_HANDY_BOUNDS_IMPL=python` runs the Python loops instead of the
+native kernel, and `PRINT_HANDY_LARGE_MESH_ENGINE=numpy` switches the kernel
+off so the numpy twin serves (an install without the wheel); every run must
+give the same result and the same combined model bytes. The run also audits
+the combined 3MF and requires the audit to read the combine step's recorded
+mesh tables (`print_handy/core/mesh_sidecar.py`), not the XML. `PRINT_HANDY_LARGE_MESH_TIMING=<file>` appends the stage timings as
 JSON lines, and `PRINT_HANDY_LARGE_MESH_REQUIRE=1` turns a missing file into
 a failure.
 

@@ -5,7 +5,7 @@ they used to disagree, each failing a correctly sliced job or silently
 re-slicing at another spool's targets:
 
 - P2-272: verification resolved the *active* spool whenever it held the
-  job's material, even when the artifact's hermes_tool_slots map names
+  job's material, even when the artifact's tool map names
   the different slot spool the job was actually sliced for.
 - P2-273: an operator override attested for the exact spool+material was
   honored by verification (filament=None) but bypassed by slicing
@@ -41,18 +41,27 @@ def two_slot_state():
 # ---------------------------------------------------------------- P2-272
 
 def test_gcode_temperatures_resolves_the_mapped_job_spool_not_the_active_one():
-    text = ('; hermes_tool_slots = {"0": {"physical_slot": 2, "spoolman_id": 17}}\n'
+    text = ('; print_handy_tool_slots = {"0": {"physical_slot": 2, "spoolman_id": 17}}\n'
             "; filament_type = PLA\n")
     assert printer_state.gcode_temperatures(two_slot_state(), ["PLA"], fetch, text) == \
         {"nozzle": 225, "bed": 65}
 
 
-def test_gcode_temperatures_resolves_a_plain_slot_map_through_the_slot_record():
-    # The older map spelling names physical slots only; the slot record
-    # supplies the spool bound to the named slot.
-    text = '; hermes_tool_slots = {"0": 2}\n; filament_type = PLA\n'
+def test_gcode_temperatures_resolves_a_slot_only_entry_through_the_slot_record():
+    # An entry without a spool id names its physical slot only; the slot
+    # record supplies the spool bound to that slot.
+    text = '; print_handy_tool_slots = {"0": {"physical_slot": 2}}\n; filament_type = PLA\n'
     assert printer_state.gcode_temperatures(two_slot_state(), ["PLA"], fetch, text) == \
         {"nozzle": 225, "bed": 65}
+
+
+def test_gcode_temperatures_refuses_a_map_written_before_2_4_0():
+    # #1817: the pre-2.4.0 header is not read; the file must be resliced.
+    import pytest
+    from print_handy.gcode import tool_map
+    text = '; hermes_tool_slots = {"0": {"physical_slot": 2, "spoolman_id": 17}}\n; filament_type = PLA\n'
+    with pytest.raises(tool_map.StaleToolMap, match="older Print Handy; reslice"):
+        printer_state.gcode_temperatures(two_slot_state(), ["PLA"], fetch, text)
 
 
 def test_gcode_temperatures_without_a_map_keeps_the_active_spool_resolution():

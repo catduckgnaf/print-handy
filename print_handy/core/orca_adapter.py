@@ -799,6 +799,16 @@ def _rewrite_project_settings(path, settings, name):
     tmp.replace(path)
 
 
+def _profile_ids(paths):
+    """The filament_settings_id of each profile file, in order (the job's per-tool names)."""
+    ids = []
+    for path in paths or ():
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = data.get('filament_settings_id') or [data.get('name')]
+        ids.append(str(value[0] if isinstance(value, list) else value).strip().strip('"'))
+    return ids
+
+
 def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(), filament_template=None, slot_limit=None,
                                 tower_width=None):
     name = 'Metadata/project_settings.config'
@@ -821,9 +831,9 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             settings[key] = replacement
             changed[key] = [previous, replacement]
     slot_count = max(1, min(int(slot_count), FILAMENT_SLOTS))
-    # Hermes slot names carry the physical slot, so the allowlist bound is the printer's slot count,
-    # not the filaments-used count (2.2.5 review).
-    slot_limit = slot_count if slot_limit is None else int(slot_limit)
+    # slot_limit bounded the retired "Hermes slot N" names (#1816); a project's filament IDs now pass only
+    # when they are exactly the job's own profile name.
+    del slot_limit
     template_filament = json.loads(filament_template.read_text())
     _override = compat_registry.get_rule('imported-template-override').parameters
     per_slot_filament = tuple(key for key in template_filament if key.startswith(_override['per_slot_prefix']) and not key.endswith(_override['per_slot_exclude_suffix']))
@@ -859,12 +869,18 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             template_id = value[0] if isinstance(value, list) else value
             count = len(settings[key]) if isinstance(settings[key], list) else slot_count
             existing = settings[key] if isinstance(settings[key], list) else [settings[key]]
+            tool_ids = _profile_ids(filament_profiles)
+            # Each tool's own name, the template's where the job has no profile for that tool.
+            own_names = [tool_ids[index] if index < len(tool_ids) else template_id
+                         for index in range(max(count, len(existing)))]
+            # Each slot accepts only its own name: another slot's valid ID (or the bare template ID on a
+            # slot the job has a profile for) would run that slot with the wrong filament settings.
             replacement = [
-                item if sg.is_allowed_filament_id(item, {template_id}, slot_count=slot_limit) else template_id
-                for item in existing
+                item if sg.is_allowed_filament_id(item, {own_names[index]}) else own_names[index]
+                for index, item in enumerate(existing)
             ]
             if len(replacement) < count:
-                replacement.extend([template_id] * (count - len(replacement)))
+                replacement.extend(own_names[len(replacement):count])
             elif len(replacement) > count and count > 0:
                 replacement = replacement[:count]
         else:
@@ -895,10 +911,13 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
 
 
 def sanitize_project_settings(path, log_text='', templates=None, slot_count=None, filament_template=None, slot_limit=None,
-                              tower_width=None):
+                              tower_width=None, filament_profiles=()):
     """Normalize Orca sentinels and foreign motion/profile data on private 3MF copies.
 
     filament_template is the job's filament profile; the template folder's filament.json by default.
+    filament_profiles are the job's per-tool filament profiles in tool order (a multi-slot or
+    multi-toolhead job): a project filament ID that is not one of the job's own names is pinned to that
+    tool's own name, the template's when the job has none for it.
     tower_width is the job's effective prime-tower width; the template's when not given."""
     del log_text
     if Path(path).suffix.lower() != '.3mf':
@@ -913,7 +932,8 @@ def sanitize_project_settings(path, log_text='', templates=None, slot_count=None
         slot_count = max((len(imported[key]) if isinstance(imported.get(key), list) else 1
                           for key in ('filament_settings_id', 'filament_type', 'filament_colour')
                           if imported.get(key) is not None), default=1)
-    return _sanitize_imported_settings(path, templates, slot_count, filament_template=filament_template,
+    return _sanitize_imported_settings(path, templates, slot_count, filament_profiles=filament_profiles,
+                                       filament_template=filament_template,
                                        slot_limit=slot_limit, tower_width=tower_width)
 
 
@@ -1983,21 +2003,69 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         from .printer_state import material_family
         return (settings.current().get("material_tuning") or {}).get(material_family(material)) or {}
 
-    def job_filament(material, density, temps_c, colour, bed_c=None):
-        """(filament profile Orca receives for one spool, its effective nozzle target, family note).
+    from . import filament_type as _ftype
+    from . import orca_profile_db
+
+    def vendor_resolution(material, ftype):
+        """The Orca vendor profile for this spool on this printer and nozzle (#1816), or None (library generic)."""
+        model = machine.get('printer_model')
+        if not model:
+            return None
+        if ftype is None or ftype.family is None:
+            ftype = _ftype.from_text(material)
+        try:
+            preset = orca_profile_db.printer_preset(model, nozzle_dia, preferred=machine.get('name'))
+            return orca_profile_db.resolve(preset, ftype) if preset else None
+        except orca_profile_db.ProfileDatabaseError as exc:
+            logger.warning("Orca profile database unavailable (%s); slicing %s with the library generic",
+                           exc, material)
+            return None
+
+    def family_profile(material, nozzle_temp, ftype=None, slot=None):
+        """(base filament profile for one spool before its own values, note) on a printer with one template.
+
+        Layers, last wins: the printer's template; the material family's library settings
+        (filament_families.toml); the Orca vendor profile for the printer, nozzle and the spool's sub-type
+        (design record section 3). A spool of the template's own family keeps the template, which is the
+        printer's tested profile (the AD5X PLA recipe, #783; Silk and PLA+ through the #512 variant layer), and
+        no vendor layer goes over it. The profile is named after where its values came from.
+        """
+        from .printer_state import material_family
+        data, note = apply_family_overrides(template_filament, material, nozzle_temp)
+        if material_family(material) == material_family((template_filament.get('filament_type') or [''])[0]):
+            base = (template_filament.get('filament_settings_id') or [template_filament.get('name') or material])[0]
+            name = f"{base} [slot {int(slot)}]" if slot is not None else base
+            data.update({'name': name, 'filament_settings_id': [name]})
+            return data, f"{base}: the printer's tuned {material_family(material)} template ({note})"
+        resolution = vendor_resolution(material, ftype)
+        if resolution is not None:
+            data.update(orca_profile_db.vendor_layer(template_filament, resolution))
+            note = f"{resolution.name} ({resolution.level}, Orca {orca_profile_db.meta()['orca_version']})"
+        else:
+            note = f"library generic: {note}"
+        name = orca_profile_db.profile_name(resolution, material, slot)
+        data.update({'name': name, 'filament_settings_id': [name]})
+        return data, note
+
+    def job_filament(material, density, temps_c, colour, bed_c=None, ftype=None, slot=None):
+        """(filament profile Orca receives for one spool, its effective nozzle target, profile note).
 
         A printer with a vendor profile per material (Bambu Lab) already returned that profile as the template.
-        Every other printer has one PLA template, so the material family's settings (fan, volumetric speed,
-        retraction, ranges: filament_families.toml) go on it first; the spool's own type, density, colour,
-        temperatures and flow are applied after that and win.
+        Every other printer has one PLA template: ``family_profile`` puts the library family settings and then
+        the Orca vendor profile for this spool's sub-type on it; the spool's own type, density, colour,
+        temperatures and flow are applied after that and win. ``ftype`` is the spool's filament type (flags
+        pick the vendor sub-type profile); ``slot`` names the tool in a multi-slot or multi-toolhead job.
         """
         import copy
         nozzle_temp = effective_nozzle_temperature(nozzle_type, float(temps_c['nozzle']))
         if printer.vendor_material_profiles:
             data, note = copy.deepcopy(template_filament), 'vendor filament profile'
             include_nozzle_temperature(data, nozzle_temp)
+            if slot is not None:
+                base = (data.get('filament_settings_id') or [data.get('name') or material])[0]
+                data.update({'name': f"{base} [slot {int(slot)}]", 'filament_settings_id': [f"{base} [slot {int(slot)}]"]})
         else:
-            data, note = apply_family_overrides(template_filament, material, nozzle_temp)
+            data, note = family_profile(material, nozzle_temp, ftype, slot)
         data.update({'filament_type': [material], 'filament_density': [str(density)],
                      'filament_colour': [colour or data['filament_colour'][0]],
                      'nozzle_temperature': [str(int(nozzle_temp))],
@@ -2038,17 +2106,33 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             data[key] = data[key + '_initial_layer'] = [bed]
         return data, nozzle_temp, note
 
+    # The job's own spool: its Spoolman filament carries the sub-type flags (HS, Silk, +) that pick the
+    # vendor profile; a record without one reads them from the stored name or color text.
+    from .printer_state import same_material
+    spool_material = state['spool']['material']
+    type_filament = spool_filament
+    if type_filament is None and state['spool'].get('spoolman_id') is not None:
+        # The slice usually is not handed the filament; temperature resolution fetches it the same way.
+        try:
+            type_filament = _fetch_filament(state['spool']['spoolman_id'])
+        except Exception as exc:  # Spoolman is advisory: the stored record's text names the type instead
+            logger.debug("Spoolman filament for the vendor profile unavailable (%s)", exc)
+            type_filament = None
+        if type_filament is not None and not same_material(type_filament.get('material'), spool_material):
+            type_filament = None
+    spool_ftype = _ftype.from_spoolman_filament(type_filament) if type_filament else None
+    if spool_ftype is None or spool_ftype.family is None:
+        spool_ftype = _ftype.from_text(spool_material, state['spool'].get('name') or state['spool'].get('color'))
     filament, effective_nozzle_temp, family_note = job_filament(
-        state['spool']['material'], state['spool']['density'], state['temps_c'], color)
+        spool_material, state['spool']['density'], state['temps_c'], color, ftype=spool_ftype)
     gate_nozzle_temp = effective_nozzle_temp  # the hottest nozzle target of the job, for the pre-slice limits
     if not printer.vendor_material_profiles:
         print(f"FILAMENT PROFILE: {family_note}", flush=True)
         # The imported-project sanitizer pins a project's filament_* settings to the job's profile, so it gets
-        # the family-adjusted template (without the spool's own values), not the PLA one.
+        # the job's base profile (library and vendor layers, without the spool's own values), not the PLA one.
         filament_template = folder / 'filament_template.json'
         filament_template.write_text(json.dumps(
-            apply_family_overrides(template_filament, state['spool']['material'], effective_nozzle_temp)[0],
-            indent=2) + '\n')
+            family_profile(spool_material, effective_nozzle_temp, spool_ftype)[0], indent=2) + '\n')
     # A dedicated support filament (#867): the project named one and intake picked a spool
     # for it. Load that spool as a tool of the job and point the support keys at it, but
     # only when this job actually generates supports; with supports off the designation
@@ -2131,16 +2215,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 temps, resolution = slot_temps[tool]
                 data, tool_nozzle, _note = job_filament(
                     record['material'], record.get('density', state['spool']['density']), temps,
-                    slot_hex(position, record) if record.get('hex') else filament['filament_colour'][0], bed_c=job_bed)
+                    slot_hex(position, record) if record.get('hex') else filament['filament_colour'][0], bed_c=job_bed,
+                    ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
+                    slot=position)
                 gate_nozzle_temp = max(gate_nozzle_temp, tool_nozzle)
                 print(f"SLICE TEMPERATURES: toolhead {position} {record['material']} nozzle {temps['nozzle']} °C, "
                       f"bed {job_bed} °C ({resolution.get('source')})", flush=True)
-                # Frozen profile name: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
-                data.update({'name': f"Hermes toolhead {position} {record['material']}",
-                             'filament_settings_id': [f"Hermes toolhead {position} {record['material']}"],
-                             'filament_is_support': ['0']})
+                print(f"FILAMENT PROFILE: toolhead {position}: {_note}", flush=True)
+                data['filament_is_support'] = ['0']
             else:
                 data = copy.deepcopy(filament)
+                # Each toolhead's preset keeps its own name, an unused one too.
+                unused = f"{(filament.get('filament_settings_id') or [filament.get('name')])[0]} [slot {position}]"
+                data.update({'name': unused, 'filament_settings_id': [unused]})
                 # The base profile carries no filament_is_support, and Orca
                 # rejects the whole preset set (-5, "The input preset file is
                 # invalid") when the profile missing it lands in the last
@@ -2194,14 +2281,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             physical_slot = mapping[tool]
             data, tool_nozzle, _note = job_filament(
                 record['material'], record.get('density', state['spool']['density']), temps,
-                slot_hex(physical_slot, record), bed_c=job_bed)
+                slot_hex(physical_slot, record), bed_c=job_bed,
+                ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
+                slot=physical_slot)
             gate_nozzle_temp = max(gate_nozzle_temp, tool_nozzle)
             print(f"SLICE TEMPERATURES: slot {physical_slot} {record['material']} nozzle {temps['nozzle']} °C, "
                   f"bed {job_bed} °C ({resolution.get('source')})", flush=True)
-            # Frozen profile name: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
-            data.update({'name': f"Hermes slot {physical_slot} {record['material']}",
-                         'filament_settings_id': [f"Hermes slot {physical_slot} {record['material']}"],
-                         'filament_is_support': ['0']})
+            print(f"FILAMENT PROFILE: slot {physical_slot}: {_note}", flush=True)
+            data['filament_is_support'] = ['0']
             path = folder / f'filament_tool_{tool}.json'
             path.write_text(json.dumps(data, indent=2) + '\n')
             filament_paths.append(path)
@@ -2346,7 +2433,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         sanitized.update(sanitize_project_settings(
             input_path, templates=templates,
             slot_count=len(filament_paths) if mapped_profile else 1, filament_template=filament_template,
-            slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS, tower_width=tower_mm))
+            slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS, tower_width=tower_mm,
+            filament_profiles=filament_paths if mapped_profile else ()))
         # Then the copy takes the job's own machine, process and filament values (#868): a derived
         # plate is a byte copy of a foreign project, and its settings must not reach Orca.
         rewritten.update(adopt_job_settings(input_path, {**machine, **process, **_adopted_filament}))
@@ -3391,32 +3479,61 @@ def _yaw(degrees):
     return [c, -s, 0, s, c, 0, 0, 0, 1]
 
 
-_POINTS_CACHE: list = []  # [(triangles, points)]: the one model being fitted right now
+# [[triangles, point list or None, point array or None]]: the one model being
+# fitted right now. Each form is built on first use from the other (#1790): the
+# placement report of a large indexed mesh only ever needs the array.
+_POINTS_CACHE: list = []
+
+
+def _points_entry(tris):
+    if _POINTS_CACHE and _POINTS_CACHE[0][0] is tris:
+        return _POINTS_CACHE[0]
+    if isinstance(tris, IndexedTriangles):
+        entry = [tris, None, _unique_indexed_points(tris)]
+    else:
+        entry = [tris, list({p for tri in tris for p in tri}), None]
+    _POINTS_CACHE[:] = [entry]
+    return entry
 
 
 def _unique_points(tris):
     """Deduplicated vertices, shared (do not mutate). One fit search asks for these
     several times for the same cached mesh, so the last answer is kept."""
-    if _POINTS_CACHE and _POINTS_CACHE[0][0] is tris:
-        return _POINTS_CACHE[0][1]
-    points = _unique_points_uncached(tris)
-    _POINTS_CACHE[:] = [(tris, points)]
-    return points
-
-
-def _unique_points_uncached(tris):
-    if isinstance(tris, IndexedTriangles):
-        # Same set the legacy comprehension builds (points referenced by at
-        # least one face, deduplicated by value), without expanding faces.
-        import numpy as np
-        referenced = np.zeros(len(tris.vertices), dtype=bool)
-        referenced[tris.faces.ravel()] = True
-        unique = np.unique(tris.vertices[referenced], axis=0)
+    entry = _points_entry(tris)
+    if entry[1] is None:
         points = []
-        for start in range(0, len(unique), 8192):
-            points.extend(tuple(row) for row in unique[start:start + 8192].tolist())
-        return points
-    return list({p for tri in tris for p in tri})
+        for start in range(0, len(entry[2]), 8192):
+            points.extend(tuple(row) for row in entry[2][start:start + 8192].tolist())
+        entry[1] = points
+    return entry[1]
+
+
+def _unique_points_array(tris):
+    """``_unique_points(tris)`` as an (N, 3) float64 array: same values, same order (#1790)."""
+    entry = _points_entry(tris)
+    if entry[2] is None:
+        from .placement_numpy import points_array
+        entry[2] = points_array(entry[1])
+    return entry[2]
+
+
+def _points_array(points):
+    """An ``_unique_points`` list as its (N, 3) array (the cached one when it is the cached list)."""
+    if _POINTS_CACHE and _POINTS_CACHE[0][1] is points:
+        return _unique_points_array(_POINTS_CACHE[0][0])
+    from .placement_numpy import points_array
+    return points_array(points)
+
+
+def _unique_indexed_points(tris):
+    """The vertices referenced by at least one face, deduplicated by value and sorted
+    by (x, y, z): the set the legacy comprehension builds, without expanding faces,
+    in ``np.unique(..., axis=0)`` order."""
+    import numpy as np
+    referenced = np.zeros(len(tris.vertices), dtype=bool)
+    referenced[tris.faces.ravel()] = True
+    from .placement_numpy import unique_rows
+    return unique_rows(tris.vertices[referenced])
 
 
 def _drop_interior(points):
@@ -3521,10 +3638,7 @@ def _orientation_bound(points, state, rotation, yaw_search=True):
     """Largest uniform scale (<=1) at which ``rotation`` (+ best yaw) fits one copy; returns
     (scale, yaw_degrees, dims_mm_at_full_size)."""
     eff_w, eff_d, max_h = _usable(state)
-    rotated = [_rotate(p, rotation) for p in points]
-    zs = [p[2] for p in rotated]
-    height = max(zs) - min(zs)
-    hull = _hull([(p[0], p[1]) for p in rotated])
+    hull, height = _orientation_hull(points, rotation)
     def footprint(deg):
         c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
         xs = [c * x - s * y for x, y in hull]
@@ -3643,13 +3757,56 @@ def _euler_xyz(rotation):
     return [round(math.degrees(v), 3) for v in (x, y, z)]
 
 
+# From this many points (or hull points times yaws) the placement loops run on
+# arrays (placement_numpy, #1790). Below it the scalar loops are as fast and stay
+# the oracle; tests/pipeline/test_placement_numpy.py moves it to force either path.
+PLACEMENT_NUMPY_MIN_POINTS = 4096
+
+
+def _orientation_hull(points, rotation):
+    """(XY hull, Z extent) of ``points`` (a point list or its array) rotated by ``rotation``."""
+    if len(points) >= PLACEMENT_NUMPY_MIN_POINTS:
+        from . import placement_numpy
+        array = points if isinstance(points, placement_numpy.np.ndarray) else _points_array(points)
+        return placement_numpy.orientation(array, rotation)
+    if not isinstance(points, list):
+        points = [tuple(row) for row in points.tolist()]
+    rotated = [_rotate(p, rotation) for p in points]
+    zs = [p[2] for p in rotated]
+    return _hull([(p[0], p[1]) for p in rotated]), max(zs) - min(zs)
+
+
+def _yaw_extents(hull, yaws):
+    """[(X extent, Y extent)] of an XY hull turned by each bed yaw (degrees)."""
+    if len(hull) * len(yaws) >= PLACEMENT_NUMPY_MIN_POINTS:
+        from . import placement_numpy
+        return placement_numpy.yaw_extents(hull, yaws)
+    found = []
+    for yaw in yaws:
+        ym = _yaw(yaw)
+        moved = [(ym[0]*x + ym[1]*y, ym[3]*x + ym[4]*y) for x, y in hull]
+        found.append((max(p[0] for p in moved) - min(p[0] for p in moved),
+                      max(p[1] for p in moved) - min(p[1] for p in moved)))
+    return found
+
+
 def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max_z_mm=None):
     """Pure offline placement report; never invokes OrcaSlicer or printer services."""
     tris = source_triangles(path_or_triangles) if isinstance(path_or_triangles, (str, Path)) else path_or_triangles
     if not tris:
         raise ValueError('placement report requires non-empty triangles')
-    points = _unique_points(tris)
-    if not all(math.isfinite(component) for point in points for component in point):
+    if isinstance(tris, IndexedTriangles):
+        points = _unique_points_array(tris)
+        if len(points) < PLACEMENT_NUMPY_MIN_POINTS:
+            points = _unique_points(tris)
+    else:
+        points = _unique_points(tris)
+    if len(points) >= PLACEMENT_NUMPY_MIN_POINTS:
+        import numpy as np
+        finite = bool(np.isfinite(points if isinstance(points, np.ndarray) else _points_array(points)).all())
+    else:
+        finite = all(math.isfinite(component) for point in points for component in point)
+    if not finite:
         raise ValueError('placement report requires finite mesh coordinates')
     bed = tuple(float(v) for v in (bed_mm or BED))
     height_limit = float(max_z_mm if max_z_mm is not None else MAX_HEIGHT_MM)
@@ -3659,9 +3816,7 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
     orientations = [('Upright', 'identity', IDENTITY_ROT)]
     orientations.extend((name, axis, matrix) for axis, (name, matrix) in UP_AXES.items())
     for name, axis, matrix in orientations:
-        rotated = [_rotate(p, matrix) for p in points]
-        hull = _hull([(p[0], p[1]) for p in rotated])
-        z_extent = max(p[2] for p in rotated) - min(p[2] for p in rotated)
+        hull, z_extent = _orientation_hull(points, matrix)
         yaw_set = {0.0, 45.0, 90.0}
         for i, a in enumerate(hull):
             b = hull[(i + 1) % len(hull)]
@@ -3674,13 +3829,11 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
             # angle alone rotates the edge farther from both axes.
             yaw_set.add(round(-edge, 6))
             yaw_set.add(round(90.0 - edge, 6))
-        for yaw in sorted(yaw_set):
+        yaws = sorted(yaw_set)
+        # Yaw is about Z, so XY extents come from the 2D hull alone and Z is unchanged.
+        for yaw, (width, depth) in zip(yaws, _yaw_extents(hull, yaws), strict=True):
             rot = _matmul(_yaw(yaw), matrix)
-            # Yaw is about Z, so XY extents come from the 2D hull alone and Z is unchanged.
-            ym = _yaw(yaw)
-            moved = [(ym[0]*x + ym[1]*y, ym[3]*x + ym[4]*y) for x, y in hull]
-            dims = [max(p[0] for p in moved) - min(p[0] for p in moved),
-                    max(p[1] for p in moved) - min(p[1] for p in moved), z_extent]
+            dims = [width, depth, z_extent]
             mx, my, mz = bed[0]-dims[0], bed[1]-dims[1], height_limit-dims[2]
             euler = _euler_xyz(rot)
             rows.append({'label': name, 'axis': axis, 'rx_deg': euler[0], 'ry_deg': euler[1], 'rz_deg': euler[2],
@@ -3693,8 +3846,12 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
                          'min_bed_margin_mm': round(min(mx, my, mz), 3),
                          'fits_bed': dims[0] <= bed[0] and dims[1] <= bed[1] and dims[2] <= height_limit,
                          'diagonal_gain_mm': 0.0, 'rotation': [round(v, 9) for v in rot]})
+    cardinals = {}  # the first yaw-0 row per axis, as a scan of ``rows`` finds it
     for row in rows:
-        cardinal = next((r for r in rows if r['axis'] == row['axis'] and r['yaw_deg'] == 0.0), row)
+        if row['yaw_deg'] == 0.0:
+            cardinals.setdefault(row['axis'], row)
+    for row in rows:
+        cardinal = cardinals.get(row['axis'], row)
         row['diagonal_gain_mm'] = round(max(0.0, cardinal['footprint_mm'][0]-row['footprint_mm'][0],
                                                cardinal['footprint_mm'][1]-row['footprint_mm'][1]), 3)
     rows.sort(key=lambda r: (not r['fits_bed'], 0 if r['axis']=='identity' and r['fits_bed'] else 1,
