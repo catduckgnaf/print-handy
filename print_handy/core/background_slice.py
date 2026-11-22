@@ -292,9 +292,12 @@ class BackgroundSlice:
         if task is None or task.done():
             return
         task.cancel()
-        # suppress kept with reason (#1455): cancelled by us just above.
-        with contextlib.suppress(asyncio.CancelledError, Exception):
+        try:
             await owned_worker.settle(task)
+        except asyncio.CancelledError:
+            logger.debug('concurrent supports slice cancelled')
+        except Exception:  # noqa: BLE001 - the stopped slice's failure is logged, then reset below
+            logger.debug('stopped concurrent supports slice raised', exc_info=True)
         self._reset_supports()
 
     def _adopt_variant(self):

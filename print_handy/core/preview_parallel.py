@@ -7,8 +7,11 @@ is not a Flatpak (concurrent Flatpak Orca runs collide, exit 243). Anything else
 at a time, as before. ``MAX_SLICER_RUNS`` is the most slicer steps ever running at once across
 every intake: the slicer lane takes its slot count from ``slicer_slots()``.
 """
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 MIN_CPUS = 4
 MAX_SLICER_RUNS = 2
@@ -43,4 +46,5 @@ def slicer_slots():
     try:
         return MAX_SLICER_RUNS if enabled() else 1
     except Exception:  # noqa: BLE001 - an unreadable setting keeps the safe serial lane
+        logger.warning('parallel_preview setting unreadable; using one slicer run', exc_info=True)
         return 1
