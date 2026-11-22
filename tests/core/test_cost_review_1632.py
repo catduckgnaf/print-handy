@@ -161,11 +161,23 @@ def test_the_ready_card_cost_line_prices_the_largest_variant(tmp_path, monkeypat
     big_dir = tmp_path / "b"
     big_dir.mkdir()
     big = _sliced_job(big_dir, grams=40.0)
-    monkeypatch.setattr(prepared_intake.settings, "current", lambda: AD5X_ROSTER)
+    opted_in = {**AD5X_ROSTER, "cost": {**(AD5X_ROSTER.get("cost") or {}), "ready_card_estimate": True}}
+    monkeypatch.setattr(prepared_intake.settings, "current", lambda: opted_in)
     monkeypatch.setattr(spoolman_client, "get_spool", lambda _sid: None)
     line = prepared_intake._cost_ready_line((small, big))
-    expected = cost.ready_line(cost.estimate_for_job(big, AD5X_ROSTER))
+    expected = cost.ready_line(cost.estimate_for_job(big, opted_in))
     assert line == expected and line.startswith("Estimated cost: about USD ")
+
+
+def test_the_ready_card_cost_line_is_off_by_default(tmp_path, monkeypatch):
+    from print_handy.core import prepared_intake, spoolman_client
+    job = _sliced_job(tmp_path, grams=5.0)
+    monkeypatch.setattr(spoolman_client, "get_spool", lambda _sid: None)
+    for data in (AD5X_ROSTER, {**AD5X_ROSTER, "cost": {"ready_card_estimate": False}}):
+        monkeypatch.setattr(prepared_intake.settings, "current", lambda d=data: d)
+        assert prepared_intake._cost_ready_line((job,)) == ""
+    # The estimate itself is untouched: /print-cost and stored cost still price the job.
+    assert cost.estimate_for_job(job, AD5X_ROSTER) is not None
 
 
 def test_a_cost_failure_never_reaches_the_ready_card(monkeypatch):
@@ -174,4 +186,6 @@ def test_a_cost_failure_never_reaches_the_ready_card(monkeypatch):
     def boom(*_a, **_k):
         raise RuntimeError("bad estimate")
     monkeypatch.setattr(cost, "estimate_for_job", boom)
+    monkeypatch.setattr(prepared_intake.settings, "current",
+                        lambda: {"cost": {"ready_card_estimate": True}})
     assert prepared_intake._cost_ready_line(({"gcode": "x"},)) == ""

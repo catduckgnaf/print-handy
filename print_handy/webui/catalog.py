@@ -159,6 +159,7 @@ GROUP_OF = {
     "cost.cost_mode": "cost",
     "cost.resin_ipa_per_print": "cost",
     "cost.resin_ppe_per_print": "cost",
+    "cost.ready_card_estimate": "cost",
     "notify.mqtt_enabled": "home_assistant",
     "notify.mqtt_host": "home_assistant",
     "notify.mqtt_port": "home_assistant",
@@ -655,6 +656,11 @@ CATALOG = (
     _field("cost", "resin_ppe_per_print", "Resin cleanup and PPE per print", "number",
            "Gloves, towels and other cleanup per resin print.",
            validator="settings cost check", minimum=0),
+    _field("cost", "ready_card_estimate", "Show estimated cost on the Ready card", "toggle",
+           "Turn this on to add an Estimated cost line to the chat Ready card once a job "
+           "is sliced. Off by default. The /print-cost command, the Web UI calculator "
+           "and the stored cost are not affected.",
+           validator="settings cost check"),
     # Event notifications (#622): print events out of chat, over MQTT
     # and/or ntfy. Neither channel's credential is a field: the MQTT
     # password is MQTT_PASSWORD and the ntfy access token is

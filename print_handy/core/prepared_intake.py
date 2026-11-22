@@ -60,28 +60,6 @@ from ..intake.worker import (  # moved in 2.3.0 (#1323); old path kept for one r
 logger = logging.getLogger(__name__)
 
 
-EXPORT_EDITABLE_LABEL = 'Export editable 3MF'
-
-
-async def _send_editable_export(adapter, source, metadata, folder, path):
-    """Export editable 3MF (#1525): deliver the cleaned project as a file.
-
-    A file delivery, not a slice: it starts no print, sends no machine
-    command and touches no spool, and the Ready menu stays open after
-    it. A source that cannot be exported says why in plain words.
-    """
-    from . import editable_export as _editable_export
-    export_target = folder / (path.stem + '-editable.3mf')
-    try:
-        report = await _heavy(_editable_export.export_editable, path, export_target)
-    except _editable_export.ExportRefused as exc:
-        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=str(exc))
-        return
-    await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                       content=_editable_export.export_summary(report),
-                       files=[str(export_target)])
-
-
 def _voice_identity(source):
     """Scope first-time copy jokes to a user and platform, not the job."""
     platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
@@ -1639,12 +1617,16 @@ def _cost_ready_line(variant_jobs):
 
     Information only: priced from the sliced variant (the largest when
     both support choices are shown, so the line never understates one),
-    and never raises. Cost never gates a print.
+    and never raises. Cost never gates a print. Returns "" unless
+    [cost] ready_card_estimate is true (default false); /print-cost, the
+    Web UI calculator and stored cost are unaffected.
     """
     try:
         from print_handy.core import cost as cost_module
         from print_handy.core import spoolman_client
         data = settings.current()
+        if (data.get('cost') or {}).get('ready_card_estimate') is not True:
+            return ''
 
         def lookup(spool_id):
             try:
@@ -4388,10 +4370,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                          'label': PRINT_ANYWAY_RISK_LABEL if can_print else SLICE_ANYWAY_RISK_LABEL})
                 menu_options.append({'kind': 'slice_only', 'label': 'Slice and Download'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
-                # Export editable 3MF (#1525) goes after Scale: Print, Slice
-                # and Scale keep their positions. Cancel stays last because
-                # ask() adds its own Cancel to a menu that does not end on one.
-                menu_options.append({'kind': 'export_editable', 'label': EXPORT_EDITABLE_LABEL})
+                # Cancel stays last because ask() adds its own Cancel to a
+                # menu that does not end on one.
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
                 first_labels = [opt['label'] for opt in menu_options]
             else:
@@ -4400,7 +4380,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     {'kind': 'print', 'label': print_label},
                     {'kind': 'slice_only', 'label': 'Slice and Download'},
                     {'kind': 'scale', 'label': SCALE_LABEL},
-                    {'kind': 'export_editable', 'label': EXPORT_EDITABLE_LABEL},
                     {'kind': 'cancel', 'label': cancel_label},
                 ]
                 if not can_print:
@@ -4419,6 +4398,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                       shortages=shown_shortages, sliced_variants=spool_variants)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
+            # Off by default: the line only appears when [cost] ready_card_estimate is on.
             cost_text = await asyncio.to_thread(_cost_ready_line, spool_variants)
             if cost_text:
                 spool_text = (spool_text + '\n' + cost_text) if spool_text else cost_text
@@ -4646,12 +4626,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 elif opt['kind'] == 'slice_only':
                     choice = 1
                     break
-                elif opt['kind'] == 'export_editable':
-                    # Export editable 3MF (#1525): a file delivery, not a
-                    # slice. It starts no print, sends no machine command
-                    # and touches no spool; the menu stays open afterwards.
-                    await _send_editable_export(adapter, source, metadata, folder, path)
-                    continue
                 elif opt['kind'] == 'cancel':
                     choice = 3
                     break
@@ -4659,11 +4633,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     pass  # drops through to scaling direction question
             else:
                 kind = menu_options[picked]['kind']
-                if kind == 'export_editable':
-                    # Export editable 3MF (#1525): file delivery only, as
-                    # in the flagged dispatch above; the menu stays open.
-                    await _send_editable_export(adapter, source, metadata, folder, path)
-                    continue
                 if kind != 'scale':
                     # The legacy choice numbers the rest of the flow reads:
                     # 0 print, 1 slice-and-download, 3 cancel. Mapped by

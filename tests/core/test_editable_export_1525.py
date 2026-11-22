@@ -110,18 +110,18 @@ def test_webui_export_surfaces_the_sliced_only_refusal(tmp_path):
     assert "sliced-only" in reason
 
 
-def test_ready_menu_keeps_established_positions_and_ends_on_cancel():
-    """#1578 review: Export editable 3MF must not shift Print, Slice or Scale
-    (inserting it before Scale re-pointed every positional answer), and Cancel
-    must stay last, or ask() appends a second Cancel."""
+def test_chat_ready_menu_no_longer_offers_the_editable_export():
+    """The chat Ready card (plain and flagged) offers Slice and Download, not the
+    editable export; that artifact stays on the Web UI job page."""
     import inspect
     from print_handy.core import prepared_intake
     src = inspect.getsource(prepared_intake._prepare_link)
+    assert "export_editable" not in src
+    assert not hasattr(prepared_intake, "EXPORT_EDITABLE_LABEL")
+    assert not hasattr(prepared_intake, "_send_editable_export")
     flagged = src.index("menu_options.append({'kind': 'slice_only'")
-    order = [src.index(k, flagged) for k in ("'kind': 'scale'", "'kind': 'export_editable'",
-                                              "'kind': 'cancel'")]
+    order = [src.index(k, flagged) for k in ("'kind': 'scale'", "'kind': 'cancel'")]
     assert order == sorted(order)
     plain = src.index("{'kind': 'print', 'label': print_label}")
-    order = [src.index(k, plain) for k in ("'kind': 'slice_only'", "'kind': 'scale'",
-                                            "'kind': 'export_editable'", "'kind': 'cancel'")]
+    order = [src.index(k, plain) for k in ("'kind': 'slice_only'", "'kind': 'scale'", "'kind': 'cancel'")]
     assert order == sorted(order)
