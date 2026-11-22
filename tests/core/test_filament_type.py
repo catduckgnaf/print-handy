@@ -153,3 +153,8 @@ def test_every_flag_in_the_table_is_known_to_the_code():
 def test_the_readers_never_return_a_flag_outside_the_table():
     t = ft.from_spoolman_filament(fil("HS Matte Silk Pro", "PLA+"))
     assert t.flags <= set(ft.known_flags())
+
+
+@pytest.mark.parametrize("text, family", [("Support PLA", "SUPPORT-PLA"), ("SUPPORT-PA", "SUPPORT-PA"), ("PLA", "PLA")])
+def test_support_families_are_recognized(text, family):
+    assert ft.from_text(text).family == family

@@ -170,7 +170,12 @@ def _family_of(tokens: list[str]) -> tuple[str | None, list[str]]:
     family = material_family(joined)
     if not _VALID_FAMILY.match(family or ""):
         return None, tokens
-    return family, [t for t in rest if t not in fillers]
+    rest = [t for t in rest if t not in fillers]
+    if family in ("PLA", "PA") and "SUPPORT" in rest:
+        # "Support PLA" / "Support-PA" name the support families, not the plain polymer.
+        family = "SUPPORT-" + family
+        rest = [t for t in rest if t != "SUPPORT"]
+    return family, rest
 
 
 def _from_material_text(text: Any, source: str, *, name_only: bool = False) -> FilamentType:
