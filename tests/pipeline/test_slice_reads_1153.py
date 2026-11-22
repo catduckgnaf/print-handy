@@ -65,8 +65,9 @@ def test_slice_reads_the_finalized_gcode_once_for_its_read_only_checks(tmp_path)
         reads, out, provenance = _slice_counting_reads(tmp_path)
     # One read for the generator identity before finalizing (finalizing
     # rewrites the file), one after it for every read-only check. The three
-    # checks used to read it once each: four reads per slice.
-    assert reads == ["plate_1.gcode", "plate_1.gcode"]
+    # checks used to read it once each: four reads per slice. A third read compares the
+    # file's content with the scanned text before the baseline check reuses the scan (#1779).
+    assert reads == ["plate_1.gcode", "plate_1.gcode", "plate_1.gcode"]
     final = Path(out).read_text(errors="replace")
     assert seen["post"] == final
     assert seen.get("start", final) == final

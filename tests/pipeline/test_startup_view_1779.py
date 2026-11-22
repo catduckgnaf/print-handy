@@ -74,10 +74,10 @@ def test_used_tools_equals_the_line_pass(seed, seps):
 
 
 def _finalize_lines(text, metadata):
-    from print_handy.printers.flashforge.zmod import multicolor_contract as mc
+    from print_handy.gcode import tool_map
     lines = [line for line in text.splitlines(keepends=True)
              if '_' not in line
-             or not (line.strip().lower().startswith('; zmod_color_data =') or line.startswith(mc.MAP_PREFIX))]
+             or not (line.strip().lower().startswith('; zmod_color_data =') or tool_map.is_map_line(line))]
     index = next((i for i, line in enumerate(lines) if line.strip().lower().startswith('; header_block_end')), 0)
     lines[index:index] = metadata
     return ''.join(lines)
