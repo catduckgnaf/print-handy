@@ -171,6 +171,16 @@ def test_color_name_keeps_plus_word_when_type_has_no_plus_flag():
     assert ft.color_name("Red PLA+", ft.from_text("PLA+")) == "Red"
 
 
+@pytest.mark.parametrize("material, expected", [
+    ("PLA", "Red PET"),
+    ("PCTG", "Red PET"),
+    ("PETG", "Red"),
+    ("PETG-CF", "Red"),
+])
+def test_color_name_only_strips_pet_for_the_petg_family(material, expected):
+    assert ft.color_name("Red PET", ft.from_text(material)) == expected
+
+
 def test_paht_resolves_to_the_pa_family():
     # PAHT is normalized by material_family before _VALID_FAMILY is checked.
     assert ft.from_text("PAHT").family == "PA"

@@ -422,7 +422,8 @@ def _same_family(token: str, ftype: FilamentType | None) -> bool:
     if ftype is None or ftype.family is None:
         return True
     base = ftype.family.split("-", 1)[0]
-    return token.rstrip("+").split("-", 1)[0] in (base, "PET") or token.startswith(base)
+    token_base = token.rstrip("+").split("-", 1)[0]
+    return token_base == base or (token_base == "PET" and base == "PETG") or token.startswith(base)
 
 
 def label(color: Any, ftype: FilamentType | None, *, color_fallback: str = "", material_fallback: str = "") -> str:
