@@ -192,6 +192,38 @@ def test_sanitizer_keeps_the_jobs_own_per_slot_ids_and_pins_foreign_ones_per_too
     assert after["filament_settings_id"] == names
 
 
+@pytest.mark.parametrize("imported", [
+    # slot 1's and slot 2's own IDs swapped
+    lambda names: [names[1], names[0], names[2]],
+    # one tool's valid ID copied onto every slot
+    lambda names: [names[0]] * 3,
+    # the bare template ID on slots the job has its own profiles for
+    lambda names: ["Flashforge Generic PLA"] * 3,
+], ids=["swapped", "copied", "bare-template"])
+def test_sanitizer_pins_each_slot_to_its_own_generated_id(tmp_path: Path, imported):
+    """duckcatgnaf (a53a07df): a generated ID is valid only on the slot it was generated for; on any
+    other slot it would run that tool with another filament's settings, so it is repinned."""
+    names = ["Flashforge HS PETG @FF AD5X [slot 1]", "Generic PETG @Flashforge [slot 2]",
+             "Flashforge Generic PLA [slot 3]"]
+    profiles = []
+    for index, name in enumerate(names):
+        path = tmp_path / f"filament_tool_{index}.json"
+        path.write_text(json.dumps({"name": name, "filament_settings_id": [name]}), encoding="utf-8")
+        profiles.append(path)
+    t3mf = tmp_path / "moved_ids.3mf"
+    project = {"filament_settings_id": imported(names),
+               "filament_type": ["PETG", "PETG", "PLA"], "filament_colour": ["#000000", "#FFFFFF", "#FF0000"]}
+    with zipfile.ZipFile(t3mf, "w") as z:
+        z.writestr("Metadata/project_settings.config", json.dumps(project))
+
+    changed = orca_adapter.sanitize_project_settings(t3mf, slot_count=3, filament_profiles=profiles)
+
+    with zipfile.ZipFile(t3mf, "r") as z:
+        after = json.loads(z.read("Metadata/project_settings.config"))
+    assert after["filament_settings_id"] == names
+    assert changed["filament_settings_id"] == [imported(names), names]
+
+
 def test_sanitizer_replaces_retired_hermes_slot_filament_ids(tmp_path: Path):
     """#1816: an imported project's "Hermes slot N" names are foreign now, like any other name that is not the
     job's own profile: every one is pinned to the job's profile."""

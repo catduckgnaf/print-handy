@@ -870,12 +870,13 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             count = len(settings[key]) if isinstance(settings[key], list) else slot_count
             existing = settings[key] if isinstance(settings[key], list) else [settings[key]]
             tool_ids = _profile_ids(filament_profiles)
-            own_ids = {template_id, *tool_ids}
             # Each tool's own name, the template's where the job has no profile for that tool.
             own_names = [tool_ids[index] if index < len(tool_ids) else template_id
                          for index in range(max(count, len(existing)))]
+            # Each slot accepts only its own name: another slot's valid ID (or the bare template ID on a
+            # slot the job has a profile for) would run that slot with the wrong filament settings.
             replacement = [
-                item if sg.is_allowed_filament_id(item, own_ids) else own_names[index]
+                item if sg.is_allowed_filament_id(item, {own_names[index]}) else own_names[index]
                 for index, item in enumerate(existing)
             ]
             if len(replacement) < count:
