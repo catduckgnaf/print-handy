@@ -347,11 +347,11 @@ def test_bind_text_says_when_the_screen_shows_a_stand_in():
     result = {"slot": 2, "spool_id": 9, "record": {"name": "Gray ASA"}, "prior_spool_id": None,
               "screen": "pushed", "screen_note": "screen shows ABS for ASA", "usage": "unchanged"}
     assert spool_sync.bind_text(result) == (
-        "Slot 2 → spool #9 (Gray ASA). Printer screen updated (screen shows ABS for ASA).")
+        "Slot 2 → spool #9 (Gray ASA). Printer screen color and label command accepted (screen shows ABS for ASA).")
     deferred = {**result, "screen": "deferred"}
     assert "ends (screen shows ABS for ASA)." in spool_sync.bind_text(deferred)
     plain = {**result, "screen_note": None}
-    assert spool_sync.bind_text(plain) == "Slot 2 → spool #9 (Gray ASA). Printer screen updated."
+    assert spool_sync.bind_text(plain) == "Slot 2 → spool #9 (Gray ASA). Printer screen color and label command accepted."
 
 
 def test_bind_slot_carries_the_fallback_note_only_when_the_screen_was_told(tmp_path):

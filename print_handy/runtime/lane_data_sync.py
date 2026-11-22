@@ -1025,8 +1025,9 @@ class LaneDataWatcher:
             self._queue(pending, noted, slot, "stale_spool",
                         f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen is "
                         f"linked to spool #{spool_id}, which {fate}. Nothing was overwritten. "
-                        f"Relink the slot with `/spool change {slot} <spool#>`, or clear the "
-                        "lane on the screen.",
+                        f"Relink the slot from chat with `/spool change {slot} <spool#>`; "
+                        "if Print Handy already has a live spool bound there, `/spool sync` "
+                        "relinks the screen lane to it. Nothing needs doing at the printer.",
                         action, spool_id=spool_id)
             adopt()
             return True

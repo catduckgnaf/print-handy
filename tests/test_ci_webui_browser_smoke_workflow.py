@@ -18,5 +18,10 @@ def test_real_browser_job_is_a_blocking_pr_check():
     assert test["env"]["PRINT_HANDY_BROWSER_SMOKE"] == "1"
     assert "tests/test_webui_browser_smoke.py" in test["run"]
     assert "--junitxml=browser-smoke.xml" in test["run"]
+    assert test["env"]["PRINT_HANDY_SCREENSHOT_DIR"] == "webui-browser-artifacts"
+    upload = [step for step in job["steps"]
+              if step.get("with", {}).get("name") == "webui-layout-screenshots"]
+    assert len(upload) == 1
+    assert upload[0]["with"]["path"] == "webui-browser-artifacts/"
     refusal = steps["Refuse missing or skipped browser tests"]["run"]
     assert "assert tests >= 5 and not skipped and not failed" in refusal

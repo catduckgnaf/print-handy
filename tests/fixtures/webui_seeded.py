@@ -119,7 +119,14 @@ class SeededWebUI:
             name = f"plate-{number}.gcode"
             (job / name).write_text("; synthetic plate\n", encoding="utf-8")
             plates.append({"gcode": name, "name": f"Synthetic plate {number}"})
-        payload = {"title": "Long synthetic archive job title for multi-plate populated page", "gcode": plates[0]["gcode"], "derived_plates": plates[1:]}
+        payload = {
+            "title": "Long synthetic archive job title for multi-plate populated page",
+            "gcode": plates[0]["gcode"], "derived_plates": plates[1:],
+            "provenance": {"conversion_provenance": {
+                "source_format": "3mf", "destination_profile_name": "Synthetic AD5X",
+                "settings": {"layer_height": {"project_value": 0.2, "selected_value": 0.24}},
+            }},
+        }
         (job / "JOB.json").write_text(json.dumps(payload), encoding="utf-8")
 
     def _png_preview(self):
