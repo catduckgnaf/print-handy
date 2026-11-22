@@ -591,6 +591,74 @@ def write_lane_side(slot: int, spool: dict[str, Any] | None, *, mr: Client = moo
     return "written"
 
 
+def _lane_spool_id(mr: Client, slot: int) -> tuple[bool, Any]:
+    """(readable, spool_id) of one slot's live ``lane_data`` record."""
+    raw = read_lane_data(mr)
+    if raw is None:
+        return False, None
+    rec = raw.get(f"lane{int(slot)}")
+    return True, (rec.get("spool_id") if isinstance(rec, dict) else None)
+
+
+def verify_lane_link(slot: int, spool: dict[str, Any], *, mr: Client = moonraker,
+                     name: str | None = None) -> dict[str, Any]:
+    """Read the slot's ``lane_data`` record back AFTER the screen command (#1788 replay).
+
+    ``CHANGE_ZCOLOR`` makes the screen rewrite its own record in place and
+    it can keep the old ``spool_id`` (the write that came before it is then
+    lost), so a write's success says nothing about the link. This reads the
+    record, rewrites the one lane key once when it still names another
+    spool, and reads again. The namespace is shared and cooperative: only
+    ``lane<slot>`` is written (never the whole namespace) and screen-owned
+    ``helix_*`` fields are kept by :func:`build_lane_record`.
+
+    Returns ``{"status": ..., "found": spool id or None}`` with status
+    ``verified``, ``repaired``, ``stale`` (still names another spool after
+    the rewrite) or ``unverified`` (the namespace could not be read).
+    """
+    want = int(spool["id"])
+    try:
+        readable, found = _lane_spool_id(mr, slot)
+        if not readable:
+            return {"status": "unverified", "found": None}
+        if found is not None and str(found).isdigit() and int(found) == want:
+            return {"status": "verified", "found": want}
+        write_lane_record(slot, spool, mr=mr, name=name)
+        readable, again = _lane_spool_id(mr, slot)
+        if not readable:
+            return {"status": "unverified", "found": None}
+        if again is not None and str(again).isdigit() and int(again) == want:
+            return {"status": "repaired", "found": want}
+        return {"status": "stale", "found": again if again is not None else found}
+    except Exception:
+        # Advisory only: the bind itself is saved; report the link as unverified.
+        logging.getLogger(__name__).warning(
+            "Could not verify the screen lane link for slot %s", slot, exc_info=True)
+        return {"status": "unverified", "found": None}
+
+
+def lane_catalog_note(slot: int, material: str, mr: Client = moonraker) -> str | None:
+    """Advisory when the screen's own catalog entry names another material family.
+
+    ``helix_catalog_id`` / ``helix_product_name`` are screen-owned and kept
+    on purpose; Print Handy only reports them (never edits them).
+    """
+    raw = read_lane_data(mr) or {}
+    rec = raw.get(f"lane{int(slot)}")
+    if not isinstance(rec, dict):
+        return None
+    catalog = str(rec.get("helix_product_name") or rec.get("helix_catalog_id") or "").strip()
+    wanted = re.sub(r"[^a-z0-9]", "", str(material or "").casefold())
+    if not catalog or not wanted:
+        return None
+    family = re.sub(r"^generic[-_ ]?", "", catalog.casefold())
+    family = re.sub(r"[^a-z0-9]", "", family)
+    if not family or family.startswith(wanted[:3]) or wanted.startswith(family[:3]):
+        return None
+    return (f"the screen's own catalog entry for slot {int(slot)} still says {catalog}; "
+            f"pick {material} in the screen's material list if you want that to match")
+
+
 def active_usage_spool(mr: Client = moonraker) -> int | None:
     return (mr("GET", "/server/spoolman/spool_id", None).get("result") or {}).get("spool_id")
 
@@ -1096,6 +1164,8 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
     except Exception as exc:
         usage = "not updated — the spool change itself is saved; run `/spool sync` to fix the charging"
     lane_data = "not requested"
+    lane_link: dict[str, Any] | None = None
+    lane_note: str | None = None
     if push_screen_update:
         # The lane_data side of the screen converge (#791): write this
         # slot's record before the CHANGE_ZCOLOR push_screen sends below
@@ -1113,13 +1183,17 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
                 screen = push_screen(slot, record["material"], record["hex"], mr=mr, pending_path=pending_path)
         except Exception as exc:
             screen = "not updated — run `/spool sync` to try again"
+        if lane_data == "written" and screen == "pushed":
+            lane_link = verify_lane_link(slot, spool, mr=mr, name=record["name"])
+        if lane_data == "written":
+            lane_note = lane_catalog_note(slot, record["material"], mr)
     else:
         screen = "not requested"
     screen_note = (screen_fallback_note(record["material"], _printer_adapter(printer_id))
                    if screen in ("pushed", "deferred") else None)
     return {"slot": slot, "spool_id": int(spool_id), "prior_spool_id": prior, "record": record,
             "screen": screen, "screen_note": screen_note, "usage": usage,
-            "lane_data": lane_data,
+            "lane_data": lane_data, "lane_link": lane_link, "lane_note": lane_note,
             "prior_disposition": prior_disposition}
 
 
@@ -1605,13 +1679,34 @@ def bind_text(result: dict[str, Any]) -> str:
             moved = f" Spool #{prior} was deleted from Spoolman."
         elif disposition == "shelf":
             moved = f" Spool #{prior} went back to the shelf."
-    screen = {"pushed": "Printer screen updated.",
+    screen = {"pushed": "Printer screen color and label command accepted.",
               "deferred": "Printer screen will update when this print ends."}.get(result["screen"],
                                                                                    f"Printer screen {result['screen']}.")
     if result.get("screen_note"):
         screen = screen[:-1] + f" ({result['screen_note']})."
     usage = "" if result["usage"] == "unchanged" else f" Filament usage {result['usage']}."
-    return f"Slot {result['slot']} → spool #{result['spool_id']} ({r['name']}{grams}).{moved} {screen}{usage}"
+    return (f"Slot {result['slot']} → spool #{result['spool_id']} ({r['name']}{grams}).{moved} "
+            f"{screen}{_lane_link_text(result)}{usage}")
+
+
+def _lane_link_text(result: dict[str, Any]) -> str:
+    """What was verified about the screen's lane binding, apart from its label and color."""
+    link = result.get("lane_link") or {}
+    status = link.get("status")
+    slot = result["slot"]
+    text = ""
+    if status in ("verified", "repaired"):
+        text = f" Screen lane {slot} link to spool #{result['spool_id']} confirmed" \
+               + (" after one rewrite." if status == "repaired" else ".")
+    elif status == "stale":
+        text = (f" Screen lane {slot} still names spool #{link.get('found')}, not #{result['spool_id']}, "
+                f"after a rewrite: the screen may keep the old link. Advisory only; "
+                f"`/spool sync` retries, or pick the material on the screen.")
+    elif status == "unverified":
+        text = f" Screen lane {slot} link was not verified (the screen's lane record could not be read)."
+    if result.get("lane_note"):
+        text += f" Note: {result['lane_note']}."
+    return text
 
 
 # ---------------------------------------------------------------- reconcile (#798)
@@ -2189,6 +2284,41 @@ def sync_slot_screen(slot: int, *, printer_id: str | None = None) -> str:
     return push_screen(slot, rec.get("material") or "", rec["hex"])
 
 
+def repair_lane_links(state: dict[str, Any], *, mr: Client = moonraker, client: Client = spoolman,
+                      printer_id: str | None = None) -> list[str]:
+    """Relink each bound slot's screen lane to Print Handy's record, from chat (print #137, #138).
+
+    Reads the lane record, rewrites only ``lane<slot>`` when it names
+    another spool (a deleted one included), and reads it back. Software
+    only: no printer command and no screen-owned field is touched.
+    Printers without a writable lane namespace report nothing.
+    """
+    if _lane_data_write_refusal(printer_id) is not None or _toolhead_lane_namespace(printer_id):
+        return []
+    out: list[str] = []
+    for slot in SLOTS:
+        rec = (state.get("filament_slots") or {}).get(str(slot)) or {}
+        sid = rec.get("spoolman_id")
+        if not sid:
+            continue
+        try:
+            spool = client("GET", f"/api/v1/spool/{int(sid)}", None)
+            if not isinstance(spool, dict) or spool.get("archived"):
+                continue
+            link = verify_lane_link(slot, spool, mr=mr)
+        except Exception:
+            # One slot's lookup failing must not stop the other slots' repair.
+            logging.getLogger(__name__).warning(
+                "Could not repair the screen lane link for slot %s", slot, exc_info=True)
+            continue
+        if link["status"] == "repaired":
+            out.append(f"Slot {slot}: screen lane relinked to spool #{sid}")
+        elif link["status"] == "stale":
+            out.append(f"Slot {slot}: screen lane still names spool #{link.get('found')}; "
+                       f"advisory, run `/spool sync` again")
+    return out
+
+
 def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
                      pending_path: Path | None = None, printer_id: str | None = None) -> list[str]:
     state = load_state(state_path, printer_id=printer_id)
@@ -2210,6 +2340,7 @@ def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
             out.append(f"Slot {slot}: {pushed}" + (f" ({note})" if note else ""))
         except Exception as exc:
             out.append(f"Slot {slot}: the screen could not be updated — try again")
+    out.extend(repair_lane_links(state, mr=mr, printer_id=printer_id))
     # /spool sync is also the recovery bind_slot names when re-pointing usage
     # failed (P2-179): it must repair the charging, not just the screens.
     out.append(repair_usage_spool(mr=mr, state_path=state_path, printer_id=printer_id))

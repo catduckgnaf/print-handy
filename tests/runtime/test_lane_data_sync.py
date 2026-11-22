@@ -1545,3 +1545,115 @@ def test_spool_less_screen_echo_matching_the_bound_spool_is_silent(tmp_path):
     mr.lanes = {"lane1": {"lane": "0", "material": "PETG", "color": "#00FF00",
                           "scan_time": "2026-11-14T15:58:35Z"}}
     assert [e["kind"] for e in watcher.poll()] == ["unresolved"]
+
+
+# --------------------------------------------------------------------- print #137 replay (screen link verification)
+
+class RewritingScreen(FakeMoonraker):
+    """CHANGE_ZCOLOR makes the screen rewrite its lane in place, keeping the old spool_id."""
+
+    def __init__(self, *args, keep_old_for=1, **kw):
+        super().__init__(*args, **kw)
+        self.keep_old_for = keep_old_for  # how many rewrites it keeps the stale id for
+
+    def __call__(self, method, path, body=None):
+        res = super().__call__(method, path, body)
+        if method == "POST" and path.startswith("/printer/gcode/script") and "CHANGE_ZCOLOR" in path:
+            if self.keep_old_for > 0:
+                self.keep_old_for -= 1
+                self.lanes["lane3"]["spool_id"] = 21
+                self.lanes["lane3"]["helix_catalog_id"] = "generic-pla"
+        return res
+
+
+def _replay_state(tmp_path):
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"spool": {}, "filament_slots": {}}))
+    return state
+
+
+def test_replay_137_stale_screen_link_is_repaired_and_reported(tmp_path):
+    """Coffee PLA #23 bound to slot 3; the screen's CHANGE_ZCOLOR put deleted #21 back."""
+    fake = FakeSpoolman([spool(23, "Coffee", "PLA", "6F4E37")])
+    mr = RewritingScreen(lanes={"lane3": {**lane(21, slot=3), "helix_source": "screen",
+                                          "helix_catalog_id": "generic-pla", "helix_product_name": "PLA"}})
+    result = spool_sync.bind_slot(3, 23, client=fake, mr=mr, state_path=_replay_state(tmp_path))
+    assert mr.lanes["lane3"]["spool_id"] == 23
+    assert result["lane_link"]["status"] == "repaired"
+    text = spool_sync.bind_text(result)
+    assert "Printer screen updated" not in text
+    assert "color and label command accepted" in text
+    assert "link to spool #23 confirmed after one rewrite" in text
+    # Screen-owned fields survive the repair untouched.
+    assert mr.lanes["lane3"]["helix_source"] == "screen"
+    assert mr.lanes["lane3"]["helix_product_name"] == "PLA"
+
+
+def test_replay_137_link_the_screen_keeps_stale_is_named_advisory_only(tmp_path):
+    fake = FakeSpoolman([spool(23, "Coffee", "PLA", "6F4E37")])
+    mr = RewritingScreen(lanes={"lane3": lane(21, slot=3)}, keep_old_for=0)
+    real_call = mr.__call__
+
+    def always_stale(method, path, body=None):
+        res = real_call(method, path, body)
+        if method == "POST" and path == "/server/database/item" and body["key"] == "lane3":
+            mr.lanes["lane3"]["spool_id"] = 21  # a second writer wins every time
+        return res
+
+    result = spool_sync.bind_slot(3, 23, client=fake, mr=always_stale, state_path=_replay_state(tmp_path))
+    assert result["lane_link"] == {"status": "stale", "found": 21}
+    text = spool_sync.bind_text(result)
+    assert "still names spool #21" in text and "Advisory only" in text and "/spool sync" in text
+
+
+def test_replay_137_clean_bind_is_verified_without_a_second_write(tmp_path):
+    fake = FakeSpoolman([spool(23, "Coffee", "PLA", "6F4E37")])
+    mr = RewritingScreen(lanes={}, keep_old_for=0)
+    result = spool_sync.bind_slot(3, 23, client=fake, mr=mr, state_path=_replay_state(tmp_path))
+    assert result["lane_link"]["status"] == "verified"
+    posts = [c for c in mr.calls if c[0] == "POST" and c[1] == "/server/database/item"]
+    assert len(posts) == 1
+
+
+def test_lane_link_unreadable_namespace_reads_unverified_not_confirmed():
+    mr = FakeMoonraker(lanes=None)
+    out = spool_sync.verify_lane_link(3, spool(23), mr=mr)
+    assert out["status"] == "unverified"
+    assert "not verified" in spool_sync.bind_text(
+        {"slot": 3, "spool_id": 23, "record": {"name": "x"}, "screen": "pushed", "usage": "unchanged",
+         "lane_link": out})
+
+
+def test_catalog_note_is_advisory_and_only_for_a_family_mismatch():
+    mr = FakeMoonraker(lanes={"lane3": {**lane(23, slot=3, material="PETG"),
+                                        "helix_catalog_id": "generic-pla", "helix_product_name": "PLA"}})
+    note = spool_sync.lane_catalog_note(3, "PETG", mr)
+    assert note and "still says PLA" in note
+    assert spool_sync.lane_catalog_note(3, "PLA+", mr) is None  # same family
+    before = copy.deepcopy(mr.lanes)
+    assert mr.lanes == before  # reporting never edits screen-owned fields
+
+
+def test_stale_spool_notice_never_sends_the_operator_to_the_printer(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11)])
+    watcher, _applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {"lane1": lane(18)}  # spool 18 does not exist in Spoolman
+    text = watcher.poll()[0]["text"]
+    assert "clear the lane" not in text and "lane on the screen" not in text
+    assert "/spool sync" in text and "Nothing needs doing at the printer" in text
+
+
+def test_spool_sync_relinks_a_lane_that_names_a_deleted_spool(tmp_path):
+    """Print #138 convergence: record #23, lane3 still #21; /spool sync repairs it from chat."""
+    fake = FakeSpoolman([spool(23, "Coffee", "PLA", "6F4E37")])
+    mr = FakeMoonraker(lanes={"lane3": {**lane(21, slot=3), "helix_catalog_id": "generic-pla"}})
+    state = {"filament_slots": {"3": {"spoolman_id": 23}}}
+    out = spool_sync.repair_lane_links(state, mr=mr, client=fake, printer_id=None)
+    assert out == ["Slot 3: screen lane relinked to spool #23"]
+    assert mr.lanes["lane3"]["spool_id"] == 23
+    assert mr.lanes["lane3"]["helix_catalog_id"] == "generic-pla"
+    assert mr.gcode_scripts() == []  # software only
+    # Already linked: nothing to say.
+    assert spool_sync.repair_lane_links(state, mr=mr, client=fake, printer_id=None) == []

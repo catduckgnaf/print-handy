@@ -39,6 +39,35 @@ _SPOOL_NL_CHANGE_RES = (
     re.compile(r"(?:we|i)\s+(?:need|want)\s+to\s+change\s+a\s+filament\s+roll\s*[.!]?", re.I),
 )
 
+# "I swapped slot 3 for Coffee", "I swapped spools in slot 3 for coffee I had
+# already": the operator reports a swap that already happened. It opens the
+# same guided confirmation as "change the filament"; it never binds anything
+# by itself, and the named filament only orders the shelf picker.
+_SPOOL_SWAP_RE = re.compile(
+    r"(?:i\s+)?(?:just\s+)?(?:swapped|changed|replaced)\s+(?:the\s+)?(?:(?:spools?|filament|rolls?)\s+)?"
+    r"(?:in\s+|on\s+)?slot\s+([1-4])\s+(?:for|with|to)\s+(?:the\s+|my\s+|a\s+|an\s+|some\s+)?(.+?)"
+    r"(?:\s+(?:that\s+)?i\s+(?:had|have)\s+(?:already|before|on\s+hand))?\s*[.!]?", re.I)
+
+
+def _spool_swap_request(text):
+    """(slot, filament words or None) for a reported swap, else None."""
+    text = ' '.join(str(text or '').split()).strip()
+    match = None if text.startswith('/') else _SPOOL_SWAP_RE.fullmatch(text)
+    if not match:
+        return None
+    words = match.group(2).strip()
+    if len(words.split()) > 4 or re.search(r"\b(?:because|but|and|so|when|since)\b", words, re.I):
+        return None  # a story, not a filament name
+    if re.search(r"\bnew\b|\bspool\b|\broll\b", words, re.I):
+        words = ''
+    return int(match.group(1)), (words or None)
+
+
+def _spool_query_matches(entry, words):
+    """Whether every word names this shelf spool (name, material or #id)."""
+    hay = f"{entry.get('name') or ''} {entry.get('material') or ''} #{entry.get('spool_id')}".casefold()
+    return all(token in hay for token in re.findall(r"[#\w+]+", str(words).casefold()))
+
 
 def _spool_nl_intent(text):
     """Deterministic plain-text spool requests (#475): 'new' or 'change', else None.
@@ -55,6 +84,8 @@ def _spool_nl_intent(text):
     if any(pattern.fullmatch(text) for pattern in _SPOOL_NL_NEW_RES):
         return 'new'
     if any(pattern.fullmatch(text) for pattern in _SPOOL_NL_CHANGE_RES):
+        return 'change'
+    if _spool_swap_request(text) is not None:
         return 'change'
     return None
 
@@ -312,18 +343,32 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
     return made_id, f"{message} {spool_sync.bind_text(result)}"
 
 
-async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, pid, mr_kw):
+async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, pid, mr_kw,
+                               slot=None, wanted=None):
     """Walk through changing a slot's spool (#475): slot -> replacement ->
-    the old spool's fate -> one confirmation -> bind_slot."""
+    the old spool's fate -> one confirmation -> bind_slot.
+
+    ``slot`` and ``wanted`` come from a reported swap ("I swapped slot 3 for
+    Coffee"): the slot question is skipped and shelf spools that match the
+    words are listed first. The confirmation below is never skipped."""
     state = await asyncio.to_thread(spool_sync.load_state, **_pkw(pid))
-    slot, problem = await _spool_slot_ask(adapter, source, metadata, gateway, spool_sync, state,
-                                          'Which slot are you changing?')
     if slot is None:
-        return problem
+        slot, problem = await _spool_slot_ask(adapter, source, metadata, gateway, spool_sync, state,
+                                              'Which slot are you changing?')
+        if slot is None:
+            return problem
     old_id = ((state.get('filament_slots') or {}).get(str(slot)) or {}).get('spoolman_id')
     shelf = await asyncio.to_thread(spool_sync.shelf_spools, **_pkw(pid))
+    lead = f"Which spool goes into slot {slot}? Pick one from the shelf, or choose Add a new spool."
+    if wanted:
+        hits = [entry for entry in shelf if _spool_query_matches(entry, wanted)]
+        shelf = hits + [entry for entry in shelf if entry not in hits]
+        lead = (f"Nothing is recorded as changed yet. In stock matching \"{wanted}\": "
+                + (f"{len(hits)} (listed first, with number, material and grams left)."
+                   if hits else "none on the shelf.")
+                + f" Which spool is in slot {slot}? Pick one, or choose Add a new spool.")
     listed = shelf[:12]
-    lines = [f"Which spool goes into slot {slot}? Pick one from the shelf, or choose Add a new spool."]
+    lines = [lead]
     if listed:
         for i, entry in enumerate(listed, 1):
             lines.append(f"{i}. {_picker_label(entry)}")
@@ -504,8 +549,11 @@ async def spool_dispatch(event, gateway, **kwargs):
                 message = 'No printer chosen, so nothing was changed.'
         elif nl_intent == 'change':
             if await _spool_printer():
+                swap = _spool_swap_request(text)
                 message = await _spool_guided_change(adapter, source, metadata, gateway,
-                                                     spool_sync, pid, mr_kw)
+                                                     spool_sync, pid, mr_kw,
+                                                     slot=swap[0] if swap else None,
+                                                     wanted=swap[1] if swap else None)
             else:
                 message = 'No printer chosen, so nothing was changed.'
         elif verb in ('list', 'ls'):
