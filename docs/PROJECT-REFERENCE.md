@@ -66,7 +66,15 @@ A bed-clear approval starts one print. `print-now` itself refuses without the op
   a slot asks the old spool's fate (shelf / archive / depleted / delete, with Archive as depleted
   recommended when the old spool has 0 g left). The brand question is skipped unless
   `spool.prompt_brand` is on. Anchored plain phrases ("add new filament", "swap the filament", …)
-  start the same flow with no LLM involved; the complete typed forms stay one-shot.
+  start the same flow with no LLM involved; the complete typed forms stay one-shot. A reported
+  swap ("I swapped slot 3 for Coffee", "I swapped spools in slot 3 for coffee I had already")
+  starts it with the slot already chosen and the matching in-stock spools listed first (number,
+  material, grams left); nothing changes until the confirmation button, and "Add a new spool"
+  stays the last choice. After a bind the reply says the screen *command* was accepted, then
+  reads the screen's lane record back: the lane link is confirmed, repaired once (only that
+  lane's key is rewritten, screen-owned `helix_*` fields kept), or named as still pointing at
+  another spool. A catalog entry on the screen that names a different material family is
+  reported as advice; Print Handy never edits it.
 * `/print-spools` is the loaded-only, read-only view: per loaded location, spool number,
   brand, material, color, grams left and percent left where the spool's starting weight is
   recorded (percent named unknown, never estimated). Reached by `/print-spools`, `/spool loaded`,

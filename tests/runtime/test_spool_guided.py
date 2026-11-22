@@ -611,3 +611,42 @@ def test_guided_change_long_shelf_name_resolves_by_full_label(monkeypatch):
     assert shelf_choices[0] == f"{long_name} · PLA+ · #7 · 400 g left"  # registered whole, not [:80]
     assert bound == [(2, 7)]
     assert "not clear" not in result
+
+
+# ---------------------------------------------------------------- reported swaps (print #137)
+
+@pytest.mark.parametrize("text,expected", [
+    ("I swapped spools in slot 3 for coffee I had already", (3, "coffee")),
+    ("I swapped slot 3 for Coffee", (3, "Coffee")),
+    ("i swapped slot 2 for a new spool", (2, None)),
+    ("I swapped slot 9 for Coffee", None),
+    ("I swapped slot 3 for Coffee because it jammed", None),
+    ("did I swap slot 3 for Coffee?", None),
+])
+def test_swap_request_table(text, expected):
+    from print_handy.bot.handlers.spool import _spool_swap_request
+    assert _spool_swap_request(text) == expected
+
+
+def test_swap_phrase_opens_the_guided_confirmation_and_lists_matches_first():
+    bind = mock.Mock(side_effect=_fake_bind)
+    answers = ["1", "Change slot 3"]
+    out, adapter, fake = _run("I swapped slot 3 for matte white", answers, bind=bind)
+    assert out["reason"] == "spool NL intent handled"
+    # No slot question: the slot came from the message. The picker leads with the match.
+    first = _questions(adapter)[0]
+    assert first.startswith("Nothing is recorded as changed yet")
+    assert 'matching "matte white"' in first
+    assert "1 (listed first" in first
+    assert first.index("#7") < first.index("#9")
+    # Nothing binds until the explicit confirmation answer.
+    bind.assert_called_once()
+    assert bind.call_args.args[:2] == (3, 7)
+
+
+def test_swap_phrase_without_confirmation_binds_nothing():
+    bind = mock.Mock(side_effect=_fake_bind)
+    out, adapter, fake = _run("I swapped spools in slot 3 for coffee I had already",
+                              ["Cancel"], bind=bind)
+    bind.assert_not_called()
+    assert fake.writes == []
