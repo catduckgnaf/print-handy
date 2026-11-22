@@ -174,6 +174,28 @@ def test_failed_relink_with_failed_reload_still_marks_the_slot_rebound(tmp_path)
     assert "Could not finish linking spool #22 to slot 3" in rec.said[0]
 
 
+def test_successful_relink_then_failed_reload_continues_with_last_safe_state(tmp_path):
+    rec = Recorder(0)
+    rebound = []
+    before = {"filament_slots": {"3": dict(PLA_RECORD)}}
+    state = {"filament_slots": {"3": dict(PLA_RECORD)}}
+    bind = mock.Mock(return_value={"slot": 3, "spool_id": 22, "prior_spool_id": 21, "record": {}, "screen": "pushed",
+                                   "usage": "now charged to #22", "prior_disposition": "shelf"})
+    with mock.patch.object(sv, "read_doubts", return_value=[_doubt()]), \
+            mock.patch("print_handy.runtime.spool_sync.bind_slot", bind), \
+            mock.patch("print_handy.runtime.spool_sync.moonraker_for", return_value="mr"), \
+            mock.patch("print_handy.runtime.spool_sync.bind_text", return_value="Slot 3 -> spool #22."), \
+            mock.patch("print_handy.core.printer_state.load", side_effect=OSError("state unreadable")), \
+            mock.patch.object(sv, "_path", return_value=tmp_path / "slot-verify.json"):
+        ok = asyncio.run(sv.verify_slots(state, "flashforge-ad5x", rec.ask, rec.send, rebound=rebound))
+    assert ok is True  # advisory intake goes on
+    bind.assert_called_once()  # no second bind and no rollback
+    assert state == before  # last safe in-memory record, not a guessed payload
+    assert rebound == [3]
+    assert rec.said[0] == "Slot 3 -> spool #22."
+    assert "could not reload its record" in rec.said[1] and "may be out of date" in rec.said[1]
+
+
 def test_skip_and_an_unanswered_question_never_hold_intake(tmp_path):
     rec = Recorder(lambda labels: labels.index("Skip, print as is"))
     ok, bind, _ = _run([_doubt()], rec, ledger=tmp_path / "slot-verify.json")
