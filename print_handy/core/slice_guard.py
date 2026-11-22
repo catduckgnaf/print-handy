@@ -511,6 +511,9 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0, e
 _ODD_BREAKS = re.compile(r"\r(?!\n)|[\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
 
 
+_TOOL_AFTER_NEWLINE = re.compile(r"\n[^\S\n]*[Tt](\d+)[^\S\n]*(?:;[^\n]*)?(?=\n|\Z)")
+
+
 @dataclass(frozen=True)
 class GcodeScan:
     """One streaming traversal of finalized G-code text (#1779): everything the post-slice guard and
@@ -536,17 +539,24 @@ def scan_gcode(text):
     if _ODD_BREAKS.search(text):
         comments = [line for line in text.splitlines() if line.startswith(';') and '=' in line]
         return GcodeScan(text, tuple(comments), frozenset(tool_numbers(text)), _protected_from(comments))
-    comments, tools = [], set()
-    tool_match = TOOL_LINE.fullmatch
-    for line in text.split('\n'):
-        head = line[:1]
-        if head == ';':
-            if '=' in line:
+    # Comment settings are the lines starting ';' that hold '=', and few lines hold '=' at all, so find
+    # each '=' (a C-speed search) and take its line, instead of visiting every line of a 100 MB file.
+    comments, last_end, pos = [], -1, text.find('=')
+    while pos >= 0:
+        if pos >= last_end:
+            start = text.rfind('\n', 0, pos) + 1
+            end = text.find('\n', pos)
+            end = len(text) if end < 0 else end
+            if text.startswith(';', start):
+                line = text[start:end]
                 comments.append(line[:-1] if line.endswith('\r') else line)
-        elif head and (head in 'Tt' or head.isspace()):
-            m = tool_match(line)
-            if m:
-                tools.add(int(m.group(1)))
+            last_end = end
+        pos = text.find('=', max(pos + 1, last_end))
+    # A tool line is a whole line of T<n> with an optional comment: one anchored scan from each newline.
+    tools = {int(m.group(1)) for m in _TOOL_AFTER_NEWLINE.finditer(text)}
+    if TOOL_LINE.fullmatch(text[:text.find('\n')] if '\n' in text else text) and text[:1] not in '\n':
+        first = TOOL_LINE.fullmatch(text[:text.find('\n')] if '\n' in text else text)
+        tools.add(int(first.group(1)))
     return GcodeScan(text, tuple(comments), frozenset(tools), _protected_from(comments))
 
 
