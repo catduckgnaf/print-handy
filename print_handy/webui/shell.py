@@ -391,7 +391,7 @@ img { max-width: 100%; }
     display: inline-flex; align-items: center; gap: 0.5rem;
     min-height: 2.75rem; min-width: 2.75rem; box-sizing: border-box;
   }
-  nav.switcher a { display: inline-flex; align-items: center; min-height: 2.75rem; box-sizing: border-box; }
+  .spools-page > nav[aria-label="Printer"] a { display: inline-flex; align-items: center; min-height: 2.75rem; box-sizing: border-box; }
   /* Keep the brand and quick destinations readable above full-width tabs. */
   header.site .wrap { padding-right: 1rem; gap: 0.5rem; }
   .header-quicklinks { margin-left: auto; }
