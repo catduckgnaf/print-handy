@@ -712,7 +712,7 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
 # file-only, as do the integer keys.
 ENTRY_EDITABLE_KEYS = ("name", "model", "chat_id", "moonraker_url",
                        "octoprint_url", "lan_host", "lan_serial",
-                       "link_host", "host")
+                       "link_host", "host", "build_plate")
 
 
 @dataclass(frozen=True)

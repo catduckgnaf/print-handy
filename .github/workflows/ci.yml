@@ -490,7 +490,8 @@ jobs:
           PRINT_HANDY_MESH_REQUIRE_NATIVE: "1"
         # test_native_mesh.py is the mesh kernel's differential (#1790); the
         # mesh_fast, topology and layout suites then run their own
-        # old-loop comparisons with the kernel serving them.
+        # old-loop comparisons with the kernel serving them, and the layer
+        # scans (#1777) compare native and Python welding.
         # test_numpy_mesh.py (the no-wheel twin, also in the normal lane)
         # pins numpy against the kernel here, and test_mesh_sidecar.py the
         # combine step's recorded tables with the kernel writing them.
@@ -502,6 +503,7 @@ jobs:
           tests/core/test_mesh_fast.py tests/core/test_mesh_fast_adversarial.py
           tests/core/test_large_stl_fast_paths_1790.py tests/core/test_compact_topology.py
           tests/core/test_compact_stl.py tests/core/test_geometry_layout.py tests/pipeline/test_model_parts.py
+          tests/core/test_layer_scan.py
 
   discord-timing:
     needs: scope

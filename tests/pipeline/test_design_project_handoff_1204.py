@@ -127,7 +127,7 @@ def test_a_multi_part_design_becomes_one_project_v1_project(env, tmp_path, ask_w
     # start questions, the start question was answered Cancel, and nothing
     # was started.
     assert adapter.questions[-1]["question"].startswith("Ready to slice")
-    assert adapter.questions[-1]["choices"][-2:] == ["Export editable 3MF", "Cancel print request"]
+    assert adapter.questions[-1]["choices"][-2:] == ["Scale the model", "Cancel print request"]
     assert not env.starts
 
 

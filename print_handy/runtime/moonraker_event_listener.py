@@ -914,10 +914,44 @@ def _span_hms(seconds):
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {secs:02d}s"
 
 
+def jam_slot_attribution(job_slot, channel):
+    """(slot, conflict) for a jam post: name a slot only when the evidence agrees.
+
+    ``job_slot`` is what Print Handy requested for this file (its launch
+    record, else the hardware map's active slot). ``channel`` is zmod_ifs
+    Chan, the printer's last reported channel, which can still describe the
+    previous print's feed. Neither proves which feeder physically jammed:
+    the job request does not prove a feed, and Chan does not prove a feed.
+    Agreement, or a single known source, names that slot. Two different
+    values name no slot and return both as ``conflict`` so the post says so.
+    """
+    job = job_slot if job_slot in (1, 2, 3, 4) else None
+    chan = channel if channel in (1, 2, 3, 4) else None
+    if job is not None and chan is not None and job != chan:
+        return None, {"job": job, "channel": chan}
+    return (job if job is not None else chan), None
+
+
 def _jam_where(facts):
     """'slot 3 (IFS channel 3)', or the plain fallback when no slot is known."""
-    slot = (facts or {}).get("slot")
-    return filament_color.slot_display(slot) if slot in (1, 2, 3, 4) else "the active slot"
+    facts = facts or {}
+    slot = facts.get("slot")
+    if slot in (1, 2, 3, 4):
+        return filament_color.slot_display(slot)
+    conflict = facts.get("slot_conflict")
+    if conflict:
+        return ("an unverified slot (the job requested "
+                f"{filament_color.slot_display(conflict['job'])}, but the printer's channel "
+                f"report says {filament_color.slot_display(conflict['channel'])}; "
+                "neither is proof of which feeder jammed)")
+    launched = [s for s in (facts.get("slot_candidates") or ()) if s in (1, 2, 3, 4)]
+    if len(launched) > 1:
+        # Several launch slots and no single attribution: say so instead of
+        # implying a known location with "the active slot".
+        names = ", ".join(filament_color.slot_display(s) for s in launched[:-1])
+        return (f"an unverified slot (this print uses {names} and "
+                f"{filament_color.slot_display(launched[-1])}; nothing shows which one jammed)")
+    return "the active slot"
 
 
 def jam_message(filename, facts):
@@ -957,8 +991,12 @@ def jam_facts_line(facts):
     facts = facts or {}
     shown = {key: facts.get(key) for key in ("slot", "layer", "duration_s", "next_cmd_delay",
                                              "detection_length", "head_sensor")}
-    return " ".join(f"{key}={'not reported' if value is None else value}"
+    line = " ".join(f"{key}={'not reported' if value is None else value}"
                     for key, value in shown.items())
+    conflict = facts.get("slot_conflict")
+    if conflict:
+        line += f" slot_conflict=job:{conflict['job']}/channel:{conflict['channel']}"
+    return line
 
 
 def persist_runout_pause(filename, slot, prior_spool_id, path=None):
@@ -4330,9 +4368,21 @@ class Listener:
     def _jam_facts(self):
         """Measured facts for the jam post (#1020 E2). Read-only, best-effort:
         any source that fails to read contributes 'not reported'."""
+        # The channel can be stale (the previous print's), and the job request
+        # proves no feed: a conflict names no slot instead of blaming one.
+        mapped = sorted(launch_mapped_slots(self.filename))
+        if len(mapped) > 1:
+            # Several launch slots: the job names no single slot, and Chan alone
+            # may describe the previous print even when it matches one of them,
+            # so no slot is named.
+            slot, conflict = None, None
+        else:
+            job_slot = mapped[0] if mapped else recovery_slot(self.filename)[0]
+            slot, conflict = jam_slot_attribution(job_slot, self.ifs_channel)
         facts = {"duration_s": self.last_stats.get("print_duration"),
                  "layer": _visual_layer(self.last_stats),
-                 "slot": self.ifs_channel or recovery_slot(self.filename)[0],
+                 "slot": slot, "slot_conflict": conflict,
+                 "slot_candidates": mapped if len(mapped) > 1 else None,
                  "next_cmd_delay": None, "detection_length": None,
                  "head_sensor": None}
         try:

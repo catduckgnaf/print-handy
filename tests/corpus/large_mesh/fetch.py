@@ -9,7 +9,9 @@ getDownloadLink mutation production intake uses, no token) into
     <root>/<case>/<file name>
 
 and refuses a file whose byte size or SHA-256 differs from the manifest.
-An already fetched, matching file is kept.
+An already fetched, matching file is kept. A case with ``site = "local"``
+has no public source (for example an owner's upload of unknown license):
+its files are placed in the root by hand, and the fetch skips them.
 
 Usage:
     python -m tests.corpus.large_mesh.fetch [--root DIR] [--only case,...]
@@ -39,6 +41,12 @@ def cases():
     return found
 
 
+def local_only(case):
+    """True for a case with no public source (``site = "local"``): its files are
+    placed in the root by hand and it is skipped, never failed, when absent."""
+    return case.get('site') == 'local'
+
+
 def fetch_case(name, case, root):
     from tests.corpus import fetch_complex_corpus as fetcher
     folder = Path(root) / name
@@ -47,6 +55,9 @@ def fetch_case(name, case, root):
         dest = folder / row['name']
         if dest.is_file() and dest.stat().st_size == row['bytes'] and fetcher.sha256(dest) == row['sha256']:
             print(f'  ok (already fetched) {name}/{row["name"]}')
+            continue
+        if local_only(case):
+            print(f'  skipped {name}/{row["name"]}: no public source; place it in {folder} by hand')
             continue
         if case['site'] != 'printables':
             raise RuntimeError(f'{name}: no fetch route for site {case["site"]!r}')

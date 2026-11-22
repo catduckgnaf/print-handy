@@ -210,11 +210,16 @@ unless you remap it there. To reuse the chosen slot, reprint from Print Handy.
 - Load and unload through the IFS normally; Print Handy follows slot
   presence from `zmod_color`.
 - When the printer screen (HelixScreen) and Print Handy disagree about a
-  slot, Print Handy asks before it offers colors or slices anything: for
-  example, the screen says slot 3 holds PETG while Print Handy still has a
-  PLA+ spool there, or the screen names a different spool. The buttons
+  slot the print uses, Print Handy asks once the colors are chosen, before
+  it slices: for example, the screen says slot 3 holds PETG while Print
+  Handy still has a PLA+ spool there, or the screen names a different spool.
+  A slot the print does not use is never asked about. The question is
+  advice, not a gate: it waits a short while, and an unanswered question,
+  **Skip, print as is**, or a failed relink warns and the print goes on with
+  Print Handy's record. Nothing is rebound without an answer. The buttons
   offer the spool the screen names, shelf spools of the screen's material,
-  **Keep** for Print Handy's record, and **Cancel**. Picking a spool links
+  **Keep** for Print Handy's record, **Skip, print as is**, and **Cancel**
+  (Cancel ends the job). Picking a spool links
   it to the slot the same way `/spool change` does. **Keep** is remembered
   for that exact disagreement, so it is not asked again until the screen or
   the record changes. If the screen cannot be read, nothing is asked.

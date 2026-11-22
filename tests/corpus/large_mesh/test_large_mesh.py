@@ -34,6 +34,10 @@ from print_handy.jobs import prompts
 from . import fetch
 
 CASES = fetch.cases()
+# Intake cases time the unit question, load_parts and combine; repair cases
+# (``kind = "repair"``, #1777) pin the print repair skill's scans instead
+# (test_repair_fixture.py).
+INTAKE = {name: case for name, case in CASES.items() if case.get('kind', 'intake') == 'intake'}
 
 
 def _case_files(name):
@@ -45,7 +49,10 @@ def _case_files(name):
         if not path.is_file():
             message = (f'large-mesh case {name!r} is not fetched ({path} is missing); '
                        'run: python -m tests.corpus.large_mesh.fetch')
-            if os.environ.get('PRINT_HANDY_LARGE_MESH_REQUIRE'):
+            if fetch.local_only(case):
+                message = (f'large-mesh case {name!r} has no public source and is not in place '
+                           f'({path} is missing); put its files there by hand')
+            elif os.environ.get('PRINT_HANDY_LARGE_MESH_REQUIRE'):
                 pytest.fail(message)
             pytest.skip(message)
         if path.stat().st_size != row['bytes']:
@@ -77,11 +84,15 @@ def test_manifests_are_complete():
         assert case['file'], name
         for row in case['file']:
             assert len(row['sha256']) == 64 and row['bytes'] > 0, (name, row['name'])
-        assert len(case['expect']['part']) == len(case['file']), name
+        if name in INTAKE:
+            assert len(case['expect']['part']) == len(case['file']), name
+        else:
+            assert case['kind'] == 'repair', name
+            assert {row.get('role') for row in case['file']} == {'original', 'fixed'}, name
 
 
 @pytest.mark.timeout(3600)
-@pytest.mark.parametrize('name', sorted(CASES))
+@pytest.mark.parametrize('name', sorted(INTAKE))
 def test_large_mesh_intake(name, tmp_path, monkeypatch):
     case, paths = _case_files(name)
     impl = os.environ.get('PRINT_HANDY_BOUNDS_IMPL', 'auto').strip().lower()

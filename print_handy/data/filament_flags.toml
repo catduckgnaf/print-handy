@@ -1,0 +1,86 @@
+# Filament sub-type flags and how each source's vocabulary maps onto them.
+# Design record: docs/history/FILAMENT-TYPES-DESIGN.md (#1788 phase B, sections 1, 2 and 4).
+# Code: print_handy/core/filament_type.py. This file is data only: add a word here, not a branch there.
+#
+# A word that is not listed is dropped, never guessed. Words are matched whole, case-insensitively,
+# after the label is split on spaces, "-", "_" and "/"; "+" is handled on its own (PLA+ -> plus).
+
+# kind "grade"  : a speed or toughness grade, shown as a short code after the family.
+# kind "finish" : a surface finish; at most one applies, shown as a word after the color.
+# kind "effect" : a fill or effect; kept as a flag, not shown in the label.
+[flags.high_speed]
+kind = "grade"
+short = "HS"
+# HS and HF both land here: no standard separates high-speed from high-flow (design, "Not decided").
+words = ["HS", "HF", "HIGHSPEED", "HIGHFLOW"]
+phrases = [["HIGH", "SPEED"], ["HIGH", "FLOW"]]
+# Words that may also be read from a free-text spool NAME (not only from material fields).
+name_words = true
+
+[flags.plus]
+kind = "grade"
+short = "+"
+words = ["PLUS", "PRO"]
+name_words = true
+
+[flags.matte]
+kind = "finish"
+word = "Matte"
+words = ["MATTE"]
+name_words = true
+
+[flags.silk]
+kind = "finish"
+word = "Silk"
+words = ["SILK"]
+name_words = true
+
+[flags.translucent]
+kind = "finish"
+word = "Translucent"
+words = ["TRANSLUCENT"]
+name_words = false
+
+[flags.glow_in_the_dark]
+kind = "effect"
+words = ["GLOW", "LUMINOUS"]
+phrases = [["GLOW", "IN", "THE", "DARK"]]
+name_words = false
+
+[flags.contains_wood]
+kind = "effect"
+words = ["WOOD"]
+name_words = false
+
+[flags.imitates_marble]
+kind = "effect"
+words = ["MARBLE"]
+name_words = false
+
+# Spoolman filament fields (the extra fields SpoolmanDB fills, or the same keys on an imported record).
+# `finish` and `pattern` values are lower-cased and matched exactly.
+[spoolman.finish]
+matte = "matte"
+silk = "silk"
+translucent = "translucent"
+
+[spoolman.pattern]
+marble = "imitates_marble"
+
+[spoolman.fill]
+wood = "contains_wood"
+
+# Boolean extra fields: field name -> flag.
+[spoolman.boolean]
+translucent = "translucent"
+glow = "glow_in_the_dark"
+
+# OpenTag3D / Snapmaker `material_mod` values as zmod_nfc reports them (modifiers[]).
+# "Basic" is listed so it is known, and sets nothing.
+[modifiers]
+HF = "high_speed"
+HS = "high_speed"
+Silk = "silk"
+Matte = "matte"
+Pro = "plus"
+Basic = ""

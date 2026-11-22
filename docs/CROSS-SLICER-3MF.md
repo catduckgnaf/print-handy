@@ -43,8 +43,9 @@ are never carried across, from any producer.
 
 ## Export editable 3MF
 
-The intake menu (chat) and the Web UI job page offer **Export editable
-3MF** beside Slice and Download. The export strips stale slice
+The Web UI job page offers **Export editable 3MF**. The chat Ready menu
+does not: it offers Slice and Download for sliced toolpaths, and the
+editable project is a different artifact that lives on the job page. The export strips stale slice
 artifacts (old plate G-code, slice records and checksums), preserves
 the source SHA-256 in its provenance record, and writes atomically.
 It never starts a print, sends a machine command or touches spool

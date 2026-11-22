@@ -320,7 +320,9 @@ def slot_agreement_warning(*, job_slot=None, ffm_channel=None, ifs_chan=None,
     subject = f" for {filename}" if filename else ""
     return (f"**Slot check warning{subject}:** the slot sources disagree — {detail}. "
             "The filament may not be where the job expects it. Check the loaded slot "
-            "at the printer before trusting slot-based alerts for this print.")
+            "at the printer before trusting slot-based alerts for this print. "
+            "The printer's channel reports can still describe the previous print, so "
+            "a different channel is not proof that another feeder will feed.")
 
 
 def helix_seated_slot(lanes: dict[int, dict[str, Any]] | None,
