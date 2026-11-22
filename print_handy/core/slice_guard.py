@@ -511,7 +511,19 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0, e
 _ODD_BREAKS = re.compile(r"\r(?!\n)|[\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
 
 
-_TOOL_AFTER_NEWLINE = re.compile(r"\n[^\S\n]*[Tt](\d+)[^\S\n]*(?:;[^\n]*)?(?=\n|\Z)")
+def _has_odd_breaks(text):
+    """True when splitlines() would split text somewhere split('\\n') does not (C-speed membership
+    tests first; the regex only runs when a CR or another separator is present at all)."""
+    if any(ch in text for ch in ('\x0b', '\x0c', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')):
+        return True
+    # A CR starts a line break of its own only when no LF follows; ZMod's metadata lines end in CRLF,
+    # so walk the few CRs instead of running a regex over the whole file.
+    at = text.find('\r')
+    while at >= 0:
+        if text[at + 1:at + 2] != '\n':
+            return True
+        at = text.find('\r', at + 1)
+    return False
 
 
 @dataclass(frozen=True)
@@ -536,7 +548,7 @@ def scan_gcode(text):
     Equal to comment filtering over splitlines(), tool_numbers(text) and _effective_config(text).
     A text with a line break str.split('\\n') does not share with splitlines() takes the separate
     passes, so the result never differs from them."""
-    if _ODD_BREAKS.search(text):
+    if _has_odd_breaks(text):
         comments = [line for line in text.splitlines() if line.startswith(';') and '=' in line]
         return GcodeScan(text, tuple(comments), frozenset(tool_numbers(text)), _protected_from(comments))
     # Comment settings are the lines starting ';' that hold '=', and few lines hold '=' at all, so find
@@ -552,11 +564,23 @@ def scan_gcode(text):
                 comments.append(line[:-1] if line.endswith('\r') else line)
             last_end = end
         pos = text.find('=', max(pos + 1, last_end))
-    # A tool line is a whole line of T<n> with an optional comment: one anchored scan from each newline.
-    tools = {int(m.group(1)) for m in _TOOL_AFTER_NEWLINE.finditer(text)}
-    if TOOL_LINE.fullmatch(text[:text.find('\n')] if '\n' in text else text) and text[:1] not in '\n':
+    # A tool line starts with optional whitespace, then T. For ASCII text only the line starts that
+    # hold a T or a blank can qualify, so look just there; other text takes the full per-line pass.
+    if text.isascii():
+        tools = set()
+        for prefix in ('\nT', '\nt', '\n ', '\n\t', '\n\x1f'):
+            at = text.find(prefix)
+            while at >= 0:
+                end = text.find('\n', at + 1)
+                m = TOOL_LINE.fullmatch(text[at + 1:len(text) if end < 0 else end])
+                if m:
+                    tools.add(int(m.group(1)))
+                at = text.find(prefix, at + 1)
         first = TOOL_LINE.fullmatch(text[:text.find('\n')] if '\n' in text else text)
-        tools.add(int(first.group(1)))
+        if first:
+            tools.add(int(first.group(1)))
+    else:
+        tools = tool_numbers(text)
     return GcodeScan(text, tuple(comments), frozenset(tools), _protected_from(comments))
 
 
