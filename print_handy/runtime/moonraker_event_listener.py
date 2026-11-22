@@ -944,6 +944,13 @@ def _jam_where(facts):
                 f"{filament_color.slot_display(conflict['job'])}, but the printer's channel "
                 f"report says {filament_color.slot_display(conflict['channel'])}; "
                 "neither is proof of which feeder jammed)")
+    launched = [s for s in (facts.get("slot_candidates") or ()) if s in (1, 2, 3, 4)]
+    if len(launched) > 1:
+        # Several launch slots and no single attribution: say so instead of
+        # implying a known location with "the active slot".
+        names = ", ".join(filament_color.slot_display(s) for s in launched[:-1])
+        return (f"an unverified slot (this print uses {names} and "
+                f"{filament_color.slot_display(launched[-1])}; nothing shows which one jammed)")
     return "the active slot"
 
 
@@ -4375,6 +4382,7 @@ class Listener:
         facts = {"duration_s": self.last_stats.get("print_duration"),
                  "layer": _visual_layer(self.last_stats),
                  "slot": slot, "slot_conflict": conflict,
+                 "slot_candidates": mapped if len(mapped) > 1 else None,
                  "next_cmd_delay": None, "detection_length": None,
                  "head_sensor": None}
         try:

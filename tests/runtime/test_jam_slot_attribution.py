@@ -106,10 +106,6 @@ class JamAttributionReplay(ReplayCase):
         self.assertIn("an unverified slot", mel.jam_repause_message("job.gcode", facts, 1, 30))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AmbiguousLaunchReplay(ReplayCase):
     """Several launch slots: the hardware active slot is not the job's request."""
 
@@ -128,3 +124,22 @@ class AmbiguousLaunchReplay(ReplayCase):
                 facts = self.listener(chan)._jam_facts()
                 self.assertIsNone(facts["slot"])
                 self.assertIsNone(facts["slot_conflict"])
+
+    def test_ambiguous_launch_message_names_no_slot(self):
+        # The rendered posts must not imply a known jam location.
+        with mock.patch.object(mel, "launch_mapped_slots", return_value={1, 4}):
+            facts = self.listener(4)._jam_facts()
+        posts = (mel.jam_message("job.gcode", facts),
+                 mel.jam_repause_message("job.gcode", facts, 2, 15))
+        for text in posts:
+            first = text.splitlines()[0]
+            self.assertNotIn("the active slot", first)
+            self.assertIn("an unverified slot", first)
+            self.assertIn("slot 1 (IFS channel 1) and slot 4 (IFS channel 4)", first)
+            self.assertIn("nothing shows which one jammed", first)
+            self.assertNotIn("jam** on slot", first)
+        self.assertIn("Nothing resumes on its own", posts[0])
+
+
+if __name__ == "__main__":
+    unittest.main()
