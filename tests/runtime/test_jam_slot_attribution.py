@@ -108,3 +108,20 @@ class JamAttributionReplay(ReplayCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AmbiguousLaunchReplay(ReplayCase):
+    """Several launch slots: the hardware active slot is not the job's request."""
+
+    def test_ambiguous_launch_ignores_hardware_active_slot(self):
+        with mock.patch.object(mel, "launch_mapped_slots", return_value={1, 4}):
+            # Hardware active_slot is 3 and Chan is 3: agreement with a value the
+            # job never requested must not name a slot.
+            facts = self.listener(3)._jam_facts()
+            self.assertIsNone(facts["slot"])
+            self.assertIsNone(facts["slot_conflict"])
+
+    def test_ambiguous_launch_names_chan_only_when_launched(self):
+        with mock.patch.object(mel, "launch_mapped_slots", return_value={1, 4}):
+            self.assertEqual(self.listener(4)._jam_facts()["slot"], 4)
+            self.assertIsNone(self.listener(2)._jam_facts()["slot"])

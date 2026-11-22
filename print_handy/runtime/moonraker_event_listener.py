@@ -4364,8 +4364,15 @@ class Listener:
         # The channel can be stale (the previous print's), and the job request
         # proves no feed: a conflict names no slot instead of blaming one.
         mapped = sorted(launch_mapped_slots(self.filename))
-        job_slot = mapped[0] if len(mapped) == 1 else recovery_slot(self.filename)[0]
-        slot, conflict = jam_slot_attribution(job_slot, self.ifs_channel)
+        if len(mapped) > 1:
+            # Several launch slots: the hardware active slot is printer-wide, not
+            # this job's request, so it is not used. Chan names a slot only when
+            # it is one of the launched slots; otherwise no slot is named.
+            chan = self.ifs_channel
+            slot, conflict = (chan if chan in mapped else None), None
+        else:
+            job_slot = mapped[0] if mapped else recovery_slot(self.filename)[0]
+            slot, conflict = jam_slot_attribution(job_slot, self.ifs_channel)
         facts = {"duration_s": self.last_stats.get("print_duration"),
                  "layer": _visual_layer(self.last_stats),
                  "slot": slot, "slot_conflict": conflict,
