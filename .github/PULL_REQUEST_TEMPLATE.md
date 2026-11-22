@@ -51,6 +51,10 @@ Regression test detail:
 
 <!-- Note known risks, limitations, rollback or compatibility considerations, or write \"None known.\" Remove irrelevant prompts. -->
 
+### Web UI screenshot evidence
+
+The PR description must include links to the 375 px and 1440 px full-page screenshots (from CI artifacts or attached captures) for each touched seeded Web UI page. If the issue names a device-specific defect, attach a real-device screenshot before closing that issue; browser emulation does not satisfy the device evidence rule.
+
 ## Related issues
 
 <!-- Link related issues. Use \"Fixes #N\" only when merging this PR finishes the issue: every checklist item in the issue body is ticked, with where it was done, or marked "moved to #N". contribution-policy fails while a closed issue has an open item; tick the items, then edit this PR or re-run the check. A PR that does part of an issue says Related. -->
