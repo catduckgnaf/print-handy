@@ -438,7 +438,7 @@ def _openssl_sign(signing_input, private_key):
     fd, path = tempfile.mkstemp(prefix="upstream-bot-key-")
     try:
         os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(private_key)
         result = subprocess.run(
             ["openssl", "dgst", "-sha256", "-sign", path],
@@ -976,7 +976,7 @@ def _asset_sha256(api, release, asset_name):
 
 
 def plan_go2rtc(root, api, now):
-    text = (root / GO2RTC_FILE).read_text()
+    text = (root / GO2RTC_FILE).read_text(encoding="utf-8")
     pin = parse_go2rtc(text)
     release = api.get_latest_release(GO2RTC_REPO)
     if release is None:
@@ -1017,7 +1017,7 @@ def plan_go2rtc(root, api, now):
     # name the version. A bump moves every recorded surface in the
     # same commit, exactly like a hand-run bump - a stale guard test
     # would fail the bump PR's own CI, and stale docs would drift.
-    guard = (root / GO2RTC_GUARD_TEST).read_text()
+    guard = (root / GO2RTC_GUARD_TEST).read_text(encoding="utf-8")
     guard = replace_exact(guard, f"version={pin.version}", f"version={release.version}",
                           "go2rtc guard test version")
     guard = replace_exact(guard, f'AMD64_SHA = "{pin.sha256_amd64}"', f'AMD64_SHA = "{sha_amd64}"',
@@ -1025,18 +1025,18 @@ def plan_go2rtc(root, api, now):
     guard = replace_exact(guard, f'ARM64_SHA = "{pin.sha256_arm64}"', f'ARM64_SHA = "{sha_arm64}"',
                           "go2rtc guard test arm64 digest")
     components = replace_exact(
-        (root / DOC_COMPONENTS).read_text(),
+        (root / DOC_COMPONENTS).read_text(encoding="utf-8"),
         f"`{pin.version}`, revision `{pin.revision}`",
         f"`{release.version}`, revision `{revision}`",
         "docs/COMPONENTS.md go2rtc row",
     )
     docker_doc = replace_exact(
-        (root / DOC_DOCKER).read_text(),
+        (root / DOC_DOCKER).read_text(encoding="utf-8"),
         f"go2rtc v{pin.version}", f"go2rtc v{release.version}",
         "docs/DOCKER.md go2rtc version",
     )
     settings_doc = replace_exact(
-        (root / DOC_SETTINGS).read_text(),
+        (root / DOC_SETTINGS).read_text(encoding="utf-8"),
         f"(v{pin.version},", f"(v{release.version},",
         "docs/SETTINGS.md go2rtc version",
     )
@@ -1064,14 +1064,14 @@ def _spoolman_recorded_version(root, pin_ref):
     build sentence; if the recorded surfaces disagree with each
     other or with the Dockerfile, the bump stops for a human.
     """
-    settings = (root / DOC_SETTINGS).read_text()
+    settings = (root / DOC_SETTINGS).read_text(encoding="utf-8")
     match = _SPOOLMAN_SETTINGS_RE.search(settings)
     if not match:
         raise BumpError("docs/SETTINGS.md has no 'Pinned Spoolman vX.Y.Z source commit' record")
     version = match.group(1)
     if pin_ref not in settings:
         raise BumpError("docs/SETTINGS.md does not record the Dockerfile's SPOOLMAN_REF")
-    docker_doc = (root / DOC_DOCKER).read_text()
+    docker_doc = (root / DOC_DOCKER).read_text(encoding="utf-8")
     sentence = f"Spoolman {version} is built from exact upstream revision `{pin_ref}`"
     if sentence not in docker_doc:
         raise BumpError("docs/DOCKER.md's Spoolman build sentence does not match the SETTINGS.md record and the Dockerfile pin")
@@ -1100,7 +1100,7 @@ def _spoolman_harness_edits(root, api, release, old_version):
     for a human instead of guessing which surface is right.
     """
     zip_sha, zip_prov = _asset_sha256(api, release, SPOOLMAN_ZIP_ASSET)
-    ci_text = (root / SPOOLMAN_CI_FILE).read_text()
+    ci_text = (root / SPOOLMAN_CI_FILE).read_text(encoding="utf-8")
     ci_match = _SPOOLMAN_ZIP_URL_RE.search(ci_text)
     if not ci_match:
         raise BumpError("ci.yml's spoolman job has no release-zip download to move")
@@ -1118,7 +1118,7 @@ def _spoolman_harness_edits(root, api, release, old_version):
     ci_text = replace_exact(
         ci_text, f"echo '{ci_sha_match.group(1)}  '\"$archive\"",
         f"echo '{zip_sha}  '\"$archive\"", "ci.yml spoolman harness zip sha256")
-    native = (root / SPOOLMAN_NATIVE_SCRIPT).read_text()
+    native = (root / SPOOLMAN_NATIVE_SCRIPT).read_text(encoding="utf-8")
     native_match = _SPOOLMAN_ZIP_URL_RE.search(native)
     if not native_match:
         raise BumpError("scripts/run_spoolman_native.sh has no release-zip download to move")
@@ -1155,7 +1155,7 @@ def _spoolman_harness_edits(root, api, release, old_version):
 
 
 def plan_spoolman(root, api, now):
-    text = (root / SPOOLMAN_FILE).read_text()
+    text = (root / SPOOLMAN_FILE).read_text(encoding="utf-8")
     pin_ref = parse_spoolman(text)
     release = api.get_latest_release(SPOOLMAN_REPO)
     if release is None:
@@ -1183,13 +1183,13 @@ def plan_spoolman(root, api, now):
     # docs/DOCKER.md's build sentence; both move in the same commit.
     # (Historical records - acceptance reports, migration notes for
     # old databases - name old versions on purpose and stay.)
-    settings = (root / DOC_SETTINGS).read_text()
+    settings = (root / DOC_SETTINGS).read_text(encoding="utf-8")
     settings = replace_exact(settings, f"`{pin_ref}`", f"`{commit}`",
                              "docs/SETTINGS.md SPOOLMAN_REF row")
     settings = replace_exact(settings, f"Pinned Spoolman v{old_version} source commit",
                              f"Pinned Spoolman v{release.version} source commit",
                              "docs/SETTINGS.md Spoolman version")
-    docker_doc = (root / DOC_DOCKER).read_text()
+    docker_doc = (root / DOC_DOCKER).read_text(encoding="utf-8")
     docker_doc = replace_exact(
         docker_doc,
         f"Spoolman {old_version} is built from exact upstream revision `{pin_ref}`",
@@ -1229,22 +1229,22 @@ def _bambu_recorded(root, pin_ref):
     build pin). Any disagreement is drift, and drift is a human's
     problem.
     """
-    settings = (root / DOC_SETTINGS).read_text()
+    settings = (root / DOC_SETTINGS).read_text(encoding="utf-8")
     match = _BAMBU_SETTINGS_RE.search(settings)
     if not match:
         raise BumpError("docs/SETTINGS.md has no BAMBU_REF row in the expected shape")
     if match.group(1) != pin_ref:
         raise BumpError("docs/SETTINGS.md records a different BAMBU_REF than the Dockerfile")
     recorded_version = match.group(2)
-    components = (root / DOC_COMPONENTS).read_text()
+    components = (root / DOC_COMPONENTS).read_text(encoding="utf-8")
     if f"commit `{pin_ref[:8]}…`" not in components:
         raise BumpError("docs/COMPONENTS.md does not record the Dockerfile's BAMBU_REF prefix")
     try:
-        table = json.loads((root / HMS_FILE).read_text())
+        table = json.loads((root / HMS_FILE).read_text(encoding="utf-8"))
         hms_commit = table["_provenance"]["bambu_studio_commit"]
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise BumpError(f"cannot read the HMS table's provenance commit: {exc}")
-    connectivity = (root / DOC_BAMBU).read_text()
+    connectivity = (root / DOC_BAMBU).read_text(encoding="utf-8")
     if connectivity.count(hms_commit) != 2:
         raise BumpError(
             "docs/BAMBU-CONNECTIVITY.md does not name the HMS provenance commit "
@@ -1331,11 +1331,11 @@ def regenerate_hms(hms_dir, commit):
             if result.returncode != 0:
                 detail = (result.stderr or result.stdout).strip()
                 raise BumpError(f"scripts/bambu-hms.py {' '.join(extra) or 'generate'} failed: {detail}")
-        return out.read_text()
+        return out.read_text(encoding="utf-8")
 
 
 def plan_bambu(root, api, now, fetcher=None):
-    text = (root / BAMBU_FILE).read_text()
+    text = (root / BAMBU_FILE).read_text(encoding="utf-8")
     pin_ref = parse_bambu(text)
     release = api.get_latest_release(BAMBU_REPO)
     if release is None:
@@ -1361,19 +1361,19 @@ def plan_bambu(root, api, now, fetcher=None):
     # Every text surface is edited (and drift-checked) before the
     # source fetch, so a bump a human must fix never pays for the
     # download first.
-    settings = (root / DOC_SETTINGS).read_text()
+    settings = (root / DOC_SETTINGS).read_text(encoding="utf-8")
     settings = replace_exact(settings, f"`{pin_ref}`", f"`{commit}`",
                              "docs/SETTINGS.md BAMBU_REF row")
     settings = replace_exact(settings, f"Pinned Bambu Studio {recorded_version} source commit",
                              f"Pinned Bambu Studio {release.version} source commit",
                              "docs/SETTINGS.md Bambu version")
     components = replace_exact(
-        (root / DOC_COMPONENTS).read_text(),
+        (root / DOC_COMPONENTS).read_text(encoding="utf-8"),
         f"commit `{pin_ref[:8]}…`", f"commit `{commit[:8]}…`",
         "docs/COMPONENTS.md BambuStudio row",
     )
     connectivity = replace_exact(
-        (root / DOC_BAMBU).read_text(), hms_commit, commit,
+        (root / DOC_BAMBU).read_text(encoding="utf-8"), hms_commit, commit,
         "docs/BAMBU-CONNECTIVITY.md HMS provenance records", count=2,
     )
     fetch = fetcher or fetch_bambu_source
@@ -1654,7 +1654,7 @@ def sweep_orca_identities(root, tree_resources, packed_resources, families=None)
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)
         driver = stage / "orca_identity_sweep.py"
-        driver.write_text(_ORCA_SWEEP_DRIVER)
+        driver.write_text(_ORCA_SWEEP_DRIVER, encoding="utf-8")
         out = stage / "results.json"
         cmd = [
             sys.executable, str(driver), str(root),
@@ -1672,7 +1672,7 @@ def sweep_orca_identities(root, tree_resources, packed_resources, families=None)
         if result.returncode != 0 or not out.is_file():
             detail = (result.stderr or result.stdout).strip()
             raise BumpError(f"the Orca identity sweep driver failed: {detail}")
-        return json.loads(out.read_text())
+        return json.loads(out.read_text(encoding="utf-8"))
 
 
 def verify_orca_identities(results):
@@ -1789,8 +1789,8 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     version swap there could assert something false, so they stay
     a human's sentence pass on the bump PR.
     """
-    edits = [(ORCA_FILE, render_orca((root / ORCA_FILE).read_text(), new_pin))]
-    ci_text = (root / ORCA_CI_FILE).read_text()
+    edits = [(ORCA_FILE, render_orca((root / ORCA_FILE).read_text(encoding="utf-8"), new_pin))]
+    ci_text = (root / ORCA_CI_FILE).read_text(encoding="utf-8")
     ci_text = replace_exact(
         ci_text, f"ORCA_BUNDLE_VERSION: {pin.version}",
         f"ORCA_BUNDLE_VERSION: {new_pin.version}", "ci.yml ORCA_BUNDLE_VERSION",
@@ -1801,11 +1801,11 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     )
     edits.append((ORCA_CI_FILE, ci_text))
     edits.append((ORCA_FLATPAK_SHA_TEST, replace_exact(
-        (root / ORCA_FLATPAK_SHA_TEST).read_text(),
+        (root / ORCA_FLATPAK_SHA_TEST).read_text(encoding="utf-8"),
         f'ORCA_BUNDLE_SHA256 = "{ci_sha}"', f'ORCA_BUNDLE_SHA256 = "{flatpak_sha}"',
         "tests/test_ci_bambu_workflow.py ORCA_BUNDLE_SHA256 constant",
     )))
-    guard = (root / ORCA_GUARD_TEST).read_text()
+    guard = (root / ORCA_GUARD_TEST).read_text(encoding="utf-8")
     for old, new, what in [
         (f"version={pin.version}", f"version={new_pin.version}", "pin line"),
         (f"revision={pin.revision}", f"revision={new_pin.revision}", "pin line"),
@@ -1822,7 +1822,7 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     ]:
         guard = replace_exact(guard, old, new, f"tests/test_docker_release.py {what}")
     edits.append((ORCA_GUARD_TEST, guard))
-    contract = (root / ORCA_CONTRACT_TEST).read_text()
+    contract = (root / ORCA_CONTRACT_TEST).read_text(encoding="utf-8")
     for old, new in [
         (pin.asset_amd64, new_pin.asset_amd64),
         (pin.sha256_amd64, new_pin.sha256_amd64),
@@ -1844,25 +1844,25 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     old_tuple = f'("v{pin.version}", "{pin.revision}")'
     new_tuple = f'("v{new_pin.version}", "{new_pin.revision}")'
     edits.append((BAMBULAB_FACTS, replace_exact(
-        (root / BAMBULAB_FACTS).read_text(), old_tuple, new_tuple,
+        (root / BAMBULAB_FACTS).read_text(encoding="utf-8"), old_tuple, new_tuple,
         "print_handy/printers/bambulab/facts.py ORCA_RELEASE",
     )))
     edits.append((BAMBULAB_P1S_TEST, replace_exact(
-        (root / BAMBULAB_P1S_TEST).read_text(), old_tuple, new_tuple,
+        (root / BAMBULAB_P1S_TEST).read_text(encoding="utf-8"), old_tuple, new_tuple,
         "tests/printers/test_bambulab_p1s.py ORCA_RELEASE assertion",
     )))
     edits.append((DOC_COMPONENTS, replace_exact(
-        (root / DOC_COMPONENTS).read_text(),
+        (root / DOC_COMPONENTS).read_text(encoding="utf-8"),
         f"`{pin.version}`, revision `{pin.revision[:8]}…`",
         f"`{new_pin.version}`, revision `{new_pin.revision[:8]}…`",
         "docs/COMPONENTS.md OrcaSlicer row",
     )))
     edits.append((DOC_DOCKER, replace_exact(
-        (root / DOC_DOCKER).read_text(),
+        (root / DOC_DOCKER).read_text(encoding="utf-8"),
         f"now v{pin.version})", f"now v{new_pin.version})",
         "docs/DOCKER.md shipped OrcaSlicer record",
     )))
-    settings = (root / DOC_SETTINGS).read_text()
+    settings = (root / DOC_SETTINGS).read_text(encoding="utf-8")
     settings = replace_exact(
         settings, f"single build (v{pin.version})", f"single build (v{new_pin.version})",
         "docs/SETTINGS.md PRINT_HANDY_ORCA_CHANNEL row",
@@ -1874,7 +1874,7 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     )
     edits.append((DOC_SETTINGS, settings))
     edits.append((DOC_ENV_EXAMPLE, replace_exact(
-        (root / DOC_ENV_EXAMPLE).read_text(),
+        (root / DOC_ENV_EXAMPLE).read_text(encoding="utf-8"),
         f"bundled OrcaSlicer (v{pin.version}):", f"bundled OrcaSlicer (v{new_pin.version}):",
         ".env.example bundled OrcaSlicer record",
     )))
@@ -1883,12 +1883,12 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     # there is no pin sentence there for a bump to move.
     for relpath in ORCA_VENDOR_DOCS:
         edits.append((relpath, replace_exact(
-            (root / relpath).read_text(),
+            (root / relpath).read_text(encoding="utf-8"),
             f"OrcaSlicer v{pin.version} installation",
             f"OrcaSlicer v{new_pin.version} installation",
             f"{relpath} generator instructions",
         )))
-    a1_doc = (root / DOC_BAMBU_A1).read_text()
+    a1_doc = (root / DOC_BAMBU_A1).read_text(encoding="utf-8")
     a1_doc = replace_exact(
         a1_doc, f"bundled OrcaSlicer v{pin.version}", f"bundled OrcaSlicer v{new_pin.version}",
         "docs/BAMBU-A1-DOCKER.md bundled slicer record",
@@ -1907,7 +1907,7 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
         "docs/BAMBU-A1-DOCKER.md generator output record",
     )
     edits.append((DOC_BAMBU_A1, a1_doc))
-    install_doc = (root / DOC_INSTALL).read_text()
+    install_doc = (root / DOC_INSTALL).read_text(encoding="utf-8")
     install_doc = replace_exact(
         install_doc, f"Install the {pin.version} build that the Docker image ships.",
         f"Install the {new_pin.version} build that the Docker image ships.",
@@ -1951,7 +1951,7 @@ def regenerate_orca_profile_db(root, profiles_source, version, revision, work):
 
 def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
               cli_source_fetcher=None, profile_regenerator=None):
-    text = (root / ORCA_FILE).read_text()
+    text = (root / ORCA_FILE).read_text(encoding="utf-8")
     pin = parse_orca(text)
     target = select_orca_target(api.list_releases(ORCA_REPO))
     kind = "prerelease" if target.prerelease else "final"
@@ -1982,7 +1982,7 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
     sha_amd64, prov_amd64 = _asset_sha256(api, target, asset_amd64)
     sha_arm64, prov_arm64 = _asset_sha256(api, target, asset_arm64)
     sha_flatpak, prov_flatpak = _asset_sha256(api, target, flatpak_name)
-    ci_version, ci_sha = parse_orca_ci((root / ORCA_CI_FILE).read_text())
+    ci_version, ci_sha = parse_orca_ci((root / ORCA_CI_FILE).read_text(encoding="utf-8"))
     if ci_version != pin.version:
         raise BumpError(
             f"ci.yml pins ORCA_BUNDLE_VERSION {ci_version}, not the prebuilt pin "

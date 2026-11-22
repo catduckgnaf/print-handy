@@ -53,9 +53,9 @@ BOT_ENV = {"UPSTREAM_BOT_APP_ID": "123456", "UPSTREAM_BOT_PRIVATE_KEY": VALID_KE
 # production pins: every bump PR changes the production files, so a
 # test that hardcoded the live values would fail the bump's own CI.
 FIXTURES = ROOT / "tests" / "fixtures" / "bump_upstream"
-GO2RTC_TEXT = (FIXTURES / "docker" / "go2rtc-prebuilt.sh").read_text()
-DOCKERFILE_TEXT = (FIXTURES / "Dockerfile").read_text()
-ORCA_TEXT = (FIXTURES / "docker" / "orca-prebuilt.sh").read_text()
+GO2RTC_TEXT = (FIXTURES / "docker" / "go2rtc-prebuilt.sh").read_text(encoding="utf-8")
+DOCKERFILE_TEXT = (FIXTURES / "Dockerfile").read_text(encoding="utf-8")
+ORCA_TEXT = (FIXTURES / "docker" / "orca-prebuilt.sh").read_text(encoding="utf-8")
 
 
 def fixture_root(base):
@@ -273,24 +273,24 @@ class PinSurfaces(unittest.TestCase):
         # Format-only assertions over the PRODUCTION files: whatever
         # values future bumps land, the shapes the parsers rely on
         # must hold. No live value is hardcoded here.
-        pin = bump.parse_go2rtc((ROOT / "docker" / "go2rtc-prebuilt.sh").read_text())
+        pin = bump.parse_go2rtc((ROOT / "docker" / "go2rtc-prebuilt.sh").read_text(encoding="utf-8"))
         self.assertRegex(pin.version, r"^\d+\.\d+\.\d+$")
         self.assertRegex(pin.revision, r"^[0-9a-f]{7}$")
         self.assertRegex(pin.sha256_amd64, r"^[0-9a-f]{64}$")
         self.assertRegex(pin.sha256_arm64, r"^[0-9a-f]{64}$")
         self.assertTrue(pin.asset_amd64 and pin.asset_arm64)
-        ref = bump.parse_spoolman((ROOT / "Dockerfile").read_text())
+        ref = bump.parse_spoolman((ROOT / "Dockerfile").read_text(encoding="utf-8"))
         self.assertRegex(ref, r"^[0-9a-f]{40}$")
-        bambu_ref = bump.parse_bambu((ROOT / "Dockerfile").read_text())
+        bambu_ref = bump.parse_bambu((ROOT / "Dockerfile").read_text(encoding="utf-8"))
         self.assertRegex(bambu_ref, r"^[0-9a-f]{40}$")
-        orca_pin = bump.parse_orca((ROOT / "docker" / "orca-prebuilt.sh").read_text())
+        orca_pin = bump.parse_orca((ROOT / "docker" / "orca-prebuilt.sh").read_text(encoding="utf-8"))
         self.assertRegex(orca_pin.version, r"^\d+\.\d+\.\d+(-[A-Za-z]+\d*)?$")
         self.assertRegex(orca_pin.revision, r"^[0-9a-f]{40}$")
         self.assertRegex(orca_pin.sha256_amd64, r"^[0-9a-f]{64}$")
         self.assertRegex(orca_pin.sha256_arm64, r"^[0-9a-f]{64}$")
         self.assertTrue(orca_pin.asset_amd64.endswith(".AppImage"))
         self.assertTrue(orca_pin.asset_arm64.endswith(".AppImage"))
-        ci_version, ci_sha = bump.parse_orca_ci((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+        ci_version, ci_sha = bump.parse_orca_ci((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
         self.assertEqual(ci_version, orca_pin.version)
         self.assertRegex(ci_sha, r"^[0-9a-f]{64}$")
 
@@ -325,7 +325,7 @@ class Go2rtcPlanning(unittest.TestCase):
         plan = bump.plan_go2rtc(self.root, self.api_for(release, commit="c" * 40), NOW)
         self.assertEqual(plan.action, "bump")
         plan.apply(self.root)
-        pin = bump.parse_go2rtc((self.root / "docker" / "go2rtc-prebuilt.sh").read_text())
+        pin = bump.parse_go2rtc((self.root / "docker" / "go2rtc-prebuilt.sh").read_text(encoding="utf-8"))
         self.assertEqual(pin.version, "1.9.16")
         self.assertEqual(pin.revision, "c" * 7)  # same 7-char form as the file
         self.assertEqual(pin.sha256_amd64, "1" * 64)
@@ -339,13 +339,13 @@ class Go2rtcPlanning(unittest.TestCase):
         ])
         plan = bump.plan_go2rtc(self.root, self.api_for(release, commit="c" * 40), NOW)
         plan.apply(self.root)
-        guard = (self.root / "tests" / "test_go2rtc_container.py").read_text()
+        guard = (self.root / "tests" / "test_go2rtc_container.py").read_text(encoding="utf-8")
         self.assertIn("version=1.9.16", guard)
         self.assertIn('AMD64_SHA = "' + "1" * 64 + '"', guard)
         self.assertIn('ARM64_SHA = "' + "2" * 64 + '"', guard)
-        self.assertIn("`1.9.16`, revision `ccccccc`", (self.root / "docs" / "COMPONENTS.md").read_text())
-        self.assertIn("go2rtc v1.9.16", (self.root / "docs" / "DOCKER.md").read_text())
-        self.assertIn("(v1.9.16,", (self.root / "docs" / "SETTINGS.md").read_text())
+        self.assertIn("`1.9.16`, revision `ccccccc`", (self.root / "docs" / "COMPONENTS.md").read_text(encoding="utf-8"))
+        self.assertIn("go2rtc v1.9.16", (self.root / "docs" / "DOCKER.md").read_text(encoding="utf-8"))
+        self.assertIn("(v1.9.16,", (self.root / "docs" / "SETTINGS.md").read_text(encoding="utf-8"))
         self.assertEqual(
             set(plan.files),
             {"docker/go2rtc-prebuilt.sh", "tests/test_go2rtc_container.py",
@@ -354,7 +354,7 @@ class Go2rtcPlanning(unittest.TestCase):
 
     def test_drifted_recorded_surface_stops_the_bump(self):
         components = self.root / "docs" / "COMPONENTS.md"
-        components.write_text(components.read_text().replace("`1.9.15`, revision `7c05066`", "`1.9.15`"))
+        components.write_text(components.read_text(encoding="utf-8").replace("`1.9.15`, revision `7c05066`", "`1.9.15`"), encoding="utf-8")
         release = make_release("1.9.16", assets=[
             asset("go2rtc_linux_amd64", "sha256:" + "1" * 64),
             asset("go2rtc_linux_arm64", "sha256:" + "2" * 64),
@@ -417,20 +417,20 @@ class SpoolmanPlanning(unittest.TestCase):
         self.assertEqual(plan.action, "bump")
         self.assertEqual(plan.old_version, "0.27.0")
         plan.apply(self.root)
-        self.assertEqual(bump.parse_spoolman((self.root / "Dockerfile").read_text()), new_ref)
+        self.assertEqual(bump.parse_spoolman((self.root / "Dockerfile").read_text(encoding="utf-8")), new_ref)
         # The recorded surfaces move with the pin.
-        settings = (self.root / "docs" / "SETTINGS.md").read_text()
+        settings = (self.root / "docs" / "SETTINGS.md").read_text(encoding="utf-8")
         self.assertIn(new_ref, settings)
         self.assertIn("Pinned Spoolman v0.27.1 source commit", settings)
-        docker_doc = (self.root / "docs" / "DOCKER.md").read_text()
+        docker_doc = (self.root / "docs" / "DOCKER.md").read_text(encoding="utf-8")
         self.assertIn(f"Spoolman 0.27.1 is built from exact upstream revision `{new_ref}`", docker_doc)
         # The test-harness pins move with the shipped pin: the CI job
         # and the native runner must install the version being shipped,
         # with the new release zip's SHA256.
-        ci_text = (self.root / ".github" / "workflows" / "ci.yml").read_text()
+        ci_text = (self.root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("download/v0.27.1/spoolman.zip", ci_text)
         self.assertIn("9" * 64, ci_text)
-        native = (self.root / "scripts" / "run_spoolman_native.sh").read_text()
+        native = (self.root / "scripts" / "run_spoolman_native.sh").read_text(encoding="utf-8")
         self.assertIn("Spoolman 0.27.1 natively", native)
         self.assertIn("print-handy-spoolman-0.27.1", native)
         self.assertIn("download/v0.27.1/spoolman.zip", native)
@@ -443,13 +443,13 @@ class SpoolmanPlanning(unittest.TestCase):
         # A harness pin that no longer records the shipped version is
         # drift: the planner must refuse, not guess which is right.
         ci_path = self.root / ".github" / "workflows" / "ci.yml"
-        ci_path.write_text(ci_path.read_text().replace("v0.27.0", "v0.26.0"))
+        ci_path.write_text(ci_path.read_text(encoding="utf-8").replace("v0.27.0", "v0.26.0"), encoding="utf-8")
         with self.assertRaises(bump.BumpError):
             bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
 
     def test_native_harness_drift_stops_the_bump(self):
         native_path = self.root / "scripts" / "run_spoolman_native.sh"
-        native_path.write_text(native_path.read_text().replace("0.27.0", "0.26.0"))
+        native_path.write_text(native_path.read_text(encoding="utf-8").replace("0.27.0", "0.26.0"), encoding="utf-8")
         with self.assertRaises(bump.BumpError):
             bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
 
@@ -465,7 +465,7 @@ class SpoolmanPlanning(unittest.TestCase):
 
     def test_disagreeing_recorded_surfaces_stop_the_bump(self):
         settings = self.root / "docs" / "SETTINGS.md"
-        settings.write_text(settings.read_text().replace("v0.27.0", "v0.26.9"))
+        settings.write_text(settings.read_text(encoding="utf-8").replace("v0.27.0", "v0.26.9"), encoding="utf-8")
         with self.assertRaises(bump.BumpError):
             bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
 
@@ -549,17 +549,17 @@ class BambuPlanning(unittest.TestCase):
         self.assertEqual(plan.action, "bump")
         self.assertEqual(calls, [new_ref])
         plan.apply(self.root)
-        self.assertEqual(bump.parse_bambu((self.root / "Dockerfile").read_text()), new_ref)
-        settings = (self.root / "docs" / "SETTINGS.md").read_text()
+        self.assertEqual(bump.parse_bambu((self.root / "Dockerfile").read_text(encoding="utf-8")), new_ref)
+        settings = (self.root / "docs" / "SETTINGS.md").read_text(encoding="utf-8")
         self.assertIn(f"`{new_ref}`", settings)
         self.assertIn("Pinned Bambu Studio 02.09.01.70 source commit", settings)
         self.assertNotIn(self.pin_ref, settings)
-        components = (self.root / "docs" / "COMPONENTS.md").read_text()
+        components = (self.root / "docs" / "COMPONENTS.md").read_text(encoding="utf-8")
         self.assertIn(f"commit `{new_ref[:8]}…`", components)
-        connectivity = (self.root / "docs" / "BAMBU-CONNECTIVITY.md").read_text()
+        connectivity = (self.root / "docs" / "BAMBU-CONNECTIVITY.md").read_text(encoding="utf-8")
         self.assertEqual(connectivity.count(new_ref), 2)
         self.assertNotIn("b94b6da251f8d5cf2773f2a78aa87c613ea9a907", connectivity)
-        table = json.loads((self.root / "print_handy" / "printers" / "bambulab" / "hms_data.json").read_text())
+        table = json.loads((self.root / "print_handy" / "printers" / "bambulab" / "hms_data.json").read_text(encoding="utf-8"))
         self.assertEqual(table["_provenance"]["bambu_studio_commit"], new_ref)
         # The regenerated table is the fixture studio files' content:
         # the tie between prefixes goes to the lowest prefix (093),
@@ -578,7 +578,7 @@ class BambuPlanning(unittest.TestCase):
 
     def test_drifted_settings_row_stops_the_bump_before_any_fetch(self):
         settings = self.root / "docs" / "SETTINGS.md"
-        settings.write_text(settings.read_text().replace(self.pin_ref, "0" * 40))
+        settings.write_text(settings.read_text(encoding="utf-8").replace(self.pin_ref, "0" * 40), encoding="utf-8")
         fetch, calls = fake_fetcher()
         with self.assertRaises(bump.BumpError):
             bump.plan_bambu(self.root, self.api_for(self.release()), NOW, fetcher=fetch)
@@ -586,8 +586,8 @@ class BambuPlanning(unittest.TestCase):
 
     def test_drifted_connectivity_record_stops_the_bump(self):
         connectivity = self.root / "docs" / "BAMBU-CONNECTIVITY.md"
-        connectivity.write_text(connectivity.read_text().replace(
-            "b94b6da251f8d5cf2773f2a78aa87c613ea9a907", "1" * 40, 1))
+        connectivity.write_text(connectivity.read_text(encoding="utf-8").replace(
+            "b94b6da251f8d5cf2773f2a78aa87c613ea9a907", "1" * 40, 1), encoding="utf-8")
         fetch, calls = fake_fetcher()
         with self.assertRaises(bump.BumpError):
             bump.plan_bambu(self.root, self.api_for(self.release()), NOW, fetcher=fetch)
@@ -599,7 +599,7 @@ class BambuPlanning(unittest.TestCase):
             bump.plan_bambu(self.root, self.api_for(self.release()), NOW, fetcher=fetch)
         self.assertIn("layout", str(caught.exception))
         # Nothing was written: the pin still stands.
-        self.assertEqual(bump.parse_bambu((self.root / "Dockerfile").read_text()), self.pin_ref)
+        self.assertEqual(bump.parse_bambu((self.root / "Dockerfile").read_text(encoding="utf-8")), self.pin_ref)
 
 
 class HmsRegeneration(unittest.TestCase):
@@ -651,7 +651,7 @@ class OrcaPinSurfaces(unittest.TestCase):
             bump.parse_orca("#!/bin/sh\nversion=1.0\n")
 
     def test_orca_ci_parse_fixture(self):
-        text = (FIXTURES / ".github" / "workflows" / "ci.yml").read_text()
+        text = (FIXTURES / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         version, sha256 = bump.parse_orca_ci(text)
         self.assertEqual(version, "2.5.0-rc")
         self.assertEqual(sha256, "f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175")
@@ -731,7 +731,7 @@ def fake_orca_source_fetcher(calls, with_tree=True):
         profiles.mkdir(parents=True, exist_ok=True)
         if with_tree:
             for vendor in bump.ORCA_VENDORS.values():
-                (profiles / f"{vendor}.json").write_text("{}")
+                (profiles / f"{vendor}.json").write_text("{}", encoding="utf-8")
                 (profiles / vendor).mkdir(exist_ok=True)
         return dest
 
@@ -786,45 +786,45 @@ class OrcaPlanning(unittest.TestCase):
         self.assertEqual(plan.action, "bump")
         self.assertEqual(calls, ["OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage"])
         plan.apply(self.root)
-        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text())
+        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text(encoding="utf-8"))
         self.assertEqual(pin.version, "2.5.0")
         self.assertEqual(pin.revision, "e" * 40)
         self.assertEqual(pin.sha256_amd64, "3" * 64)
         self.assertEqual(pin.sha256_arm64, "4" * 64)
         self.assertEqual(pin.asset_amd64, "OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage")
-        ci = (self.root / ".github" / "workflows" / "ci.yml").read_text()
+        ci = (self.root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("ORCA_BUNDLE_VERSION: 2.5.0\n", ci)
         self.assertIn("ORCA_BUNDLE_SHA256: " + "5" * 64, ci)
-        sha_test = (self.root / "tests" / "test_ci_bambu_workflow.py").read_text()
+        sha_test = (self.root / "tests" / "test_ci_bambu_workflow.py").read_text(encoding="utf-8")
         self.assertIn('ORCA_BUNDLE_SHA256 = "' + "5" * 64 + '"', sha_test)
-        guard = (self.root / "tests" / "test_docker_release.py").read_text()
+        guard = (self.root / "tests" / "test_docker_release.py").read_text(encoding="utf-8")
         self.assertIn("version=2.5.0", guard)
         self.assertIn("revision=" + "e" * 40, guard)
         self.assertIn('"2.5.0"', guard)
         self.assertIn('"' + "e" * 40 + '"', guard)
         self.assertIn("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage", guard)
-        contract = (self.root / "tests" / "test_docker_release_contract.py").read_text()
+        contract = (self.root / "tests" / "test_docker_release_contract.py").read_text(encoding="utf-8")
         self.assertIn("e" * 40, contract)
         self.assertNotIn("af2ffb8c", contract)
-        facts = (self.root / "print_handy" / "printers" / "bambulab" / "facts.py").read_text()
+        facts = (self.root / "print_handy" / "printers" / "bambulab" / "facts.py").read_text(encoding="utf-8")
         self.assertIn('("v2.5.0", "' + "e" * 40 + '")', facts)
-        p1s = (self.root / "tests" / "printers" / "test_bambulab_p1s.py").read_text()
+        p1s = (self.root / "tests" / "printers" / "test_bambulab_p1s.py").read_text(encoding="utf-8")
         self.assertIn('("v2.5.0", "' + "e" * 40 + '")', p1s)
-        components = (self.root / "docs" / "COMPONENTS.md").read_text()
+        components = (self.root / "docs" / "COMPONENTS.md").read_text(encoding="utf-8")
         self.assertIn("`2.5.0`, revision `eeeeeeee…`", components)
-        self.assertIn("now v2.5.0)", (self.root / "docs" / "DOCKER.md").read_text())
-        settings = (self.root / "docs" / "SETTINGS.md").read_text()
+        self.assertIn("now v2.5.0)", (self.root / "docs" / "DOCKER.md").read_text(encoding="utf-8"))
+        settings = (self.root / "docs" / "SETTINGS.md").read_text(encoding="utf-8")
         self.assertIn("single build (v2.5.0)", settings)
         self.assertIn("release (v2.5.0, SHA256 verified", settings)
-        self.assertIn("bundled OrcaSlicer (v2.5.0):", (self.root / ".env.example").read_text())
+        self.assertIn("bundled OrcaSlicer (v2.5.0):", (self.root / ".env.example").read_text(encoding="utf-8"))
         for name in ("ANYCUBIC", "CREALITY", "ELEGOO", "PRUSA", "QIDI"):
             self.assertIn("OrcaSlicer v2.5.0 installation",
-                          (self.root / "docs" / f"{name}.md").read_text())
-        a1 = (self.root / "docs" / "BAMBU-A1-DOCKER.md").read_text()
+                          (self.root / "docs" / f"{name}.md").read_text(encoding="utf-8"))
+        a1 = (self.root / "docs" / "BAMBU-A1-DOCKER.md").read_text(encoding="utf-8")
         self.assertIn("bundled OrcaSlicer v2.5.0", a1)
         self.assertIn("pinned OrcaSlicer v2.5.0 AppImage", a1)
         self.assertIn("templates from OrcaSlicer 2.5.0 (BBL", a1)
-        install = (self.root / "docs" / "INSTALL.md").read_text()
+        install = (self.root / "docs" / "INSTALL.md").read_text(encoding="utf-8")
         self.assertIn("Install the 2.5.0 build that the Docker image ships.", install)
         self.assertIn("from the OrcaSlicer 2.5.0 release page", install)
         self.assertEqual(
@@ -846,7 +846,7 @@ class OrcaPlanning(unittest.TestCase):
 
     def test_drifted_recorded_surface_stops_the_bump_before_any_download(self):
         components = self.root / "docs" / "COMPONENTS.md"
-        components.write_text(components.read_text().replace("`2.5.0-rc`, revision `af2ffb8c…`", "`2.5.0-rc`"))
+        components.write_text(components.read_text(encoding="utf-8").replace("`2.5.0-rc`, revision `af2ffb8c…`", "`2.5.0-rc`"), encoding="utf-8")
         calls = []
         with self.assertRaises(bump.BumpError):
             self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
@@ -855,8 +855,8 @@ class OrcaPlanning(unittest.TestCase):
 
     def test_ci_pin_disagreement_stops_the_bump(self):
         ci = self.root / ".github" / "workflows" / "ci.yml"
-        ci.write_text(ci.read_text().replace("ORCA_BUNDLE_VERSION: 2.5.0-rc",
-                                             "ORCA_BUNDLE_VERSION: 2.5.0-beta"))
+        ci.write_text(ci.read_text(encoding="utf-8").replace("ORCA_BUNDLE_VERSION: 2.5.0-rc",
+                                             "ORCA_BUNDLE_VERSION: 2.5.0-beta"), encoding="utf-8")
         calls = []
         with self.assertRaises(bump.BumpError):
             self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
@@ -875,7 +875,7 @@ class OrcaPlanning(unittest.TestCase):
             self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
                       sweeper=sweeper)
         self.assertIn("creality/model-a", str(caught.exception))
-        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text())
+        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text(encoding="utf-8"))
         self.assertEqual(pin.version, "2.5.0-rc")
 
     def test_missing_asset_is_an_error(self):
@@ -900,7 +900,7 @@ class OrcaPlanning(unittest.TestCase):
                       source_fetcher=fake_orca_source_fetcher(source_calls, with_tree=False))
         self.assertIn("layout", str(caught.exception))
         # Nothing was written: the pin still stands.
-        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text())
+        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text(encoding="utf-8"))
         self.assertEqual(pin.version, "2.5.0-rc")
 
 
@@ -1057,7 +1057,7 @@ class OrcaBundleHandling(unittest.TestCase):
 
 def _write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
 
 
 class OrcaSweepDriver(unittest.TestCase):
@@ -1203,7 +1203,7 @@ MODELS = {"mini": {
             third = bump.sweep_orca_identities(root, tree, packed, families=["bambulab"])
             self.assertEqual(third["bambulab"]["mini"]["tree"]["matched"], [])
             # A removed profile is an error entry, not a match.
-            index = json.loads((tree / "profiles" / "BBL.json").read_text())
+            index = json.loads((tree / "profiles" / "BBL.json").read_text(encoding="utf-8"))
             index["filament_list"] = [e for e in index["filament_list"]
                                       if e["name"] != "Mini Filament PETG"]
             _write(tree / "profiles" / "BBL.json", json.dumps(index))
@@ -1580,7 +1580,7 @@ class TransportLevelApi(unittest.TestCase):
 
 class WorkflowShapes(unittest.TestCase):
     def load(self, path):
-        return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
     def test_bump_workflow_schedule_dispatch_and_identity(self):
         wf = self.load(BUMP_WORKFLOW)
@@ -1591,7 +1591,7 @@ class WorkflowShapes(unittest.TestCase):
         self.assertEqual(options, ["all", "go2rtc", "spoolman", "bambu", "orca"])
         self.assertEqual(wf["jobs"]["bump"]["timeout-minutes"], "45")
         steps = wf["jobs"]["bump"]["steps"]
-        text = BUMP_WORKFLOW.read_text()
+        text = BUMP_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510", text)
         self.assertIn("UPSTREAM_BOT_APP_ID", text)
         self.assertIn("UPSTREAM_BOT_PRIVATE_KEY", text)
@@ -1602,7 +1602,7 @@ class WorkflowShapes(unittest.TestCase):
         # workflow (#950).
         self.assertIn("UPSTREAM_BOT_APP_ID", token_step["with"]["client-id"])
         self.assertNotIn("app-id:", text)
-        self.assertNotIn("app-id:", READY_WORKFLOW.read_text())
+        self.assertNotIn("app-id:", READY_WORKFLOW.read_text(encoding="utf-8"))
         ready_steps = self.load(READY_WORKFLOW)["jobs"]["mark-ready"]["steps"]
         ready_token = next(s for s in ready_steps if s.get("id") == "app-token")
         self.assertIn("UPSTREAM_BOT_APP_ID", ready_token["with"]["client-id"])
@@ -1634,7 +1634,7 @@ class WorkflowShapes(unittest.TestCase):
         self.assertEqual(triggers["workflow_run"]["branches"], ["upstream/**"])
         job = wf["jobs"]["mark-ready"]
         self.assertIn("conclusion == 'success'", job["if"])
-        text = READY_WORKFLOW.read_text()
+        text = READY_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510", text)
         self.assertIn("--mark-ready", text)
 
@@ -1807,7 +1807,7 @@ class OrcaProfileDatabase(unittest.TestCase):
         root = Path(tmp.name)
         gone = root / bump.ORCA_PROFILE_DB_DIR / "Gone.jsonl"
         gone.parent.mkdir(parents=True)
-        gone.write_text("{}\n")
+        gone.write_text("{}\n", encoding="utf-8")
         bump.Plan("orca", "bump", edits=[(bump.ORCA_PROFILE_DB_DIR + "/Gone.jsonl", None),
                                          (bump.ORCA_PROFILE_DB_DIR + "/index.json", "{}\n")]).apply(root)
         self.assertFalse(gone.exists())
@@ -1822,10 +1822,10 @@ class OrcaProfileDatabase(unittest.TestCase):
         (folder / "filament").mkdir()
         (folder / "machine" / "m.json").write_text(json.dumps(
             {"name": "Acme One 0.4 nozzle", "instantiation": "true", "printer_model": "Acme One",
-             "nozzle_diameter": ["0.4"]}))
+             "nozzle_diameter": ["0.4"]}), encoding="utf-8")
         (folder / "filament" / "f.json").write_text(json.dumps(
             {"name": "Generic PLA @Acme", "instantiation": "true", "filament_type": ["PLA"],
-             "compatible_printers": ["Acme One 0.4 nozzle"]}))
+             "compatible_printers": ["Acme One 0.4 nozzle"]}), encoding="utf-8")
         work = Path(tmp.name) / "work"
         work.mkdir()
         repo = Path(__file__).resolve().parent.parent
