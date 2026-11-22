@@ -317,20 +317,22 @@ def test_unclaimed_start_still_gets_the_normal_post(job, tmp_path, monkeypatch):
 def test_external_start_post_never_names_the_previous_prints_loaded_channel(job, tmp_path, monkeypatch):
     """#1648: at the printing edge ZMod has not swapped filament yet, so
     FFMInfo.channel / zmod_ifs Chan report the channel still loaded from
-    the previous print. A slot-3 screen start with slot 1 loaded must not
-    post a "Slot mismatch" naming slot 1 in the start post; the slot
-    self-check stays the one mismatch reporter, so the mismatch posts once."""
+    the previous print. Neither the start post nor the background check
+    should name that unchanged prior slot as a mismatch."""
     _claimed_listener(monkeypatch, tmp_path, job)
     monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: None)
     # The record says slot 3; both printer channels still report slot 1.
     monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 1, 1, None))
+    async def no_wait(delay):
+        return None
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
     posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=False)
     starts = [p for p in posted if p.startswith("Print started:")]
     assert len(starts) == 1 and posted[0] is starts[0]
     assert "Slot mismatch" not in starts[0] and "printer is loading" not in starts[0]
     assert starts[0].startswith("Print started:") and job.data["title"] in starts[0]
     mismatches = [p for p in posted if "slot sources disagree" in p or "Slot mismatch" in p]
-    assert len(mismatches) == 1 and mismatches[0].startswith("**Slot check warning")
+    assert not mismatches
 
 
 def test_external_start_post_without_a_record_names_no_loaded_channel(job, tmp_path, monkeypatch):
@@ -344,41 +346,35 @@ def test_external_start_post_without_a_record_names_no_loaded_channel(job, tmp_p
     assert "maps this job" not in posted[0]
 
 
-@pytest.mark.parametrize("active_sources, expected", [((3, 3, 3, None), []), ((3, 2, 2, None), ["still mismatched"])])
-def test_slot_self_check_waits_for_active_channel(monkeypatch, active_sources, expected):
-    """A stale start Chan is ignored until the job's tool is reported active."""
+@pytest.mark.parametrize("active_slot, warned", [(3, False), (4, True)])
+def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warned):
     listener = mel.Listener()
-    samples = iter([(3, 2, 2, None), active_sources])
+    samples = iter([(3, 2, 2, None), (3, active_slot, 2, None),
+                    (3, active_slot, active_slot, None)])
     monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
-    def agreement():
-        # After the wait, agreement sees the final sample.
-        if active_sources[1] == 3 and active_sources[2] == 3:
-            return None
-        return "still mismatched"
-    monkeypatch.setattr(listener, "_slot_agreement", agreement)
     waits = []
     async def no_wait(delay):
         waits.append(delay)
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
     posts = []
-    monkeypatch.setattr(mel, "post", lambda message: posts.append(message))
+    monkeypatch.setattr(mel, "post", posts.append)
     asyncio.run(listener._slot_self_check())
-    assert waits == [1]
-    assert posts == expected
+    assert waits == [1, 1]
+    assert bool(posts) is warned
+    if warned:
+        assert len(posts) == 1 and "zmod_ifs Chan reports slot 4" in posts[0]
 
 
 def test_slot_self_check_does_not_warn_if_activation_is_unobserved(monkeypatch):
-    """A timeout is inconclusive; never diagnose the prior job's stale channel."""
     listener = mel.Listener()
     monkeypatch.setattr(listener, "_slot_sources", lambda: (3, 2, 2, None))
-    monkeypatch.setattr(mel.time, "monotonic", iter([0, 31]).__next__)
     waits = []
     async def no_wait(delay):
         waits.append(delay)
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
-    monkeypatch.setattr(listener, "_slot_agreement", lambda: pytest.fail("must not compare stale channel"))
+    monkeypatch.setattr(mel, "post", lambda _: pytest.fail("must not report stale channel"))
     asyncio.run(listener._slot_self_check())
-    assert waits == [1]
+    assert waits == [1] * 30
 
 
 def test_slot_sources_prefer_this_files_launch_record_over_the_global_active_slot(monkeypatch):
