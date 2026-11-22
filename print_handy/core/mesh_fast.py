@@ -426,6 +426,16 @@ def _bounds_and_volume_points(points):
     return lo, hi, volume
 
 
+def _measured(triangles):
+    """``(lo, hi, area, signed_volume)`` from the native kernel, else its numpy twin, else None (#1790)."""
+    from .mesh_native import measure
+    native = measure(triangles)
+    if native is None:
+        from .mesh_numpy import measure as numpy_measure
+        native = numpy_measure(triangles)
+    return native
+
+
 def _scalar_bounds(triangles):
     """Match the historical Python min/max behavior, including NaNs."""
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
@@ -492,8 +502,7 @@ def bounds(triangles):
                 lo[axis] = min(lo[axis], float(chunk_lo[axis]))
                 hi[axis] = max(hi[axis], float(chunk_hi[axis]))
         return lo, hi
-    from .mesh_native import measure
-    native = measure(triangles)
+    native = _measured(triangles)
     if native is not None:
         return native[0], native[1]
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
@@ -525,10 +534,9 @@ def bounds_and_volume(triangles):
         return _bounds_and_volume_arrays(triangles.vertices, triangles.faces)
     if isinstance(triangles, MeshTable) and len(triangles) >= 32768:
         return _bounds_and_volume_arrays(triangles.vertices, triangles.triangles)
-    # The scalar loop below, natively (#1790): same bounds rule (first of
+    # The scalar loop below, natively or in numpy (#1790): same bounds rule (first of
     # equal values wins) and the same triangle-by-triangle volume sum.
-    from .mesh_native import measure
-    native = measure(triangles)
+    native = _measured(triangles)
     if native is not None:
         return native[0], native[1], native[3]
     source = triangles.iter_triangles() if isinstance(triangles, MeshTable) else iter(triangles)
@@ -580,6 +588,15 @@ def archive_tables(archive, name):
     hit = _TABLE_CACHE.get(key)
     if hit is not None:
         return hit
+    # The combine step's own tables for this exact file, when it recorded
+    # them (#1790): the same structure and tables this parse would return.
+    from .mesh_sidecar import tables as recorded_tables
+    filename = getattr(archive, 'filename', None)
+    parsed = recorded_tables(filename, info) if filename else None
+    if parsed is not None:
+        structure, tables = parsed
+        _TABLE_CACHE[key] = (structure, tables)
+        return structure, tables
     with archive.open(info) as member:
         parsed = _parse_member(member)
     if parsed is None:

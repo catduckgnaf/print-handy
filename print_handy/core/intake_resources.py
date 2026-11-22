@@ -87,37 +87,66 @@ def check_source(path):
             _refuse(f'expanded archive exceeds {MAX_EXPANDED_BYTES // MIB} MiB limit')
         if any(i.file_size > MAX_MEMBER_BYTES for i in members):
             _refuse(f'archive member exceeds {MAX_MEMBER_BYTES // MIB} MiB limit')
-        counts = {'triangle': 0, 'vertex': 0, 'elements': 0, 'estimated_bytes': 0}
+        recorded = _recorded_counts(path, [i.filename for i in models])
+        if recorded is not None:
+            return
+        _stream_counts(archive, models)
 
-        def start(name, attrs):
-            local = name.rsplit('}', 1)[-1]
-            counts['elements'] += 1
-            if counts['elements'] > MAX_XML_ELEMENTS:
-                _refuse(f'XML element count exceeds {MAX_XML_ELEMENTS:,} limit')
-            if local in ('triangle', 'vertex'):
-                counts[local] += 1
-                maximum = MAX_TRIANGLES if local == 'triangle' else MAX_VERTICES
-                if counts[local] > maximum:
-                    _refuse(f'{local} count exceeds {maximum:,} limit')
-                # Vertex/triangle arrays, streaming parser's temporary tuple lists,
-                # and one transformed copy per active instance are conservatively
-                # budgeted at 160 bytes per primitive. This intentionally errs high.
-                counts['estimated_bytes'] += 160
-                if counts['estimated_bytes'] > MAX_ESTIMATED_GEOMETRY_BYTES:
-                    _refuse(f'estimated geometry allocation exceeds {MAX_ESTIMATED_GEOMETRY_BYTES // MIB} MiB safety ceiling')
 
-        def doctype(*args):
-            _refuse('XML document type declarations are not supported')
+def _within_limits(counts):
+    primitives = counts['vertex'] + counts['triangle']
+    return (counts['elements'] <= MAX_XML_ELEMENTS and counts['vertex'] <= MAX_VERTICES
+            and counts['triangle'] <= MAX_TRIANGLES
+            and 160 * primitives <= MAX_ESTIMATED_GEOMETRY_BYTES)
 
-        for member in models:
-            parser = xml.parsers.expat.ParserCreate(namespace_separator='}')
-            parser.StartElementHandler = start
-            parser.StartDoctypeDeclHandler = doctype
-            with archive.open(member) as source:
-                total = 0
-                while chunk := source.read(CHUNK):
-                    total += len(chunk)
-                    if total > MAX_XML_BYTES:
-                        _refuse(f'model XML exceeds {MAX_XML_BYTES // MIB} MiB limit')
-                    _parse_chunk(parser, chunk, False)
-                _parse_chunk(parser, b'', True)
+
+def _recorded_counts(path, model_members):
+    """The combine step's recorded XML counts for this exact file, when all within limits (#1790).
+
+    Only a pass is taken from the record: anything over a limit, or no
+    usable record, streams the XML so the refusal is the one it gives.
+    """
+    from .mesh_sidecar import xml_counts
+    counts = xml_counts(path, model_members)
+    if counts is None or not _within_limits(counts):
+        return None
+    return counts
+
+
+def _stream_counts(archive, models):
+    """Stream every model member's XML, refusing at the first limit crossed; returns the totals."""
+    counts = {'triangle': 0, 'vertex': 0, 'elements': 0, 'estimated_bytes': 0}
+
+    def start(name, attrs):
+        local = name.rsplit('}', 1)[-1]
+        counts['elements'] += 1
+        if counts['elements'] > MAX_XML_ELEMENTS:
+            _refuse(f'XML element count exceeds {MAX_XML_ELEMENTS:,} limit')
+        if local in ('triangle', 'vertex'):
+            counts[local] += 1
+            maximum = MAX_TRIANGLES if local == 'triangle' else MAX_VERTICES
+            if counts[local] > maximum:
+                _refuse(f'{local} count exceeds {maximum:,} limit')
+            # Vertex/triangle arrays, streaming parser's temporary tuple lists,
+            # and one transformed copy per active instance are conservatively
+            # budgeted at 160 bytes per primitive. This intentionally errs high.
+            counts['estimated_bytes'] += 160
+            if counts['estimated_bytes'] > MAX_ESTIMATED_GEOMETRY_BYTES:
+                _refuse(f'estimated geometry allocation exceeds {MAX_ESTIMATED_GEOMETRY_BYTES // MIB} MiB safety ceiling')
+
+    def doctype(*args):
+        _refuse('XML document type declarations are not supported')
+
+    for member in models:
+        parser = xml.parsers.expat.ParserCreate(namespace_separator='}')
+        parser.StartElementHandler = start
+        parser.StartDoctypeDeclHandler = doctype
+        with archive.open(member) as source:
+            total = 0
+            while chunk := source.read(CHUNK):
+                total += len(chunk)
+                if total > MAX_XML_BYTES:
+                    _refuse(f'model XML exceeds {MAX_XML_BYTES // MIB} MiB limit')
+                _parse_chunk(parser, chunk, False)
+            _parse_chunk(parser, b'', True)
+    return counts

@@ -72,3 +72,21 @@ area_mm2 = 8925.1274
 parts_unit_question = 10.0
 load_parts = 15.0
 combine = 45.0
+# The audit of the combined 3MF, on the combine step's recorded mesh tables
+# (#1790), with the placement report on arrays: 6.7 s on the reporting host
+# (2026-11-22), where the scalar placement loops alone took about 15 s.
+audit = 45.0
+# The placement report alone, from cold point caches (the scalar oracle,
+# placement_scalar, is timed with no budget).
+placement = 10.0
+
+# The numpy twin of the kernel (PRINT_HANDY_LARGE_MESH_ENGINE=numpy, an
+# install without the wheel). On the reporting host: combine 12.6 s,
+# describe about 1.5 s per part (2026-11-21).
+[budget_numpy]
+parts_unit_question = 10.0
+load_parts = 30.0
+describe = 30.0
+combine = 90.0
+audit = 60.0
+placement = 10.0
