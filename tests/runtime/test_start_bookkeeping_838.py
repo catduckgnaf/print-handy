@@ -11,6 +11,8 @@ from types import SimpleNamespace as S
 from unittest import mock
 
 from print_handy.jobs import prompts as jobs_prompts
+from print_handy import settings
+from print_handy.core import printer_state
 from print_handy.runtime import moonraker_event_listener as mel
 from print_handy.runtime import print_alert_buttons as pab
 
@@ -48,15 +50,19 @@ class AttributeSlotTests(unittest.TestCase):
 class ClassifyRunoutAttributionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.hardware = Path(self.tmp.name) / "hardware.json"
+        self._hardware_root = mock.patch.object(printer_state, "STATE_ROOT", str(Path(self.tmp.name) / "state"))
+        self._hardware_root.start()
+        self.hardware = printer_state.state_path(settings.default_printer_id())
+        self.hardware.parent.mkdir(parents=True, exist_ok=True)
         self.hardware.write_text(json.dumps({"active_slot": 1, "filament_slots": {
             "1": {"spoolman_id": 10, "material": "PLA", "color": "white"},
             "2": {"spoolman_id": 11, "material": "PLA", "color": "black"}}}))
-        self._hardware_env = mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(self.hardware)})
+        self._hardware_env = mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": ""})
         self._hardware_env.start()
 
     def tearDown(self):
         self._hardware_env.stop()
+        self._hardware_root.stop()
         self.tmp.cleanup()
 
     async def test_two_empty_slots_attribute_to_the_newly_emptied_mapped_one(self):

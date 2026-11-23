@@ -115,7 +115,8 @@ def test_printer_state_warnings_are_plain_and_keep_the_fail_soft_posture(monkeyp
 
     monkeypatch.setattr(printer_state, "_get", get)
     monkeypatch.setattr(spoolman_client, "request", spoolman_down)
-    monkeypatch.setenv("PRINTER_HARDWARE_STATE", "/nonexistent-for-check")
+    monkeypatch.setattr(printer_state, "STATE_ROOT", "/nonexistent-for-check")
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
     state = {"moonraker_url": "http://printer.test", "spoolman_url": "http://configured-spoolman",
              "nozzle": {"diameter_mm": 0.4},
              "spool": {"spoolman_id": 7, "name": "Black PLA", "material": "PLA"},
@@ -139,7 +140,8 @@ def test_printer_state_unreachable_problem_is_plain(monkeypatch):
         raise OSError("raw network boom")
 
     monkeypatch.setattr(printer_state, "_get", get)
-    monkeypatch.setenv("PRINTER_HARDWARE_STATE", "/nonexistent-for-check")
+    monkeypatch.setattr(printer_state, "STATE_ROOT", "/nonexistent-for-check")
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
     state = {"moonraker_url": "http://printer.test", "spoolman_url": "",
              "nozzle": {"diameter_mm": 0.4},
              "spool": {"spoolman_id": None, "name": "Black PLA", "material": "PLA"},

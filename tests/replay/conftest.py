@@ -254,9 +254,13 @@ def client_errors(monkeypatch):
 @pytest.fixture
 def ad5x(moonraker, tmp_path, monkeypatch):
     """The recorded AD5X behind the fake Moonraker, with Print Handy configured to talk to it."""
-    record = tmp_path / "printer_hardware.json"
+    # Every hardware record resolves through the production per-printer layout.
+    # A per-test root isolates it without disabling roster routing in the fixture.
+    monkeypatch.setattr(model_job.printer_state, "STATE_ROOT", str(tmp_path / "hardware-state"))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    record = model_job.printer_state.state_path()
+    record.parent.mkdir(parents=True, exist_ok=True)
     record.write_text(json.dumps(hardware_record(moonraker.url)))
-    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(record))
     moonraker.record_path = record
     data = copy.deepcopy(settings.current())
     # Whatever an earlier test left installed, nothing here may write the host's profile or records.

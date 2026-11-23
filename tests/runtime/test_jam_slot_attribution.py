@@ -16,6 +16,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from print_handy import settings
+from print_handy.core import printer_state
 from print_handy.runtime import lane_data_sync, moonraker_event_listener as mel
 
 
@@ -23,7 +25,9 @@ class ReplayCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        hardware = Path(tmp.name) / "hardware.json"
+        state_root = Path(tmp.name) / "state"
+        hardware = state_root / "printers" / settings.default_printer_id() / "printer_hardware.json"
+        hardware.parent.mkdir(parents=True, exist_ok=True)
         hardware.write_text(json.dumps({"active_slot": 3, "filament_slots": {
             "3": {"spoolman_id": 23, "material": "PLA", "color": "6F4E37"}}}))
         self.calls = []
@@ -36,7 +40,8 @@ class ReplayCase(unittest.TestCase):
             return {"result": {"status": {"zmod_ifs": {"Chan": 2}}, "objects": []}}
 
         for patch in (
-            mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(hardware)}),
+            mock.patch.object(printer_state, "STATE_ROOT", str(state_root)),
+            mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": ""}),
             mock.patch.object(mel, "launch_mapped_slots", return_value={3}),
             mock.patch.object(mel.print_control, "_call", side_effect=call),
             mock.patch.object(mel, "log"), mock.patch.object(mel, "warn"),
