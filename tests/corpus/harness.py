@@ -462,8 +462,10 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
     hardware_root = work / "hardware-state"
     routed_state = hardware_root / "printers" / settings.default_printer_id() / "printer_hardware.json"
     routed_state.parent.mkdir(parents=True, exist_ok=True)
-    routed_state.write_bytes(Path(state_file).read_bytes())
+    # BUILT has already been resolved through spool_fixture.build_state above;
+    # retain that generated record as the source rather than treating the sentinel as a path.
     source_state_file = Path(state_file)
+    routed_state.write_bytes(source_state_file.read_bytes())
     state_file = routed_state
     stub = _stub_print_now(work)
     model_copy = None
