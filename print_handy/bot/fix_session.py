@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,8 @@ SESSION_START = "I'm listening in this thread until you accept or cancel."
 SESSION_END_ACCEPT = 'Session ended: the fixed file was accepted. Re-entering normal intake.'
 SESSION_END_CANCEL = 'Session ended: cancelled. The original file is unchanged.'
 SESSION_END_TIMEOUT = 'Session ended: idle timeout. The original file is unchanged.'
+BUSY_REPLY = ('A repair step is still running. Send your message again when it '
+              'finishes. Nothing was changed.')
 
 DEFAULT_IDLE_TIMEOUT_S = 30 * 60
 
@@ -124,12 +127,21 @@ def offer_label(ai_ready: bool) -> str | None:
 
 
 def is_fix_instruction(text: str) -> bool:
+    """Whether ``text`` is a model repair request that may start a session.
+
+    Only the shared #978 repair reading counts, so the #985 guards hold: a
+    question about a defect ("How do I fix this layer shift?") and a request
+    about the printer itself ("fix this printer") are never repair requests.
+    """
     from print_handy.core import ai_fix
     is_repair, _ = ai_fix.split_repair_request(text)
-    return is_repair or any(w in text.lower() for w in ('fix this', 'repair this', 'make it print'))
+    return bool(is_repair)
 
 
-_ACCEPT = frozenset(('accept', 'do it', 'yes', 'looks good'))
+# Only an explicit "accept" ends the session with the fixed file. "yes" and
+# "do it" answer the model's own questions ("Shall I also sink it 1 mm?") and
+# are ordinary turns (#1778 review).
+_ACCEPT = frozenset(('accept',))
 _CANCEL = frozenset(('cancel', 'abort', 'stop', 'nevermind'))
 
 
@@ -155,15 +167,26 @@ def _tool_schemas(session: FixSession) -> list:
     return openai_tools()
 
 
+# Absolute paths (POSIX or Windows) in a tool or library error: only the last
+# component is shown in chat, never the host's directory layout.
+_ABS_PATH_RE = re.compile(r"(?:\b[A-Za-z]:[\\/]|(?<![\w.])/)(?:[^\s'\"\\/]+[\\/])+([^\s'\"\\/]+)")
+
+
+def safe_text(text, limit: int = 1500) -> str:
+    """Text that is safe to post: no mentions, links, newlines or absolute paths (#902)."""
+    from print_handy.core import ai_fix
+    return ai_fix.clean_summary(_ABS_PATH_RE.sub(r'\1', str(text or '')), limit=limit)
+
+
 def _tool_failure(outcome) -> str | None:
     """The error string when a ``Session.run`` result is not a real success."""
     if not isinstance(outcome, dict) or not outcome.get('ok'):
         if isinstance(outcome, dict):
-            return str(outcome.get('error') or 'the tool failed')
+            return safe_text(outcome.get('error') or 'the tool failed', 300)
         return 'the tool failed'
     result = outcome.get('result')
     if isinstance(result, dict) and result.get('ok') is False:
-        return str(result.get('error') or 'the tool failed')
+        return safe_text(result.get('error') or 'the tool failed', 300)
     return None
 
 
@@ -188,9 +211,9 @@ def _run_tool_calls(session: FixSession, calls) -> tuple[str | None, list[str]]:
         name = call['name']
         try:
             outcome = session.skill_session.run(name, call.get('arguments'))
-        except Exception as exc:
+        except Exception:
             logger.exception('repair tool %s failed', name)
-            errors.append(f'{name} failed: {exc}')
+            errors.append(f'{safe_text(name, 60)} failed.')
             continue
         failure = _tool_failure(outcome)
         if failure:
@@ -202,8 +225,9 @@ def _run_tool_calls(session: FixSession, calls) -> tuple[str | None, list[str]]:
             continue
         try:
             path = session.skill_session.path(str(new_mesh))
-        except Exception as exc:
-            errors.append(str(exc))
+        except Exception:
+            logger.exception('repair tool %s named an unusable file', name)
+            errors.append(f'{safe_text(name, 60)} named a file outside the repair workspace.')
             continue
         if _same_path(path, session.original_file):
             errors.append(f'{name} targeted the original file, which was left unchanged')
@@ -215,7 +239,7 @@ def _run_tool_calls(session: FixSession, calls) -> tuple[str | None, list[str]]:
             errors.append(f'{name} did not change the mesh')
             continue
         session.current_file = path
-        changed = str(new_mesh)
+        changed = str(new_mesh).replace(chr(92), "/")
     return changed, errors
 
 
@@ -320,20 +344,26 @@ def process_turn(session: FixSession, user_message: str, *, ai_complete,
     the reply. If ``ai_complete`` raises, the reply says the repair step
     failed and the original file is unchanged.
 
-    Accept (``accept`` / ``do it`` / ``yes`` / ``looks good``) repoints the
-    job only when ``current_file`` is a different file and the job record
-    was written. Otherwise the session stays open and nothing is called accepted.
+    Accept (``accept`` only) repoints the job only when ``current_file`` is a
+    different file and the job record was written. Otherwise the session stays
+    open and nothing is called accepted.
 
     Turns and acceptance for one session run one at a time under ``session.lock``.
     A caller that already holds the lock (the chat acceptance, which keeps it across
-    intake) passes ``locked=True``.
+    intake) passes ``locked=True``. Otherwise the lock is never waited on: this
+    runs on a shared worker thread, so a turn that finds the lock held returns
+    ``BUSY_REPLY`` (with ``busy`` true) at once and changes nothing.
     """
     if locked:
         return _process_turn_locked(session, user_message, ai_complete=ai_complete,
                                     resume_intake=resume_intake)
-    with session.lock:
+    if not session.lock.acquire(blocking=False):
+        return {'reply': BUSY_REPLY, 'accepted': False, 'cancelled': False, 'busy': True}
+    try:
         return _process_turn_locked(session, user_message, ai_complete=ai_complete,
                                     resume_intake=resume_intake)
+    finally:
+        session.lock.release()
 
 
 def _process_turn_locked(session: FixSession, user_message: str, *, ai_complete,
@@ -365,6 +395,7 @@ def _process_turn_locked(session: FixSession, user_message: str, *, ai_complete,
         reply = 'The repair step failed and the original file is unchanged.'
         return _remember(session, reply)
 
+    content = safe_text(content)
     changed, errors = _run_tool_calls(session, calls)
     if errors and _same_path(session.current_file, session.original_file):
         reply = 'The repair did not change the file. ' + ' '.join(errors)

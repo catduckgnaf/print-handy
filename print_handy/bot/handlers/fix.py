@@ -1,9 +1,17 @@
 """User-scoped conversational repairs on every chat transport (#1778).
 
-An explicit /fix with a model upload starts a confined workspace. The same
-user's follow-up messages in the same chat/thread operate on that workspace.
-Acceptance re-enters the existing model intake, including normal slice and
-confirmation gates. No synthetic acceptance bypasses those gates.
+An explicit /fix with a model upload, a repair request ("fix this") sent with
+a model upload, or the "Work on this with AI" offer after a failed slice
+starts a confined workspace. The same user's follow-up messages in the same
+chat/thread operate on that workspace. Acceptance re-enters the existing
+model intake, including normal slice and confirmation gates. No synthetic
+acceptance bypasses those gates.
+
+Everything else falls through to the later handlers: a question about a
+defect, a request about the printer, and a plain "fix this" about the
+channel's current job (the #978 chat repair in edit_chat) are not claimed.
+Every model call passes the [ai] allowlist and hourly limit first
+(``ai_fix.lane_allowed``).
 """
 import asyncio
 import json
@@ -19,12 +27,48 @@ from ... import ai_routes, settings
 
 logger = logging.getLogger(__name__)
 
+# Marks the intake the acceptance re-enters with the repaired copy, so a
+# failed slice there is reported to the open session instead of offering a
+# second one (#1778 review).
+REENTRY_FLAG = 'fix_session_reentry'
+
+
+def _is_command(text):
+    stripped = str(text or '').strip()
+    return stripped == '/fix' or stripped.startswith('/fix ')
+
 
 def _is_start(text):
+    """/fix, the offer's label typed back, or a #978 repair request (#985 guards kept)."""
     stripped = str(text or '').strip()
-    return (stripped == '/fix' or stripped.startswith('/fix ')
+    return (_is_command(stripped)
             or stripped == fix_session.WORK_WITH_AI_LABEL
             or fix_session.is_fix_instruction(stripped))
+
+
+def _lane(source, *, record):
+    """(allowed, reason) under the [ai] allowlist and hourly limit (#902).
+
+    ``record`` is true only right before a model call, so an offer or a
+    session start never spends one of the user's hourly calls.
+    """
+    from print_handy.core import ai_fix
+    try:
+        return ai_fix.lane_allowed(str(getattr(source, 'user_id', '') or ''), record=record)
+    except Exception:  # noqa: BLE001 - a broken lane check refuses, never sends
+        logger.exception('AI lane check failed for a repair session')
+        return False, 'the AI access check failed'
+
+
+def _parse_plan(answer):
+    """The model's JSON plan, tolerating a fenced ```json block around it."""
+    text = str(answer or '').strip()
+    if text.startswith('```'):
+        lines = text.splitlines()[1:]
+        if lines and lines[-1].strip().startswith('```'):
+            lines = lines[:-1]
+        text = '\n'.join(lines).strip()
+    return json.loads(text)
 
 
 def _source_file(event):
@@ -91,7 +135,7 @@ def _complete(session, message, tools):
             messages.append({'role': item['role'], 'content': str(item.get('content') or '')[:3000]})
     messages.append({'role': 'user', 'content': message})
     answer, _served_by = ai_routes.call('heavy', messages, max_tokens=900)
-    return json.loads(answer)
+    return _parse_plan(answer)
 
 
 async def _send(adapter, source, text):
@@ -134,7 +178,7 @@ async def _accept_locked(event, gateway, adapter, session):
         synthetic = SimpleNamespace(
             source=source, text='', media_urls=[str(session.current_file)],
             internal=False, message_id=f'fix-intake-{session.started_at}',
-            metadata={})
+            metadata={REENTRY_FLAG: True})
         result = await model_link_dispatch(synthetic, gateway)
         reason = result.get('reason') if isinstance(result, dict) else None
         if reason not in ('sliced and start handled by button flow',
@@ -162,9 +206,16 @@ async def offer_failed_intake(event, gateway, adapter):
     archived job is never treated as the source of a repair. This uses the
     same adapter confirmation UI on Discord, Telegram, Matrix and Web chat.
     """
+    if (getattr(event, 'metadata', None) or {}).get(REENTRY_FLAG):
+        # The acceptance's own re-entered intake: its failure is reported to
+        # the open session, never answered with a second session.
+        return None
     if not ai_routes.ready('heavy') or _source_file(event) is None:
         return None
     source = event.source
+    allowed, _why = _lane(source, record=False)
+    if not allowed:
+        return None
     metadata = {'thread_id': source.thread_id} if getattr(source, 'thread_id', None) else None
     live_key = (gateway._session_key_for_source(source)
                 if hasattr(gateway, '_session_key_for_source') else None)
@@ -198,49 +249,96 @@ async def fix_dispatch(event, gateway, **_kwargs):
     text = str(getattr(event, 'text', '') or '').strip()
     session = fix_session.get_session(str(source.user_id), str(source.chat_id),
                                       getattr(source, 'thread_id', None))
-    starting = _is_start(text)
-    if session is None and not starting:
-        return None
+    if session is None:
+        return await _maybe_start(event, gateway, source, text)
     # Commands for other features and unrelated new model uploads are always
     # left to their existing handlers, even while this conversation is open.
-    if session is not None and text.startswith('/') and not text.startswith('/fix'):
+    if text.startswith('/') and not _is_command(text):
         return None
-    if session is not None and not starting and _source_file(event) is not None:
+    if not _is_start(text) and _source_file(event) is not None:
         return None
     adapter = _adapter_for(gateway, source)
     if adapter is None:
         return None
-    if session is None:
-        if not ai_routes.ready('heavy'):
-            await _send(adapter, source, 'The repair AI is not configured. Nothing was changed.')
-            return {'action': 'skip', 'reason': 'repair AI unavailable'}
-        try:
-            session = await asyncio.to_thread(_new_session, event)
-        except Exception:
-            logger.exception('repair intake source could not be prepared')
-            await _send(adapter, source, 'That file could not be prepared for repair. '
-                        'Nothing was changed or printed.')
-            return {'action': 'skip', 'reason': 'repair setup failed'}
-        if session is None:
-            await _send(adapter, source, 'Attach one STL or 3MF file with /fix to start '
-                        'a private repair session.')
-            return {'action': 'skip', 'reason': 'repair needs a model'}
-        await _send(adapter, source, fix_session.SESSION_START
-                    + ' Describe the repair, then type accept or cancel.')
-        return {'action': 'skip', 'reason': 'repair session started'}
-    if text.lower() in fix_session._ACCEPT:
+    low = text.lower()
+    if low in fix_session._ACCEPT:
         return await _accept(event, gateway, adapter, session)
-    if text.lower() in fix_session._CANCEL:
+    # Never wait on the session lock from a worker thread: the acceptance holds
+    # it across a whole intake, and the default executor is shared with intake.
+    if session.lock.locked():
+        await _send(adapter, source, fix_session.BUSY_REPLY)
+        return {'action': 'skip', 'reason': 'repair step still running'}
+    if low in fix_session._CANCEL:
         output = await asyncio.to_thread(
             fix_session.process_turn, session, text, ai_complete=lambda *_: None)
-    elif starting and text == '/fix':
+    elif text == '/fix':
         await _send(adapter, source, 'A repair session is open. Describe the change, '
                     'or type accept or cancel.')
         return {'action': 'skip', 'reason': 'repair session status'}
     else:
-        output = await asyncio.to_thread(
-            fix_session.process_turn, session, text, ai_complete=_complete)
+        return await _turn(adapter, source, session, text)
     await _send(adapter, source, output['reply'])
+    if output.get('busy'):
+        return {'action': 'skip', 'reason': 'repair step still running'}
+    return {'action': 'skip', 'reason': 'repair session handled'}
+
+
+async def _maybe_start(event, gateway, source, text):
+    """Start a session on /fix, or on a repair request sent with one model file.
+
+    Anything else returns None so the later handlers run: with no model
+    attached a "fix this" is the #978 chat repair of the channel's current
+    job, and with the AI not ready only /fix answers (to say so).
+    """
+    if not _is_command(text):
+        if not _is_start(text) or not ai_routes.ready('heavy') or _source_file(event) is None:
+            return None
+    adapter = _adapter_for(gateway, source)
+    if adapter is None:
+        return None
+    if not ai_routes.ready('heavy'):
+        await _send(adapter, source, 'The repair AI is not configured. Nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair AI unavailable'}
+    allowed, why = _lane(source, record=False)
+    if not allowed:
+        await _send(adapter, source, f'No AI repair session was started ({why}). '
+                    'Nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair: ' + why}
+    try:
+        session = await asyncio.to_thread(_new_session, event)
+    except Exception:
+        logger.exception('repair intake source could not be prepared')
+        await _send(adapter, source, 'That file could not be prepared for repair. '
+                    'Nothing was changed or printed.')
+        return {'action': 'skip', 'reason': 'repair setup failed'}
+    if session is None:
+        await _send(adapter, source, 'Attach one STL or 3MF file with /fix to start '
+                    'a private repair session.')
+        return {'action': 'skip', 'reason': 'repair needs a model'}
+    await _send(adapter, source, fix_session.SESSION_START
+                + ' Describe the repair, then type accept or cancel.')
+    # The request that started the session ("fix this", "/fix sink it 1 mm")
+    # is its first turn, not dropped (#1778 review).
+    instruction = text[len('/fix'):].strip() if _is_command(text) else text
+    if instruction == fix_session.WORK_WITH_AI_LABEL:
+        instruction = ''
+    if instruction:
+        await _turn(adapter, source, session, instruction)
+    return {'action': 'skip', 'reason': 'repair session started'}
+
+
+async def _turn(adapter, source, session, text):
+    """One model turn under the [ai] allowlist and hourly limit; the reply is posted."""
+    allowed, why = _lane(source, record=True)
+    if not allowed:
+        await _send(adapter, source, f'No AI repair step was requested ({why}). '
+                    'Nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair: ' + why}
+    output = await asyncio.to_thread(
+        fix_session.process_turn, session, text, ai_complete=_complete)
+    await _send(adapter, source, output['reply'])
+    if output.get('busy'):
+        return {'action': 'skip', 'reason': 'repair step still running'}
     return {'action': 'skip', 'reason': 'repair session handled'}
 
 
