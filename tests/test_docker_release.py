@@ -176,7 +176,7 @@ mv dot-config .config
                 with self.subTest(setting=f"{section}.{key}"):
                     self.assertRegex(ENV_EXAMPLE, rf"(?m)^#? ?{env_name(section, key)}=")
 
-    def test_every_documented_env_name_is_accepted_by_the_loader(self):
+    def test_every_documented_env_name_is_valid_or_explicitly_retired(self):
         names = set()
         for path in DEPLOYMENT_FILES:
             names |= set(re.findall(r"PRINT_HANDY__[A-Z0-9_]+__[A-Z0-9_]+", (ROOT / path).read_text()))
