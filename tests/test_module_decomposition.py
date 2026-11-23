@@ -1,10 +1,8 @@
-"""The #1323 module decomposition: old import paths, patch forwarding, no new import cycles.
+"""The #1323 module decomposition after the 2.4.0 re-export shim is gone.
 
-Code moved out of ``print_handy.core.model_job`` keeps its old import path for
-one release. The old module re-exports every moved name and forwards
-assignments (``mock.patch``, ``monkeypatch.setattr``) to the new home, so a
-caller or test that patches the old path still changes what the moved code
-sees. The modules the decomposition adds sit in no import cycle.
+Moved code lives in its new module. ``print_handy.core.model_job`` no longer
+re-exports those names or forwards patches onto them. The new modules still
+must not form an import cycle or import the modules they were cut from.
 """
 import ast
 import importlib
@@ -13,13 +11,12 @@ from unittest import mock
 
 import pytest
 
-from print_handy import _relocated
 from print_handy.core import model_job
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "print_handy"
 
-# Each new home and the old module that still answers for its names.
+# Each new home and the old module that used to re-export it.
 HOMES = {
     "print_handy.gcode.bounds": "print_handy.core.model_job",
     "print_handy.gcode.verify": "print_handy.core.model_job",
@@ -40,12 +37,11 @@ HOMES = {
     "print_handy.intake.fit_flow": "print_handy.core.prepared_intake",
 }
 # Packages and modules the decomposition adds: none may sit in an import cycle.
-NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy.intake", "print_handy.bot.handlers",
-               "print_handy._relocated")
+NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy.intake", "print_handy.bot.handlers")
 
 
 def _moved_names(old, home):
-    """Names the old module imports from ``home`` in its re-export block."""
+    """Names the old module still imports from ``home`` because it calls them."""
     tree = ast.parse(Path(importlib.import_module(old).__file__).read_text(encoding="utf-8"))
     names = []
     for node in tree.body:
@@ -56,96 +52,50 @@ def _moved_names(old, home):
     return names
 
 
+def test_the_relocated_forwarding_shim_is_gone():
+    with pytest.raises(ImportError):
+        importlib.import_module("print_handy._relocated")
+
+
 @pytest.mark.parametrize("home", sorted(HOMES))
-def test_every_moved_name_is_the_same_object_on_the_old_path(home):
+def test_a_name_the_old_module_still_imports_is_the_same_object(home):
+    """An empty import list is the shim being gone. A leftover import must not be a copy."""
     old = importlib.import_module(HOMES[home])
     new = importlib.import_module(home)
-    names = _moved_names(HOMES[home], home)
-    assert names, f"{HOMES[home]} re-exports nothing from {home}"
-    for name in names:
+    for name in _moved_names(HOMES[home], home):
         assert getattr(old, name) is getattr(new, name), name
 
 
-def test_from_import_on_the_old_path_still_works():
-    from print_handy.core.model_job import (  # noqa: F401
-        BOUNDS_CACHE, file_sha256, gcode_motion_bounds, request_json, verify_gcode, zmod_md5_valid)
-
-
-def test_patching_the_old_path_reaches_the_moved_code(tmp_path):
-    from print_handy.gcode import bounds, verify
-    from print_handy.jobs import common
-    with mock.patch.object(model_job, "BOUNDS_CACHE", tmp_path):
-        assert bounds.BOUNDS_CACHE == tmp_path
-    assert bounds.BOUNDS_CACHE is model_job.BOUNDS_CACHE != tmp_path
-    fake = mock.Mock(return_value={"result": {}})
-    with mock.patch.object(model_job, "_mr", fake):
-        assert verify._mr is fake and common._mr is fake
-    assert verify._mr is common._mr is model_job._mr is not fake
-
-
-def test_monkeypatch_on_the_old_path_reaches_the_moved_code(monkeypatch):
-    from print_handy.jobs import common
-    sentinel = object()
-    monkeypatch.setattr(model_job, "request_json", sentinel)
-    assert common.request_json is sentinel
-    monkeypatch.undo()
-    assert common.request_json is model_job.request_json is not sentinel
-
-
-def test_live_state_reads_and_writes_the_new_home():
+def test_bounds_helpers_are_not_reexported_from_model_job():
     from print_handy.gcode import bounds
-    assert "_native_bounds_broken" not in vars(model_job)
-    with mock.patch.object(model_job, "_native_bounds_broken", True):
-        assert bounds._native_bounds_broken is True and model_job._native_bounds_broken is True
-    assert bounds._native_bounds_broken is model_job._native_bounds_broken
-    model_job._reset_native_bounds_cache()
-    assert model_job._native_bounds_broken is False
+    assert callable(bounds.gcode_motion_bounds)
+    for name in ("BOUNDS_CACHE", "gcode_motion_bounds", "file_sha256", "verify_gcode", "zmod_md5_valid"):
+        assert not hasattr(model_job, name), name
 
 
-def test_an_unrelated_name_with_another_value_is_not_forwarded():
-    import types
-    old, home = types.ModuleType("old_x"), types.ModuleType("home_x")
-    old.shared = home.shared = object()
-    old.mine, home.mine = 1, 2
-    import sys
-    sys.modules["old_x"] = old
-    try:
-        _relocated.keep_old_path("old_x", home)
-        old.shared = "patched"
-        old.mine = 3
-        assert home.shared == "patched" and home.mine == 2
-    finally:
-        del sys.modules["old_x"]
+def test_patching_model_job_does_not_reach_the_moved_bounds_module():
+    from print_handy.gcode import bounds
+    original = bounds.BOUNDS_CACHE
+    with mock.patch.object(bounds, "BOUNDS_CACHE", object()):
+        assert not hasattr(model_job, "BOUNDS_CACHE")
+        assert bounds.BOUNDS_CACHE is not original
+    assert bounds.BOUNDS_CACHE is original
 
 
-def test_patching_a_start_gate_on_the_old_path_steers_print_now(monkeypatch):
-    """The gate seams tests and callers patch on model_job still reach the moved start path."""
-    from print_handy.launch import gates, print_now
-    refuse = mock.Mock(side_effect=RuntimeError("bed clear refused"))
-    monkeypatch.setattr(model_job, "_claim_bed_clear", refuse)
-    assert gates._claim_bed_clear is refuse and print_now._claim_bed_clear is refuse
-    monkeypatch.setattr(model_job, "verify_gcode", mock.Mock())
-    from print_handy.gcode import verify
-    assert verify.verify_gcode is model_job.verify_gcode
-
-
-def test_patching_prepared_intake_reaches_the_moved_intake_flows(monkeypatch):
+def test_patching_prepared_intake_does_not_forward_to_intake_questions():
     from print_handy.core import prepared_intake
-    from print_handy.intake import fit_flow, questions, worker
-    fake_ask = mock.AsyncMock()
-    monkeypatch.setattr(prepared_intake, "ask", fake_ask)
-    assert questions.ask is fake_ask
-    monkeypatch.setattr(prepared_intake, "settings", mock.Mock())
-    assert fit_flow.settings is prepared_intake.settings and worker.settings is prepared_intake.settings
-    assert prepared_intake.supports_decision.__module__ == "print_handy.intake.support_flow"
-    assert worker.logger is prepared_intake.logger
+    from print_handy.intake import questions
+    original = questions.ask
+    with mock.patch.object(prepared_intake, "ask", mock.Mock()):
+        assert questions.ask is original
+    assert questions.ask is original
 
 
-def test_moved_code_keeps_the_model_job_logger():
+def test_moved_loggers_are_their_own():
     from print_handy.gcode import bounds
     from print_handy.jobs import store
-    from print_handy.launch import print_now
-    assert bounds.logger is store.logger is print_now.logger is model_job.logger
+    assert bounds.logger is not store.logger
+    assert bounds.logger.name == "print_handy.gcode.bounds"
 
 
 # --------------------------------------------------------------- import cycles
@@ -262,72 +212,38 @@ def test_the_cycle_finder_finds_a_cycle():
     assert _cycles({"a": {"b"}, "b": {"a"}, "c": {"a"}}) == [["a", "b"]]
 
 
-def test_moved_slice_steps_still_run_in_the_heavy_worker(monkeypatch, tmp_path):
-    """slice_job moved to jobs/slice.py; the intake still offloads it as ('model_job', 'slice_job')."""
-    import asyncio
-    import json
-    from print_handy.core import heavy_worker, owned_worker, prepared_intake
+def test_slice_job_lives_on_jobs_slice_not_model_job():
     from print_handy.jobs import slice as jobs_slice
-    assert model_job.slice_job is jobs_slice.slice_job
-    seen = {}
-
-    async def fake_run(argv, payload, **kwargs):
-        seen["request"], seen["lane"], seen["record"] = json.loads(payload), kwargs["lane"], kwargs["record"]
-        return ("\n" + json.dumps({"ok": True, "path": False, "result": "done"})).encode(), b""
-
-    async def no_thread(*args, **kwargs):
-        raise AssertionError("slicing must not run in a thread")
-
-    monkeypatch.setattr(prepared_intake.owned_worker, "run", fake_run)
-    monkeypatch.setattr(prepared_intake.owned_worker, "in_thread", no_thread)
-    job = tmp_path / "JOB.json"
-    assert asyncio.run(prepared_intake._heavy(model_job.slice_job, job)) == "done"
-    assert (seen["request"]["module"], seen["request"]["func"]) == ("model_job", "slice_job")
-    assert ("model_job", "slice_job") in heavy_worker.ALLOWED
-    assert seen["lane"] is owned_worker.SLICER
-    assert seen["record"] == tmp_path / owned_worker.RECORD
+    assert callable(jobs_slice.slice_job)
+    assert not hasattr(model_job, "slice_job")
 
 
-def test_the_old_module_still_runs_the_cli():
-    """``python3 -m print_handy.core.model_job`` is the documented command line (#1323 moved it to jobs/cli.py)."""
+def test_the_model_job_module_still_runs_as_a_command():
+    """``python3 -m print_handy.core.model_job`` stays the documented command. It is not jobs.cli.main."""
     import subprocess
     import sys
     from print_handy.jobs import cli
-    assert model_job.main is cli.main
+    assert not hasattr(model_job, "main")
+    assert callable(cli.main)
     out = subprocess.run([sys.executable, "-m", "print_handy.core.model_job", "--help"],
                          cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert "print-now" in out.stdout and "fetch" in out.stdout
 
 
-def test_site_dispatch_by_name_finds_a_function_patched_on_the_old_path(monkeypatch):
-    """inventory_for_url looks its site function up by name; patching model_job still steers it."""
+def test_maker_inventory_is_not_forwarded_from_model_job():
     from print_handy.jobs import sources
-    fake = mock.Mock(return_value="inventory")
-    monkeypatch.setattr(model_job, "maker_inventory", fake)
-    assert sources.maker_inventory is fake
-    assert model_job.inventory_for_url("https://makerworld.com/en/models/1") == "inventory"
-    fake.assert_called_once_with("https://makerworld.com/en/models/1")
+    assert callable(sources.maker_inventory)
+    assert not hasattr(model_job, "maker_inventory")
 
 
-def test_every_moved_offload_step_keeps_its_offload_name():
-    """Each ('model_job', step) the intake offloads resolves to a function whose home maps back to model_job."""
-    from print_handy.core import heavy_worker, prepared_intake
-    from print_handy.intake import worker
-    for module, name in sorted(prepared_intake._OFFLOAD):
-        if module != "model_job":
-            continue
-        func = getattr(model_job, name)
-        short = worker._OFFLOAD_HOMES.get(func.__module__, func.__module__.rsplit(".", 1)[-1])
-        assert short == "model_job", f"{name} moved to {func.__module__} without an _OFFLOAD_HOMES entry"
-        assert (module, name) in heavy_worker.ALLOWED
+def test_prepared_intake_no_longer_lists_model_job_offload_names():
+    from print_handy.core import prepared_intake
+    assert not hasattr(prepared_intake, "_OFFLOAD")
 
 
-def test_patching_the_handler_package_reaches_the_handler_that_uses_the_name(monkeypatch):
+def test_the_handler_package_does_not_reexport_routed_printer_id():
     from print_handy.bot import handlers
-    from print_handy.bot.handlers import common, print_stop
-    fake = mock.Mock()
-    monkeypatch.setattr(handlers, "_routed_printer_id", fake)
-    assert common._routed_printer_id is fake and print_stop._routed_printer_id is fake
-    assert "_LIVE_SESSION" not in vars(handlers)
-    assert handlers._LIVE_SESSION is common._LIVE_SESSION
+    from print_handy.bot.handlers import common
+    assert not hasattr(handlers, "_routed_printer_id")
+    assert hasattr(common, "_routed_printer_id")
