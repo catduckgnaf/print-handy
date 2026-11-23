@@ -164,6 +164,34 @@ def test_five_million_triangles_exceeding_old_expanded_and_xml_caps(tmp_path):
     limits.check_source(source)
 
 
+def _model_3mf(tmp_path, name, body):
+    source = tmp_path / name
+    with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('3D/3dmodel.model', b'<model><resources>' + body + b'</resources></model>')
+    return source
+
+
+def test_large_text_payload_refused_for_fallback_bound(tmp_path):
+    """Non-geometry text is bounded because the DOM fallback would hold it (#1846)."""
+    source = _model_3mf(tmp_path, 'text.3mf', b'<note>' + b'abcdefgh' * 2048 + b'</note>')
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 4096):
+        with pytest.raises(limits.IntakeLimitExceeded, match=r'text\.3mf: .*non-geometry'):
+            limits.check_source(source)
+
+
+def test_large_attribute_refused_for_fallback_bound(tmp_path):
+    body = b'<object id="1" name="' + b'abcdefgh' * 512 + b'"/>'
+    with patch.object(limits, 'MAX_XML_ATTRIBUTE_BYTES', 1024):
+        with pytest.raises(limits.IntakeLimitExceeded, match='attribute value'):
+            limits.check_source(_model_3mf(tmp_path, 'attr.3mf', body))
+
+
+def test_normal_metadata_and_indentation_allowed(tmp_path):
+    body = (b'<metadata name="Title">Benchy</metadata>\n    <object id="1"><mesh><vertices>'
+            b'<vertex x="0" y="0" z="0"/></vertices><triangles/></mesh></object>')
+    limits.check_source(_model_3mf(tmp_path, 'ok.3mf', body))
+
+
 def test_dtd_refused(tmp_path):
     source = tmp_path / 'dtd.3mf'
     with zipfile.ZipFile(source, 'w') as archive:

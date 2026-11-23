@@ -16,6 +16,7 @@ Safety limits in this revision:
 | STL file | No byte cap; triangle count (binary header, ASCII facets) under the triangle budget |
 | XML triangles / vertices | 10,000,000 each |
 | XML elements across models | 40,000,000 |
+| Non-geometry XML text and attributes | 64 MiB in total; any single attribute value at most 1 MiB (bounds the ElementTree fallback) |
 | Estimated geometry working storage | 1,536 MiB |
 
 ZIP member counts and individual plus aggregate compression ratios are checked before opening any member.

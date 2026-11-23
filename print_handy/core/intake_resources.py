@@ -25,6 +25,10 @@ MAX_ESTIMATED_GEOMETRY_BYTES = 1536 * MIB
 MAX_TRIANGLES = 10_000_000
 MAX_VERTICES = 10_000_000
 MAX_XML_ELEMENTS = 40_000_000
+# Text and attributes are not geometry, yet the ElementTree fallback holds
+# them in a DOM. Bound them even though the geometry counters do not (#1846).
+MAX_XML_ATTRIBUTE_BYTES = MIB
+MAX_XML_PAYLOAD_BYTES = 64 * MIB
 CHUNK = 64 * 1024
 # Not a model-size cap (#1824). A download of any size is kept when the
 # volume still has this much free afterwards. Crossing it refuses the
@@ -181,11 +185,31 @@ def _recorded_counts(path, model_members):
 
 def _stream_counts(archive, models, *, path=None):
     """Stream every model member's XML, refusing at the first limit crossed; returns the totals."""
-    counts = {'triangle': 0, 'vertex': 0, 'elements': 0, 'estimated_bytes': 0}
+    counts = {'triangle': 0, 'vertex': 0, 'elements': 0, 'estimated_bytes': 0,
+              'payload_bytes': 0}
+
+    def add_payload(size):
+        counts['payload_bytes'] += size
+        if counts['payload_bytes'] > MAX_XML_PAYLOAD_BYTES:
+            _refuse(f'XML text and attribute content at least {counts["payload_bytes"]:,} '
+                    f'bytes exceeds {MAX_XML_PAYLOAD_BYTES // MIB} MiB non-geometry limit',
+                    path=path)
+
+    def text(data):
+        # Indentation between elements is harmless and common; other text
+        # is non-geometry content a DOM fallback would have to hold.
+        if data.strip():
+            add_payload(len(data.encode('utf-8', 'surrogatepass')))
 
     def start(name, attrs):
         local = name.rsplit('}', 1)[-1]
         counts['elements'] += 1
+        for value in attrs.values():
+            if len(value) > MAX_XML_ATTRIBUTE_BYTES:
+                _refuse(f'an XML attribute value exceeds {MAX_XML_ATTRIBUTE_BYTES // MIB} MiB '
+                        'limit', path=path)
+        if local not in ('triangle', 'vertex'):
+            add_payload(sum(len(k) + len(v) for k, v in attrs.items()))
         if counts['elements'] > MAX_XML_ELEMENTS:
             _refuse(f'XML element count at least {counts["elements"]:,} exceeds '
                     f'{MAX_XML_ELEMENTS:,} limit', path=path)
@@ -211,6 +235,7 @@ def _stream_counts(archive, models, *, path=None):
     for member in models:
         parser = xml.parsers.expat.ParserCreate(namespace_separator='}')
         parser.StartElementHandler = start
+        parser.CharacterDataHandler = text
         parser.StartDoctypeDeclHandler = doctype
         with archive.open(member) as source:
             while chunk := source.read(CHUNK):
