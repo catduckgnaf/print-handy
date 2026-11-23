@@ -95,7 +95,11 @@ def test_u1_slice_model_preparation_completes_without_a_spool_color(tmp_path):
 
     adapter = adapter_for("snapmaker.u1")
     hardware = Path(__file__).parent.parent / "pipeline" / "fixtures" / "printer_hardware.json"
-    with mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(hardware)}):
+    with mock.patch.object(model_job.printer_state, "STATE_ROOT", str(tmp_path / "state-root")), \
+            mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": ""}):
+        record = model_job.printer_state.state_path()
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_bytes(hardware.read_bytes())
         state = copy.deepcopy(model_job.printer_state.load())
     state["filament_slots"] = {}
     state["spool"].update(material="PLA", density=1.24, color_code=None, color=None)

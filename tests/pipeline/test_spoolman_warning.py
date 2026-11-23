@@ -32,7 +32,8 @@ def test_live_check_spoolman_offline_is_warning_not_fatal(monkeypatch):
 
     monkeypatch.setattr(printer_state, "_get", get)
     monkeypatch.setattr(spoolman_client, "request", spoolman_down)
-    monkeypatch.setenv("PRINTER_HARDWARE_STATE", "/nonexistent-for-check")
+    monkeypatch.setattr(printer_state, "STATE_ROOT", "/nonexistent-for-check")
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
     state = {
         "moonraker_url": "http://printer.test", "spoolman_url": "http://configured-spoolman",
         "nozzle": {"diameter_mm": 0.4},
