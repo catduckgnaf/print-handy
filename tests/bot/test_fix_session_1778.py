@@ -348,3 +348,49 @@ def test_fix_handler_does_not_accept_a_repaired_file_when_intake_refuses(tmp_pat
     assert not session.accepted and session.active()
     assert Path(json.loads(job_path.read_text())['downloaded_file']).resolve() == stl.resolve()
     assert messages and 'not accepted' in messages[-1]
+
+
+def test_failed_uploaded_model_offers_repair_then_starts_scoped_session(tmp_path, monkeypatch):
+    from print_handy.bot.handlers import fix as handler
+    from print_handy.bot.handlers import common, model_link
+
+    _folder, job_path, stl = _workspace(tmp_path)
+    source = SimpleNamespace(user_id='owner', chat_id='private', thread_id='thread')
+    event = SimpleNamespace(source=source, text='', media_urls=[str(stl)])
+    gateway = SimpleNamespace(_session_key_for_source=lambda _source: 'key')
+    sent = []
+
+    class Adapter:
+        async def send(self, **kwargs):
+            sent.append(kwargs['content'])
+
+    choices = []
+
+    async def choice(adapter, src, metadata, kind, prompt, labels, timeout, **kwargs):
+        choices.append((kind, labels))
+        return fix_session.WORK_WITH_AI_LABEL
+
+    monkeypatch.setattr(handler.ai_routes, 'ready', lambda _tier: True)
+    monkeypatch.setattr(handler, '_source_file', lambda _event: stl)
+    monkeypatch.setattr(handler, '_new_session',
+                        lambda _event: fix_session.start_session('owner', 'private', 'thread',
+                                                                  job_path, stl))
+    monkeypatch.setattr(common, '_confirm', choice)
+    result = asyncio.run(handler.offer_failed_intake(event, gateway, Adapter()))
+    assert result['reason'] == 'repair session started after slice refusal'
+    assert choices[0][1][0] == fix_session.WORK_WITH_AI_LABEL
+    assert fix_session.get_session('owner', 'private', 'thread') is not None
+    assert sent and 'until you accept or cancel' in sent[-1]
+    assert 'offer_failed_intake(event, gateway, adapter)' in (
+        __import__('inspect').getsource(model_link.model_link_dispatch))
+
+
+def test_failed_intake_never_offers_an_unavailable_original_or_unconfigured_ai(tmp_path, monkeypatch):
+    from print_handy.bot.handlers import fix as handler
+    source = SimpleNamespace(user_id='owner', chat_id='private', thread_id='thread')
+    event = SimpleNamespace(source=source, text='', media_urls=[])
+    monkeypatch.setattr(handler.ai_routes, 'ready', lambda _tier: False)
+    monkeypatch.setattr(handler, '_source_file', lambda _event: None)
+    result = asyncio.run(handler.offer_failed_intake(event, SimpleNamespace(), None))
+    assert result is None
+    assert not fix_session._SESSIONS
