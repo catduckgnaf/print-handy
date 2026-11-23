@@ -32,7 +32,7 @@ from .threemf_canonical import intake_working_copy
 logger = logging.getLogger(__name__)
 
 from ..launch.print_now import (  # moved in 2.3.0 (#1323); old path kept for one release
-    BAMBU_START_CONFIRM_S, BAMBU_START_POLL_S, INTAKE_RECEIPTS, MAP_PREFIX, START_CLAIMS,
+    BAMBU_START_CONFIRM_S, BAMBU_START_POLL_S, INTAKE_RECEIPTS, START_CLAIMS,
     START_CLAIM_TTL_S, START_CONFIRM_DEFAULT_S, START_CONFIRM_POLL_S, START_OUTCOME_MARK,
     START_READBACK_QUERY, StartPoll, ToolRemapRefused, Z_OFFSET_NOTICE, _FILAMENT_COLOUR_RE,
     _OUTCOME_KEYS, _RECEIPT_STARTABLE_STATUSES, _announce_polled_outcome, _announce_print_name,

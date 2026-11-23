@@ -11,10 +11,14 @@ import copy
 import json
 import os
 import shutil
+import logging
+import tempfile
 import time
 from pathlib import Path
 
 from . import owned_worker, slice_recipe
+
+logger = logging.getLogger(__name__)
 
 # The JOB.json fields a slice commits (the set model_job's decision changes
 # retire into artifact_history, plus the derived-plate and check records).
@@ -57,6 +61,7 @@ class BackgroundSlice:
         self.supports_error = None
         self.supports_coverage = None
         self.supports_coverage_identity = None
+        self.variant = None  # isolated folder of a concurrent supports slice (#1779)
         self.flagged = False
         self.finding = None
         self.clearance = None
@@ -101,6 +106,7 @@ class BackgroundSlice:
         self.supports_error = None
         self.supports_coverage = None
         self.supports_coverage_identity = None
+        self.variant = None
         self.flagged = False
         self.finding = None
         self.clearance = None
@@ -108,9 +114,76 @@ class BackgroundSlice:
         self.flag_decided = asyncio.Event()
         self.task = asyncio.get_running_loop().create_task(self._run(slice_func))
 
+    def _variant_dir(self):
+        return Path(self.job_path).parent / 'variant_supports'
+
+    def _prepare_variant(self, job_data):
+        """A private job folder (own JOB.json, own sliced/) for the with-supports slice (#1779).
+
+        Returns (variant JOB.json path, the job with the speculative decision, its binding).
+        The supports slice writes only here, so it can run beside the first slice; take_supports
+        adopts the result into the intake folder.
+        """
+        from . import model_job
+        sup_job = copy.deepcopy(job_data)
+        sup_job['support_decision'] = {'supports': True, 'by': 'speculative_intake'}
+        folder = self._variant_dir()
+        shutil.rmtree(folder, ignore_errors=True)
+        folder.mkdir(parents=True)
+        self.variant = folder
+        target = folder / 'JOB.json'
+        target.write_text(json.dumps(sup_job, indent=2) + "\n")
+        src_sha = (sup_job.get('color_manifest') or {}).get('source_sha256') or (
+            sup_job.get('downloaded_file') and Path(sup_job['downloaded_file']).is_file() and
+            model_job.file_sha256(sup_job['downloaded_file']))
+        return target, sup_job, slice_binding(sup_job, src_sha)
+
+    def _start_supports(self, slice_func, job_path, sup_job, sup_binding, copy_to_main=True):
+        """Create the with-supports slice task; ``job_path`` is the JOB.json it slices."""
+        import inspect
+        from . import slice_recipe
+        self.supports_binding = sup_binding
+        kw = {}
+        sig = inspect.signature(slice_func)
+        if any(p.kind == p.VAR_KEYWORD or p.name == 'recipe_sha256' for p in sig.parameters.values()):
+            kw['recipe_sha256'] = slice_recipe.binding_sha256(sup_binding)
+
+        async def slice_and_check():
+            try:
+                self.supports_result = await slice_func(str(job_path), Path(job_path).parent / 'sliced', self, **kw)
+                self.job_with_supports = _read_job(job_path)
+            finally:
+                self._merge_variant_timing(job_path)
+            if self.job_with_supports is not None:
+                await self._verify_supports_coverage()
+
+        self.supports_task = asyncio.ensure_future(slice_and_check())
+        return self.supports_task
+
+    def _merge_variant_timing(self, job_path):
+        """Append the isolated slice's TIMING.jsonl lines to the intake's, tagged by variant."""
+        if Path(job_path).parent == Path(self.job_path).parent:
+            return
+        try:
+            lines = (Path(job_path).parent / 'TIMING.jsonl').read_text().splitlines()
+            with (Path(self.job_path).parent / 'TIMING.jsonl').open('a') as out:
+                for line in lines:
+                    row = json.loads(line)
+                    row['variant'] = 'supports'
+                    out.write(json.dumps(row) + "\n")
+        except (OSError, ValueError):
+            logger.debug('variant timing was not merged', exc_info=True)
+
     async def _run(self, slice_func):
         self.started.set()
         await self.release.wait()
+        # The with-supports slice starts beside the first slice when the geometry report already
+        # flags the model and this host may run two slicers (#1779). It works in a private folder.
+        concurrent = None
+        try:
+            concurrent = self._maybe_start_concurrent(slice_func)
+        except Exception:  # noqa: BLE001 - the sequential path below still runs the slice
+            logger.warning('concurrent supports slice not started; slicing in turn', exc_info=True)
         # discard() cancels this task. Pass the cancel on to the slice and wait until it has
         # settled: a child process is stopped and reaped (owned_worker), a thread (tests) cannot
         # be stopped and is waited for. Otherwise a write could land after discard deletes it.
@@ -120,9 +193,11 @@ class BackgroundSlice:
         except asyncio.CancelledError:
             work.cancel()
             await owned_worker.settle(work)
+            await self._stop_concurrent(concurrent)
             raise
         except Exception as exc:  # the caller decides whether a failed early slice is fatal
             self.error = exc
+            await self._stop_concurrent(concurrent)
             self.flag_decided.set()
             return
         finally:
@@ -131,6 +206,7 @@ class BackgroundSlice:
 
         job_data = _read_job(self.job_path)
         if job_data is None:
+            await self._stop_concurrent(concurrent)
             self.flag_decided.set()
             return
         self.job_no_supports = copy.deepcopy(job_data)
@@ -151,51 +227,123 @@ class BackgroundSlice:
         self.clearance = clearance
         self.first_slice_done.set()
         if not is_flagged:
+            await self._stop_concurrent(concurrent)
             self.flag_decided.set()
+            return
 
-        if is_flagged:
-            try:
-                import inspect
-                from . import slice_recipe, model_job
-                sup_job = copy.deepcopy(job_data)
-                sup_job['support_decision'] = {'supports': True, 'by': 'speculative_intake'}
-                if self.job_path is not None:
-                    target = Path(self.job_path)
-                    target.write_text(json.dumps(sup_job, indent=2) + "\n")
-
-                src_sha = (sup_job.get('color_manifest') or {}).get('source_sha256') or (
-                    sup_job.get('downloaded_file') and Path(sup_job['downloaded_file']).is_file() and
-                    model_job.file_sha256(sup_job['downloaded_file'])
-                )
-                sup_binding = slice_binding(sup_job, src_sha)
-                sup_recipe_sha = slice_recipe.binding_sha256(sup_binding)
-                self.supports_binding = sup_binding
-
-                kw = {}
-                sig = inspect.signature(slice_func)
-                if any(p.kind == p.VAR_KEYWORD or p.name == 'recipe_sha256' for p in sig.parameters.values()):
-                    kw['recipe_sha256'] = sup_recipe_sha
-
-                async def slice_and_check():
-                    self.supports_result = await slice_func(self.job_path, self.work, self, **kw)
-                    self.job_with_supports = _read_job(self.job_path)
-                    if self.job_with_supports is not None:
-                        await self._verify_supports_coverage()
-
-                sup_work = asyncio.ensure_future(slice_and_check())
-                self.supports_task = sup_work
+        try:
+            if concurrent is not None:
+                self.flag_decided.set()
+                try:
+                    await asyncio.shield(concurrent)
+                    if self.supports_result is not None:
+                        return
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 - redo it in turn on the first slice's own record
+                    logger.warning('concurrent supports slice failed; slicing it again in turn', exc_info=True)
+                    self._reset_supports()
+            if self.job_path is not None and self.supports_task is None:
+                sup_path, sup_job, sup_binding = self._prepare_variant(job_data) if concurrent is not None \
+                    else (None, None, None)
+                if sup_path is None:  # the long-standing path: the same folder and JOB.json, in turn
+                    from . import model_job
+                    sup_job = copy.deepcopy(job_data)
+                    sup_job['support_decision'] = {'supports': True, 'by': 'speculative_intake'}
+                    Path(self.job_path).write_text(json.dumps(sup_job, indent=2) + "\n")
+                    src_sha = (sup_job.get('color_manifest') or {}).get('source_sha256') or (
+                        sup_job.get('downloaded_file') and Path(sup_job['downloaded_file']).is_file() and
+                        model_job.file_sha256(sup_job['downloaded_file']))
+                    sup_binding, sup_path = slice_binding(sup_job, src_sha), self.job_path
+                sup_work = self._start_supports(slice_func, sup_path, sup_job, sup_binding)
                 self.flag_decided.set()
                 await asyncio.shield(sup_work)
+        except asyncio.CancelledError:
+            if self.supports_task and not self.supports_task.done():
+                self.supports_task.cancel()
+                await owned_worker.settle(self.supports_task)
+            raise
+        except Exception as exc:
+            self.supports_error = exc
+        finally:
+            self.flag_decided.set()
+            self._write_slice_job(self.job_no_supports)
+
+    def _maybe_start_concurrent(self, slice_func):
+        from . import preview_parallel, support_clearance
+        if not preview_parallel.enabled():
+            return None
+        job_data = _read_job(self.job_path)
+        if job_data is None or not support_clearance.risky(job_data.get('support_clearance')):
+            return None  # only an Orca warning could flag it: known after the first slice
+        sup_path, sup_job, sup_binding = self._prepare_variant(job_data)
+        return self._start_supports(slice_func, sup_path, sup_job, sup_binding)
+
+    def _reset_supports(self):
+        self.supports_task = None
+        self.supports_result = None
+        self.supports_binding = None
+        self.job_with_supports = None
+        self.supports_coverage = None
+        self.supports_coverage_identity = None
+        shutil.rmtree(self.variant, ignore_errors=True) if self.variant else None
+        self.variant = None
+
+    async def _stop_concurrent(self, task):
+        if task is None:
+            return
+        if task.done():
+            # Already finished: nothing to cancel, but its private folder must not outlive the
+            # first slice's verdict, and a failure is consumed and logged here.
+            if not task.cancelled() and task.exception() is not None:
+                logger.debug('finished concurrent supports slice had failed', exc_info=task.exception())
+        else:
+            task.cancel()
+            try:
+                await owned_worker.settle(task)
             except asyncio.CancelledError:
-                if self.supports_task and not self.supports_task.done():
-                    self.supports_task.cancel()
-                    await owned_worker.settle(self.supports_task)
-                raise
-            except Exception as exc:
-                self.supports_error = exc
-            finally:
-                self.flag_decided.set()
-                self._write_slice_job(self.job_no_supports)
+                logger.debug('concurrent supports slice cancelled')
+            except Exception:  # noqa: BLE001 - the stopped slice's failure is logged, then reset below
+                logger.debug('stopped concurrent supports slice raised', exc_info=True)
+        self._reset_supports()
+
+    def _adopt_variant(self):
+        """Move an isolated supports slice into the intake folder and rebase its recorded paths."""
+        folder, self.variant = self.variant, None
+        if folder is None:
+            return
+        if self.job_with_supports is None:  # the supports slice failed: leave no partial outputs
+            shutil.rmtree(folder, ignore_errors=True)
+            return
+        old_root = str(folder)
+        # Never publish into the first slice's namespace. Both slices can emit
+        # the same filename, and the supports review binds to the supports bytes.
+        new_root = tempfile.mkdtemp(prefix='adopted_supports_', dir=Path(self.job_path).parent)
+        moved = []
+
+        def rebase(value):
+            if isinstance(value, dict):
+                return {k: rebase(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [rebase(v) for v in value]
+            if isinstance(value, tuple):
+                return tuple(rebase(v) for v in value)
+            if isinstance(value, Path):
+                return Path(rebase(str(value)))
+            if isinstance(value, str) and value.startswith(old_root + os.sep):
+                moved.append((value, new_root + value[len(old_root):]))
+                return moved[-1][1]
+            return value
+
+        job = rebase(self.job_with_supports)
+        result = rebase(self.supports_result)
+        for src, dest in dict.fromkeys(moved):
+            if Path(src).is_file():
+                Path(dest).parent.mkdir(parents=True, exist_ok=True)
+                os.replace(src, dest)
+        self.job_with_supports = job
+        self.supports_result = result
+        shutil.rmtree(folder, ignore_errors=True)
 
     async def _verify_supports_coverage(self):
         """Verify preview G-code in the bounded worker; keep failures explicitly unverified."""
@@ -314,11 +462,14 @@ class BackgroundSlice:
             # suppress kept with reason (#1455): see settle().
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
-        if self.supports_task is not None:
-            # suppress kept with reason (#1455): see settle() — the outcome is
-            # read from self.supports_error / self.supports_result.
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.supports_task
+        try:
+            if self.supports_task is not None:
+                # suppress kept with reason (#1455): see settle() — the outcome is
+                # read from self.supports_error / self.supports_result.
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self.supports_task
+        finally:  # a failed supports slice raises above; its private folder must not outlive it
+            self._adopt_variant()
         self._write_slice_job(self.job_with_supports, default_supports=True)
         return self.supports_result
 
@@ -352,6 +503,9 @@ class BackgroundSlice:
             # suppress kept with reason (#1455): cancelled by us just above.
             with contextlib.suppress(asyncio.CancelledError):
                 await sup_task
+        if self.variant is not None:  # the isolated supports slice leaves nothing behind
+            shutil.rmtree(self.variant, ignore_errors=True)
+            self.variant = None
         if self.work is not None:  # a discarded slice leaves no G-code behind
             if self.before is None:
                 shutil.rmtree(self.work, ignore_errors=True)

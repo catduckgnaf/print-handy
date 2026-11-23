@@ -1,12 +1,11 @@
 """Checksum-bound per-tool material contract, shared by finalization and launch."""
 import hashlib
-import json
 import os
 from pathlib import Path
 import re
 
-# The G-code tool map anchor. Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
-MAP_PREFIX = '; hermes_tool_slots = '
+from ....gcode import tool_map
+
 # Matched against every line of the plate, so compiled once.
 TOOL_LINE = re.compile(r'T(\d+)(?:\s*;.*)?')
 HEATER_TOOL_LINE = re.compile(r'M10[49].*\bT(\d+)\b.*')
@@ -36,6 +35,50 @@ def _first_line_match(text, pattern, literal):
     return None
 
 
+def _line_at(text, pos):
+    """The line of text holding offset pos, without its line break (a CR before the LF dropped)."""
+    start = text.rfind('\n', 0, pos) + 1
+    end = text.find('\n', pos)
+    return start, (len(text) if end < 0 else end)
+
+
+def _used_tools_ascii(text):
+    """used_tools for ASCII text with only LF or CRLF breaks, found by searching instead of visiting
+    every line (#1779). A tool line is only whitespace, T and digits (and a comment); a heater line holds
+    M104 or M109. Candidates go through the same fullmatch as the line pass, so the answer is the same."""
+    tools = set()
+    tool_match = TOOL_LINE.fullmatch
+    for prefix in ('\nT', '\n ', '\n\t', '\n\x1f'):
+        at = text.find(prefix)
+        while at >= 0:
+            end = text.find('\n', at + 1)
+            m = tool_match(text[at + 1:len(text) if end < 0 else end].strip())
+            if m:
+                tools.add(int(m.group(1)))
+            at = text.find(prefix, at + 1)
+    end = text.find('\n')
+    m = tool_match((text if end < 0 else text[:end]).strip())
+    if m:
+        tools.add(int(m.group(1)))
+    if tools:
+        return tools
+    heater_tools, heater_match = set(), HEATER_TOOL_LINE.fullmatch
+    for literal in ('M104', 'M109'):
+        at = text.find(literal)
+        while at >= 0:
+            start, end = _line_at(text, at)
+            m = heater_match(text[start:end].strip())
+            if m:
+                heater_tools.add(int(m.group(1)))
+            at = text.find(literal, end + 1 if end > at else at + 1)
+    return heater_tools
+
+
+def _plain_breaks(text):
+    from .native_startup import _plain_breaks as plain
+    return plain(text)
+
+
 def used_tools(text):
     # One streaming pass over the plate (#925): the old scan paid a strip()
     # and a fullmatch() for every one of ~1.6M lines; candidate lines still
@@ -46,6 +89,8 @@ def used_tools(text):
     # declarations; that still identifies the logical tool for the explicit map.
     # Both sets come from one pass (a second pass cost 0.4 s on 25 MB, #1392):
     # the heater set is the answer only when no tool line exists.
+    if text.isascii() and _plain_breaks(text):
+        return _used_tools_ascii(text)
     tools, heater_tools = set(), set()
     tool_match, heater_match = TOOL_LINE.fullmatch, HEATER_TOOL_LINE.fullmatch
     for line in text.splitlines():
@@ -125,15 +170,13 @@ def describe_mapping(mapping, state):
 
 
 def embedded_mapping(text, state):
-    lines = [line[len(MAP_PREFIX):] for line in text.splitlines() if line.startswith(MAP_PREFIX)]
-    if not lines:
+    """The file's own tool map, validated against ``state``; None when it has none.
+
+    A file sliced before 2.4.0 carries only the old map line and is refused
+    (tool_map.StaleToolMap): reslice it."""
+    raw_mapping = tool_map.parse(text)
+    if raw_mapping is None:
         return None
-    if len(lines) != 1:
-        raise RuntimeError('duplicate tool mapping metadata')
-    try:
-        raw_mapping = json.loads(lines[0])
-    except (ValueError, TypeError) as exc:
-        raise RuntimeError('malformed tool mapping metadata') from exc
     return normalize_mapping(raw_mapping, state)
 
 
@@ -211,8 +254,8 @@ def _mapped_metadata(mapping, state):
     recorded = {}
     for tool, slot in mapping.items():
         spool_id = state['filament_slots'][str(slot)].get('spoolman_id')
-        recorded[tool] = {'physical_slot': slot, 'spoolman_id': spool_id} if spool_id is not None else slot
-    metadata = [MAP_PREFIX + json.dumps(recorded, sort_keys=True, separators=(',', ':')) + '\n']
+        recorded[tool] = tool_map.entry(slot, spool_id)
+    metadata = [tool_map.format_line(recorded) + '\n']
     from print_handy.core.filament_color import slot_hex
     for tool in sorted(map(int, mapping)):
         slot = state['filament_slots'][str(mapping[str(tool)])]
@@ -221,6 +264,26 @@ def _mapped_metadata(mapping, state):
         color = slot_hex(mapping[str(tool)], slot)
         metadata.append(f'; zmod_color_data = {tool}|{color}|{slot["material"]}\n')
     return metadata
+
+
+def _insert_metadata_untouched(text, metadata):
+    """The finalized text when no line has to be dropped, found by searching instead of visiting every line (#1779).
+
+    ASCII text with only LF or CRLF breaks that holds no zmod_color_data or map line is kept whole and the
+    metadata goes before the first header_block_end line (or the start). Anything else returns None and takes
+    the line pass, so the bytes never differ from it."""
+    if not (text.isascii() and _plain_breaks(text)):
+        return None
+    low = text.lower()
+    if 'zmod_color_data' in low or tool_map.mentions(text):
+        return None
+    at = low.find('; header_block_end')
+    while at >= 0:
+        start = text.rfind('\n', 0, at) + 1
+        if text[start:at].strip() == '':
+            return text[:start] + ''.join(metadata) + text[start:]
+        at = low.find('; header_block_end', at + 1)
+    return ''.join(metadata) + text
 
 
 def finalize(path, colors, state=None, mapping=None, drop_unused=False):
@@ -275,9 +338,6 @@ def finalize(path, colors, state=None, mapping=None, drop_unused=False):
         raise RuntimeError('single-spool adapter cannot finalize multiple logical tools')
     # Both dropped kinds of line contain '_' (no character lowercases to '_'), so the
     # strip/lower test runs only on those instead of on every line (#1392).
-    lines = [line for line in text.splitlines(keepends=True)
-             if '_' not in line
-             or not (line.strip().lower().startswith('; zmod_color_data =') or line.startswith(MAP_PREFIX))]
     if mapping is not None:
         if state is None:
             raise RuntimeError('mapped finalization requires hardware state')
@@ -286,9 +346,17 @@ def finalize(path, colors, state=None, mapping=None, drop_unused=False):
         metadata = []
         color, material = colors
         metadata.append(f'; zmod_color_data = 0|{color}|{material}\r\n')
-    index = next((i for i, line in enumerate(lines) if line.strip().lower().startswith('; header_block_end')), 0)
-    lines[index:index] = metadata
-    payload = ''.join(lines).encode('utf-8')
+    payload_text = _insert_metadata_untouched(text, metadata)
+    if payload_text is None:
+        # Both dropped kinds of line contain '_' (no character lowercases to '_'), so the
+        # strip/lower test runs only on those instead of on every line (#1392).
+        lines = [line for line in text.splitlines(keepends=True)
+                 if '_' not in line
+                 or not (line.strip().lower().startswith('; zmod_color_data =') or tool_map.is_map_line(line))]
+        index = next((i for i, line in enumerate(lines) if line.strip().lower().startswith('; header_block_end')), 0)
+        lines[index:index] = metadata
+        payload_text = ''.join(lines)
+    payload = payload_text.encode('utf-8')
     result = b'; MD5:' + hashlib.md5(payload).hexdigest().encode() + b'\r\n' + payload
     if result != path.read_bytes():
         path.write_bytes(result)

@@ -48,11 +48,37 @@ TARGETS = {"PETG": (240, 85), "ABS": (245, 100), "ASA": (260, 105), "TPU": (230,
 
 # ---------------------------------------------------------------- 1. the family table reaches Orca
 
+def vendor_value(model, material, key):
+    """The vendor layer's value for ``key`` on this model's printer (None without a vendor profile or value)."""
+    from print_handy.core import filament_type, orca_profile_db
+    templates = adapter_for(model).templates_dir()
+    machine = json.loads((templates / "machine.json").read_text())
+    template = json.loads((templates / "filament.json").read_text())
+    preset = orca_profile_db.printer_preset(machine.get("printer_model") or "", float(machine["nozzle_diameter"][0]),
+                                            preferred=machine.get("name"))
+    resolution = orca_profile_db.resolve(preset, filament_type.from_text(material)) if preset else None
+    return (orca_profile_db.vendor_layer(template, resolution) if resolution else {}).get(key)
+
+
+def expected_family_values(model, material):
+    """TABLE's row, with the Orca vendor profile's value where the printer's vendor has one (#1816: the vendor
+    layer goes over the library family row; design record section 3)."""
+    from print_handy.core import filament_type, orca_profile_db
+    templates = adapter_for(model).templates_dir()
+    machine = json.loads((templates / "machine.json").read_text())
+    template = json.loads((templates / "filament.json").read_text())
+    preset = orca_profile_db.printer_preset(machine.get("printer_model") or "", float(machine["nozzle_diameter"][0]),
+                                            preferred=machine.get("name"))
+    resolution = orca_profile_db.resolve(preset, filament_type.from_text(material)) if preset else None
+    layer = orca_profile_db.vendor_layer(template, resolution) if resolution else {}
+    return tuple(layer[key][0] if key in layer else row for key, row in zip(KEYS, TABLE[material]))
+
+
 @pytest.mark.parametrize("model", FAMILIES)
 @pytest.mark.parametrize("material", sorted(TABLE))
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
-    assert tuple(filament[key][0] for key in KEYS) == TABLE[material]
+    assert tuple(filament[key][0] for key in KEYS) == expected_family_values(model, material)
     assert filament["filament_type"] == [material]
     # Print Handy's own values still win over the family row.
     assert (nozzle, bed) == (nozzle_effective(model, TARGETS[material][0]), TARGETS[material][1])
@@ -62,16 +88,23 @@ def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model
 @pytest.mark.parametrize("model", FAMILIES)
 def test_tpu_gets_orcas_filament_retraction_and_other_families_leave_it_to_the_printer(slice_inputs, model):
     template = json.loads((adapter_for(model).templates_dir() / "filament.json").read_text())
-    assert slice_inputs.slice(model, stale_state("TPU"))[2]["filament_retraction_length"] == ["0.4"]
+    # The printer vendor's own TPU or PETG profile, where Orca has one, sets the retraction (#1816).
+    tpu = vendor_value(model, "TPU", "filament_retraction_length")
+    assert slice_inputs.slice(model, stale_state("TPU"))[2]["filament_retraction_length"] == (tpu or ["0.4"])
     petg = slice_inputs.slice(model, stale_state("PETG"))[2]
-    assert petg["filament_retraction_length"] == template["filament_retraction_length"]
+    assert petg["filament_retraction_length"] == (vendor_value(model, "PETG", "filament_retraction_length")
+                                                 or template["filament_retraction_length"])
 
 
 @pytest.mark.parametrize("model", FAMILIES)
 def test_abs_is_not_cooled_like_pla(slice_inputs, model):
     filament = slice_inputs.slice(model, stale_state("ABS"))[2]
-    assert filament["additional_cooling_fan_speed"] == ["0"]
-    assert filament["support_material_interface_fan_speed"] == ["-1"]
+    # The printer vendor's own ABS profile, where Orca has one, sets the fans (#1816); never PLA's 100 %.
+    assert filament["additional_cooling_fan_speed"] == (vendor_value(model, "ABS", "additional_cooling_fan_speed")
+                                                        or ["0"])
+    assert filament["additional_cooling_fan_speed"] != ["100"]
+    assert filament["support_material_interface_fan_speed"] == (
+        vendor_value(model, "ABS", "support_material_interface_fan_speed") or ["-1"])
 
 
 @pytest.fixture
@@ -106,7 +139,9 @@ def test_explicit_temperatures_win_over_the_family_range(slice_inputs, model):
     nozzle, bed, filament = slice_inputs.slice(model, state)
     assert (nozzle, bed) == (nozzle_effective(model, 205), 55)
     assert int(filament["nozzle_temperature_range_low"][0]) <= nozzle  # the range follows the spool, not the reverse
-    assert filament["fan_max_speed"] == ["100"] and filament["filament_max_volumetric_speed"] == ["10"]
+    assert filament["fan_max_speed"] == (vendor_value(model, "PETG", "fan_max_speed") or ["100"])
+    assert filament["filament_max_volumetric_speed"] == (vendor_value(model, "PETG", "filament_max_volumetric_speed")
+                                                         or ["10"])
     for key in ("cool_plate_temp", "eng_plate_temp", "hot_plate_temp", "textured_plate_temp"):
         assert filament[key] == filament[key + "_initial_layer"] == ["55"]
 
@@ -311,7 +346,9 @@ def test_ad5x_pla_and_silk_slots_each_get_their_own_type_and_temperature(multico
     assert (first["filament_type"], second["filament_type"]) == (["PLA"], ["Silk PLA"])
     nozzle = lambda p: int(p["nozzle_temperature"][0]) == int(p["nozzle_temperature_initial_layer"][0]) and int(p["nozzle_temperature"][0])  # noqa: E731
     assert (nozzle(first), nozzle(second)) == (nozzle_effective(AD5X, 210), nozzle_effective(AD5X, 220))
-    assert first["filament_settings_id"] == ["Hermes slot 1 PLA"] and second["filament_settings_id"] == ["Hermes slot 2 Silk PLA"]
+    # #1816: a PLA-family slot keeps the printer's tuned PLA template and is named after it.
+    assert first["filament_settings_id"] == ["Flashforge Generic PLA [slot 1]"]
+    assert second["filament_settings_id"] == ["Flashforge Generic PLA [slot 2]"]
     # One bed for the whole plate on every slot; the slowest finish in the job sets the outer-wall speed.
     assert {tuple(p["hot_plate_temp"]) for p in job.profiles} == {("60",)}
     assert job.process["outer_wall_speed"] == "60.0"  # Silk's cap, not 200 x 0.7

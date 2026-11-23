@@ -6,9 +6,16 @@ never committed. Without the fetched files every test here skips and says
 how to fetch them, so the normal PR lane only collects them. The
 large-mesh job of the model-corpus workflow fetches the files
 (``python -m tests.corpus.large_mesh.fetch``), builds the native kernel and
-runs this module twice: with the kernel (budgets enforced) and with
-``PRINT_HANDY_BOUNDS_IMPL=python`` (the fallback, timed only). Both runs
-must give the measured parts and the same combined 3MF model bytes.
+runs this module three times: with the kernel (budgets enforced), with
+``PRINT_HANDY_LARGE_MESH_ENGINE=numpy`` (the kernel switched off, so the
+numpy twin serves, as on an install without the wheel; its own budgets) and
+with ``PRINT_HANDY_BOUNDS_IMPL=python`` (the Python loops, timed only).
+Every run must give the measured parts and the same combined 3MF model
+bytes, and the audit of the combined file reads the combine step's recorded
+mesh tables instead of its XML (#1790). The placement report is then timed
+alone and against its scalar oracle, which must give the same rows, and
+``front_total`` records the unit question, combine and audit together: the
+download-to-first-question time #1790 targets.
 
 Stage timings go to stdout and, when PRINT_HANDY_LARGE_MESH_TIMING names a
 file, are appended to it as JSON lines. PRINT_HANDY_LARGE_MESH_REQUIRE=1 (the
@@ -23,7 +30,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import geometry_layout, mesh_native, model_parts
+from print_handy.core import geometry_layout, mesh_fast, mesh_native, mesh_sidecar, model_parts, orca_adapter
+from print_handy.core import model_job as mj
 from print_handy.jobs import prompts
 
 from . import fetch
@@ -88,9 +96,14 @@ def test_manifests_are_complete():
 
 @pytest.mark.timeout(3600)
 @pytest.mark.parametrize('name', sorted(INTAKE))
-def test_large_mesh_intake(name, tmp_path):
+def test_large_mesh_intake(name, tmp_path, monkeypatch):
     case, paths = _case_files(name)
     impl = os.environ.get('PRINT_HANDY_BOUNDS_IMPL', 'auto').strip().lower()
+    engine = os.environ.get('PRINT_HANDY_LARGE_MESH_ENGINE', '').strip().lower()
+    if engine == 'numpy':
+        # An install without the wheel: the kernel is unavailable, numpy serves.
+        monkeypatch.setattr(mesh_native, '_load', lambda: None)
+        impl = 'numpy'
     native = mesh_native.available()
     if os.environ.get('PRINT_HANDY_MESH_REQUIRE_NATIVE') and impl != 'python':
         assert native, 'native mesh kernel required but unavailable'
@@ -114,14 +127,42 @@ def test_large_mesh_intake(name, tmp_path):
             assert info[key] == want[key], (path.name, key, info[key])
     target = tmp_path / f'{name}-parts.3mf'
     result = timed('combine', lambda: model_parts.combine(target, [str(p) for p in paths], expect['bed_mm']))
+    assert mesh_sidecar.path_for(target).is_file()
+
+    def no_parse(*args, **kwargs):
+        raise AssertionError('the audit parsed the combined XML instead of the recorded tables')
+    with monkeypatch.context() as patch:
+        patch.setattr(mesh_fast, '_parse_member', no_parse)
+        audit = timed('audit', lambda: mj.audit(target))
+    # Download to the first question: the unit question, the combine and the
+    # audit (#1790's acceptance target; recorded, budgeted by its stages).
+    timings['front_total'] = round(sum(timings[s] for s in ('parts_unit_question', 'combine', 'audit')), 3)
+    # The placement report on its own, from cold point caches, and the scalar
+    # oracle on the same mesh: the array path must give the same rows.
+    triangles = orca_adapter.source_triangles(target)
+    orca_adapter._POINTS_CACHE.clear()
+    rows = timed('placement', lambda: orca_adapter.placement_candidates(triangles))
+    assert rows == audit['mesh_audit']['placement_candidates']
+    orca_adapter._POINTS_CACHE.clear()
+    with monkeypatch.context() as patch:
+        patch.setattr(orca_adapter, 'PLACEMENT_NUMPY_MIN_POINTS', 10 ** 12)
+        oracle = timed('placement_scalar', lambda: orca_adapter.placement_candidates(triangles))
+    orca_adapter._POINTS_CACHE.clear()
+    assert rows == oracle
     _record(name, impl, timings)
     assert result['objects'] == expect['objects']
     assert result['on_one_bed'] == expect['on_one_bed']
+    assert 'mesh_audit_error' not in audit, audit.get('mesh_audit_error')
+    assert audit['mesh_audit']['triangle_count'] == sum(p['faces'] for p in expect['part'])
     with zipfile.ZipFile(target) as archive:
         model = archive.read('3D/3dmodel.model')
     assert hashlib.sha256(model).hexdigest() == expect['model_sha256']
+    budget = None
     if native and impl != 'python':
         budget = case['budget']
+    elif impl == 'numpy':
+        budget = case['budget_numpy']
+    if budget is not None:
         over = {stage: seconds for stage, seconds in timings.items()
                 if seconds > budget.get(stage.split(':', 1)[0], float('inf'))}
         assert not over, f'stages over budget {budget}: {over}'

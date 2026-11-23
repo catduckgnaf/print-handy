@@ -286,7 +286,7 @@ class OverrideTests(unittest.TestCase):
             "cold_pull": {"pla_trial", "petg"},
             "orca": {"templates", "command"},
             "bambu": {"command", "lan_host", "lan_serial", "lan_access_code_env", "start_confirm_s"},
-            "slicer": {"flash_studio_path"},
+            "slicer": {"flash_studio_path", "parallel_preview"},
             "flashforge_stock": {"host"},
             "prusa": {"link_host", "api_key_env"},
             "elegoo_sdcp": {"host"},

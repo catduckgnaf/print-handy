@@ -23,6 +23,9 @@ def mesh_topology(triangles):
     # the two Python paths below stay the oracle and the fallback.
     from ..core.mesh_native import topology as native_topology
     native = native_topology(triangles)
+    if native is None:
+        from ..core import mesh_numpy
+        native = mesh_numpy.topology(triangles)
     if native is not None:
         return native
     if hasattr(triangles, '__len__') and len(triangles) > 100_000:
@@ -136,6 +139,45 @@ def mesh_audit(path, printer_model=None):
             **mesh_topology(triangles)}
 
 
+_MESH_BODIES = (('<vertices>', '</vertices>', '<vertex '), ('<triangles>', '</triangles>', '<triangle '))
+
+
+def _without_mesh_bodies(text):
+    """``text`` with the contents of plain ``<vertices>`` and ``<triangles>`` bodies cut out (#1790).
+
+    The audit's element counts are four regular expressions, and on a large
+    model nearly all of the text is vertex and triangle elements: about 100 MB
+    and 2.4 s of scanning on the 1.1 M triangle tongs case. A body is cut only
+    when every ``<`` in it opens a ``<vertex `` (or ``<triangle ``) element.
+    None of the patterns can start at such a ``<``, and in the well-formed XML
+    ``check_source`` admits no attribute value runs across the body's opening
+    tag, so every pattern finds exactly what it finds in the full text.
+    """
+    if len(text) < (1 << 20):
+        return text
+    kept = []
+    pos = 0
+    while True:
+        found = [(text.find(opening, pos), opening, closing, element)
+                 for opening, closing, element in _MESH_BODIES]
+        found = [hit for hit in found if hit[0] >= 0]
+        if not found:
+            break
+        start, opening, closing, element = min(found)
+        body_start = start + len(opening)
+        end = text.find(closing, body_start)
+        if end < 0:
+            break
+        body = text[body_start:end]
+        if body.count('<') == body.count(element):
+            kept.append(text[pos:body_start])
+        else:
+            kept.append(text[pos:end])
+        pos = end
+    kept.append(text[pos:])
+    return ''.join(kept)
+
+
 def audit(path, printer_model=None):
     from ..core.intake_resources import check_source
     check_source(path)
@@ -162,7 +204,7 @@ def audit(path, printer_model=None):
             for n in names:
                 if n.endswith(("3dmodel.model","model_settings.config")):
                     try:
-                        text += z.read(n).decode(errors="ignore")
+                        text += _without_mesh_bodies(z.read(n).decode(errors="ignore"))
                     except Exception:
                         logger.debug("Unable to read optional 3MF metadata member %s", n, exc_info=True)
             out["objects"]=len(re.findall(r'<(?:\w+:)?object\b',text)); out["components"]=len(re.findall(r'<(?:\w+:)?component\b',text)); out["build_items"]=len(re.findall(r'<(?:\w+:)?item\b',text)); out["named_parts"]=re.findall(r'<metadata key="name" value="([^"]+)',text)[:30]

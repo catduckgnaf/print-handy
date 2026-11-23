@@ -111,8 +111,6 @@ TIME_HEADER_SCAN_CHARS = 1 << 18
 # A tool change line, matched per '\n' line: the same set of tools as
 # re.findall(r"(?im)^\s*T(\d+)\s*(?:;.*)?$", text), without scanning every character.
 TOOL_LINE = re.compile(r"\s*T(\d+)\s*(?:;.*)?", re.I)
-# Generated filament profile names. Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
-HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot (\d+)\s+(\S.*)$", re.I)
 # Per-line patterns, compiled once: a large plate runs to 10M+ lines.
 OPCODE = re.compile(r"^([GMT])0*(\d)")
 WORD_TOKEN = re.compile(r"([A-Z])(-?(?:\d+(?:\.\d*)?|\.\d+))")
@@ -126,28 +124,19 @@ EFFECTIVE_SETTING = re.compile(
     r"print_settings_id|brim_type)\s*=\s*(.*)$", re.I)
 
 
-def is_allowed_filament_id(value, own_ids=None, slot_count=None):
-    """Whether a filament profile ID is one of ours: an exact active profile ID, or a
-    Print Handy generated Hermes slot ID for a configured slot.
+def is_allowed_filament_id(value, own_ids=None):
+    """Whether a filament profile ID is one of ours: exactly one of ``own_ids``.
 
-    Exact membership in own_ids (the IDs collected from the active generated
-    profiles, or the template's own ID) is the proof. The Hermes shape alone
-    proves nothing — an imported project can name itself "Hermes slot 999
-    Totally Foreign" — so the pattern only counts when the caller supplies
-    the configured slot count and the named slot is inside it (P2-27).
+    ``own_ids`` are the names of the profiles this job generated (the vendor profile
+    name, or "Print Handy <material> (library generic)", with " [slot N]" per tool;
+    see orca_profile_db.profile_name), or the template's own ID. A name's shape proves
+    nothing: an imported project can call its profile anything (P2-27). The old
+    "Hermes slot N <material>" names are retired (#1816; files sliced before it are
+    not accepted).
     """
     if not value or not isinstance(value, str):
         return False
-    v = value.strip().strip('"')
-    if own_ids and v in own_ids:
-        return True
-    match = HERMES_SLOT_PATTERN.match(v)
-    if not match or slot_count is None:
-        return False
-    try:
-        return 1 <= int(match.group(1)) <= int(slot_count)
-    except (TypeError, ValueError):
-        return False
+    return bool(own_ids) and value.strip().strip('"') in own_ids
 
 
 # Slicer identity, read from what each supported slicer actually writes (#434). OrcaSlicer and
@@ -507,6 +496,83 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0, e
                                         f"X{target['X']:g} Y{target['Y']:g} Z{z:g} ({where}).")
     return problems[:10]
 
+# Characters str.splitlines() splits on besides "\n" (a "\r" only counts when no "\n" follows it).
+_ODD_BREAKS = re.compile(r"\r(?!\n)|[\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
+
+
+def _has_odd_breaks(text):
+    """True when splitlines() would split text somewhere split('\\n') does not (C-speed membership
+    tests first; the regex only runs when a CR or another separator is present at all)."""
+    if any(ch in text for ch in ('\x0b', '\x0c', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')):
+        return True
+    # A CR starts a line break of its own only when no LF follows; ZMod's metadata lines end in CRLF,
+    # so walk the few CRs instead of running a regex over the whole file.
+    at = text.find('\r')
+    while at >= 0:
+        if text[at + 1:at + 2] != '\n':
+            return True
+        at = text.find('\r', at + 1)
+    return False
+
+
+@dataclass(frozen=True)
+class GcodeScan:
+    """One streaming traversal of finalized G-code text (#1779): everything the post-slice guard and
+    the protected-settings baseline each used to re-derive with their own pass over the same bytes.
+
+    ``text`` is the exact string scanned; a consumer uses the scan only when it holds that same
+    string object (``covers``), so an edited or re-read text is always scanned again."""
+    text: str = field(repr=False)
+    comments: tuple = field(repr=False)   # lines starting ';' that hold '=' (splitlines semantics)
+    tools: frozenset = frozenset()        # tool_numbers(text)
+    protected: dict = field(default_factory=dict)  # _effective_config(text)
+
+    def covers(self, text):
+        return text is self.text
+
+
+def scan_gcode(text):
+    """Scan text once for comment settings, tool-change lines and protected settings.
+
+    Equal to comment filtering over splitlines(), tool_numbers(text) and _effective_config(text).
+    A text with a line break str.split('\\n') does not share with splitlines() takes the separate
+    passes, so the result never differs from them."""
+    if _has_odd_breaks(text):
+        comments = [line for line in text.splitlines() if line.startswith(';') and '=' in line]
+        return GcodeScan(text, tuple(comments), frozenset(tool_numbers(text)), _protected_from(comments))
+    # Comment settings are the lines starting ';' that hold '=', and few lines hold '=' at all, so find
+    # each '=' (a C-speed search) and take its line, instead of visiting every line of a 100 MB file.
+    comments, last_end, pos = [], -1, text.find('=')
+    while pos >= 0:
+        if pos >= last_end:
+            start = text.rfind('\n', 0, pos) + 1
+            end = text.find('\n', pos)
+            end = len(text) if end < 0 else end
+            if text.startswith(';', start):
+                line = text[start:end]
+                comments.append(line[:-1] if line.endswith('\r') else line)
+            last_end = end
+        pos = text.find('=', max(pos + 1, last_end))
+    # A tool line starts with optional whitespace, then T. For ASCII text only the line starts that
+    # hold a T or a blank can qualify, so look just there; other text takes the full per-line pass.
+    if text.isascii():
+        tools = set()
+        for prefix in ('\nT', '\nt', '\n ', '\n\t', '\n\x1f'):
+            at = text.find(prefix)
+            while at >= 0:
+                end = text.find('\n', at + 1)
+                m = TOOL_LINE.fullmatch(text[at + 1:len(text) if end < 0 else end])
+                if m:
+                    tools.add(int(m.group(1)))
+                at = text.find(prefix, at + 1)
+        first = TOOL_LINE.fullmatch(text[:text.find('\n')] if '\n' in text else text)
+        if first:
+            tools.add(int(first.group(1)))
+    else:
+        tools = tool_numbers(text)
+    return GcodeScan(text, tuple(comments), frozenset(tools), _protected_from(comments))
+
+
 def tool_numbers(text):
     """The tools of the tool-change lines in text (a line that is only T<n>, maybe with a comment).
 
@@ -537,7 +603,7 @@ def has_time_header(text):
 
 
 def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_json=None,
-               templates=None, profile_paths=(), envelope=None):
+               templates=None, profile_paths=(), envelope=None, scan=None):
     """Check bounds + effective motion/profile settings and capture provenance.
 
     envelope (xmin, ymin, xmax, ymax) is for printers whose vendor start/end G-code moves off the bed:
@@ -573,7 +639,9 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
         r.block("Cannot verify filament_settings_id slots: no active template filament IDs are available.")
     # Every setting pattern below is anchored at a leading ';' and needs an '=', so only
     # comment lines with an '=' can match (a few hundred of a million lines, #1392).
-    comments = [line for line in text.splitlines() if line.startswith(';') and '=' in line]
+    if scan is None or not scan.covers(text):
+        scan = scan_gcode(text)
+    comments = scan.comments
     for line in comments:
         match_brim = BRIM_TYPE.match(line)
         if match_brim:
@@ -599,7 +667,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
             own_ids = {str(value).strip().strip('"') for value in (raw_ids if isinstance(raw_ids, (list, set, tuple)) else [raw_ids])}
             for slot, entry in enumerate(entries, 1):
                 value = entry.strip().strip('"')
-                is_allowed = is_allowed_filament_id(value, own_ids, slot_count=filament_slots) if key == 'filament_settings_id' else (value in own_ids)
+                is_allowed = is_allowed_filament_id(value, own_ids) if key == 'filament_settings_id' else (value in own_ids)
                 if not value or not is_allowed:
                     r.block(f"Foreign effective setting {match.group(1)} slot {slot}: {value!r}.")
         match = ARC_FITTING.match(line)
@@ -614,7 +682,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
         body = toolpath(text)
         if body is None:
             body = text
-    tools = tool_numbers(body)
+    tools = scan.tools if body is text else tool_numbers(body)
     for n in sorted(tools):
         if n not in tool_slots: r.block(f"G-code uses T{n}, but no physical IFS slot mapping is recorded.")
         elif not 1<=int(tool_slots[n])<=filament_slots: r.block(f"T{n} maps outside the available IFS slots.")
@@ -675,22 +743,25 @@ BASELINE_PATH = settings.ROOT / "config" / "protected-settings-baseline.json"
 def _canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
-def _effective_config(artifact):
-    # Orca's embedded config is authoritative; G-code header includes the
-    # same key/value settings emitted as comments.
-    if isinstance(artifact, dict): return artifact
-    source = _gcode_file(artifact)
-    text = source.read_text(errors="replace") if source is not None else str(artifact or "")
+def _protected_from(comment_lines):
+    """The protected settings among comment lines that start with ';' and hold '='."""
     found = {}
-    for line in text.splitlines():
-        # The regex is anchored at ";", so only a line starting with ";" can
-        # match (an indented comment never could); skipping the rest before the
-        # regex changes no answer and spares a match per motion line (#1153).
-        if not line.startswith(";") or "=" not in line:  # the regex needs both (#1392)
-            continue
+    for line in comment_lines:
         m = re.match(r"^;\s*([A-Za-z0-9_]+)\s*=\s*(.*)$", line)
         if m and m.group(1) in PROTECTED_KEYS: found[m.group(1)] = m.group(2)
     return found
+
+def _effective_config(artifact, scan=None):
+    # Orca's embedded config is authoritative; G-code header includes the
+    # same key/value settings emitted as comments.
+    if isinstance(artifact, dict): return artifact
+    if scan is not None: return dict(scan.protected)
+    source = _gcode_file(artifact)
+    text = source.read_text(errors="replace") if source is not None else str(artifact or "")
+    # The regex is anchored at ";", so only a line starting with ";" can
+    # match (an indented comment never could); skipping the rest before the
+    # regex changes no answer and spares a match per motion line (#1153, #1392).
+    return _protected_from(line for line in text.splitlines() if line.startswith(";") and "=" in line)
 
 def _normalize(key, value):
     # The bed mesh name in START_PRINT is chosen per job by orca_adapter from the
@@ -724,7 +795,16 @@ def _approve_command(path):
         command += f" --baseline config/{Path(path).name}"
     return command
 
-def enforce_approved_baseline(artifact, path=BASELINE_PATH):
+def artifact_matches_text(artifact, text):
+    """True only when the file on disk still decodes to exactly `text`.
+
+    Size and mtime are not proof: a same-size rewrite can restore its timestamp."""
+    try:
+        return Path(artifact).read_text(errors='replace') == text
+    except OSError:
+        return False
+
+def enforce_approved_baseline(artifact, path=BASELINE_PATH, scan=None):
     r = Result()
     if not Path(path).exists():
         r.warn(f"Protected-settings baseline missing; slicing allowed. Approve with: {_approve_command(path)}")
@@ -733,7 +813,8 @@ def enforce_approved_baseline(artifact, path=BASELINE_PATH):
         r.warn("Protected-settings artifact unavailable; slicing allowed pending baseline check.")
         return r
     expected = json.loads(Path(path).read_text())
-    actual = _effective_config(artifact)
+    # scan: the caller's one traversal of exactly this artifact's bytes (see GcodeScan); None re-reads the file.
+    actual = _effective_config(artifact, scan)
     for key, record in expected.items():
         if key not in actual or _baseline({key: actual[key]}).get(key, {}).get("sha256") != record.get("sha256"):
             r.block(f"Protected printer setting {key} differs from the approved baseline. Re-approve deliberately with: {_approve_command(path)}")

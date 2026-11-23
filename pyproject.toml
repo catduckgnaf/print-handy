@@ -60,7 +60,7 @@ include = ["print_handy*"]
 # bundle); ship every one of them in the wheel, not just the .py files.
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.toml", "*.pem", "*.js"]
-print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.toml", "data/*/*.md", "data/roasts/*.json", "data/status_voice/*.json", "data/audio/*.mp3", "webui/static/*",
+print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.toml", "data/*/*.md", "data/orca_profiles/*.json", "data/orca_profiles/*.jsonl", "data/roasts/*.json", "data/status_voice/*.json", "data/audio/*.mp3", "webui/static/*",
                # The bundled AI skills (#1777): instructions and references.
                "skills/*/*.md", "skills/*/references/*.md"]
 # Registry data inside subpackages (root cleanup PR-3): the knowledge
@@ -375,6 +375,7 @@ select = ["E9", "F63", "F7", "F82", "F", "B", "ASYNC", "PLE"]
 "tests/printers/test_bambulab_p1s.py" = ["F401"]
 "tests/printers/test_elegoo.py" = ["F841"]
 "tests/printers/test_material_profiles.py" = ["B905", "F811"]
+"tests/printers/test_vendor_profile_slicing_1816.py" = ["F811"]
 "tests/printers/test_octoprint_guard.py" = ["B007"]
 "tests/printers/test_opencreator_alerts.py" = ["F401"]
 "tests/printers/test_opencreator_code_complete_1490.py" = ["F401"]
