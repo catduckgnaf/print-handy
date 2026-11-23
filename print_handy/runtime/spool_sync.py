@@ -209,6 +209,8 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
             other = json.loads(candidate.read_text())
         except (OSError, ValueError):
             continue
+        if isinstance(other, dict):
+            filament_color.adopt_renamed_slots_key(other)
         if isinstance(other, dict) and int(spool_id) in _loaded_spool_ids(other):
             return candidate.parent.name
     return None
