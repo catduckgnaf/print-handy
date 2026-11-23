@@ -108,20 +108,18 @@ the print ends. Example lookup: `jq -r 'select(.status != "completed") |
 
 ## More than one printer
 
-One container serves the whole roster. Declare every printer in the mounted config file with a `[[printers]]` list: the list itself is file-only, because list values cannot come from environment variables:
+One container serves the whole roster. Declare every printer in the mounted config file with a `printers:` list: the list itself is file-only, because list values cannot come from environment variables:
 
-```toml
-[[printers]]
-id = "garage-a1"
-model = "bambulab.a1"
-chat_id = "<a1-channel-id>"
-lan_host = "<a1-lan-ip>"
-lan_serial = "<a1-serial>"
-
-[[printers]]
-id = "workshop-ad5x"
-model = "flashforge.ad5x"
-moonraker_url = "http://<ad5x-lan-ip>:7125"
+```yaml
+printers:
+  - id: garage-a1
+    model: bambulab.a1
+    chat_id: "<a1-channel-id>"
+    lan_host: "<a1-lan-ip>"
+    lan_serial: "<a1-serial>"
+  - id: workshop-ad5x
+    model: flashforge.ad5x
+    moonraker_url: "http://<ad5x-lan-ip>:7125"
 ```
 
 The first entry is the default printer and is named wherever output talks about "the printer". Each printer keeps its own state folder and job queue under `state/printers/<id>/` inside the one data directory, gets its own listener child under the supervisor (a dead listener never takes the bot or a sibling listener down), and is bound to its own chat channel: an approval in a channel can only start that channel's printer. The healthcheck reports every listener, and the Web UI status page lists the roster read-only. Spoolman stays one shared inventory for all printers. The full roster reference is [SETTINGS.md: Printers list](SETTINGS.md#printers-list).
@@ -155,7 +153,7 @@ The one-line roast rides the **completion post** (one per print), the failure an
 
 An optional **auto light-off** builds on the same verdicts: set `PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES` above zero (30 is the suggested value; `0`, the default, is off) and the printer's light turns on when a print starts and off again after the camera has seen an empty plate for that many minutes after a print ends. Any non-empty or uncertain check restarts the wait, so a part left on the plate keeps the light on. It covers Moonraker printers (the light object named with `PRINT_HANDY__VISION__LIGHT_OBJECT`, for example `led chamber_led`, or auto-discovered when the printer has exactly one `led` / `neopixel` / `output_pin` object), Bambu Lab chamber lights, and Elegoo SDCP chamber lights (turn-on only until an SDCP camera source is verified); other families have no light to switch and `bot check` says so. On Moonraker the switch is thrown in Moonraker, so Home Assistant's Moonraker integration sees the same light state with no extra wiring. This is the one opt-in exception to the watchdog's alert-only rule, and it covers the light only: never motion, heaters or print control. Full behavior is in [SETTINGS.md](SETTINGS.md#auto-light-off).
 
-Two settings tune it, settable in the mounted YAML (`visual_watch` in `config/docker.yaml`), in TOML (`[visual_watch]` in `config/docker.toml`), or as Compose/`.env` variables. Compose carries them as environment entries; the Unraid template does not, so on Unraid they are set in the mounted config file or the Web UI:
+Two settings tune it, settable in the mounted YAML (`visual_watch` in `config/docker.yaml`), or as Compose/`.env` variables. Compose carries them as environment entries; the Unraid template does not, so on Unraid they are set in the mounted config file or the Web UI:
 
 | YAML key | Environment variable | Default | What it does |
 |---|---|---|---|
@@ -173,7 +171,7 @@ Print Handy has a Web UI: a simple status page plus a picker configuration page 
 
 **Claim it at first start.** The container serves the Web UI with no login until one is set, printer controls included. After the first start, open port 8088 and finish the walkthrough's **Login** step: set a password, or record that you mean to leave it open on a trusted network. To have it claimed before anyone can reach it, set `WEBUI_ACCESS_TOKEN` in `.env` (or the masked Unraid template variable) before the first start. See [First boot and logins](WEBUI.md#first-boot-and-logins).
 
-Enable it in the mounted YAML (`webui` in `config/docker.yaml`), in TOML (`[webui]` in `config/docker.toml`), or with Compose/`.env` variables. Compose carries them as environment entries; the Unraid template carries only the port mapping, so on Unraid they are set in the mounted config file:
+Enable it in the mounted YAML (`webui` in `config/docker.yaml`), or with Compose/`.env` variables. Compose carries them as environment entries; the Unraid template carries only the port mapping, so on Unraid they are set in the mounted config file:
 
 | YAML key | Environment variable | Default | What it does |
 |---|---|---|---|

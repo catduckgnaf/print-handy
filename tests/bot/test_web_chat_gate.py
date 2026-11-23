@@ -86,10 +86,10 @@ def test_shipped_configs_show_both_chat_toggles_explicitly():
 
     A reviewer (and an operator) should find chat_llm_enabled in the
     defaults they are handed, explicitly — chat_enabled true and
-    chat_llm_enabled false (#1376: AI is for designing models) — in all
-    three shipped files (home.toml was retired in #1322).
+    chat_llm_enabled false (#1376: AI is for designing models) — in both
+    shipped files (home.toml was retired in #1322, docker.toml in 2.4.0).
     """
-    for name in ("home.yaml", "docker.yaml", "docker.toml"):
+    for name in ("home.yaml", "docker.yaml"):
         data = settings._read(settings.ROOT / "config" / name)
         assert data["webui"]["chat_enabled"] is True, name
         assert data["webui"]["chat_llm_enabled"] is False, name

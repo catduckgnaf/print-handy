@@ -27,6 +27,8 @@ import sys
 import time
 from pathlib import Path
 
+import toml_twin
+
 from print_handy import healthcheck, settings, supervisor_state
 from print_handy.bot import outage_alert
 
@@ -41,7 +43,7 @@ BUDGET, WINDOW = 5, 600
 def _data(tmp):
     path = Path(tmp) / "local.toml"
     path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\n')
-    return settings.load(local=path, environ={})
+    return settings.load(local=toml_twin.yaml_fixture(path), environ={})
 
 
 def _kind(text):

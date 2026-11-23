@@ -59,7 +59,7 @@ class SpoolError(RuntimeError):
 def _http(base: str, method: str, path: str, body: Any = None, timeout: float = 8) -> Any:
     if not base:
         raise SpoolError("the service for this request is not configured "
-                         "(services.moonraker_url / services.spoolman_url in config/local.yaml or config/local.toml)")
+                         "(services.moonraker_url / services.spoolman_url in config/local.yaml)")
     # Through the one Moonraker transport (#1466), key included. A POST
     # with no body still sends "{}" exactly as before.
     data = {} if (method == "POST" and body is None) else body

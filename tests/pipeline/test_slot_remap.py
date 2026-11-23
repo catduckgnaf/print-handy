@@ -151,9 +151,9 @@ def test_cli_remap_slot_subcommand(tmp_path):
     gcode.write_text(_artifact())
     contract.finalize(gcode, None, st, {"0": 1})
 
-    test_config = tmp_path / "config.toml"
+    test_config = tmp_path / "config.yaml"
     test_config.write_text(
-        "[paths]\nstate_home = " + json.dumps(str(tmp_path / "hermes")) + "\n"
+        "paths:\n  state_home: " + json.dumps(str(tmp_path / "hermes")) + "\n"
     )
     # The hardware record lives in the default printer's folder, not the pre-2.4 root.
     state_path = (tmp_path / "hermes" / "state" / "printers" / "flashforge-ad5x"

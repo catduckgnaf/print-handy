@@ -3,13 +3,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import toml_twin
+
 from print_handy import settings
 
 
 def _data(tmp, extra_toml=""):
     path = Path(tmp) / "local.toml"
     path.write_text(extra_toml)
-    return settings.load(local=path, environ={})
+    return settings.load(local=toml_twin.yaml_fixture(path), environ={})
 
 
 class PublicTextSettingsTests(unittest.TestCase):

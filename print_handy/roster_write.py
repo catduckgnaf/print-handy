@@ -12,8 +12,7 @@ in the codebase:
 
 1. The target is the file ``settings.load()`` would read
    (``webui.config.settings_file_path``: ``$PRINT_HANDY_CONFIG``, else
-   ``config/local.yaml``, else the legacy ``local.toml``). A TOML target is
-   refused — every writer in the codebase is YAML-only.
+   ``config/local.yaml``). TOML targets are refused because settings are YAML-only.
 2. The existing file must round-trip through the setup wizard's strict
    parse (``_load_for_rewrite``); a file that cannot be re-emitted
    faithfully is left byte-for-byte unchanged. Like the wizard merge, a
@@ -213,7 +212,9 @@ def write_refusal(environ=None):
     ``add_printer`` names that case itself (run setup first).
     """
     target = settings_file_path(os.environ if environ is None else environ)
-    if target.suffix.lower() == ".toml" or not target.exists():
+    if target.suffix.lower() == ".toml":
+        return f"{target}: TOML settings are no longer supported; convert to YAML before adding a printer"
+    if not target.exists():
         return None
     reason = _unwritable_reason(target)
     return str(_refusal(reason)) if reason else None
@@ -241,8 +242,8 @@ def add_printer(new_entry, *, config_path=None, home=None, environ=None, timesta
     if target.suffix.lower() == ".toml":
         raise RosterWriteError(
             f"{target} is a TOML settings file; guided onboarding writes YAML only. "
-            "Add the [[printers]] entry by hand (docs/SETTINGS.md, 'Printers list') "
-            "or migrate the file to config/local.yaml first.")
+            "Convert this file to YAML, select config/local.yaml (docs/SETTINGS.md, 'Printers list'), "
+            "then add the printer. Nothing was changed.")
     if not target.is_file():
         raise RosterWriteError(
             f"there is no settings file at {target} yet — run `/print-handy setup` "

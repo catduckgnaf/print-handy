@@ -9,13 +9,15 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import toml_twin
+
 from print_handy import settings, supervisor_state  # noqa: E402
 
 
 def _data(tmp):
     path = Path(tmp) / "local.toml"
     path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\n')
-    return settings.load(local=path, environ={})
+    return settings.load(local=toml_twin.yaml_fixture(path), environ={})
 
 
 class SupervisorStateTests(unittest.TestCase):

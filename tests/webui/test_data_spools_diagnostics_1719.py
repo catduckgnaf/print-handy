@@ -207,7 +207,7 @@ def _settings_with_secrets(tmp_path, monkeypatch):
     log line (which the export sanitizer must redact, as the value of
     a known token environment variable)."""
     from print_handy import settings
-    local = tmp_path / "local.toml"
+    local = tmp_path / "local.yaml"
     local.write_text("")
     data = settings.load(local=local, environ={})
     data.setdefault("webui", {})["access_token"] = SECRET_VALUES[0]

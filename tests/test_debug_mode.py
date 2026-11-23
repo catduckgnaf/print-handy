@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import toml_twin
+
 from print_handy import debug_mode, diagnostics_bundle, logs, sanitize_logs, settings
 
 T0 = 1_760_000_000.0
@@ -13,7 +15,7 @@ T0 = 1_760_000_000.0
 def _data(tmp):
     path = Path(tmp) / "local.toml"
     path.write_text("")
-    data = settings.load(local=path, environ={})
+    data = settings.load(local=toml_twin.yaml_fixture(path), environ={})
     data["paths"]["state_home"] = Path(tmp) / "profile"
     return data
 

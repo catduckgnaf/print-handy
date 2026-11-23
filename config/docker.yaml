@@ -1,5 +1,5 @@
 # Docker defaults for Print Handy. Override with PRINT_HANDY__SECTION__KEY.
-# Legacy config/docker.toml remains supported when explicitly selected.
+# Settings are YAML-only in 2.4.0; old docker.toml mounts are refused.
 #
 # More than one printer (#257 Stage 2): declare a roster in YOUR mounted config
 # file instead of the single-printer sections above — the list is file-only.

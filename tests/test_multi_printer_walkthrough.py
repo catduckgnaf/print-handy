@@ -1,3 +1,4 @@
+import toml_twin
 """The design §3 worked example, load-checked offline (#337 acceptance).
 
 The config below is the MULTI-PRINTER-DESIGN.md section 3 example verbatim:
@@ -38,7 +39,7 @@ def test_design_section_3_example_loads_and_routes(tmp_path):
     local.write_text(DESIGN_EXAMPLE, encoding="utf-8")
     before = local.read_bytes()
 
-    data = settings.load(local=local, environ={})
+    data = settings.load(local=toml_twin.yaml_fixture(local), environ={})
 
     entries = settings.printers(data)
     assert [entry["id"] for entry in entries] == ["garage-a1", "workshop-ad5x"]
@@ -110,7 +111,7 @@ octoprint_url = "http://192.168.1.62:5000"
 def _load(tmp_path, text):
     local = tmp_path / "local.toml"
     local.write_text(text, encoding="utf-8")
-    return settings.load(local=local, environ={})
+    return settings.load(local=toml_twin.yaml_fixture(local), environ={})
 
 
 def test_three_families_route_and_view_without_cross_leak(tmp_path):

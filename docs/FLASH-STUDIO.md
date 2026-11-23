@@ -2,14 +2,7 @@
 
 Print Handy can use an existing, user-installed Flash Studio executable for slicing. It does not download, install, update, or configure Flash Studio. The setting is an opt-in executable path; when it is empty, Print Handy keeps its normal OrcaSlicer choice and existing fallback policy.
 
-Set it in `config/local.toml`:
-
-```toml
-[slicer]
-flash_studio_path = "/opt/flash-studio/FlashStudio"
-```
-
-Or in `config/local.yaml`:
+Set it in `config/local.yaml`:
 
 ```yaml
 slicer:

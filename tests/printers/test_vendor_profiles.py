@@ -250,12 +250,11 @@ def test_local_yaml_with_vendor_and_printer_sections(tmp_path):
     assert data["printer"]["model"] == "klipper.generic"
 
 
-def test_existing_local_toml_keeps_working(tmp_path):
+def test_existing_local_toml_is_refused_with_yaml_migration(tmp_path):
     local = tmp_path / "local.toml"
     local.write_text('[printer]\nmodel = "sovol.sv06"\nnozzle_diameter_mm = 0.6\n')
-    data = settings.load(home=settings.HOME, local=local, environ={})
-    assert data["printer"]["model"] == "sovol.sv06" and data["printer"]["nozzle_diameter_mm"] == 0.6
-    assert data["delivery"]["methods"] == ["printer"]
+    with pytest.raises(settings.SettingsError, match="TOML settings are no longer supported"):
+        settings.load(home=settings.HOME, local=local, environ={})
 
 
 def test_vendor_alias_and_mismatch():
