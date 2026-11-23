@@ -404,6 +404,40 @@ def test_slot_self_check_does_not_warn_when_baseline_channels_were_unavailable(m
     assert waits == [1] * 30
 
 
+@pytest.mark.parametrize("baseline", [(3, None, None, None), (3, 2, None, None), (3, None, 2, None)])
+def test_slot_self_check_posts_inconclusive_for_partial_baseline(monkeypatch, baseline):
+    """Any unavailable baseline channel keeps the later agreeing reading inconclusive."""
+    listener = mel.Listener()
+    listener.filename = "job.gcode"
+    listener.print_identity = "job-1"
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        baseline, (3, 4, 4, None)]))
+    monkeypatch.setattr(mel.asyncio, "sleep", lambda delay: asyncio.sleep(0))
+    posts = []
+    monkeypatch.setattr(mel, "post", posts.append)
+    asyncio.run(listener._slot_self_check())
+    assert len(posts) == 1
+    assert "inconclusive" in posts[0] and "may be stale" in posts[0]
+
+
+def test_slot_self_check_suppresses_advisory_after_job_turnover(monkeypatch):
+    """Never post a delayed slot advisory for a job that is no longer current."""
+    listener = mel.Listener()
+    listener.filename = "old-job.gcode"
+    listener.print_identity = "job-1"
+    samples = _sticky_slot_samples([(3, None, None, None), (3, 4, 4, None)])
+
+    async def turnover_sleep(_delay):
+        listener.print_identity = "job-2"
+
+    monkeypatch.setattr(listener, "_slot_sources", samples)
+    monkeypatch.setattr(mel.asyncio, "sleep", turnover_sleep)
+    posts = []
+    monkeypatch.setattr(mel, "post", posts.append)
+    asyncio.run(listener._slot_self_check())
+    assert posts == []
+
+
 def test_slot_self_check_does_not_treat_unchanged_available_channel_as_activation(monkeypatch):
     """(3, 2, None) then (3, 2, 2): the channel that was already 2 did not
     move, so the pair agreeing on 2 is still the previous print."""
