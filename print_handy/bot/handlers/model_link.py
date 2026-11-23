@@ -306,7 +306,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
     # cross-platform adapter; unrelated archived jobs are never guessed.
     reason = result.get('reason', '') if isinstance(result, dict) else ''
     if str(reason).startswith(('slice refused:', 'slice failed:', 'slice retry failed')):
-        from .fix import offer_failed_intake
+        from print_handy.bot.handlers.fix import offer_failed_intake
         repair = await offer_failed_intake(event, gateway, adapter)
         if repair is not None:
             return repair
