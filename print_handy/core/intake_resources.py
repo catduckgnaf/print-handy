@@ -207,11 +207,13 @@ def _stream_counts(archive, models, *, path=None):
             if len(value) > MAX_XML_ATTRIBUTE_BYTES:
                 _refuse(f'an XML attribute value exceeds {MAX_XML_ATTRIBUTE_BYTES // MIB} MiB '
                         'limit', path=path)
-        # Geometry attributes are already bounded by XML byte, element, vertex,
-        # triangle, and estimated-geometry limits. The fallback's separate
-        # payload budget covers only non-geometry attributes it retains.
-        if local not in ('triangle', 'vertex'):
-            add_payload(sum(len(k) + len(v) for k, v in attrs.items()))
+        # Standard geometry fields are bounded by geometry counts and the XML
+        # member byte cap; charge every other attribute to the DOM payload cap.
+        geometry_fields = ({'x', 'y', 'z'} if local == 'vertex'
+                           else {'v1', 'v2', 'v3'} if local == 'triangle'
+                           else set())
+        add_payload(sum(len(k) + len(v) for k, v in attrs.items()
+                        if k not in geometry_fields))
         if counts['elements'] > MAX_XML_ELEMENTS:
             _refuse(f'XML element count at least {counts["elements"]:,} exceeds '
                     f'{MAX_XML_ELEMENTS:,} limit', path=path)
