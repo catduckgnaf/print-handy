@@ -631,10 +631,22 @@ def start_message(filename, archive=None, context_path=None):
     return message
 
 
+def _hardware_record():
+    """Read slot state using the same renamed-slot adoption as printer_state.load.
+
+    Listener warnings and recovery paths must not silently forget spools from
+    an older record still carrying the pre-#672 ifs_slots shape.
+    """
+    state = json.loads(_hardware_file().read_text())
+    if isinstance(state, dict):
+        filament_color.adopt_renamed_slots_key(state)
+    return state
+
+
 def _slot_record(slot):
     """The hardware record for one IFS slot, or None. No printer call."""
     try:
-        state = json.loads(_hardware_file().read_text())
+        state = _hardware_record()
     except (OSError, ValueError):
         return None
     record = (state.get("filament_slots") or {}).get(str(slot))
@@ -799,7 +811,7 @@ def runout_repause_message(filename, slot=None, count=1):
 def recovery_slot(filename):
     """The slot and spool this job was using, from the hardware map. No printer call."""
     try:
-        state = json.loads(_hardware_file().read_text())
+        state = _hardware_record()
     except (OSError, ValueError):
         return None, None
     slots = state.get("filament_slots") or {}
@@ -3718,7 +3730,7 @@ class MidPrintSlotTracker:
 
 def _mapped_spool(slot):
     try:
-        state = json.loads(_hardware_file().read_text())
+        state = _hardware_record()
     except (OSError, ValueError):
         return None
     return ((state.get("filament_slots") or {}).get(str(slot)) or {}).get("spoolman_id")
