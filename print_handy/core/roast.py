@@ -928,20 +928,40 @@ def _save_state(path: Path | None, state: Mapping[str, Any]) -> None:
 
 
 def _normalized(state: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, Any]:
-    """State in its stored shape, malformed parts dropped.
+    """Normalize saved IDs without losing the duplicate-prevention history.
 
-    Ids that name no current entry (a line since removed, or a Phase 1
-    content-hash id) are kept: they match nothing eligible and age out
-    of the windows on their own.
+    Phase 1 stored content hashes; shipped entries now carry stable IDs.
+    Derive a narrow mapping for unchanged texts from today's corpus instead
+    of reintroducing the general compatibility registry. Unknown hashes stay
+    untouched and expire from the bounded history normally.
     """
+    aliases = {}
+    groups = list(corpus.get("banks", {}).items())
+    for section, prefix in (("title_reactions", "title"),
+                            ("color_roasts", "color"),
+                            ("reprint_failed", "reprint_failed"),
+                            ("history_callbacks", "history"),
+                            ("material_roasts", "material"),
+                            ("milestone", "milestone")):
+        groups.extend((f"{prefix}:{key}", rows)
+                      for key, rows in corpus.get(section, {}).items())
+    for pool, rows in groups:
+        for current_id, template in rows:
+            legacy_id = entry_id(pool, template)
+            if legacy_id != current_id:
+                aliases[legacy_id] = current_id
+
+    def translate(entry):
+        return aliases.get(entry, entry) if isinstance(entry, str) else entry
     bags = state.get("bags") if isinstance(state.get("bags"), dict) else {}
-    bags = {pool: [e for e in bag if isinstance(e, str)]
+    bags = {pool: [translate(e) for e in bag if isinstance(e, str)]
             for pool, bag in bags.items() if isinstance(bag, list)}
     raw_history = state.get("history")
-    history = [h for h in (raw_history if isinstance(raw_history, list) else [])
+    history = [translate(h) for h in (raw_history if isinstance(raw_history, list) else [])
                if isinstance(h, str)][-HISTORY_WINDOW:]
-    chosen = {key: (dict(value) if isinstance(value, dict) else value) for key, value in
-              (state.get("chosen") if isinstance(state.get("chosen"), dict) else {}).items()}
+    chosen = {}
+    for key, value in (state.get("chosen") if isinstance(state.get("chosen"), dict) else {}).items():
+        chosen[key] = {**value, "id": translate(value.get("id"))} if isinstance(value, dict) else value
     pool_history = state.get("pool_history")
     pool_history = [name for name in (pool_history if isinstance(pool_history, list) else [])
                     if isinstance(name, str)][-64:]
