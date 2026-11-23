@@ -477,15 +477,16 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
                         targets["nozzle"] = int(float(v_nozzle)) if float(v_nozzle).is_integer() else float(v_nozzle)
                         sources["nozzle"] = f"vendor profile ({resolution.name})"
                     except (ValueError, TypeError):
-                        pass
+                        logger.warning("vendor profile nozzle temperature %r is not a number", v_nozzle)
                 if v_bed is not None and sources.get("bed") != "Spoolman filament":
                     try:
                         targets["bed"] = int(float(v_bed)) if float(v_bed).is_integer() else float(v_bed)
                         sources["bed"] = f"vendor profile ({resolution.name})"
                     except (ValueError, TypeError):
-                        pass
+                        logger.warning("vendor profile bed temperature %r is not a number", v_bed)
     except Exception:
-        pass  # vendor lookup is advisory; fall back to material defaults
+        logger.warning("vendor profile temperatures were not applied; material defaults stand",
+                       exc_info=True)
     return ({"nozzle": targets["nozzle"], "bed": targets["bed"]},
             {"material_family": family, "material": material, "spoolman_id": spool.get("spoolman_id"),
              "sources": sources,
