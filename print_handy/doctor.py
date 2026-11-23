@@ -372,24 +372,53 @@ AI_ENDPOINT_LABEL = "AI endpoint"
 LEGACY_STATE_FOLDER = Path("~/.hermes/profiles/3dprinting")
 
 
+# What a pre-2.4.0 native install keeps that a fresh start does not recreate:
+# the bot token, the hardware record, the per-printer state and the launch database.
+LEGACY_KEY_ITEMS = (".env", "state/printer_hardware.json", "state/printers",
+                    "state/print_handy_launches.sqlite3", "state/maintenance.json")
+
+
+def _has_files(folder):
+    """True when ``folder`` holds anything that is not a directory (the entrypoint's rule).
+
+    A first start creates empty ``state/`` and ``logs/`` folders, so an empty tree is
+    structure, not data.
+    """
+    try:
+        return any(not entry.is_dir() for entry in folder.rglob("*"))
+    except OSError:
+        return False
+
+
 def check_legacy_state_folder(data):
-    """FAIL when a native install's data still sits only in the pre-2.4.0 Hermes folder (#1817).
+    """FAIL while the pre-2.4.0 Hermes folder holds data the state folder lacks (#1817).
 
     Before 2.4.0 an unset paths.state_home fell back to ~/.hermes/profiles/3dprinting when that
-    folder existed. That fallback is gone, so such an install would start with an empty state
-    folder (no hardware record, launch database or bot token). The data is still on disk; this
-    row says where and how to move it. None (skip) when there is no old folder.
+    folder existed. That fallback is gone, so such an install starts on a fresh state folder
+    (no hardware record, launch database or bot token). The data is still on disk; this row
+    names each key item that exists only in the old folder and how to move it. A state folder
+    that merely exists (a first start creates empty folders) is not treated as holding the data,
+    and the row never tells the operator to delete anything. None (skip) when there is no old
+    folder with files in it.
     """
     legacy = LEGACY_STATE_FOLDER.expanduser()
-    if not legacy.is_dir() or not any(legacy.iterdir()):
+    if not legacy.is_dir() or not _has_files(legacy):
         return None
     state = Path(data["paths"]["state_home"]).expanduser()
     if state.resolve() == legacy.resolve():
         return f"paths.state_home is set to {legacy}"
-    if state.is_dir() and any(state.iterdir()):
-        return f"{legacy} still exists, but paths.state_home ({state}) holds data; delete the old folder when done"
-    raise RuntimeError(f"{legacy} holds Print Handy data but paths.state_home ({state}) is empty: 2.4.0 no "
-                       f"longer reads the old folder. Move it (mv {legacy} {state}) or set paths.state_home")
+    stranded = [item for item in LEGACY_KEY_ITEMS
+                if (legacy / item).exists() and not (state / item).exists()]
+    if stranded:
+        moves = "; ".join(
+            f"mkdir -p {(state / item).parent} && mv {legacy / item} {state / item}"
+            for item in stranded)
+        raise RuntimeError(
+            f"{legacy} holds Print Handy data that paths.state_home ({state}) does not: "
+            f"{', '.join(stranded)}. 2.4.0 no longer reads the old folder. Either set "
+            f"paths.state_home to {legacy}, or stop Print Handy and move each item: {moves}")
+    return (f"{legacy} still exists; every key item is also in paths.state_home ({state}). "
+            "Compare the two folders, then remove the old one once nothing in it is needed")
 
 
 def check_ai_endpoint(data):

@@ -325,21 +325,51 @@ class LegacyStateFolderTests(unittest.TestCase):
     def data(self, state):
         return {"paths": {"state_home": state}}
 
+    def _legacy_install(self):
+        (self.legacy / "state").mkdir(parents=True)
+        (self.legacy / ".env").write_text("DISCORD_TOKEN=x\n")
+        (self.legacy / "state" / "printer_hardware.json").write_text("{}")
+
     def test_no_old_folder_is_skipped(self):
         self.assertIsNone(doctor.check_legacy_state_folder(self.data(self.root / "new")))
 
+    def test_old_folder_of_only_empty_directories_is_skipped(self):
+        (self.legacy / "state" / "logs").mkdir(parents=True)
+        self.assertIsNone(doctor.check_legacy_state_folder(self.data(self.root / "new")))
+
     def test_old_folder_with_data_and_an_empty_state_home_fails_with_the_move(self):
-        (self.legacy / "state").mkdir(parents=True)
+        self._legacy_install()
         new = self.root / "new"
-        with self.assertRaisesRegex(RuntimeError, r"mv .*old .*new"):
+        with self.assertRaisesRegex(RuntimeError, r"mv .*old.*\.env .*new.*\.env"):
             doctor.check_legacy_state_folder(self.data(new))
 
-    def test_old_folder_beside_a_populated_state_home_is_an_ok_note(self):
-        (self.legacy / "state").mkdir(parents=True)
-        (self.root / "new" / "state").mkdir(parents=True)
-        self.assertIn("delete the old folder", doctor.check_legacy_state_folder(self.data(self.root / "new")))
+    def test_a_first_start_skeleton_does_not_hide_stranded_data(self):
+        """A fresh start creates empty state/ and logs/ folders; that is not the user's data."""
+        self._legacy_install()
+        new = self.root / "new"
+        (new / "state").mkdir(parents=True)
+        (new / "logs").mkdir()
+        (new / "state" / "listener_health.json").write_text("{}")
+        with self.assertRaises(RuntimeError) as failed:
+            doctor.check_legacy_state_folder(self.data(new))
+        detail = str(failed.exception)
+        self.assertIn("printer_hardware.json", detail)
+        self.assertIn(".env", detail)
+        self.assertNotIn("delete", detail)
+        # Per-item moves, never "mv old new" into an existing folder.
+        self.assertNotIn(f"mv {self.legacy} {new}", detail)
+
+    def test_old_folder_beside_a_state_home_with_every_key_item_is_an_ok_note(self):
+        self._legacy_install()
+        new = self.root / "new"
+        (new / "state").mkdir(parents=True)
+        (new / ".env").write_text("DISCORD_TOKEN=x\n")
+        (new / "state" / "printer_hardware.json").write_text("{}")
+        note = doctor.check_legacy_state_folder(self.data(new))
+        self.assertIn("Compare the two folders", note)
+        self.assertNotIn("delete", note)
 
     def test_state_home_pointing_at_the_old_folder_is_fine(self):
-        (self.legacy / "state").mkdir(parents=True)
+        self._legacy_install()
         self.assertIn("set to", doctor.check_legacy_state_folder(self.data(self.legacy)))
 

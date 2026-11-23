@@ -1264,20 +1264,18 @@ class CameraWatchVisibilityTests(unittest.TestCase):
         self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER", compose_env)
         self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE", compose_env)
         # The env_file state an existing install produces: only the old
-        # spelling, set false. The alias folds it onto the renamed key.
-        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
-            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
-        self.assertIs(loaded["discord"]["mention_starter"], False)
+        # spelling. 2.4.0 refuses it by name and points at the current key
+        # instead of folding it silently (#1817 E).
+        with self.assertRaisesRegex(
+                settings.SettingsError,
+                r"mention_starter_on_complete.*renamed to \[discord\] mention_starter"):
+            settings.load(local=ROOT / "config" / "docker.yaml", environ={
+                "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
         # Neither spelling set: the documented default stands.
         loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
         self.assertIs(loaded["discord"]["mention_starter"], True)
-        # Both spellings set: the current name wins, in either direction.
+        # The current spelling is honoured.
         loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
-            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false",
-            "PRINT_HANDY__DISCORD__MENTION_STARTER": "true"})
-        self.assertIs(loaded["discord"]["mention_starter"], True)
-        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
-            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "true",
             "PRINT_HANDY__DISCORD__MENTION_STARTER": "false"})
         self.assertIs(loaded["discord"]["mention_starter"], False)
         # The in-repo Unraid template no longer injects the variable at

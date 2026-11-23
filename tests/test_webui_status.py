@@ -200,22 +200,17 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(hardware["status"], "fail")
         self.assertFalse(snap["ok"])  # a doctor fail turns the overall flag off
 
-    def test_ambiguous_retired_ai_keys_warn_and_turn_the_headline(self):
-        """#1759: the issue's repro — retired AI keys with no model — warns
-        in the doctor rows, turns the snapshot not-ok, and the Status page
-        says "Attention needed" with a banner to Settings → AI."""
+    def test_ai_feature_without_endpoint_warns_and_turns_the_headline(self):
+        """#1759: an AI feature switched on with no [llm] endpoint warns in
+        the doctor rows, turns the snapshot not-ok, and the Status page says
+        "Attention needed" with a banner to Settings → AI. (The retired-key
+        spelling of the repro is now refused at load, #1817; see
+        test_retired_design_endpoint_requires_current_configuration.)"""
         with tempfile.TemporaryDirectory() as tmp:
-            data = load_settings(tmp,
-                                 "ai:\n  chat:\n    chat_url: https://ai.example.com/v1/chat/completions\n"
-                                 "    api_key_env: DESIGN_KEY\n"
-                                 "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
-                                 "  api_key_env: DESIGN_KEY\n")
+            data = load_settings(tmp, "design:\n  enabled: true\n")
             rows = status.doctor_checks(data)
         ai_row = next(row for row in rows if row["label"] == "AI endpoint")
         self.assertEqual(ai_row["status"], "warn")
-        self.assertIn("[design] chat_url", ai_row["detail"])
-        self.assertNotIn("ai.example.com", ai_row["detail"])
-        self.assertNotIn("DESIGN_KEY", ai_row["detail"])
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp)
             healthcheck.beat(data=data)
