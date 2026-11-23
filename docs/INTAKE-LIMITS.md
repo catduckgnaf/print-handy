@@ -12,13 +12,13 @@ Safety limits in this revision:
 | Download or local source | No byte cap; refused only when the volume would drop below 512 MiB free |
 | ZIP members | 4,096 |
 | Standalone 3MF expanded ZIP total, members, and `.model` XML | No fixed byte cap; stream-counted geometry budget applies |
-| Standalone 3MF ZIP compression ratio | At most 100:1 for members above 1 MiB expanded |
+| Standalone 3MF ZIP compression ratio | At most 100:1 for members above 1 MiB expanded, and at most 100:1 in aggregate once the whole archive expands past 1 MiB |
 | STL file | No byte cap; triangle count (binary header, ASCII facets) under the triangle budget |
 | XML triangles / vertices | 10,000,000 each |
 | XML elements across models | 40,000,000 |
 | Estimated geometry working storage | 1,536 MiB |
 
-ZIP member counts and compression ratios are checked before opening any member.
+ZIP member counts and individual plus aggregate compression ratios are checked before opening any member.
 The 400 MiB model XML, 400 MiB member and 512 MiB expanded limits no longer
 apply to standalone 3MF sources, including model-site links. Model XML is
 counted with a streaming parser; geometry and XML-element budgets still bound
@@ -30,6 +30,9 @@ budget. There is no download or STL byte cap (#1824): a download, upload or
 archive extraction is stopped when it would leave less than 512 MiB free on
 the volume, and the partial file is removed. A standalone 3MF ZIP member
 expanded above 1 MiB and compressed more than 100:1 is refused as a zip bomb.
+An archive whose members collectively exceed 1 MiB expanded is also refused
+when the total expanded bytes exceed 100 times the total compressed bytes,
+preventing many small, highly compressible members from bypassing the guard.
 A separately uploaded `.zip` bundle follows its own extraction limits.
 
 Discord upload, link and reprint intake check before title extraction, audit and
