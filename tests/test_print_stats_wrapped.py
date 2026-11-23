@@ -123,11 +123,11 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(stats["failures"]["stop_reasons"], {"spaghetti detected": 1})
         # watch_risk is a non-empty string naming the risk; that truthy shape is the flag.
         # #981: the honest primary name is risk_flagged (a pre-print slice-risk
-        # label, not a camera detection); the watchdog_flagged alias is gone (#1817).
+        # label, not a camera detection); keep the deprecated alias for clients.
         self.assertEqual(stats["risk_flagged"], 1)
-        self.assertNotIn("watchdog_flagged", stats)
+        self.assertEqual(stats["watchdog_flagged"], stats["risk_flagged"])
         self.assertEqual(stats["failures"]["risk_flagged"], 1)
-        self.assertNotIn("watchdog_flagged", stats["failures"])
+        self.assertEqual(stats["failures"]["watchdog_flagged"], stats["failures"]["risk_flagged"])
         # #981: timelapse_known keyed on a record field no record ever carries
         # (structurally always 0); it is removed, not repurposed here.
         self.assertNotIn("timelapse_known", stats)
@@ -161,7 +161,7 @@ class WrappedTests(unittest.TestCase):
         self.assertEqual(highlights["longest_print"]["title"], "Bracket")
         self.assertEqual(highlights["biggest_by_filament"]["title"], "Bracket")
         self.assertEqual(highlights["risk_flagged"], 1)
-        self.assertNotIn("watchdog_flagged", highlights)
+        self.assertEqual(highlights["watchdog_flagged"], highlights["risk_flagged"])
         self.assertEqual(highlights["worst_failure_streak"], 2)
         script = "\n".join(wrapped["script"])
         self.assertIn("top color was Black", script)       # 3 of 5 prints: over 50%
