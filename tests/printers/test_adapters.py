@@ -1,3 +1,4 @@
+import toml_twin
 """Contract tests for every registered printer model, plus the stock Klipper no-AD5X guarantees."""
 import json
 import re
@@ -594,7 +595,7 @@ class SettingsModelTests(unittest.TestCase):
         local = Path(tempfile.mkdtemp()) / "local.toml"
         local.write_text('[printer]\nfamily = "flashforge_zmod"\n')
         with self.assertRaisesRegex(settings.SettingsError, r"unknown setting \[printer\] family"):
-            settings.load(local=local, environ={})
+            settings.load(local=toml_twin.yaml_fixture(local), environ={})
 
     def test_model_defaults_come_from_the_model_file(self):
         for key, model in printers.MODELS.items():
@@ -608,18 +609,18 @@ class SettingsModelTests(unittest.TestCase):
         folder = Path(tempfile.mkdtemp())
         good = folder / "good.toml"
         good.write_text('[printer]\nbed_mm = [250.0, 250.0]\n[layout]\nsingle_copy_edge_mm = 2.5\n')
-        data = settings.load(local=good, environ={})
+        data = settings.load(local=toml_twin.yaml_fixture(good), environ={})
         self.assertEqual((data["printer"]["bed_mm"], data["layout"]["single_copy_edge_mm"]), ([250.0, 250.0], 2.5))
         self.assertEqual(data["printer"]["model"], AD5X)
         bad = folder / "bad.toml"
         bad.write_text('[printer]\nnozzle_diameter_mm = "big"\n')
         with self.assertRaisesRegex(settings.SettingsError, "nozzle_diameter_mm should be like"):
-            settings.load(local=bad, environ={})
+            settings.load(local=toml_twin.yaml_fixture(bad), environ={})
 
     def test_local_toml_can_pick_the_model(self):
         local = Path(tempfile.mkdtemp()) / "local.toml"
         local.write_text('[printer]\nmodel = "sovol.sv06"\n')
-        data = settings.load(local=local, environ={})
+        data = settings.load(local=toml_twin.yaml_fixture(local), environ={})
         self.assertEqual((data["printer"]["model"], data["printer"]["filament_slots"]), (SV06, 1))
         self.assertEqual(data["orca"]["templates"].name, "sovol_sv06")
 
