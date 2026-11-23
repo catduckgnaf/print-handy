@@ -26,10 +26,9 @@ Two ways in:
 Accepted files: ``.stl`` and ``.3mf`` (the registry's
 ``DIRECT_FILE_EXTS``). The body is streamed to a spool file inside the
 inbox (``parse_multipart_stream``), never read into memory whole. An
-upload whose Content-Length is over the shared download budget
-(``MAX_UPLOAD_BYTES``) is refused before a byte is read, and a file
-part that passes the budget stops the read. An STL over the intake
-limit (32 MiB, ``intake_resources.MAX_STL_BYTES``) is refused. At most
+upload whose Content-Length is over a large practical ceiling
+(``MAX_UPLOAD_BYTES``) is refused before a byte is read. There is no
+per-STL byte-size refusal; geometry budgets apply later in intake. At most
 ``MAX_CONCURRENT_UPLOADS`` uploads are received at once (the rest get
 503 straight away), and the inbox as a whole is capped at
 ``INBOX_QUOTA_BYTES``: an upload that would pass the quota is refused
@@ -53,13 +52,13 @@ from email.parser import BytesParser
 from pathlib import Path
 
 from .. import settings
-from ..core import intake_resources, model_sources
+from ..core import model_sources
 from . import shell
 
 _esc = shell._esc
 
 LINKS_FILE_NAME = "webui_upload_links.json"
-MAX_UPLOAD_BYTES = intake_resources.MAX_DOWNLOAD_BYTES
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024 * 1024  # 10 GiB practical ceiling; no ordinary-model size refusal (#1824)
 # The multipart framing allowance on top of MAX_UPLOAD_BYTES: the form
 # token field, the part headers and the boundaries.
 MULTIPART_OVERHEAD_BYTES = 65536
@@ -556,9 +555,7 @@ def _upload_refusal(data, filename, content, *, extra_exts=()):
     if not Path(name).stem:
         return "the file needs a name"
     size = _content_size(content)
-    if suffix == ".stl" and size > intake_resources.MAX_STL_BYTES:
-        return (f"that STL is over the {intake_resources.MAX_STL_BYTES // (1024 * 1024)} "
-                "MiB intake limit; nothing was saved")
+    # No per-STL byte-size refusal. Geometry budgets apply later in intake. (#1824)
     if size > MAX_UPLOAD_BYTES:
         return "that file is over the upload size limit; nothing was saved"
     if not size:

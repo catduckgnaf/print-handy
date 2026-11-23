@@ -17,13 +17,8 @@ from print_handy.core import slice_guard
 
 def main():
     channel = os.environ["PRINT_HANDY_ORCA_CHANNEL"]
-    # The preview channel was removed (Print Handy ships one bundled Orca):
-    # 'preview' and its pre-#600 name 'alpha' mean the single stable build.
-    # The entrypoint already normalizes them, and a direct run with an old
-    # value gets the same treatment here.
-    if channel in {"alpha", "preview"}:
-        channel = "stable"
-    assert channel == "stable"
+    # Print Handy ships one bundled Orca; stable is the only channel (#1817).
+    assert channel == "stable", channel
     binary = Path(f"/opt/orca-{channel}/bin/orca-slicer")
     assert binary.is_file() and os.access(binary, os.X_OK), binary
     revision = Path(f"/orca-{channel}-source-revision").read_text().strip()

@@ -248,15 +248,16 @@ def test_download_unsupported_type_refused(public_dns, monkeypatch, tmp_path):
         model_job.direct_download(job, source, tmp_path / "source")
 
 
-def test_download_oversize_aborted_at_intake_cap(public_dns, monkeypatch, tmp_path):
-    monkeypatch.setattr(intake_resources, "MAX_DOWNLOAD_BYTES", 64)
-    serve(monkeypatch, lambda url: FakeResponse(b"x" * 4096,
+def test_download_over_former_cap_succeeds(public_dns, monkeypatch, tmp_path):
+    """A download larger than the former 200 MiB cap is accepted. (#1824)"""
+    # 1 MiB is enough to show the old refusal path is gone; the unit test covers >200 MiB.
+    serve(monkeypatch, lambda url: FakeResponse(b"x" * (1024 * 1024),
                                                 {"Content-Type": "application/octet-stream"}))
     job, source = job_and_source()
     target = tmp_path / "source"
-    with pytest.raises(intake_resources.IntakeLimitExceeded, match="exceeds"):
-        model_job.direct_download(job, source, target)
-    assert list(target.iterdir()) == []  # save_download removes the partial file
+    result = model_job.direct_download(job, source, target)
+    assert result.exists()
+    assert result.stat().st_size == 1024 * 1024
 
 
 def test_download_host_unreachable_named(public_dns, monkeypatch, tmp_path):

@@ -10,9 +10,8 @@ services:
       PRINT_HANDY_CONFIG: ${PRINT_HANDY_CONFIG:-/app/config/docker.yaml}
       PRINT_HANDY__BOT__MODE: standalone
       # Bundled OrcaSlicer selection at startup (docs/SETTINGS.md "Runtime
-      # environment"); Print Handy ships one bundled OrcaSlicer, stable is the
-      # only value, and preview/alpha start on the same single build with a
-      # startup notice (the preview channel was removed).
+      # environment"); Print Handy ships one bundled OrcaSlicer, and stable is
+      # the only accepted value.
       PRINT_HANDY_ORCA_CHANNEL: ${PRINT_HANDY_ORCA_CHANNEL:-stable}
       # Container timezone (docs/SETTINGS.md "Compose variables"): IANA name for
       # the container's local time — log timestamps, scheduled and timed
@@ -148,17 +147,15 @@ services:
       PRINT_HANDY_BUNDLED_SPOOLMAN: ${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}
       SPOOLMAN_PORT: 8000
     volumes:
-      # State volume (#914): /data/state is the neutral name since 2.2.5.
-      # There is no /data/hermes mount here (#1144): a new install must not
-      # create the legacy folder. An install that still has ./data/hermes keeps
-      # its data: the print-handy-migrate service below copies it into
-      # ./data/state once, before this service starts (docs/DOCKER.md, "State
-      # volume rename").
       - ${PRINT_HANDY_DATA:-./data}/state:/data/state
       - ${PRINT_HANDY_DATA:-./data}/archive:/data/archive
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records
       - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
       - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
+      # Read-only view of the whole data folder, so the entrypoint can see a
+      # pre-2.2.5 ./data/hermes and refuse to start on an empty ./data/state
+      # instead of starting as a fresh install (#1817). Nothing is written here.
+      - ${PRINT_HANDY_DATA:-./data}:/host-data:ro
     # The Web UI port is published by default (host port 8088 to the Web
     # UI port), so a first boot is reachable from the host right away.
     # Delete these two lines to keep the Web UI inside the container.
@@ -204,8 +201,6 @@ services:
     depends_on:
       print-handy-init:
         condition: service_completed_successfully
-      print-handy-migrate:
-        condition: service_completed_successfully
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     shm_size: 256m
@@ -222,7 +217,9 @@ services:
   # directories once, then keep the long-running service rootless. A folder it
   # cannot create or chown (an NFS or SMB share that refuses chown, a read-only
   # mapping) stops it with one message naming the folder and the fix, and the
-  # application does not start (#1144).
+  # application does not start (#1144). The runtime entrypoint owns the
+  # legacy-state refusal (#1817): only it can read the full configuration
+  # and distinguish an empty default from a populated custom state path.
   print-handy-init:
     image: ${PRINT_HANDY_IMAGE:?Set PRINT_HANDY_IMAGE to an image tag or digest}
     user: "0:0"
@@ -239,28 +236,6 @@ services:
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records
       - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
       - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
-  # One-time copy of a pre-2.2.5 ./data/hermes folder into ./data/state (#1144).
-  # The entrypoint owns the rules (never overwrite, resumable, recorded once);
-  # this service only runs them as the application user with the data folder
-  # mounted read-only, so it neither creates the legacy folder on a new install
-  # nor can change it. With no ./data/hermes it exits at once.
-  print-handy-migrate:
-    image: ${PRINT_HANDY_IMAGE:?Set PRINT_HANDY_IMAGE to an image tag or digest}
-    user: "1000:1000"
-    entrypoint: [/app/docker/entrypoint.sh]
-    command: [/bin/true]
-    environment:
-      PRINT_HANDY_STATE_MIGRATE_ONLY: "1"
-      PRINT_HANDY_LEGACY_STATE: /legacy-data/hermes
-    restart: "no"
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    depends_on:
-      print-handy-init:
-        condition: service_completed_successfully
-    volumes:
-      - ${PRINT_HANDY_DATA:-./data}/state:/data/state
-      - ${PRINT_HANDY_DATA:-./data}:/legacy-data:ro
   # Optional Cloudflare Tunnel connector for the live view (#311): a named
   # tunnel with a stable hostname, run only under the "live-stream" profile
   # (docker compose --profile live-stream up -d). It is a sidecar, never

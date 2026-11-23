@@ -21,7 +21,7 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy import settings
-from print_handy.core import intake_resources, printer_state
+from print_handy.core import printer_state
 from print_handy.runtime import nozzle_change as nc
 from print_handy.webui import controls, server, status, upload
 
@@ -370,20 +370,16 @@ class ApiRouteTests(unittest.TestCase):
             rows = [row[0] for row in upload.list_inbox(httpd.settings_data)]
             self.assertEqual(rows, ["evil.stl"])
 
-    def test_upload_stl_over_the_intake_limit_is_refused(self):
-        # The intake limit is patched small so the route test stays
-        # fast; the real 32 MiB limit is pinned by the upload tests
-        # against save_upload directly.
+    def test_upload_large_stl_is_accepted(self):
+        """A large STL is accepted by the upload route; no per-STL byte cap. (#1824)"""
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp)
             body, content_type = multipart_body("big.stl", b"x" * 64)
-            with mock.patch.object(intake_resources, "MAX_STL_BYTES", 8):
-                code, raw = self.request(
-                    port, "POST", "/api/upload", body,
-                    {"Content-Type": content_type, server.TOKEN_HEADER: TOKEN})
-            self.assertEqual(code, 400, raw[:200])
-            self.assertIn("intake limit", json.loads(raw)["reason"])
-            self.assertEqual(upload.list_inbox(httpd.settings_data), [])
+            code, raw = self.request(
+                port, "POST", "/api/upload", body,
+                {"Content-Type": content_type, server.TOKEN_HEADER: TOKEN})
+            self.assertEqual(code, 200, raw[:200])
+            self.assertIn("big.stl", upload.list_inbox(httpd.settings_data)[0])
 
     def test_upload_inbox_quota_is_refused_with_507(self):
         with tempfile.TemporaryDirectory() as tmp:

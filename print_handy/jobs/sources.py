@@ -953,36 +953,44 @@ def _fetch_chosen(url, target, name, label, *, exact, headers=None):
             archive.close()
             archive = None
     if archive is not None:
-        with archive:
-            entries = [n for n in archive.namelist() if not n.endswith("/")
-                       and Path(n).suffix.lower() in {".stl", ".3mf"}]
-            pick = next((n for n in entries if Path(n).name.casefold() == name.casefold()), None)
-            if pick is None and len(entries) == 1: pick = entries[0]
-            if pick is None:
-                staged.unlink(missing_ok=True)
-                raise RuntimeError(
-                    f"{label} sent a zip with {len(entries)} model files and none is named "
-                    f"{name}, so Print Handy cannot tell which one was chosen; nothing was kept")
-            # The download cap counted the compressed bytes; the chosen member
-            # is held to the same cap as it expands, counted as it is written
-            # (the header's declared size is not trusted), so a small archive
-            # cannot fill the disk before the intake limits see the file.
-            from ..core.intake_resources import CHUNK, MAX_DOWNLOAD_BYTES, MIB, _refuse
-            try:
-                if archive.getinfo(pick).file_size > MAX_DOWNLOAD_BYTES:
-                    _refuse(f"file exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit")
+        # The staged zip is removed only after it is closed, whatever happens:
+        # Windows cannot delete an open file. A refused or failed extraction
+        # also removes the partial chosen file.
+        try:
+            with archive:
+                entries = [n for n in archive.namelist() if not n.endswith("/")
+                           and Path(n).suffix.lower() in {".stl", ".3mf"}]
+                pick = next((n for n in entries if Path(n).name.casefold() == name.casefold()), None)
+                if pick is None and len(entries) == 1: pick = entries[0]
+                if pick is None:
+                    raise RuntimeError(
+                        f"{label} sent a zip with {len(entries)} model files and none is named "
+                        f"{name}, so Print Handy cannot tell which one was chosen; nothing was kept")
+                # Do not impose a model-byte cap, but a compressed member must not
+                # exhaust the volume *before* geometry validation runs, and the
+                # zip-bomb ratio guard stays (#1824, #1833).
+                from ..core.intake_resources import CHUNK, MIN_FREE_BYTES, IntakeLimitExceeded
+                from ..core.source_archive import MAX_RATIO, RATIO_FLOOR_BYTES
+                info = archive.getinfo(pick)
+                if info.file_size > RATIO_FLOOR_BYTES and (
+                        info.compress_size <= 0 or info.file_size / info.compress_size > MAX_RATIO):
+                    raise IntakeLimitExceeded(
+                        f"Model intake refused: {label} sent a zip whose {Path(pick).name} is "
+                        f"compressed more than {MAX_RATIO}:1, which real models never are "
+                        "(zip-bomb guard); nothing was kept, sliced or started.")
                 with archive.open(pick) as src, dest.open("wb") as out:
-                    total = 0
                     while chunk := src.read(CHUNK):
-                        total += len(chunk)
-                        if total > MAX_DOWNLOAD_BYTES:
-                            _refuse(f"file exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit")
+                        if shutil.disk_usage(dest.parent).free < len(chunk) + MIN_FREE_BYTES:
+                            raise IntakeLimitExceeded(
+                                "Model intake refused: the server is low on disk space "
+                                f"(archive extraction needs {MIN_FREE_BYTES // (1024 * 1024)} MiB "
+                                "of free disk space reserved). Nothing was kept, sliced or started.")
                         out.write(chunk)
-            except BaseException:
-                dest.unlink(missing_ok=True)
-                staged.unlink(missing_ok=True)
-                raise
-        staged.unlink(missing_ok=True)
+        except BaseException:
+            dest.unlink(missing_ok=True)
+            raise
+        finally:
+            staged.unlink(missing_ok=True)
     else:
         sent = urllib.parse.unquote(Path(urllib.parse.urlparse(url).path).name)
         if not exact and sent.casefold() != name.casefold():
