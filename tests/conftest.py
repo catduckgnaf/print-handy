@@ -352,17 +352,18 @@ def _wrapped_season_is_open(monkeypatch):
 
 # #1844: a test that silently downloaded the 202 MB detector model from
 # obico.io on every CI run cost its maintainers about USD 500 a month.
-# No test may open a connection to a public internet address. The
-# connection is refused (as an unreachable network would be) and the test
-# then fails, even when the code under test swallowed the error, so a
-# background download or retry loop cannot hide. Loopback, private,
-# documentation (TEST-NET) and Unix sockets are untouched, and UDP
-# "connect" (which sends nothing) is allowed.
-def _public_address(sock, address) -> str | None:
+# No test may open a TCP connection to, or send a UDP datagram to, a
+# public internet address. The attempt is refused (as an unreachable
+# network would be) and the test then fails, even when the code under test
+# swallowed the error, so a background download or retry loop cannot hide.
+# Loopback, private, broadcast, documentation (TEST-NET) and Unix sockets
+# are untouched. A UDP "connect" sends nothing, so it is allowed; a later
+# send on that socket to a public peer is refused.
+def _public_target(family, address) -> str | None:
     import ipaddress
     import socket as _socket
 
-    if sock.family not in (_socket.AF_INET, _socket.AF_INET6) or sock.type == _socket.SOCK_DGRAM:
+    if family not in (_socket.AF_INET, _socket.AF_INET6):
         return None
     host = address[0] if isinstance(address, tuple) and address else None
     if not isinstance(host, str):
@@ -376,35 +377,70 @@ def _public_address(sock, address) -> str | None:
 
 @pytest.fixture(autouse=True)
 def _no_public_internet(monkeypatch):
+    """Yields the list of refused targets; a test of the guard itself may
+    inspect it and clear it."""
     import errno
     import socket as _socket
 
     attempts: list[str] = []
-    real_connect = _socket.socket.connect
-    real_connect_ex = _socket.socket.connect_ex
+    real = {name: getattr(_socket.socket, name)
+            for name in ("connect", "connect_ex", "send", "sendall", "sendto", "sendmsg")}
 
-    def _guard(sock, address):
-        target = _public_address(sock, address)
-        if target is None:
-            return None
+    def _refusal(target):
         attempts.append(target)
         return OSError(errno.ENETUNREACH, f"tests may not reach the public internet ({target}); see #1844")
 
+    def _stream_target(sock, address):
+        return _public_target(sock.family, address) if sock.type == _socket.SOCK_STREAM else None
+
+    def _peer_target(sock):
+        if sock.type != _socket.SOCK_DGRAM:
+            return None
+        try:
+            return _public_target(sock.family, sock.getpeername())
+        except OSError:
+            return None
+
     def connect(self, address):
-        refused = _guard(self, address)
-        if refused is not None:
-            raise refused
-        return real_connect(self, address)
+        target = _stream_target(self, address)
+        if target:
+            raise _refusal(target)
+        return real["connect"](self, address)
 
     def connect_ex(self, address):
-        refused = _guard(self, address)
-        if refused is not None:
-            return refused.errno
-        return real_connect_ex(self, address)
+        target = _stream_target(self, address)
+        if target:
+            return _refusal(target).errno
+        return real["connect_ex"](self, address)
 
-    monkeypatch.setattr(_socket.socket, "connect", connect)
-    monkeypatch.setattr(_socket.socket, "connect_ex", connect_ex)
-    yield
+    def send(self, data, *args):
+        target = _peer_target(self)
+        if target:
+            raise _refusal(target)
+        return real["send"](self, data, *args)
+
+    def sendall(self, data, *args):
+        target = _peer_target(self)
+        if target:
+            raise _refusal(target)
+        return real["sendall"](self, data, *args)
+
+    def sendto(self, data, *args):
+        target = _public_target(self.family, args[-1]) if args else None
+        if target:
+            raise _refusal(target)
+        return real["sendto"](self, data, *args)
+
+    def sendmsg(self, buffers, *args):
+        target = _public_target(self.family, args[2]) if len(args) >= 3 and args[2] else _peer_target(self)
+        if target:
+            raise _refusal(target)
+        return real["sendmsg"](self, buffers, *args)
+
+    for name, fn in (("connect", connect), ("connect_ex", connect_ex), ("send", send),
+                     ("sendall", sendall), ("sendto", sendto), ("sendmsg", sendmsg)):
+        monkeypatch.setattr(_socket.socket, name, fn)
+    yield attempts
     if attempts:
         pytest.fail(f"this test tried to reach the public internet: {', '.join(attempts)} (#1844). "
                     "Fake the fetch at its urlopen or client seam instead.", pytrace=False)
