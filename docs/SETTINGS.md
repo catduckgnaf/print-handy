@@ -555,7 +555,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 | `PRINT_HANDY_IMAGE` | none, required | Image the combined container runs. Set a tested immutable digest (`ghcr.io/catduckgnaf/print-handy@sha256:...`), not `:latest`, `:develop` or `:nightly`. The current release digest is in [Pinning the image](DOCKER.md#pinning-the-image). |
 | `PRINT_HANDY_DATA` | `./data` | Host folder holding the `state`, `archive`, `records` and `cache` volumes (a pre-2.2.5 `hermes` folder there is only checked, read-only, so an unmigrated install refuses to start, #1817) |
 | `PRINT_HANDY_SPOOLMAN_DATA` | `./data/spoolman` | Host folder for the bundled Spoolman database, config, logs and backups |
-| `PRINT_HANDY_CONFIG` | `/app/config/docker.yaml` | Settings file Print Handy reads (YAML, or legacy `.toml`) |
+| `PRINT_HANDY_CONFIG` | `/app/config/docker.yaml` | Settings file Print Handy reads (YAML only; `.toml` is refused since 2.4.0) |
 | `DISCORD_CLIENT_ID` | empty | The Discord application's ID for the live view: a plain identifier (it appears in invite URLs), not a secret. The Activity server refuses to start without it when live viewing is enabled |
 | `CLOUDFLARED_IMAGE` | none, required for the sidecar | Image the optional `cloudflared` sidecar runs (Compose profile `live-stream`): a locally tested tag or immutable digest of the Cloudflare Tunnel connector |
 | `TZ` | `America/New_York` | Container timezone (IANA name): the image's local time for log timestamps, scheduled and timed features and the bundled services' timestamps. Set any IANA name, for example `Europe/London`; an unknown name is logged at startup and the default is used. Chat display times follow `discord.timezone` instead |

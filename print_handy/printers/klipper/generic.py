@@ -1,7 +1,7 @@
 """Generic single extruder Klipper printer: stock Moonraker, PRINT_START/PRINT_END macros.
 
 Quirks: multi-color and multi-plate sources are refused. Copy this file for a Klipper printer that needs
-only different numbers, or override a key in config/local.yaml or config/local.toml. Templates: templates/orca/klipper_generic.
+only different numbers, or override a key in config/local.yaml. Templates: templates/orca/klipper_generic.
 """
 from ..base import PrinterModel
 from . import VENDOR

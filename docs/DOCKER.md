@@ -108,20 +108,18 @@ the print ends. Example lookup: `jq -r 'select(.status != "completed") |
 
 ## More than one printer
 
-One container serves the whole roster. Declare every printer in the mounted config file with a `[[printers]]` list: the list itself is file-only, because list values cannot come from environment variables:
+One container serves the whole roster. Declare every printer in the mounted config file with a `printers:` list: the list itself is file-only, because list values cannot come from environment variables:
 
-```toml
-[[printers]]
-id = "garage-a1"
-model = "bambulab.a1"
-chat_id = "<a1-channel-id>"
-lan_host = "<a1-lan-ip>"
-lan_serial = "<a1-serial>"
-
-[[printers]]
-id = "workshop-ad5x"
-model = "flashforge.ad5x"
-moonraker_url = "http://<ad5x-lan-ip>:7125"
+```yaml
+printers:
+  - id: garage-a1
+    model: bambulab.a1
+    chat_id: "<a1-channel-id>"
+    lan_host: "<a1-lan-ip>"
+    lan_serial: "<a1-serial>"
+  - id: workshop-ad5x
+    model: flashforge.ad5x
+    moonraker_url: "http://<ad5x-lan-ip>:7125"
 ```
 
 The first entry is the default printer and is named wherever output talks about "the printer". Each printer keeps its own state folder and job queue under `state/printers/<id>/` inside the one data directory, gets its own listener child under the supervisor (a dead listener never takes the bot or a sibling listener down), and is bound to its own chat channel: an approval in a channel can only start that channel's printer. The healthcheck reports every listener, and the Web UI status page lists the roster read-only. Spoolman stays one shared inventory for all printers. The full roster reference is [SETTINGS.md: Printers list](SETTINGS.md#printers-list).

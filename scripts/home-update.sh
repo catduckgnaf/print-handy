@@ -14,7 +14,7 @@
 # edits, and if some appear while it is checking, the rollback keeps them (git reset --keep) and says so.
 # Re-running after a failure or a rollback is safe: it repeats the same fast-forward and checks.
 #
-# Never touches config/local.yaml or config/local.toml. If config/after-update.sh exists (gitignored), it runs after a
+# Never touches config/local.yaml (or a leftover config/local.toml, which 2.4.0 refuses until converted). If config/after-update.sh exists (gitignored), it runs after a
 # good update, for example to restart the Discord listener.
 set -eu
 cd "$(dirname "$0")/.."
@@ -27,7 +27,7 @@ else
 fi
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo "Tracked files have local edits. Move machine settings into config/local.yaml or config/local.toml, then retry."
+    echo "Tracked files have local edits. Move machine settings into config/local.yaml, then retry."
     exit 1
 fi
 

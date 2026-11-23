@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Offline by default. The read-only commands need a real printer: PRINT_HANDY_LIVE_PRINTER=1 with
-# MOONRAKER_URL (or services.moonraker_url in config/local.yaml or config/local.toml) pointing at it.
+# MOONRAKER_URL (or services.moonraker_url in config/local.yaml) pointing at it.
 set -euo pipefail
 
 CTL="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/bin/moonrakerctl"

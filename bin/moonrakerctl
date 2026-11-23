@@ -19,7 +19,7 @@ json() { jq -cn "$@"; }
 
 request() {
   local method="$1" endpoint="$2" data="${3:-}" max_time="${4:-$TIMEOUT}" tmp code
-  [[ -n "$M" ]] || { printf 'error: services.moonraker_url is not set; add it to config/local.yaml (legacy config/local.toml is supported) or export MOONRAKER_URL\n' >&2; return 1; }
+  [[ -n "$M" ]] || { printf 'error: services.moonraker_url is not set; add it to config/local.yaml or export MOONRAKER_URL\n' >&2; return 1; }
   tmp="$(mktemp)"
   if [[ -n "$data" ]]; then
     code="$(curl -sS --max-time "$max_time" -o "$tmp" -w '%{http_code}' -X "$method" -H 'Content-Type: application/json' --data "$data" "$M$endpoint")" || {

@@ -6901,7 +6901,7 @@ def _install_stack_dump_handler():
 def main():
     if not WS_URL:
         raise SystemExit("services.moonraker_url is not configured (or services.moonraker_ws_url). "
-                         "Set it in config/local.yaml or config/local.toml; the listener has nothing to connect to.")
+                         "Set it in config/local.yaml; the listener has nothing to connect to.")
     from .. import ai_routes as _ai_routes
     route = _ai_routes.describe("small") or "not configured"
     logs.configure(role="listener")
