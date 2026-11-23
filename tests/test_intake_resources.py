@@ -109,7 +109,7 @@ def test_archive_budgets(tmp_path, setting, value, members, message):
 def test_3mf_zip_bomb_ratio_guard(tmp_path):
     source = tmp_path / 'bomb.3mf'
     with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr('payload.bin', b'\\x00' * (2 * limits.MIB))
+        archive.writestr('payload.bin', b'\x00' * (2 * limits.MIB))
     with pytest.raises(limits.IntakeLimitExceeded, match='100:1 compression ratio') as caught:
         limits.check_source(source)
     assert 'bomb.3mf' in str(caught.value)
@@ -134,7 +134,7 @@ def test_five_million_triangles_exceeding_old_expanded_and_xml_caps(tmp_path):
             for start in range(0, triangles, 1000):
                 batch = ''.join(
                     ' ' * 70 + f'<triangle v1="{i % vertices}" '
-                    f'v2="{(i + 1) % vertices}" v3="{(i + 2) % vertices}"/>\\n'
+                    f'v2="{(i + 1) % vertices}" v3="{(i + 2) % vertices}"/>\n'
                     for i in range(start, start + 1000))
                 member.write(batch.encode())
             member.write(b'</triangles></mesh></object></resources></model>')
