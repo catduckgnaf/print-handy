@@ -186,6 +186,15 @@ def test_large_attribute_refused_for_fallback_bound(tmp_path):
             limits.check_source(_model_3mf(tmp_path, 'attr.3mf', body))
 
 
+def test_geometry_attributes_count_toward_fallback_payload_bound(tmp_path):
+    body = (b'<object id="1"><mesh><vertices>'
+            + b'<vertex x="0" y="0" z="0"/>' * 30
+            + b'</vertices><triangles/></mesh></object>')
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 100):
+        with pytest.raises(limits.IntakeLimitExceeded, match=r'non-geometry limit'):
+            limits.check_source(_model_3mf(tmp_path, 'geometry-attrs.3mf', body))
+
+
 def test_normal_metadata_and_indentation_allowed(tmp_path):
     body = (b'<metadata name="Title">Benchy</metadata>\n    <object id="1"><mesh><vertices>'
             b'<vertex x="0" y="0" z="0"/></vertices><triangles/></mesh></object>')
