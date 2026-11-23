@@ -39,15 +39,6 @@ class RuntimeNoiseTests(unittest.TestCase):
         self.assertEqual([r.levelno for r in records],
                          [logging.WARNING, logging.DEBUG, logging.DEBUG])
 
-    def test_normal_bind_without_per_printer_copy_is_quiet(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            target = root / "printer_hardware.json"
-            target.write_text("{}")
-            with patch.object(spool_sync._config, "cfg", return_value={"printers": [{"id": "default"}]}), \
-                    self.assertNoLogs(spool_sync.__name__, level="WARNING"):
-                self.assertIsNone(spool_sync.spool_loaded_elsewhere(42, state_path=target))
-
     def test_non_zmod_missing_object_is_quiet_but_auth_failure_warns(self):
         for code in (400, 404, 401):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as tmp:

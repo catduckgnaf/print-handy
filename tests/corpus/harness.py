@@ -504,7 +504,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         enter = stack.enter_context
         patch = lambda *a, **k: enter(mock.patch.object(*a, **k))  # noqa: E731
         enter(printer_overrides.patched(overrides))
-        patch(printer_state, "STATE", str(state_file))
+        enter(mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(state_file)}))
         patch(_config, "state_dir", lambda: work / "state")
         # The remembered color mappings (#1473) live in the app state dir; a
         # run is one drop's alternate history, so its memory starts empty and

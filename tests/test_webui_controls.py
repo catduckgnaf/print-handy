@@ -264,7 +264,7 @@ class TemperatureTests(unittest.TestCase):
             target = state.parent / "printers" / PRINTER / "printer_hardware.json"
             target.parent.mkdir(parents=True)
             target.write_text(json.dumps(record))
-        return mock.patch.object(printer_state, "STATE", str(state))
+        return mock.patch.object(printer_state, "STATE_ROOT", str(state.parent))
 
     def test_recorded_nozzle_type_wins_over_config(self):
         # P1-125: config says hardened steel (450 C), but the fitted nozzle

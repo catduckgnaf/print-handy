@@ -9,11 +9,10 @@ printer-local job id) or overwrite each other's announcer state. The
 family polling listeners share the same defect through their single
 ``family_listener.json``.
 
-Listener-owned state now resolves per instance: a process serving a
-non-default roster printer gets ``<state>/printers/<id>/<name>`` (#334's
-layout); the default printer keeps the legacy path (its state was always
-the singleton's), a process serving no instance is unchanged, and an env
-override always wins. Cross-process channels stay shared by design —
+Listener-owned state now resolves per printer: a process serving a
+roster printer gets ``<state>/printers/<id>/<name>`` (#334's layout), the
+default printer included (#1817), a process serving no instance gets the
+default printer's folder, and an env override always wins. Cross-process channels stay shared by design —
 notably the start claims, which print-now writes and the listeners read.
 """
 import copy
@@ -70,13 +69,12 @@ def test_state_file_per_instance_resolution(two_printer_state, monkeypatch):
     # Not per-instance: never namespaced, whatever the process serves.
     listeners._set_instance_printer_id(SECOND)
     assert _config.state_file(None, "x.json") == state / "x.json"
-    # Per-instance with no instance identity (the bot): the legacy path.
+    # Per-instance with no instance identity (the bot): the default printer's folder.
     listeners._set_instance_printer_id(None)
-    assert _config.state_file(None, "x.json", per_instance=True) == state / "x.json"
-    # Per-instance for the default printer: the legacy path — its state
-    # was always the singleton's, so nothing is orphaned at upgrade.
+    assert _config.state_file(None, "x.json", per_instance=True) == state / "printers" / FIRST / "x.json"
+    # Per-instance for the default printer: its own folder too (#1817).
     listeners._set_instance_printer_id(FIRST)
-    assert _config.state_file(None, "x.json", per_instance=True) == state / "x.json"
+    assert _config.state_file(None, "x.json", per_instance=True) == state / "printers" / FIRST / "x.json"
     # Per-instance for a sibling printer: its own folder.
     listeners._set_instance_printer_id(SECOND)
     assert _config.state_file(None, "x.json", per_instance=True) == \
@@ -109,7 +107,7 @@ def test_sibling_moonraker_listeners_do_not_suppress_each_other(two_printer_stat
     listeners._set_instance_printer_id(FIRST)
     first = _load_copy("print_handy.runtime.moonraker_event_listener",
                        "print_handy.runtime._mel_first_copy")
-    assert first.NOTIFICATION_STATE == state / "lifecycle_notifications.json"
+    assert first.NOTIFICATION_STATE == state / "printers" / FIRST / "lifecycle_notifications.json"
     # The sibling claimed the same printer-local job id and phase; this
     # listener's identical claim must still go through (pre-fix it was
     # suppressed by the shared file).
@@ -126,8 +124,8 @@ def test_announcer_state_is_namespaced_per_instance(two_printer_state, monkeypat
         state / "printers" / SECOND / "moonraker_discord_announcements.json"
     announcer.save_state({"job_key": "benchy.gcode"})
     assert announcer.load_state()["job_key"] == "benchy.gcode"
-    # Nothing leaked into the shared file the default printer's announcer owns.
-    assert not (state / "moonraker_discord_announcements.json").exists()
+    # Nothing leaked into the file the default printer's announcer owns.
+    assert not (state / "printers" / FIRST / "moonraker_discord_announcements.json").exists()
 
 
 # -- the family polling listeners ----------------------------------------------
@@ -150,6 +148,6 @@ def test_family_listener_default_state_path_is_namespaced(two_printer_state,
     assert make(SECOND)._state_path == \
         state / "printers" / SECOND / "family_listener.json"
     listeners._set_instance_printer_id(FIRST)
-    assert make(FIRST)._state_path == state / "family_listener.json"
+    assert make(FIRST)._state_path == state / "printers" / FIRST / "family_listener.json"
     listeners._set_instance_printer_id(None)
-    assert make(None)._state_path == state / "family_listener.json"
+    assert make(None)._state_path == state / "printers" / FIRST / "family_listener.json"

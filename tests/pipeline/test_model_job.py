@@ -1318,8 +1318,9 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             job_path = Path(td) / "JOB.json"
             job_path.write_text(json.dumps({"model_id": "123", "title": "test"}))
             home = Path(td) / "hermes"
-            (home / "state").mkdir(parents=True)
-            shutil.copy(Path(__file__).parent / "fixtures" / "printer_hardware.json", home / "state" / "printer_hardware.json")
+            record = home / "state" / "printers" / settings.default_printer_id() / "printer_hardware.json"
+            record.parent.mkdir(parents=True)
+            shutil.copy(Path(__file__).parent / "fixtures" / "printer_hardware.json", record)
             result = model_job.subprocess.run([
                 *CLI, "filament-select", str(job_path),
                 "--slot", "4", "--color", "dark green", "--material", "PLA", "--spoolman-id", "12",

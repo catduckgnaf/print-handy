@@ -9,6 +9,7 @@ post names no slot when they conflict. Firmware jam alerts, the buttons
 and the never-auto-resume rule are unchanged.
 """
 
+import os
 import json
 import tempfile
 import unittest
@@ -35,7 +36,7 @@ class ReplayCase(unittest.TestCase):
             return {"result": {"status": {"zmod_ifs": {"Chan": 2}}, "objects": []}}
 
         for patch in (
-            mock.patch.object(mel, "HARDWARE_STATE", hardware),
+            mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(hardware)}),
             mock.patch.object(mel, "launch_mapped_slots", return_value={3}),
             mock.patch.object(mel.print_control, "_call", side_effect=call),
             mock.patch.object(mel, "log"), mock.patch.object(mel, "warn"),

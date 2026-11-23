@@ -61,7 +61,7 @@ def _project(tmp_path, *, live_completed=(1, 1, 0), launched=(True, True, True))
 
 @pytest.fixture(autouse=True)
 def _isolate_state(tmp_path, monkeypatch):
-    monkeypatch.setattr(print_control, "REPRINT_QUEUE", tmp_path / "reprint_queue.json")
+    monkeypatch.setenv("REPRINT_QUEUE_STATE", str(tmp_path / "reprint_queue.json"))
     monkeypatch.setattr(print_control, "PRINT_NUMBERS", tmp_path / "print_numbers.json")
 
 

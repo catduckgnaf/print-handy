@@ -189,7 +189,7 @@ def record(sid, name, material="PLA", color="pink", hex_code="F95D73", grams=500
 def state_file(tmp, slots=None):
     path = Path(tmp) / "printer_hardware.json"
     path.write_text(json.dumps({
-        "spool": {}, "ph_slot_migrated": True,
+        "spool": {},
         "filament_slots": slots if slots is not None else {
             "2": record(3, "Pink PLA", color="pink", hex_code="F95D73", grams=500)},
     }))

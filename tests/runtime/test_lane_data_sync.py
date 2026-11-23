@@ -569,7 +569,7 @@ def test_apply_screen_assignment_writes_ph_slot_and_rebuilds_the_cache(tmp_path)
     mr = FakeMoonraker(lanes={})
     state = tmp_path / "printer_hardware.json"
     state.write_text(json.dumps({
-        "spool": {}, "ph_slot_migrated": True,
+        "spool": {},
         "filament_slots": {"1": {"spoolman_id": 11, "name": "Black PLA", "material": "PLA",
                                  "color": "black", "hex": "161616"}}}))
     result = lane_data_sync.apply_screen_assignment(
@@ -592,7 +592,7 @@ def test_apply_screen_unload_clears_the_claim(tmp_path):
     mr = FakeMoonraker(lanes={})
     state = tmp_path / "printer_hardware.json"
     state.write_text(json.dumps({
-        "spool": {}, "ph_slot_migrated": True,
+        "spool": {},
         "filament_slots": {"1": {"spoolman_id": 11, "name": "Black PLA", "material": "PLA",
                                  "color": "black", "hex": "161616"}}}))
     result = lane_data_sync.apply_screen_assignment(
@@ -1412,7 +1412,7 @@ def _ifs_scenario(tmp_path, monkeypatch):
     white["location"], bronze["location"] = "IFS Slot 1", "IFS Slot 2"
     client = FakeSpoolman([white, bronze], fields=[{"key": "ph_slot"}])
     state = tmp_path / "printer_hardware.json"
-    state.write_text(json.dumps({"spool": {}, "ph_slot_migrated": True, "filament_slots": {}}))
+    state.write_text(json.dumps({"spool": {}, "filament_slots": {}}))
     mr = FakeMoonraker(lanes={})
     pushes = []
     monkeypatch.setattr(spool_sync, "_printer_adapter", lambda pid: None)

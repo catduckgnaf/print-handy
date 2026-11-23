@@ -1,4 +1,5 @@
 """Offline coverage for Moonraker listener safety and filament insertion prompts."""
+import os
 import sys
 import tempfile
 import unittest
@@ -105,13 +106,13 @@ class RunoutIntakeTest(unittest.TestCase):
         self.hardware.write_text(json.dumps({"active_slot": 1, "filament_slots": {
             "1": {"spoolman_id": 10, "material": "PLA", "color": "white"}}}))
         self.old_pause = mel.RUNOUT_PAUSE_STATE
-        self.old_hardware = mel.HARDWARE_STATE
         mel.RUNOUT_PAUSE_STATE = self.pause
-        mel.HARDWARE_STATE = self.hardware
+        self._hardware_env = mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(self.hardware)})
+        self._hardware_env.start()
 
     def tearDown(self):
         mel.RUNOUT_PAUSE_STATE = self.old_pause
-        mel.HARDWARE_STATE = self.old_hardware
+        self._hardware_env.stop()
         self.tmp.cleanup()
 
     def test_only_a_runout_alert_opens_intake(self):

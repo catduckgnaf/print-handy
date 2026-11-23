@@ -525,6 +525,10 @@ def apply_screen_assignment(printer_id: str, slot: int, spool_id: int | None, *,
                 f"Spoolman did not accept the slot assignment for spool #{spool_id}; "
                 "nothing was changed")
     spool_sync._clear_ph_slot_claims(client, printer_id, int(slot), keep_spool_id=spool_id)
+    if spool_id is None:
+        # The claim is gone. Drop the cache entry before reconcile, or a
+        # printer with no claims left seeds this slot straight back.
+        spool_sync.forget_cached_slot(int(slot), state_path=state_path, printer_id=printer_id)
     result = spool_sync.reconcile(printer_id, client=client, mr=mr,
                                   state_path=state_path, pending_path=pending_path)
     if not result.get("ok"):
@@ -687,8 +691,9 @@ class LaneDataWatcher:
     def _slot_already_empty(self, slot: int) -> bool:
         """True when no Spoolman ``ph_slot`` claim and no slot-cache record holds the slot.
 
-        Both are required: a printer not yet migrated to ``ph_slot`` has no
-        claims at all while its cache still loads the slot. Anything that
+        Both are required: while Spoolman holds no claim for this printer,
+        its cache can still load the slot (the next reconcile seeds Spoolman
+        from it). Anything that
         cannot be read counts as not empty, so the unload converges as before.
         """
         if self._slot_claimants(slot) != []:

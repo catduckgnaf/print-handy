@@ -23,6 +23,7 @@ KNOWN = (
     "maintenance.json",
     "model-link-intakes",
     "moonraker_discord_announcements.json",
+    "multislot_usage_charges.json",
     "native_error_alerted.json",
     "next_plate_offer.json",
     "orca-profiles",

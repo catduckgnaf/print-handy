@@ -448,8 +448,9 @@ def test_production_plate_preserves_auxiliaries_members(tmp_path):
 # --- #1155 part C: atomic write shell and refusals ----------------------------
 
 def _files(directory):
-    """Directory entries, ignoring the pipeline-state folder the conftest drops in tmp_path."""
-    return sorted(p.name for p in Path(directory).iterdir() if p.name != "pipeline-state")
+    """Directory entries, ignoring the state folders the conftest drops in tmp_path."""
+    ignored = {"pipeline-state", "hardware-state"}
+    return sorted(p.name for p in Path(directory).iterdir() if p.name not in ignored)
 
 
 def _staging_leftovers(directory):

@@ -35,8 +35,7 @@ from .. import printers
 from ..core import filament_color, spool_canon, spoolman_client
 from . import _config
 
-HARDWARE_STATE = _config.state_file("PRINTER_HARDWARE_STATE", "printer_hardware.json")
-PENDING_SCREEN = _config.state_file("SCREEN_SYNC_PENDING", "screen_sync_pending.json")
+PENDING_ENV = "SCREEN_SYNC_PENDING"
 MOONRAKER = _config.moonraker_url()
 SPOOLMAN = _config.service_url("spoolman_url")
 SHELF = "Shelf"
@@ -137,59 +136,20 @@ def moonraker_for(printer_id: str | None) -> Client:
 # ---------------------------------------------------------------- state file
 
 def _hardware_path(path: Path | None = None, printer_id: str | None = None) -> Path:
-    """The hardware record to write: an explicit path, else one printer's (#334).
-
-    Per-printer records live at <state>/printers/<id>/printer_hardware.json;
-    the env override behind HARDWARE_STATE wins over the layout, as it does
-    for the singleton path today. No printer named: HARDWARE_STATE as before.
-    """
+    """The hardware record: an explicit path, else printer_state's one resolver (#334, #1817)."""
     if path is not None:
         return Path(path)
-    if os.environ.get("PRINTER_HARDWARE_STATE"):
-        return Path(HARDWARE_STATE)
-    if printer_id is None:
-        return default_hardware_file(Path(HARDWARE_STATE))
-    return Path(HARDWARE_STATE).parent / "printers" / printer_id / "printer_hardware.json"
-
-
-def default_hardware_file(legacy: Path) -> Path:
-    """The default printer's own record when it exists, else the legacy file.
-
-    An unnamed read or write must hit the same file a default-printer read
-    does; otherwise a /spool bind lands in the stale legacy copy and the
-    slicer refuses the job against the old material.
-    """
-    try:
-        default_id = _config.cfg()["printers"][0]["id"]
-    except Exception:
-        default_id = None
-    if default_id:
-        own = Path(legacy).parent / "printers" / str(default_id) / "printer_hardware.json"
-        if own.is_file():
-            return own
-    return Path(legacy)
-
-
-def _hardware_read_path(path: Path | None = None, printer_id: str | None = None) -> Path:
-    """Where a load reads: the per-printer record, or the legacy record it adopts.
-
-    Adoption is read-only and the default printer's alone; a second printer
-    must never inherit the singleton's loaded spool (design §2.4).
-    """
-    target = _hardware_path(path, printer_id)
-    if printer_id is None or path is not None or target.exists():
-        return target
-    try:
-        default_id = _config.cfg()["printers"][0]["id"]
-    except Exception:
-        default_id = None
-    if printer_id == default_id and Path(HARDWARE_STATE).is_file():
-        return Path(HARDWARE_STATE)
-    return target
+    from ..core import printer_state
+    return printer_state.state_path(printer_id)
 
 
 def load_state(path: Path | None = None, *, printer_id: str | None = None) -> dict[str, Any]:
-    state = json.loads(_hardware_read_path(path, printer_id).read_text())
+    if path is None:
+        # The resolved record: printer_state.load applies the load fix-ups
+        # and refuses a record still stranded at the pre-2.4 root.
+        from ..core import printer_state
+        return printer_state.load(printer_id)
+    state = json.loads(Path(path).read_text())
     # Same load fix-ups as printer_state.load: adopt the pre-#672 slot-map key,
     # then backfill slot color codes (a slot with no color code gets one from
     # its name; a valid hex is never touched).
@@ -231,42 +191,19 @@ def _loaded_spool_ids(state: dict[str, Any]) -> set[int]:
 
 def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
                            printer_id: str | None = None) -> str | None:
-    """The name of another printer whose record already loads this spool, or None (#334).
+    """The id of another printer whose record already loads this spool, or None (#334).
 
-    One physical spool sits on one printer. The scan covers the legacy
-    root-level record and every per-printer record under the same state
-    root, excluding the target printer's own record. Best-effort: a record
-    that cannot be read proves nothing and is skipped.
+    One physical spool sits on one printer. The scan covers every per-printer
+    record under the state root the target record sits in, excluding the
+    target printer's own record: <state>/printers/<id>/printer_hardware.json
+    scans <state>/printers/, and an explicit record anywhere else scans the
+    printers/ folder beside it (as before 2.4), never a different configured root.
+    Best-effort: a record that cannot be read proves nothing and is skipped.
     """
     target = _hardware_path(state_path, printer_id)
-    root = target.parent
-    if target.parent.name and target.parent.parent.name == "printers":
-        root = target.parent.parent.parent  # <state>/printers/<id>/file -> <state>
-    candidates = [root / "printer_hardware.json"]
-    printers_dir = root / "printers"
-    if printers_dir.is_dir():
-        candidates += sorted(printers_dir.glob("*/printer_hardware.json"))
-    try:
-        default_id = _config.cfg()["printers"][0]["id"]
-    except Exception:
-        default_id = None
-    if default_id is not None and target == root / "printer_hardware.json":
-        # The legacy root record IS the default printer's record (pre-adoption
-        # spelling of it): its per-printer copy is the same printer, not another.
-        try:
-            candidates.remove(root / "printers" / default_id / "printer_hardware.json")
-        except ValueError:
-            logging.getLogger(__name__).debug("No per-printer copy of the default record exists")
-    elif default_id is not None and target == root / "printers" / default_id / "printer_hardware.json":
-        # The reverse direction (P2-127): binding the default printer's
-        # per-printer record, the root record is that same printer's legacy
-        # spelling (retained as the rollback copy after adoption), not
-        # another printer — a spool it loads is this printer's own.
-        try:
-            candidates.remove(root / "printer_hardware.json")
-        except ValueError:
-            logging.getLogger(__name__).debug("No legacy copy of the default record exists")
-    for candidate in candidates:
+    printers_dir = (target.parent.parent if target.parent.parent.name == "printers"
+                    else target.parent / "printers")
+    for candidate in sorted(printers_dir.glob("*/printer_hardware.json")):
         if candidate == target:
             continue
         try:
@@ -274,11 +211,9 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
         except (OSError, ValueError):
             continue
         if isinstance(other, dict):
-            # Another printer's record may predate the #672 rename: adopt its
-            # legacy slot-map key or only its active spool is seen (P2-267).
             filament_color.adopt_renamed_slots_key(other)
-            if int(spool_id) in _loaded_spool_ids(other):
-                return candidate.parent.name if candidate.parent != root else "the default printer"
+        if isinstance(other, dict) and int(spool_id) in _loaded_spool_ids(other):
+            return candidate.parent.name
     return None
 
 
@@ -360,12 +295,14 @@ def _lane_data_write_refusal(printer_id: str | None) -> str | None:
 
 def _pending_path(pending_path: Path | None, printer_id: str | None) -> Path:
     """The deferred-screen queue for one printer (#335): per-printer, so a queued
-    update can never be flushed to another printer's screen."""
+    update can never be flushed to another printer's screen. No printer named:
+    the default printer's. $SCREEN_SYNC_PENDING, when set, wins."""
     if pending_path is not None:
         return Path(pending_path)
-    if not printer_id:
-        return Path(PENDING_SCREEN)
-    return Path(PENDING_SCREEN).parent / "printers" / printer_id / Path(PENDING_SCREEN).name
+    if os.environ.get(PENDING_ENV):
+        return Path(os.environ[PENDING_ENV])
+    from ..core import printer_state
+    return printer_state.state_root() / "printers" / str(printer_id or printer_state.default_printer_id()) / "screen_sync_pending.json"
 
 
 # ---------------------------------------------------------------- printer side
@@ -393,7 +330,7 @@ def push_screen(slot: int, material: str, hex_code: str, *, mr: Client = moonrak
         # alone no longer implies a screen, so say "unsupported" instead of
         # queueing or sending an empty command.
         return "unsupported"
-    pending = Path(pending_path or PENDING_SCREEN)
+    pending = _pending_path(pending_path, None)
     if printer_state(mr) in ("printing", "unknown"):
         queued = _read_json(pending)
         queued[str(slot)] = {"command": command, "queued_at": time.time()}
@@ -411,7 +348,7 @@ def push_screen(slot: int, material: str, hex_code: str, *, mr: Client = moonrak
 
 def flush_pending_screen(*, mr: Client = moonraker, pending_path: Path | None = None) -> list[int]:
     """Send screen updates that were deferred during a print. Safe to call often."""
-    pending = Path(pending_path or PENDING_SCREEN)
+    pending = _pending_path(pending_path, None)
     queued = _read_json(pending)
     if not queued or printer_state(mr) in ("printing", "unknown"):
         return []
@@ -967,6 +904,29 @@ def _clear_ph_slot_claims(client: Client, printer_id: str, slot: int, *, keep_sp
     return cleared
 
 
+def forget_cached_slot(slot: int, *, state_path: Path | None = None,
+                       printer_id: str | None = None) -> None:
+    """Drop one slot from the local cache so a no-claim seed cannot write it back.
+
+    A screen unload clears the Spoolman claim and then reconciles. Seeding
+    runs whenever this printer has no claims left, so a stale cache entry
+    would be written straight back. Same reason ``unbind_slot`` removes the
+    cache record before anything can reconcile.
+    """
+    from ..core import printer_state
+    target = _hardware_path(state_path, printer_id)
+    with printer_state.hardware_lock(path=target):
+        try:
+            state = load_state(state_path, printer_id=printer_id)
+        except FileNotFoundError:
+            return
+        slots = state.get("filament_slots")
+        if not isinstance(slots, dict) or str(int(slot)) not in slots:
+            return
+        slots.pop(str(int(slot)), None)
+        save_state(state, state_path, printer_id=printer_id)
+
+
 # ---------------------------------------------------------------- slot binding
 
 def _slot_record(slot: int, spool: dict[str, Any], old: dict[str, Any] | None, note: str) -> dict[str, Any]:
@@ -1211,8 +1171,8 @@ def unbind_slot(slot: int, *, client: Client = spoolman, mr: Client = moonraker,
     and the slot's record is removed from the local cache. That is the
     reconcile-consistent shape: Spoolman (``ph_slot``) is the source of
     truth, so the next reconcile rebuild keeps the slot empty, and the
-    cache removal happens first so a not-yet-migrated printer's first
-    reconcile cannot resurrect the assignment from the stale cache.
+    cache removal happens first so a reconcile that finds no claim for
+    this printer cannot seed the assignment back from the stale cache.
 
     The spool the slot holds is read from the cache AND from Spoolman's
     claims for this printer and slot; when they name different spools the
@@ -1465,7 +1425,7 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
     printer are each best effort: one being down only narrows the sources.
     Returns the changes made (slot, hex, source, previous); saves only then.
     """
-    path = _hardware_read_path(state_path, printer_id)
+    path = _hardware_path(state_path, printer_id)
     try:
         raw = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -1732,8 +1692,9 @@ def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: C
 
     The single writer of the ``filament_slots`` cache: slot assignments are
     read from the Spoolman ``ph_slot`` extra field, never from ``location``.
-    On the first run — when Spoolman carries no ``ph_slot`` values at all —
-    the existing local cache is migrated into Spoolman instead. Conflicts
+    While Spoolman holds no ``ph_slot`` claim for this printer and the local
+    cache names spools (a newly added printer, or one never reconciled), the
+    cache seeds Spoolman instead. Conflicts
     (two spools claiming one slot, a slot claimed by an archived spool, a
     local record naming a spool Spoolman no longer has, an identity
     cross-check mismatch) are named in the result, never silently picked.
@@ -1748,12 +1709,12 @@ def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: C
     The hardware-record lock is held only around the local read-modify-write,
     never across a Spoolman or printer round trip (#1147): the spool list is
     read first, the Spoolman writes the rebuild decides go out after the record
-    is saved, the migration's writes go out before its marker is saved, and the
+    is saved, the seeding writes go out with no record lock held, and the
     screen and usage repairs run after. A slow Spoolman therefore never holds up
     a launch or a slot write that needs the record.
     """
     pid = printer_id or _default_printer_id()
-    result: dict[str, Any] = {"ok": False, "printer_id": pid, "migrated": False,
+    result: dict[str, Any] = {"ok": False, "printer_id": pid, "seeded": False,
                               "assignments": {}, "conflicts": [], "screens": [],
                               "usage": None, "error": None, "changed": False}
     if not pid:
@@ -1802,15 +1763,18 @@ def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: C
     spools = [row for row in rows if isinstance(row, dict) and row.get("id") is not None]
     by_id = {int(row["id"]): row for row in spools}
     deferred_clears: list[int] = []
-    with record_lock():
-        assignments = _reconcile_record(pid, result, spools=spools, by_id=by_id,
-                                        state_path=state_path, deferred_clears=deferred_clears)
+    from ..state_layout import StrandedStateError
+    try:
+        with record_lock():
+            assignments = _reconcile_record(pid, result, spools=spools, by_id=by_id,
+                                            state_path=state_path, deferred_clears=deferred_clears)
+    except StrandedStateError as exc:
+        result["error"] = f"Spool reconcile: nothing was changed. {exc}"
+        return result
     if assignments is None:
-        # First run for this printer: the migration writes Spoolman with no lock held,
-        # then saves its marker under the lock.
-        assignments = _reconcile_migrate(pid, result, client=client, by_id=by_id,
-                                         old_slots=result.pop("_old_slots"), record_lock=record_lock,
-                                         state_path=state_path)
+        # Spoolman holds no claim for this printer: the cache seeds it, with no lock held.
+        assignments = _reconcile_seed(pid, result, client=client, by_id=by_id,
+                                      old_slots=result.pop("_old_slots"))
     for spool_id in deferred_clears:
         _set_ph_slot(client, spool_id, None)  # archived spools' stale claims, decided by the rebuild
     return _reconcile_finish(pid, result, assignments, by_id=by_id, mr=mr,
@@ -1822,11 +1786,18 @@ def _reconcile_record(pid: str, result: dict[str, Any], *, spools: list[dict[str
                       deferred_clears: list[int]) -> dict[int, int] | None:
     """Read the record and rebuild it from Spoolman's claims, under the hardware lock; no network.
 
-    Returns the assignments, or None when this printer still needs its first-run
-    migration (its local cache is left in ``result["_old_slots"]`` for it).
+    Returns the assignments, or None when Spoolman holds no claim for this
+    printer and the cache names spools to seed it with (the cache is left in
+    ``result["_old_slots"]`` for _reconcile_seed).
     """
+    from ..state_layout import StrandedStateError
     try:
         state = load_state(state_path, printer_id=pid)
+    except StrandedStateError:
+        # The real record is still at the pre-2.4 root (#1817 D). Rebuilding
+        # here would save a slots-only record at the per-printer path, which
+        # silences the refusal and makes the doctor call the real record stale.
+        raise
     except FileNotFoundError:
         state = {"filament_slots": {}}  # no cache yet: a rebuild from Spoolman, not a conflict
     except Exception:
@@ -1839,14 +1810,11 @@ def _reconcile_record(pid: str, result: dict[str, Any], *, spools: list[dict[str
         parsed = spool_ph_slot(row)
         if parsed is not None and parsed[0] == pid:
             claims.setdefault(parsed[1], []).append(row)
-    # Migration is a per-printer one-time step, tracked in this printer's own
-    # record — never inferred from whether any spool currently carries a
-    # ph_slot value: another printer sharing this Spoolman may already have
-    # values while this one has not migrated yet, and clearing this printer's
-    # last assignment after migration must not resurrect it from the stale
-    # cache on the next run.
-    migrated_done = bool(state.get("ph_slot_migrated"))
-    if not migrated_done and not claims:
+    # Seeding is decided per printer from Spoolman's claims for this printer
+    # alone (another printer sharing this Spoolman may already have claims).
+    # A slot the operator cleared leaves no claim and no cache entry, so an
+    # empty cache never seeds anything back.
+    if not claims and any(rec.get("spoolman_id") is not None for rec in old_slots.values()):
         result["_old_slots"] = old_slots
         return None
     return _reconcile_rebuild(pid, result, state=state, old_slots=old_slots,
@@ -1888,19 +1856,25 @@ def _reconcile_finish(pid: str, result: dict[str, Any], assignments: dict[int, i
     return result
 
 
-def _reconcile_migrate(pid: str, result: dict[str, Any], *, client: Client,
-                       by_id: dict[int, dict[str, Any]],
-                       old_slots: dict[str, dict[str, Any]],
-                       record_lock, state_path: Path | None) -> dict[int, int]:
-    """First run for this printer: write the local cache's assignments into Spoolman ``ph_slot`` (#798).
+def _reconcile_seed(pid: str, result: dict[str, Any], *, client: Client,
+                    by_id: dict[int, dict[str, Any]],
+                    old_slots: dict[str, dict[str, Any]]) -> dict[int, int]:
+    """Write the local cache's assignments into Spoolman ``ph_slot`` (#798).
 
-    Completion is persisted in this printer's own record (``ph_slot_migrated``)
-    even when there was nothing to migrate, so a later run takes the rebuild
-    branch for this printer regardless of what other printers sharing this
-    Spoolman have done, and a cleared assignment is never resurrected.
+    Runs while Spoolman holds no claim for this printer, so a newly added
+    printer's cache seeds Spoolman; once a claim exists, the rebuild wins.
+    A spool Spoolman no longer has, an archived one, or one another slot or
+    printer already claims is named and left alone (never taken over).
+    A write that fails after another succeeded is rolled back: those
+    ``ph_slot`` claims are cleared, nothing is reported seeded, and no
+    assignments are returned, so the local cache is not treated as
+    reconciled. A skip (missing, archived, or already claimed) is not a
+    write failure and does not undo writes that succeeded.
     """
     assignments: dict[int, int] = {}
     records: dict[str, dict[str, Any]] = {}
+    written: list[int] = []
+    write_failed = False
     for key in sorted(old_slots, key=lambda k: int(k) if k.isdigit() else 0):
         rec = old_slots[key]
         sid = rec.get("spoolman_id")
@@ -1911,32 +1885,43 @@ def _reconcile_migrate(pid: str, result: dict[str, Any], *, client: Client,
         if spool is None:
             result["conflicts"].append(
                 f"Slot {slot}: the local record names spool #{sid}, which Spoolman no longer "
-                "has — it was not migrated")
+                "has — it was not written to Spoolman")
             continue
         if spool.get("archived"):
             result["conflicts"].append(
                 f"Slot {slot}: the local record names spool #{sid}, which is archived in "
-                "Spoolman — it was not migrated")
+                "Spoolman — it was not written to Spoolman")
+            continue
+        claimed = spool_ph_slot(spool)
+        if claimed is not None:
+            result["conflicts"].append(
+                f"Slot {slot}: the local record names spool #{sid}, which Spoolman already "
+                f"assigns to {format_ph_slot(*claimed)} — it was not taken over")
             continue
         if _set_ph_slot(client, int(sid), format_ph_slot(pid, slot)):
             assignments[slot] = int(sid)
             records[key] = rec
+            written.append(int(sid))
         else:
+            write_failed = True
             result["conflicts"].append(
-                f"Slot {slot}: spool #{sid} could not be written to Spoolman — it was not migrated")
-    if assignments:
-        result["migrated"] = True
+                f"Slot {slot}: spool #{sid} could not be written to Spoolman — try the sync again")
+    if write_failed and written:
+        # The next reconcile rebuilds from whatever claims stuck. Clear the
+        # ones this run wrote so a partial seed is not the printer's map.
+        for sid in written:
+            if not _set_ph_slot(client, sid, None):
+                result["conflicts"].append(
+                    f"Spool #{sid}: its slot claim from the partial seed could not be cleared "
+                    "— try the sync again")
+        assignments = {}
+        records = {}
+        result["conflicts"].append(
+            "A slot write failed after another had succeeded, so those claims were cleared "
+            "and nothing was seeded — try the sync again")
+    elif assignments:
+        result["seeded"] = True
         result["changed"] = True
-    with record_lock():
-        # Re-read under the lock: another writer may have saved the record while
-        # the Spoolman writes above were in flight; only the marker is added.
-        try:
-            state = load_state(state_path, printer_id=pid)
-        except Exception:
-            state = {"filament_slots": {}}
-        if not state.get("ph_slot_migrated"):
-            state["ph_slot_migrated"] = True
-            save_state(state, state_path, printer_id=pid)
     result["_records"] = records
     result["_finish_old_slots"] = old_slots
     return assignments
@@ -2008,13 +1993,7 @@ def _reconcile_rebuild(pid: str, result: dict[str, Any], *, state: dict[str, Any
             result["conflicts"].append(
                 f"Slot {key}: the local record named spool #{sid}, which Spoolman no longer "
                 "has (it may have been deleted) — the slot was rebuilt from Spoolman")
-    marker_dirty = not state.get("ph_slot_migrated")
-    if marker_dirty:
-        # A printer whose claims already exist (binds wrote them before the
-        # first reconcile) still records migration as done, so clearing its
-        # last assignment later cannot re-enter the migration branch.
-        state["ph_slot_migrated"] = True
-    if new_slots != old_slots or marker_dirty:
+    if new_slots != old_slots:
         state["filament_slots"] = new_slots
         active = state.get("spool") or {}
         active_id = active.get("spoolman_id")
@@ -2060,8 +2039,9 @@ def reconcile_text(result: dict[str, Any]) -> str:
         lead = f"Spool reconcile for {pid}: {named} (from Spoolman)."
     else:
         lead = f"Spool reconcile for {pid}: no spools are assigned to slots in Spoolman."
-    if result.get("migrated"):
-        lead += " The local slot record was migrated into Spoolman (first run)."
+    if result.get("seeded"):
+        lead += (" Spoolman held no slot assignments for this printer, so the local slot "
+                 "record was written into Spoolman.")
     lines = [lead]
     for conflict in result.get("conflicts") or []:
         lines.append(f"Conflict: {conflict}")
@@ -2181,8 +2161,12 @@ def sync_external_spoolman(printer_id: str | None = None, *, client: Client = sp
     if not isinstance(rows, list):
         result["error"] = ("Outside Spoolman sync: Spoolman did not answer, so nothing was changed")
         return result
+    from ..state_layout import StrandedStateError
     try:
         state = load_state(state_path, printer_id=pid)
+    except StrandedStateError as exc:
+        result["error"] = f"Outside Spoolman sync: nothing was changed. {exc}"
+        return result
     except Exception as exc:
         __import__("logging").getLogger(__name__).warning(
             "Outside Spoolman sync: the local slot record could not be read: %s", exc)

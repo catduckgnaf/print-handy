@@ -631,10 +631,22 @@ def start_message(filename, archive=None, context_path=None):
     return message
 
 
+def _hardware_record():
+    """Read slot state using the same renamed-slot adoption as printer_state.load.
+
+    Listener warnings and recovery paths must not silently forget spools from
+    an older record still carrying the pre-#672 ifs_slots shape.
+    """
+    state = json.loads(_hardware_file().read_text())
+    if isinstance(state, dict):
+        filament_color.adopt_renamed_slots_key(state)
+    return state
+
+
 def _slot_record(slot):
     """The hardware record for one IFS slot, or None. No printer call."""
     try:
-        state = filament_color.adopt_renamed_slots_key(json.loads(_hardware_file().read_text()))
+        state = _hardware_record()
     except (OSError, ValueError):
         return None
     record = (state.get("filament_slots") or {}).get(str(slot))
@@ -799,7 +811,7 @@ def runout_repause_message(filename, slot=None, count=1):
 def recovery_slot(filename):
     """The slot and spool this job was using, from the hardware map. No printer call."""
     try:
-        state = filament_color.adopt_renamed_slots_key(json.loads(_hardware_file().read_text()))
+        state = _hardware_record()
     except (OSError, ValueError):
         return None, None
     slots = state.get("filament_slots") or {}
@@ -2572,15 +2584,12 @@ RUNOUT_SPOOL_COMMENT = "runout replacement; starting weight supplied by operator
 # An undelivered new-spool prompt is retried this often, and given up after a day.
 NEW_SPOOL_RETRY_S = 300.0
 NEW_SPOOL_GIVE_UP_S = 24 * 3600.0
-HARDWARE_STATE = _config.state_file("PRINTER_HARDWARE_STATE", "printer_hardware.json")
 
 
 def _hardware_file():
-    """The record the slicer reads: the default printer's own file once it exists."""
-    if os.environ.get("PRINTER_HARDWARE_STATE"):
-        return HARDWARE_STATE
-    from .spool_sync import default_hardware_file
-    return default_hardware_file(HARDWARE_STATE)
+    """The record the slicer reads: printer_state's one resolver, the default printer's."""
+    from ..core import printer_state
+    return printer_state.state_path()
 
 
 def read_json_object(path):
@@ -3721,7 +3730,7 @@ class MidPrintSlotTracker:
 
 def _mapped_spool(slot):
     try:
-        state = filament_color.adopt_renamed_slots_key(json.loads(_hardware_file().read_text()))
+        state = _hardware_record()
     except (OSError, ValueError):
         return None
     return ((state.get("filament_slots") or {}).get(str(slot)) or {}).get("spoolman_id")
@@ -5802,11 +5811,9 @@ class Listener:
             # A listener instance (#336) flushes only its own printer's
             # deferred-screen queue (#335 keyed the queues per printer, so
             # an update can never reach another printer's screen); with no
-            # instance identity (a direct run) the legacy queue is
-            # flushed exactly as before.
+            # instance identity (a direct run) the default printer's.
             from .. import listeners as _listeners
-            instance_id = _listeners.instance_printer_id()
-            pending = spool_sync._pending_path(None, instance_id) if instance_id else None
+            pending = spool_sync._pending_path(None, _listeners.instance_printer_id())
             flushed = await asyncio.to_thread(
                 spool_sync.flush_pending_screen, pending_path=pending)
             if flushed:
@@ -5817,7 +5824,7 @@ class Listener:
             from . import print_control
             # Reprint queues are per printer (P2-135): a listener instance
             # consults only its own printer's queue; with no instance
-            # identity the legacy queue is read exactly as before.
+            # identity, the default printer's.
             instance_id = None
             try:
                 from .. import listeners as _listeners
@@ -6724,8 +6731,9 @@ class Listener:
         """Rebuild this printer's slot cache from Spoolman's ph_slot assignments (#798).
 
         Best effort, like the color backfill beside it: runs at startup and
-        on each reconnect, migrates the local cache into Spoolman on the
-        first run, names conflicts in the log instead of picking silently,
+        on each reconnect, seeds Spoolman from the local cache while it
+        holds no claim for this printer, names conflicts in the log instead
+        of picking silently,
         and never fails the session — a Spoolman that does not answer leaves
         the local record untouched and is logged as such.
         """
