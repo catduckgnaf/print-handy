@@ -92,7 +92,7 @@ def test_printer_state_spoolman_url_prefers_the_printers_own_entry(tmp_path):
             "http://global-spoolman.test:7912"
         # No printer named: the shared services URL, as before #1536.
         assert printer_state.spoolman_url() == "http://global-spoolman.test:7912"
-        # Settings first, then the hardware record, as before #1536.
+        # Settings win. A URL cached in the hardware record is never read (#235).
         assert printer_state.spoolman_url(
             {"spoolman_url": "http://recorded.test:7912"}) == \
             "http://global-spoolman.test:7912"
@@ -101,8 +101,8 @@ def test_printer_state_spoolman_url_prefers_the_printers_own_entry(tmp_path):
     bare = settings.load(local=False, environ={}, user=False)
     settings.set_override(bare)
     try:
-        # With nothing configured, a hardware record's URL is the fallback.
+        # With nothing configured, the hardware record is still not a source.
         assert printer_state.spoolman_url(
-            {"spoolman_url": "http://recorded.test:7912"}) == "http://recorded.test:7912"
+            {"spoolman_url": "http://recorded.test:7912"}) == ""
     finally:
         settings.set_override(None)

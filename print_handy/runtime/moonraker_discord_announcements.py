@@ -468,7 +468,11 @@ def load_state():
 # The pending completion (message + its timelapse job key) is filed per
 # printer (#536): one state root serves every roster printer's announcer,
 # and a single shared slot let one printer's completion overwrite — or be
-# cleared by — another's.
+# cleared by — another's. The pre-#536 single slots are adopted on read as
+# the serving printer's: in a one-printer install they always were. A value
+# already stored for this printer in the plural bucket wins over that
+# leftover. The next write moves the slot into the plural bucket and drops
+# the singular key.
 
 
 def _pending_printer_key():
@@ -489,9 +493,18 @@ def _pending_printer_key():
     return "default"
 
 
+def _pending_singular(plural):
+    """The pre-#536 field: the plural name without its trailing s."""
+    return plural[:-1] if plural.endswith("s") else plural
+
+
 def _pending_get(state, plural):
     bucket = state.get(plural)
-    return (bucket.get(_pending_printer_key()) or None) if isinstance(bucket, dict) else None
+    if isinstance(bucket, dict):
+        value = bucket.get(_pending_printer_key())
+        if value:
+            return value
+    return state.get(_pending_singular(plural))
 
 
 def _pending_set(state, plural, value):
@@ -500,6 +513,7 @@ def _pending_set(state, plural, value):
         bucket = {}
         state[plural] = bucket
     bucket[_pending_printer_key()] = value
+    state.pop(_pending_singular(plural), None)
 
 
 def _pending_clear(state, plural, value=None):
@@ -508,6 +522,9 @@ def _pending_clear(state, plural, value=None):
         key = _pending_printer_key()
         if key in bucket and (value is None or bucket[key] == value):
             bucket.pop(key, None)
+    singular = _pending_singular(plural)
+    if state.get(singular) is not None and (value is None or state.get(singular) == value):
+        state.pop(singular, None)
 
 
 def pending_completion_message(state):

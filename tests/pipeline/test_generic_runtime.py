@@ -39,6 +39,7 @@ PRINT_END
 
 STATE = {"moonraker_url": "http://printer.test:7125", "printer": "Test Klipper",
          "nozzle": {"diameter_mm": 0.4, "type": "brass"}, "temps_c": {"nozzle": 215, "bed": 60},
+         "temperature_resolution": {"material": "PLA", "spoolman_id": 7},
          "spool": {"spoolman_id": 7, "name": "Black PLA", "material": "PLA"}}
 
 
@@ -86,7 +87,7 @@ def rig(monkeypatch, tmp_path):
     uploads.clear()
     fake = FakeMoonraker()
     monkeypatch.setattr(model_job, "request_json", fake)
-    monkeypatch.setattr(printer_state, "load", lambda: dict(STATE))
+    monkeypatch.setattr(printer_state, "load", lambda *_a, **_k: dict(STATE))
     monkeypatch.setattr(printer_state, "check",
                         lambda st=None, printer_id=None, adapter=None, *, live=True: (True, [], {}))
     monkeypatch.setattr(model_job.subprocess, "run", upload_run)
@@ -304,7 +305,7 @@ def slice_job_rig(monkeypatch, tmp_path, family):
     out = tmp_path / "sliced" / "plate_1.gcode"
     out.parent.mkdir()
     out.write_text(GCODE)
-    monkeypatch.setattr(printer_state, "load", lambda: dict(state))
+    monkeypatch.setattr(printer_state, "load", lambda *_a, **_k: dict(state))
     return job, out
 
 

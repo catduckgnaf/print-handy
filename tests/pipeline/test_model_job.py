@@ -430,7 +430,7 @@ def _box_stl(path, width, depth, height):
         + 'endloop\nendfacet\n' for face in faces) + 'endsolid box\n')
 
 
-def _slice_state():
+def _slice_state(*_args, **_kwargs):
     return {'bed_mm': [220, 220], 'max_print_height_mm': 250,
             'nozzle': {'diameter_mm': 0.4},
             'spool': {'name': 'PLA', 'material': 'PLA', 'density': 1.24},

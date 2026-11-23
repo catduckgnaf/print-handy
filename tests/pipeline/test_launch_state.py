@@ -38,7 +38,11 @@ def make_job(root, name):
     (folder / "out").mkdir(parents=True)
     g = folder / "out" / "x.gcode"
     g.write_text(f"; {name}\nSTART_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n")
-    (folder / "JOB.json").write_text(json.dumps({"title": name, "gcode": str(g)}))
+    # A launch fixture is testing a later refusal, not a missing model.
+    # Jobs with no printer_model are refused by name before that check (#1817).
+    (folder / "JOB.json").write_text(json.dumps({
+        "title": name, "gcode": str(g),
+        "printer_model": settings.current()["printer"]["model"]}))
     return folder / "JOB.json", g
 
 
@@ -416,6 +420,10 @@ def mapped(tmp_path):
         int(item["ID"]): item.get("hasFilament") for item in status["zmod_color"]["slots"]}
     native.screen_label_matches.side_effect = zmod_screen.label_matches
     adapter = mock.Mock(native=native)
+    # make_job stamps the configured model so print_now reaches the refusal
+    # it names. The mapped route still has to be this fake: _job_adapter
+    # keeps printers.current() only when the job's model is that adapter's key.
+    adapter.key = settings.current()["printer"]["model"]
     scripts = []
     mapped_presence[0] = True
     mapped_label[0] = "PLA"
