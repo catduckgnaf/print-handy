@@ -95,12 +95,10 @@ def test_nonnumeric_vendor_flow_does_not_abort_the_slice(slice_inputs, monkeypat
     _nozzle, _bed, filament = slice_inputs.slice(AD5X, state)
     prov = captured["meta"]["flow_provenance"]["PETG"]
     assert prov["base_flow_ratio"] is None
-    emitted = filament["filament_flow_ratio"][0]
-    try:
-        as_float = float(emitted)
-    except ValueError:
-        as_float = None
-    assert prov["emitted_flow_ratio"] == as_float
+    # Invalid vendor values must never leak into Orca's emitted JSON.
+    emitted = filament.get("filament_flow_ratio")
+    assert emitted is None or (len(emitted) == 1 and float(emitted[0]) > 0)
+    assert prov["emitted_flow_ratio"] == (float(emitted[0]) if emitted else None)
 
 
 def test_a_material_orca_has_no_vendor_profile_for_names_the_library_generic(slice_inputs):
