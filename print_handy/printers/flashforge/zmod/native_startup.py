@@ -62,6 +62,9 @@ class _Startup:
     """
 
     def __init__(self, text):
+        if _plain_breaks(text):
+            self._init_lazy(text)
+            return
         self.lines = text.splitlines()
         # A START_PRINT command line contains the text START_PRINT: test that first.
         hits = [i for i, line in enumerate(self.lines)
@@ -71,11 +74,65 @@ class _Startup:
             self._line = hits[0]
             self.before = list(_command_lines(self.lines[:self._line]))
             self.start = self.lines[self._line].partition(';')[0].strip()
+        self._text = None
+
+    def _init_lazy(self, text):
+        """The same view for text whose only line break is LF (or CRLF), found without splitting the file (#1779).
+
+        Only the lines before START_PRINT are split; the lines after it are read on demand."""
+        self._text = text
+        hits, seen_end, pos = [], -1, text.find('START_PRINT')
+        while pos >= 0:
+            if pos >= seen_end:
+                start = text.rfind('\n', 0, pos) + 1
+                end = text.find('\n', pos)
+                end = len(text) if end < 0 else end
+                line = text[start:end]
+                if line.endswith('\r'):
+                    line = line[:-1]
+                if line.partition(';')[0].strip().startswith('START_PRINT '):
+                    hits.append((start, end, line))
+                seen_end = end
+            pos = text.find('START_PRINT', max(pos + 1, seen_end))
+        self.starts = len(hits)
+        if self.starts == 1:
+            start, end, line = hits[0]
+            self._after_from = end + 1
+            self.before = list(_command_lines(text[:start].splitlines()))
+            self.start = line.partition(';')[0].strip()
 
     def after(self, count=None):
         """The commands after START_PRINT, lazily (the first ``count`` as a list when given)."""
-        rest = _command_lines(itertools.islice(self.lines, self._line + 1, None))
+        if self._text is not None:
+            rest = _command_lines(_lines_from(self._text, self._after_from))
+        else:
+            rest = _command_lines(itertools.islice(self.lines, self._line + 1, None))
         return rest if count is None else list(itertools.islice(rest, count))
+
+
+def _lines_from(text, pos):
+    """The lines of text from offset pos, one at a time (CR before LF dropped, as splitlines does)."""
+    size = len(text)
+    while pos < size:
+        end = text.find('\n', pos)
+        if end < 0:
+            end = size
+        line = text[pos:end]
+        yield line[:-1] if line.endswith('\r') else line
+        pos = end + 1
+
+
+def _plain_breaks(text):
+    """True when splitlines() and split('\\n') see the same lines: no CR without a following LF and no
+    other separator (the check is C-speed membership tests; the CRs are few)."""
+    if any(ch in text for ch in ('\x0b', '\x0c', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')):
+        return False
+    at = text.find('\r')
+    while at >= 0:
+        if text[at + 1:at + 2] != '\n':
+            return False
+        at = text.find('\r', at + 1)
+    return True
 
 
 def valid(text, bed, hotend):

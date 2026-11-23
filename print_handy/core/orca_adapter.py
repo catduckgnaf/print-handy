@@ -2006,8 +2006,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     from . import filament_type as _ftype
     from . import orca_profile_db
 
-    def vendor_resolution(material, ftype):
-        """The Orca vendor profile for this spool on this printer and nozzle (#1816), or None (library generic)."""
+    def vendor_resolution(material, ftype, brand=None):
+        """The Orca vendor profile for this spool on this printer and nozzle (#1816), or None (library generic).
+
+        Brand is passed when known so a branded spool can match a brand-specific vendor profile (#1832).
+        """
         model = machine.get('printer_model')
         if not model:
             return None
@@ -2015,7 +2018,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             ftype = _ftype.from_text(material)
         try:
             preset = orca_profile_db.printer_preset(model, nozzle_dia, preferred=machine.get('name'))
-            return orca_profile_db.resolve(preset, ftype) if preset else None
+            return orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
         except orca_profile_db.ProfileDatabaseError as exc:
             logger.warning("Orca profile database unavailable (%s); slicing %s with the library generic",
                            exc, material)
@@ -2037,7 +2040,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             name = f"{base} [slot {int(slot)}]" if slot is not None else base
             data.update({'name': name, 'filament_settings_id': [name]})
             return data, f"{base}: the printer's tuned {material_family(material)} template ({note})"
-        resolution = vendor_resolution(material, ftype)
+        brand = ((state.get("spool") or {}).get("brand")
+                 or (type_filament or {}).get("vendor")
+                 or (spool_filament or {}).get("vendor"))
+        resolution = vendor_resolution(material, ftype, brand=brand)
         if resolution is not None:
             data.update(orca_profile_db.vendor_layer(template_filament, resolution))
             note = f"{resolution.name} ({resolution.level}, Orca {orca_profile_db.meta()['orca_version']})"
@@ -2070,11 +2076,17 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                      'filament_colour': [colour or data['filament_colour'][0]],
                      'nozzle_temperature': [str(int(nozzle_temp))],
                      'nozzle_temperature_initial_layer': [str(int(nozzle_temp))]})
+        base_flow = None
         if 'filament_flow_ratio' in data and data['filament_flow_ratio']:
             try:
-                data['filament_flow_ratio'] = [str(round(float(data['filament_flow_ratio'][0]) * adj['flow_multiplier'], 4))]
-            except (ValueError, TypeError):
-                logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
+                base_flow = float(data['filament_flow_ratio'][0])
+                data['filament_flow_ratio'] = [str(round(base_flow * adj['flow_multiplier'], 4))]
+            except (TypeError, ValueError, IndexError):
+                logger.warning("ignoring invalid filament_flow_ratio %r from the profile",
+                               data.get('filament_flow_ratio'))
+                # Never pass unparseable vendor values to Orca. A downstream
+                # material tuning override may still install a valid number.
+                data.pop('filament_flow_ratio', None)
         # flow_ratio is the final ratio Orca receives (the tested number), so it replaces the nozzle
         # type's flow multiplier instead of being scaled by it. A vendor profile (Bambu Lab) keeps its own.
         tuning = {} if printer.vendor_material_profiles else material_tuning(material)
@@ -2089,7 +2101,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if layer_min is not None:
             try:
                 current = float((data.get('slow_down_layer_time') or ['0'])[0])
-            except (ValueError, TypeError):
+            except (TypeError, ValueError, IndexError):
                 current = 0.0
             if current < layer_min:
                 data['slow_down_layer_time'] = [format(layer_min, 'g')]
@@ -2097,10 +2109,26 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if flow_max is not None:
             try:
                 current = float((data.get('filament_max_volumetric_speed') or ['0'])[0])
-            except (ValueError, TypeError):
+            except (TypeError, ValueError, IndexError):
                 current = 0.0
             if current <= 0 or current > flow_max:
                 data['filament_max_volumetric_speed'] = [format(flow_max, 'g')]
+        # Provenance so the emitted flow can be rebuilt (#1832): vendor (or template) flow
+        # times the nozzle multiplier, then any tuning override. Recorded after those writes
+        # so a nonnumeric profile value cannot abort the slice.
+        emitted_flow = None
+        raw_flow = data.get('filament_flow_ratio')
+        if raw_flow:
+            try:
+                emitted_flow = float(raw_flow[0])
+            except (TypeError, ValueError, IndexError):
+                emitted_flow = None
+        state.setdefault('_flow_provenance', {})[material] = {
+            'nozzle_type': nozzle_type,
+            'flow_multiplier': adj.get('flow_multiplier'),
+            'base_flow_ratio': base_flow,
+            'emitted_flow_ratio': emitted_flow,
+        }
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
         for key in ('cool_plate_temp', 'eng_plate_temp', 'hot_plate_temp', 'textured_plate_temp'):
             data[key] = data[key + '_initial_layer'] = [bed]
@@ -2685,6 +2713,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                f'{_keep_failure_logs(folder) / "flash-studio.log"}',
                                kind='output', slicer=slicer)
         raise SliceFailure(f'output is not generated by {slicer}', kind='output', slicer=slicer)
+    _sub = {}
+    _t = time.monotonic()
     if multi_tool:
         # No finalize: Orca's output already addresses the toolheads
         # directly, and a multi_tool printer has no native slot contract (#346).
@@ -2703,6 +2733,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             native.finalize(output, None, state, mapping, drop_unused=True)
     elif printer.has_native_screen:
         finalize_zmod(output, filament['filament_colour'][0], state['spool']['material'], printer)
+    _sub['finalize_s'] = time.monotonic() - _t
     result_path = folder / 'result.json'
     # The finalized G-code, read once for every read-only check below (#1153):
     # the post-slice guard, the vendor start-code check and the printer's own
@@ -2710,15 +2741,25 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # rewrite (OpenCreator's per-print start overrides, #1490) works on this
     # same text and is written back only when it changed anything, so every
     # check still sees exactly the bytes the printer will get, with no extra read.
+    _t = time.monotonic()
     final_text = output.read_text(errors='replace')
+    _sub['read_s'] = time.monotonic() - _t
     printer_final = printer.finalize_output(final_text)
     if printer_final != final_text:
         output.write_text(printer_final)
         final_text = printer_final
-    post_gate = post_slice(final_text, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
+    # One traversal of the finalized text feeds the post-slice guard and the baseline check (#1779).
+    # The baseline reuses it only while the file on disk is still the bytes that were scanned
+    # (size and mtime unchanged); any other state re-reads the file as before.
+    _scan_started = time.monotonic()
+    gcode_scan = sg.scan_gcode(final_text)
+    _sub['scan_s'] = time.monotonic() - _scan_started
+    _t = time.monotonic()
+    post_gate = post_slice(final_text, scan=gcode_scan, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
                            bed=bed, filament_slots=(int(printer.slot_count) if multi_tool else FILAMENT_SLOTS), tool_slots=tool_slots,
                            templates=templates, profile_paths=filament_paths,
                            envelope=printer.motion_envelope_mm)
+    _sub['post_slice_s'] = time.monotonic() - _t
     # Each vendor runs only its own start code: e.g. no Klipper/ZMod macro reaches a Bambu Lab printer.
     if vendor is not None:
         for problem in start_code_problems(final_text, vendor):
@@ -2729,9 +2770,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         from .material_accept import TOKEN
         post_gate.block(TOKEN.sub('', problem))
     # Each model approves its own protected settings; a model without a baseline file keeps the shared one.
+    _t = time.monotonic()
     baseline_kw = {} if printer.baseline_path is None else {'path': printer.baseline_path}
-    baseline_gate = (sg.enforce_approved_baseline(output, **baseline_kw)
+    # Reuse the scan only if the file still decodes to exactly the scanned text. Size and mtime
+    # are not proof (a same-size rewrite can restore its timestamp), so compare the content.
+    _same_bytes = sg.artifact_matches_text(output, final_text)
+    baseline_gate = (sg.enforce_approved_baseline(output, scan=gcode_scan if _same_bytes else None, **baseline_kw)
                      if output.stat().st_size > 1000 else sg.Result())
+    _sub['baseline_s'] = time.monotonic() - _t
     if baseline_gate.status == 'blocked':
         raise SliceFailure('Post-slice protected-settings guard blocked: ' + '; '.join(baseline_gate.blocked),
                            kind='guard')
@@ -2849,12 +2895,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     # subprocess time; python_s is everything else slice_model did (profile
                     # assembly, finalize, the post-slice guard reads).
                     'timing_s': {'slicer_s': round(_slicer_s, 3),
-                                 'python_s': round(max(0.0, time.monotonic() - _slice_started - _slicer_s), 3)},
+                                 'python_s': round(max(0.0, time.monotonic() - _slice_started - _slicer_s), 3),
+                                 'python_subphases_s': {k: round(v, 3) for k, v in _sub.items()}},
                     # The temperatures this artifact was sliced at, preserved so a
                     # later verify checks against them instead of re-resolving
                     # (a Spoolman outage at verify time would otherwise fall
                     # back to material defaults and refuse a sound file, P2-275).
                     'temperatures': dict(state['temps_c']),
+                    'flow_provenance': state.get('_flow_provenance'),
                     'temperature_resolution': state.get('temperature_resolution'),
                     'config_sha256': {str(p): digest(p) for p in configs}, 'geometry': geometry,
                     'slice_guard': {'status': 'warnings' if warnings else 'ok', 'warnings': warnings,

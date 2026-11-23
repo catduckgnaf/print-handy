@@ -305,7 +305,7 @@ class S4EnvTokenPrecedence(unittest.TestCase):
             data, _, _ = make_data(tmp)
             access.save_open(data, True)
             before = access.resolve(data, "0.0.0.0", environ={})
-            self.assertIn(before.mode, (access.OPEN, access.SETUP))
+            self.assertEqual(before.mode, access.OPEN)
             after = access.resolve(
                 data, "0.0.0.0",
                 environ={"WEBUI_ACCESS_TOKEN": CANONICAL["token"]})

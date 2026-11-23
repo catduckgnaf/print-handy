@@ -84,7 +84,6 @@ class Adapter:
 
 def event(text="/print-pause", chat_id=HOME):
     source = runtime.make_source(OPERATOR, chat_id, platform_name="discord")
-    source.profile = common._hosting_profile()
     return S(source=source, text=text, internal=False, metadata={}, media_urls=[], message_id="m1")
 
 

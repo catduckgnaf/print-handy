@@ -325,7 +325,7 @@ class SharePanelAndRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _write_vault(tmp)
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
-            body = ("_csrf=" + httpd.form_token +
+            body = ("_csrf=" + httpd.session_store.form_token +
                     "&year=2025&visibility=public")
             code, _ = self.request(
                 httpd.server_address[1], "POST", "/wrapped/share",
@@ -338,7 +338,7 @@ class SharePanelAndRouteTests(unittest.TestCase):
             vault = _write_vault(tmp)
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
             port = httpd.server_address[1]
-            body = ("_csrf=" + httpd.form_token +
+            body = ("_csrf=" + httpd.session_store.form_token +
                     "&year=2025&visibility=public&destination=GitHub+Pages")
             code, raw = self.request(
                 port, "POST", "/wrapped/share", body=body.encode(),
@@ -357,7 +357,7 @@ class SharePanelAndRouteTests(unittest.TestCase):
             _write_vault(tmp)
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: false\n")
             port = httpd.server_address[1]
-            body = "_csrf=" + httpd.form_token + "&year=2025&visibility=public"
+            body = "_csrf=" + httpd.session_store.form_token + "&year=2025&visibility=public"
             code, raw = self.request(
                 port, "POST", "/wrapped/share", body=body.encode(),
                 headers={"Content-Type": "application/x-www-form-urlencoded",

@@ -290,7 +290,7 @@ def test_prepared_intake_direct_link_html_refusal_names_cause(env, monkeypatch):
         pass
 
     monkeypatch.setattr(prepared_intake, "send_preview", fake_preview)
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id="direct1", text=DIRECT_URL)
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

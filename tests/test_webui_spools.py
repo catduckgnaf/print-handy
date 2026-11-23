@@ -44,7 +44,7 @@ def signed_in(httpd):
     """(Cookie header value, session-bound _csrf) for a live session on a
     claimed install: the page's form token alone no longer posts there."""
     session_id = secrets.token_urlsafe(16)
-    httpd.sessions[session_id] = time.time() + 3600
+    httpd.session_store.sessions[session_id] = time.time() + 3600
     return (f"{server.SESSION_COOKIE}={session_id}",
             server.session_form_token(httpd, session_id))
 

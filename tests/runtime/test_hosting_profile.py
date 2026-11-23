@@ -1,15 +1,17 @@
-"""#574, after the Hermes removal: the hosting identity is a constant.
+"""#1817 M9: the Hermes hosting-profile gate is gone.
 
-It used to be derived from the Hermes install layout (a profiles-layout
-home, or the plugin's install symlink). With that install gone,
-_config.hosting_profile always returns the fixed DEFAULT_PROFILE the
-standalone runtime stamps on its sources, never derived — whatever home,
-mode or plugin location it is handed — and the plugin's gates answer
-exactly that stamp.
+The handlers used to answer only sources stamped with the Hermes
+hosting profile (``source.profile == "3dprinting"``, plus a
+``profile_route_rejected`` flag). The bot is its own host, so the gate
+now checks only that the source is a bot platform's human message: a
+source carries no profile at all, and one that still has a profile
+attribute is answered the same way.
 """
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace as S
 
+from print_handy.bot import runtime
 from print_handy.runtime import _config
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,19 +25,33 @@ def load_plugin():
     return mod
 
 
-def test_hosting_profile_is_always_the_default(tmp_path):
-    home = tmp_path / ".hermes" / "profiles" / "printshop"
-    assert _config.hosting_profile() == (_config.DEFAULT_PROFILE, False)
-    assert _config.hosting_profile(Path(__file__), home=home, mode="hermes") == (
-        _config.DEFAULT_PROFILE, False)
-    assert _config.hosting_profile(home=tmp_path / "data", mode="standalone") == (
-        _config.DEFAULT_PROFILE, False)
+def _event(source, internal=False):
+    return S(source=source, internal=internal, text="hi")
 
 
-def test_plugin_gates_answer_only_the_runtime_stamp():
+def test_the_profile_names_are_gone():
     plugin = load_plugin()
-    assert plugin._hosting_profile() == _config.DEFAULT_PROFILE
-    assert plugin._is_hosting_profile(_config.DEFAULT_PROFILE)
-    assert not plugin._is_hosting_profile("printshop")
-    assert not plugin._is_hosting_profile("")
-    assert not plugin._is_hosting_profile(None)
+    assert not hasattr(_config, "DEFAULT_PROFILE")
+    assert not hasattr(_config, "hosting_profile")
+    assert not hasattr(runtime, "PROFILE")
+    assert not hasattr(plugin, "_is_hosting_profile")
+    source = runtime.make_source("u", "c")
+    assert not hasattr(source, "profile")
+    assert not hasattr(source, "profile_route_rejected")
+
+
+def test_gate_answers_bot_platform_human_messages_without_a_profile():
+    plugin = load_plugin()
+    assert plugin._is_print_discord_event(_event(runtime.make_source("u", "c")))
+    for name in ("discord", "telegram", "matrix", "webui"):
+        assert plugin._is_print_discord_event(_event(runtime.make_source("u", "c", platform_name=name)))
+    stale = S(platform=S(value="discord"), profile="printshop", is_bot=False, user_id="u", chat_id="c")
+    assert plugin._is_print_discord_event(_event(stale))
+
+
+def test_gate_still_refuses_bots_internal_events_and_other_platforms():
+    plugin = load_plugin()
+    assert not plugin._is_print_discord_event(_event(runtime.make_source("u", "c", is_bot=True)))
+    assert not plugin._is_print_discord_event(_event(runtime.make_source("u", "c"), internal=True))
+    assert not plugin._is_print_discord_event(_event(runtime.make_source("u", "c", platform_name="slack")))
+    assert not plugin._is_print_discord_event(S(source=None, internal=False, text="hi"))

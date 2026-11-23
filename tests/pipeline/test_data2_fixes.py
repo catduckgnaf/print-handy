@@ -18,7 +18,7 @@ from .test_source_colors import source as painted_source
 
 
 def _receipt(env, mid):
-    name = hashlib.sha256(json.dumps(['3dprinting', 'c1', '', mid]).encode()).hexdigest() + '.json'
+    name = hashlib.sha256(json.dumps(['c1', '', mid]).encode()).hexdigest() + '.json'
     return json.loads((env.root / name).read_text())
 
 
@@ -29,7 +29,7 @@ def test_resume_reuses_saved_color_decisions(env):
     prev = prepared_intake.newest_archived_job()
     saved = prev['color_decisions']
     assert saved['mode'] == 'single_color'
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='resume1', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0, 0])  # slice-and-print choice, then the start button
     result = asyncio.run(prepared_intake.prepare_link(
@@ -66,7 +66,7 @@ def test_painted_oversize_fit_accept_does_not_crash(env, monkeypatch):
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
     monkeypatch.setattr(model_job, 'painted_fit_for_job',
                         lambda path, decisions, state=None: {'scale': 0.8, 'plates': 1, 'blocking_plate': None})
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='painted1', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0] * 20)  # per-part colors, slot picks, accept the fit, slice and print
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -230,7 +230,7 @@ def test_dropbox_link_without_filename_survives_the_extension_filter(env, monkey
         pass
 
     monkeypatch.setattr(prepared_intake, 'send_preview', fake_preview)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='dropbox1', text='https://www.dropbox.com/s/abc123?dl=0')
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -263,7 +263,7 @@ def test_painted_fit_crash_offers_retry_not_a_size_verdict(env, monkeypatch):
             raise RuntimeError('mesh parse exploded')
         return {'scale': 0.8, 'plates': 1, 'blocking_plate': None}
     monkeypatch.setattr(model_job, 'painted_fit_for_job', flaky_fit)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='painted-err', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0] * 30)  # every first choice; Retry is the first fit-error choice
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -304,7 +304,7 @@ def test_painted_fit_error_cancel_cancels_without_a_size_verdict(env, monkeypatc
                 return S(success=True)
             return await super().send_clarify(**kw)
 
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='painted-err-cancel', text='https://www.printables.com/model/1-ghost')
     adapter = CancelRetry([0] * 30)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -334,7 +334,7 @@ def test_painted_no_fit_names_the_measured_layout(env, monkeypatch):
                             'scale': None, 'blocking_plate': 1, 'plates': 1,
                             'blocking_layout': {'extent_mm': [231.0, 198.0],
                                                 'tower_mm': 35.0, 'scale': 0.5}})
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='painted-nofit', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0] * 30)  # the only fit choice offered is Cancel
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

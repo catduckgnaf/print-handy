@@ -36,7 +36,7 @@ def _install(monkeypatch, adapter):
 
 
 def _adapter():
-    return S(_is_allowed_user=lambda uid, user, guild=None, channel_ids=None: True,
+    return S(is_allowed_user=lambda uid, user, guild=None, channel_ids=None: True,
              may_approve_id=lambda uid: uid == '42')
 
 
