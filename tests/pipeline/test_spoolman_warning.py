@@ -54,7 +54,7 @@ def test_verify_gcode_continues_when_spoolman_offline(monkeypatch, tmp_path, cap
         "temps_c": {"nozzle": 210, "bed": 60},
         "axis_limits_mm": {"x": [0, 223], "y": [0, 223], "z": [0, 250]},
     }
-    monkeypatch.setattr(printer_state, "load", lambda: state)
+    monkeypatch.setattr(printer_state, "load", lambda *_a, **_k: state)
     monkeypatch.setattr(printer_state, "check", lambda st, **_kw: (True, [], {
         "warnings": ["Spoolman lookup failed: timed out"]
     }))

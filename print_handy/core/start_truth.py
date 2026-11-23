@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Callable, NamedTuple
+from typing import Any, NamedTuple
 
 from . import launch_state
 
@@ -61,12 +61,13 @@ START_TRANSITIONAL_STATES = frozenset({"heating", "calibrate_doing", "busy", "pr
 # Since the one-launch-pipeline consolidation (#1603), the five polled transports
 # (_print_octoprint, _print_bambu, _print_elegoo_sdcp, _print_prusa, _print_flashforge_stock)
 # are TransportLaunch specs dispatched by _run_transport_launch, which is the registered
-# sending site; each adapter's own start-truth function (octoprint, bambu, polled) is
-# pinned by the call-site test's scan of the specs' truth hooks.
+# sending site. Its outcome fields come from start_truth.polled_fields; each
+# adapter's own start-truth function (octoprint, bambu, polled), baseline
+# included, is pinned by the call-site test's scan of the specs' truth hooks.
 START_CALL_SITES = {
     "print_mapped_native": "moonraker",
     "_print_now_locked": "moonraker",
-    "_run_transport_launch": "polled",
+    "_run_transport_launch": "polled_fields",
 }
 
 
@@ -121,7 +122,7 @@ def _same_job(now, before):
     return all(now.get(k) == before.get(k) for k in keys)
 
 
-def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
+def classify_start_readback(status_snapshot, baseline) -> StartReadback:
     """Pure function classifying printer status after submission.
 
     Outcomes:
@@ -130,26 +131,22 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
     - 'failed': error or cancelled.
     - 'unconfirmed': no evidence.
 
-    `baseline` is the status read immediately before the start request (_start_baseline). With one,
-    only what CHANGED counts: a print_stats job identity (state, file, durations) equal to the
+    `baseline` is the status read immediately before the start request (_start_baseline). Only what
+    CHANGED counts: a print_stats job identity (state, file, durations) equal to the
     baseline's is the previous run's leftover, so its complete/cancelled/error state and file name say
     nothing about this start; heater targets count only where the baseline proved them 0. An empty
-    baseline (unreadable) proves no change at all. Without a baseline (None) the live signals count as
-    before, but a file name or homed axes alone never do: a reprint of the same artifact reports the
-    same name, and Klipper keeps axes homed between prints.
+    baseline (unreadable) proves no change at all. A file name or homed axes alone never count: a
+    reprint of the same artifact reports the same name, and Klipper keeps axes homed between prints.
     """
     status = _readback_status(status_snapshot)
-    has_base = baseline is not None
-    base = _readback_status(baseline) if has_base else {}
+    base = _readback_status(baseline)
 
     def obj(source, name):
         value = source.get(name)
         return value if isinstance(value, dict) else {}
 
     def fresh(name, key, value):
-        """Evidence counts with no baseline (legacy callers), or when it differs from a readable one."""
-        if not has_base:
-            return True
+        """Evidence counts only when it differs from a readable baseline."""
         return bool(base) and obj(base, name).get(key) != value
 
     ps = status.get("print_stats") if isinstance(status.get("print_stats"), dict) else {}
@@ -169,7 +166,7 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
     # 1. Failed. Klipper shut down is failure whatever ran before; an error or cancelled print_stats is
     # this start's only when it is not the previous job's leftover (same identity as the baseline).
     hook_state = (hooks.get("state") or "").lower() if isinstance(hooks.get("state"), str) else ""
-    job_failed = state in ("error", "cancelled") and (not has_base or new_job)
+    job_failed = state in ("error", "cancelled") and new_job
     if job_failed or hook_state in ("error", "shutdown"):
         fail_state = state if job_failed else hook_state
         return StartReadback(
@@ -231,9 +228,7 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
     heater_targets = {}
 
     def proven_off(name):
-        """Without a baseline any target counts (legacy); with one, only where it read exactly 0."""
-        if not has_base:
-            return True
+        """A target counts only where the baseline read it exactly 0."""
         try:
             return float(obj(base, name).get("target")) == 0
         except (TypeError, ValueError):
@@ -260,7 +255,7 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
     # Klipper keeps the axes homed between prints, so homed axes are evidence only when the baseline
     # showed them unhomed; a homing-in-progress flag is live.
     homed = toolhead.get("homed_axes") or status.get("homed_axes")
-    if homed and has_base and base and not obj(base, "toolhead").get("homed_axes"):
+    if homed and base and not obj(base, "toolhead").get("homed_axes"):
         prep_evidence["homing"] = homed
     elif toolhead.get("homing") or status.get("homing"):
         prep_evidence["homing"] = True
@@ -283,7 +278,7 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
         prep_evidence["ifs_loading"] = True
     ifs_obj = status.get("zmod_ifs") if isinstance(status.get("zmod_ifs"), dict) else {}
     if (ifs_obj.get("state") or ifs_obj.get("feed") or ifs_obj.get("action")) \
-            and (not has_base or (bool(base) and obj(base, "zmod_ifs") != ifs_obj)):
+            and bool(base) and obj(base, "zmod_ifs") != ifs_obj:
         prep_evidence["zmod_ifs"] = ifs_obj
 
     if prep_evidence:
@@ -301,7 +296,7 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
     )
 
 
-def moonraker_readback(snapshot, remote, baseline=None):
+def moonraker_readback(snapshot, remote, baseline):
     """The classified readback of one post-request Moonraker query reply, only when print_stats
     names this exact upload (launch_state.same_remote); None when it shows another file. A reply
     that is not a query map raises, as an unreadable read does."""
@@ -438,13 +433,13 @@ def uncertain_fields(phase=PHASE_AWAITING):
 # --------------------------------------------------------------------------- polled transports
 
 def _transitioned(live, baseline, keys):
-    """True when there is no baseline (legacy callers), or `live` differs from it on `keys`."""
+    """True when `live` differs from the baseline on `keys`, or the baseline is empty (unreadable)."""
     if not isinstance(baseline, dict) or not baseline:
         return True
     return any(live.get(k) != baseline.get(k) for k in keys)
 
 
-def polled(live, remote, baseline=None) -> StartTruth:
+def polled(live, remote, baseline) -> StartTruth:
     """The start truth of a polled transport (PrusaLink, Elegoo SDCP, stock Flashforge; OctoPrint).
 
     Only a status naming this upload (launch_state.same_remote) and differing from the idle baseline
@@ -465,7 +460,7 @@ def polled(live, remote, baseline=None) -> StartTruth:
     return StartTruth(UNCERTAIN, "live", live=live)
 
 
-def octoprint(live, remote, baseline=None) -> StartTruth:
+def octoprint(live, remote, baseline) -> StartTruth:
     """The OctoPrint start truth. Its REST status carries no job start time, so the baseline is the
     idle job file and state read inside the lease, compared by ``polled``."""
     return polled(live, remote, baseline)
@@ -487,7 +482,7 @@ def _bambu_names(reported, remote):
     return reported in accepted
 
 
-def bambu(live, remote, baseline=None) -> StartTruth:
+def bambu(live, remote, baseline) -> StartTruth:
     """The Bambu Lab start truth: the subtask transition.
 
     The printer took this start when its subtask names this package and the subtask or gcode_state
@@ -505,17 +500,6 @@ def bambu(live, remote, baseline=None) -> StartTruth:
     if state == "error":
         return StartTruth(NOT_STARTED, "live", live=live)
     return StartTruth(UNCERTAIN, "live", live=live)
-
-
-def from_reports(reports: Callable[[dict, str], bool]):
-    """A start-truth function from a legacy yes/no matcher: a match in a transitional state is
-    preparing, any other match is started, no match is uncertain."""
-    def truth(live, remote, baseline=None):
-        live = live if isinstance(live, dict) else {}
-        if not reports(live, remote):
-            return StartTruth(UNCERTAIN, "live", live=live)
-        return StartTruth(PREPARING if live.get("state") in START_TRANSITIONAL_STATES else STARTED, "live", live=live)
-    return truth
 
 
 def polled_fields(confirmed, preparing):
