@@ -601,6 +601,7 @@ bot posting progress notifications.
 
 The legacy `/data/hermes` Docker volume is no longer read (a container whose state is only there refuses to start and names the rename), and a native install no longer falls back to `~/.hermes/profiles/3dprinting`: `python -m print_handy.doctor` names any data still only there and how to move it. Older wire formats now require a reslice or a consumer configuration update.
 
+<a id="frozen-hermes-wire-names"></a>
 ## Print Handy 2.4.0 wire formats
 
 A mapped G-code artifact now uses `; print_handy_tool_slots = ` for its tool-to-slot/spool mapping. `print_handy/gcode/tool_map.py` is the single reader/writer. A G-code file using the pre-2.4.0 `; hermes_tool_slots = ` line is refused with instructions to reslice; it is not silently upgraded.

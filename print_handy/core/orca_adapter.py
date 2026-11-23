@@ -44,8 +44,6 @@ _RETIRED_FLATPAK_APP_ID = 'io.github.softfever.OrcaSlicer'  # refused rather tha
 def _orca_command():
     """Return the effective command, honoring runtime overrides for test tracks."""
     override = os.environ.get('PRINT_HANDY_ORCA_CMD')
-    if override:
-        return [override]
     command = list(_S['orca']['command'])
     app_id = os.environ.get('ORCA_FLATPAK_APP_ID')
     if app_id == _RETIRED_FLATPAK_APP_ID:
@@ -59,6 +57,8 @@ def _orca_command():
             raise ValueError(
                 f"retired OrcaSlicer Flatpak app ID {_RETIRED_FLATPAK_APP_ID} is not supported; "
                 f"use {FLATPAK_APP_ID} in [orca].command or ORCA_FLATPAK_APP_ID")
+        if override:
+            return [override]
         if app_id:
             if command[2].startswith('--'):
                 return [command[0], 'run', command[2], app_id, *command[3:]]
@@ -67,7 +67,7 @@ def _orca_command():
             commit = os.environ.get('ORCA_FLATPAK_COMMIT')
             if commit:
                 return [command[0], 'run', f'--commit={commit}', *command[2:]]
-    return command
+    return [override] if override else command
 
 
 ORCA_COMMAND = _orca_command()
