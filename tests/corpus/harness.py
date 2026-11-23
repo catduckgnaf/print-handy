@@ -758,11 +758,16 @@ def gcode_checks(run):
     from print_handy.core import slice_guard
     from print_handy.printers.flashforge.zmod import multicolor_contract
     rows = []
+    # The guard accepts only the filament profile names the job generated (#1816), so it reads the job's
+    # own profiles, as the adapter's post-slice gate does: every plate's filament files.
+    profiles = [Path(c) for plate in [run.job] + list(run.job.get("derived_plates") or [])
+                for c in (plate.get("slice_config") or [])[2:]]
     for path in run.gcodes:
         text = path.read_text(errors="replace")
         verified = model_job_verify(path, run.state)
         mapping = multicolor_contract.embedded_mapping(text, run.state)
-        guard = slice_guard.post_slice(path, tool_slots={int(t): s for t, s in (mapping or {}).items()})
+        guard = slice_guard.post_slice(path, tool_slots={int(t): s for t, s in (mapping or {}).items()},
+                                       profile_paths=profiles)
         rows.append({"gcode": path, "verified": verified, "mapping": mapping, "guard": guard,
                      "support": bool(SUPPORT_FEATURE.search(text))})
     return rows

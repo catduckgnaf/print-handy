@@ -61,7 +61,7 @@ def test_recorded_density_is_kept_when_spoolman_is_silent(tmp_path, monkeypatch)
 # artifact's own map names.
 from print_handy.core import printer_state  # noqa: E402
 
-MAPPED = '; hermes_tool_slots = {"0":{"physical_slot":4,"spoolman_id":12}}\nG90\n'
+MAPPED = '; print_handy_tool_slots = {"0":{"physical_slot":4,"spoolman_id":12}}\nG90\n'
 
 
 def test_verify_state_takes_the_material_from_the_artifacts_one_slot_spool():
@@ -114,7 +114,7 @@ def test_a_leftover_resolution_for_another_family_does_not_refuse_the_slot_spool
 
 
 def test_a_stock_firmware_artifact_fills_from_the_jobs_selected_slot():
-    """No hermes_tool_slots map (stock AD5X): the job's slot names the spool."""
+    """No tool map (stock AD5X): the job's slot names the spool."""
     state = {**json.loads(STATE.read_text()), 'spool': {}}
     filled = printer_state.with_artifact_spool(state, 'G90\n', slot=4)
     assert filled['spool']['material'] == 'PLA'
@@ -122,7 +122,7 @@ def test_a_stock_firmware_artifact_fills_from_the_jobs_selected_slot():
 
 
 def test_a_multi_spool_artifact_fills_from_its_first_tool():
-    mapped = ('; hermes_tool_slots = {"0":{"physical_slot":4,"spoolman_id":12},'
+    mapped = ('; print_handy_tool_slots = {"0":{"physical_slot":4,"spoolman_id":12},'
               '"1":{"physical_slot":1,"spoolman_id":10}}\n')
     state = {**_petg_slot_4(), 'temperature_resolution': None}
     filled = printer_state.with_artifact_spool(state, mapped)

@@ -60,6 +60,15 @@ def test_printer_preset_by_model_and_nozzle(nozzle, preset):
     assert db.printer_preset(AD5X, nozzle) == preset
 
 
+def test_printer_preset_takes_preferred_and_folder_by_keyword_only(tmp_path):
+    """duckcatgnaf (3fae76f5): the third parameter used to be ``folder``; a folder passed positionally must
+    fail loudly instead of being read as ``preferred`` and resolving against the committed database."""
+    with pytest.raises(TypeError):
+        db.printer_preset(AD5X, 0.4, tmp_path)
+    assert db.printer_preset(AD5X, 0.4, preferred="Flashforge AD5X 0.4 nozzle", folder=db.DATA_DIR) \
+        == "Flashforge AD5X 0.4 nozzle"
+
+
 def test_unknown_printer_or_nozzle_has_no_preset():
     assert db.printer_preset(AD5X, 1.2) is None
     assert db.printer_preset("Not A Printer", 0.4) is None

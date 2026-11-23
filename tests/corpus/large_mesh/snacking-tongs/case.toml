@@ -10,16 +10,13 @@ author = "Printables model 681884 (see source_page for the author's profile)"
 source_page = "https://www.printables.com/model/681884-snacking-tongs-now-includes-step-files"
 site = "printables"
 site_model_id = "681884"
-# License, two sources that disagree; recorded as found, not reconciled:
-# - The owner stated MIT on 2026-11-21 (issue #1790).
-# - The Printables GraphQL API (the call production intake makes) returned
-#   "Creative Commons - Attribution - Noncommercial - Share Alike" for this
-#   model on 2026-11-21.
-# Until that is settled the case is treated like the private tier of the
-# complex corpus: fetched for local and CI runs only, never committed,
-# uploaded or released.
-license = "MIT (stated by the owner, 2026-11-21)"
-license_api = "Creative Commons — Attribution  — Noncommercial  —  Share Alike (Printables API, 2026-11-21)"
+# License as Printables publishes it for this model: the Printables GraphQL API
+# (the call production intake makes) returned "Creative Commons - Attribution -
+# Noncommercial - Share Alike" on 2026-11-21. The MIT first noted on #1790 was
+# not the published license and is not used. The case is treated like the
+# private tier of the complex corpus: fetched for local and CI runs only,
+# never committed, uploaded or released.
+license = "CC BY-NC-SA (Creative Commons Attribution-NonCommercial-ShareAlike, per Printables, 2026-11-21)"
 attribution = "Snacking tongs by its Printables author, https://www.printables.com/model/681884"
 redistribute = false
 

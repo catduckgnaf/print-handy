@@ -616,10 +616,11 @@ Print Handy was once installed through Hermes, and a few names from that time ar
 | Name | Where it lives | Who reads it |
 | --- | --- | --- |
 | `; hermes_tool_slots = ` | A header comment in every multi-tool G-code file Print Handy slices (the tool to slot or spool map) | Print Handy's launch, offline verification, spool lifecycle and the ZMod multicolor contract, including on files an earlier version sliced |
-| `Hermes slot <n> <material>` and `Hermes toolhead <n> <material>` | Filament profile names (`name`, `filament_settings_id`) in the G-code Print Handy slices | The slice guard, which recognizes its own generated profiles by this shape |
 | Moonraker database namespace `hermes`, key `current_job` | The printer's Moonraker database | The Home Assistant integration (job card) |
 
 Each definition in the code carries a comment pointing here. A new wire name should not use "hermes"; these stay only because they are already in the field.
+
+Retired (#1816, a breaking change): the `Hermes slot <n> <material>` and `Hermes toolhead <n> <material>` filament profile names. A slice now names the Orca vendor profile its values came from (`Flashforge HS PETG @FF AD5X`), the printer's own template for its own family, or `Print Handy <material> (library generic)`, with ` [slot <n>]` per tool (`orca_profile_db.profile_name`). The slice guard accepts exactly the names the job generated; G-code sliced before #1816 with the old names is refused. The remaining names are #1817.
 
 ## Printer control service
 
