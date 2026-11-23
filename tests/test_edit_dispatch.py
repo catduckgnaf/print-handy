@@ -7,7 +7,6 @@ what is under test is the pipeline's discipline: resolve → confirm →
 probe-verify → record → re-enter, and every refusal along the way.
 """
 import asyncio
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace as S
@@ -21,10 +20,7 @@ from print_handy.jobs import slice as jobs_slice
 from print_handy.jobs import store as jobs_store
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_edit", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 STL = "solid x\nfacet normal 0 0 0\n outer loop\n  vertex 0 0 0\n  vertex 1 0 0\n  vertex 0 1 0\n endloop\nendfacet\nendsolid x\n"
 

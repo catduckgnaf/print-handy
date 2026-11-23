@@ -291,12 +291,8 @@ def test_new_spool_slot_options_name_current_contents():
 # --------------------------------------------------------------------- clicks
 
 def load_plugin():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "print_feedback_483", HERE.parents[1] / "plugins/print-feedback/__init__.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from tests.handler_namespace import plugin
+    return plugin
 
 
 class Interaction:

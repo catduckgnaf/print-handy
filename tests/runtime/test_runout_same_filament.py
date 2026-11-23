@@ -1,6 +1,4 @@
 """Runout "same" answer: a fresh roll of the same filament, never the empty spool."""
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
@@ -9,10 +7,7 @@ import pytest
 from print_handy.runtime import print_alert_buttons as pab
 from print_handy.runtime import spool_sync
 
-SPEC = importlib.util.spec_from_file_location(
-    "print_feedback_same_filament", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 RUNOUT = {"filename": "a.gcode", "slot": 3, "prior_spool_id": 20, "cause": "runout",
           "recorded_at": 1.0, "usage_suspended": True, "suspended_spool_id": 20}

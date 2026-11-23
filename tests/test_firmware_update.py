@@ -11,7 +11,6 @@ idle at both checks, and that success is claimed only from the post-update
 re-read.
 """
 import asyncio
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
@@ -25,10 +24,7 @@ from print_handy.bot import llm
 from print_handy.runtime import spool_sync
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_firmware", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def entry(key):

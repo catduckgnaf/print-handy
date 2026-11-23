@@ -14,7 +14,6 @@ calibration is not offered; Z offset follows the Stage 0 mode verdict
 on accept, on discard and on failure.
 """
 import asyncio
-import importlib.util
 import json
 import socket
 import threading
@@ -33,10 +32,7 @@ from print_handy.launch import gates as launch_gates
 from print_handy.runtime import spool_sync
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_calibration", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def entry(key):

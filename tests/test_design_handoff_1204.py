@@ -10,7 +10,6 @@ The real intake run on these handoffs is in
 tests/pipeline/test_design_project_handoff_1204.py.
 """
 import asyncio
-import importlib.util
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace as S
@@ -23,10 +22,7 @@ from print_handy.core import prompts as core_prompts
 from print_handy.runtime import _config
 
 ROOT = Path(__file__).parents[1]
-spec = importlib.util.spec_from_file_location("print_feedback_design_1204",
-                                              ROOT / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 CFG = {"design": {"enabled": True, "chat_url": "", "model": "", "api_key_env": "",
                   "timeout_s": 180, "repair_attempts": 2},

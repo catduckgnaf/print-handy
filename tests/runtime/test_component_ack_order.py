@@ -223,15 +223,10 @@ def test_new_spool_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
 
 def _spoolman_rig(tmp_path, monkeypatch, order):
     """Plugin handlers plus a Spoolman whose every call records "slow"."""
-    import importlib.util
-    from pathlib import Path
     from print_handy.runtime import print_alert_buttons as pab, spool_sync
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     # Real discord.ui (the pickers build Select/View); the shared _install fake has none.
-    spec = importlib.util.spec_from_file_location(
-        "pf_ack_order", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-    plugin = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(plugin)
+    from tests.handler_namespace import plugin
     listeners = {}
     plugin.alert_button_handlers(S(add_listener=lambda fn, name: listeners.__setitem__(name, fn)), S())
     on_interaction = listeners["on_interaction"]

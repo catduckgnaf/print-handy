@@ -33,8 +33,8 @@ class RuffGateTests(unittest.TestCase):
 
     def test_baseline_is_per_file_and_names_rules(self):
         ignores = load_pyproject()["tool"]["ruff"]["lint"]["per-file-ignores"]
-        self.assertIn("plugins/print-feedback/__init__.py", ignores)
-        self.assertIn("F821", ignores["plugins/print-feedback/__init__.py"])
+        self.assertNotIn("plugins/print-feedback/__init__.py", ignores)
+        self.assertIn("print_handy/bot/handlers/common.py", ignores)
         for filename, codes in ignores.items():
             self.assertTrue(codes, filename)
             for code in codes:

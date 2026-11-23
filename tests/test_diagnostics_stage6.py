@@ -2,15 +2,9 @@
 the operator bar — what failed, the state/remedy note, and the stable
 greppable PH_* marker, redacted. #467: the raw exception text is no
 longer posted; it is classified for the marker and kept in the log."""
-import importlib.util
 import re
-from pathlib import Path
 
-PLUGIN_PATH = Path(__file__).parents[1] / "plugins/print-feedback/__init__.py"
-SPEC = importlib.util.spec_from_file_location("print_feedback_stage6", PLUGIN_PATH)
-assert SPEC is not None and SPEC.loader is not None
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def test_failure_post_carries_label_note_and_marker_without_raw_detail():

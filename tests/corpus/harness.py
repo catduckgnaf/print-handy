@@ -1,7 +1,7 @@
 """Drive a corpus model through the Discord intake, with a fake Discord.
 
 A case is a folder with one supported model file (`.3mf` or `.stl`) and case.toml. The direct
-driver loads the real print-feedback module and calls its model_link_dispatch hook with a
+driver calls model_link_dispatch from print_handy.bot.handlers with a
 dropped-file event; the standalone driver posts the file to the real bot (print_handy.bot).
 The fake adapter answers every button question from the case's [[click]] rules. Nothing contacts
 Moonraker, Spoolman or a printer: the start step runs the real print_next gates against a stub
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import importlib.util
 import json
 import os
 import re
@@ -41,7 +40,6 @@ from . import printer_overrides
 
 CORPUS = Path(__file__).resolve().parent
 CASES = CORPUS / "cases"
-PLUGIN = settings.ROOT / "plugins" / "print-feedback" / "__init__.py"
 WORK = settings.ROOT / ".slicer-work"
 FIXTURE_STATE = settings.ROOT / "tests" / "pipeline" / "fixtures" / "printer_hardware.json"
 SUPPORT_FEATURE = re.compile(r"^;\s*(?:FEATURE|TYPE):\s*Support", re.I | re.M)
@@ -229,10 +227,14 @@ class FakeAdapter:
 
 
 def load_plugin(name="corpus_print_feedback"):
-    spec = importlib.util.spec_from_file_location(name, PLUGIN)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """The model-link handler and the state directory it writes receipts under.
+
+    Both live in print_handy.bot.handlers. ``name`` is unused; callers still pass a label.
+    """
+    from print_handy.bot.handlers import register
+    from print_handy.bot.handlers.common import _state_dir
+    from print_handy.bot.handlers.model_link import model_link_dispatch
+    return S(model_link_dispatch=model_link_dispatch, _state_dir=_state_dir, register=register)
 
 
 def drop_event(model, case_name, message_id="corpus-message-1"):

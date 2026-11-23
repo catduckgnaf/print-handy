@@ -6,8 +6,6 @@ got the "spool question is still open" rejection and the question message
 carried no cancel button, so there was no way to end the print.
 """
 import asyncio
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
@@ -18,11 +16,7 @@ from print_handy.runtime import print_alert_buttons as pab
 from print_handy.runtime import print_stop
 from print_handy.runtime import spool_sync
 
-SPEC = importlib.util.spec_from_file_location(
-    "print_feedback_cancel", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-assert SPEC is not None and SPEC.loader is not None
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 RECORD = {"filename": "all parts one plate.gcode", "slot": 2, "prior_spool_id": 8,
           "cause": "runout", "usage_suspended": True, "suspended_spool_id": 8}

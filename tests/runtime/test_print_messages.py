@@ -5,7 +5,6 @@ plugin hook. The adapter mirrors DiscordAdapter.send(chat_id, content, reply_to,
 """
 import asyncio
 import hashlib
-import importlib.util
 import json
 import os
 import shlex
@@ -21,21 +20,12 @@ import pytest
 HERE = Path(__file__).resolve().parent
 from print_handy.runtime import discord_print_summary as summary
 from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_records as records  # noqa: E402
+from print_handy.runtime import moonraker_discord_announcements as watcher  # noqa: E402
 
 HEX = re.compile(r"[0-9a-f]{32,}", re.I)
 TITLE = "Stand for iPad with thick case"
 
-
-def _load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-from print_handy.runtime import print_records as records  # noqa: E402
-from print_handy.runtime import moonraker_discord_announcements as watcher  # noqa: E402
-PLUGIN = HERE.parents[1] / "plugins/print-feedback/__init__.py"
 
 @pytest.fixture(autouse=True)
 def _fix_finish_text_on_windows(monkeypatch):
@@ -1078,7 +1068,7 @@ def test_every_plugin_and_intake_send_uses_content_keyword():
 def test_model_link_receipt_is_sent_before_slow_intake(monkeypatch):
     """A dropped link gets no receipt; the preview and picker follow."""
     import types
-    plugin = _load("print_feedback_ackfirst", HERE.parents[1] / "plugins/print-feedback/__init__.py")
+    from print_handy.bot.handlers import model_link as plugin
     adapter = StrictAdapter()
     order = []
 

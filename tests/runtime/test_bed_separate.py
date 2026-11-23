@@ -4,10 +4,8 @@ Fakes only: every test injects the sender/reader or patches the plugin's
 printer calls, so no printer, network or Discord is ever contacted.
 """
 import asyncio
-import importlib.util
 import threading
 import time
-from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
@@ -18,10 +16,7 @@ from print_handy.bot import runtime
 from print_handy.runtime import bed_separate as bs
 from print_handy.runtime import print_control as pc
 
-SPEC = importlib.util.spec_from_file_location(
-    "print_feedback_bed_down", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def _status(job="standby", homed="xyz", z=5.0, z_max=230.0, webhooks="ready"):

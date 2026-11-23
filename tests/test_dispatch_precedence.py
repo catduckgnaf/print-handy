@@ -31,7 +31,6 @@ This file pins the claim surface three ways:
    landed).
 """
 import asyncio
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -42,11 +41,7 @@ import pytest
 from print_handy.core import ai_fix, prepared_intake
 
 ROOT = Path(__file__).parents[1]
-SPEC = importlib.util.spec_from_file_location(
-    "dispatch_precedence_plugin", ROOT / "plugins/print-feedback/__init__.py")
-assert SPEC is not None and SPEC.loader is not None
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 URL = "https://www.printables.com/model/111-remembered-widget"
 

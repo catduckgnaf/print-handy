@@ -10,7 +10,6 @@ while the start was still on its way; the print began 40 s later. A start in fli
 something to stop, not nothing.
 """
 import asyncio
-import importlib.util
 import json
 import time
 import urllib.error
@@ -25,9 +24,7 @@ from print_handy.core import launch_state
 from print_handy.runtime import print_control, print_stop, start_claims
 
 HERE = Path(__file__).resolve().parent
-SPEC = importlib.util.spec_from_file_location("pf_stop_inflight", HERE.parents[1] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 FILE = "Top-Mount_plate_1_" + "ab" * 32 + ".gcode.3mf"
 

@@ -1,11 +1,10 @@
 """#1146 leftovers: platform-named system prompt, initiator-only buttons,
 the fuzzy dictionary's logged fallback, the retired roast_model setting and
-the print-feedback handlers failing loudly when they are missing."""
+the chat handlers loading from the package."""
 import asyncio
 import json
 import logging
 
-import pytest
 
 from print_handy import settings
 from print_handy.bot import llm, platform
@@ -143,9 +142,9 @@ def test_a_config_still_carrying_roast_model_loads_with_a_warning():
     assert "roast_model" in settings.unknown_settings_warning()
 
 
-# --------------------------------------------------------------- missing handlers
+# --------------------------------------------------------------- handlers package
 
-def test_missing_print_feedback_handlers_fail_loudly(tmp_path):
-    with pytest.raises(RuntimeError, match="print-feedback"):
-        load_plugin(path=tmp_path / "plugins" / "print-feedback" / "__init__.py",
-                    name="print_handy_print_feedback_missing_test")
+def test_handlers_load_from_the_package():
+    plugin = load_plugin()
+    assert plugin.__name__ == "print_handy.bot.handlers"
+    assert plugin.__file__.endswith("print_handy/bot/handlers/__init__.py")

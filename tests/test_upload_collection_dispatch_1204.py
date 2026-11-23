@@ -8,7 +8,6 @@ Matrix numbered replies); here it is scripted, so the test pins what is
 asked and what each answer does, not one transport's rendering.
 """
 import asyncio
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace as S
 
@@ -17,10 +16,7 @@ import pytest
 from print_handy.core import link_intake, upload_collection
 
 ROOT = Path(__file__).parents[1]
-SPEC = importlib.util.spec_from_file_location(
-    "upload_collection_plugin_1204", ROOT / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 class Adapter:

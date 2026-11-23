@@ -8,7 +8,6 @@ uses. The design model is a scripted fake and the renderer writes real box
 meshes; no chat platform, network, printer or paid API is touched.
 """
 import asyncio
-import importlib.util
 import json
 import subprocess
 from pathlib import Path
@@ -25,10 +24,7 @@ print_next = external("print_next")
 print_records = external("print_records")
 
 ROOT = Path(__file__).parents[2]
-spec = importlib.util.spec_from_file_location("print_feedback_design_project_1204",
-                                              ROOT / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 THREE_PART = "\n".join([
     "// Part: Mac mini rack cradle",

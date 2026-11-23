@@ -7,20 +7,14 @@ standalone runtime stamps on its sources, never derived — whatever home,
 mode or plugin location it is handed — and the plugin's gates answer
 exactly that stamp.
 """
-import importlib.util
 from pathlib import Path
 
 from print_handy.runtime import _config
 
-ROOT = Path(__file__).resolve().parents[2]
-
 
 def load_plugin():
-    spec = importlib.util.spec_from_file_location(
-        "print_feedback_hosting", ROOT / "plugins/print-feedback/__init__.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from print_handy.bot.handlers import common
+    return common
 
 
 def test_hosting_profile_is_always_the_default(tmp_path):

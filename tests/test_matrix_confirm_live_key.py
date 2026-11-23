@@ -26,7 +26,6 @@ exactly like the cold pull helper does) and /print-stop — which kept the
 flow-key registration after the `_confirm` callers were fixed (#524).
 """
 import asyncio
-import importlib.util
 import io
 import json
 import urllib.parse
@@ -43,10 +42,7 @@ from print_handy.runtime import discord_print_summary as print_summary
 from print_handy.runtime import print_control as pc
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_matrix_confirm", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 LIVE_KEY = "matrix:c::42"
 

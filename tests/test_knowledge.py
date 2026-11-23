@@ -5,7 +5,6 @@ by construction, and the dispatch tests use a fake adapter that records sends.
 """
 import ast
 import asyncio
-import importlib.util
 import json
 import shutil
 from pathlib import Path
@@ -20,10 +19,7 @@ from print_handy.core import prompts
 from print_handy.knowledge import FlowError, RegistryError
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_knowledge", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 @pytest.fixture(scope="module")

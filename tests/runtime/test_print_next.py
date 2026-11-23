@@ -1,6 +1,5 @@
 """Offline tests for /print-next. Fake transport and fake print-now; no printer contact."""
 import asyncio
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -203,11 +202,8 @@ def test_completion_binds_sibling_plate_from_same_job(tmp_path, monkeypatch):
 # Plugin hook ---------------------------------------------------------------
 
 def load_plugin():
-    plugin = HERE.parents[1] / 'plugins/print-feedback/__init__.py'
-    spec = importlib.util.spec_from_file_location('print_feedback_next', plugin)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from tests.handler_namespace import plugin
+    return plugin
 
 
 class Transport:

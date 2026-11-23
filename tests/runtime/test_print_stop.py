@@ -1,6 +1,5 @@
 """Offline tests for Phase 3a (paused alert) and 3b (/print-stop)."""
 import asyncio
-import importlib.util
 import sys
 import threading
 from pathlib import Path
@@ -11,9 +10,7 @@ HERE = Path(__file__).resolve().parent
 from print_handy.runtime import print_stop
 from print_handy.runtime import moonraker_event_listener as mel
 
-SPEC = importlib.util.spec_from_file_location("pf_stop", HERE.parents[1] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def st(state, filename="a.gcode", **kw):

@@ -7,7 +7,6 @@ spool_sync.create_spool with a write log, so cancel/refusal tests can
 prove zero writes happened. No live network anywhere.
 """
 import asyncio
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace as S
@@ -23,10 +22,7 @@ from print_handy.runtime import spool_label, spool_sync
 # camera checks on (vision.ai_enabled, off by default since #1376).
 pytestmark = pytest.mark.usefixtures("vision_ai_on")
 
-SPEC = importlib.util.spec_from_file_location(
-    "pf_purchase_801", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 # ------------------------------------------------------------------ fixtures
