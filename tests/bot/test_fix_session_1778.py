@@ -188,7 +188,12 @@ def test_process_turn_accept_after_a_successful_tool_updates_the_job(tmp_path):
     def boom(*_args, **_kwargs):
         raise AssertionError('accept must not call the model')
 
-    done = fix_session.process_turn(session, 'accept', ai_complete=boom)
+    # No direct acceptance before the shared model intake has verified the copy.
+    premature = fix_session.process_turn(session, 'accept', ai_complete=boom)
+    assert premature['accepted'] is False and session.active()
+    assert Path(json.loads(job_path.read_text())['downloaded_file']).resolve() == stl.resolve()
+    done = fix_session.process_turn(session, 'accept', ai_complete=boom,
+                                    resume_intake=lambda _session: True)
     assert done['accepted'] is True and done['cancelled'] is False
     assert done['reply'] == fix_session.SESSION_END_ACCEPT
     assert session.accepted is True and not session.active()
@@ -231,7 +236,8 @@ def test_process_turn_accept_does_not_claim_success_when_the_job_write_fails(tmp
         raise OSError('read only')
 
     monkeypatch.setattr('print_handy.jobs.store.write_job', fail)
-    out = fix_session.process_turn(session, 'yes', ai_complete=ai_complete)
+    out = fix_session.process_turn(session, 'yes', ai_complete=ai_complete,
+                                   resume_intake=lambda _session: True)
     assert out['accepted'] is False
     assert session.accepted is False and session.active()
     assert 'was not changed' in out['reply'].lower()
