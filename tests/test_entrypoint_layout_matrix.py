@@ -50,6 +50,16 @@ def snapshot(home: Path) -> list:
     return sorted(str(p.relative_to(home)) for p in home.rglob("*"))
 
 
+def test_compose_init_leaves_legacy_refusal_to_config_aware_entrypoint():
+    # The init image cannot resolve the application's configured paths.state_home;
+    # refusing on an empty /data/state alone would reject a populated custom folder.
+    compose = (ROOT / "docker-compose.yml").read_text()
+    init = compose.split("  print-handy-init:\\n", 1)[1].split("  cloudflared:\\n", 1)[0]
+    assert "/host-data/hermes" not in init
+    assert "for path in /data/state" in init
+    assert "_has_files \"$legacy_home\"" in ENTRYPOINT.read_text()
+
+
 # --- #1817: the old hermes folder is refused, never read or migrated.
 OLD_FOLDER = "Print Handy: cannot start: your state is still in the old folder /data/hermes"
 
