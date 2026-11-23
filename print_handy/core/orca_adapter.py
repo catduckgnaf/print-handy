@@ -2082,7 +2082,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 base_flow = float(data['filament_flow_ratio'][0])
                 data['filament_flow_ratio'] = [str(round(base_flow * adj['flow_multiplier'], 4))]
             except (TypeError, ValueError, IndexError):
-                logger.debug("Best-effort recovery from a nonnumeric filament_flow_ratio", exc_info=True)
+                logger.warning("ignoring invalid filament_flow_ratio %r from the profile",
+                               data.get('filament_flow_ratio'))
+                # Never pass unparseable vendor values to Orca. A downstream
+                # material tuning override may still install a valid number.
+                data.pop('filament_flow_ratio', None)
         # flow_ratio is the final ratio Orca receives (the tested number), so it replaces the nozzle
         # type's flow multiplier instead of being scaled by it. A vendor profile (Bambu Lab) keeps its own.
         tuning = {} if printer.vendor_material_profiles else material_tuning(material)
