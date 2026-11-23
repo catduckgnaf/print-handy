@@ -366,7 +366,7 @@ def test_failed_uploaded_model_offers_repair_then_starts_scoped_session(tmp_path
 
     choices = []
 
-    async def choice(adapter, src, metadata, kind, prompt, labels, timeout, **kwargs):
+    async def choice(adapter, src, metadata, kind, prompt, labels, *args, **kwargs):
         choices.append((kind, labels))
         return fix_session.WORK_WITH_AI_LABEL
 
