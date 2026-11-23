@@ -121,7 +121,7 @@ def test_3mf_zip_bomb_split_across_small_members(tmp_path):
     with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('3D/3dmodel.model', '<model/>')
         for index in range(32):
-            archive.writestr(f'payload/{index:02}.bin', b'\\0' * (64 * 1024))
+            archive.writestr(f'payload/{index:02}.bin', b'\x00' * (64 * 1024))
     with zipfile.ZipFile(source) as archive:
         members = archive.infolist()
         assert all(info.file_size <= limits.ZIP_RATIO_FLOOR_BYTES for info in members)
