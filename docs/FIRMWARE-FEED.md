@@ -2,7 +2,7 @@
 
 Print Handy follows the releases of the firmware its printers run and
 tells you when a new one appears. It does that from one small public
-file, the firmware feed, that GitHub Actions rebuilds every six hours.
+file, the firmware feed, that GitHub Actions rebuilds once a day.
 This page says what the feed is, what Print Handy does with it, and how
 to add a firmware to it.
 
@@ -30,7 +30,7 @@ Three pieces make it:
 |---|---|
 | `docs/firmware-feed.toml` | The list of firmware: where its releases are and which models it belongs to. The only file you edit. |
 | `scripts/build_firmware_feed.py` | Asks GitHub for each firmware's releases or tags and writes the feed. Standard library only. |
-| `.github/workflows/firmware-feed.yml` | Runs the script every six hours, on demand, and whenever the list changes on main, then commits the feed to the `firmware-feed` branch when its content changed. |
+| `.github/workflows/firmware-feed.yml` | Runs the script once a day, on demand, and whenever the list changes on main, then commits the feed to the `firmware-feed` branch when its content changed. |
 
 The feed is public and the same for everyone. It holds nothing about any
 printer or install.
