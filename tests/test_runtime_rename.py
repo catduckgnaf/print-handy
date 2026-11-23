@@ -1,8 +1,7 @@
 """print_handy.hermes became print_handy.runtime, and paths.hermes_home became paths.state_home (#1323, #1157).
 
-The old import and helper names have been removed in 2.4.0. The separate
-paths.hermes_home configuration alias remains covered here until the settings
-cleanup PR is merged.
+The old import and helper names were removed in 2.4.0, and the paths.hermes_home
+setting is refused at load with the current name (#1817).
 """
 import subprocess
 import sys
