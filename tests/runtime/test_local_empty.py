@@ -56,6 +56,15 @@ PART_BIG = scene(part=(110, 110, 210, 175, (200, 60, 40)))
 PART_SMALL_LIGHT = scene(part=(150, 120, 176, 142, (238, 236, 230)))
 
 
+def _fake_model_download(local_vision, monkeypatch):
+    """Stand in for the 202 MB model fetch (#1844: these tests once ran the
+    real download from obico.io on every CI run)."""
+    def fake(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"stub detector model")
+    monkeypatch.setattr(local_vision, "_download_model", fake)
+
+
 @pytest.fixture()
 def cfg(tmp_path, monkeypatch):
     data = {"paths": {"state_home": str(tmp_path)},
@@ -64,16 +73,12 @@ def cfg(tmp_path, monkeypatch):
     # the calibrated fixture config must be the global one too.
     from print_handy.runtime import _config as _hc
     monkeypatch.setattr(_hc, "cfg", lambda: data)
+    # watch_source "local" makes vision_ready start the model download in
+    # the background; fake it (#1844: this ran the real 202 MB fetch from
+    # obico.io on every CI run).
+    from print_handy.runtime import local_vision
+    _fake_model_download(local_vision, monkeypatch)
     return data
-
-
-def _fake_model_download(local_vision, monkeypatch):
-    """Stand in for the 202 MB model fetch (#1844: these tests once ran the
-    real download from obico.io on every CI run)."""
-    def fake(path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"stub detector model")
-    monkeypatch.setattr(local_vision, "_download_model", fake)
 
 
 def calibrate(cfg, frame=EMPTY, now=None):
@@ -252,7 +257,6 @@ def test_visual_verdict_idle_endpoint_answer_wins(cfg, monkeypatch):
     # the background prefetch must have landed first, as it does in
     # production once the watch reports ready.
     from print_handy.runtime import local_vision
-    _fake_model_download(local_vision, monkeypatch)
     assert local_vision.prefetch_model(cfg, wait=True)
     cfg["vision"]["watch_source"] = "auto"  # the endpoint route goes first
     monkeypatch.setattr(vw, "_vision_answer",
@@ -273,7 +277,6 @@ def test_visual_verdict_idle_part_present_falls_through_to_detector(
     # the background prefetch must have landed first, as it does in
     # production once the watch reports ready.
     from print_handy.runtime import local_vision
-    _fake_model_download(local_vision, monkeypatch)
     assert local_vision.prefetch_model(cfg, wait=True)
     cfg["vision"]["watch_source"] = "auto"  # no endpoint route: local routes stand in
     monkeypatch.setattr(vw, "_local_verdict",
