@@ -214,7 +214,7 @@ def test_one_message_starts_a_design_and_the_next_iterates_it(server, flow_cfg, 
     assert page.count("Design turn 1") == 1 and page.count(preview) == 1
     for label in design.CHOICES:
         assert f">{label}</button>" in page
-    assert 'action="/designs/choice"' in page
+    assert 'action="/chat/choice?view=design"' in page
     assert page.count('class="design-composer"') == 1
     status, png = browser.request("GET", f"/designs/{session['id']}/preview?turn=1")
     assert status == 200 and png.startswith(b"\x89PNG")
