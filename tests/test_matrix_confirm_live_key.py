@@ -84,8 +84,8 @@ def _matrix_adapter(stub):
 
 
 def _event(text):
-    source = S(platform=S(value="matrix"), profile="3dprinting", is_bot=False,
-               profile_route_rejected=False, user_id="42", chat_id="c", thread_id=None)
+    source = S(platform=S(value="matrix"), is_bot=False,
+               user_id="42", chat_id="c", thread_id=None)
     return S(source=source, text=text, internal=False, message_id="m1", metadata={})
 
 

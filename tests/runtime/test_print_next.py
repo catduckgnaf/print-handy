@@ -229,7 +229,7 @@ def run_hook(tmp_path, text, pick=0, authorized=True, start_result=(True, 'START
     for name, value in (plugin_patch or {}).items():
         setattr(mod, name, value)
     adapter = Transport(pick)
-    src = S(platform=S(value='discord'), profile='3dprinting', user_id='42', chat_id='c', thread_id=None)
+    src = S(platform=S(value='discord'), user_id='42', chat_id='c', thread_id=None)
     gateway = S(_is_user_authorized_for_source=lambda s: authorized, _delivery_adapter_for=lambda s: adapter,
                 _session_key_for_source=lambda s: 'session-key')
     started = []
@@ -344,7 +344,7 @@ def test_hook_accepts_explicit_part_id(tmp_path):
     (plans / 'ghost.json').write_text(json.dumps(plan))
     mod = load_plugin()
     adapter = Transport(0)
-    src = S(platform=S(value='discord'), profile='3dprinting', user_id='42', chat_id='c', thread_id=None)
+    src = S(platform=S(value='discord'), user_id='42', chat_id='c', thread_id=None)
     gateway = S(_is_user_authorized_for_source=lambda s: True, _delivery_adapter_for=lambda s: adapter,
                 _session_key_for_source=lambda s: 'session-key')
     started = []
@@ -740,7 +740,7 @@ def test_hook_warming_start_registers_message_for_listener_edit(tmp_path):
             return S(success=True, message_id='msg-42')
 
     adapter = IdTransport(0)
-    src = S(platform=S(value='discord'), profile='3dprinting', user_id='42', chat_id='c', thread_id=None)
+    src = S(platform=S(value='discord'), user_id='42', chat_id='c', thread_id=None)
     gateway = S(_is_user_authorized_for_source=lambda s: True, _delivery_adapter_for=lambda s: adapter,
                 _session_key_for_source=lambda s: 'session-key')
     detail = 'START SUBMITTED; AWAITING CONFIRMATION\n{"file": "plate_2.gcode"}'

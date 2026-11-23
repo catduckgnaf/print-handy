@@ -1,6 +1,7 @@
 """Deleting the chat message that carried a pasted login token (best effort)."""
 import asyncio
 import json
+import logging
 from types import SimpleNamespace as S
 
 from print_handy.bot import adapter as discord_adapter
@@ -110,6 +111,64 @@ def test_plugin_helper_falls_back_to_the_hermes_discord_client():
             pass
     run(plugin._delete_secret_message(S(message_id='9'), S(chat_id='5', thread_id=None), Hermes()))
     assert deleted == [1]
+
+
+def test_plugin_helper_deletes_when_delete_message_lives_only_on_host():
+    """A wrapper with no delete_message of its own still removes the secret via _host."""
+    plugin = load_plugin()
+    deleted, sent = [], []
+
+    class Host:
+        async def delete_message(self, chat_id, message_id, metadata=None):
+            deleted.append((chat_id, message_id, metadata))
+            return True
+
+    class Wrapper:
+        def __init__(self):
+            self._host = Host()
+
+        async def send(self, chat_id, content, metadata=None):
+            sent.append(content)
+
+    run(plugin._delete_secret_message(
+        S(message_id='9'), S(chat_id='5', thread_id='3'), Wrapper()))
+    assert deleted == [('5', '9', {'thread_id': '3'})]
+    assert sent == ['Token saved. I deleted your message.']
+
+
+def test_a_failed_host_delete_keeps_the_note_and_does_not_log_the_secret():
+    plugin = load_plugin()
+    sent, records = [], []
+    secret = "pasted-login-secret"
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+            if record.exc_info and record.exc_info[1] is not None:
+                records.append(str(record.exc_info[1]))
+
+    class Host:
+        async def delete_message(self, chat_id, message_id, metadata=None):
+            raise RuntimeError(secret)
+
+    class Wrapper:
+        def __init__(self):
+            self._host = Host()
+
+        async def send(self, chat_id, content, metadata=None):
+            sent.append(content)
+
+    log = logging.getLogger("print_handy.bot.handlers.common")
+    handler = Capture()
+    log.addHandler(handler)
+    try:
+        run(plugin._delete_secret_message(
+            S(message_id='9'), S(chat_id='5', thread_id=None), Wrapper()))
+    finally:
+        log.removeHandler(handler)
+    assert "couldn't delete your message" in sent[0]
+    assert secret not in sent[0]
+    assert all(secret not in text for text in records)
 
 
 def test_the_answered_note_never_echoes_a_long_unbroken_string():

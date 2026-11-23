@@ -79,7 +79,7 @@ def slicer(env, monkeypatch):  # noqa: F811
 
 
 def intake(env, picks, mid):  # noqa: F811
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
               text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -186,7 +186,7 @@ def test_tampered_gcode_is_never_offered(env, slicer):  # noqa: F811
 
 
 def cancel_at_first_question(env, st, mid):  # noqa: F811
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
               text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([-1])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))
@@ -229,7 +229,7 @@ def test_start_over_asks_everything_again(env, slicer):  # noqa: F811
 
 def intake_as(env, picks, mid, user_id):  # noqa: F811
     """intake() with a chosen requester, for the same-requester checks."""
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id=user_id),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id=user_id),
               message_id=mid, text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(
@@ -572,7 +572,7 @@ class PickByLabel(Adapter):
 
 
 def intake_labeled(env, picks, mid):  # noqa: F811
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id=mid, text='https://www.printables.com/model/1-ghost')
     adapter = PickByLabel(picks)
     result = asyncio.run(prepared_intake.prepare_link(
@@ -636,7 +636,7 @@ def _offer_for(env, earlier, **extra):  # noqa: F811
            'downloaded_file': earlier['downloaded_file'],
            'started_by': {'platform': 'discord', 'user_id': 'u'}, **extra}
     adapter = Adapter([0])
-    source = S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u')
+    source = S(chat_id='c1', thread_id=None, user_id='u')
     reused = asyncio.run(prepared_intake._offer_previous_decisions(
         adapter, source, 'k', 1, job, state(), Path(env.tmp) / 'new-job',
         receipts_root=env.root))

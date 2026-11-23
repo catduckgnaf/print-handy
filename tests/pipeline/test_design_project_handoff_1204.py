@@ -76,7 +76,7 @@ def _designed(tmp_path, reply):
 def _hand_off(env, cfg, result, picks):
     """The plugin's real Slice it handoff into the real prepared intake."""
     adapter = Adapter(picks)
-    source = S(platform=S(value="discord"), profile="3dprinting", chat_id="c1", thread_id=None,
+    source = S(platform=S(value="discord"), chat_id="c1", thread_id=None,
                user_id="u")
     event = S(source=source, text="/print-design a rack cradle for a mac mini",
               message_id="design-msg", metadata={})
@@ -196,7 +196,7 @@ def _dispatch_next(plans, pick, archive):
             return S(success=True)
 
     adapter = Transport()
-    src = S(platform=S(value="discord"), profile="3dprinting", user_id="42", chat_id="c",
+    src = S(platform=S(value="discord"), user_id="42", chat_id="c",
             thread_id=None)
     gateway = S(_is_user_authorized_for_source=lambda s: True,
                 _delivery_adapter_for=lambda s: adapter,

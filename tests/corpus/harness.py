@@ -134,8 +134,8 @@ def load_case(folder):
 
 def text_event(text):
     """What the bot hands the dispatch hooks for one typed chat message (no attachment)."""
-    source = S(platform=S(value="discord"), profile="3dprinting", user_id="corpus-user", chat_id="corpus-chat",
-               thread_id=None, is_bot=False, profile_route_rejected=False)
+    source = S(platform=S(value="discord"), user_id="corpus-user", chat_id="corpus-chat",
+               thread_id=None, is_bot=False)
     return S(source=source, text=text, media_urls=[], message_id=f"corpus-typed-{uuid.uuid4().hex[:8]}",
              metadata={}, internal=False)
 
@@ -243,8 +243,8 @@ def drop_event(model, case_name, message_id="corpus-message-1"):
     cache.mkdir(exist_ok=True)
     dropped = cache / f"doc_0123456789ab_{case_name}{Path(model).suffix.lower()}"
     dropped.write_bytes(Path(model).read_bytes())
-    source = S(platform=S(value="discord"), profile="3dprinting", user_id="corpus-user", chat_id="corpus-chat",
-               thread_id=None, is_bot=False, profile_route_rejected=False)
+    source = S(platform=S(value="discord"), user_id="corpus-user", chat_id="corpus-chat",
+               thread_id=None, is_bot=False)
     return S(source=source, text="", media_urls=[str(dropped)], message_id=message_id, metadata={}, internal=False)
 
 

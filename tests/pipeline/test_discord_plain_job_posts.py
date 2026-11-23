@@ -44,7 +44,7 @@ class AdapterOfferingCards(Adapter):
 
 
 def test_the_intake_posts_plain_messages_and_never_draws_a_card(env):
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id="m1", text="https://www.printables.com/model/1-ghost")
     adapter = AdapterOfferingCards([2, 0, 0])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

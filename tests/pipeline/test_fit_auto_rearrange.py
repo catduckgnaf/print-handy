@@ -216,7 +216,7 @@ def _oversized(env, monkeypatch, one_plate):
         checked.append(decisions)
         return one_plate
     monkeypatch.setattr(jobs_slice, 'full_size_one_plate', full_size_one_plate)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='rearrange', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0, 0, 0, 0, 0, 0])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -366,7 +366,7 @@ def test_duplo_shaped_per_part_job_is_rearranged_without_asking_and_slices(env, 
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 0)
     monkeypatch.setattr(orca_adapter, 'fit_options',
                         lambda path, st: pytest.fail('the option search ran after a one-plate fit'))
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='duplo-shaped', text='https://www.printables.com/model/1-ghost')
     # Every part individually, alternating White / Black, then Slice and Download and Cancel.
     adapter = Adapter([2, 0, 1, 0, 1, 0, 1, 1, 1, 1])
@@ -429,7 +429,7 @@ def test_duplo_shaped_job_with_a_06_nozzle_is_not_auto_rearranged_and_searches_f
         searched.append(path)
         raise RuntimeError('stop after the fit option search started')
     monkeypatch.setattr(orca_adapter, 'fit_options', fit_options_stub)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='duplo-shaped-06', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([2, 0, 1, 0, 1, 0, 1, 1, 1, 1])
     intake_state = state()

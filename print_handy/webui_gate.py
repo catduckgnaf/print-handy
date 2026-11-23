@@ -77,11 +77,6 @@ def unclaimed(host, data=None, environ=None):
     return access.resolve(data, str(host), environ).unclaimed
 
 
-def setup_pending(host, data=None, environ=None):
-    """Kept for older callers: the setup gate is gone, so always False."""
-    return False
-
-
 def decide(data=None, environ=None):
     """0 when the supervisor should start the Web UI, 3 when it should not."""
     enabled, host, port, env_name, require_auth = webui_config(data)

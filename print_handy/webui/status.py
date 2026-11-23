@@ -216,13 +216,6 @@ def doctor_checks(data):
                  "status": "warn" if heartbeat_warning else "ok",
                  "detail": heartbeat_warning or "healthy or not required"})
     try:
-        warning = doctor.check_strays(data)
-    except Exception as exc:  # a scan problem is a warning, never a failed check
-        warning = f"could not scan: {exc}"
-    rows.append({"label": "stray state files",
-                 "status": "warn" if warning else "ok",
-                 "detail": warning or "none"})
-    try:
         debug_row = doctor.check_debug_mode(data)
     except Exception as exc:  # a state problem is a row, never a failed snapshot
         debug_row = f"could not check: {exc}"

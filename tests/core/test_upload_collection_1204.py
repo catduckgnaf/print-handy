@@ -26,7 +26,7 @@ def store(tmp_path, monkeypatch):
 
 
 def src(user='u1', chat='c1', thread=None, platform='discord'):
-    return S(platform=S(value=platform), chat_id=chat, thread_id=thread, user_id=user, profile='3dprinting')
+    return S(platform=S(value=platform), chat_id=chat, thread_id=thread, user_id=user)
 
 
 def upload(tmp_path, name, data, tag):

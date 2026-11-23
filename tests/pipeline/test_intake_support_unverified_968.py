@@ -195,7 +195,7 @@ def test_unverified_under_yolo_records_via_yolo(env, monkeypatch):
     _coverage_only_flow(env, monkeypatch)
     _stub_unverified(monkeypatch)
     monkeypatch.setattr(yolo, 'may_yolo', lambda user_id, platform='discord', cfg=None: True)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='discord')),
               message_id='m-968-yolo', text='yolo https://www.printables.com/model/1-ghost')
     adapter = Adapter([])

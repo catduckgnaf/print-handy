@@ -18,9 +18,7 @@ PWA_SCRIPT registers the service worker on secure contexts only
 (see :mod:`print_handy.webui.pwa`).
 
 The interface is dark only. There is no theme toggle and no light
-palette. The legacy ``ph-theme`` cookie is never read and ``/theme``
-remains only as a compatibility redirect; a stale ``light`` cookie or
-``/theme?set=light`` request cannot change how any page looks.
+palette.
 
 Every page also carries a source footer (#1158): Print Handy is
 AGPL-3.0-only, and section 13 of that license expects a user
@@ -36,8 +34,6 @@ import html
 
 from .. import __version__
 
-THEME_COOKIE = "ph-theme"
-THEMES = ("dark", "light")
 DEFAULT_THEME = "dark"
 
 # The surfaces the header navigates to: only pages that exist, with
@@ -530,11 +526,6 @@ def _esc(value):
     return html.escape(str(value), quote=True)
 
 
-def theme_from_cookies(cookie_header):
-    """The only supported theme, dark; the legacy ph-theme cookie is ignored."""
-    return DEFAULT_THEME
-
-
 # The navigation for the request being served. The server sets it once per
 # request from the live settings (data.nav_for), so every page shows the
 # same tabs, Data and Wrapped included while they are on, without each page
@@ -545,6 +536,21 @@ REQUEST_NAV: contextvars.ContextVar = contextvars.ContextVar("print_handy_reques
 
 def _at(path, target):
     return path == target or (target != "/" and path.startswith(target + "/"))
+
+
+def _nav_path(path):
+    """Path the header matches against.
+
+    ``GET /designs`` redirects to ``/chat?view=design`` (#1817). That page
+    is still the Designs destination, so the Designs page strip (sliced
+    files, workflow) stays on it. A plain ``/chat`` page is not that
+    destination and does not show the strip.
+    """
+    text = str(path or "")
+    bare, sep, query = text.partition("?")
+    if bare == "/chat" and sep and "view=design" in query.split("&"):
+        return "/designs"
+    return text
 
 
 def _tabs(entries):
@@ -581,6 +587,7 @@ def _subnav(path, tab):
 
 
 def _header(path, theme, nav=None):
+    path = _nav_path(path)
     items = []
     if nav is None:
         nav = REQUEST_NAV.get()
@@ -658,6 +665,6 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
 
 __all__ = [
     "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "NAV_GROUPS", "PWA_HEAD_TAGS",
-    "PWA_SCRIPT", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
-    "page", "theme_from_cookies",
+    "PWA_SCRIPT", "SUBMIT_SCRIPT",
+    "page",
 ]

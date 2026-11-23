@@ -152,7 +152,7 @@ def _copy(src, dest):
 
 
 def run_flow(env, picks, mid='m1'):
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
               text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -644,7 +644,7 @@ def test_print_anyway_on_a_slice_only_install_slices_and_starts_nothing(env, mon
                 if prepared_intake.SLICE_ANYWAY_RISK_LABEL in choices else len(choices) - 1
 
     adapter = Adapter(picks())
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())

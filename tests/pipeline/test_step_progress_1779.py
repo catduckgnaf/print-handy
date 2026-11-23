@@ -196,7 +196,7 @@ def test_parts_intake_records_download_before_the_combine_finishes(tmp_path, mon
     monkeypatch.setattr(model_parts, "combine", combine)
     setattr_bound(monkeypatch, intake_worker, "_heavy",
                         lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id="parts-timing", text="https://www.printables.com/model/1-two-parts")
 
     asyncio.run(prepared_intake.prepare_link(event, _IntakeAdapter([0]), state(), tmp_path / "receipts",

@@ -257,20 +257,6 @@ def revoke_all_links(data, fingerprint=None) -> None:
         _save_links(data, {_FINGERPRINT_KEY: fingerprint} if fingerprint else {})
 
 
-def rebind_links(data, old_fingerprint, new_fingerprint) -> None:
-    """Carry the links over to a re-hashed copy of the same login.
-
-    A password re-hashed at a higher cost (access.rehash_password) is
-    the same credential, but its fingerprint changes with the stored
-    hash; links minted under the old fingerprint stay valid under the
-    new one. Nothing changes when the store names another credential."""
-    with _LINKS_LOCK:
-        links = _load_links(data)
-        if links and links.get(_FINGERPRINT_KEY) == old_fingerprint:
-            links[_FINGERPRINT_KEY] = new_fingerprint
-            _save_links(data, links)
-
-
 def list_links(data, fingerprint=None):
     """(digest, created, uses, expires) per live upload link, oldest first."""
     return sorted(
@@ -818,7 +804,7 @@ __all__ = [
     "delete_inbox_file", "discard_spooled", "inbox_dir", "inbox_usage",
     "link_valid", "list_inbox", "list_links", "note_link_use",
     "parse_multipart", "parse_multipart_stream", "prune_stale_spool", "quota_refusal",
-    "rebind_links", "render_token_page", "render_upload_page",
+    "render_token_page", "render_upload_page",
     "revoke_all_links", "revoke_link", "save_upload", "save_upload_for_link",
     "spool_dir",
 ]

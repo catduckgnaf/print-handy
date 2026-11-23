@@ -77,7 +77,7 @@ def call(port, method, path, body=None, headers=None):
 
 
 def authed(httpd):
-    httpd.sessions[SESSION] = time.time() + 3600
+    httpd.session_store.sessions[SESSION] = time.time() + 3600
     return {"Cookie": f"{server.SESSION_COOKIE}={SESSION}"}
 
 

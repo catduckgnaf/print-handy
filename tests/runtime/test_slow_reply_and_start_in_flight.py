@@ -189,7 +189,7 @@ class FakeAdapter:
 
 
 def _event():
-    src = S(platform=S(value="discord"), profile="3dprinting", is_bot=False, profile_route_rejected=False,
+    src = S(platform=S(value="discord"), is_bot=False,
             user_id="u", chat_id="c", thread_id=None)
     return S(source=src, text="/print-stop", internal=False)
 

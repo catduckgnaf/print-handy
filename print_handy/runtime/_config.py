@@ -45,23 +45,6 @@ def pinned_state_home() -> Path:
     return Path(_pinned["paths"]["state_home"])
 
 
-# The shipped default profile name, and the bot's identity label
-# (print_handy.bot.runtime.PROFILE stamps it on the bot's own sources):
-# the one hosting identity every install answers for (#574).
-DEFAULT_PROFILE = "3dprinting"
-
-
-def hosting_profile(plugin_file=None, home=None, mode=None) -> tuple[str, bool]:
-    """(name, derived): the profile identity this install answers for (#574).
-
-    The bot is its own host now — the Hermes install that used to derive a
-    profile name from the install layout is gone — so the identity is
-    always the fixed DEFAULT_PROFILE the standalone runtime stamps on its
-    sources, never derived. The parameters are accepted for provenance
-    only."""
-    return DEFAULT_PROFILE, False
-
-
 def bot_name() -> str:
     """The name the bot uses for itself: [discord] bot_name."""
     return str(cfg()["discord"]["bot_name"]).strip() or "Print Handy"

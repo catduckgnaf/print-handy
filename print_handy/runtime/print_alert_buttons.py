@@ -415,7 +415,7 @@ def post_plate_picker(token: str, channel_id: str, content: str, plan_id: str,
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                         "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300
@@ -443,7 +443,7 @@ def post_plate_confirm(token: str, channel_id: str, content: str, plan_id: str, 
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                         "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300
@@ -470,7 +470,7 @@ def post_spool_question(token: str, channel_id: str, content: str, context: dict
     req = urllib.request.Request(url, data=body, method=method,
                                  headers={"Authorization": f"Bot {token}",
                                           "Content-Type": "application/json",
-                                          "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                          "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read() or b"{}")
@@ -497,7 +497,7 @@ def edit_message(token: str, channel_id: str, message_id: str, content: str,
         f"{rest.API}/channels/{channel_id}/messages/{message_id}",
         data=json.dumps(payload).encode(),
         method="PATCH", headers={"Authorization": f"Bot {token}", "Content-Type": "application/json",
-                                 "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                 "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300
@@ -549,7 +549,7 @@ def post_insertion_confirmation(token: str, channel_id: str, content: str, slot:
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                         "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300
@@ -582,7 +582,7 @@ def post_new_spool(token: str, channel_id: str, content: str, spool_id: int, lab
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                         "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300
@@ -1314,7 +1314,7 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                         "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             ok = 200 <= resp.status < 300
@@ -1539,7 +1539,7 @@ def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str,
             data=json.dumps({"components": [], "content": f"~~{headline}~~ {note}"[:1990],
                              "allowed_mentions": {"parse": []}}).encode(),
             method="PATCH", headers={"Authorization": f"Bot {token}", "Content-Type": "application/json",
-                                     "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                     "User-Agent": rest.USER_AGENT})
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 retired += 200 <= resp.status < 300
@@ -1572,7 +1572,7 @@ def post_visual_alert(token: str, channel_id: str, content: str, filename: str, 
     if not token or not channel_id or not image.is_file():
         return False
     aid = record("visual", filename, **_visual_extra(identity, printer_id))
-    boundary = f"----hermes-print-{secrets.token_hex(12)}"
+    boundary = f"----print-handy-{secrets.token_hex(12)}"
     content, allowed = rest.starter_mention(content, mention_user_id)
     payload = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
                           "allowed_mentions": allowed}).encode()
@@ -1590,7 +1590,7 @@ def post_visual_alert(token: str, channel_id: str, content: str, filename: str, 
         req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                      method="POST", headers={"Authorization": f"Bot {token}",
                                                               "Content-Type": f"multipart/form-data; boundary={boundary}",
-                                                              "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                              "User-Agent": rest.USER_AGENT})
         with urllib.request.urlopen(req, timeout=20) as resp:
             return 200 <= resp.status < 300
     except Exception:
@@ -1619,7 +1619,7 @@ def post_visual_text_alert(token: str, channel_id: str, content: str, filename: 
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                         "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300
@@ -1644,7 +1644,7 @@ def post_visual_dark_notice(token: str, channel_id: str, content: str, filename:
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                                                         "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300

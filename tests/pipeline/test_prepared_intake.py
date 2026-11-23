@@ -184,7 +184,7 @@ def _copy(src, dest):
 
 
 def run_flow(env, picks, mid='m1'):
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id=mid,
               text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -332,7 +332,7 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
         return StopMessage()
 
     monkeypatch.setattr(prepared_intake, 'STOP_SENDER', stop_sender)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='stop-live-start', text='https://www.printables.com/model/1-ghost')
     adapter = InteractiveAdapter([2, 0, 0])
 
@@ -529,7 +529,7 @@ def test_expired_slice_confirmation_discards_the_background_slice(env):
                 return S(success=True)  # never resolved: the question expires
             return await super().send_clarify(**kw)
 
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
     adapter = ExpiringAdapter([2, 0, 1])  # color answers, then Cancel on the Resume prompt
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -592,7 +592,7 @@ def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypat
             self.sent.append(content)
             return S(success=True)
 
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='m-stop58', text='https://www.printables.com/model/1-ghost')
     adapter = StopAdapter([2, 0, 0])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=5))
@@ -629,7 +629,7 @@ def test_expired_question_offers_one_resume_and_keeps_the_saved_intake(env):
     # Expire the first question, then continue: mode, two part colors, cancel.
     adapter = Adapter([0, 1, 0, 0, 3])
     adapter.expire_once = True
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     questions = adapter.questions
@@ -667,7 +667,7 @@ def test_resume_continues_the_saved_intake_instead_of_stopping_at_the_marker(env
     # Picks: Resume, Change colors (#1473), two part colors, then cancel the print request.
     adapter = Adapter([0, 1, 0, 0, 3])
     adapter.expire_once = True
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     questions = [q['question'] for q in adapter.questions]
@@ -735,7 +735,7 @@ def test_cancelled_slice_retry_cannot_be_replayed(env, monkeypatch):
     assert receipt['status'] == 'CANCELLED' and receipt['sliced'] is False
     assert 'slice_approval' not in receipt
 
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='retry-cancelled', text='https://www.printables.com/model/1-ghost')
     result = asyncio.run(prepared_intake.prepare_link(event, Adapter([]), state(), env.root, timeout=1))
     assert result['reason'] == 'duplicate model-link event'
@@ -936,7 +936,7 @@ def test_warming_start_on_telegram_posts_no_roast_and_records_no_edit(env, monke
         self.sent.append(content)
         return S(success=True, message_id=f'm{len(self.sent)}')
     monkeypatch.setattr(Adapter, 'send', send)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='telegram')),
               message_id='m1', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([2, 0, 0])
@@ -1017,7 +1017,7 @@ def test_preparing_line_for_a_fresh_job_names_no_number(env, monkeypatch):
 def test_duplicate_event_does_not_start_twice(env):
     run_flow(env, [2, 0, 0], mid='dup')
     adapter = Adapter([])
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='dup',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='dup',
               text='https://www.printables.com/model/1-ghost')
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert result['reason'] == 'duplicate model-link event' and len(env.starts) == 1
@@ -1027,13 +1027,13 @@ def test_message_identity_is_a_sha256_not_the_raw_discord_snowflake(env, monkeyp
     """A Discord snowflake stays event metadata, never a --intake-id value."""
     mid = '1000000000000000001'
     expected = jobs_store.intake_id_from_message(
-        S(profile='3dprinting', chat_id='c1', thread_id=None), mid)
+        S(chat_id='c1', thread_id=None), mid)
     assert len(expected) == 64 and expected == expected.lower()
     assert expected != mid
     monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'identity', 'title': 'Identity',
         'sources': [{'name': 'identity.3mf', 'instance_id': 1}]})
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id=mid, text='https://www.printables.com/model/1-identity')
     result = asyncio.run(prepared_intake.prepare_link(event, Adapter([2, 0, 1]), state(), env.root, timeout=1))
     assert result['action'] == 'skip'
@@ -1062,7 +1062,7 @@ def run_preview(env, monkeypatch, summary, row, picks=(3,), send_fails=False):
             if send_fails and content.startswith('That looks like'):
                 raise RuntimeError('discord down')
             return await super().send(chat_id, content, reply_to, metadata)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='pv1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='pv1',
               text='https://www.printables.com/model/1-ghost')
     adapter = Ordered([1, 0, *picks])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -1134,7 +1134,7 @@ def test_color_save_prompt_shows_spool_projection_and_estimate_before_print_choi
     st = state()
     st['filament_slots']['1']['remaining_grams'] = 200
     adapter = Adapter([2, 0, 3])  # one color, slot 1, cancel the print request
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='spool1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='spool1',
               text='https://www.printables.com/model/1-ghost')
     asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))
     saved = [q['question'] for q in adapter.questions if q['choices'] and q['choices'][0].startswith('Slice and print')]
@@ -1239,7 +1239,7 @@ def test_linked_maker_profile_is_selected_automatically(env, monkeypatch):
         return _copy(env.tmp / 'source.3mf', dest)
 
     monkeypatch.setattr(jobs_sources, 'maker_download', download)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='profiles', text=url)
     # Contract (2026-10-12): the URL profileId is used directly; no profile button.
     # one color, slot 1, then cancel. The early slice starts during the question and is discarded.
@@ -1271,7 +1271,7 @@ def test_quantity_buttons_choose_midpoint_and_answer_duration(env, monkeypatch):
 
     setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
     monkeypatch.setattr(prepared_intake, '_preview_estimate', lambda _row: None)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='duration', text='https://www.printables.com/model/1-ghost how long would this take?')
     # one color, slot 1, choose 2 copies, slice only, then decline start
     adapter = Adapter([2, 0, 1, 1, 1])
@@ -1298,7 +1298,7 @@ def test_typed_quantity_uses_value_not_button_position(env, monkeypatch):
 
     setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
     monkeypatch.setattr(prepared_intake, '_preview_estimate', lambda _row: None)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='typed-quantity', text='https://www.printables.com/model/1-ghost')
 
     class TypedQuantity(Adapter):
@@ -1348,7 +1348,7 @@ def test_capacity_zero_full_size_split_saves_separate_mode_before_slice(env, mon
         return gcodes
 
     setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([1, 0, 0, 1, 2])  # ..., slice only, then Cancel in the plate picker
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -1397,7 +1397,7 @@ def test_capacity_zero_full_size_split_names_the_reorientation_and_its_supports(
         return gcodes
 
     setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-reorient', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([1, 0, 0, 1, 2])  # ..., slice only, then Cancel in the plate picker
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -1445,7 +1445,7 @@ def test_capacity_zero_full_size_split_names_a_diagonal_reorientation_turn(env, 
         return gcodes
 
     setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-stand', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([1, 0, 0, 1, 2])  # ..., slice only, then Cancel in the plate picker
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -1470,7 +1470,7 @@ def test_capacity_zero_offers_rotation_alternative(env, monkeypatch):
            'supports': True, 'brim': True, 'label': 'Rotate 90° on X, full size (needs supports + brim)'}
     monkeypatch.setattr(orca_adapter, 'fit_options',
                         lambda path, st: {'scales': [0.89, 0.75, 0.5], 'rotations': [rot]})
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-rot', text='https://www.printables.com/model/1-ghost')
     # One color (2 on the #1473 offer), slot 1, pick choice 0 (the rotated alternative), slice only, Done (no start).
     adapter = Adapter([2, 0, 0, 1, 2])
@@ -1490,7 +1490,7 @@ def test_capacity_zero_cancel_stops_without_slice(env, monkeypatch):
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 0)
     monkeypatch.setattr(orca_adapter, 'fit_options',
                         lambda path, st: {'scales': [0.98, 0.75, 0.5], 'rotations': []})
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-cancel', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([2, 0, 1])  # shrink, slot, then Cancel
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -1511,7 +1511,7 @@ def _per_part_oversized(env, monkeypatch, honored, answers):
         seen.append((decisions['mode'], bed, options))
         return {**options, 'scales': [s for s in options['scales'] if s in honored], 'rotations': []}
     monkeypatch.setattr(jobs_slice, 'per_part_fit_options', per_part)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='per-part-too-large', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(answers)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -1563,7 +1563,7 @@ def _many_profiles(env, monkeypatch, answers):
             cm.resolve_gateway_clarify(kw['clarify_id'], answers if first else kw['choices'][next(self.picks)])
             return S(success=True)
     adapter = Typed([1, 0, 3])
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='many', text=url)
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='many', text=url)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     return adapter, result, selected
 
@@ -1584,7 +1584,7 @@ def test_many_profiles_without_fragment_still_require_a_button(env, monkeypatch)
     monkeypatch.setattr(jobs_sources, 'maker_download',
                         lambda job, chosen, dest: selected.append(chosen['instance_id']) or _copy(env.tmp / 'source.3mf', dest))
     adapter = Adapter([7])  # last button is Cancel
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='many2', text=url)
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='many2', text=url)
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert 'print profiles' in adapter.questions[0]['question']
     assert selected == [] and env.sliced == [] and env.starts == []
@@ -1625,7 +1625,7 @@ def _slow_inventory_flow(env, monkeypatch, audit_manifest=None):
                 seen['ticks'] += 1
                 await asyncio.sleep(0.01)
         task = asyncio.create_task(ticker())
-        event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+        event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
                   message_id=__import__('uuid').uuid4().hex, text='https://www.printables.com/model/1-ghost')
         adapter = Ordered([1, 0, 1, 3])  # #1473: Change colors, Shell->slot1, Eyes->slot2, cancel
         try:
@@ -1684,7 +1684,7 @@ def test_dropped_3mf_runs_same_intake_without_any_site(env, monkeypatch):
     src = next(Path(jobs_common.ARCHIVE).parent.rglob('*.3mf'), None) or env.tmp / 'x'
     drop = env.tmp / 'doc_0123456789ab_Can Holder.3mf'
     drop.write_bytes(Path(src).read_bytes() if Path(src).is_file() else b'')
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m9',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m9',
               text='', media_urls=[str(drop)])
     assert prepared_intake.model_file(event) == drop
     assert prepared_intake.model_file(S(media_urls=[str(drop), str(drop)])) is None
@@ -1724,13 +1724,13 @@ def test_reprint_offers_last_model_and_never_downloads(env, monkeypatch):
         setattr_bound(monkeypatch, jobs_sources, name, boom)
     prev = prepared_intake.newest_archived_job()
     assert prev and prev['title'] == 'Ghost Stand'
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='again',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='again',
               text='print the previous print in black')
     adapter = Adapter([0, 2, 0, 0])  # yes reprint, slot 2, slice and print
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=prev))
     assert adapter.questions[0]['question'].startswith('Did you mean Ghost Stand')
     receipt = json.loads((env.root / (prepared_intake.hashlib.sha256(json.dumps(
-        ['3dprinting', 'c1', '', 'again']).encode()).hexdigest() + '.json')).read_text())
+        ['c1', '', 'again']).encode()).hexdigest() + '.json')).read_text())
     job = json.loads(Path(receipt['job_json']).read_text())
     assert receipt['url'].startswith('reprint:') and job['reused_from'] == prev['intake_id']
     assert Path(job['downloaded_file']).read_bytes() == Path(prev['downloaded_file']).read_bytes()
@@ -1744,7 +1744,7 @@ def test_reprint_after_restart_explains_interrupted_slice_and_asks_again(env):
     # Left by a Print Handy process that stopped mid-slice.
     (folder / 'WORKER.json').write_text(json.dumps({'state': 'running', 'step': 'slicing', 'started_at': 1.0,
                                                      'worker_pid': 1, 'owner': 'previous-run'}))
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='again',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='again',
               text='print the previous print in black')
     adapter = Adapter([0, 2, 0, 0])  # yes reprint, slot 2, slice and print
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=prev))
@@ -1758,7 +1758,7 @@ def test_reprint_after_restart_explains_interrupted_slice_and_asks_again(env):
 def test_declined_reprint_does_nothing(env):
     run_flow(env, [2, 0, 0], mid='first')
     prev = prepared_intake.newest_archived_job()
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='no',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='no',
               text='reprint that')
     adapter = Adapter([1])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=prev))
@@ -1770,7 +1770,7 @@ def test_declined_reprint_does_nothing(env):
 
 def _followup_receipt(env, mid):
     import hashlib
-    name = hashlib.sha256(json.dumps(['3dprinting', 'c1', '', mid]).encode()).hexdigest() + '.json'
+    name = hashlib.sha256(json.dumps(['c1', '', mid]).encode()).hexdigest() + '.json'
     return json.loads((env.root / name).read_text())
 
 
@@ -1781,7 +1781,7 @@ def test_followup_intake_names_its_target_before_color_questions(env):
     # best-effort preview names nothing, so the naming question is the gate.
     # The dispatcher's follow-up prepend is already in the text, exactly as
     # model_link_dispatch hands it over; confirm_target is what marks it.
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='followup',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='followup',
               text='https://www.printables.com/model/1-ghost print it')
     adapter = Adapter([0, 2, 0, 0])  # yes at the naming gate, then the normal flow's picks
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
@@ -1793,7 +1793,7 @@ def test_followup_intake_names_its_target_before_color_questions(env):
 
 
 def test_followup_intake_declined_at_the_naming_gate_starts_nothing(env):
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='followup-no',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='followup-no',
               text='https://www.printables.com/model/1-ghost print it')
     adapter = Adapter([1])  # No at the naming question
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
@@ -1808,7 +1808,7 @@ def test_followup_naming_gate_goes_to_a_person_even_under_yolo(env):
     named in this message still gets the naming question from a person
     (#979 review), and declining it starts nothing."""
     from print_handy.core import yolo
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='followup-yolo', text='https://www.printables.com/model/1-ghost print it')
     adapter = Adapter([1])  # a person says No at the naming question
     token = yolo.ACTIVE.set(True)
@@ -1860,7 +1860,7 @@ def _split_env(env, monkeypatch, tag):
                                                'parts': [f'Part {Path(filename).stem[-1]}'], 'slot': 1,
                                                'color': 'white', 'material': 'PLA',
                                                'filament_g': None, 'seconds': 3600 * int(Path(filename).stem[-1])}))
-    return S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    return S(source=S(chat_id='c1', thread_id=None, user_id='u'),
              message_id=tag, text='https://www.printables.com/model/1-ghost')
 
 
@@ -2060,7 +2060,7 @@ def _run_small_stl_upload(env, monkeypatch, unit_pick):
         'plates': 1, 'size_x': '5', 'size_y': '2', 'size_z': '2'})
     drop = env.tmp / 'pin.stl'
     _box_stl(drop, 5, 2, 2)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='m-unit', text='', media_urls=[str(drop)])
     # picks: unit answer, filament slot, slice only, then Done on the delivery menu
     adapter = Adapter([unit_pick, 0, 1, 2])
@@ -2323,7 +2323,7 @@ def _parts_model(env, monkeypatch, names, answers, typed=None, size=None):
                 cm.resolve_gateway_clarify(kw['clarify_id'], kw['choices'][next(self.picks)])
             return S(success=True)
     adapter = Typed(answers)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='uno',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='uno',
               text='https://www.printables.com/model/1875711-rugged-box-for-uno-game-cards')
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     jobs = list((env.tmp / 'archive').glob('*/JOB.json'))
@@ -2484,7 +2484,7 @@ def _run_oversize_stl_upload(env, monkeypatch, picks, fit_fraction=0.86):
                         lambda path, st, factor, **kw: fit_fraction)
     drop = env.tmp / 'block.stl'
     _box_stl(drop, 9, 9, 9)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='m-inch-big', text='', media_urls=[str(drop)])
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -2670,7 +2670,7 @@ def test_before_start_hook_runs_before_the_start_choice(env):
         seen.append(Path(job_path).is_file())
         return {'action': 'skip', 'reason': 'edit took over'}
 
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='hook',
               text='https://www.printables.com/model/1-ghost shrink this by 20%')
     adapter = Adapter([2, 0])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
@@ -2687,7 +2687,7 @@ def test_before_start_hook_returning_none_continues_the_intake(env):
     async def hook(job_path, job):
         return None
 
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook2',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='hook2',
               text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([2, 0, 3])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
@@ -2713,7 +2713,7 @@ def test_resumed_job_fit_probe_forwards_resumed_transforms(env, monkeypatch):
     from print_handy.jobs import audit as jobs_audit
     sha = gcode_artifact.file_sha256(dummy_file)
     setattr_bound(monkeypatch, jobs_audit, 'audit', lambda p: {'plates': 1, 'color_manifest': {'source_sha256': gcode_artifact.file_sha256(p), 'plates': 1}})
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='res1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='res1',
               text='https://www.printables.com/model/1-ghost')
     resumed = {
         'site': 'printables',
@@ -2753,7 +2753,7 @@ def _uploaded_parts(env, names, answers, *, typed=None):
             return S(success=True)
 
     adapter = Typed(answers)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='multipart-upload', text='', media_urls=list(map(str, uploads)))
     assert prepared_intake.model_files(event) == uploads
     assert prepared_intake.model_file(event) is None
@@ -2850,7 +2850,7 @@ def _source_zip(path, members):
 
 def _run_upload_event(env, media, answers, metadata=None, message_id='zip-upload'):
     adapter = Adapter(answers)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id=message_id, text='', media_urls=[str(p) for p in media],
               metadata=dict(metadata or {}))
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

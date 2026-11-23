@@ -121,8 +121,8 @@ class _Adapter:
 
 def _dispatch(monkeypatch, text, states, cancel_result=None):
     adapter = _Adapter()
-    source = S(platform=S(value="discord"), profile="3dprinting", user_id="u", chat_id="c",
-               thread_id=None, is_bot=False, profile_route_rejected=False)
+    source = S(platform=S(value="discord"), user_id="u", chat_id="c",
+               thread_id=None, is_bot=False)
     gateway = S(_is_user_authorized_for_source=lambda _s: True,
                 _delivery_adapter_for=lambda _s: adapter)
     event = S(source=source, text=text, internal=False)
@@ -223,7 +223,7 @@ class _Interaction:
 def _on_interaction(tmp_path, monkeypatch):
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     handlers = {}
-    adapter = S(_is_allowed_user=lambda uid, user, guild=None, channel_ids=None: True)
+    adapter = S(is_allowed_user=lambda uid, user, guild=None, channel_ids=None: True)
     plugin.alert_button_handlers(
         S(add_listener=lambda fn, name: handlers.update({name: fn})), adapter)
     return handlers["on_interaction"]

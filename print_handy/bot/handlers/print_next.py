@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .common import (
     SPOOL_CHANGED, USE_LOADED_SPOOL, _adapter_for, _announce_command_start, _channel_printer_id,
-    _confirm, _failure_post, _is_bot_platform, _is_hosting_profile, _live_key_for,
+    _confirm, _failure_post, _is_bot_platform, _live_key_for,
     _offer_force_restart, _platform_value, _pkw, _printer_label, _routed_form, _routed_printer_id, _seen,
     _spool_change_text, _start_refused_needs_restart, _undecided_printer_ids,
     intake_plain_start_failure,
@@ -100,9 +100,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
     if not (text == '/print-next' or text.startswith('/print-next ')):
         return None
     if (source is None or not _is_bot_platform(source)
-            or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
+            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)):
         return None
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None

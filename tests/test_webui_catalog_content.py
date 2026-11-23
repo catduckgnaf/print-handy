@@ -48,6 +48,7 @@ NEW_SLICING_FIELDS = {
     "printer.start_macro": "text",
     "printer.end_macro": "text",
     "slicer.flash_studio_path": "text",
+    "slicer.parallel_preview": "toggle",
 }
 
 

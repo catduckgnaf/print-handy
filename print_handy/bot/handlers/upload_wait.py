@@ -11,7 +11,7 @@ _upload_waits = {}
 
 
 def _wait_key(source):
-    return (getattr(source, 'profile', None), str(getattr(source, 'chat_id', '')),
+    return (str(getattr(source, 'chat_id', '')),
             str(getattr(source, 'thread_id', '') or ''))
 
 

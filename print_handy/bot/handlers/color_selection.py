@@ -3,7 +3,7 @@
 import json, logging, time
 from pathlib import Path
 
-from .common import _adapter_for, _failure_post, _is_bot_platform, _is_hosting_profile, _pkw, _seen
+from .common import _adapter_for, _failure_post, _is_bot_platform, _pkw, _seen
 
 # Per-module logger (#1404): records name the handler module that
 # made them, so [logging] levels rules can target one handler.
@@ -15,22 +15,12 @@ def resolve_job_ref(ref, archive=None):
 
     The slash form's job option is picked from autocomplete (#1475), so the
     argument is a job reference a person can supply — a print number, an
-    archive folder name or a job title — never a server file path. The
-    legacy typed form (a full path to an archived JOB.json) still resolves
-    here, so old messages and scripts keep working.
+    archive folder name or a job title — never a server file path.
     """
     from ...jobs import common as jobs_common
     archive = Path(archive if archive is not None else jobs_common.ARCHIVE)
     raw = str(ref or '').strip()
     if not raw:
-        return None
-    direct = Path(raw).expanduser()
-    if direct.name == 'JOB.json' and direct.is_file():
-        # The legacy typed path form names an archived job and nothing else
-        # (review of #1484): a JOB.json outside the archive is not resolved.
-        resolved = direct.resolve()
-        if resolved.is_relative_to(archive.resolve()):
-            return resolved
         return None
     if raw.isdigit():  # a print number, the autocomplete value for printed jobs
         try:
@@ -63,9 +53,7 @@ async def color_selection_dispatch(event, gateway, **kwargs):
     if not text.startswith('/print-colors '):
         return None
     if (source is None or not _is_bot_platform(source)
-            or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
+            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)):
         return None
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None

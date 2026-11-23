@@ -26,7 +26,7 @@ from print_handy.jobs import common as jobs_common
 from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.bambulab import VENDOR, facts, guard, profiles
 from print_handy.printers.bambulab.a1 import MODEL, A1Adapter
-from print_handy.printers.bambulab.adapter import BambuOfflineAdapter, LiveUnsupported
+from print_handy.printers.bambulab.adapter import BambuAdapter, LiveUnsupported
 from print_handy.printers.base import MultiColorUnsupported
 
 from . import a1_fixture
@@ -156,7 +156,7 @@ def test_a1_is_a_model_of_the_shared_bambu_vendor():
     assert printers.MODELS[A1] is MODEL or printers.MODELS[A1] == MODEL
     assert printers.MODELS[A1].vendor is VENDOR is printers.VENDORS["bambulab"]
     a = adapter_for(A1)
-    assert isinstance(a, A1Adapter) and isinstance(a, BambuOfflineAdapter)
+    assert isinstance(a, A1Adapter) and isinstance(a, BambuAdapter)
     # Connection, start code, slicers and delivery come from VENDOR only.
     assert a.connection == VENDOR.connection == "bambulab_lan"
     assert a.transport == "bambulab_lan" and not (ROOT / "print_handy/printers/bambulab/vendor.py").exists()

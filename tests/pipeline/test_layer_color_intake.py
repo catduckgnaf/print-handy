@@ -40,7 +40,7 @@ def _copy(source_path):
 
 def _run(env, picks, st, monkeypatch, source_path, mid="layered"):
     monkeypatch.setattr(jobs_sources, "printables_download", _copy(source_path))
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id=mid, text="https://www.printables.com/model/1-ghost")
     adapter = Adapter(picks)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))

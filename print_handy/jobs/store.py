@@ -321,7 +321,7 @@ def intake_id_from_message(source, message_id):
     """Return the canonical intake identity for a Discord message, never its snowflake."""
     if not message_id:
         raise ValueError('plain model link requires a stable Discord message ID')
-    identity = [getattr(source, 'profile', ''), str(getattr(source, 'chat_id', '')),
+    identity = [str(getattr(source, 'chat_id', '')),
                 str(getattr(source, 'thread_id', '') or ''), str(message_id)]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 

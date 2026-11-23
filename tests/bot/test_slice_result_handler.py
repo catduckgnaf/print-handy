@@ -17,7 +17,7 @@ import pytest
 from PIL import Image
 
 from print_handy.bot import runtime
-from print_handy.bot.handlers import common, slice_result
+from print_handy.bot.handlers import slice_result
 from tests.bound_names import setattr_bound
 from print_handy.jobs import common as jobs_common
 
@@ -58,7 +58,6 @@ class Gateway:
 
 def event(text="/print-slice-result"):
     source = runtime.make_source(OPERATOR, HOME, platform_name="discord")
-    source.profile = common._hosting_profile()
     return S(source=source, text=text, internal=False, metadata={},
              media_urls=[], message_id="m1")
 

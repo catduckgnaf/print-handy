@@ -271,7 +271,7 @@ def test_print_now_yolo_never_waives_the_axis_limits(monkeypatch, tmp_path, caps
 def _gcode_event(tmp_path, text, name='doc_0123456789ab_hook.gcode', body='G1 X1 E1\n'):
     g = tmp_path / name
     g.write_text(body)
-    return S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+    return S(source=S(chat_id='c1', thread_id=None, user_id='u',
                       platform=S(value='discord')),
              message_id='m-gcode', text=text, media_urls=[str(g)], metadata={})
 
@@ -341,7 +341,7 @@ def test_yolo_gcode_3mf_package_prints_plate_one(gcode_env):
 # ---------------------------------------------------------------- chat: models
 
 def _yolo_flow(env, text_prefix='yolo ', picks=()):
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='discord')),
               message_id='m-yolo', text=text_prefix + 'https://www.printables.com/model/1-ghost')
     adapter = Adapter(list(picks))

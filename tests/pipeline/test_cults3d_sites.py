@@ -231,7 +231,7 @@ def test_prepared_intake_cults3d_refuses_with_title_and_gap(env, monkeypatch):
         previews.append(args)
 
     monkeypatch.setattr(prepared_intake, 'send_preview', fake_preview)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='cults1', text=CULTS_URL)
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -253,7 +253,7 @@ def test_cults_link_without_a_key_is_refused_before_any_connect_prompt(env, tmp_
                         mock.Mock(side_effect=AssertionError('network attempted')))
     monkeypatch.setattr(jobs_sources, 'cults_download',
                         mock.Mock(side_effect=AssertionError('download attempted')))
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='cults2', text=CULTS_URL)
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

@@ -176,7 +176,7 @@ def test_the_intake_offers_the_as_designed_split_and_records_it(env, monkeypatch
         return gcodes
 
     setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='as-designed', text='https://www.printables.com/model/1-ghost')
     adapter = _AsDesigned([1, 0, 0, 1, 2])  # the fit question picks the as-designed split
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

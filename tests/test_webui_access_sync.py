@@ -10,9 +10,10 @@ def _handler(tmp_path):
             "webui": {"require_auth": True, "access_token_env": "WEBUI_ACCESS_TOKEN"}}
     server = SimpleNamespace(
         settings_data=data, bind_host="0.0.0.0", webui_environ={},
-        access=access.resolve(data, "0.0.0.0", {}), sessions={"old": 1},
+        access=access.resolve(data, "0.0.0.0", {}), session_store=server_module.SessionStore(),
         access_stamp=server_module._access_stamp(data),
         access_sync_lock=threading.Lock())
+    server.session_store.sessions["old"] = 1
     calls = []
     handler = SimpleNamespace(server=server,
                               _rotate_form_token=lambda: calls.append("rotate"),
@@ -32,14 +33,14 @@ def test_a_login_saved_elsewhere_takes_effect_without_a_restart(tmp_path):
     access.save_password(data, password, password, username="owner")
     _sync(handler)
     assert handler.server.access.mode == access.PASSWORD
-    assert handler.server.sessions == {}
+    assert handler.server.session_store.sessions == {}
     assert calls == ["rotate", "revoke", "links"]
 
 
 def test_an_unchanged_login_file_changes_nothing(tmp_path):
     handler, _data, calls = _handler(tmp_path)
     _sync(handler)
-    assert handler.server.sessions == {"old": 1}
+    assert handler.server.session_store.sessions == {"old": 1}
     assert calls == []
 
 
@@ -56,13 +57,14 @@ def test_a_rewrite_carrying_the_same_credential_changes_nothing(tmp_path):
     access.save_password(data, password, password, username="owner")
     _sync(handler)
     assert handler.server.access.mode == access.PASSWORD
-    handler.server.sessions = {"current": 2}
+    handler.server.session_store.sessions.clear()
+    handler.server.session_store.sessions["current"] = 2
     calls.clear()
     path = access.access_path(data)
     path.write_bytes(path.read_bytes())
     _sync(handler)
     assert handler.server.access.mode == access.PASSWORD
-    assert handler.server.sessions == {"current": 2}
+    assert handler.server.session_store.sessions == {"current": 2}
     assert calls == []
 
 

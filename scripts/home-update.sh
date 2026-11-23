@@ -15,8 +15,7 @@
 # Re-running after a failure or a rollback is safe: it repeats the same fast-forward and checks.
 #
 # Never touches config/local.yaml or config/local.toml. If config/after-update.sh exists (gitignored), it runs after a
-# good update, for example to restart the Discord listener. A good update also removes Print Handy
-# state files stranded outside the profile state folder (python3 -m print_handy.state_files).
+# good update, for example to restart the Discord listener.
 set -eu
 cd "$(dirname "$0")/.."
 target="${1:-origin/main}"
@@ -67,7 +66,6 @@ else
     update_ok=0
 fi
 if [ "$update_ok" = 1 ]; then
-    "$python" -m print_handy.state_files --remove || echo "Could not check for stray state files."
     echo "Update good."
 else
     # Never throw away uncommitted work: --keep refuses, rather than overwrites, a tracked file that has

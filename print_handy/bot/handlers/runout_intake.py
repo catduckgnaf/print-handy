@@ -5,7 +5,7 @@ import asyncio
 
 from .common import (
     _adapter_for, _answer_spool_question, _cancel_spool_question_print, _is_bot_platform,
-    _is_hosting_profile, _routed_printer_id,
+    _routed_printer_id,
 )
 
 # Per-module logger (#1404): records name the handler module that
@@ -14,12 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 def _discord_operator(event, gateway):
-    """True for an authorized human Discord message in this profile."""
+    """True for an authorized human message on a bot platform."""
     source = getattr(event, 'source', None)
     if (source is None or not _is_bot_platform(source)
-            or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
+            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)):
         return None
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None

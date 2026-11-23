@@ -95,7 +95,7 @@ class Browser:
         if self.cookies:
             headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         if fields is not None:
-            body = urllib.parse.urlencode({"_csrf": self.srv.form_token, **fields})
+            body = urllib.parse.urlencode({"_csrf": self.srv.session_store.form_token, **fields})
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         conn.request(method, path, body=body, headers=headers)
         response = conn.getresponse()
@@ -107,7 +107,7 @@ class Browser:
         conn.close()
         return response.status, payload
 
-    def page(self, path="/designs"):
+    def page(self, path="/chat?view=design"):
         status, payload = self.request("GET", path)
         assert status == 200, (path, status)
         return payload.decode("utf-8")
@@ -214,7 +214,7 @@ def test_one_message_starts_a_design_and_the_next_iterates_it(server, flow_cfg, 
     assert page.count("Design turn 1") == 1 and page.count(preview) == 1
     for label in design.CHOICES:
         assert f">{label}</button>" in page
-    assert 'action="/designs/choice"' in page
+    assert 'action="/chat/choice?view=design"' in page
     assert page.count('class="design-composer"') == 1
     status, png = browser.request("GET", f"/designs/{session['id']}/preview?turn=1")
     assert status == 200 and png.startswith(b"\x89PNG")

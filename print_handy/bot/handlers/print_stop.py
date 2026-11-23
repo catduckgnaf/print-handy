@@ -5,7 +5,7 @@ import asyncio, time
 
 from .common import (
     _adapter_for, _ask_which_printer, _busy_label, _candidate_statuses, _failure_post,
-    _is_bot_platform, _is_hosting_profile, _live_key_for, _pkw, _printer_label, _routed_form,
+    _is_bot_platform, _live_key_for, _pkw, _printer_label, _routed_form,
     _routed_printer_id, _seen, _undecided_printer_ids,
 )
 from ...runtime import _config
@@ -22,9 +22,7 @@ async def print_stop_dispatch(event, gateway, **kwargs):
     if text != '/print-stop':
         return None
     if (source is None or not _is_bot_platform(source)
-            or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
+            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)):
         return None
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None

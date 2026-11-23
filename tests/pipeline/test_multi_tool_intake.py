@@ -317,7 +317,7 @@ def flow_env(creator, tmp_path, monkeypatch):
 
 def run_flow(flow_env, src_bytes, wants, text='https://www.printables.com/model/1-ghost'):
     flow_env.holder['bytes'] = src_bytes
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='m1', text=text)
     adapter = FlowAdapter(wants)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, tool_state(), flow_env.root, timeout=1))

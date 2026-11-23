@@ -4,7 +4,6 @@ routing and state the handlers use.
 import logging
 import asyncio, contextlib, functools, json, re, time
 from collections import OrderedDict
-from pathlib import Path
 
 from ...runtime import _config
 
@@ -19,24 +18,6 @@ def _state_home():
 
 def _state_dir():
     return _config.state_dir()
-
-
-# ---------------------------------------------------------------------------
-# Hosting profile identity (#574)
-#
-# The bot stamps every source it builds with the fixed hosting profile
-# (print_handy.bot.runtime.PROFILE, _config.DEFAULT_PROFILE); the gates
-# below answer only sources carrying that stamp. The name used to be
-# derived from the Hermes install layout; with that install gone the
-# identity is the constant.
-def _hosting_profile():
-    """The profile identity this module answers for: the fixed hosting profile."""
-    return _config.hosting_profile(Path(__file__))[0]
-
-
-def _is_hosting_profile(value):
-    """True when an event's profile value is the hosting profile's."""
-    return bool(value) and value == _hosting_profile()
 
 
 _seen = OrderedDict()
@@ -92,10 +73,8 @@ def _is_print_discord_event(event):
     source = getattr(event, 'source', None)
     return (source is not None
             and _is_bot_platform(source)
-            and _is_hosting_profile(getattr(source, 'profile', None))
             and not getattr(event, 'internal', False)
-            and not getattr(source, 'is_bot', False)
-            and not getattr(source, 'profile_route_rejected', False))
+            and not getattr(source, 'is_bot', False))
 
 
 def _routed_printer_id(source, gateway=None):
@@ -1284,9 +1263,7 @@ def _control_gate(event, gateway):
     whose text form is not the command itself (the plain 'print 57' form)."""
     source = getattr(event, 'source', None)
     if (source is None or not _is_bot_platform(source)
-            or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
+            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)):
         return None, None
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None, None
@@ -1369,20 +1346,26 @@ async def _offer_force_restart(adapter, source, metadata, pc, reason, printer_id
 async def _delete_secret_message(event, source, adapter, label='Token'):
     """Best effort: delete the operator's message that carried a pasted secret.
 
-    Prefers the adapter's own delete_message; otherwise falls back to its
-    discord.py client. Any failure is
-    ignored and answered with a plain note, so the operator knows to delete it.
+    Prefers the adapter's own delete_message (including one that lives only
+    on its ``_host``); otherwise falls back to its discord.py client. Any
+    failure is ignored and answered with a plain note, so the operator knows
+    to delete it. The secret itself is never logged.
     """
     message_id = getattr(event, 'message_id', None)
     deleted = False
     try:
+        # A Hermes wrapper may not implement delete_message itself. Calling
+        # the wrapper and swallowing the error would leave the secret in chat.
         host = getattr(adapter, '_host', None) or adapter
         if message_id and hasattr(host, 'delete_message'):
-            deleted = bool(await host.delete_message(source.chat_id, message_id,
-                                                      {'thread_id': source.thread_id} if source.thread_id else None))
+            deleted = bool(await host.delete_message(
+                source.chat_id, message_id,
+                {'thread_id': source.thread_id} if source.thread_id else None))
         elif message_id and getattr(host, '_client', None) is not None:
             client = host._client
-            channel = client.get_channel(int(source.thread_id or source.chat_id)) or                 await client.fetch_channel(int(source.thread_id or source.chat_id))
+            channel_id = int(source.thread_id or source.chat_id)
+            channel = (client.get_channel(channel_id)
+                       or await client.fetch_channel(channel_id))
             await channel.get_partial_message(int(message_id)).delete()
             deleted = True
     except Exception:
@@ -1420,7 +1403,7 @@ def alert_button_handlers(bot, adapter):
             return bool(authorize(interaction, 'allowed'))
         user = getattr(interaction, 'user', None)
         uid = str(getattr(user, 'id', ''))
-        checker = getattr(adapter, '_is_allowed_user', None)
+        checker = getattr(adapter, 'is_allowed_user', None)
         if getattr(user, 'bot', False):
             return False
         if callable(checker):

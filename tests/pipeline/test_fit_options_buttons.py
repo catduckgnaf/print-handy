@@ -197,7 +197,7 @@ def test_single_body_flow_skips_rearrange_and_split_and_offers_the_turned_size(e
                 'brim_policy': {'type': 'no_brim', 'width_mm': 0.0, 'label': 'No brim'}}
 
     monkeypatch.setattr(orca_adapter, 'fit_options', fit_options)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='desk-organizer', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0, 0, 1, 1])
     asyncio.run(pi.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -249,7 +249,7 @@ def test_chosen_rotation_is_confirmed_with_the_exact_single_probe(env, monkeypat
                 'brim_policy': {'type': 'no_brim', 'width_mm': 0.0, 'label': 'No brim'}}
 
     monkeypatch.setattr(orca_adapter, 'fit_options', fit_options)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='desk-organizer-exact', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0, 0, 1, 1])
     asyncio.run(pi.prepare_link(event, adapter, state(), env.root, timeout=1))

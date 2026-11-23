@@ -55,8 +55,8 @@ def _gateway(adapter):
 
 
 def _event(platform, text, files, message_id):
-    source = S(platform=S(value=platform), profile='3dprinting', chat_id='c1', thread_id=None,
-               user_id='u1', is_bot=False, profile_route_rejected=False)
+    source = S(platform=S(value=platform), chat_id='c1', thread_id=None,
+               user_id='u1', is_bot=False)
     return S(source=source, text=text, media_urls=[str(f) for f in files], message_id=message_id,
              internal=False, metadata={})
 

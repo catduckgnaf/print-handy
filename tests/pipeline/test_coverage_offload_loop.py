@@ -36,7 +36,7 @@ def _slow_verify(result):
 
 
 def _run_with_ticker(env, picks):
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
     adapter = Adapter(picks)
     gaps = []
