@@ -15,7 +15,7 @@ import tempfile
 import urllib.request  # noqa: F401  (tests patch urllib.request.urlopen through this module)
 from pathlib import Path
 
-from . import diagnostics, moonraker, settings, state_volume
+from . import diagnostics, moonraker, settings
 from .core import resources, spoolman_client
 from .jobs import timing_report
 
@@ -32,10 +32,8 @@ def check_settings(data):
 
 
 def check_state_volume(data):
-    """Which state volume is in use (#914): the configured data folder, and
-    whether the legacy /data/hermes volume is the one actually holding the
-    data (entrypoint symlink, an explicit legacy path, or both present)."""
-    return state_volume.describe_state_volume(data["paths"]["state_home"])
+    """The configured state folder (paths.state_home)."""
+    return str(Path(data["paths"]["state_home"]).expanduser())
 
 
 def check_timing(data):

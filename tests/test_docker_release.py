@@ -656,13 +656,12 @@ mv dot-config .config
 
     def test_template_runs_the_combined_compose_service(self):
         # The combined service is the template's container; the only other
-        # Compose services are the one-shot first-boot init service (#1144),
-        # the one-shot legacy state-folder migration service (#1144)
+        # Compose services are the one-shot first-boot init service (#1144)
         # and the optional cloudflared sidecar (#311), which
         # is profile-gated, shares the combined network namespace and is a
         # separate Unraid container there — never part of this template.
         self.assertEqual(list(COMPOSE["services"]),
-                         ["combined", "print-handy-init", "print-handy-migrate", "cloudflared"])
+                         ["combined", "print-handy-init", "cloudflared"])
         sidecar = COMPOSE["services"]["cloudflared"]
         self.assertEqual(sidecar["profiles"], ["live-stream"])
         self.assertEqual(sidecar["network_mode"], "service:combined")
@@ -902,14 +901,14 @@ class UnraidCaTemplateParityTests(unittest.TestCase):
         in_repo = self.configs_by_key(UNRAID)
         ca = self.configs_by_key(self.CA)
         ca_only = {target for (kind, target) in set(ca) - set(in_repo) if kind == "Path"}
-        self.assertEqual(ca_only, {"/data/state", "/data/hermes", "/data/archive",
+        self.assertEqual(ca_only, {"/data/state", "/data/archive",
                                    "/data/records", "/data/cache", "/data/spoolman",
                                    "/data/.config"})
         # Each CA-only path is one of the folders the image used to
         # declare as a VOLUME (plus .config), mapped to the matching
         # folder under the same Appdata path the in-repo template uses,
         # so an install created on a pre-fix image keeps its data.
-        required = {"/data/state": "true", "/data/hermes": "false",
+        required = {"/data/state": "true",
                     "/data/archive": "true", "/data/records": "true",
                     "/data/cache": "true", "/data/spoolman": "true",
                     "/data/.config": "false"}
@@ -921,12 +920,23 @@ class UnraidCaTemplateParityTests(unittest.TestCase):
                 self.assertEqual(config.text, host)
                 self.assertEqual(config.get("Required"), expected_required)
 
-    def test_in_repo_only_config_is_the_spoolman_url_choice(self):
+    def test_every_in_repo_config_is_also_in_the_ca_template(self):
+        # The CA template took the Spoolman URL and the bundled-firmware
+        # override too, so the in-repo template has no config of its own.
         in_repo = self.configs_by_key(UNRAID)
         ca = self.configs_by_key(self.CA)
-        self.assertEqual(set(in_repo) - set(ca),
-                         {("Variable", "PRINT_HANDY__SERVICES__SPOOLMAN_URL"),
-                          ("Variable", "PRINT_HANDY__FIRMWARE__HIDE_BUNDLED_UPDATES")})
+        self.assertEqual(set(in_repo) - set(ca), set())
+
+    def test_ca_template_no_longer_maps_the_old_hermes_folder(self):
+        # #1817 (catduckgnaf/catduck-unraid-templates#48): 2.4.0 no longer
+        # reads /data/hermes, so the CA template drops the path and its
+        # Requires text tells an unmigrated install to rename the folder.
+        for root in (UNRAID, self.CA):
+            self.assertNotIn(("Path", "/data/hermes"), self.configs_by_key(root))
+        requires = self.CA.findtext("Requires") or ""
+        self.assertNotIn("state, hermes,", requires)
+        self.assertIn("rename hermes to state (mv hermes state)", requires)
+        self.assertIn("refuses to start while only hermes holds data", requires)
 
     def test_repository_and_listing_metadata_differ_as_documented(self):
         # Neither template pins a version (catduck, 2026-11-11): both pull
@@ -1417,7 +1427,7 @@ class AcceptanceFixtureTests(unittest.TestCase):
         script = (ROOT / "tests" / "docker" / "image_acceptance.sh").read_text()
         args = script.split("probe_args=(", 1)[1].split("\nprobe()", 1)[0]
         self.assertIn('-v "$data:/data"', args)
-        self.assertIn('mkdir -p "$data"/{state,hermes,archive,records,cache,spoolman}', script)
+        self.assertIn('mkdir -p "$data"/{state,archive,records,cache,spoolman}', script)
         self.assertIn('probe readonly --read-only --tmpfs /tmp:size=64m -- "$check"', script)
         self.assertIn('for check in payload closure slice egress ffmpeg openscad; do', script)
         self.assertNotIn('--entrypoint', args)
