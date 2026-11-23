@@ -337,6 +337,12 @@ class LegacyStateFolderTests(unittest.TestCase):
         (self.legacy / "state" / "logs").mkdir(parents=True)
         self.assertIsNone(doctor.check_legacy_state_folder(self.data(self.root / "new")))
 
+    def test_an_unreadable_old_folder_fails_instead_of_passing_as_empty(self):
+        self.legacy.mkdir(parents=True)
+        with mock.patch.object(Path, "rglob", side_effect=PermissionError("denied")):
+            with self.assertRaisesRegex(RuntimeError, "could not be inspected"):
+                doctor.check_legacy_state_folder(self.data(self.root / "new"))
+
     def test_old_folder_with_data_and_an_empty_state_home_fails_with_the_move(self):
         self._legacy_install()
         new = self.root / "new"

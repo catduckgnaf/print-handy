@@ -386,8 +386,10 @@ def _has_files(folder):
     """
     try:
         return any(not entry.is_dir() for entry in folder.rglob("*"))
-    except OSError:
-        return False
+    except OSError as exc:
+        # An unreadable folder must not pass for an empty one: it may hold the data.
+        raise RuntimeError(f"{folder} could not be inspected ({exc}); check it by hand before "
+                           "starting on a new state folder") from exc
 
 
 def check_legacy_state_folder(data):
