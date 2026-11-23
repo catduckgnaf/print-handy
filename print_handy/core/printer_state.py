@@ -28,6 +28,7 @@ from pathlib import Path
 from .. import printers, settings
 from . import filament_color, spoolman_client
 from .gcode_lines import Anchor
+from ..gcode import tool_map
 
 # The state folder hardware records live under. None (production) resolves
 # <state_home>/state through runtime._config, the same root every runtime
@@ -530,11 +531,9 @@ def recorded_nozzle_type(state):
     return (state.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
 
 
-# The GcodeLines anchors for the two header questions that do not start with a
-# fixed literal; offline verification declares them in its one scan (#1153 item 7).
+# The GcodeLines anchor for the tool-line header question, which does not start
+# with a fixed literal; offline verification declares it in its one scan (#1153 item 7).
 TOOL_LINE_ANCHOR = Anchor(r"[ \t]*T\d")
-# Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
-TOOL_SLOTS_ANCHOR = Anchor(r";\s*hermes_tool_slots\s*=")
 
 
 def _header_numbers(text, key, lines=None):
@@ -600,36 +599,31 @@ def gcode_tool_temperatures(state, materials, text, fetch_filament=None, lines=N
 
 
 def _job_map_spool_ids(state, text, lines=None):
-    """The spool ids an artifact's `hermes_tool_slots` map names, in tool order.
+    """The spool ids an artifact's tool map (gcode.tool_map) names, in tool order.
 
-    The map is the artifact's own record of what it was sliced for: dict
-    values carry the spool id directly; the older plain form names physical
-    slots, whose bound spool the slot record supplies. Unparseable or
-    absent maps name nothing, except on a state with_artifact_spool filled
-    from the job's selected slot: a stock-firmware artifact carries no map,
-    and ``job_spool_ids`` names that slot's spool in its place.
+    The map is the artifact's own record of what it was sliced for: an
+    entry carries the spool id directly, or only the physical slot, whose
+    bound spool the slot record supplies. An unreadable map names nothing.
+    An absent one names nothing either, except on a state
+    with_artifact_spool filled from the job's selected slot: a
+    stock-firmware artifact carries no map, and ``job_spool_ids`` names that
+    slot's spool in its place. A file sliced before 2.4.0 (old map line
+    only) raises tool_map.StaleToolMap: reslice it.
     """
-    pattern = r"^;\s*hermes_tool_slots\s*=\s*(.+)$"
-    match = (lines.search(pattern, TOOL_SLOTS_ANCHOR) if lines is not None
-             else re.search(pattern, text or "", re.M))
-    if not match:
-        return list(state.get("job_spool_ids") or [])
     try:
-        parsed = json.loads(match.group(1).strip())
-    except ValueError:
+        parsed = tool_map.parse(text, lines)
+    except tool_map.StaleToolMap:
+        raise
+    except tool_map.ToolMapError:
         return []
-    if not isinstance(parsed, dict):
-        return []
+    if parsed is None:
+        return list(state.get("job_spool_ids") or [])
     slots = state.get("filament_slots") or {}
     ids = []
     for value in parsed.values():
-        sid = None
-        if isinstance(value, dict):
-            sid = value.get("spoolman_id")
-            if sid is None and value.get("physical_slot") is not None:
-                sid = (slots.get(str(value["physical_slot"])) or {}).get("spoolman_id")
-        elif isinstance(value, int) and not isinstance(value, bool):
-            sid = (slots.get(str(value)) or {}).get("spoolman_id")
+        sid = value.get("spoolman_id")
+        if sid is None and value.get("physical_slot") is not None:
+            sid = (slots.get(str(value["physical_slot"])) or {}).get("spoolman_id")
         if sid is not None and sid not in ids:
             ids.append(sid)
     return ids
@@ -638,7 +632,7 @@ def _job_map_spool_ids(state, text, lines=None):
 def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=None):
     """The temperatures a G-code sliced for ``materials`` (its filament_type list) must carry,
     resolved for the same spool slice_temperatures used: the spool the artifact's
-    hermes_tool_slots map names when it names exactly one, else the active spool when its
+    tool map names when it names exactly one, else the active spool when its
     material is the G-code's, else the one slot spool holding that material, else the
     material defaults.
     A multi-filament G-code (``text`` given) is checked per tool against its own header instead
@@ -693,7 +687,7 @@ def with_artifact_spool(state, text, lines=None, slot=None):
     The active-spool record is legitimately empty after an unassign or on a
     fresh install; launch sync (print_now._sync_active_spool) fills it only
     after verification. The spools come from the artifact's own
-    `hermes_tool_slots` map, else from ``slot`` (the job's selected physical
+    tool map, else from ``slot`` (the job's selected physical
     slot: a stock-firmware artifact carries no map). Every named spool must
     have a slot record with a material; the first in tool order fills the
     record's name and material, so verification reads the material the slice

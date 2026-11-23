@@ -105,13 +105,13 @@ def test_ad5x_filament_template_resolves_to_normal_lift():
 
 
 def test_is_allowed_filament_id_allowlist():
-    """Verify that Print Handy generated Hermes slot IDs and own template IDs pass the allowlist."""
-    own = {"Flashforge Generic PLA"}
+    """Only the job's own profile names pass; the retired "Hermes slot" shape proves nothing (#1816)."""
+    own = {"Flashforge Generic PLA", "Flashforge HS PETG @FF AD5X [slot 2]"}
     assert slice_guard.is_allowed_filament_id("Flashforge Generic PLA", own)
     assert slice_guard.is_allowed_filament_id('"Flashforge Generic PLA"', own)
-    assert slice_guard.is_allowed_filament_id("Hermes slot 1 PLA", own, slot_count=4)
-    assert slice_guard.is_allowed_filament_id('"Hermes slot 2 PETG"', own, slot_count=4)
-    assert slice_guard.is_allowed_filament_id("Hermes slot 4 TPU-95A", own, slot_count=4)
+    assert slice_guard.is_allowed_filament_id("Flashforge HS PETG @FF AD5X [slot 2]", own)
+    assert not slice_guard.is_allowed_filament_id("Hermes slot 1 PLA", own)
+    assert not slice_guard.is_allowed_filament_id("Flashforge HS PETG @FF AD5X [slot 3]", own)
 
     # Foreign or arbitrary IDs are rejected
     assert not slice_guard.is_allowed_filament_id("Bambu Generic PLA", own)
@@ -119,25 +119,18 @@ def test_is_allowed_filament_id_allowlist():
     assert not slice_guard.is_allowed_filament_id("Custom Profile", own)
     assert not slice_guard.is_allowed_filament_id("", own)
     assert not slice_guard.is_allowed_filament_id(None, own)
+    assert not slice_guard.is_allowed_filament_id("Flashforge Generic PLA", set())
 
 
-def test_is_allowed_filament_id_rejects_spoofed_hermes_ids():
-    """P2-27: the Hermes pattern alone must never accept an ID. A Hermes slot ID is
-    accepted only as an exact generated profile ID, or for a slot inside the
-    configured slot count the caller supplies."""
+def test_is_allowed_filament_id_rejects_spoofed_and_retired_hermes_ids():
+    """P2-27 and #1816: a name's shape never proves anything; the retired "Hermes slot" names are foreign
+    unless the job itself generated exactly that name."""
     own = {"Flashforge Generic PLA"}
-    # The audit's spoof: a foreign project naming itself a Hermes slot.
-    assert not slice_guard.is_allowed_filament_id("Hermes slot 999 Totally Foreign", own, slot_count=4)
     assert not slice_guard.is_allowed_filament_id("Hermes slot 999 Totally Foreign", own)
-    # No slot bound supplied: the pattern by itself proves nothing.
     assert not slice_guard.is_allowed_filament_id("Hermes slot 1 PLA", own)
     assert not slice_guard.is_allowed_filament_id("Hermes slot 1 PLA")
-    # Outside the configured slots, even with a plausible material.
-    assert not slice_guard.is_allowed_filament_id("Hermes slot 5 PLA", own, slot_count=4)
-    assert not slice_guard.is_allowed_filament_id("Hermes slot 0 PLA", own, slot_count=4)
-    # A generated ID carried in the active profile IDs passes by exact membership,
-    # whatever slot bound the caller has.
-    assert slice_guard.is_allowed_filament_id("Hermes slot 2 PETG", {"Hermes slot 2 PETG"})
+    assert not slice_guard.is_allowed_filament_id("Generic PLA @Flashforge [slot 1]", own)
+    assert slice_guard.is_allowed_filament_id("Generic PLA @Flashforge [slot 1]", {"Generic PLA @Flashforge [slot 1]"})
 
 
 def test_slice_guard_blocks_a_spoofed_hermes_filament_id():
@@ -148,12 +141,25 @@ def test_slice_guard_blocks_a_spoofed_hermes_filament_id():
     assert any("Hermes slot 999" in problem for problem in result.blocked)
 
 
-def test_slice_guard_accepts_hermes_slot_filament_id():
-    """slice_guard permits synthesized Hermes slot IDs in filament_settings_id header/footer."""
+def test_slice_guard_rejects_the_retired_hermes_slot_filament_id():
+    """#1816: the post-slice gate no longer accepts "Hermes slot N" names it did not generate for this job."""
     gcode = GOOD_GCODE + '; filament_settings_id = "Hermes slot 1 PLA";"Hermes slot 2 PLA"\n'
     result = slice_guard.post_slice(gcode, tool_slots={0: 1, 1: 2})
-    assert result.status == "ok"
-    assert not result.blocked
+    assert result.status == "blocked"
+    assert any("Hermes slot 1 PLA" in problem for problem in result.blocked)
+
+
+def test_slice_guard_accepts_the_jobs_own_vendor_profile_names(tmp_path: Path):
+    """#1816: the names the job generated (vendor profile, per slot) pass by exact membership."""
+    names = ["Flashforge HS PETG @FF AD5X [slot 1]", "Generic PETG @Flashforge [slot 2]"]
+    paths = []
+    for index, name in enumerate(names):
+        path = tmp_path / f"filament_tool_{index}.json"
+        path.write_text(json.dumps({"name": name, "filament_settings_id": [name]}))
+        paths.append(path)
+    gcode = GOOD_GCODE + "; filament_settings_id = " + ";".join(f'"{n}"' for n in names) + "\n"
+    result = slice_guard.post_slice(gcode, tool_slots={0: 1, 1: 2}, profile_paths=paths)
+    assert result.status == "ok", result.blocked
 
 
 def test_slice_guard_blocks_foreign_filament_id():
@@ -164,8 +170,63 @@ def test_slice_guard_blocks_foreign_filament_id():
     assert any("Foreign effective setting filament_settings_id" in msg for msg in result.blocked)
 
 
-def test_sanitizer_preserves_hermes_slot_filament_ids(tmp_path: Path):
-    """Sanitizer retains generated Hermes slot names while replacing unknown foreign IDs with template default."""
+def test_sanitizer_keeps_the_jobs_own_per_slot_ids_and_pins_foreign_ones_per_tool(tmp_path: Path):
+    """#1816: a multi-tool job's own per-slot names survive; a foreign entry becomes that tool's own name."""
+    names = ["Flashforge HS PETG @FF AD5X [slot 1]", "Generic PETG @Flashforge [slot 2]",
+             "Flashforge Generic PLA [slot 3]"]
+    profiles = []
+    for index, name in enumerate(names):
+        path = tmp_path / f"filament_tool_{index}.json"
+        path.write_text(json.dumps({"name": name, "filament_settings_id": [name]}), encoding="utf-8")
+        profiles.append(path)
+    t3mf = tmp_path / "own_slots.3mf"
+    project = {"filament_settings_id": [names[0], "Hermes slot 2 PETG", "Alien Profile"],
+               "filament_type": ["PETG", "PETG", "PLA"], "filament_colour": ["#000000", "#FFFFFF", "#FF0000"]}
+    with zipfile.ZipFile(t3mf, "w") as z:
+        z.writestr("Metadata/project_settings.config", json.dumps(project))
+
+    orca_adapter.sanitize_project_settings(t3mf, slot_count=3, filament_profiles=profiles)
+
+    with zipfile.ZipFile(t3mf, "r") as z:
+        after = json.loads(z.read("Metadata/project_settings.config"))
+    assert after["filament_settings_id"] == names
+
+
+@pytest.mark.parametrize("imported", [
+    # slot 1's and slot 2's own IDs swapped
+    lambda names: [names[1], names[0], names[2]],
+    # one tool's valid ID copied onto every slot
+    lambda names: [names[0]] * 3,
+    # the bare template ID on slots the job has its own profiles for
+    lambda names: ["Flashforge Generic PLA"] * 3,
+], ids=["swapped", "copied", "bare-template"])
+def test_sanitizer_pins_each_slot_to_its_own_generated_id(tmp_path: Path, imported):
+    """duckcatgnaf (a53a07df): a generated ID is valid only on the slot it was generated for; on any
+    other slot it would run that tool with another filament's settings, so it is repinned."""
+    names = ["Flashforge HS PETG @FF AD5X [slot 1]", "Generic PETG @Flashforge [slot 2]",
+             "Flashforge Generic PLA [slot 3]"]
+    profiles = []
+    for index, name in enumerate(names):
+        path = tmp_path / f"filament_tool_{index}.json"
+        path.write_text(json.dumps({"name": name, "filament_settings_id": [name]}), encoding="utf-8")
+        profiles.append(path)
+    t3mf = tmp_path / "moved_ids.3mf"
+    project = {"filament_settings_id": imported(names),
+               "filament_type": ["PETG", "PETG", "PLA"], "filament_colour": ["#000000", "#FFFFFF", "#FF0000"]}
+    with zipfile.ZipFile(t3mf, "w") as z:
+        z.writestr("Metadata/project_settings.config", json.dumps(project))
+
+    changed = orca_adapter.sanitize_project_settings(t3mf, slot_count=3, filament_profiles=profiles)
+
+    with zipfile.ZipFile(t3mf, "r") as z:
+        after = json.loads(z.read("Metadata/project_settings.config"))
+    assert after["filament_settings_id"] == names
+    assert changed["filament_settings_id"] == [imported(names), names]
+
+
+def test_sanitizer_replaces_retired_hermes_slot_filament_ids(tmp_path: Path):
+    """#1816: an imported project's "Hermes slot N" names are foreign now, like any other name that is not the
+    job's own profile: every one is pinned to the job's profile."""
     t3mf = tmp_path / "mixed_filaments.3mf"
     project_settings = {
         "filament_settings_id": ["Hermes slot 1 PLA", "Alien Profiler Extraordinaire", "Hermes slot 3 PETG"],
@@ -175,26 +236,8 @@ def test_sanitizer_preserves_hermes_slot_filament_ids(tmp_path: Path):
     with zipfile.ZipFile(t3mf, "w") as z:
         z.writestr("Metadata/project_settings.config", json.dumps(project_settings))
 
-    orca_adapter.sanitize_project_settings(t3mf)
+    orca_adapter.sanitize_project_settings(t3mf, slot_count=3)
 
     with zipfile.ZipFile(t3mf, "r") as z:
         after = json.loads(z.read("Metadata/project_settings.config"))
-
-    # Slot 1 and Slot 3 are preserved, Slot 2 is replaced by template default ("Flashforge Generic PLA")
-    assert after["filament_settings_id"][0] == "Hermes slot 1 PLA"
-    assert after["filament_settings_id"][1] == "Flashforge Generic PLA"
-    assert after["filament_settings_id"][2] == "Hermes slot 3 PETG"
-
-
-def test_sanitizer_slot_limit_is_physical_not_filaments_used(tmp_path: Path):
-    """2.2.5 review: a 2-filament mapping must not strip Hermes slot 3/4 names or a 5th toolhead's slot."""
-    t3mf = tmp_path / "physical_slots.3mf"
-    project_settings = {"filament_settings_id": ["Hermes slot 3 PLA", "Hermes slot 5 PETG"]}
-    with zipfile.ZipFile(t3mf, "w") as z:
-        z.writestr("Metadata/project_settings.config", json.dumps(project_settings))
-
-    orca_adapter.sanitize_project_settings(t3mf, slot_count=2, slot_limit=5)
-
-    with zipfile.ZipFile(t3mf, "r") as z:
-        after = json.loads(z.read("Metadata/project_settings.config"))
-    assert after["filament_settings_id"] == ["Hermes slot 3 PLA", "Hermes slot 5 PETG"]
+    assert after["filament_settings_id"] == ["Flashforge Generic PLA"] * 3

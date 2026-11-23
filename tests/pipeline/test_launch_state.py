@@ -1133,11 +1133,11 @@ def test_1648_mapped_3mf_package_is_slot_labeled_for_screen_reprints(mapped, mon
     The heater's T0 names the one heater, so it is never relabeled."""
     out, _, inner, _ = _launch_on_slot3(
         mapped, monkeypatch, "slot3",
-        b'; hermes_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
+        b'; print_handy_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
         b"; filament_colour = #161616\nM104 S215 T0\nSTART_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nT0\nG1 X1\n")
     assert "\nT2\n" in inner
     assert "M104 S215 T0" in inner and "M104 S215 T2" not in inner
-    assert '; hermes_tool_slots = {"2":{"physical_slot":3}}' in inner
+    assert '; print_handy_tool_slots = {"2":{"physical_slot":3}}' in inner
     assert "; zmod_color_data = 2|#161616|PLA" in inner
     assert "; filament_colour = #161616;#161616;#161616" in inner  # slot 3 is the third entry
     assert mapped.scripts[0].endswith(" T2=3"), mapped.scripts[0]
@@ -1173,7 +1173,7 @@ def _launch_plain_on_slot3(mapped, monkeypatch, name, gcode_bytes, mapping=None)
     return out, g, upload, Path(upload[2]).read_bytes()
 
 
-_PLAIN_SLICE = (b'; hermes_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
+_PLAIN_SLICE = (b'; print_handy_tool_slots = {"0":{"physical_slot":3}}\n; zmod_color_data = 0|#161616|PLA\n'
                 b"; filament_colour = #161616\nM104 S215 T0\nSTART_PRINT EXTRUDER_TEMP=215 BED_TEMP=60\nG1 X1\n")
 
 
@@ -1187,7 +1187,7 @@ def test_1679_plain_gcode_upload_is_slot_labeled_for_screen_reprints(mapped, mon
                                                  _PLAIN_SLICE.replace(b"\nG1", b"\nT0\nG1"))
     text = sent.decode()
     assert "\nT2\n" in text
-    assert '; hermes_tool_slots = {"2":{"physical_slot":3}}' in text
+    assert '; print_handy_tool_slots = {"2":{"physical_slot":3}}' in text
     assert "; zmod_color_data = 2|#161616|PLA" in text
     assert "M104 S215 T0" in text  # the heater's T0 is never relabeled
     assert Path(upload[2]).name.endswith(".slots.gcode") and Path(upload[2]) != g
