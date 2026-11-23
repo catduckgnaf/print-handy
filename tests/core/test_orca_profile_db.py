@@ -132,6 +132,16 @@ def test_spool_brand_selects_that_brands_profile_only_for_that_brand():
     assert db.resolve(preset, ft.from_text("PLA+", "PLA+"), brand="SUNLU").name == "SUNLU PLA+ @FF AD5M"
 
 
+
+def test_a_spoolman_vendor_object_is_read_as_the_brand():
+    """#1832: Spoolman's filament vendor is {"id", "name"}; it selects like the name and never raises."""
+    preset = db.printer_preset(AD5X, 0.4)
+    petg = ft.from_text("PETG", "PETG")
+    assert db.resolve(preset, petg, brand={"id": 3, "name": "SUNLU"}).name == "SUNLU PETG @FF AD5M"
+    assert db.resolve(preset, petg, brand={"id": 4, "name": "Polymaker"}).name == "Generic PETG @Flashforge"
+    for unknown in ({"id": 5}, {"id": 6, "name": None}, {"id": 7, "name": "  "}, 42, "", None):
+        assert db.resolve(preset, petg, brand=unknown).name == "Generic PETG @Flashforge"
+
 def test_unknown_family_or_no_vendor_profile_falls_back_to_the_library():
     assert db.resolve("Flashforge AD5X 0.4 nozzle", ft.UNKNOWN) is None
     assert db.resolve("No Such Preset", ft.from_text("PLA")) is None
