@@ -31,11 +31,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 import stat
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from .intake_resources import IntakeLimitExceeded, MIB
+from .intake_resources import MIN_FREE_BYTES, IntakeLimitExceeded, MIB
 
 ARCHIVE_EXTS = {'.zip'}
 PRINTABLE_EXTS = {'.stl', '.3mf'}
@@ -215,6 +216,11 @@ def extract(path, dest) -> tuple[list[Path], dict]:
                         if written > info.file_size or written > MAX_FILE_BYTES:
                             raise ArchiveRefused(f'{info.filename} in {path.name} is larger than its '
                                                  'header says; the archive is damaged or hostile.')
+                        if shutil.disk_usage(target.parent).free < len(chunk) + MIN_FREE_BYTES:
+                            raise IntakeLimitExceeded(
+                                'Model intake refused: archive extraction needs '
+                                f'{MIN_FREE_BYTES // MIB} MiB of free disk space reserved; '
+                                'nothing was sliced or started.')
                         digest.update(chunk)
                         sink.write(chunk)
             except BaseException:

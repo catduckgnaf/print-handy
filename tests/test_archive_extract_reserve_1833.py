@@ -37,3 +37,30 @@ def test_zip_extraction_keeps_any_size_that_preserves_disk_reserve(tmp_path, mon
     result = sources._fetch_chosen("https://example.invalid/download",
                                    tmp_path / "extracted", "part.stl", "test", exact=False)
     assert result.read_bytes() == data
+
+
+def test_source_archive_extract_refuses_when_disk_reserve_would_be_crossed(tmp_path, monkeypatch):
+    from print_handy.core import source_archive
+    archive = tmp_path / "upload.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
+        out.writestr("part.stl", b"C" * 4096)
+    free = intake_resources.MIN_FREE_BYTES
+    monkeypatch.setattr(source_archive.shutil, "disk_usage",
+                        lambda _: type("Usage", (), {"free": free})())
+    dest = tmp_path / "out"
+    with pytest.raises(intake_resources.IntakeLimitExceeded, match="free disk space"):
+        source_archive.extract(archive, dest)
+    assert not list(dest.rglob("part.stl"))
+
+
+def test_source_archive_extract_keeps_member_when_reserve_preserved(tmp_path, monkeypatch):
+    from print_handy.core import source_archive
+    data = b"D" * (intake_resources.CHUNK * 3)
+    archive = tmp_path / "upload.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
+        out.writestr("part.stl", data)
+    free = intake_resources.MIN_FREE_BYTES + len(data) + intake_resources.CHUNK
+    monkeypatch.setattr(source_archive.shutil, "disk_usage",
+                        lambda _: type("Usage", (), {"free": free})())
+    paths, _report = source_archive.extract(archive, tmp_path / "out")
+    assert paths[0].read_bytes() == data
