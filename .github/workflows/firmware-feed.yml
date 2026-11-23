@@ -19,8 +19,9 @@ name: Firmware feed
 
 on:
   schedule:
-    # Every six hours, at an odd minute to avoid the top-of-hour rush.
-    - cron: "23 */6 * * *"
+    # Once a day (09:23 UTC), at an odd minute to avoid the top-of-hour
+    # rush. Firmware releases are rare; a day's delay costs owners nothing.
+    - cron: "23 9 * * *"
   workflow_dispatch:
   push:
     branches: [main]

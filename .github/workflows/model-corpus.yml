@@ -188,10 +188,16 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Cache the pinned Rust toolchain and crates
+        # sh.rustup.rs and crates.io were downloaded fresh on every run; on
+        # a cache hit scripts/ci_install_rust.sh downloads nothing.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.rust-pinned
+          key: rust-1.99.1-hosted-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/bounds/Cargo.lock', 'scripts/ci_install_rust.sh') }}
+          restore-keys: rust-1.99.1-hosted-${{ runner.os }}-${{ runner.arch }}-
       - name: Install the pinned Rust toolchain
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        run: sh scripts/ci_install_rust.sh
       - run: python -m pip install -c constraints.txt ".[test]" "maturin==1.16.0"
       - name: Build the native bounds extension into the source package
         # The same staging as ci.yml's native-bounds job.
