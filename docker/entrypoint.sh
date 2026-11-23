@@ -3,6 +3,8 @@ set -euo pipefail
 # The main state volume is /data/state. Its pre-2.2.5 name, /data/hermes, is
 # no longer read or migrated (#1817): an install whose state still sits only
 # in the old folder refuses to start (below) instead of starting empty.
+# A paths.state_home that already names a different folder with files is
+# state, and that start is not refused.
 data_root="${HOME:-/data}"
 state_home="$data_root/state"
 legacy_home="$data_root/hermes"
@@ -75,11 +77,28 @@ _check_data_folders
 # starting would show an empty install. Stop with one line instead; nothing is
 # changed. A /data/hermes that is itself a symlink (the old compat link to
 # /data/state) is not data and is ignored.
+# A configured paths.state_home that is not /data/state and already holds
+# files is state, so the start is not refused and this script does not move,
+# delete, or write the old folder. The message below is only for the empty
+# case, and it must not claim /data/state is empty when that configured
+# directory is populated. Order: PRINT_HANDY__PATHS__STATE_HOME when set and
+# non-empty, else the paths.state_home value settings would load (the config
+# file the container uses, the user config, and the legacy hermes_home
+# spelling). A settings lookup that cannot run leaves the check on /data/state.
 if [ ! -L "$legacy_home" ] && _has_files "$legacy_home" \
         && { [ "$(readlink -f "$state_home")" = "$(readlink -f "$legacy_home")" ] \
              || ! _has_files "$state_home"; }; then
-    echo "Print Handy: cannot start: your state is still in the old folder /data/hermes and /data/state is empty; stop the container, delete the empty host folder state (or the state symlink), rename the host folder hermes to state (Compose: ./data/hermes; Unraid: hermes in the Appdata Storage path), then start again." >&2
-    exit 78
+    configured_state="${PRINT_HANDY__PATHS__STATE_HOME:-}"
+    if [ -z "$configured_state" ]; then
+        configured_state="$(python3 -m print_handy.settings get paths.state_home 2>/dev/null || true)"
+    fi
+    configured_resolved="$(readlink -f "$configured_state" 2>/dev/null || printf '%s' "$configured_state")"
+    state_resolved="$(readlink -f "$state_home" 2>/dev/null || printf '%s' "$state_home")"
+    if [ -z "$configured_state" ] || [ "$configured_resolved" = "$state_resolved" ] \
+            || ! _has_files "$configured_state"; then
+        echo "Print Handy: cannot start: your state is still in the old folder /data/hermes and /data/state is empty; stop the container, delete the empty host folder state (or the state symlink), rename the host folder hermes to state (Compose: ./data/hermes; Unraid: hermes in the Appdata Storage path), then start again." >&2
+        exit 78
+    fi
 fi
 mkdir -p "$state_home/state" "$data_root/archive" "$data_root/records" "$data_root/cache"
 # The log folder is best effort (#1416): file logging falls back to stderr, so

@@ -29,6 +29,12 @@ def run_entrypoint(home: Path, **extra) -> subprocess.CompletedProcess:
     env["TZ"] = "America/New_York"
     env.pop("PRINT_HANDY_ORCA_CHANNEL", None)
     env.pop("PRINT_HANDY_ORCA_CMD", None)
+    # The layout cells decide state from the synthetic home, not from an
+    # operator's ambient paths.state_home.
+    env.pop("PRINT_HANDY__PATHS__STATE_HOME", None)
+    env.pop("PRINT_HANDY__PATHS__HERMES_HOME", None)
+    env.pop("PRINT_HANDY_CONFIG", None)
+    env.pop("PRINT_HANDY_USER_CONFIG", None)
     env.update(extra)
     return subprocess.run(
         ["bash", str(ENTRYPOINT), "true"],
@@ -86,6 +92,41 @@ def test_legacy_only_layout_refuses_with_one_line_and_changes_nothing(tmp_path, 
     assert_refused(run_entrypoint(tmp_path))
     assert snapshot(tmp_path) == before
     assert (tmp_path / "hermes" / "state" / "printer_hardware.json").read_text() == "state\n"
+
+
+def test_configured_state_home_with_files_is_not_an_empty_install(tmp_path):
+    """A configured paths.state_home that already has files counts as state.
+
+    The refusal stays when that directory is the same path as /data/state,
+    is empty, or is unset. A different directory that already holds files
+    must not exit 78, and the old folder is left untouched. With the
+    variable unset, a populated old folder and an empty /data/state still
+    exit 78.
+    """
+    configured = tmp_path / "configured-state"
+    seed(configured, "kept.txt")
+    seed(tmp_path / "hermes", "old.txt")
+    hermes_before = snapshot(tmp_path / "hermes")
+    configured_before = snapshot(configured)
+    started = run_entrypoint(
+        tmp_path, PRINT_HANDY__PATHS__STATE_HOME=str(configured))
+    assert started.returncode != 78, started.stderr
+    assert started.returncode == 0, started.stderr
+    assert "is empty" not in started.stderr
+    assert OLD_FOLDER not in started.stderr
+    assert snapshot(tmp_path / "hermes") == hermes_before
+    assert snapshot(configured) == configured_before
+    assert (tmp_path / "hermes" / "old.txt").read_text() == "state\n"
+    assert (configured / "kept.txt").read_text() == "state\n"
+    assert not (tmp_path / "state" / "old.txt").exists()
+    assert not (tmp_path / "hermes").is_symlink()
+
+    unset = tmp_path / "unset-home"
+    seed(unset / "hermes", "old.txt")
+    before = snapshot(unset)
+    assert_refused(run_entrypoint(unset))
+    assert snapshot(unset) == before
+    assert (unset / "hermes" / "old.txt").read_text() == "state\n"
 
 
 def test_an_old_state_symlink_to_the_legacy_folder_is_refused(tmp_path):
