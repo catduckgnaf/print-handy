@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from .common import _adapter_for, _is_print_discord_event
+from .common import _adapter_for, _is_print_discord_event, _confirm
 from .. import fix_session
 from ... import ai_routes, settings
 
@@ -28,7 +28,7 @@ def _is_start(text):
 
 
 def _source_file(event):
-    from ...core import prepared_intake
+    from print_handy.core import prepared_intake
     choices = []
     explicit = prepared_intake.model_file(event)
     if explicit is not None:
@@ -48,7 +48,7 @@ def _new_session(event):
         return None
     if selected.suffix.lower() not in ('.stl', '.3mf'):
         return None
-    from ...core.intake_resources import check_source
+    from print_handy.core.intake_resources import check_source
     check_source(selected)
     root = Path(settings.current()['paths']['cache']) / 'fix-sessions'
     root.mkdir(parents=True, exist_ok=True)
@@ -76,7 +76,7 @@ def _complete(session, message, tools):
     ai_routes is Print Handy's sole model transport; its current interface
     returns text, so tool calls are parsed and verified locally by Session.
     """
-    from ...skills import print_repair
+    from print_handy.skills import print_repair
     relative = session.current_file.relative_to(session.skill_session.workspace).as_posix()
     prompt = (print_repair.load().system_prompt()
               + '\nReturn ONLY a JSON object with keys "content" (string) and '
@@ -106,10 +106,10 @@ async def _accept(event, gateway, adapter, session):
     if fix_session._same_path(session.current_file, session.original_file):
         await _send(adapter, source, 'There is no repaired copy to accept. The original is unchanged.')
         return {'action': 'skip', 'reason': 'no repaired file to accept'}
-    from ...core.intake_resources import check_source
+    from print_handy.core.intake_resources import check_source
     try:
         await asyncio.to_thread(check_source, session.current_file)
-        from .model_link import model_link_dispatch
+        from print_handy.bot.handlers.model_link import model_link_dispatch
         synthetic = SimpleNamespace(
             source=source, text='', media_urls=[str(session.current_file)],
             internal=False, message_id=f'fix-intake-{session.started_at}',
@@ -143,7 +143,6 @@ async def offer_failed_intake(event, gateway, adapter):
     """
     if not ai_routes.ready('heavy') or _source_file(event) is None:
         return None
-    from .common import _confirm
     source = event.source
     metadata = {'thread_id': source.thread_id} if getattr(source, 'thread_id', None) else None
     live_key = (gateway._session_key_for_source(source)
