@@ -86,23 +86,22 @@ class FieldValue:
 
 def settings_file_path(environ=None):
     """The settings file ``settings.load()`` would read: $PRINT_HANDY_CONFIG,
-    else config/local.yaml (falling back to the legacy local.toml when it
-    is the file that exists)."""
+    else config/local.yaml. A stale local.toml with no YAML file is refused."""
     environ = os.environ if environ is None else environ
     named = environ.get("PRINT_HANDY_CONFIG")
     if named:
-        return Path(named)
-    if settings.LOCAL.is_file():
-        return settings.LOCAL
-    if settings.LEGACY_LOCAL.is_file():
-        return settings.LEGACY_LOCAL
+        return settings._reject_toml(named)
+    if not settings.LOCAL.is_file() and settings.LOCAL.with_suffix(".toml").is_file():
+        raise settings.SettingsError(
+            f"{settings.LOCAL.with_suffix('.toml')}: TOML settings retired; "
+            f"convert to {settings.LOCAL} first")
     return settings.LOCAL
 
 
 def _home_path(home):
     if home is not None:
         return Path(home)
-    return settings.HOME if settings.HOME.is_file() else settings.LEGACY_HOME
+    return settings.HOME
 
 
 def _file_path(local, environ):
@@ -524,7 +523,7 @@ def _backup(target, stamp):
 # display-name change only (docs/MULTI-PRINTER-DESIGN.md §2.2). Where
 # the name is owned by a layer the Web UI does not write — an indexed
 # environment override, the operator's own settings file, the home
-# configuration — or the settings file is TOML, the name stays read-only
+# configuration, the name stays read-only
 # with the reason, exactly the discipline the catalog fields follow.
 
 
@@ -532,7 +531,7 @@ def _backup(target, stamp):
 class PrinterNameState:
     """Where the default printer's name lives and whether the Web UI may write it."""
 
-    shape: str  # "legacy" | "roster" | "roster_toml" | "environment" | "user_file" | "home"
+    shape: str  # "legacy" | "roster" | "environment" | "user_file" | "home"
     printer_id: str
     name: str  # the explicit name in the declaring layer ("" when it sets none)
     env_var: str = ""  # the indexed override variable, when shape is "environment"
@@ -596,8 +595,6 @@ def printer_name_state(data, *, home=None, local=None, environ=None):
             return PrinterNameState("user_file", printer_id, name)
         if layer_name == "home":
             return PrinterNameState("home", printer_id, name)
-        if file_path is not None and file_path.suffix.lower() == ".toml":
-            return PrinterNameState("roster_toml", printer_id, name)
         return PrinterNameState("roster", printer_id, name)
     return PrinterNameState("legacy", printer_id,
                             str((data.get("printer") or {}).get("name") or ""))
@@ -730,7 +727,7 @@ class EntryKeyState:
 class PrinterEntryState:
     """Where one roster entry is declared and whether the Web UI may write it."""
 
-    shape: str  # "legacy" | "settings_file" | "roster_toml" | "user_file" | "home"
+    shape: str  # "legacy" | "settings_file" | "user_file" | "home"
     printer_id: str
     keys: dict  # ENTRY_EDITABLE_KEYS -> EntryKeyState
 
@@ -773,8 +770,6 @@ def printer_entry_state(data, printer_id, *, home=None, local=None, environ=None
             shape = "user_file"
         elif layer_name == "home":
             shape = "home"
-        elif file_path is not None and file_path.suffix.lower() == ".toml":
-            shape = "roster_toml"
         else:
             shape = "settings_file"
         break
@@ -1044,7 +1039,7 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
     ``field`` may be a catalog Field, a ``(section, key)`` pair or a
     ``"section.key"`` string. Only catalog fields may change. Refuses —
     writing nothing — when a field is unknown, is currently overridden by
-    the environment, the target is a legacy TOML file, the merged
+    the environment, or the merged
     result fails the real settings validation, or a change would send a
     stored service key to a new host (#1192) and its field id is not in
     ``rebind``, the operator's confirmations. ``credential_check=False``

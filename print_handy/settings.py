@@ -1,11 +1,10 @@
-"""Settings load from YAML, with TOML compatibility during migration.
+"""Settings load from YAML. Legacy TOML settings are refused by name.
 
 Load order, later wins key by key:
   1. The printer's defaults: its vendor profile (print_handy/printers/<vendor>/__init__.py) under the
      printer model's own (print_handy/printers/<vendor>/<printer>.py)
-  2. config/home.yaml (a TOML home is still read when home.yaml is absent; the shipped home.toml
-     twin was retired in #1322, so no shipped tree takes that path)
-  3. $PRINT_HANDY_CONFIG, else config/local.yaml, falling back to config/local.toml
+  2. config/home.yaml
+  3. $PRINT_HANDY_CONFIG, else config/local.yaml
   4. Environment: PRINT_HANDY__SECTION__KEY. Lists stay file-only except ENV_LISTS, which take a
      comma- or space-separated value (#270).
 
@@ -27,7 +26,6 @@ import math
 import os
 import re
 import time
-import tomllib
 from urllib.parse import urlsplit
 
 import yaml
@@ -49,10 +47,8 @@ from . import printers as printer_registry
 
 ROOT = Path(__file__).resolve().parent.parent
 HOME = ROOT / "config" / "home.yaml"
-LEGACY_HOME = ROOT / "config" / "home.toml"  # read only when home.yaml is absent; not shipped since #1322
 LOCAL = ROOT / "config" / "local.yaml"
-LEGACY_LOCAL = ROOT / "config" / "local.toml"
-SHIPPED_DOCKER_CONFIGS = {(ROOT / "config" / "docker.yaml").resolve(), (ROOT / "config" / "docker.toml").resolve()}
+SHIPPED_DOCKER_CONFIGS = {(ROOT / "config" / "docker.yaml").resolve()}
 
 
 class SettingsError(ValueError):
@@ -238,9 +234,19 @@ def _read_identity(path):
     return (os.path.abspath(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
 
-def _read(path):
-    """Read YAML or a legacy TOML configuration file (parsed once per unchanged file, see _READ_CACHE)."""
+def _reject_toml(path):
+    """Refuse the retired settings syntax even if a TOML path has not been created yet."""
     path = Path(path)
+    if path.suffix.lower() == ".toml":
+        raise SettingsError(
+            f"{path}: TOML settings are no longer supported (2.4.0); "
+            "convert the file to YAML and select a .yaml file instead")
+    return path
+
+
+def _read(path):
+    """Read a YAML settings file (cached for unchanged files)."""
+    path = _reject_toml(path)
     identity = _read_identity(path)
     if identity is not None:
         cached = _READ_CACHE.get(identity)
@@ -257,9 +263,6 @@ def _read(path):
 
 def _read_uncached(path):
     try:
-        if path.suffix.lower() == ".toml":
-            with open(path, "rb") as f:
-                return tomllib.load(f)
         with open(path, encoding="utf-8") as f:
             data = _yaml_load(f)
         if data is None:
@@ -267,7 +270,7 @@ def _read_uncached(path):
         if not isinstance(data, dict):
             raise SettingsError(f"{path}: top-level config must be a mapping")
         return data
-    except (tomllib.TOMLDecodeError, OSError, *_YAML_ERRORS) as exc:
+    except (OSError, *_YAML_ERRORS) as exc:
         raise SettingsError(f"{path}: {exc}") from None
 
 
@@ -334,7 +337,7 @@ def _check_keys(home, extra, source):
             # entries are shape-checked in validate() (_check_roster).
             if not isinstance(values, list) or not all(isinstance(entry, dict) for entry in values):
                 raise SettingsError(f"{source}: [printers] must be a list of printer entries "
-                                    "([[printers]] in TOML, a list under printers: in YAML)")
+                                    "(use a list under printers: in YAML)")
             cleaned[section] = values
             continue
         if section == "accessories":
@@ -345,7 +348,7 @@ def _check_keys(home, extra, source):
             # against the model (_check_accessories).
             if not isinstance(values, list) or not all(isinstance(entry, dict) for entry in values):
                 raise SettingsError(f"{source}: [accessories] must be a list of accessory entries "
-                                    "([[accessories]] in TOML, a list under accessories: in YAML)")
+                                    "(use a list under accessories: in YAML)")
             cleaned[section] = values
             continue
         if section not in home:
@@ -824,7 +827,7 @@ def _check_roster(raw):
     """
     if not isinstance(raw, list):
         raise SettingsError("[printers] must be a list of printer entries "
-                            "([[printers]] in TOML, a list under printers: in YAML)")
+                            "(use a list under printers: in YAML)")
     if not raw:
         raise SettingsError("[printers] must name at least one printer")
     stubs, seen = [], set()
@@ -2375,11 +2378,10 @@ def user_config_path(environ):
 
 
 def load(home=None, local=None, environ=None, user=None):
-    """Read and validate settings. Prefer YAML and retain TOML during migration.
+    """Read and validate YAML settings (legacy TOML paths are refused).
 
-    Load order: model defaults, home configuration, explicit PRINT_HANDY_CONFIG (or
-    local YAML/TOML), then environment. If home.yaml is absent, a home.toml beside it is used.
-    If local.yaml is absent, local.toml is used. PRINT_HANDY_CONFIG selects one file.
+    Load order: model defaults, home.yaml, explicit PRINT_HANDY_CONFIG (or
+    local.yaml), then environment. PRINT_HANDY_CONFIG selects one file.
     The operator's own file (user_config_path) is layered over that file and under the
     environment, so an image update that replaces the shipped config never touches it.
     Pass environ={} to ignore the process environment.
@@ -2387,7 +2389,7 @@ def load(home=None, local=None, environ=None, user=None):
     environ = os.environ if environ is None else environ
     _unknown_settings.clear()
     if home is None:
-        home = HOME if HOME.is_file() else LEGACY_HOME
+        home = HOME
     home_data = _read(home)
     if local is None:
         env = environ.get("PRINT_HANDY_CONFIG")
@@ -2397,8 +2399,10 @@ def load(home=None, local=None, environ=None, user=None):
                 raise SettingsError(f"PRINT_HANDY_CONFIG points to a missing file: {local}")
         elif LOCAL.is_file():
             local = LOCAL
-        elif LEGACY_LOCAL.is_file():
-            local = LEGACY_LOCAL
+        elif LOCAL.with_suffix(".toml").is_file():
+            raise SettingsError(
+                f"{LOCAL.with_suffix('.toml')}: TOML settings are no longer supported (2.4.0); "
+                f"convert this file to {LOCAL} before starting")
     local_layer = _read(local) if local else {}
     extra = local_layer
     if user is None:
