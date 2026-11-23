@@ -416,12 +416,11 @@ def _no_public_internet(monkeypatch):
 # turns the local detector on would otherwise start the real 202 MB fetch.
 # tests/runtime/test_local_vision.py tests the download itself and fakes
 # urlopen instead; any test may still override either stub.
-_DOWNLOAD_TEST_MODULES = {"tests.runtime.test_local_vision", "test_local_vision"}
 
 
 @pytest.fixture(autouse=True)
 def _no_detector_model_download(request, monkeypatch):
-    if request.module.__name__ in _DOWNLOAD_TEST_MODULES:
+    if request.module.__name__.rpartition(".")[2] == "test_local_vision":
         return
     from print_handy.runtime import local_vision
 
