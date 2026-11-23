@@ -404,7 +404,7 @@ def test_slot_self_check_posts_inconclusive_after_missing_baseline_timeout(monke
     assert len(posts) == 1
     assert "inconclusive" in posts[0]
     assert "may be stale" in posts[0]
-    monkeypatch.setattr(mel, "post", posts.append)
+    posts.clear()
     asyncio.run(listener._slot_self_check())
     assert waits == [1] * 30
     assert posts == []
