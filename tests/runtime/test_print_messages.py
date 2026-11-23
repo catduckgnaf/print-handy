@@ -406,7 +406,7 @@ def test_slot_self_check_posts_inconclusive_after_missing_baseline_timeout(monke
     assert "may be stale" in posts[0]
     posts.clear()
     asyncio.run(listener._slot_self_check())
-    assert waits == [1] * 30
+    assert waits == [1] * 60
     assert posts == []
 
 
@@ -418,7 +418,10 @@ def test_slot_self_check_posts_inconclusive_for_partial_baseline(monkeypatch, ba
     listener.print_identity = "job-1"
     monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
         baseline, (3, 4, 4, None)]))
-    monkeypatch.setattr(mel.asyncio, "sleep", lambda delay: asyncio.sleep(0))
+    async def no_wait(_delay):
+        return None
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
     posts = []
     monkeypatch.setattr(mel, "post", posts.append)
     asyncio.run(listener._slot_self_check())
