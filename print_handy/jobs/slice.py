@@ -2878,6 +2878,10 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     _split = (provenance or {}).get('timing_s') or {}
     _timing(job_path, 'orca_finalize_done',
             **{k: _split[k] for k in ('slicer_s', 'python_s') if k in _split})
+    # #1779: Print Handy's own time around Orca, apart from the slicer, with its measured subphases.
+    if 'python_s' in _split:
+        _timing(job_path, 'python_overhead', python_s=_split['python_s'],
+                subphases_s=_split.get('python_subphases_s') or {})
     _timing(job_path, 'verify_begin')
     # Every printer, not only the default one (#1468): verification runs
     # against the job's own adapter and recorded printer id, and the
