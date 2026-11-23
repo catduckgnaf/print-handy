@@ -61,12 +61,13 @@ START_TRANSITIONAL_STATES = frozenset({"heating", "calibrate_doing", "busy", "pr
 # Since the one-launch-pipeline consolidation (#1603), the five polled transports
 # (_print_octoprint, _print_bambu, _print_elegoo_sdcp, _print_prusa, _print_flashforge_stock)
 # are TransportLaunch specs dispatched by _run_transport_launch, which is the registered
-# sending site; each adapter's own start-truth function (octoprint, bambu, polled) is
-# pinned by the call-site test's scan of the specs' truth hooks.
+# sending site. Its outcome fields come from start_truth.polled_fields; each
+# adapter's own start-truth function (octoprint, bambu, polled), baseline
+# included, is pinned by the call-site test's scan of the specs' truth hooks.
 START_CALL_SITES = {
     "print_mapped_native": "moonraker",
     "_print_now_locked": "moonraker",
-    "_run_transport_launch": "polled",
+    "_run_transport_launch": "polled_fields",
 }
 
 

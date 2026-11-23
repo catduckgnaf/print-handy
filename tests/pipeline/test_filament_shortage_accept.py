@@ -39,6 +39,7 @@ SPOOLMAN = {19: {"id": 19, "remaining_weight": 0}, 21: {"id": 21, "remaining_wei
 @pytest.fixture
 def two_slot(tmp_path):
     """The mapped AD5X launch with T0 -> slot 2 (0 g in Spoolman) and T1 -> slot 3 (787.1 g)."""
+    from print_handy import settings
     from print_handy.printers import flashforge
     from print_handy.printers.flashforge.zmod import screen as zmod_screen
     native = mock.Mock(spec=flashforge.zmod)
@@ -46,6 +47,9 @@ def two_slot(tmp_path):
     native.require_idle_settled.return_value = True
     native.screen_label_matches.side_effect = zmod_screen.label_matches
     adapter = mock.Mock(native=native)
+    # The job records the configured model. The adapter's key has to be that
+    # model or the launch builds the real printer instead of this fake.
+    adapter.key = settings.current()["printer"]["model"]
     scripts = []
 
     def fake_mr(st, path, data=None, timeout=30):
@@ -76,6 +80,8 @@ def two_slot(tmp_path):
          mock.patch.object(model_job, "record_start", return_value="/vault/x.md"), \
          mock.patch.object(model_job, "_wait_printing", return_value="standby"), \
          mock.patch.object(model_job, "_preparation_evidence", return_value=False), \
+         mock.patch.object(print_now.printer_state, "spoolman_url",
+                           return_value="http://spoolman.invalid"), \
          mock.patch.object(spoolman_client, "get_spool", side_effect=lambda sid, **k: SPOOLMAN.get(sid)), \
          mock.patch.object(model_job.subprocess, "run", side_effect=upload_ok) as run:
         yield mock.Mock(scripts=scripts, run=run, st=st, root=tmp_path)

@@ -1836,8 +1836,9 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # replaces the earlier attempt's record instead of colliding with it.
         # The audit trail names BOTH artifacts (#838): `file` is the uploaded remote (the
         # .gcode.3mf package when ZMod delivery packages it), so gcode_sha256 is the inner
-        # G-code's hash and upload_sha256 the bytes Moonraker actually received.
-        checkpoint_data = {'phase': 'submission_pending', 'command': command,
+        # G-code's hash and upload_sha256 the bytes Moonraker actually received. `sha256`
+        # stays the inner G-code hash so a reader written before the two-hash record still works.
+        checkpoint_data = {'phase': 'submission_pending', 'command': command, 'sha256': sha,
                            'gcode_sha256': sha, 'upload_sha256': upload_sha,
                            'file': remote, 'artifact': str(g), 'submission_count': 1,
                            'accepted': False, 'started': False, 'lease_token': lease.token}
@@ -2005,7 +2006,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         raise SystemExit(_rejected_start_message(receipt_error))
     _timing(job_path, 'start_submitted')
     out = {'accepted': False, 'started': False, 'phase': start_truth.PHASE_SUBMITTED,
-           'file': remote, 'artifact': str(g),
+           'file': remote, 'artifact': str(g), 'sha256': sha,
            'gcode_sha256': sha, 'upload_sha256': upload_sha, 'mapping': mapping,
            'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': None,
            'lease_token': lease.token}

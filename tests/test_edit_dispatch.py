@@ -533,7 +533,7 @@ def test_file_plus_question_answers_after_intake(edit_env, monkeypatch):
         return {"action": "skip", "reason": "intake done"}
 
     monkeypatch.setattr(pi, "prepare_link", fake_intake)
-    monkeypatch.setattr(pi, "model_file", lambda event: "/tmp/x.3mf" if getattr(event, "media_urls", None) else None)
+    monkeypatch.setattr(pi, "model_files", lambda event: ["/tmp/x.3mf"] if getattr(event, "media_urls", None) else [])
     monkeypatch.setattr(plugin, "_routed_printer_id", lambda s, g: None)
     monkeypatch.setattr(plugin, "_undecided_printer_ids", lambda s, g: [])
     from print_handy.core import printer_state

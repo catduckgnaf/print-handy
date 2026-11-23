@@ -7,6 +7,8 @@ removes the cause or logs the failure, and the print path keeps its result.
 import json
 import logging
 
+import pytest
+
 from print_handy import settings
 from print_handy.gcode import bounds
 from print_handy.jobs import filament, store
@@ -59,18 +61,17 @@ def test_timing_writes_a_line_when_the_folder_is_writable(tmp_path):
     lines = (tmp_path / "TIMING.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(lines[-1])["stage"] == "orca_begin"
 
-def test_stamp_default_printer_failure_leaves_job_unstamped(monkeypatch, caplog):
+def test_stamp_default_printer_failure_refuses_an_unstamped_job(monkeypatch):
+    """A job is never left unstamped: a roster with no default printer raises."""
     def boom(*_args, **_kwargs):
         raise RuntimeError("roster unavailable")
 
     monkeypatch.setattr(settings, "default_printer_id", boom)
     job = {"name": "plate"}
 
-    with caplog.at_level(logging.WARNING, logger=store.logger.name):
+    with pytest.raises(RuntimeError, match="roster unavailable"):
         store.stamp_job_printer(job)
-
     assert "printer_id" not in job
-    assert any("could not stamp the default printer id" in r.getMessage() for r in caplog.records)
 
 def test_position_limit_keeps_configured_floor_when_adapter_has_no_slot_count():
     class NoSlots:

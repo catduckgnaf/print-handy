@@ -14,6 +14,7 @@ print-feedback plugin. Rules learned the hard way (2026-10-10 desk stand):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -1522,16 +1523,16 @@ def pending_copy(path: Path | None = None, printer_id: str | None = None) -> dic
 
 
 def _queued_claim_copy(queue: dict[str, Any], index: int) -> int:
-    """Stable per-queued-entry claim identity, from the queue's claim_nonce.
+    """Stable per-queued-entry claim identity, including older saved queues.
 
-    A queue saved without one predates this version and is refused.
+    A queue written before claim_nonce existed still has one stable identity:
+    a hash of the saved queue, so a repeated tap on the same entry is the
+    same claim and a missing fingerprint is still refused separately.
     """
-    from .print_next import NextPlateError
-
     nonce = queue.get("claim_nonce")
     if type(nonce) is not int or nonce <= 0:
-        raise NextPlateError("the queued print was saved by an older version; nothing started. "
-                             "Cancel the queue and select the print again")
+        packed = json.dumps(queue, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        nonce = int.from_bytes(hashlib.sha256(packed).digest()[:8], "big") >> 4
     return nonce + index
 
 

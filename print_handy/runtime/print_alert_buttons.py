@@ -1259,17 +1259,26 @@ ALERT_PRINTER_UNKNOWN = ("This alert was recorded before alerts named their prin
 def _alert_printer(alert: dict[str, Any]) -> tuple[str | None, str | None]:
     """(printer_id for the control calls, refusal text) for a button press.
 
-    The alert's recorded printer; None (the configured printer) when that is the default printer,
-    so the default keeps its call shape. An alert row with no printer_id is refused.
+    The alert's recorded printer; None (the configured printer) when that is the
+    default printer, so the default keeps its call shape. An alert row with no
+    printer_id belongs to the one configured printer. With more than one printer
+    that row is refused: it does not say which machine it came from.
     """
     pid = alert.get("printer_id") or None
-    if not pid:
-        return None, ALERT_PRINTER_UNKNOWN
     try:
         from print_handy import settings
+        roster = settings.printers()
         default = settings.default_printer_id()
     except Exception:
-        default = None
+        logging.getLogger(__name__).warning(
+            "could not read the printer roster for an alert button", exc_info=True)
+        if not pid:
+            return None, ALERT_PRINTER_UNKNOWN
+        return str(pid), None
+    if not pid:
+        if len(roster) > 1:
+            return None, ALERT_PRINTER_UNKNOWN
+        return None, None
     return (None if pid == default else str(pid)), None
 
 
@@ -1493,6 +1502,27 @@ def post_matrix_with_reactions(homeserver: str, token: str, room_id: str, conten
     return True
 
 
+def _retired_for(alert: dict[str, Any], printer_id: str | None) -> bool:
+    """Whether a scoped retirement includes this alert.
+
+    Unscoped (None) retires every match. A recorded printer_id must be that
+    printer. An alert stored before alerts named their printer belongs to the
+    default printer, so another printer's retirement leaves it alone.
+    """
+    if printer_id is None:
+        return True
+    owner = alert.get("printer_id")
+    if owner:
+        return owner == printer_id
+    try:
+        from print_handy import settings
+        return str(printer_id) == str(settings.default_printer_id())
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "could not tell which printer an old alert belongs to", exc_info=True)
+        return False
+
+
 def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str, ...] = ("shutdown", "error", "pause", "paused"),
                   *, headline: str = "Printer firmware stopped.", printer_id: str | None = None) -> int:
     """Strip the buttons from stale alerts for this job and say why, so a dead Cancel button is not left behind.
@@ -1509,7 +1539,7 @@ def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str,
         data = _load()
         stale = {aid: a for aid, a in data.items() if isinstance(a, dict) and a.get("kind") in kinds
                  and (filename is None or a.get("filename") == filename)
-                 and (printer_id is None or a.get("printer_id") == printer_id)}
+                 and _retired_for(a, printer_id)}
         for aid in stale:
             data.pop(aid, None)
         _save(data)

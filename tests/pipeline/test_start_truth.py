@@ -86,7 +86,7 @@ def test_moonraker_not_started_when_preparation_is_abandoned():
 
 
 def test_moonraker_another_file_is_never_this_start():
-    assert T.moonraker_readback(_mr("printing", "someone_else.gcode"), REMOTE) is None
+    assert T.moonraker_readback(_mr("printing", "someone_else.gcode"), REMOTE, {}) is None
     truth = T.moonraker(None, heating=False)
     assert truth.verdict == T.UNCERTAIN and truth.quiet  # what lets a 4xx read as "not started"
 
@@ -131,7 +131,7 @@ def test_bambu_uncertain_when_the_subtask_did_not_change():
     assert T.bambu(dict(BAMBU_IDLE), PACKAGE, BAMBU_IDLE).verdict == T.UNCERTAIN
     assert T.bambu({"state": "printing", "gcode_state": "RUNNING", "filename": "other"}, PACKAGE,
                    BAMBU_IDLE).verdict == T.UNCERTAIN
-    assert T.bambu({}, PACKAGE).verdict == T.UNCERTAIN
+    assert T.bambu({}, PACKAGE, {}).verdict == T.UNCERTAIN
 
 
 def test_bambu_not_started_when_this_subtask_fails():
@@ -155,7 +155,7 @@ def test_octoprint_preparing_in_a_transitional_state():
 def test_octoprint_uncertain_when_nothing_changed_or_another_file():
     assert T.octoprint(dict(OCTO_IDLE), REMOTE, OCTO_IDLE).verdict == T.UNCERTAIN
     assert T.octoprint({"state": "printing", "filename": "other.gcode"}, REMOTE, OCTO_IDLE).verdict == T.UNCERTAIN
-    assert T.octoprint(None, REMOTE).verdict == T.UNCERTAIN
+    assert T.octoprint(None, REMOTE, {}).verdict == T.UNCERTAIN
 
 
 def test_octoprint_not_started_when_this_job_errors():
@@ -165,7 +165,7 @@ def test_octoprint_not_started_when_this_job_errors():
 def test_polled_unchanged_status_is_never_evidence():
     printing = {"state": "printing", "filename": REMOTE}
     assert T.polled(printing, REMOTE, printing).verdict == T.UNCERTAIN
-    assert T.polled(printing, REMOTE).verdict == T.STARTED  # no baseline: the legacy rule
+    assert T.polled(printing, REMOTE, None).verdict == T.STARTED  # unreadable baseline: the live status counts
 
 
 def test_polled_fields_keep_a_reported_failure_uncertain():

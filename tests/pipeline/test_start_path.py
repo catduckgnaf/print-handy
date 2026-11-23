@@ -519,7 +519,8 @@ def test_item8_generic_lost_post_is_reconciled_like_the_mapped_path(printer, mon
         with mock.patch.object(model_job, "_preparation_evidence", return_value=True):  # heaters on now
             MoonrakerScript(printer)
             verdict, _ = model_job._settle_lost_start(mock.Mock(), {}, "x.gcode", TimeoutError(),
-                                                      base={"file": "x.gcode"}, heaters_were_off=proven_off)
+                                                      base={"file": "x.gcode"}, heaters_were_off=proven_off,
+                                                      baseline={})
             assert verdict["phase"] == want
 
 
