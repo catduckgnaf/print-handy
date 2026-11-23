@@ -2394,7 +2394,7 @@ def load(home=None, local=None, environ=None, user=None):
     if local is None:
         env = environ.get("PRINT_HANDY_CONFIG")
         if env:
-            local = Path(env)
+            local = _reject_toml(env)
             if not local.is_file():
                 raise SettingsError(f"PRINT_HANDY_CONFIG points to a missing file: {local}")
         elif LOCAL.is_file():
@@ -2414,7 +2414,10 @@ def load(home=None, local=None, environ=None, user=None):
                 raise SettingsError(f"PRINT_HANDY_USER_CONFIG points to a missing file: {user}")
             user = None
     elif user and not Path(user).is_file():
+        _reject_toml(user)
         raise SettingsError(f"user settings file is missing: {user}")
+    if user:
+        _reject_toml(user)
     user_extra = _read(user) if user else {}
     shipped = bool(local) and Path(local).resolve() in SHIPPED_DOCKER_CONFIGS
     operator = _merge({} if shipped else extra, user_extra)

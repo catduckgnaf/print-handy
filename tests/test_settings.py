@@ -1113,6 +1113,18 @@ def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):
 
 
 
+
+
+def test_nonexistent_toml_config_and_user_paths_are_refused_by_format(tmp_path):
+    local = tmp_path / "missing.toml"
+    user = tmp_path / "missing-user.toml"
+    for kwargs in (
+        {"environ": {"PRINT_HANDY_CONFIG": str(local)}, "user": False},
+        {"environ": {}, "local": False, "user": user},
+    ):
+        with pytest.raises(settings.SettingsError, match="TOML settings are no longer supported"):
+            settings.load(**kwargs)
+
 def test_retired_toml_settings_are_refused_even_with_yaml_contents(tmp_path):
     stale = tmp_path / "docker.toml"
     stale.write_text("printer:\n  model: flashforge.ad5x\n")
