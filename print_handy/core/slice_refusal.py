@@ -159,9 +159,11 @@ def apply_fix(fix: dict[str, Any] | None, *, printer_id: str | None = None) -> s
     """
     if not fix or fix.get("kind") != "confirm_slot_color":
         raise ValueError("no fix to apply")
+    from .. import settings
     from . import printer_state
-    with printer_state.hardware_lock(printer_id or None):
-        state = printer_state.load(printer_id) if printer_id else printer_state.load()
+    target_id = printer_id or settings.default_printer_id()
+    with printer_state.hardware_lock(target_id):
+        state = printer_state.load(target_id)
         slot = str(fix["slot"])
         record = (state.get("filament_slots") or {}).get(slot)
         if not isinstance(record, dict):
@@ -174,10 +176,7 @@ def apply_fix(fix: dict[str, Any] | None, *, printer_id: str | None = None) -> s
             record["hex"] = hx
             record["hex_source"] = "operator"
         record["physical_color_verified"] = True
-        if printer_id:
-            printer_state.save(state, printer_id)
-        else:
-            printer_state.save(state)
+        printer_state.save(state, target_id)
     return f"Slot {slot} color confirmed as #{record['hex'].lstrip('#').upper()}."
 
 

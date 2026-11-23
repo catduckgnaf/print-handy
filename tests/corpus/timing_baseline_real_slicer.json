@@ -164,7 +164,7 @@
    "wall_s": 16.35
   }
  },
- "description": "Real-Orca fake Discord flow (hermes transport), ci.yml slicer-timing-real, REPORTING ONLY (#734). Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
+ "description": "Real-Orca fake Discord flow (standalone transport), ci.yml slicer-timing-real, REPORTING ONLY (#734). Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
  "recorded_from": "CI run 43261865512 (e6f057232f64f5e1fd808e0aa6a06428bc9e8140), artifact slicer-timing-real, median of 3, runner CPU AMD EPYC 7763 64-Core Processor. Recorded from CI run 43261865512 (e6f05723) on the usual AMD EPYC 7763 runner class: same product code as the release commit adf85824 (#1370 changed only two tests); its timing jobs passed and its only failures were those two tests. The green run on adf85824 (43267608720) landed on a faster EPYC 9V74 runner (islands-144 0.84 s against 1.19 s) and is not used, so slower hosted runners do not trip the gate (the #1347 lesson).",
  "slack_s": 1.0,
  "tolerance": 0.1

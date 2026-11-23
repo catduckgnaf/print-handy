@@ -221,7 +221,7 @@ from corpus import harness
 from print_handy.bot import health
 import print_handy.bot.client  # the discord.py client imports without Hermes too
 case = harness.load_case(harness.CASES / 'parts-one-plate')
-with mock.patch.object(printer_state, 'save', lambda state: None):
+with mock.patch.object(printer_state, 'save', lambda state, printer_id=None: None):
     run = harness.run_case(case, tempfile.mkdtemp(), transport='standalone')
 harness.check_expectations(case, run)
 print('REPORT ' + json.dumps({'status': run.receipt.get('status'), 'starts': len(run.starts)}))

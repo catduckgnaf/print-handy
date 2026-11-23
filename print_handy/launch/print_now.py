@@ -118,8 +118,9 @@ def _sync_active_spool(st, slot, printer_id=None):
     recorded = st.get('spool') or {}
     # The reload/save stays on the printer `st` belongs to: with a roster
     # printer_id the legacy no-ID record is a DIFFERENT printer's (#847).
-    with printer_state.hardware_lock(printer_id or None):
-        fresh = printer_state.load(printer_id) if printer_id else printer_state.load()
+    target_id = printer_id or settings.default_printer_id()
+    with printer_state.hardware_lock(target_id):
+        fresh = printer_state.load(target_id)
         fresh['spool'] = {'spoolman_id': sid,
                           'name': filament.get('name') or configured.get('name'),
                           'material': filament.get('material') or configured.get('material'),
@@ -127,10 +128,7 @@ def _sync_active_spool(st, slot, printer_id=None):
                           'density': filament.get('density', recorded.get('density', 1.24))}
         # temps_c belonged to the previous spool: mark it so slicing resolves this one's (#692).
         fresh['temperature_resolution'] = {'source': 'spool changed by launch sync; resolved per slice'}
-        if printer_id:
-            printer_state.save(fresh, printer_id)
-        else:
-            printer_state.save(fresh)
+        printer_state.save(fresh, target_id)
     st['spool'] = dict(fresh['spool'])
     print(f'ACTIVE SPOOL SYNCED: #{current} -> #{sid} (slot {slot})', flush=True)
     result = {'spool_id': sid, 'previous': current, 'changed': True}
@@ -516,10 +514,11 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
 
 def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None, print_number=None):
     print_records = _external.load("print_records")
-    st=printer_state.load(); g=Path(gcode_path).expanduser().resolve(); text=g.read_text(errors="ignore")
+    g=Path(gcode_path).expanduser().resolve(); text=g.read_text(errors="ignore")
+    job=_job_for_gcode(g)
+    st=printer_state.load(_job_printer_id(job))
     def cfg(key):
         m=re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M); return m.group(1).strip() if m else None
-    job=_job_for_gcode(g)
     key=moonraker_name or g.name
     src=(job or {}).get("selected_source") or {}
     correlation_id = job_correlation.ensure(job) if isinstance(job, dict) else None
@@ -2187,7 +2186,6 @@ def remap_slot(target, new_slot, tool=None, state=None):
     is remapped; a file that uses more than one tool is refused
     (ToolRemapRefused), since one slot cannot name which tool is meant.
     """
-    st = state or printer_state.load()
     resolved = resolve_print_target(target)
     target_path = Path(resolved).expanduser().resolve()
 
@@ -2214,8 +2212,7 @@ def remap_slot(target, new_slot, tool=None, state=None):
     # record and native contract, not the default's (SAFE-4 / P1-75). An
     # explicit state argument from the caller still wins for the record.
     routed_id = _recorded_printer_id(job)
-    if routed_id and state is None:
-        st = printer_state.load(routed_id)
+    st = state if state is not None else printer_state.load(_job_printer_id(job))
     routed_adapter = _job_adapter(job) if routed_id else printers.current()
 
     # A split job's artifact binding hashes each derived plate apart (a dict

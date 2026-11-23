@@ -1,5 +1,5 @@
 [Unit]
-Description=Print Handy Moonraker listener, standalone (posts over Discord REST, no Hermes)
+Description=Print Handy Moonraker listener, standalone (Discord REST posts)
 After=network-online.target
 Wants=network-online.target
 

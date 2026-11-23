@@ -14,7 +14,7 @@ from . import harness
 
 @pytest.fixture(autouse=True)
 def _never_write_live_printer_state(monkeypatch):
-    monkeypatch.setattr(printer_state, "save", lambda state: None)
+    monkeypatch.setattr(printer_state, "save", lambda state, printer_id=None: None)
 
 
 @pytest.fixture(autouse=True)
