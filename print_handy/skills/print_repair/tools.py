@@ -381,9 +381,16 @@ TOOLS: dict[str, Tool] = {tool.name: tool for tool in (
 )}
 
 
+# These repair implementations are still under construction. They may be called
+# explicitly (and safely return unavailable), but must not be advertised to
+# the model as executable geometry edits.
+UNAVAILABLE_REPAIRS = frozenset({'gusset_45', 'fill_under_lip', 'straight_base'})
+
+
 def openai_tools() -> list[dict]:
-    """The function schemas to pass to an OpenAI-compatible endpoint, in registry order."""
-    return [tool.schema() for tool in TOOLS.values()]
+    """Only tools actually implemented and available to the model."""
+    return [tool.schema() for tool in TOOLS.values()
+            if tool.name not in UNAVAILABLE_REPAIRS]
 
 
 def _check_type(name, key, value, schema):
