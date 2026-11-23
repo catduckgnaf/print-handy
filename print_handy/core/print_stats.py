@@ -23,7 +23,7 @@ a print counted as risky (set in ``core.model_job`` from
 camera detection during the print (#981). A record counts as
 risk-flagged when ``watch_risk`` is a truthy value (a non-empty string
 in practice, ``True`` defensively). The aggregate names that count
-``risk_flagged``.
+``risk_flagged``; ``watchdog_flagged`` remains as its deprecated alias.
 
 Pasta (spaghetti) is a different source entirely: the watchdog events
 file (``<records vault>/Watchdog/events.jsonl``, written always-on by
@@ -1447,8 +1447,11 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
             "failed": failed,
             "stop_reasons": dict(sorted(stop_reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
             "risk_flagged": len(flagged),
+            # Existing consumers still read the old alias.
+            "watchdog_flagged": len(flagged),
         },
         "risk_flagged": len(flagged),
+        "watchdog_flagged": len(flagged),
         # Pasta, failed and stopped are three separate headline numbers
         # (#981), never merged into one "problems" count. Pasta means
         # watchdog spaghetti events from the events file (v2); with no
@@ -1706,7 +1709,8 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None,
         "top_vendor": top_vendor, "top_spool": top_spool,
         "busiest_month": busiest_month, "busiest_month_prints": busiest_count,
         "longest_print": stats["longest_print"], "biggest_by_filament": biggest,
-        "risk_flagged": stats["risk_flagged"], "failed": stats["failed"],
+        "risk_flagged": stats["risk_flagged"],
+        "watchdog_flagged": stats["watchdog_flagged"], "failed": stats["failed"],
         "worst_failure_streak": _failure_streak(rows),
         "worst_failure": worst_failure,
         "pasta": stats["outcomes"]["pasta"],
