@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 from print_handy.bot import fix_session
 from print_handy.core import mesh_repair, support_clearance
@@ -104,6 +105,21 @@ def test_sink_and_trim_change_geometry_and_keep_the_original(tmp_path):
     assert 'nothing was changed' in partial['error']
     assert stl.read_bytes() == before
     assert not list(folder.rglob('*partial*'))
+
+
+def test_trim_refuses_triangle_crossing_the_region_at_the_cut_plane(tmp_path):
+    folder, _job, stl, _session_obj = _session(tmp_path)
+    # Two vertices are under z=2 and inside [0,10] but the clipped edge
+    # intersects z=2 at x=11, outside the requested local region.
+    support_clearance._write_binary_stl(stl, np.array([[
+        [0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [15.0, 5.0, 10.0]]]))
+    before = stl.read_bytes()
+    result = tools.Session(folder).run('trim_below_plane', {
+        'mesh': 'source/part.stl', 'region': [0, 0, 10, 10], 'z': 2})
+    assert result['ok'] is False
+    assert 'outside the requested region' in result['error']
+    assert stl.read_bytes() == before
+    assert not list(stl.parent.glob('part-trimmed*'))
 
 
 def test_process_turn_not_ok_tool_does_not_claim_the_file_changed(tmp_path):
