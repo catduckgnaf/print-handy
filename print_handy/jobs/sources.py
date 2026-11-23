@@ -963,12 +963,17 @@ def _fetch_chosen(url, target, name, label, *, exact, headers=None):
                 raise RuntimeError(
                     f"{label} sent a zip with {len(entries)} model files and none is named "
                     f"{name}, so Print Handy cannot tell which one was chosen; nothing was kept")
-            # No byte-size cap on the extracted member. Geometry budgets and
-            # zip-bomb / disk-space guards in intake_resources apply later. (#1824)
-            from ..core.intake_resources import CHUNK
+            # Do not impose a model-byte cap, but a compressed member must not
+            # exhaust the volume *before* geometry validation runs.
+            from ..core.intake_resources import CHUNK, MIN_FREE_BYTES, IntakeLimitExceeded
             try:
                 with archive.open(pick) as src, dest.open("wb") as out:
                     while chunk := src.read(CHUNK):
+                        if shutil.disk_usage(dest.parent).free < len(chunk) + MIN_FREE_BYTES:
+                            raise IntakeLimitExceeded(
+                                f"Model intake refused: archive extraction needs "
+                                f"{MIN_FREE_BYTES // (1024 * 1024)} MiB of free disk space reserved; "
+                                "nothing was sliced or started.")
                         out.write(chunk)
             except BaseException:
                 dest.unlink(missing_ok=True)
