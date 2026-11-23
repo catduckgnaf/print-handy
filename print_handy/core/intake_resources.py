@@ -196,10 +196,9 @@ def _stream_counts(archive, models, *, path=None):
                     path=path)
 
     def text(data):
-        # Indentation between elements is harmless and common; other text
-        # is non-geometry content a DOM fallback would have to hold.
-        if data.strip():
-            add_payload(len(data.encode('utf-8', 'surrogatepass')))
+        # Count whitespace too: ElementTree retains it in the DOM fallback.
+        # Normal indentation is negligible against the aggregate 64 MiB cap.
+        add_payload(len(data.encode('utf-8', 'surrogatepass')))
 
     def start(name, attrs):
         local = name.rsplit('}', 1)[-1]

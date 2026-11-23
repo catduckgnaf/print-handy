@@ -171,6 +171,14 @@ def _model_3mf(tmp_path, name, body):
     return source
 
 
+def test_whitespace_only_text_refused_for_fallback_bound(tmp_path):
+    """Whitespace is retained by the DOM fallback and must share its payload cap."""
+    source = _model_3mf(tmp_path, 'whitespace.3mf', b'<note>' + b' ' * 8192 + b'</note>')
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 4096):
+        with pytest.raises(limits.IntakeLimitExceeded, match=r'whitespace\\.3mf: .*non-geometry'):
+            limits.check_source(source)
+
+
 def test_large_text_payload_refused_for_fallback_bound(tmp_path):
     """Non-geometry text is bounded because the DOM fallback would hold it (#1846)."""
     source = _model_3mf(tmp_path, 'text.3mf', b'<note>' + b'abcdefgh' * 2048 + b'</note>')
