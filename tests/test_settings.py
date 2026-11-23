@@ -1121,6 +1121,7 @@ def test_nonexistent_toml_config_and_user_paths_are_refused_by_format(tmp_path):
     for kwargs in (
         {"environ": {"PRINT_HANDY_CONFIG": str(local)}, "user": False},
         {"environ": {}, "local": False, "user": user},
+        {"environ": {"PRINT_HANDY_USER_CONFIG": str(user)}, "local": False},
     ):
         with pytest.raises(settings.SettingsError, match="TOML settings are no longer supported"):
             settings.load(**kwargs)

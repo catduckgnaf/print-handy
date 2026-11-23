@@ -2407,6 +2407,8 @@ def load(home=None, local=None, environ=None, user=None):
     extra = local_layer
     if user is None:
         user = user_config_path(environ)
+        if user is not None:
+            _reject_toml(user)
         if user is not None and not user.is_file():
             if environ.get("PRINT_HANDY_USER_CONFIG"):
                 # A path the operator named must exist, like PRINT_HANDY_CONFIG (2.2.5 review of #783);
