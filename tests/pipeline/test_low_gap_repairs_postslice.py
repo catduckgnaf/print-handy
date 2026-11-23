@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import ai_fix, model_job, orca_adapter, prepared_intake, support_clearance
+from print_handy.core import ai_fix, orca_adapter, prepared_intake, support_clearance
 from print_handy.gcode import artifact as gcode_artifact
 from print_handy.intake import questions as intake_questions
 from print_handy.jobs import slice as jobs_slice
@@ -108,8 +108,7 @@ def env_source(env_, job):
 
 
 def bridge_sha(env_):
-    return model_job.sha256_bytes(env_.src_bytes) if hasattr(model_job, 'sha256_bytes') \
-        else __import__('hashlib').sha256(env_.src_bytes).hexdigest()
+    return __import__('hashlib').sha256(env_.src_bytes).hexdigest()
 
 
 def test_the_repair_does_not_waive_the_separate_coverage_failure(bridge, monkeypatch):

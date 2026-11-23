@@ -153,7 +153,6 @@ def test_slice_job_stl_binds_source_hash_before_decision_validation(tmp_path, mo
         raise RuntimeError('reached slicer')
     monkeypatch.setattr(job.printer_state, 'load', lambda: st)
     monkeypatch.setattr(job.printer_state, 'check', lambda _: (True, [], {}))
-    monkeypatch.setattr(job, 'slice_model', stop, raising=False)
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'slice_model', stop)
     with pytest.raises(RuntimeError, match='reached slicer'):

@@ -7,7 +7,6 @@ now checks only that the source is a bot platform's human message: a
 source carries no profile at all, and one that still has a profile
 attribute is answered the same way.
 """
-from pathlib import Path
 from types import SimpleNamespace as S
 
 from print_handy.bot import runtime

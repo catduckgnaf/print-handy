@@ -135,11 +135,11 @@ def test_clock_skew_shift_lets_a_stale_history_settle_the_lease():
 
 
 def _history_env(monkeypatch, jobs, skew):
-    from print_handy.core import model_job
     from print_handy.jobs import common as jobs_common
+    from print_handy.launch import print_now
     setattr_bound(monkeypatch, jobs_common, "_mr", lambda st, path, **kw: {"result": {"jobs": jobs}})
     monkeypatch.setattr(launch_state, "printer_clock_skew", lambda url, **kw: skew)
-    return model_job
+    return print_now
 
 
 def test_started_files_shift_only_runs_stamped_by_the_wrong_clock(monkeypatch):

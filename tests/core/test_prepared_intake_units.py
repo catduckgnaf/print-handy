@@ -251,14 +251,14 @@ def test_heavy_worker_log_lines_are_forwarded_and_context_is_sent(monkeypatch, c
     monkeypatch.setattr(prepared_intake.owned_worker, 'run', fake)
     token = prepared_intake.logs.bind(intake='t-55')
     try:
-        with caplog.at_level(logging.DEBUG, logger='print_handy.core.prepared_intake'):
+        with caplog.at_level(logging.DEBUG, logger='print_handy.intake.worker'):
             result = asyncio.run(intake_worker._heavy(jobs_audit.audit, Path('/does/not/exist.stl')))
     finally:
         prepared_intake.logs.unbind(token)
     assert result == {'plates': 1}
     assert captured['payload']['log_context'] == {'intake': 't-55'}
     forwarded = [(r.levelname, r.getMessage()) for r in caplog.records
-                 if r.name == 'print_handy.core.prepared_intake']
+                 if r.name == 'print_handy.intake.worker']
     assert ('WARNING', 'tower is close to the part') in [(lvl, msg.split(': ', 1)[-1]) for lvl, msg in forwarded]
     assert any(lvl == 'WARNING' and 'Traceback' in msg for lvl, msg in forwarded)  # continuation keeps the level
     assert any(lvl == 'INFO' and 'fit check done' in msg for lvl, msg in forwarded)
@@ -274,7 +274,7 @@ def test_heavy_worker_log_lines_are_forwarded_on_an_error_reply(monkeypatch, cap
         return ('\n' + json.dumps(reply)).encode(), \
             b'2026-11-02T00:00:00.000-05:00 ERROR print_handy.core.orca_adapter: orca exited -50\n'
     monkeypatch.setattr(prepared_intake.owned_worker, 'run', fake)
-    with caplog.at_level(logging.DEBUG, logger='print_handy.core.prepared_intake'):
+    with caplog.at_level(logging.DEBUG, logger='print_handy.intake.worker'):
         with pytest.raises(RuntimeError, match='slice exploded'):
             asyncio.run(intake_worker._heavy(jobs_audit.audit, Path('/does/not/exist.stl')))
     assert any(r.levelname == 'ERROR' and 'orca exited -50' in r.getMessage() for r in caplog.records)

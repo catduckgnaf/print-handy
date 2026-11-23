@@ -57,12 +57,12 @@ def test_real_child_process_error_reaches_parent_heavy_boundary(monkeypatch, tmp
     # Only the slice function is replaced; the transport, JSON and parent decoder
     # are real. No printer, external download or installed slicer is needed.
     script = f'''import runpy, subprocess
-from print_handy.core import model_job
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core.resources import ResourceLimitError
 from print_handy.core.slice_failure import SliceFailure
 def fail(*args, **kwargs):
     raise {error_code}
-model_job.slice_job = fail
+jobs_slice.slice_job = fail
 runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
 '''
     real_run = owned_worker.run
@@ -181,10 +181,10 @@ def test_unexplained_worker_error_logs_child_traceback_but_not_in_chat(monkeypat
     # A real child raises a plain bug (the P2-282 shape). The parent log must
     # name the child's failing frame, or the operator sees only the message.
     script = '''import runpy
-from print_handy.core import model_job
+from print_handy.jobs import slice as jobs_slice
 def failing_build_item_edit(*args, **kwargs):
     None.group(1)
-model_job.slice_job = failing_build_item_edit
+jobs_slice.slice_job = failing_build_item_edit
 runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
 '''
     real_run = owned_worker.run
@@ -194,7 +194,7 @@ runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
 
     monkeypatch.setattr(owned_worker, 'run', child)
     from print_handy.jobs import slice as jobs_slice
-    with caplog.at_level('ERROR', logger='print_handy.core.prepared_intake'):
+    with caplog.at_level('ERROR', logger='print_handy.intake.worker'):
         with pytest.raises(worker_errors.RemoteError) as info:
             asyncio.run(intake_worker._heavy(jobs_slice.slice_job, str(tmp_path / 'JOB.json')))
     assert "'NoneType' object has no attribute 'group'" in str(info.value)

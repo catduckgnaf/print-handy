@@ -2551,26 +2551,28 @@ def test_fit_failure_without_measurements_keeps_the_plain_text():
     assert 'vs usable' not in text and 'calculated capacity is 0 copy' in text
 
 
-def _projection_mj(fetch_failed=False):
-    # Production-shaped stub (#839 Codex): intake_spool_weights does not
-    # raise when Spoolman is down — it falls back to the cached weights and
-    # flags the failure on the result.
-    def weights(state, ids, fetch):
+def _patch_projection(monkeypatch, fetch_failed=False, *, usage=None, weights=None, projection=None,
+                      formatted=None):
+    # Production-shaped stubs on the real modules _spool_projection_text
+    # reads (#839 Codex): intake_spool_weights does not raise when Spoolman
+    # is down — it falls back to the cached weights and flags the failure.
+    def cached_weights(state, ids, fetch):
         result = jobs_prompts.IntakeSpoolWeights({5: 250.0})
         result.fetch_failed = fetch_failed
         return result
-    return S(filament_usage_by_selection=lambda job, manifest: [({'spoolman_id': 5}, None)],
-             intake_spool_weights=weights,
-             intake_spool_projection=lambda *a, **k: [],
-             format_spool_projection=lambda *a, **k: 'projection',
-             _job_adapter=lambda job: S(multi_tool=False, tool_based=False))
+    monkeypatch.setattr(jobs_prompts, 'filament_usage_by_selection',
+                        usage or (lambda job, manifest: [({'spoolman_id': 5}, None)]))
+    monkeypatch.setattr(jobs_prompts, 'intake_spool_weights', weights or cached_weights)
+    monkeypatch.setattr(jobs_prompts, 'intake_spool_projection', projection or (lambda *a, **k: []))
+    monkeypatch.setattr(jobs_prompts, 'format_spool_projection', formatted or (lambda *a, **k: 'projection'))
+    monkeypatch.setattr(jobs_store, '_job_adapter', lambda job: S(multi_tool=False, tool_based=False))
 
 
 def test_spool_projection_warns_when_the_weights_are_cached_not_live(monkeypatch):
     from print_handy.core import printer_state
     monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: 'http://spoolman.test:8000')
-    text = asyncio.run(prepared_intake._spool_projection_text(
-        _projection_mj(fetch_failed=True), {}, {}, {}, 1))
+    _patch_projection(monkeypatch, fetch_failed=True)
+    text = asyncio.run(prepared_intake._spool_projection_text({}, {}, {}, 1))
     # The cached amounts are still shown, but named as cached — never
     # presented as a live check that found enough filament.
     assert text.startswith('projection')
@@ -2594,12 +2596,11 @@ def test_spool_projection_uses_larger_sliced_support_variant_for_single_spool(mo
                  'estimated_used_g': round(grams, 1), 'remaining_g': 165.4,
                  'projected_remaining_g': round(165.4 - grams, 1)}]
 
-    mj = S(filament_usage_by_selection=usage, intake_spool_weights=lambda *a: {5: 165.4},
-           intake_spool_projection=projection,
-           format_spool_projection=lambda rows, **kw: f"Slot 4 dark green PLA: needs about {rows[0]['estimated_used_g']:g} g; spool has 165.4 g",
-           _job_adapter=lambda job: S(tool_based=False))
+    _patch_projection(
+        monkeypatch, usage=usage, weights=lambda *a: {5: 165.4}, projection=projection,
+        formatted=lambda rows, **kw: f"Slot 4 dark green PLA: needs about {rows[0]['estimated_used_g']:g} g; spool has 165.4 g")
     text = asyncio.run(prepared_intake._spool_projection_text(
-        mj, {}, manifest, {}, 1, sliced_variants=({'grams': 26.67}, {'grams': 22.14})))
+        {}, manifest, {}, 1, sliced_variants=({'grams': 26.67}, {'grams': 22.14})))
     assert 'needs about 26.7 g' in text
     assert '14.8 g' not in text
 
@@ -2615,13 +2616,12 @@ def test_spool_projection_says_when_it_is_still_the_pre_slice_estimate(monkeypat
     selection = {'slot': 4, 'spoolman_id': 5, 'color': 'dark green', 'material': 'PLA'}
     rows = [{'slot': 4, 'color': 'dark green', 'material': 'PLA', 'spoolman_id': 5,
              'estimated_used_g': 14.8, 'remaining_g': 165.4, 'projected_remaining_g': 150.6}]
-    mj = S(filament_usage_by_selection=lambda job, m: [(selection, m['filament_stats']['total_g'])],
-           intake_spool_weights=lambda *a: {5: 165.4},
-           intake_spool_projection=lambda job, w, m, copies=1: rows,
-           format_spool_projection=lambda rows, **kw: 'Slot 4 dark green PLA: needs about 14.8 g',
-           _job_adapter=lambda job: S(tool_based=False))
+    _patch_projection(
+        monkeypatch, usage=lambda job, m: [(selection, m['filament_stats']['total_g'])],
+        weights=lambda *a: {5: 165.4}, projection=lambda job, w, m, copies=1: rows,
+        formatted=lambda rows, **kw: 'Slot 4 dark green PLA: needs about 14.8 g')
     text = asyncio.run(prepared_intake._spool_projection_text(
-        mj, {}, manifest, {}, 1, sliced_variants=({'grams': None},)))
+        {}, manifest, {}, 1, sliced_variants=({'grams': None},)))
     assert 'needs about 14.8 g' in text
     assert 'model estimate from before slicing' in text
 
@@ -2629,8 +2629,26 @@ def test_spool_projection_says_when_it_is_still_the_pre_slice_estimate(monkeypat
 def test_spool_projection_stays_quiet_without_spoolman(monkeypatch):
     from print_handy.core import printer_state
     monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: '')
-    text = asyncio.run(prepared_intake._spool_projection_text(_projection_mj(), {}, {}, {}, 1))
+    _patch_projection(monkeypatch)
+    text = asyncio.run(prepared_intake._spool_projection_text({}, {}, {}, 1))
     assert text == 'projection'
+
+
+def test_spool_projection_uses_the_real_job_modules_and_collects_shortages(monkeypatch):
+    # #1835 review: the helpers once called projection functions on
+    # model_job after they had moved to jobs.prompts/jobs.store; the
+    # fail-soft except hid the AttributeError, so every ready card lost the
+    # projection and #1373 shortages. No stubs here: the real functions run.
+    from print_handy.core import material_accept, printer_state
+    monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: '')
+    job = {'color_decisions': {'mode': 'single_color', 'selection':
+           {'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 10}}}
+    manifest = {'filament_stats': {'total_g': 40}}
+    st = {'filament_slots': {'1': {'spoolman_id': 10, 'remaining_grams': 100}}}
+    shortages = []
+    text = asyncio.run(prepared_intake._spool_projection_text(job, manifest, st, 3, shortages=shortages))
+    assert text == 'Slot 1 white PLA: needs about 120 g; spool has 100 g, short by about 20 g.'
+    assert shortages == [(material_accept.key('filament', 1, 10), 120.0)]
 
 
 def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monkeypatch):

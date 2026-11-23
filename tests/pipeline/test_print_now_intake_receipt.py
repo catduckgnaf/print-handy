@@ -128,7 +128,7 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
             ps = self._patches(d)
             for p in ps: p.start()
             try:
-                with self.assertLogs("print_handy.core.model_job", level="WARNING") as logs:
+                with self.assertLogs("print_handy.launch.print_now", level="WARNING") as logs:
                     out = launch_print_now.print_now(jp)
             finally:
                 for p in ps: p.stop()

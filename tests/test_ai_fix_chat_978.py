@@ -19,6 +19,7 @@ from print_handy.bot import edit_chat
 from print_handy.core import ai_fix, prepared_intake, support_clearance
 
 ROOT = Path(__file__).parents[1]
+from tests.bound_names import setattr_bound
 from tests.handler_namespace import plugin
 
 
@@ -206,7 +207,7 @@ def test_own_printer_gcode_is_not_called_foreign(tmp_path, monkeypatch):
     # Stub the prompt itself: which clarify registry serves a question
     # depends on the surrounding suite, and this test only cares that the
     # own-printer drop reaches the yolo question instead of the refusal.
-    monkeypatch.setattr(prepared_intake, "ask", fake_ask)
+    setattr_bound(monkeypatch, prepared_intake, "ask", fake_ask)
     event, path = _gcode_event(tmp_path, "own.gcode", "AD5X")
     adapter = _SendAdapter()
     result = asyncio.run(prepared_intake.print_gcode_file(

@@ -385,8 +385,8 @@ def test_yolo_never_takes_the_keep_openings_apply_either():
 
         async def send(self, chat_id, content, metadata=None):
             self.sent.append(content)
-    original = prepared_intake.ask
-    prepared_intake.ask = ask
+    original = intake_questions.ask
+    intake_questions.ask = ask
     token = yolo.ACTIVE.set(True)
     try:
         choices = [ai_fix.APPLY_KEEP_OPENINGS_LABEL, "Cancel"]
@@ -394,5 +394,5 @@ def test_yolo_never_takes_the_keep_openings_apply_either():
                                                  "Apply?", choices, 1))
     finally:
         yolo.ACTIVE.reset(token)
-        prepared_intake.ask = original
+        intake_questions.ask = original
     assert pick == 1 and asked == [[ai_fix.APPLY_KEEP_OPENINGS_LABEL, "Cancel"]]

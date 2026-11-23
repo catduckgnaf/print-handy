@@ -253,7 +253,7 @@ def test_print_bambu_unconfirmed_start_is_uncertain_not_a_resubmit(monkeypatch, 
 
 def test_print_bambu_confirms_on_the_second_poll_when_the_printer_reaches_prepare(monkeypatch, rig, caplog):
     """The live A1 run: idle right after project_file, then PREPARE with the file. Confirmed, no wait-out."""
-    caplog.set_level(logging.INFO, logger="print_handy.core.model_job")
+    caplog.set_level(logging.INFO, logger="print_handy.launch.print_now")
     remote = rig["package"].name
     wire_client(monkeypatch, rig, [snapshot_script(), snapshot_script(), [],
                                    snapshot_script("IDLE"),

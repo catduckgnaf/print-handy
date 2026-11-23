@@ -1579,7 +1579,7 @@ def _cost_ready_line(variant_jobs):
         return ''
 
 
-def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
+def _sliced_spool_manifest(job, manifest, variant_jobs):
     """Use real sliced grams for a single spool; otherwise preserve source estimates.
 
     When both support variants are shown, the largest real single-color slice
@@ -1587,7 +1587,8 @@ def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
     """
     try:
         from print_handy.runtime import discord_print_summary as dps
-        usage = mj.filament_usage_by_selection(job, manifest)
+        from ..jobs import prompts as jobs_prompts
+        usage = jobs_prompts.filament_usage_by_selection(job, manifest)
         if len(usage) != 1:
             return manifest, False
         sliced_totals = []
@@ -1615,7 +1616,7 @@ def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
         return manifest, False
 
 
-async def _spool_projection_text(mj, job, manifest, state, copies, shortages=None, sliced_variants=()):
+async def _spool_projection_text(job, manifest, state, copies, shortages=None, sliced_variants=()):
     """Display only: filament needed vs the chosen spool's grams. Never blocks the intake.
 
     ``shortages``, when given, collects the filament-shortage warning keys
@@ -1623,9 +1624,11 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
     text shows as short. A print button pressed under that text is the
     operator's answer to them, so the start does not ask again (#1373).
     """
-    manifest, used_sliced = _sliced_spool_manifest(mj, job, manifest, sliced_variants)
+    manifest, used_sliced = _sliced_spool_manifest(job, manifest, sliced_variants)
     try:
-        ids = [sel.get('spoolman_id') for sel, _ in mj.filament_usage_by_selection(job, manifest)]
+        from ..jobs import prompts as jobs_prompts
+        from ..jobs import store as jobs_store
+        ids = [sel.get('spoolman_id') for sel, _ in jobs_prompts.filament_usage_by_selection(job, manifest)]
         if not ids:
             return ''
         fetch = None
@@ -1636,8 +1639,8 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
 
             def fetch(sid):
                 return spool_lifecycle.fetch_spoolman_spool(sid, base_url=base)
-        weights = await _heavy(mj.intake_spool_weights, state, ids, fetch)
-        rows = mj.intake_spool_projection(job, weights, manifest, copies=copies)
+        weights = await _heavy(jobs_prompts.intake_spool_weights, state, ids, fetch)
+        rows = jobs_prompts.intake_spool_projection(job, weights, manifest, copies=copies)
         if shortages is not None and not getattr(weights, 'fetch_failed', False):
             from . import material_accept
             for row in rows:
@@ -1645,8 +1648,8 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
                         and row.get('spoolman_id') is not None):
                     shortages.append((material_accept.key('filament', row.get('slot'), row['spoolman_id']),
                                       float(row.get('estimated_used_g') or 0)))
-        text = mj.format_spool_projection(
-            rows, position_noun='Toolhead' if mj._job_adapter(job).tool_based else 'Slot')
+        text = jobs_prompts.format_spool_projection(
+            rows, position_noun='Toolhead' if jobs_store._job_adapter(job).tool_based else 'Slot')
         if sliced_variants and not used_sliced and (manifest or {}).get('filament_stats', {}).get('estimated'):
             text = f'{text}\nSpool usage is a model estimate from before slicing.' if text else ''
         if getattr(weights, 'fetch_failed', False):
@@ -4334,7 +4337,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             else:
                 spool_variants = (early.job_with_supports if getattr(early, 'supports_result', None)
                                   else early.job_no_supports,)
-            spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity,
+            spool_text = await _spool_projection_text(latest, manifest, state, chosen_quantity,
                                                       shortages=shown_shortages, sliced_variants=spool_variants)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
