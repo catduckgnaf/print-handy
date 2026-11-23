@@ -4450,6 +4450,12 @@ class Listener:
             job_slot=job_slot, ffm_channel=ffm_channel, ifs_chan=ifs_chan,
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
 
+    @staticmethod
+    def _post_inconclusive_slot_check(filename):
+        post(f"Slot verification for {clean(filename or 'this print')} is inconclusive: "
+             "the printer's slot readings could not be confirmed for this job and may be stale. "
+             "Check the selected filament slot on the printer.")
+
     async def _slot_self_check(self):
         """Check for a slot mismatch after ZMod's active-tool channels settle.
 
@@ -4465,6 +4471,8 @@ class Listener:
             job_slot, initial_ffm, initial_ifs, _ = initial
             if job_slot is None:
                 return
+            baseline_missing = initial_ffm is None or initial_ifs is None
+            saw_agreed_wrong_reading = False
             deadline = asyncio.get_running_loop().time() + 30
             for _ in range(30):
                 if asyncio.get_running_loop().time() >= deadline:
@@ -4478,6 +4486,8 @@ class Listener:
                 ffm, ifs = sources[1:3]
                 if ffm is None or ffm != ifs:
                     continue
+                if baseline_missing and ffm != job_slot:
+                    saw_agreed_wrong_reading = True
                 if ffm == job_slot or (
                         initial_ffm is not None and initial_ifs is not None
                         and ffm != initial_ffm and ffm != initial_ifs):
@@ -4486,6 +4496,11 @@ class Listener:
                         await asyncio.to_thread(post, warning)
                     return
             log(f"slot self-check inconclusive: no confirmed active channel for job slot {job_slot}")
+            # Untimestamped FFM/IFS snapshots cannot prove these readings
+            # belong to this job. Surface uncertainty without asserting a
+            # wrong slot or physical activation.
+            if baseline_missing and saw_agreed_wrong_reading and self.print_identity == identity:
+                await asyncio.to_thread(self._post_inconclusive_slot_check, self.filename)
         except Exception as exc:
             warn(f"slot self-check failed: {exc!r}")
 
