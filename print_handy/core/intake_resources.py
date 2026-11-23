@@ -207,8 +207,10 @@ def _stream_counts(archive, models, *, path=None):
             if len(value) > MAX_XML_ATTRIBUTE_BYTES:
                 _refuse(f'an XML attribute value exceeds {MAX_XML_ATTRIBUTE_BYTES // MIB} MiB '
                         'limit', path=path)
-        if local not in ('triangle', 'vertex'):
-            add_payload(sum(len(k) + len(v) for k, v in attrs.items()))
+        # The ElementTree fallback retains every attribute, including the
+        # coordinate/index attributes excluded from the geometry estimate.
+        # Bound their aggregate encoded size before that DOM is constructed.
+        add_payload(sum(len(k) + len(v) for k, v in attrs.items()))
         if counts['elements'] > MAX_XML_ELEMENTS:
             _refuse(f'XML element count at least {counts["elements"]:,} exceeds '
                     f'{MAX_XML_ELEMENTS:,} limit', path=path)
