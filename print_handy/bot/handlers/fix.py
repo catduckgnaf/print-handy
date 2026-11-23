@@ -109,7 +109,9 @@ async def _accept(event, gateway, adapter, session):
     from print_handy.core.intake_resources import check_source
     try:
         await asyncio.to_thread(check_source, session.current_file)
-        from print_handy.bot.handlers.model_link import model_link_dispatch
+        model_link_dispatch = globals().get('model_link_dispatch')
+        if model_link_dispatch is None:
+            from print_handy.bot.handlers.model_link import model_link_dispatch
         synthetic = SimpleNamespace(
             source=source, text='', media_urls=[str(session.current_file)],
             internal=False, message_id=f'fix-intake-{session.started_at}',
