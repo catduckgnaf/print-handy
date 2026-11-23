@@ -82,7 +82,7 @@ def test_pending_spool_sync_retries_and_clears_the_record(tmp_path, monkeypatch)
     folder, _g = _job_with_pending(tmp_path, monkeypatch)
     calls = []
     monkeypatch.setattr(model_job, "_sync_active_spool",
-                        lambda st, slot: calls.append(slot) or {"spool_id": 11, "changed": True})
+                        lambda st, slot, printer_id=None: calls.append(slot) or {"spool_id": 11, "changed": True})
     assert model_job.retry_pending_spool_sync("plate.gcode") is True
     assert calls == [2]
     assert "spoolman_usage_pending" not in json.loads((folder / "JOB.json").read_text())
@@ -94,7 +94,7 @@ def test_pending_spool_sync_finds_a_3mf_delivery_by_the_name_zmod_reports(tmp_pa
     folder, g = _job_with_pending(tmp_path, monkeypatch)
     g.with_suffix(".launch.json").write_text(json.dumps({"file": "plate.gcode.3mf", "phase": "executing"}))
     monkeypatch.setattr(model_job, "_sync_active_spool",
-                        lambda st, slot: {"spool_id": 11, "changed": True})
+                        lambda st, slot, printer_id=None: {"spool_id": 11, "changed": True})
     assert model_job.resolve_print_target("3mf_print/plate.gcode") == str(g)
     assert model_job.retry_pending_spool_sync("3mf_print/plate.gcode") is True
     assert "spoolman_usage_pending" not in json.loads((folder / "JOB.json").read_text())
@@ -105,7 +105,7 @@ def test_pending_spool_sync_finds_a_3mf_delivery_by_the_name_zmod_reports(tmp_pa
 def test_pending_spool_sync_leaves_the_record_when_the_retry_fails(tmp_path, monkeypatch):
     folder, _g = _job_with_pending(tmp_path, monkeypatch)
 
-    def boom(st, slot):
+    def boom(st, slot, printer_id=None):
         raise RuntimeError("Moonraker active spool read failed")
     monkeypatch.setattr(model_job, "_sync_active_spool", boom)
     assert model_job.retry_pending_spool_sync("plate.gcode") is False
@@ -115,7 +115,7 @@ def test_pending_spool_sync_leaves_the_record_when_the_retry_fails(tmp_path, mon
 def test_pending_spool_sync_leaves_the_record_when_still_pending(tmp_path, monkeypatch):
     folder, _g = _job_with_pending(tmp_path, monkeypatch)
     monkeypatch.setattr(model_job, "_sync_active_spool",
-                        lambda st, slot: {"spool_id": 11, "spoolman_pending": True})
+                        lambda st, slot, printer_id=None: {"spool_id": 11, "spoolman_pending": True})
     assert model_job.retry_pending_spool_sync("plate.gcode") is False
     assert "spoolman_usage_pending" in json.loads((folder / "JOB.json").read_text())
 
@@ -125,7 +125,7 @@ def test_pending_spool_sync_without_a_spool_id_is_not_retried(tmp_path, monkeypa
              "reason": "multi-slot clear pending", "recorded_at": 0}
     _folder, _g = _job_with_pending(tmp_path, monkeypatch, pending=multi)
     monkeypatch.setattr(model_job, "_sync_active_spool",
-                        lambda st, slot: pytest.fail("multi-slot pending must not be retried"))
+                        lambda st, slot, printer_id=None: pytest.fail("multi-slot pending must not be retried"))
     assert model_job.retry_pending_spool_sync("plate.gcode") is False
 
 

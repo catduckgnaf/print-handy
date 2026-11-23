@@ -16,7 +16,7 @@ from .slice import (
     normalize_units,
 )
 from .store import (
-    _job_adapter, _job_record_for_gcode, _recorded_printer_id, decisions_digest,
+    _job_adapter, _job_printer_id, _job_record_for_gcode, decisions_digest,
     effective_color_decisions, resolve_print_target, set_color_decisions, write_job,
 )
 from ..launch.print_now import _sync_active_spool
@@ -68,10 +68,9 @@ def retry_pending_spool_sync(filename, printer_id=None):
         slot = pending.get('slot')
         if slot not in (1, 2, 3, 4):
             return False
-        routed = printer_id or _recorded_printer_id(job)
-        st = printer_state.load(routed) if routed else printer_state.load()
-        sync = (_sync_active_spool(st, slot, printer_id=routed) if routed
-                else _sync_active_spool(st, slot))
+        routed = printer_id or _job_printer_id(job)
+        st = printer_state.load(routed)
+        sync = _sync_active_spool(st, slot, printer_id=routed)
         if sync.get('spoolman_pending') or sync.get('spool_id') != pending['spool_id']:
             return False
         job.pop('spoolman_usage_pending', None)

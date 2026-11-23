@@ -34,7 +34,7 @@ class _Lease:
 def _rig(monkeypatch, events, *, confirmed=True):
     """Wire the runner's collaborators to recorders; returns the fake lease."""
     lease = _Lease(events)
-    monkeypatch.setattr(print_now, "_printer_key", lambda state, job: "printer-key")
+    monkeypatch.setattr(print_now, "_job_printer_id", lambda job: "printer-key")
     monkeypatch.setattr(print_now.launch_state, "acquire",
                         lambda *a, **k: events.append("acquire") or lease)
     monkeypatch.setattr(print_now, "_claim_bed_clear",

@@ -7,9 +7,8 @@
   never the job's first print's (a reprint is not the original again).
 - Concurrent starts, and a /print-again list during a start, never share or
   drop a number: the registry is locked.
-- A dry-run-first repair gives history records that were duplicated before
-  per-launch numbering their own numbers, reusing one the registry already
-  holds for that launch.
+- An old registry's first-print map converts into launch entries, so no
+  number it held is ever issued again (#1817).
 """
 import json
 import threading
@@ -104,50 +103,19 @@ def test_a_held_lock_blocks_another_holder_and_a_stale_one_is_broken(registry):
     assert not lock.exists()
 
 
-# ---------------------------------------------------------------- history repair
+# ---------------------------------------------------------------- old first-print map
 
-def _record(prints, name, number, started, rid, job, status="completed"):
-    (prints / name).write_text(json.dumps({
-        "print_number": number, "title": "Panel", "status": status, "started_at": started,
-        "record_id": rid, "slicer_settings": {"local_gcode": str(job.parent / "panel.gcode")}}))
-
-
-def test_duplicate_history_is_listed_then_renumbered_on_apply(registry, job, tmp_path, monkeypatch):
-    prints = tmp_path / "Prints"
-    prints.mkdir()
-    monkeypatch.setattr(records, "PRINTS_DIR", prints)
-    registry.write_text(json.dumps({"numbers": {str(job.resolve()): 84}, "launches": [
-        {"number": 84, "job": str(job.resolve()), "artifact": "", "at": _ts("2026-11-06T02:42:00Z")},
-        # a /print-again list already backfilled the reprint as #85
-        {"number": 85, "job": str(job.resolve()), "artifact": "", "at": _ts("2026-11-07T03:28:00Z")},
-        {"number": 86, "job": "/elsewhere/JOB.json", "artifact": "", "at": _ts("2026-11-07T04:00:00Z")},
-    ]}))
-    _record(prints, "print-0084.json", 84, "2026-11-06T02:42:00Z", "aaaa1111", job)
-    _record(prints, "print-0084-bbbb2222.json", 84, "2026-11-07T03:28:05Z", "bbbb2222", job)
-    _record(prints, "print-0084-cccc3333.json", 84, "2026-11-07T09:00:00Z", "cccc3333", job)
-    _record(prints, "print-0084-dddd4444.json", 84, "2026-11-07T10:00:00Z", "dddd4444", job, status="printing")
-
-    plan = records.renumber_duplicate_prints(apply=False)
-    assert [e["record_id"] for e in plan] == ["bbbb2222", "cccc3333", "dddd4444"]
-    assert plan[2]["skipped"].startswith("still printing")
-    assert all(e["new_number"] is None for e in plan)
-    assert (prints / "print-0084-bbbb2222.json").exists()  # a dry run changes nothing
-
-    plan = records.renumber_duplicate_prints(apply=True)
-    assert [e["new_number"] for e in plan] == [85, 87, None]  # #85 reused; #87 newly minted
-    data = json.loads((prints / "print-0085.json").read_text())
-    assert data["print_number"] == 85 and data["print_number_was"] == 84
-    assert json.loads((prints / "print-0087.json").read_text())["print_number_was"] == 84
-    assert json.loads((prints / "print-0084.json").read_text())["print_number"] == 84
-    assert not (prints / "print-0084-bbbb2222.json").exists()
-    assert (prints / "print-0084-dddd4444.json").exists()  # in flight: untouched
-    assert 87 in [e["number"] for e in json.loads(registry.read_text())["launches"]]
-    # Re-running only finds the in-flight print.
-    assert [e["record_id"] for e in records.renumber_duplicate_prints(apply=False)] == ["dddd4444"]
-
-
-def test_repair_cli_dry_run(registry, tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(records, "PRINTS_DIR", tmp_path / "Prints")
-    (tmp_path / "Prints").mkdir()
-    assert records._renumber_cli(["renumber-duplicates"]) == 0
-    assert "No duplicate print numbers." in capsys.readouterr().out
+def test_the_old_first_print_map_converts_once_and_never_reissues_a_number(registry, job):
+    # A file from before per-launch numbering: #84 is held only by the 'numbers' map.
+    other = str((job.parent.parent / "other" / "JOB.json"))
+    registry.write_text(json.dumps({"numbers": {str(job.resolve()): 84, other: 3}, "launches": [
+        {"number": 3, "job": other, "artifact": "", "at": _ts("2026-11-01T00:00:00Z")}]}))
+    loaded = pc._load_number_registry(registry)
+    assert "numbers" not in loaded
+    assert [(e["number"], e["at"]) for e in loaded["launches"]] == [(3, _ts("2026-11-01T00:00:00Z")), (84, 0.0)]
+    assert pc.latest_number_for_job(job, registry) == 84
+    assert pc.number_for_launch(job.resolve(), _ts("2026-11-09T00:00:00Z"), registry) == 84  # its one timeless print
+    assert pc.mint_launch_number(job.resolve(), at=_ts("2026-11-09T00:00:00Z")) == 85  # never #84 again
+    saved = json.loads(registry.read_text())
+    assert "numbers" not in saved
+    assert sorted(e["number"] for e in saved["launches"]) == [3, 84, 85]

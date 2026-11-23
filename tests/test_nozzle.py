@@ -404,6 +404,7 @@ def test_orca_adapter_thermal_and_flow_adjustments(tmp_path, monkeypatch):
         "nozzle": {"diameter_mm": 0.4, "type": "hardened_steel"},
         "spool": {"spoolman_id": 1, "material": "PLA", "density": 1.24},
         "temps_c": {"nozzle": 220, "bed": 60},
+        "temperature_resolution": {"material": "PLA", "spoolman_id": 1},
         "filament_slots": {"1": {"slot": 1, "spoolman_id": 1, "material": "PLA", "physical_color_verified": True, "hex": "FFFFFF"}},
     }
 

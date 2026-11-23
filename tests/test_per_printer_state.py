@@ -185,7 +185,8 @@ def _make_job(root, name, printer_id=None):
     (folder / "out").mkdir(parents=True)
     g = folder / "out" / "x.gcode"
     g.write_text("; same content on both printers\nSTART_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n")
-    job = {"title": name, "gcode": str(g)}
+    job = {"title": name, "gcode": str(g),
+           "printer_model": settings.current()["printer"]["model"]}
     if printer_id:
         job["printer_id"] = printer_id
     jp = folder / "JOB.json"
