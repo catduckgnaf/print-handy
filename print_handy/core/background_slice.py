@@ -124,7 +124,7 @@ class BackgroundSlice:
         The supports slice writes only here, so it can run beside the first slice; take_supports
         adopts the result into the intake folder.
         """
-        from . import model_job
+        from ..gcode import artifact as gcode_artifact
         sup_job = copy.deepcopy(job_data)
         sup_job['support_decision'] = {'supports': True, 'by': 'speculative_intake'}
         folder = self._variant_dir()
@@ -135,7 +135,7 @@ class BackgroundSlice:
         target.write_text(json.dumps(sup_job, indent=2) + "\n")
         src_sha = (sup_job.get('color_manifest') or {}).get('source_sha256') or (
             sup_job.get('downloaded_file') and Path(sup_job['downloaded_file']).is_file() and
-            model_job.file_sha256(sup_job['downloaded_file']))
+            gcode_artifact.file_sha256(sup_job['downloaded_file']))
         return target, sup_job, slice_binding(sup_job, src_sha)
 
     def _start_supports(self, slice_func, job_path, sup_job, sup_binding, copy_to_main=True):
@@ -247,13 +247,13 @@ class BackgroundSlice:
                 sup_path, sup_job, sup_binding = self._prepare_variant(job_data) if concurrent is not None \
                     else (None, None, None)
                 if sup_path is None:  # the long-standing path: the same folder and JOB.json, in turn
-                    from . import model_job
+                    from ..gcode import artifact as gcode_artifact
                     sup_job = copy.deepcopy(job_data)
                     sup_job['support_decision'] = {'supports': True, 'by': 'speculative_intake'}
                     Path(self.job_path).write_text(json.dumps(sup_job, indent=2) + "\n")
                     src_sha = (sup_job.get('color_manifest') or {}).get('source_sha256') or (
                         sup_job.get('downloaded_file') and Path(sup_job['downloaded_file']).is_file() and
-                        model_job.file_sha256(sup_job['downloaded_file']))
+                        gcode_artifact.file_sha256(sup_job['downloaded_file']))
                     sup_binding, sup_path = slice_binding(sup_job, src_sha), self.job_path
                 sup_work = self._start_supports(slice_func, sup_path, sup_job, sup_binding)
                 self.flag_decided.set()
@@ -349,7 +349,7 @@ class BackgroundSlice:
         """Verify preview G-code in the bounded worker; keep failures explicitly unverified."""
         from . import coverage_reuse, support_clearance
         from ..intake.worker import _heavy
-        from . import model_job
+        from ..jobs import store as jobs_store
 
         started = time.monotonic()
         job = self.job_with_supports or {}
@@ -379,7 +379,7 @@ class BackgroundSlice:
                                       'unverified': [{'plate': None, 'reason': f'the support coverage check could not run ({exc})'}]}
             self.supports_coverage_identity = None
         finally:
-            model_job._timing(self.job_path, 'preview_support_coverage_done',
+            jobs_store._timing(self.job_path, 'preview_support_coverage_done',
                               elapsed_s=round(time.monotonic() - started, 3),
                               checked=bool(self.supports_coverage and self.supports_coverage.get('checked')))
 

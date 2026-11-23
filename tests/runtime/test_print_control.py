@@ -8,7 +8,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from print_handy.runtime import print_control
-from print_handy.core import model_job
+from tests.bound_names import patch_bound
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import print_now as launch_print_now
 
 OLD = "G4-Instant-Desk-Stand_plate_1_" + "e5" * 32 + ".gcode"
 NEW = "G4-Instant-Desk-Stand_plate_1_" + "10" * 32 + ".gcode"
@@ -84,24 +87,24 @@ def test_resume_success_sends_one_resume():
 
 def test_bare_printer_name_resolves_to_archived_artifact(tmp_path):
     _run, old, _new = _job(tmp_path)
-    assert model_job.resolve_print_target(OLD, archive=tmp_path) == str(old / "plate_1.gcode")
+    assert jobs_store.resolve_print_target(OLD, archive=tmp_path) == str(old / "plate_1.gcode")
 
 
 def test_bare_unknown_name_is_refused(tmp_path):
     _job(tmp_path)
     with pytest.raises(SystemExit, match="printer file name, not a local path"):
-        model_job.resolve_print_target("mystery.gcode", archive=tmp_path)
+        jobs_store.resolve_print_target("mystery.gcode", archive=tmp_path)
 
 
 def test_paths_pass_through_unchanged(tmp_path):
     p = str(tmp_path / "x" / "JOB.json")
-    assert model_job.resolve_print_target(p, archive=tmp_path) == p
+    assert jobs_store.resolve_print_target(p, archive=tmp_path) == p
 
 
 def test_print_now_old_slice_points_at_current_job(tmp_path):
     run, _old, _new = _job(tmp_path)
-    with patch.object(model_job, "ARCHIVE", tmp_path), pytest.raises(SystemExit) as exc:
-        model_job.print_now(OLD)
+    with patch_bound(jobs_common, "ARCHIVE", tmp_path), pytest.raises(SystemExit) as exc:
+        launch_print_now.print_now(OLD)
     msg = str(exc.value)
     assert "older slice" in msg and str(run / "JOB.json") in msg
 

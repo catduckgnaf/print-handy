@@ -7,22 +7,15 @@ now checks only that the source is a bot platform's human message: a
 source carries no profile at all, and one that still has a profile
 attribute is answered the same way.
 """
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace as S
 
 from print_handy.bot import runtime
 from print_handy.runtime import _config
 
-ROOT = Path(__file__).resolve().parents[2]
-
 
 def load_plugin():
-    spec = importlib.util.spec_from_file_location(
-        "print_feedback_hosting", ROOT / "plugins/print-feedback/__init__.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from print_handy.bot.handlers import common
+    return common
 
 
 def _event(source, internal=False):

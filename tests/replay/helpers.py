@@ -8,7 +8,9 @@ import re
 import traceback
 from pathlib import Path
 
-from print_handy.core import model_job, prepared_intake
+from print_handy.core import prepared_intake
+from print_handy.jobs import cli as jobs_cli
+from print_handy.launch import print_now as launch_print_now
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "printers" / "ad5x_zmod"
 MOONRAKER_TIMEOUT_S = 30  # model_job._mr's default timeout, in printer seconds
@@ -82,7 +84,7 @@ def run_print_now(job_path, wait_s=1):
     Runs the real CLI entry point in this process; a SystemExit carries the final line, as it does
     on stderr in the child process."""
     # Before #693 the CLI called print_now directly, so a bare exception ended the process with a traceback.
-    entry = getattr(model_job, "_print_now_cli", None) or model_job.print_now
+    entry = getattr(jobs_cli, "_print_now_cli", None) or launch_print_now.print_now
     out = io.StringIO()
     ok = True
     with contextlib.redirect_stdout(out):

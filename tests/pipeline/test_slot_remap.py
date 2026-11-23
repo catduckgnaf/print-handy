@@ -10,7 +10,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from print_handy.core import model_job as job
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.flashforge.zmod import multicolor_contract as contract
+from tests.bound_names import patch_bound
 
 
 def _state():
@@ -52,7 +57,7 @@ def test_remap_slot_on_gcode(tmp_path):
     assert contract.embedded_mapping(gcode.read_text(), st) == {"0": 1}
 
     # Remap to slot 2
-    res = job.remap_slot(gcode, 2, tool="0", state=st)
+    res = launch_print_now.remap_slot(gcode, 2, tool="0", state=st)
     assert res["ok"] is True
     assert res["slot"] == 2
     assert res["mapping"] == {"0": 2}
@@ -81,14 +86,14 @@ def test_remap_slot_on_job_json(tmp_path):
         "artifact_binding": {
             "source_sha256": "fake_source",
             "decisions_sha256": "fake_decisions",
-            "gcode_sha256": job.file_sha256(gcode),
+            "gcode_sha256": gcode_artifact.file_sha256(gcode),
         },
     }
     job_file = tmp_path / "JOB.json"
     job_file.write_text(json.dumps(job_data, indent=2))
 
     # Remap job to slot 4 (Dark Green PLA)
-    res = job.remap_slot(job_file, 4, state=st)
+    res = launch_print_now.remap_slot(job_file, 4, state=st)
     assert res["ok"] is True
     assert res["slot"] == 4
 
@@ -127,12 +132,12 @@ def test_print_now_with_remap_slot_arg(tmp_path):
     mock_print_mapped = MagicMock(return_value={"accepted": True, "started": True})
 
     with patch.object(job.printer_state, "load", return_value=st), \
-         patch.object(job, "print_mapped_native", mock_print_mapped), \
-         patch.object(job, "verify_gcode"), \
-         patch.object(job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-         patch.object(job, "mesh_readiness", return_value={"display_off": 0, "profile": "MESH_DATA", "problem": None}):
+         patch.object(launch_print_now, "print_mapped_native", mock_print_mapped), \
+         patch_bound(gcode_verify, "verify_gcode"), \
+         patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+         patch_bound(launch_gates, "mesh_readiness", return_value={"display_off": 0, "profile": "MESH_DATA", "problem": None}):
 
-        job.print_now(job_file, remap_slot_num=3)
+        launch_print_now.print_now(job_file, remap_slot_num=3)
 
         assert mock_print_mapped.called
         # Mapping passed to print_mapped_native must be {"0": 3}
@@ -201,7 +206,7 @@ def _split_job(tmp_path):
         "artifact_binding": {
             "source_sha256": "fake_source",
             "decisions_sha256": "fake_decisions",
-            "gcode_sha256": {"1": job.file_sha256(plates[0]), "2": job.file_sha256(plates[1])},
+            "gcode_sha256": {"1": gcode_artifact.file_sha256(plates[0]), "2": gcode_artifact.file_sha256(plates[1])},
         },
     }
     job_file = tmp_path / "JOB.json"
@@ -214,13 +219,13 @@ def test_remap_slot_on_split_job_updates_only_that_plates_hash(tmp_path):
     plate must update only its own entry, not replace the whole map with
     that plate's single hash (which failed every later binding check)."""
     st, plates, job_file = _split_job(tmp_path)
-    res = job.remap_slot(plates[1], 3, state=st)
+    res = launch_print_now.remap_slot(plates[1], 3, state=st)
     assert res["ok"] is True and res["slot"] == 3
     updated = json.loads(job_file.read_text())
     binding = updated["artifact_binding"]["gcode_sha256"]
     assert isinstance(binding, dict)
-    assert binding["1"] == job.file_sha256(plates[0])  # the untouched plate keeps its hash
-    assert binding["2"] == res["gcode_sha256"] == job.file_sha256(plates[1])
+    assert binding["1"] == gcode_artifact.file_sha256(plates[0])  # the untouched plate keeps its hash
+    assert binding["2"] == res["gcode_sha256"] == gcode_artifact.file_sha256(plates[1])
     assert contract.embedded_mapping(plates[1].read_text(), st) == {"0": 3}
 
 
@@ -233,7 +238,7 @@ def test_remap_slot_refuses_a_file_outside_a_split_jobs_binding(tmp_path):
     contract.finalize(stray, None, st, {"0": 1})
     before = stray.read_bytes()
     with pytest.raises(RuntimeError, match="no binding entry"):
-        job.remap_slot(stray, 3, state=st)
+        launch_print_now.remap_slot(stray, 3, state=st)
     assert stray.read_bytes() == before
 
 
@@ -266,7 +271,7 @@ def _sparse_job(tmp_path, tools, mapping):
 
 def test_remap_slot_lone_high_tool_remaps_that_tool(tmp_path):
     st, gcode, _ = _sparse_job(tmp_path, [2], {"2": 3})
-    res = job.remap_slot(gcode, 1, state=st)
+    res = launch_print_now.remap_slot(gcode, 1, state=st)
     assert res["tool"] == "2"
     assert res["mapping"] == {"2": 1}
     text = gcode.read_text()
@@ -278,29 +283,29 @@ def test_remap_slot_lone_high_tool_remaps_that_tool(tmp_path):
 def test_remap_slot_refuses_a_tool_the_file_does_not_use(tmp_path):
     st, gcode, job_file = _sparse_job(tmp_path, [2], {"2": 3})
     before, job_before = gcode.read_bytes(), job_file.read_text()
-    with pytest.raises(job.ToolRemapRefused, match=r"never uses T0 \(it uses T2\)"):
-        job.remap_slot(gcode, 1, tool="0", state=st)
+    with pytest.raises(launch_print_now.ToolRemapRefused, match=r"never uses T0 \(it uses T2\)"):
+        launch_print_now.remap_slot(gcode, 1, tool="0", state=st)
     assert gcode.read_bytes() == before and job_file.read_text() == job_before
 
 
 def test_remap_slot_without_tool_refuses_a_multi_tool_file(tmp_path):
     st, gcode, _ = _sparse_job(tmp_path, [0, 2], {"0": 1, "2": 3})
     before = gcode.read_bytes()
-    with pytest.raises(job.ToolRemapRefused, match=r"uses 2 tools \(T0, T2\)"):
-        job.remap_slot(gcode, 4, state=st)
+    with pytest.raises(launch_print_now.ToolRemapRefused, match=r"uses 2 tools \(T0, T2\)"):
+        launch_print_now.remap_slot(gcode, 4, state=st)
     assert gcode.read_bytes() == before
     # Naming a used tool remaps only that tool.
-    res = job.remap_slot(gcode, 4, tool="2", state=st)
+    res = launch_print_now.remap_slot(gcode, 4, tool="2", state=st)
     assert res["mapping"] == {"0": 1, "2": 4}
     assert contract.embedded_mapping(gcode.read_text(), st) == {"0": 1, "2": 4}
 
 
 def _print_now_patches(st, mock_print_mapped):
     return (patch.object(job.printer_state, "load", return_value=st),
-            patch.object(job, "print_mapped_native", mock_print_mapped),
-            patch.object(job, "verify_gcode"),
-            patch.object(job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")),
-            patch.object(job, "mesh_readiness",
+            patch.object(launch_print_now, "print_mapped_native", mock_print_mapped),
+            patch_bound(gcode_verify, "verify_gcode"),
+            patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")),
+            patch_bound(launch_gates, "mesh_readiness",
                          return_value={"display_off": 0, "profile": "MESH_DATA", "problem": None}))
 
 
@@ -309,7 +314,7 @@ def test_print_now_slot_remaps_the_lone_used_tool(tmp_path, capsys):
     mock_print_mapped = MagicMock(return_value={"accepted": True, "started": True})
     a, b, c, d, e = _print_now_patches(st, mock_print_mapped)
     with a, b, c, d, e:
-        job.print_now(job_file, remap_slot_num=1)
+        launch_print_now.print_now(job_file, remap_slot_num=1)
     assert mock_print_mapped.call_args[0][3] == {"2": 1}
     assert "SLOT REMAPPED: T2 -> slot 1" in capsys.readouterr().out
     assert json.loads(job_file.read_text())["filament_selection"]["slot"] == 1
@@ -321,6 +326,6 @@ def test_print_now_slot_refuses_a_multi_tool_file(tmp_path):
     mock_print_mapped = MagicMock(return_value={"accepted": True, "started": True})
     a, b, c, d, e = _print_now_patches(st, mock_print_mapped)
     with a, b, c, d, e, pytest.raises(SystemExit, match=r"REFUSED: .*uses 2 tools \(T0, T2\).*Nothing uploaded"):
-        job.print_now(job_file, remap_slot_num=1)
+        launch_print_now.print_now(job_file, remap_slot_num=1)
     assert not mock_print_mapped.called
     assert gcode.read_bytes() == before and job_file.read_text() == job_before

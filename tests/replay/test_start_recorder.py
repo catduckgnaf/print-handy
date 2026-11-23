@@ -12,7 +12,9 @@ import time
 import pytest
 
 from print_handy import settings
-from print_handy.core import launch_state, model_job, start_recorder
+from print_handy.core import launch_state, start_recorder
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import print_now as launch_print_now
 
 from .helpers import intake_outcome, make_job, recorded, run_print_now
 from .test_fixtures_scrubbed import FORBIDDEN
@@ -22,7 +24,7 @@ QUERY_MARK = "zmod_color&idle_timeout&virtual_sdcard&webhooks"  # only the recor
 
 
 def leases():
-    return launch_state.pending(model_job._job_printer_id(None))
+    return launch_state.pending(jobs_store._job_printer_id(None))
 
 
 def recordings():
@@ -183,7 +185,7 @@ def test_the_recorder_and_its_follower_only_ever_send_gets(moonraker, tmp_path, 
     monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path / "state")
     st = {"moonraker_url": moonraker.url, "display_off": 1}
     rec = start_recorder.begin(st, "Part_abc.gcode", command="SET_ZCOLOR FILENAME=Part_abc.gcode", method="SET_ZCOLOR",
-                               native=True, watermark=(0, None), store_after=model_job._entries_after_watermark)
+                               native=True, watermark=(0, None), store_after=launch_print_now._entries_after_watermark)
     time.sleep(0.3)
     rec.finish("preparing", phase="preparing")             # unsettled: handed to a follower
     assert spawned == [rec.path]

@@ -174,15 +174,15 @@ def test_adapter_for_a_roster_printer_installs_its_view_and_identity(tmp_path):
 
 
 def test_model_job_starts_family_monitors_through_the_worker(monkeypatch):
-    from print_handy.core import model_job
+    from print_handy.launch import print_now as launch_print_now
     from print_handy.runtime import stock_watch
 
     spawned = []
     monkeypatch.setattr(
         monitor_worker, "spawn",
         lambda watch, remote, printer_id=None: spawned.append((watch, remote, printer_id)))
-    model_job._start_family_monitor(stock_watch, object(), "plate.gcode",
+    launch_print_now._start_family_monitor(stock_watch, object(), "plate.gcode",
                                     {"printer_id": "stock-two"})
-    model_job._start_family_monitor(stock_watch, object(), "plate.gcode", {})
+    launch_print_now._start_family_monitor(stock_watch, object(), "plate.gcode", {})
     assert spawned == [("print_handy.runtime.stock_watch", "plate.gcode", "stock-two"),
                        ("print_handy.runtime.stock_watch", "plate.gcode", None)]

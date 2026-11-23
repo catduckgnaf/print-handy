@@ -8,6 +8,7 @@ header and config block of an AD5X Silk PLA slice; verify_gcode reads the live r
 import pytest
 
 from print_handy.core import model_job
+from print_handy.gcode import verify as gcode_verify
 
 from .helpers import FIXTURES, sliced_gcode
 
@@ -27,13 +28,13 @@ def test_the_recorded_slice_quotes_its_material():
 def test_silk_pla_sliced_at_220_passes_against_the_live_state(ad5x, tmp_path):
     # The hardware record still holds the stale 210/60 an earlier PLA spool left; the job's own spool decides.
     assert model_job.printer_state.load()["temps_c"] == {"nozzle": 210, "bed": 60}
-    model_job.verify_gcode(write(tmp_path, 220))
+    gcode_verify.verify_gcode(write(tmp_path, 220))
     assert any(path == "/api/v1/spool/17" for _m, path, _q, _b in ad5x.requests)  # Spoolman was asked
 
 
 def test_silk_pla_sliced_at_the_stale_210_is_refused(ad5x, tmp_path):
     with pytest.raises(RuntimeError, match=r"missing START_PRINT/PRINT_START matching bed 60 and effective hotend 220"):
-        model_job.verify_gcode(write(tmp_path, 210))
+        gcode_verify.verify_gcode(write(tmp_path, 210))
 
 
 def test_print_now_refuses_the_stale_slice_before_anything_is_sent(ad5x, tmp_path):

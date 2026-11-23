@@ -14,11 +14,18 @@ import pytest
 
 from print_handy import macros, printers, settings
 from print_handy.core import heater_ceiling, launch_state, model_job
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import family_event_listener as fel
 from print_handy.runtime import print_next, spool_sync
 
 from .test_launch_state import leases, make_job, upload_ok, uploads
 from .test_launch_state import mapped, printer  # noqa: F401  (fixtures shared with the lease tests)
+from tests.bound_names import setattr_bound
 
 
 
@@ -70,7 +77,7 @@ def test_item2_the_ad5x_profile_gives_its_300_c_hotend_ceiling_on_both_firmwares
 def test_item2_the_gcode_mechanical_limit_check_uses_the_same_function():
     adapter = CeilingAdapter(max_hotend_c=240, max_bed_c=90)
     state = {"nozzle": {"type": "hardened_steel"}}
-    assert model_job._heater_limits(state, adapter) == (
+    assert launch_gates._heater_limits(state, adapter) == (
         heater_ceiling.ceiling(adapter, "nozzle", state=state), heater_ceiling.ceiling(adapter, "bed", state=state))
 
 
@@ -115,15 +122,15 @@ def test_item2_octoprint_preheat_above_the_ceiling_refuses_before_the_lease(tmp_
     adapter = FakeAdapter("octoprint", client)
     adapter.config = {"printer": {"nozzle_type": "hardened_steel"}}
     adapter.fact = lambda name: {"max_hotend_c": 250.0, "max_bed_c": 100.0}[name]
-    monkeypatch.setattr(model_job, "verify_gcode", lambda path: {"offline": True})
-    monkeypatch.setattr(model_job, "_verify_routed", lambda *a, **k: None)
-    monkeypatch.setattr(model_job, "_refuse_multicolor", lambda text: None)
-    monkeypatch.setattr(model_job, "_with_gcode_temperatures",
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda path: {"offline": True})
+    setattr_bound(monkeypatch, gcode_verify, "_verify_routed", lambda *a, **k: None)
+    setattr_bound(monkeypatch, gcode_verify, "_refuse_multicolor", lambda text: None)
+    setattr_bound(monkeypatch, gcode_verify, "_with_gcode_temperatures",
                         lambda state, text, recorded=None: {**state, "temps_c": {"bed": 60, "nozzle": 260}})
     acquired = []
     monkeypatch.setattr(launch_state, "acquire", lambda *a, **k: acquired.append(a) or mock.Mock())
     with pytest.raises(SystemExit, match="REFUSED: OctoPrint preheat: the nozzle target 260 C is above"):
-        model_job._print_octoprint(adapter, {"nozzle": {"type": "hardened_steel"}}, gcode,
+        launch_print_now._print_octoprint(adapter, {"nozzle": {"type": "hardened_steel"}}, gcode,
                                    {"filament_selection": {"slot": 1}}, None, 25, False)
     assert acquired == [] and client.uploads == [] and client.starts == []
 
@@ -134,17 +141,17 @@ def test_item2_octoprint_preheat_above_the_ceiling_refuses_before_the_lease(tmp_
 def test_item4_print_now_without_a_bed_clear_approval_refuses_before_upload(printer):
     jp, _g = make_job(printer.root, "a")
     with pytest.raises(SystemExit, match="no bed-clear approval"):
-        model_job.print_now(jp)
+        launch_print_now.print_now(jp)
     assert uploads(printer.run) == [] and leases() == []
     assert "approvals" not in json.loads(jp.read_text())
 
 
 @pytest.mark.bed_clear_unconfirmed
 def test_item4_yolo_does_not_waive_the_bed_clear_approval(printer, monkeypatch):
-    monkeypatch.setattr(model_job, "require_mechanical_limits", lambda *a, **k: None)  # not this test's subject
+    setattr_bound(monkeypatch, launch_gates, "require_mechanical_limits", lambda *a, **k: None)  # not this test's subject
     jp, _g = make_job(printer.root, "a")
     with pytest.raises(SystemExit, match="no bed-clear approval"):
-        model_job.print_now(jp, yolo=True)
+        launch_print_now.print_now(jp, yolo=True)
     assert uploads(printer.run) == []
 
 
@@ -152,17 +159,17 @@ def test_item4_yolo_does_not_waive_the_bed_clear_approval(printer, monkeypatch):
 def test_item4_an_approval_for_another_gcode_does_not_start_this_one(printer):
     jp, _g = make_job(printer.root, "a")
     with pytest.raises(SystemExit, match="no bed-clear approval"):
-        model_job.print_now(jp, bed_clear="0" * 64)
+        launch_print_now.print_now(jp, bed_clear="0" * 64)
     assert uploads(printer.run) == []
 
 
 @pytest.mark.bed_clear_unconfirmed
 def test_item4_the_approval_for_this_exact_gcode_starts_it_once(printer):
     jp, g = make_job(printer.root, "a")
-    assert model_job.print_now(jp, bed_clear=sha(g))["started"] is True
+    assert launch_print_now.print_now(jp, bed_clear=sha(g))["started"] is True
     assert len(uploads(printer.run)) == 1
     with pytest.raises(SystemExit, match="already used"):  # still single-use
-        model_job.print_now(jp, bed_clear=sha(g))
+        launch_print_now.print_now(jp, bed_clear=sha(g))
 
 
 @pytest.mark.bed_clear_unconfirmed
@@ -180,9 +187,9 @@ def test_1586_a_failed_upload_does_not_burn_the_bed_clear_approval(printer):
         return upload_ok(cmd, *args, **kwargs)
     printer.run.side_effect = fail_once
     with pytest.raises(SystemExit, match="could not be uploaded"):
-        model_job.print_now(jp, bed_clear=sha(g))
+        launch_print_now.print_now(jp, bed_clear=sha(g))
     assert "approvals" not in json.loads(jp.read_text()) and leases() == []
-    assert model_job.print_now(jp, bed_clear=sha(g))["started"] is True
+    assert launch_print_now.print_now(jp, bed_clear=sha(g))["started"] is True
     assert attempts["n"] == 2 and len(json.loads(jp.read_text())["approvals"]) == 1
 
 
@@ -203,9 +210,9 @@ def test_1586_a_failed_mapped_upload_does_not_burn_the_bed_clear_approval(mapped
         return upload_ok(cmd, *args, **kwargs)
     mapped.run.side_effect = fail_once
     with pytest.raises(RuntimeError, match="could not be uploaded"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
     assert "approvals" not in json.loads(jp.read_text()) and leases() == []
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+    out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
                                         json.loads(jp.read_text()), jp, 0, False)
     assert out["submission_count"] == 1 and attempts["n"] == 2
     assert len(json.loads(jp.read_text())["approvals"]) == 1
@@ -215,10 +222,10 @@ def test_duckcat_yolo_launch_is_not_refused_by_an_already_used_approval(printer,
     """duckcatgnaf review, PR #1595: yolo owes no single-use approval record, so a
     G-code whose approval an earlier launch consumed must not refuse a yolo launch
     (the bed-clear confirmation itself is still required and still checked)."""
-    monkeypatch.setattr(model_job, "require_mechanical_limits", lambda *a, **k: None)  # not this test's subject
+    setattr_bound(monkeypatch, launch_gates, "require_mechanical_limits", lambda *a, **k: None)  # not this test's subject
     jp, g = make_job(printer.root, "a")
-    assert model_job.print_now(jp, bed_clear=sha(g))["started"] is True  # consumes the approval
-    assert model_job.print_now(jp, bed_clear=sha(g), yolo=True)["started"] is True
+    assert launch_print_now.print_now(jp, bed_clear=sha(g))["started"] is True  # consumes the approval
+    assert launch_print_now.print_now(jp, bed_clear=sha(g), yolo=True)["started"] is True
     assert len(uploads(printer.run)) == 2
 
 
@@ -236,12 +243,12 @@ def test_duckcat_yolo_mapped_launch_is_not_refused_by_an_already_used_approval(m
                          "consumed_at": "2026-11-17T00:01:00-0500", "kind": "bed_clear"}]
     jp.write_text(json.dumps(job))
     with pytest.raises(SystemExit, match="already used"):  # a normal launch still refuses
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
     assert uploads(mapped.run) == []
     token = gates._YOLO.set(True)
     try:
-        out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+        out = launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
                                             json.loads(jp.read_text()), jp, 0, False)
     finally:
         gates._YOLO.reset(token)
@@ -273,7 +280,7 @@ def test_item4_every_transport_refuses_at_its_approval_step(mapped):
     """The mapped native (AD5X) route checks too, inside the lease and before the upload."""
     jp, g = make_job(mapped.root, "a")
     with pytest.raises(SystemExit, match="no bed-clear approval"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
     assert uploads(mapped.run) == [] and mapped.scripts == [] and leases() == []
     assert "approvals" not in json.loads(jp.read_text())
@@ -303,9 +310,9 @@ def test_item4_print_next_passes_the_confirmed_gcode_sha_to_print_now(tmp_path):
                                         (["print-now", "x.gcode", "--bed-clear-sha256", "ab" * 32], "ab" * 32)])
 def test_item4_the_cli_passes_the_operators_confirmation_through(monkeypatch, argv, want):
     seen = {}
-    monkeypatch.setattr(model_job, "_print_now_cli", lambda target, **kw: seen.update(kw))
+    monkeypatch.setattr(jobs_cli, "_print_now_cli", lambda target, **kw: seen.update(kw))
     monkeypatch.setattr(model_job.sys, "argv", ["model_job", *argv])
-    model_job.main()
+    jobs_cli.main()
     assert seen.get("bed_clear") == want
 
 
@@ -512,7 +519,7 @@ def test_item7_a_slow_spoolman_does_not_block_a_launch_waiting_for_the_record(tm
 # --------------------------------------------------------------------------- item 9 (#1153): no duplicate start reads
 
 def _count_reads(mapped, display_off):
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
     reads = {"status": 0, "detail": 0}
     at_upload = {}
 
@@ -520,8 +527,8 @@ def _count_reads(mapped, display_off):
         if "zmod_color" in path and "print_stats" in path:
             reads["status"] += 1
         return original(st, path, data=data, timeout=timeout)
-    model_job._mr.side_effect = mr
-    model_job.read_stock_detail.side_effect = lambda st: reads.__setitem__("detail", reads["detail"] + 1) or {}
+    jobs_common._mr.side_effect = mr
+    jobs_filament.read_stock_detail.side_effect = lambda st: reads.__setitem__("detail", reads["detail"] + 1) or {}
     # The real idle guard reads both sources each time it is asked (the fixture's mock does not).
     mapped.native.require_idle_settled.side_effect = lambda read_moonraker, read_native: bool(
         read_moonraker() and read_native() is not None)
@@ -533,7 +540,7 @@ def _count_reads(mapped, display_off):
         return real_run(cmd, *args, **kwargs)
     mapped.run.side_effect = run
     jp, g = make_job(mapped.root, f"reads-{display_off}")
-    model_job.print_mapped_native(g, mapped.st, {"display_off": display_off}, {"0": 1},
+    launch_print_now.print_mapped_native(g, mapped.st, {"display_off": display_off}, {"0": 1},
                                   json.loads(jp.read_text()), jp, 0, False)
     return at_upload
 
@@ -549,7 +556,7 @@ def test_1153_item9_screenless_start_reads_status_twice_and_never_the_stock_deta
 
 def test_1153_item9_the_idle_check_inside_the_lease_still_reads_the_printer_fresh(mapped):
     """The saved read only serves the first check: a printer that turned busy is still caught."""
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
     count = {"n": 0}
 
     def mr(st, path, data=None, timeout=30):
@@ -559,10 +566,10 @@ def test_1153_item9_the_idle_check_inside_the_lease_still_reads_the_printer_fres
             if count["n"] >= 2:
                 reply["result"]["status"]["print_stats"] = {"state": "printing", "filename": "other.gcode"}
         return reply
-    model_job._mr.side_effect = mr
+    jobs_common._mr.side_effect = mr
     jp, g = make_job(mapped.root, "busy-later")
     with pytest.raises(SystemExit, match="idle guard failed"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
     assert uploads(mapped.run) == []
 
@@ -571,17 +578,17 @@ def test_1153_item9_the_idle_check_inside_the_lease_still_reads_the_printer_fres
 
 def test_ad5x_pin_the_mapped_start_sends_one_upload_then_exactly_one_set_zcolor(mapped):
     jp, g = make_job(mapped.root, "pin")
-    model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+    launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
                                   json.loads(jp.read_text()), jp, 0, False)
     [remote] = uploads(mapped.run)
     assert mapped.scripts == [f"SET_ZCOLOR FILENAME={remote} SILENT=1 AUTO_ASSIGN=0 LEVELING=0 T0=1"]
 
 
 def test_ad5x_pin_the_ifs_slot_mapping_reaches_set_zcolor_and_an_empty_slot_refuses(mapped):
-    model_job.read_stock_filament_slots_from_detail.return_value = {1: False}
+    jobs_filament.read_stock_filament_slots_from_detail.return_value = {1: False}
     jp, g = make_job(mapped.root, "empty-slot")
     with pytest.raises(RuntimeError, match="T0 slot 1 occupancy is unknown or unconfirmed"):
-        model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
+        launch_print_now.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1},
                                       json.loads(jp.read_text()), jp, 0, False)
     assert uploads(mapped.run) == [] and mapped.scripts == []
 

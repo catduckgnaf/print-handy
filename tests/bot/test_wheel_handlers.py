@@ -14,8 +14,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILD_FILES = ("pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "NOTICE",
-               "plugins/print-feedback/__init__.py")
+BUILD_FILES = ("pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "NOTICE")
 _BUILD = ("import sys\nfrom setuptools import build_meta as backend\n"
           "print(backend.build_wheel(sys.argv[1]))\n")
 _LOAD = """
@@ -72,20 +71,12 @@ def test_every_handler_declares_match_and_handle():
     assert [m.handle for m in handlers.HANDLERS] == list(handlers._DISPATCH_HOOKS)
 
 
-def test_the_old_plugin_file_registers_the_same_handlers_in_the_same_order():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("pf_wheel_parity", ROOT / "plugins/print-feedback/__init__.py")
-    old = importlib.util.module_from_spec(spec)
-    sys.modules["pf_wheel_parity"] = old
-    try:
-        spec.loader.exec_module(old)
-    finally:
-        sys.modules.pop("pf_wheel_parity", None)
+def test_the_handler_package_registers_and_the_old_plugin_path_is_gone():
+    assert not (ROOT / "plugins" / "print-feedback").exists()
     from print_handy.bot import handlers
-    assert [h.__name__ for h in old._DISPATCH_HOOKS] == [h.__name__ for h in handlers._DISPATCH_HOOKS]
-    old_gates = {h.__name__: getattr(h, "dispatch_gate", None) for h in old._DISPATCH_HOOKS}
-    new_gates = {h.__name__: getattr(h, "dispatch_gate", None) for h in handlers._DISPATCH_HOOKS}
-    assert {n: g.command for n, g in old_gates.items() if g} == {n: g.command for n, g in new_gates.items() if g}
+    assert [h.__name__ for h in handlers._DISPATCH_HOOKS]
+    names = [h.__name__ for h in handlers._DISPATCH_HOOKS]
+    assert names == [module.handle.__name__ for module in handlers.HANDLERS]
 
 
 def _clean_env():

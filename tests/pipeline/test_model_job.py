@@ -18,8 +18,22 @@ from unittest import mock
 from print_handy import settings
 from print_handy.printers.flashforge.zmod import stock
 from print_handy.core import _external, launch_state, model_job
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import bounds as gcode_bounds
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 
 from .helpers import external
+from tests.bound_names import patch_bound, setattr_bound
 
 CTL = settings.ROOT / "bin" / "moonrakerctl"
 CLI = [sys.executable, "-m", "print_handy.core.model_job"]
@@ -38,7 +52,7 @@ class AuthorSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             stl = Path(td) / "plain.stl"
             stl.write_text("solid x\nendsolid x\n")
-            self.assertEqual(model_job.get_author_settings(stl), {})
+            self.assertEqual(jobs_prompts.get_author_settings(stl), {})
 
     def test_extracts_author_brim_and_tree_support(self):
         with tempfile.TemporaryDirectory() as td:
@@ -49,7 +63,7 @@ class AuthorSettingsTests(unittest.TestCase):
                     "enable_support": 1,
                     "support_type": "tree(auto)",
                 }))
-            self.assertEqual(model_job.get_author_settings(path), {
+            self.assertEqual(jobs_prompts.get_author_settings(path), {
                 "brim_width": "4",
                 "support_material": "1",
                 "support_material_style": "organic",
@@ -61,14 +75,14 @@ class AuthorSettingsTests(unittest.TestCase):
             with zipfile.ZipFile(path, "w") as z:
                 z.writestr("Metadata/project_settings.config", "{broken")
             with self.assertRaisesRegex(RuntimeError, "author settings"):
-                model_job.get_author_settings(path)
+                jobs_prompts.get_author_settings(path)
 
 
 class GcodeBoundsTests(unittest.TestCase):
     def test_bounds_1m_lines_under_performance_budget(self):
         text = "G90\n" + "G1 X10 Y20 Z0.2 E1.5\n; extrusion payload metadata\n" * 333333
         started = time.perf_counter()
-        result = model_job.gcode_motion_bounds(text)
+        result = gcode_bounds.gcode_motion_bounds(text)
         elapsed = time.perf_counter() - started
         self.assertEqual(result, {"x": (10.0, 10.0), "y": (20.0, 20.0), "z": (0.2, 0.2)})
         # Gross-regression guard only: this host parses ~70k lines/s (baseline 16 s).
@@ -78,20 +92,20 @@ class GcodeBoundsTests(unittest.TestCase):
     def test_cached_bounds_reuse_identical_bytes_and_never_cache_failures(self):
         import tempfile
         from unittest import mock
-        with tempfile.TemporaryDirectory() as td, mock.patch.object(model_job, "BOUNDS_CACHE", Path(td)):
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(gcode_bounds, "BOUNDS_CACHE", Path(td)):
             raw = b"G90\nG1 X10 Y20 Z0.2\nG1 X30 Y40 Z0.4\n"
             calls = []
-            real = model_job.gcode_motion_bounds
-            with mock.patch.object(model_job, "gcode_motion_bounds", side_effect=lambda t: calls.append(1) or real(t)):
-                first = model_job.cached_motion_bounds(raw)
-                second = model_job.cached_motion_bounds(raw)
+            real = gcode_bounds.gcode_motion_bounds
+            with mock.patch.object(gcode_bounds, "gcode_motion_bounds", side_effect=lambda t: calls.append(1) or real(t)):
+                first = gcode_bounds.cached_motion_bounds(raw)
+                second = gcode_bounds.cached_motion_bounds(raw)
                 self.assertEqual(first, second)
                 self.assertEqual(first, {"x": (10.0, 30.0), "y": (20.0, 40.0), "z": (0.2, 0.4)})
                 self.assertEqual(len(calls), 1)
                 bad = b"G91\nG1 X1\n"
                 for _ in range(2):
                     with self.assertRaises(RuntimeError):
-                        model_job.cached_motion_bounds(bad)
+                        gcode_bounds.cached_motion_bounds(bad)
                 self.assertEqual(len(calls), 3)
 
     def test_bounds_match_reference_on_real_gcode_samples(self):
@@ -111,7 +125,7 @@ class GcodeBoundsTests(unittest.TestCase):
                 if command=="G91": absolute=False; continue
                 if command in ("G28","G53","FORCE_MOVE","MANUAL_STEPPER","STEPPER_BUZZ","SET_KINEMATIC_POSITION"):
                     raise RuntimeError(f"line {lineno}: unsupported motion-affecting command {command}")
-                words={axis:float(value) for axis,value in re.findall(r'([A-Z])\s*('+model_job.NUMBER+r')',line)}
+                words={axis:float(value) for axis,value in re.findall(r'([A-Z])\s*('+gcode_bounds.NUMBER+r')',line)}
                 if command=="G92" and any(axis in words for axis in "XYZ"):
                     raise RuntimeError(f"line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous")
                 if command in ("G2","G02","G3","G03"):
@@ -151,7 +165,7 @@ class GcodeBoundsTests(unittest.TestCase):
                     try: return ("ok", fn(text))
                     except RuntimeError as exc: return (type(exc), str(exc))
                 with self.subTest(path=str(path)):
-                    self.assertEqual(outcome(reference), outcome(model_job.gcode_motion_bounds))
+                    self.assertEqual(outcome(reference), outcome(gcode_bounds.gcode_motion_bounds))
 
     def test_absolute_and_relative_xyz_bounds(self):
         text = """G90
@@ -161,53 +175,53 @@ G1 X5 Y-3 Z0.1
 G90
 G1 X2 Y4 Z1e0
 """
-        self.assertEqual(model_job.gcode_motion_bounds(text), {
+        self.assertEqual(gcode_bounds.gcode_motion_bounds(text), {
             "x": (2.0, 15.0), "y": (4.0, 20.0), "z": (0.2, 1.0)
         })
 
     def test_xyz_g92_is_refused_as_ambiguous(self):
         with self.assertRaisesRegex(RuntimeError, "G92.*XYZ"):
-            model_job.gcode_motion_bounds("G90\nG1 X100 Y100 Z1\nG92 X0 Y0\nG1 X5 Y6\n")
+            gcode_bounds.gcode_motion_bounds("G90\nG1 X100 Y100 Z1\nG92 X0 Y0\nG1 X5 Y6\n")
 
     def test_arc_motion_is_refused_as_unsupported(self):
         with self.assertRaisesRegex(RuntimeError, "arc motion"):
-            model_job.gcode_motion_bounds("G90\nG1 X10 Y10 Z1\nG2 X20 Y20 I5 J0\n")
+            gcode_bounds.gcode_motion_bounds("G90\nG1 X10 Y10 Z1\nG2 X20 Y20 I5 J0\n")
 
     def test_relative_motion_without_known_position_is_refused(self):
         with self.assertRaisesRegex(RuntimeError, "relative X motion"):
-            model_job.gcode_motion_bounds("G91\nG1 X5\n")
+            gcode_bounds.gcode_motion_bounds("G91\nG1 X5\n")
 
     def test_no_xyz_motion_is_refused(self):
         with self.assertRaisesRegex(RuntimeError, "no bounded XYZ motion"):
-            model_job.gcode_motion_bounds("G90\nG1 E10\n")
+            gcode_bounds.gcode_motion_bounds("G90\nG1 E10\n")
 
     def test_firmware_syntax_the_old_regex_missed_is_read_like_the_firmware(self):
         # S4: each of these was invisible to the API 2 parser.
         base = "G90\nG1 X10 Y1 Z1\n"
-        self.assertEqual(model_job.gcode_motion_bounds(base + "G91;rel\nG1 X100\nG1 X100\nG1 X100\n")["x"],
+        self.assertEqual(gcode_bounds.gcode_motion_bounds(base + "G91;rel\nG1 X100\nG1 X100\nG1 X100\n")["x"],
                          (10.0, 310.0))
-        self.assertEqual(model_job.gcode_motion_bounds(base + "G1X400\n")["x"], (10.0, 400.0))
-        self.assertEqual(model_job.gcode_motion_bounds(base + "N10 G1 X400\n")["x"], (10.0, 400.0))
+        self.assertEqual(gcode_bounds.gcode_motion_bounds(base + "G1X400\n")["x"], (10.0, 400.0))
+        self.assertEqual(gcode_bounds.gcode_motion_bounds(base + "N10 G1 X400\n")["x"], (10.0, 400.0))
         with self.assertRaisesRegex(RuntimeError, "inch units"):
-            model_job.gcode_motion_bounds("G20;inch\n" + base)
+            gcode_bounds.gcode_motion_bounds("G20;inch\n" + base)
         with self.assertRaisesRegex(RuntimeError, "arc motion"):
-            model_job.gcode_motion_bounds(base + "G2;arc X50 Y50 I1 J1\n")
+            gcode_bounds.gcode_motion_bounds(base + "G2;arc X50 Y50 I1 J1\n")
 
     def test_offset_commands_are_refused_by_name(self):
         base = "G90\nG1 X10 Y1 Z1\n"
         for line in ("SET_GCODE_OFFSET X=300", "M206 X300", "M428", "G10 L2 P1 X300", "G54", "G59.1",
                      "RESTORE_GCODE_STATE NAME=start"):
             with self.subTest(line=line), self.assertRaisesRegex(RuntimeError, "^line 3: "):
-                model_job.gcode_motion_bounds(base + line + "\n")
+                gcode_bounds.gcode_motion_bounds(base + line + "\n")
         # Firmware retraction and a bare M206 report do not shift coordinates.
-        self.assertEqual(model_job.gcode_motion_bounds(base + "G10\nG11\nM206\n")["x"], (10.0, 10.0))
+        self.assertEqual(gcode_bounds.gcode_motion_bounds(base + "G10\nG11\nM206\n")["x"], (10.0, 10.0))
 
     def test_homing_is_refused_as_unmodeled_motion(self):
         with self.assertRaisesRegex(RuntimeError, "unsupported motion-affecting command G28"):
-            model_job.gcode_motion_bounds("G28\nG90\nG1 X10 Y10 Z1\n")
+            gcode_bounds.gcode_motion_bounds("G28\nG90\nG1 X10 Y10 Z1\n")
 
     def test_parameter_parser_ignores_extrusion_words(self):
-        self.assertEqual(model_job.gcode_motion_bounds("G90\nG1 X10 Y10 Z0.2 E1.5\n"), {
+        self.assertEqual(gcode_bounds.gcode_motion_bounds("G90\nG1 X10 Y10 Z0.2 E1.5\n"), {
             "x": (10.0, 10.0), "y": (10.0, 10.0), "z": (0.2, 0.2)
         })
 
@@ -242,8 +256,8 @@ PRINT_END
             path.write_text(gcode)
             with mock.patch.object(model_job.printer_state, "load", return_value=self.state()), \
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-                 mock.patch.object(model_job, "_mr", return_value={"result": {"status": {"save_variables": {"variables": {"display_off": 1}}}}}):
-                return model_job.verify_gcode(path)
+                 patch_bound(jobs_common, "_mr", return_value={"result": {"status": {"save_variables": {"variables": {"display_off": 1}}}}}):
+                return gcode_verify.verify_gcode(path)
 
     def test_verify_refuses_out_of_range_xy_motion(self):
         with self.assertRaisesRegex(RuntimeError, "X bounds"):
@@ -333,13 +347,13 @@ class SliceVerificationTests(unittest.TestCase):
                 output = Path(cmd[cmd.index("--outputdir") + 1]) / 'plate_1.gcode'
                 output.write_text("; generated by OrcaSlicer 2.4.2\nmock output")
                 return mock.Mock(returncode=0, stdout="", stderr="")
-            with mock.patch.object(model_job, "ARCHIVE", work), \
+            with patch_bound(jobs_common, "ARCHIVE", work), \
                  mock.patch.object(model_job.printer_state, "load", return_value=state), \
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
                  mock.patch.object(model_job.subprocess, "run", side_effect=write_slicer_output), \
-                 mock.patch.object(model_job, "verify_gcode", side_effect=RuntimeError("bad generated file")) as verify:
+                 patch_bound(gcode_verify, "verify_gcode", side_effect=RuntimeError("bad generated file")) as verify:
                 with self.assertRaisesRegex(RuntimeError, "bad generated file"):
-                    model_job.slice_job(job_path)
+                    jobs_slice.slice_job(job_path)
                 verify.assert_called_once()
             saved = json.loads(job_path.read_text())
             self.assertNotIn("gcode_verified", saved)
@@ -377,12 +391,12 @@ class SliceVerificationTests(unittest.TestCase):
                 output = Path(cmd[cmd.index("--outputdir") + 1]) / 'plate_1.gcode'
                 output.write_text("; generated by OrcaSlicer 2.4.2\nmock output")
                 return mock.Mock(returncode=0, stdout="", stderr="")
-            with mock.patch.object(model_job, "ARCHIVE", work),                  mock.patch.object(model_job.printer_state, "load", return_value=state),                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})),                  mock.patch.object(model_job.subprocess, "run", side_effect=write_slicer_output),                  mock.patch.object(model_job, "verify_gcode", return_value=True):
-                out = model_job.slice_job(job_path)
+            with patch_bound(jobs_common, "ARCHIVE", work),                  mock.patch.object(model_job.printer_state, "load", return_value=state),                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})),                  mock.patch.object(model_job.subprocess, "run", side_effect=write_slicer_output),                  patch_bound(gcode_verify, "verify_gcode", return_value=True):
+                out = jobs_slice.slice_job(job_path)
             self.assertTrue(str(out).endswith("plate_1.gcode"))
             saved = json.loads(job_path.read_text())
             self.assertEqual(saved["color_decisions"], decisions)
-            self.assertEqual(saved["artifact_binding"]["decisions_sha256"], model_job.decisions_digest(decisions))
+            self.assertEqual(saved["artifact_binding"]["decisions_sha256"], jobs_store.decisions_digest(decisions))
 
     def test_slice_job_forwards_requested_copy_count_to_orca(self):
         state = {
@@ -405,13 +419,13 @@ class SliceVerificationTests(unittest.TestCase):
             }))
             gcode = work / "plate_1.gcode"
             gcode.write_text("; generated by OrcaSlicer 2.4.2\nmock output")
-            provenance = {"source_sha256": model_job.file_sha256(source)}
+            provenance = {"source_sha256": gcode_artifact.file_sha256(source)}
             fake_adapter = mock.Mock()
             fake_adapter.slice_model.return_value = (gcode, provenance, [])
             with mock.patch.object(model_job.printer_state, "load", return_value=state), \
-                 mock.patch.object(model_job, "verify_gcode"), \
+                 patch_bound(gcode_verify, "verify_gcode"), \
                  mock.patch.dict(sys.modules, {"print_handy.core.orca_adapter": fake_adapter}):
-                model_job.slice_job(job_path, copies=3)
+                jobs_slice.slice_job(job_path, copies=3)
             self.assertEqual(fake_adapter.slice_model.call_args.kwargs["copies"], 3)
             self.assertEqual(json.loads(job_path.read_text())["copies"], 3)
 
@@ -438,16 +452,16 @@ def _slice_state(*_args, **_kwargs):
 
 
 def _unit_decision(source, units, dims):
-    return model_job.make_unit_decision(units, model_job.file_sha256(source), dims)
+    return jobs_prompts.make_unit_decision(units, gcode_artifact.file_sha256(source), dims)
 
 
 def _fake_adapter_slice(tmp_path, monkeypatch, source):
     fake_adapter = mock.Mock()
     gcode = tmp_path / 'plate_1.gcode'
     gcode.write_text('; generated by OrcaSlicer 2.4.2\n')
-    fake_adapter.slice_model.return_value = (gcode, {'source_sha256': model_job.file_sha256(source)}, [])
+    fake_adapter.slice_model.return_value = (gcode, {'source_sha256': gcode_artifact.file_sha256(source)}, [])
     monkeypatch.setattr(model_job.printer_state, 'load', _slice_state)
-    monkeypatch.setattr(model_job, 'verify_gcode', lambda *_args: None)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', lambda *_args: None)
     return fake_adapter
 
 
@@ -471,9 +485,9 @@ def test_inch_stl_auto_scales_exported_geometry_and_records_job(tmp_path, monkey
         return mock.Mock(returncode=0, stdout='', stderr='')
 
     monkeypatch.setattr(model_job.printer_state, 'load', _slice_state)
-    monkeypatch.setattr(model_job, 'verify_gcode', lambda *_args: None)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', lambda *_args: None)
     monkeypatch.setattr(model_job.subprocess, 'run', fake_slice)
-    model_job.slice_job(manifest, copies=2)
+    jobs_slice.slice_job(manifest, copies=2)
     saved = json.loads(manifest.read_text())
     assert saved['copies'] == 2
     assert saved['auto_scale'] == {'factor': 25.4, 'reason': 'inch units',
@@ -493,11 +507,11 @@ def test_explicit_scale_overrides_inch_auto_scale(tmp_path, monkeypatch):
     fake_adapter = mock.Mock()
     gcode = tmp_path / 'plate_1.gcode'
     gcode.write_text('; generated by OrcaSlicer 2.4.2\n')
-    fake_adapter.slice_model.return_value = (gcode, {'source_sha256': model_job.file_sha256(source)}, [])
+    fake_adapter.slice_model.return_value = (gcode, {'source_sha256': gcode_artifact.file_sha256(source)}, [])
     monkeypatch.setattr(model_job.printer_state, 'load', _slice_state)
-    monkeypatch.setattr(model_job, 'verify_gcode', lambda *_args: None)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', lambda *_args: None)
     with mock.patch.dict(sys.modules, {'print_handy.core.orca_adapter': fake_adapter}):
-        model_job.slice_job(manifest)
+        jobs_slice.slice_job(manifest)
     assert fake_adapter.slice_model.call_args.kwargs['scale'] == 2.0
     assert 'auto_scale' not in json.loads(manifest.read_text())
 
@@ -511,7 +525,7 @@ def test_inch_stl_that_would_not_fit_fails_with_measured_size(tmp_path, monkeypa
                                     'unit_decision': _unit_decision(source, 'inch', [9, 2, 2])}))
     monkeypatch.setattr(model_job.printer_state, 'load', _slice_state)
     with pytest.raises(RuntimeError, match=r'model measures 9x2x2 mm.*228.6x50.8x50.8 mm'):
-        model_job.slice_job(manifest)
+        jobs_slice.slice_job(manifest)
 
 
 def test_small_stl_without_unit_confirmation_is_not_sliced(tmp_path, monkeypatch):
@@ -523,7 +537,7 @@ def test_small_stl_without_unit_confirmation_is_not_sliced(tmp_path, monkeypatch
     fake_adapter = _fake_adapter_slice(tmp_path, monkeypatch, source)
     with mock.patch.dict(sys.modules, {'print_handy.core.orca_adapter': fake_adapter}):
         with pytest.raises(RuntimeError, match=r'do not record units.*confirm'):
-            model_job.slice_job(manifest)
+            jobs_slice.slice_job(manifest)
     fake_adapter.slice_model.assert_not_called()
     assert 'auto_scale' not in json.loads(manifest.read_text())
 
@@ -535,20 +549,20 @@ def test_5mm_pin_stays_5mm_after_mm_confirmation(tmp_path, monkeypatch, capsys):
     manifest.write_text(json.dumps({'downloaded_file': str(source),
                                     'audit': {'size_x': '5', 'size_y': '2', 'size_z': '2'}, 'title': 'Pin'}))
     # The intake gate asks first: noninteractive callers get the packet, nothing is recorded.
-    assert model_job.intake_unit_confirmation(manifest) is False
+    assert jobs_prompts.intake_unit_confirmation(manifest) is False
     packet = json.loads(capsys.readouterr().out)
     assert packet['status'] == 'UNIT_CONFIRMATION_REQUIRED'
     assert packet['choices'][0].startswith('Millimeters')
     assert 'unit_decision' not in json.loads(manifest.read_text())
     # Confirming millimeters records source-bound provenance on the same job.
-    assert model_job.intake_unit_confirmation(manifest, units='mm') is True
+    assert jobs_prompts.intake_unit_confirmation(manifest, units='mm') is True
     saved = json.loads(manifest.read_text())
     assert saved['unit_decision']['units'] == 'mm'
-    assert saved['unit_decision']['source_sha256'] == model_job.file_sha256(source)
+    assert saved['unit_decision']['source_sha256'] == gcode_artifact.file_sha256(source)
     assert saved['unit_provenance']['source'] == 'user_confirmation'
     fake_adapter = _fake_adapter_slice(tmp_path, monkeypatch, source)
     with mock.patch.dict(sys.modules, {'print_handy.core.orca_adapter': fake_adapter}):
-        model_job.slice_job(manifest)
+        jobs_slice.slice_job(manifest)
     assert fake_adapter.slice_model.call_args.kwargs.get('scale') is None
     saved = json.loads(manifest.read_text())
     assert 'auto_scale' not in saved
@@ -568,7 +582,7 @@ def test_unit_confirmation_for_another_source_is_refused(tmp_path, monkeypatch):
     fake_adapter = _fake_adapter_slice(tmp_path, monkeypatch, source)
     with mock.patch.dict(sys.modules, {'print_handy.core.orca_adapter': fake_adapter}):
         with pytest.raises(RuntimeError, match=r'do not record units'):
-            model_job.slice_job(manifest)
+            jobs_slice.slice_job(manifest)
     fake_adapter.slice_model.assert_not_called()
 
 
@@ -578,10 +592,10 @@ def test_explicit_scale_1_is_never_auto_scaled(tmp_path, monkeypatch):
     manifest = tmp_path / 'JOB.json'
     manifest.write_text(json.dumps({'downloaded_file': str(source), 'scale': 1.0,
                                     'audit': {'size_x': '5', 'size_y': '2', 'size_z': '2'}, 'title': 'Pin'}))
-    assert model_job.unit_question(json.loads(manifest.read_text())) is None
+    assert jobs_prompts.unit_question(json.loads(manifest.read_text())) is None
     fake_adapter = _fake_adapter_slice(tmp_path, monkeypatch, source)
     with mock.patch.dict(sys.modules, {'print_handy.core.orca_adapter': fake_adapter}):
-        model_job.slice_job(manifest)
+        jobs_slice.slice_job(manifest)
     assert fake_adapter.slice_model.call_args.kwargs['scale'] == 1.0
     saved = json.loads(manifest.read_text())
     assert 'auto_scale' not in saved
@@ -594,10 +608,10 @@ def test_generated_mm_part_is_never_auto_scaled_or_asked(tmp_path, monkeypatch):
     manifest = tmp_path / 'JOB.json'
     manifest.write_text(json.dumps({'downloaded_file': str(source), 'generated': True,
                                     'audit': {'size_x': '5', 'size_y': '2', 'size_z': '2'}, 'title': 'Generated'}))
-    assert model_job.unit_question(json.loads(manifest.read_text())) is None
+    assert jobs_prompts.unit_question(json.loads(manifest.read_text())) is None
     fake_adapter = _fake_adapter_slice(tmp_path, monkeypatch, source)
     with mock.patch.dict(sys.modules, {'print_handy.core.orca_adapter': fake_adapter}):
-        model_job.slice_job(manifest)
+        jobs_slice.slice_job(manifest)
     assert fake_adapter.slice_model.call_args.kwargs.get('scale') is None
     saved = json.loads(manifest.read_text())
     assert 'auto_scale' not in saved
@@ -614,11 +628,11 @@ def test_normal_size_stl_is_not_auto_scaled(tmp_path, monkeypatch):
     fake_adapter = mock.Mock()
     gcode = tmp_path / 'plate_1.gcode'
     gcode.write_text('; generated by OrcaSlicer 2.4.2\n')
-    fake_adapter.slice_model.return_value = (gcode, {'source_sha256': model_job.file_sha256(source)}, [])
+    fake_adapter.slice_model.return_value = (gcode, {'source_sha256': gcode_artifact.file_sha256(source)}, [])
     monkeypatch.setattr(model_job.printer_state, 'load', _slice_state)
-    monkeypatch.setattr(model_job, 'verify_gcode', lambda *_args: None)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', lambda *_args: None)
     with mock.patch.dict(sys.modules, {'print_handy.core.orca_adapter': fake_adapter}):
-        model_job.slice_job(manifest)
+        jobs_slice.slice_job(manifest)
     assert fake_adapter.slice_model.call_args.kwargs.get('scale') is None
     saved = json.loads(manifest.read_text())
     assert 'auto_scale' not in saved
@@ -638,10 +652,10 @@ class PlateManifestTests(unittest.TestCase):
                     '<model_instance><metadata key="object_id" value="8"/></model_instance></plate>'
                     '<plate><metadata key="plater_id" value="2"/><metadata key="plater_name" value="right"/>'
                     '<model_instance><metadata key="object_id" value="9"/></model_instance></plate></config>'))
-            manifest = model_job.plate_manifest(source)
+            manifest = jobs_slice.plate_manifest(source)
             self.assertEqual([(p["id"], p["name"], p["object_ids"]) for p in manifest["plates"]],
                              [(1, "left", [8]), (2, "right", [9])])
-            self.assertEqual(manifest["source_sha256"], model_job.file_sha256(source))
+            self.assertEqual(manifest["source_sha256"], gcode_artifact.file_sha256(source))
             self.assertEqual([p["status"] for p in manifest["plates"]], ["planned", "planned"])
 
     def test_manifest_refuses_thumbnails_without_assignments(self):
@@ -651,7 +665,7 @@ class PlateManifestTests(unittest.TestCase):
                 archive.writestr("Metadata/plate_1.png", b"one")
                 archive.writestr("Metadata/plate_2.png", b"two")
             with self.assertRaisesRegex(RuntimeError, "assignments"):
-                model_job.plate_manifest(source)
+                jobs_slice.plate_manifest(source)
 
     def test_manifest_rejects_duplicate_plate_ids(self):
         with tempfile.TemporaryDirectory() as td:
@@ -661,7 +675,7 @@ class PlateManifestTests(unittest.TestCase):
                     '<plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="8"/></model_instance></plate>'
                     '<plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="9"/></model_instance></plate></config>'))
             with self.assertRaisesRegex(RuntimeError, "duplicated"):
-                model_job.plate_manifest(source)
+                jobs_slice.plate_manifest(source)
 
     def test_manifest_cli_prints_inventory_without_slicing(self):
         with tempfile.TemporaryDirectory() as td:
@@ -695,7 +709,7 @@ class MultipartSafetyTests(unittest.TestCase):
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
                  mock.patch.object(model_job.subprocess, "run") as run:
                 with self.assertRaisesRegex(RuntimeError, "multi.*plate|multipart"):
-                    model_job.slice_job(job_path)
+                    jobs_slice.slice_job(job_path)
                 run.assert_not_called()
 
     def test_whole_source_multiplate_unknown_usage_reaches_slicer(self):
@@ -712,11 +726,11 @@ class MultipartSafetyTests(unittest.TestCase):
             state = {"bed_mm": [220, 220], "max_print_height_mm": 250,
                      "nozzle": {"diameter_mm": 0.4}, "spool": {"name": "PLA", "material": "PLA", "density": 1.24},
                      "temps_c": {"nozzle": 210, "bed": 60}}
-            with mock.patch.object(model_job, "ARCHIVE", work), \
+            with patch_bound(jobs_common, "ARCHIVE", work), \
                  mock.patch.object(model_job.printer_state, "load", return_value=state), \
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-                 mock.patch.object(model_job, "slice_multi_plate", return_value=Path("result.gcode")) as slice_multi:
-                result = model_job.slice_job(job_path)
+                 mock.patch.object(jobs_slice, "slice_multi_plate", return_value=Path("result.gcode")) as slice_multi:
+                result = jobs_slice.slice_job(job_path)
             self.assertEqual(result, Path("result.gcode"))
             slice_multi.assert_called_once()
 
@@ -737,7 +751,7 @@ class MultipartSafetyTests(unittest.TestCase):
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
                  mock.patch.object(model_job.subprocess, "run") as run:
                 with self.assertRaisesRegex(RuntimeError, "multi-plate"):
-                    model_job.slice_job(job_path)
+                    jobs_slice.slice_job(job_path)
                 run.assert_not_called()
 
     def test_multiplate_archive_cannot_bypass_guard_without_plate_thumbnails(self):
@@ -759,7 +773,7 @@ class MultipartSafetyTests(unittest.TestCase):
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
                  mock.patch.object(model_job.subprocess, "run") as run:
                 with self.assertRaisesRegex(RuntimeError, "multi-plate"):
-                    model_job.slice_job(job_path)
+                    jobs_slice.slice_job(job_path)
                 run.assert_not_called()
 
     def test_slicer_success_without_output_reports_missing_artifact(self):
@@ -777,14 +791,14 @@ class MultipartSafetyTests(unittest.TestCase):
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
                  mock.patch.object(model_job.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
                 with self.assertRaisesRegex(RuntimeError, "no G-code output"):
-                    model_job.slice_job(job_path)
+                    jobs_slice.slice_job(job_path)
             self.assertNotIn("gcode_verified", json.loads(job_path.read_text()))
 
 class MeshTopologyAuditTests(unittest.TestCase):
     def test_closed_tetrahedron_is_watertight_manifold(self):
         tris = [[(0,0,0),(1,0,0),(0,1,0)], [(0,0,0),(0,1,0),(0,0,1)],
                 [(0,0,0),(0,0,1),(1,0,0)], [(1,0,0),(0,0,1),(0,1,0)]]
-        result = model_job.mesh_topology(tris)
+        result = jobs_audit.mesh_topology(tris)
         self.assertEqual(result["triangle_count"], 4)
         self.assertEqual(result["connected_shells"], 1)
         self.assertTrue(result["watertight"])
@@ -792,7 +806,7 @@ class MeshTopologyAuditTests(unittest.TestCase):
 
     def test_open_and_disconnected_meshes_are_reported(self):
         tri = [(0,0,0),(1,0,0),(0,1,0)]
-        result = model_job.mesh_topology([tri, [(3,0,0),(4,0,0),(3,1,0)]])
+        result = jobs_audit.mesh_topology([tri, [(3,0,0),(4,0,0),(3,1,0)]])
         self.assertEqual(result["connected_shells"], 2)
         self.assertEqual(result["boundary_edges"], 6)
         self.assertFalse(result["watertight"])
@@ -806,8 +820,8 @@ class MeshTopologyAuditTests(unittest.TestCase):
             with path.open("wb") as f:
                 f.write(b"part".ljust(80,b" ") + struct.pack("<I",1))
                 f.write(struct.pack("<12fH",0,0,0,*(v for point in tri for v in point),0))
-            job = {"printer_model": "ad5x", "downloaded_file": str(path), "audit": model_job.audit(path, printer_model="ad5x")}
-            model_job.write_job(folder, job)
+            job = {"printer_model": "ad5x", "downloaded_file": str(path), "audit": jobs_audit.audit(path, printer_model="ad5x")}
+            jobs_store.write_job(folder, job)
             stored = json.loads((folder / "JOB.json").read_text())["audit"]["mesh_audit"]
             self.assertEqual(stored["schema_version"], 1)
             self.assertEqual(stored["source_sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
@@ -819,19 +833,19 @@ class MeshTopologyAuditTests(unittest.TestCase):
     def test_vertex_only_touching_tetrahedra_is_singular(self):
         tetra=[[(0,0,0),(1,0,0),(0,1,0)],[(0,0,0),(0,1,0),(0,0,1)],[(0,0,0),(0,0,1),(1,0,0)],[(1,0,0),(0,0,1),(0,1,0)]]
         second=[[(0,0,0),(-1,0,0),(0,-1,0)],[(0,0,0),(0,-1,0),(0,0,-1)],[(0,0,0),(0,0,-1),(-1,0,0)],[(-1,0,0),(0,0,-1),(0,-1,0)]]
-        r=model_job.mesh_topology(tetra+second)
+        r=jobs_audit.mesh_topology(tetra+second)
         self.assertEqual(r["boundary_edges"],0); self.assertEqual(r["non_manifold_edges"],0)
         self.assertGreaterEqual(r["singular_vertices"],1); self.assertTrue(r["watertight"]); self.assertFalse(r["manifold"])
 
     def test_collinear_distinct_triangle_is_degenerate(self):
-        r=model_job.mesh_topology([[(0,0,0),(1,1,1),(2,2,2)]])
+        r=jobs_audit.mesh_topology([[(0,0,0),(1,1,1),(2,2,2)]])
         self.assertEqual(r["degenerate_triangles"],1); self.assertFalse(r["manifold"])
 
     def test_dense_edge_fan_is_bounded(self):
         # A child timeout makes quadratic regressions fail, rather than hang
         # the entire test runner. 20k faces would create ~400M pair links.
         code = (
-            "import json; from print_handy.core.model_job import mesh_topology; "
+            "import json; from print_handy.jobs.audit import mesh_topology; "
             "print(json.dumps(mesh_topology([[(0,0,0),(1,0,0),(0,i+1,1)] "
             "for i in range(20000)])))"
         )
@@ -844,7 +858,7 @@ class MeshTopologyAuditTests(unittest.TestCase):
         self.assertFalse(result["manifold"])
 
     def test_near_collinear_area_threshold_and_exclusion(self):
-        result = model_job.mesh_topology([
+        result = jobs_audit.mesh_topology([
             [(0, 0, 0), (0.000001, 0, 0), (0.000002, 0.000001, 0)],
             [(10, 0, 0), (11, 0, 0), (10, 1, 0)],
         ])
@@ -854,7 +868,7 @@ class MeshTopologyAuditTests(unittest.TestCase):
         self.assertEqual(result["connected_shells"], 1)
 
     def test_duplicate_vertex_degenerate_triangle_is_counted(self):
-        result = model_job.mesh_topology([[(0,0,0),(1,0,0),(1,0,0)]])
+        result = jobs_audit.mesh_topology([[(0,0,0),(1,0,0),(1,0,0)]])
         self.assertEqual(result["degenerate_triangles"], 1)
         self.assertFalse(result["manifold"])
 
@@ -892,7 +906,7 @@ class AuditTests(unittest.TestCase):
                 z.writestr("3D/3dmodel.model", "<model><resources><object id='1'><mesh/></object></resources><build><item objectid='1'/></build></model>")
             with mock.patch.object(model_job.subprocess, "run") as run:
                 run.return_value = mock.Mock(stdout="size_x = 10\nsize_y = 10\nsize_z = 10\n", stderr="")
-                result = model_job.audit(path)
+                result = jobs_audit.audit(path)
             self.assertEqual(result["plates"], 2)
             self.assertEqual(result["plate_ids"], [1, 2])
 
@@ -905,34 +919,34 @@ class AuditTests(unittest.TestCase):
                 z.writestr("3D/3dmodel.model", "<model><resources><object id='1'><mesh/></object></resources><build><item objectid='1'/></build></model>")
             with mock.patch.object(model_job.subprocess, "run") as run:
                 run.return_value = mock.Mock(stdout="size_x = 10\nsize_y = 10\nsize_z = 10\n", stderr="")
-                result = model_job.audit(path)
+                result = jobs_audit.audit(path)
             self.assertEqual(result["plate_ids"], [1, 2])
             self.assertEqual(result["plates"], 2)
 
 
 class EnglishAndPrintNowTests(unittest.TestCase):
     def test_english_prefers_translated_title(self):
-        self.assertEqual(model_job.english("Retractable Ghost", "伸缩滑溜小幽灵"), "Retractable Ghost")
-        self.assertEqual(model_job.english(None, "伸缩滑溜小幽灵", "Ghost"), "Ghost")
-        self.assertEqual(model_job.english(None, "伸缩"), "伸缩")
+        self.assertEqual(jobs_sources.english("Retractable Ghost", "伸缩滑溜小幽灵"), "Retractable Ghost")
+        self.assertEqual(jobs_sources.english(None, "伸缩滑溜小幽灵", "Ghost"), "Ghost")
+        self.assertEqual(jobs_sources.english(None, "伸缩"), "伸缩")
 
     def test_gcode_estimate_parses(self):
-        self.assertEqual(model_job.gcode_estimate_s("; estimated printing time (normal mode) = 11h 56m 20s\n"), 42980)
-        self.assertEqual(model_job.human_dur(42980), "11h 56m")
-        self.assertIsNone(model_job.gcode_estimate_s("nothing"))
+        self.assertEqual(jobs_store.gcode_estimate_s("; estimated printing time (normal mode) = 11h 56m 20s\n"), 42980)
+        self.assertEqual(jobs_store.human_dur(42980), "11h 56m")
+        self.assertIsNone(jobs_store.gcode_estimate_s("nothing"))
         # Bambu Studio writes the header form only (#271): printing time first, the slicer total as fallback.
         bambu = "; HEADER_BLOCK_START\n; model printing time: 14h 22m 10s; total estimated time: 14h 31m 37s\n"
-        self.assertEqual(model_job.gcode_estimate_s(bambu), 51730)
-        self.assertEqual(model_job.gcode_estimate_s("; total estimated time: 9m\n"), 540)
+        self.assertEqual(jobs_store.gcode_estimate_s(bambu), 51730)
+        self.assertEqual(jobs_store.gcode_estimate_s("; total estimated time: 9m\n"), 540)
         both = bambu + "; estimated printing time (normal mode) = 11h 56m 20s\n"
-        self.assertEqual(model_job.gcode_estimate_s(both), 42980)
+        self.assertEqual(jobs_store.gcode_estimate_s(both), 42980)
 
     def setUp(self):
         # live_snapshot reads the printer; keep every print_now test offline.
-        p = mock.patch.object(model_job, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"})
+        p = mock.patch.object(launch_print_now, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"})
         p.start(); self.addCleanup(p.stop)
-        for p in (mock.patch.object(model_job, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0, "problem": None, "stale": None, "z_offset_mm": -0.005, "offset_source": "saved gcode offset"}),
-                  mock.patch.object(model_job, "screen_z_offset", return_value=0.025),
+        for p in (patch_bound(launch_gates, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0, "problem": None, "stale": None, "z_offset_mm": -0.005, "offset_source": "saved gcode offset"}),
+                  patch_bound(launch_gates, "screen_z_offset", return_value=0.025),
                   mock.patch.object(model_job, "_fetch_remote_gcode_sha256", side_effect=lambda url, name: name.rsplit(".", 1)[0].split("_", 1)[1] if "_" in name else "")):
             p.start(); self.addCleanup(p.stop)
 
@@ -945,24 +959,24 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_print_now_refuses_busy_printer(self):
         with tempfile.TemporaryDirectory() as d, \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("printing", "other.gcode", "Printing")), \
-             mock.patch.object(model_job, "verify_gcode") as v:
+             patch_bound(launch_gates, "_printer_phase", return_value=("printing", "other.gcode", "Printing")), \
+             patch_bound(gcode_verify, "verify_gcode") as v:
             with self.assertRaisesRegex(SystemExit, "busy"):
-                model_job.print_now(self._gcode(d))
+                launch_print_now.print_now(self._gcode(d))
             v.assert_not_called()
 
     def test_print_now_refuses_fallback_no_second_start_request(self):
         with tempfile.TemporaryDirectory() as d, \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
-             mock.patch.object(model_job, "_zmod_version", return_value=None), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
+             mock.patch.object(launch_print_now, "_zmod_version", return_value=None), \
              mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run), \
-             mock.patch.object(model_job, "_mr") as mr, \
-             mock.patch.object(model_job, "_wait_printing", return_value="standby"), \
-             mock.patch.object(model_job, "record_start"):
-            out = model_job.print_now(self._gcode(d))
+             patch_bound(jobs_common, "_mr") as mr, \
+             mock.patch.object(launch_print_now, "_wait_printing", return_value="standby"), \
+             patch_bound(launch_print_now, "record_start"):
+            out = launch_print_now.print_now(self._gcode(d))
             self.assertEqual(out["phase"], "awaiting_confirmation")  # never "failed" without this file saying so
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
@@ -975,7 +989,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         paths = paths[1:]
         self.assertEqual(paths.count("/printer/print/start"), 1)
         self.assertEqual(len(paths), 4)
-        self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
+        self.assertEqual(paths[0], launch_print_now.START_READBACK_QUERY)  # heaters and print_stats in one read
         self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
         self.assertEqual(paths[2], "/printer/print/start")
         self.assertIn("/printer/objects/query", paths[3])
@@ -988,25 +1002,25 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             'virtual_sdcard': {'is_active': False, 'file_path': ''},
             'webhooks': {'state': 'ready'},
         }}}
-        with mock.patch.object(model_job, '_mr', return_value=payload):
-            self.assertEqual(model_job._printer_phase({'moonraker_url': 'http://offline'}),
+        with patch_bound(jobs_common, '_mr', return_value=payload):
+            self.assertEqual(launch_gates._printer_phase({'moonraker_url': 'http://offline'}),
                              ('standby', '', 'Printing'))
 
     def test_print_now_reports_pending_confirmation_without_retry(self):
         with tempfile.TemporaryDirectory() as d:
             patches = [
                 mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}),
-                mock.patch.object(model_job, "_printer_phase", return_value=("standby", "", "Ready")),
-                mock.patch.object(model_job, "verify_gcode"),
-                mock.patch.object(model_job, "_verify_filament_readiness"),
+                patch_bound(launch_gates, "_printer_phase", return_value=("standby", "", "Ready")),
+                patch_bound(gcode_verify, "verify_gcode"),
+                patch_bound(launch_gates, "_verify_filament_readiness"),
                 mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run),
-                mock.patch.object(model_job, "_mr"),
-                mock.patch.object(model_job, "_wait_printing", return_value="standby"),
-                mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"),
-                mock.patch.object(model_job, "_zmod_version", return_value=None),
+                patch_bound(jobs_common, "_mr"),
+                mock.patch.object(launch_print_now, "_wait_printing", return_value="standby"),
+                mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"),
+                mock.patch.object(launch_print_now, "_zmod_version", return_value=None),
             ]
             with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as mr, patches[6], patches[7], patches[8]:
-                out = model_job.print_now(self._gcode(d))
+                out = launch_print_now.print_now(self._gcode(d))
                 self.assertEqual(out['phase'], 'awaiting_confirmation')
                 self.assertEqual(out['message'], 'submitted, awaiting confirmation')
                 # One start POST, then the #84 status readback. Not a second start.
@@ -1019,7 +1033,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 paths = paths[1:]
                 self.assertEqual(paths.count("/printer/print/start"), 1)
                 self.assertEqual(len(paths), 4)
-                self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
+                self.assertEqual(paths[0], launch_print_now.START_READBACK_QUERY)  # heaters and print_stats in one read
                 self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
                 self.assertEqual(paths[2], "/printer/print/start")
                 self.assertIn("/printer/objects/query", paths[3])
@@ -1027,17 +1041,17 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_z_offset_notice_only_when_start_print_lacks_z_offset(self):
         plain = "START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n"
         explicit = "START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60 Z_OFFSET=-0.25\n"
-        self.assertEqual(model_job.z_offset_notice(plain), model_job.Z_OFFSET_NOTICE)
-        self.assertIsNone(model_job.z_offset_notice(explicit))
-        self.assertEqual(model_job.start_print_settings(explicit)["args"]["Z_OFFSET"], "-0.25")
-        self.assertEqual(model_job.z_offset_notice("no start macro\n"), model_job.Z_OFFSET_NOTICE)
+        self.assertEqual(launch_print_now.z_offset_notice(plain), launch_print_now.Z_OFFSET_NOTICE)
+        self.assertIsNone(launch_print_now.z_offset_notice(explicit))
+        self.assertEqual(launch_gates.start_print_settings(explicit)["args"]["Z_OFFSET"], "-0.25")
+        self.assertEqual(launch_print_now.z_offset_notice("no start macro\n"), launch_print_now.Z_OFFSET_NOTICE)
 
     def test_job_details_is_multiline_and_labels_unknowns(self):
         out = {"title": "Ghost", "print_number": 42, "print_time": "1h 2m", "filament_g": 12, "finish_et": "4:10 PM ET Sat"}
-        txt = model_job.job_details(out, printer="AD5X", nozzle_mm=0.4,
+        txt = launch_print_now.job_details(out, printer="AD5X", nozzle_mm=0.4,
                                     selection={"slot": 1, "color": "Black", "material": "PLA", "spoolman_id": 10},
-                                    settings=model_job.start_print_settings("START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n"),
-                                    record_path="/vault/Ghost.md", z_notice=model_job.Z_OFFSET_NOTICE,
+                                    settings=launch_gates.start_print_settings("START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n"),
+                                    record_path="/vault/Ghost.md", z_notice=launch_print_now.Z_OFFSET_NOTICE,
                                     screen_z=-0.005, mesh={"profile": "auto", "saved_at": 1791141600})
         for want in ("**Job Details:**", "Print #42", "Model: Ghost", "1h 2m printing + ~5 min warmup; finish 4:10 PM Sat", "Filament: 12 g",
                      "slot 1: Black PLA", "Printer: AD5X", "Stock nozzle: 0.4 mm", "nozzle 220 C, bed 60 C",
@@ -1046,7 +1060,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         for omitted in (" ET", " EDT", " EST", "Print record", "/vault", "Spoolman", "-0.25", "no explicit START_PRINT"):
             self.assertNotIn(omitted, txt)
         self.assertEqual(len(txt.splitlines()), 9)
-        bare = model_job.job_details({"title": "X"})
+        bare = launch_print_now.job_details({"title": "X"})
         self.assertIn("Estimated time: unknown", bare)
         self.assertIn("Filament: unknown; unknown", bare)
         self.assertIn("Printer: unknown", bare)
@@ -1070,72 +1084,72 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                  mock.patch.object(maintenance, "datetime") as clock:
                 clock.now.return_value = now
                 clock.fromisoformat.side_effect = datetime.fromisoformat
-                txt = model_job.job_details({"title": "Ghost"})
+                txt = launch_print_now.job_details({"title": "Ghost"})
         self.assertIn("- Maintenance: last full clean 2 days / print hours unknown ago. (history totals unavailable)", txt)
         self.assertNotIn("0.0 h ago", txt)
 
     def test_start_claim_roundtrip_and_expiry(self):
         with tempfile.TemporaryDirectory() as d, \
-             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"):
-            model_job.claim_start_announcement("old.gcode", now=0)
-            model_job.claim_start_announcement("x.gcode", now=10_000)
+             mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"):
+            launch_print_now.claim_start_announcement("old.gcode", now=0)
+            launch_print_now.claim_start_announcement("x.gcode", now=10_000)
             claims = json.loads((Path(d) / "claims.json").read_text())
             self.assertIn("x.gcode", claims)
             self.assertNotIn("old.gcode", claims)  # expired claims are pruned
-            model_job.release_start_announcement("x.gcode")
+            launch_print_now.release_start_announcement("x.gcode")
             self.assertEqual(json.loads((Path(d) / "claims.json").read_text()), {})
 
     def test_print_now_claims_start_and_emits_details(self):
         with tempfile.TemporaryDirectory() as d, \
-             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+             mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"), \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
              mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run), \
-             mock.patch.object(model_job, "_mr"), \
-             mock.patch.object(model_job, "_wait_printing", return_value="printing"), \
-             mock.patch.object(model_job, "record_start", return_value="/vault/x.md"):
+             patch_bound(jobs_common, "_mr"), \
+             mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"), \
+             patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"):
             g = self._gcode(d, z_offset=False)
-            sha = model_job.file_sha256(g)
+            sha = gcode_artifact.file_sha256(g)
             expected_remote = f"{g.stem}_{sha}{g.suffix}"
-            out = model_job.print_now(g, accept_default_z_offset=True)
+            out = launch_print_now.print_now(g, accept_default_z_offset=True)
             self.assertIn(expected_remote, json.loads((Path(d) / "claims.json").read_text()))
         self.assertEqual(out["record_path"], "/vault/x.md")
         self.assertIn("**Job Details:**", out["details"])
-        self.assertEqual(out["z_offset_notice"], model_job.Z_OFFSET_NOTICE)
+        self.assertEqual(out["z_offset_notice"], launch_print_now.Z_OFFSET_NOTICE)
 
     def test_print_now_failed_start_releases_claim(self):
         with tempfile.TemporaryDirectory() as d, \
-             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+             mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"), \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
              mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run), \
-             mock.patch.object(model_job, "_mr"), \
-             mock.patch.object(model_job, "_wait_printing", return_value="standby"):
+             patch_bound(jobs_common, "_mr"), \
+             mock.patch.object(launch_print_now, "_wait_printing", return_value="standby"):
             g = self._gcode(d)
-            sha = model_job.file_sha256(g)
+            sha = gcode_artifact.file_sha256(g)
             expected_remote = f"{g.stem}_{sha}{g.suffix}"
             # An idle printer that still shows a previous file is not proof the accepted start failed: the
             # lease stays uncertain, and the claim is freed so the listener can post the start.
-            out = model_job.print_now(g)
+            out = launch_print_now.print_now(g)
             self.assertEqual(out["phase"], "awaiting_confirmation")
             self.assertNotIn(expected_remote, json.loads((Path(d) / "claims.json").read_text()))
             self.assertEqual([r["phase"] for r in launch_state.pending()], ["uncertain"])
 
     def test_print_now_artifact_identity_and_readback_hash_success(self):
         with tempfile.TemporaryDirectory() as d, \
-             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+             mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"), \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
-             mock.patch.object(model_job, "_wait_printing", return_value="printing"), \
-             mock.patch.object(model_job, "record_start", return_value="/vault/x.md"):
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
+             mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"), \
+             patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"):
             g = self._gcode(d, z_offset=False)
-            sha = model_job.file_sha256(g)
+            sha = gcode_artifact.file_sha256(g)
             expected_remote = f"{g.stem}_{sha}{g.suffix}"
             upload_stdout = json.dumps({"result": {"item": {"root": "gcodes", "path": expected_remote}}})
             g_bytes = g.read_bytes()
@@ -1146,8 +1160,8 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 raise ValueError(f"unexpected url {url}")
             with mock.patch.object(model_job.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=upload_stdout, stderr="")) as mock_run, \
                  mock.patch("urllib.request.urlopen", side_effect=mock_urlopen), \
-                 mock.patch.object(model_job, "_mr") as mock_mr:
-                out = model_job.print_now(g, accept_default_z_offset=True)
+                 patch_bound(jobs_common, "_mr") as mock_mr:
+                out = launch_print_now.print_now(g, accept_default_z_offset=True)
                 mock_run.assert_called_once()
                 self.assertEqual(mock_run.call_args[0][0][3], expected_remote)
                 start_calls = [c for c in mock_mr.call_args_list if c.args[1] == "/printer/print/start"]
@@ -1160,35 +1174,35 @@ class EnglishAndPrintNowTests(unittest.TestCase):
 
     def test_print_now_rejects_upload_target_mismatch(self):
         with tempfile.TemporaryDirectory() as d, \
-             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+             mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"), \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
-             mock.patch.object(model_job, "_zmod_version", return_value=None), \
-             mock.patch.object(model_job, "_mr") as mock_mr:
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
+             mock.patch.object(launch_print_now, "_zmod_version", return_value=None), \
+             patch_bound(jobs_common, "_mr") as mock_mr:
             g = self._gcode(d)
             upload_stdout = json.dumps({"result": {"item": {"root": "gcodes", "path": "different_file.gcode"}}})
             with mock.patch.object(model_job.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=upload_stdout, stderr="")):
                 with self.assertRaisesRegex(SystemExit, "The printer did not confirm the uploaded file"):
-                    model_job.print_now(g)
+                    launch_print_now.print_now(g)
             mock_mr.assert_not_called()
 
     def test_print_now_rejects_readback_hash_mismatch(self):
         with tempfile.TemporaryDirectory() as d, \
-             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+             mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"), \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
-             mock.patch.object(model_job, "_zmod_version", return_value=None), \
-             mock.patch.object(model_job, "_mr") as mock_mr:
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
+             mock.patch.object(launch_print_now, "_zmod_version", return_value=None), \
+             patch_bound(jobs_common, "_mr") as mock_mr:
             g = self._gcode(d)
-            sha = model_job.file_sha256(g)
+            sha = gcode_artifact.file_sha256(g)
             expected_remote = f"{g.stem}_{sha}{g.suffix}"
             with mock.patch.object(model_job.subprocess, "run", return_value=mock.Mock(returncode=1, stdout="", stderr="HTTP 400: Checksum mismatch")) as mock_run:
                 with self.assertRaisesRegex(SystemExit, "The file could not be uploaded to the printer, so nothing started"):
-                    model_job.print_now(g)
+                    launch_print_now.print_now(g)
             mock_mr.assert_not_called()
             # Verify moonrakerctl upload was called with the sha checksum parameter
             cmd = mock_run.call_args[0][0]
@@ -1197,18 +1211,18 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_print_now_upload_timeout_keeps_its_own_error(self):
         """#1603 review: a timed-out upload is not reported as an unreadable reply."""
         with tempfile.TemporaryDirectory() as d, \
-             mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+             mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"), \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
-             mock.patch.object(model_job, "_zmod_version", return_value=None), \
-             mock.patch.object(model_job, "_mr") as mock_mr:
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
+             mock.patch.object(launch_print_now, "_zmod_version", return_value=None), \
+             patch_bound(jobs_common, "_mr") as mock_mr:
             g = self._gcode(d)
             timeout = model_job.subprocess.TimeoutExpired(cmd="moonrakerctl", timeout=300)
             with mock.patch.object(model_job.subprocess, "run", side_effect=timeout):
                 with self.assertRaises(model_job.subprocess.TimeoutExpired):
-                    model_job.print_now(g)
+                    launch_print_now.print_now(g)
             mock_mr.assert_not_called()
 
     def test_check_filament_readiness_requires_explicit_matching_loaded_slot(self):
@@ -1222,20 +1236,20 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         selection = {"filament_selection": {"slot": 1, "material": "PLA", "color": "white", "spoolman_id": 10}}
         stale = {"filament_selection": {"slot": 2, "material": "PLA", "color": "pink", "spoolman_id": 11}}
         mismatch = {"filament_selection": {"slot": 1, "material": "PLA", "color": "black", "spoolman_id": 8}}
-        self.assertEqual(model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100), [])
-        self.assertTrue(any("no explicit" in p for p in model_job.check_filament_readiness({}, status, observed_at=100, now=100)))
-        self.assertTrue(any("false" in p for p in model_job.check_filament_readiness({}, status, stale, observed_at=100, now=100)))
-        self.assertTrue(any("color does not match" in p for p in model_job.check_filament_readiness({}, status, mismatch, observed_at=100, now=100)))
+        self.assertEqual(launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100), [])
+        self.assertTrue(any("no explicit" in p for p in launch_gates.check_filament_readiness({}, status, observed_at=100, now=100)))
+        self.assertTrue(any("false" in p for p in launch_gates.check_filament_readiness({}, status, stale, observed_at=100, now=100)))
+        self.assertTrue(any("color does not match" in p for p in launch_gates.check_filament_readiness({}, status, mismatch, observed_at=100, now=100)))
 
     def test_check_filament_readiness_requires_head_sensor(self):
         status = {"zmod_color": {"slots": [
             {"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": True}
         ]}}
         selection = {"filament_selection": {"slot": 1, "material": "PLA", "color": "white", "spoolman_id": 10}}
-        problems = model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100)
+        problems = launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100)
         self.assertTrue(any("head filament sensor is unknown" in p for p in problems))
         self.assertTrue(any("telemetry freshness is unknown" in p for p in
-                            model_job.check_filament_readiness({}, status, selection)))
+                            launch_gates.check_filament_readiness({}, status, selection)))
 
     def test_check_filament_readiness_enforces_fresh_telemetry_and_strict_booleans(self):
         selection = {"slot": 1, "material": "PLA", "color": "white", "spoolman_id": 10}
@@ -1245,14 +1259,14 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         }
         for age in (16, -1):
             with self.subTest(age=age):
-                problems = model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100 + age)
+                problems = launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100 + age)
                 self.assertTrue(any("stale or has an invalid timestamp" in p for p in problems))
         for value in (None, "true", 1, 0):
             with self.subTest(value=value):
                 bad = json.loads(json.dumps(status))
                 bad["filament_switch_sensor head_switch_sensor"]["filament_detected"] = value
                 bad["zmod_color"]["slots"][0]["hasFilament"] = value
-                problems = model_job.check_filament_readiness({}, bad, selection, observed_at=100, now=100)
+                problems = launch_gates.check_filament_readiness({}, bad, selection, observed_at=100, now=100)
                 self.assertTrue(any("head filament sensor is unknown" in p for p in problems))
                 self.assertTrue(any("selected IFS slot 1 presence is unknown" in p for p in problems))
 
@@ -1267,7 +1281,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         for slots, expected in cases:
             with self.subTest(expected=expected):
                 status = {**base, "zmod_color": {"slots": slots}}
-                problems = model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100)
+                problems = launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100)
                 self.assertTrue(any(expected in p for p in problems))
 
     def test_check_filament_readiness_rejects_disabled_sensor(self):
@@ -1276,7 +1290,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             "filament_switch_sensor head_switch_sensor": {"filament_detected": True, "enabled": False},
             "zmod_color": {"slots": [{"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": True}]},
         }
-        problems = model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100)
+        problems = launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100)
         self.assertTrue(any("enabled state is false" in p for p in problems))
 
     def test_check_filament_readiness_accepts_idle_staged_head_sensor_false(self):
@@ -1286,10 +1300,10 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             "zmod_color": {"slots": [{"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": True}]},
         }
         status['print_stats'] = {'state': 'standby'}
-        problems = model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100)
+        problems = launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100)
         self.assertEqual(problems, [])
         status['print_stats']['state'] = 'printing'
-        problems = model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100)
+        problems = launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100)
         self.assertTrue(any("head filament sensor reports no filament" in p for p in problems))
         self.assertFalse(any("selected IFS slot" in p for p in problems))
 
@@ -1300,13 +1314,13 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             {"slot": 1, "material": "PLA", "color": "white"},
         ):
             with self.subTest(selection=selection), self.assertRaises(ValueError):
-                model_job.validate_filament_selection(selection)
+                jobs_filament.validate_filament_selection(selection)
 
     def test_save_selection_is_bound_to_model_job_and_atomic(self):
         with tempfile.TemporaryDirectory() as td:
             job_path = Path(td) / "JOB.json"
             job_path.write_text(json.dumps({"model_id": "123", "title": "test"}))
-            selection = model_job.save_filament_selection(job_path, {
+            selection = jobs_store.save_filament_selection(job_path, {
                 "slot": 3, "color": " black ", "material": "PLA", "spoolman_id": 8,
             })
             self.assertEqual(selection, {"slot": 3, "color": "black", "material": "PLA", "spoolman_id": 8})
@@ -1329,10 +1343,10 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             self.assertEqual(json.loads(job_path.read_text())["filament_selection"]["slot"], 4)
 
     def test_verify_readiness_refuses_unmapped_slot_before_network(self):
-        with mock.patch.object(model_job, "_mr") as transport, \
-             mock.patch.object(model_job, "request_json") as http:
+        with patch_bound(jobs_common, "_mr") as transport, \
+             patch_bound(jobs_common, "request_json") as http:
             with self.assertRaisesRegex(RuntimeError, "selected IFS slot 1"):
-                model_job._verify_filament_readiness({"spool": {"spoolman_id": 8}}, {
+                launch_gates._verify_filament_readiness({"spool": {"spoolman_id": 8}}, {
                     "slot": 1, "material": "PLA", "color": "white", "spoolman_id": 10,
                 })
             transport.assert_not_called()
@@ -1347,7 +1361,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 {"ID": 2, "Material": "PLA", "Color": "pink", "hasFilament": True},
             ]},
         }
-        self.assertEqual(model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100), [])
+        self.assertEqual(launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100), [])
 
     def test_check_filament_readiness_accepts_shuffled_ids_not_array_index(self):
         selection = {"slot": 2, "material": "PLA", "color": "pink", "spoolman_id": 10}
@@ -1359,16 +1373,16 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 {"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": False},
             ]},
         }
-        self.assertEqual(model_job.check_filament_readiness({}, status, selection, observed_at=100, now=100), [])
+        self.assertEqual(launch_gates.check_filament_readiness({}, status, selection, observed_at=100, now=100), [])
 
     def test_native_filament_status_fallback_404_preserves_raw_but_guards_presence(self):
         status = {"save_variables": {"variables": {"display_off": 0}},
                   "zmod_color": {"ifs": True, "slots": [{"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": False}]},
                   "zmod_ifs": {"Ports": [False]},
                   "filament_switch_sensor head_switch_sensor": {"filament_detected": False}}
-        with mock.patch.object(model_job, "request_json", return_value={"result": {"status": status}}), \
-             mock.patch.object(model_job, "read_stock_filament_slots", side_effect=FileNotFoundError("404")):
-            result = model_job.read_filament_telemetry({"moonraker_url": "http://test"})
+        with patch_bound(jobs_common, "request_json", return_value={"result": {"status": status}}), \
+             patch_bound(jobs_filament, "read_stock_filament_slots", side_effect=FileNotFoundError("404")):
+            result = jobs_filament.read_filament_telemetry({"moonraker_url": "http://test"})
         self.assertEqual(result["printer_mode"], "native")
         self.assertFalse(result["stock_detail_authoritative"])
         self.assertIn("FileNotFoundError", result["stock_detail_error"])
@@ -1381,9 +1395,9 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                   "zmod_color": {"slots": [{"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": False}]},
                   "print_stats": {"state": "standby"},
                   "filament_switch_sensor head_switch_sensor": {"filament_detected": False, "enabled": True}}
-        with mock.patch.object(model_job, "request_json", return_value={"result": {"status": status}}), \
-             mock.patch.object(model_job, "read_stock_filament_slots", return_value={1: True}):
-            result = model_job.read_filament_telemetry({"moonraker_url": "http://test"})
+        with patch_bound(jobs_common, "request_json", return_value={"result": {"status": status}}), \
+             patch_bound(jobs_filament, "read_stock_filament_slots", return_value={1: True}):
+            result = jobs_filament.read_filament_telemetry({"moonraker_url": "http://test"})
         self.assertTrue(result["stock_detail_authoritative"])
         self.assertEqual(result["feeder_slots"][0]["hasFilament"], "true")
         self.assertEqual(result["toolhead"]["filament_detected"], "false")
@@ -1391,12 +1405,12 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         # Idle/unloaded false is accepted, active-print false still refuses.
         selection = {"slot": 1, "material": "PLA", "color": "white", "spoolman_id": 1}
         self.assertFalse(any("head filament sensor reports no filament" in p for p in
-                             model_job.check_filament_readiness({}, {"print_stats": {"state": "standby"},
+                             launch_gates.check_filament_readiness({}, {"print_stats": {"state": "standby"},
                                  "filament_switch_sensor head_switch_sensor": {"filament_detected": False},
                                  "zmod_color": {"ifs": True, "slots": [{"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": True}]}},
                                  selection, observed_at=100, now=100)))
         self.assertTrue(any("head filament sensor reports no filament" in p for p in
-                            model_job.check_filament_readiness({}, {"print_stats": {"state": "printing"},
+                            launch_gates.check_filament_readiness({}, {"print_stats": {"state": "printing"},
                                 "filament_switch_sensor head_switch_sensor": {"filament_detected": False},
                                 "zmod_color": {"ifs": True, "slots": [{"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": True}]}},
                                 selection, observed_at=100, now=100)))
@@ -1404,9 +1418,9 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_screenless_filament_status_does_not_query_stock_detail(self):
         status = {"save_variables": {"variables": {"display_off": 1}},
                   "zmod_color": {"slots": [{"ID": "1", "hasFilament": False}]}}
-        with mock.patch.object(model_job, "request_json", return_value={"result": {"status": status}}), \
-             mock.patch.object(model_job, "read_stock_filament_slots") as stock:
-            result = model_job.read_filament_telemetry({"moonraker_url": "http://test"})
+        with patch_bound(jobs_common, "request_json", return_value={"result": {"status": status}}), \
+             patch_bound(jobs_filament, "read_stock_filament_slots") as stock:
+            result = jobs_filament.read_filament_telemetry({"moonraker_url": "http://test"})
         stock.assert_not_called()
         self.assertEqual(result["printer_mode"], "screenless")
         self.assertFalse(result["stock_detail_authoritative"])
@@ -1419,8 +1433,8 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 {"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": "true"},
             ]},
         }
-        with mock.patch.object(model_job, "request_json", return_value={"result": {"status": status}}):
-            result = model_job.read_filament_telemetry({"moonraker_url": "http://test"})
+        with patch_bound(jobs_common, "request_json", return_value={"result": {"status": status}}):
+            result = jobs_filament.read_filament_telemetry({"moonraker_url": "http://test"})
         self.assertEqual(result["configured_palette"][0]["Color"], "white")
         self.assertEqual(result["feeder_slots"][0]["hasFilament"], "unknown")
         self.assertEqual(result["toolhead"]["filament_detected"], "unknown")
@@ -1428,8 +1442,8 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         self.assertEqual(result["feeder_ports_zero_based"], "unknown")
 
     def test_telemetry_query_failure_does_not_raise(self):
-        with mock.patch.object(model_job, "request_json", side_effect=OSError("offline")):
-            result = model_job.read_filament_telemetry({"moonraker_url": "http://test"})
+        with patch_bound(jobs_common, "request_json", side_effect=OSError("offline")):
+            result = jobs_filament.read_filament_telemetry({"moonraker_url": "http://test"})
         self.assertEqual(result["configured_palette"], "unknown")
         self.assertEqual(result["feeder_slots"], "unknown")
         self.assertEqual(result["toolhead"]["enabled"], "unknown")
@@ -1439,10 +1453,10 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         status = {"filament_switch_sensor head_switch_sensor": {"filament_detected": True},
                   "zmod_color": {"slots": []}}
         with mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://test"}), \
-             mock.patch.object(model_job, "request_json", return_value={"result": {"status": status}}) as request, \
+             patch_bound(jobs_common, "request_json", return_value={"result": {"status": status}}) as request, \
              mock.patch.object(sys, "argv", ["model_job.py", "filament-status"]), \
              mock.patch("sys.stdout", new_callable=io.StringIO) as output:
-            model_job.main()
+            jobs_cli.main()
         request.assert_called_once()
         result = json.loads(output.getvalue())
         self.assertEqual(result["toolhead"]["filament_detected"], "true")
@@ -1451,63 +1465,63 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_fetch_select_requires_approval_before_download_or_slice(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}
         with tempfile.TemporaryDirectory() as td, \
-             mock.patch.object(model_job, "ARCHIVE", Path(td)), \
-             mock.patch.object(model_job, "maker_inventory", return_value=source_job), \
+             patch_bound(jobs_common, "ARCHIVE", Path(td)), \
+             mock.patch.object(jobs_sources, "maker_inventory", return_value=source_job), \
              mock.patch.object(model_job.printer_state, "load", return_value={"nozzle": {"diameter_mm": 0.4, "type": "brass"}, "z_offset_mm": 0.0, "temps_c": {"nozzle": 0, "bed": 0}, "spool": {"material": "PLA", "spoolman_id": 8, "name": "white"}}), \
              mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-             mock.patch.object(model_job, "maker_download") as download, \
-             mock.patch.object(model_job, "slice_job") as slice_job, \
+             mock.patch.object(jobs_sources, "maker_download") as download, \
+             patch_bound(jobs_slice, "slice_job") as slice_job, \
              mock.patch.object(sys, "argv", ["model_job.py", "fetch", "https://makerworld.com/en/models/123", "--select", "1"]), \
              mock.patch("sys.stdout", new_callable=io.StringIO):
             with self.assertRaisesRegex(SystemExit, "explicit --approved"):
-                model_job.main()
+                jobs_cli.main()
         download.assert_not_called()
         slice_job.assert_not_called()
 
     def test_fetch_select_refuses_invalid_selection_before_download_or_slice(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}
         with tempfile.TemporaryDirectory() as td, \
-             mock.patch.object(model_job, "ARCHIVE", Path(td)), \
-             mock.patch.object(model_job, "maker_inventory", return_value=source_job), \
+             patch_bound(jobs_common, "ARCHIVE", Path(td)), \
+             mock.patch.object(jobs_sources, "maker_inventory", return_value=source_job), \
              mock.patch.object(model_job.printer_state, "load", return_value={"nozzle": {"diameter_mm": 0.4, "type": "brass"}, "z_offset_mm": 0.0, "temps_c": {"nozzle": 0, "bed": 0}, "spool": {"material": "PLA", "spoolman_id": 8, "name": "white"}}), \
              mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-             mock.patch.object(model_job, "maker_download") as download, \
-             mock.patch.object(model_job, "slice_job") as slice_job, \
+             mock.patch.object(jobs_sources, "maker_download") as download, \
+             patch_bound(jobs_slice, "slice_job") as slice_job, \
              mock.patch.object(sys, "argv", ["model_job.py", "fetch", "https://makerworld.com/en/models/123", "--select", "0", "--approved"]), \
              mock.patch("sys.stdout", new_callable=io.StringIO):
             with self.assertRaisesRegex(SystemExit, "invalid --select"):
-                model_job.main()
+                jobs_cli.main()
         download.assert_not_called()
         slice_job.assert_not_called()
 
     def test_verify_readiness_requires_spool_selection_before_network(self):
-        with mock.patch.object(model_job, "request_json") as request:
+        with patch_bound(jobs_common, "request_json") as request:
             with self.assertRaisesRegex(RuntimeError, "explicit filament selection is required"):
-                model_job._verify_filament_readiness({"spool": {"spoolman_id": 8}, "moonraker_url": "http://test"}, None)
+                launch_gates._verify_filament_readiness({"spool": {"spoolman_id": 8}, "moonraker_url": "http://test"}, None)
             request.assert_not_called()
 
     def test_print_now_verifies_filament_readiness_before_upload(self):
         with tempfile.TemporaryDirectory() as d, \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness", side_effect=RuntimeError("filament readiness refused: head filament sensor is empty")), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness", side_effect=RuntimeError("filament readiness refused: head filament sensor is empty")), \
              mock.patch.object(model_job.subprocess, "run") as run:
             with self.assertRaisesRegex(RuntimeError, "filament readiness refused"):
-                model_job.print_now(self._gcode(d))
+                launch_print_now.print_now(self._gcode(d))
             run.assert_not_called()
 
     def test_print_now_never_retries_twice(self):
         with tempfile.TemporaryDirectory() as d, \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
-             mock.patch.object(model_job, "_zmod_version", return_value=None), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
+             mock.patch.object(launch_print_now, "_zmod_version", return_value=None), \
              mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run), \
-             mock.patch.object(model_job, "_mr") as mr, \
-             mock.patch.object(model_job, "_wait_printing", return_value="standby"):
-            out = model_job.print_now(self._gcode(d))
+             patch_bound(jobs_common, "_mr") as mr, \
+             mock.patch.object(launch_print_now, "_wait_printing", return_value="standby"):
+            out = launch_print_now.print_now(self._gcode(d))
             self.assertEqual(out["phase"], "awaiting_confirmation")
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
@@ -1520,7 +1534,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         paths = paths[1:]
         self.assertEqual(paths.count("/printer/print/start"), 1)
         self.assertEqual(len(paths), 4)
-        self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
+        self.assertEqual(paths[0], launch_print_now.START_READBACK_QUERY)  # heaters and print_stats in one read
         self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
         self.assertEqual(paths[2], "/printer/print/start")
         self.assertIn("/printer/objects/query", paths[3])
@@ -1528,17 +1542,17 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_fetch_print_now_without_filament_selection_fails_closed_naming_command(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}
         with tempfile.TemporaryDirectory() as td, \
-             mock.patch.object(model_job, "ARCHIVE", Path(td)), \
-             mock.patch.object(model_job, "maker_inventory", return_value=source_job), \
+             patch_bound(jobs_common, "ARCHIVE", Path(td)), \
+             mock.patch.object(jobs_sources, "maker_inventory", return_value=source_job), \
              mock.patch.object(model_job.printer_state, "load", return_value={"nozzle": {"diameter_mm": 0.4, "type": "brass"}, "z_offset_mm": 0.0, "temps_c": {"nozzle": 0, "bed": 0}, "spool": {"material": "PLA", "spoolman_id": 8, "name": "white"}}), \
              mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-             mock.patch.object(model_job, "maker_download") as download, \
-             mock.patch.object(model_job, "slice_job") as slice_job, \
-             mock.patch.object(model_job, "print_now") as print_now_call, \
+             mock.patch.object(jobs_sources, "maker_download") as download, \
+             patch_bound(jobs_slice, "slice_job") as slice_job, \
+             patch_bound(launch_print_now, "print_now") as print_now_call, \
              mock.patch.object(sys, "argv", ["model_job.py", "fetch", "https://makerworld.com/en/models/123", "--select", "1", "--approved", "--print-now"]), \
              mock.patch("sys.stdout", new_callable=io.StringIO):
             with self.assertRaisesRegex(SystemExit, "filament-select"):
-                model_job.main()
+                jobs_cli.main()
         download.assert_not_called()
         slice_job.assert_not_called()
         print_now_call.assert_not_called()
@@ -1546,22 +1560,22 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_fetch_with_explicit_filament_args_records_selection_and_allows_print_now(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}
         with tempfile.TemporaryDirectory() as td, \
-             mock.patch.object(model_job, "ARCHIVE", Path(td)), \
-             mock.patch.object(model_job, "maker_inventory", return_value=source_job), \
+             patch_bound(jobs_common, "ARCHIVE", Path(td)), \
+             mock.patch.object(jobs_sources, "maker_inventory", return_value=source_job), \
              mock.patch.object(model_job.printer_state, "load", return_value={"nozzle": {"diameter_mm": 0.4, "type": "brass"}, "z_offset_mm": 0.0, "temps_c": {"nozzle": 0, "bed": 0}, "spool": {"material": "PLA", "spoolman_id": 8, "name": "white"}}), \
              mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-             mock.patch.object(model_job, "maker_download", return_value=Path(td) / "dummy.3mf") as download, \
-             mock.patch.object(model_job, "audit", return_value={"plates": 1, "size_x": 10, "size_y": 10, "size_z": 10}), \
-             mock.patch.object(model_job, "intake_color_choices", return_value=True), \
-             mock.patch.object(model_job, "slice_job", return_value=Path(td) / "dummy.gcode") as slice_job, \
-             mock.patch.object(model_job, "print_now") as print_now_call, \
+             mock.patch.object(jobs_sources, "maker_download", return_value=Path(td) / "dummy.3mf") as download, \
+             patch_bound(jobs_audit, "audit", return_value={"plates": 1, "size_x": 10, "size_y": 10, "size_z": 10}), \
+             patch_bound(jobs_prompts, "intake_color_choices", return_value=True), \
+             patch_bound(jobs_slice, "slice_job", return_value=Path(td) / "dummy.gcode") as slice_job, \
+             patch_bound(launch_print_now, "print_now") as print_now_call, \
              mock.patch.object(sys, "argv", [
                  "model_job.py", "fetch", "https://makerworld.com/en/models/123",
                  "--select", "1", "--approved", "--print-now",
                  "--filament-slot", "2", "--filament-color", "white", "--filament-material", "PLA", "--filament-spoolman-id", "8",
              ]), \
              mock.patch("sys.stdout", new_callable=io.StringIO):
-                model_job.main()
+                jobs_cli.main()
                 download.assert_called_once()
                 slice_job.assert_called_once()
                 print_now_call.assert_called_once()
@@ -1573,22 +1587,22 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_fetch_with_filament_args_without_print_now_persists_selection(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}
         with tempfile.TemporaryDirectory() as td, \
-             mock.patch.object(model_job, "ARCHIVE", Path(td)), \
-             mock.patch.object(model_job, "maker_inventory", return_value=source_job), \
+             patch_bound(jobs_common, "ARCHIVE", Path(td)), \
+             mock.patch.object(jobs_sources, "maker_inventory", return_value=source_job), \
              mock.patch.object(model_job.printer_state, "load", return_value={"nozzle": {"diameter_mm": 0.4, "type": "brass"}, "z_offset_mm": 0.0, "temps_c": {"nozzle": 0, "bed": 0}, "spool": {"material": "PLA", "spoolman_id": 8, "name": "white"}}), \
              mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-             mock.patch.object(model_job, "maker_download", return_value=Path(td) / "dummy.3mf"), \
-             mock.patch.object(model_job, "audit", return_value={"plates": 1, "size_x": 10, "size_y": 10, "size_z": 10}), \
-             mock.patch.object(model_job, "intake_color_choices", return_value=True), \
-             mock.patch.object(model_job, "slice_job", return_value=Path(td) / "dummy.gcode"), \
-             mock.patch.object(model_job, "print_now") as print_now_call, \
+             mock.patch.object(jobs_sources, "maker_download", return_value=Path(td) / "dummy.3mf"), \
+             patch_bound(jobs_audit, "audit", return_value={"plates": 1, "size_x": 10, "size_y": 10, "size_z": 10}), \
+             patch_bound(jobs_prompts, "intake_color_choices", return_value=True), \
+             patch_bound(jobs_slice, "slice_job", return_value=Path(td) / "dummy.gcode"), \
+             patch_bound(launch_print_now, "print_now") as print_now_call, \
              mock.patch.object(sys, "argv", [
                  "model_job.py", "fetch", "https://makerworld.com/en/models/123",
                  "--select", "1", "--approved",
                  "--filament-slot", "3", "--filament-color", "black", "--filament-material", "PLA", "--filament-spoolman-id", "8",
              ]), \
              mock.patch("sys.stdout", new_callable=io.StringIO):
-                model_job.main()
+                jobs_cli.main()
                 print_now_call.assert_not_called()
                 saved_job = json.loads((Path(td) / "offline-test" / "JOB.json").read_text())
                 self.assertEqual(saved_job.get("filament_selection"), {
@@ -1598,13 +1612,13 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_fetch_never_inherits_old_selection_from_existing_directory(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}
         with tempfile.TemporaryDirectory() as td, \
-             mock.patch.object(model_job, "ARCHIVE", Path(td)), \
-             mock.patch.object(model_job, "maker_inventory", return_value=source_job), \
+             patch_bound(jobs_common, "ARCHIVE", Path(td)), \
+             mock.patch.object(jobs_sources, "maker_inventory", return_value=source_job), \
              mock.patch.object(model_job.printer_state, "load", return_value={"nozzle": {"diameter_mm": 0.4, "type": "brass"}, "z_offset_mm": 0.0, "temps_c": {"nozzle": 0, "bed": 0}, "spool": {"material": "PLA", "spoolman_id": 8, "name": "white"}}), \
              mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-             mock.patch.object(model_job, "maker_download") as download, \
-             mock.patch.object(model_job, "slice_job") as slice_job, \
-             mock.patch.object(model_job, "print_now") as print_now_call:
+             mock.patch.object(jobs_sources, "maker_download") as download, \
+             patch_bound(jobs_slice, "slice_job") as slice_job, \
+             patch_bound(launch_print_now, "print_now") as print_now_call:
             folder = Path(td) / "offline-test"
             folder.mkdir(parents=True)
             (folder / "JOB.json").write_text(json.dumps({
@@ -1614,19 +1628,19 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             with mock.patch.object(sys, "argv", ["model_job.py", "fetch", "https://makerworld.com/en/models/123", "--select", "1", "--approved", "--print-now"]), \
                  mock.patch("sys.stdout", new_callable=io.StringIO):
                 with self.assertRaisesRegex(SystemExit, "filament-select"):
-                    model_job.main()
+                    jobs_cli.main()
             download.assert_not_called()
             slice_job.assert_not_called()
             print_now_call.assert_not_called()
 
     def test_validate_filament_selection_requires_explicit_selection_naming_command(self):
         with self.assertRaisesRegex(ValueError, "filament-select"):
-            model_job.validate_filament_selection(None)
+            jobs_filament.validate_filament_selection(None)
 
     def test_verify_readiness_without_selection_fails_closed_naming_command(self):
-        with mock.patch.object(model_job, "request_json") as request:
+        with patch_bound(jobs_common, "request_json") as request:
             with self.assertRaisesRegex(RuntimeError, "filament-select"):
-                model_job._verify_filament_readiness({"spool": {"spoolman_id": 8}, "moonraker_url": "http://test"}, None)
+                launch_gates._verify_filament_readiness({"spool": {"spoolman_id": 8}, "moonraker_url": "http://test"}, None)
             request.assert_not_called()
 
     def test_telemetry_and_readiness_never_write_spoolman_or_mutate_active_spool(self):
@@ -1648,15 +1662,15 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             },
             "zmod_ifs": {"Ports": [False, None], "ifs": True},
         }
-        with mock.patch.object(model_job, "request_json", return_value={"result": {"status": bad_status}}) as request, \
+        with patch_bound(jobs_common, "request_json", return_value={"result": {"status": bad_status}}) as request, \
              mock.patch("urllib.request.urlopen") as urlopen:
-            telemetry = model_job.read_filament_telemetry(st)
+            telemetry = jobs_filament.read_filament_telemetry(st)
             self.assertEqual(st, original_st)
             self.assertEqual(telemetry["feeder_slots"][0]["hasFilament"], "false")
             self.assertEqual(telemetry["feeder_slots"][1]["hasFilament"], "unknown")
             urlopen.assert_not_called()
 
-            problems = model_job.check_filament_readiness(
+            problems = launch_gates.check_filament_readiness(
                 st, bad_status,
                 {"slot": 1, "color": "white", "material": "PLA", "spoolman_id": 8},
                 observed_at=time.time(),
@@ -1667,7 +1681,7 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             urlopen.assert_not_called()
 
             with self.assertRaises(RuntimeError):
-                model_job._verify_filament_readiness(
+                launch_gates._verify_filament_readiness(
                     st,
                     {"slot": 1, "color": "white", "material": "PLA", "spoolman_id": 8},
                 )
@@ -1677,16 +1691,16 @@ class EnglishAndPrintNowTests(unittest.TestCase):
     def test_restricted_path_invokes_moonrakerctl_via_absolute_path(self):
         with tempfile.TemporaryDirectory() as d, \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
              mock.patch.object(model_job, "_fetch_remote_gcode_sha256", side_effect=lambda url, name: name.rsplit(".", 1)[0].split("_", 1)[1] if "_" in name else ""), \
-             mock.patch.object(model_job, "_mr"), \
-             mock.patch.object(model_job, "_wait_printing", return_value="printing"), \
-             mock.patch.object(model_job, "record_start"), \
+             patch_bound(jobs_common, "_mr"), \
+             mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"), \
+             patch_bound(launch_print_now, "record_start"), \
              mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run) as run, \
              mock.patch.dict(os.environ, {"PATH": "/bin:/usr/bin"}):
-            model_job.print_now(self._gcode(d))
+            launch_print_now.print_now(self._gcode(d))
             run.assert_called_once()
             called_cmd = run.call_args[0][0]
             self.assertTrue(Path(called_cmd[0]).is_absolute())
@@ -1698,10 +1712,10 @@ class ZmodDeliveryFormatTests(unittest.TestCase):
     printer's zmod_delivery_format resolves to it; every fallback is today's .gcode."""
 
     def setUp(self):
-        p = mock.patch.object(model_job, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"})
+        p = mock.patch.object(launch_print_now, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"})
         p.start(); self.addCleanup(p.stop)
-        for p in (mock.patch.object(model_job, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0, "problem": None, "stale": None, "z_offset_mm": -0.005, "offset_source": "saved gcode offset"}),
-                  mock.patch.object(model_job, "screen_z_offset", return_value=0.025)):
+        for p in (patch_bound(launch_gates, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0, "problem": None, "stale": None, "z_offset_mm": -0.005, "offset_source": "saved gcode offset"}),
+                  patch_bound(launch_gates, "screen_z_offset", return_value=0.025)):
             p.start(); self.addCleanup(p.stop)
 
     def _gcode(self, d):
@@ -1712,24 +1726,24 @@ class ZmodDeliveryFormatTests(unittest.TestCase):
 
     def _print(self, d, version):
         g = self._gcode(d)
-        with mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"), \
+        with mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"), \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "verify_gcode"), \
-             mock.patch.object(model_job, "_verify_filament_readiness"), \
-             mock.patch.object(model_job, "_zmod_version", return_value=version), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(gcode_verify, "verify_gcode"), \
+             patch_bound(launch_gates, "_verify_filament_readiness"), \
+             mock.patch.object(launch_print_now, "_zmod_version", return_value=version), \
              mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run) as run, \
-             mock.patch.object(model_job, "_mr"), \
-             mock.patch.object(model_job, "_wait_printing", return_value="printing"), \
-             mock.patch.object(model_job, "record_start", return_value="/vault/x.md"):
-            out = model_job.print_now(g, accept_default_z_offset=True)
+             patch_bound(jobs_common, "_mr"), \
+             mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"), \
+             patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"):
+            out = launch_print_now.print_now(g, accept_default_z_offset=True)
         return g, run.call_args[0][0], out
 
     def test_auto_with_zmod_175_uploads_the_3mf_package(self):
         from print_handy.core import gcode_3mf
         with tempfile.TemporaryDirectory() as d:
             g, cmd, out = self._print(d, (1, 7, 5))
-            sha = model_job.file_sha256(g)
+            sha = gcode_artifact.file_sha256(g)
             self.assertEqual(cmd[1], "upload")
             self.assertTrue(cmd[2].endswith(".gcode.3mf"), cmd)
             package = Path(cmd[2])
@@ -1738,7 +1752,7 @@ class ZmodDeliveryFormatTests(unittest.TestCase):
             # The remote name keeps the G-code's stem+sha (find_job binding) with the package suffix,
             # and the upload checksum is the package's, not the G-code's.
             self.assertEqual(cmd[3], f"x_{sha}.gcode.3mf")
-            self.assertEqual(cmd[4], model_job.file_sha256(package))
+            self.assertEqual(cmd[4], gcode_artifact.file_sha256(package))
             self.assertNotEqual(cmd[4], sha)
             self.assertEqual(out["file"], cmd[3])
             self.assertEqual(out["delivery_format"]["format"], "3mf")
@@ -1747,7 +1761,7 @@ class ZmodDeliveryFormatTests(unittest.TestCase):
     def test_auto_with_unknown_version_uploads_plain_gcode(self):
         with tempfile.TemporaryDirectory() as d:
             g, cmd, out = self._print(d, None)
-            sha = model_job.file_sha256(g)
+            sha = gcode_artifact.file_sha256(g)
             self.assertEqual(cmd[2], str(g))
             self.assertEqual(cmd[3], f"x_{sha}.gcode")
             self.assertEqual(cmd[4], sha)
@@ -1757,7 +1771,7 @@ class ZmodDeliveryFormatTests(unittest.TestCase):
     def test_auto_with_zmod_below_the_floor_uploads_plain_gcode(self):
         with tempfile.TemporaryDirectory() as d:
             g, cmd, out = self._print(d, (1, 7, 4))
-            sha = model_job.file_sha256(g)
+            sha = gcode_artifact.file_sha256(g)
             self.assertEqual(cmd[2], str(g))
             self.assertEqual(cmd[3], f"x_{sha}.gcode")
             self.assertEqual(cmd[4], sha)
@@ -1766,7 +1780,7 @@ class ZmodDeliveryFormatTests(unittest.TestCase):
     def test_note_delivery_format_persists_on_the_job(self):
         with tempfile.TemporaryDirectory() as d:
             job = {"title": "X"}
-            model_job._note_delivery_format(job, Path(d) / "JOB.json", {"format": "3mf", "setting": "auto"})
+            launch_print_now._note_delivery_format(job, Path(d) / "JOB.json", {"format": "3mf", "setting": "auto"})
             self.assertEqual(json.loads((Path(d) / "JOB.json").read_text())["delivery_format"]["format"], "3mf")
 
 
@@ -1779,7 +1793,7 @@ class StockIfsPresenceTests(unittest.TestCase):
 
     def _read(self, reply):
         with mock.patch.object(stock, "_stock_credentials", return_value=("SN", "CC")):
-            return model_job.read_stock_filament_slots(self.STATE, post=lambda url, body: reply)
+            return jobs_filament.read_stock_filament_slots(self.STATE, post=lambda url, body: reply)
 
     def test_stock_presence_overrides_hardcoded_false(self):
         stock = self._read(self._reply([{"slotId": 1, "hasFilament": True}, {"slotId": 2, "hasFilament": False},
@@ -1790,15 +1804,15 @@ class StockIfsPresenceTests(unittest.TestCase):
                 {"ID": "1", "Material": "PLA", "Color": "white", "hasFilament": False},
                 {"ID": "2", "Material": "PLA", "Color": "pink", "hasFilament": False}]},
         }
-        model_job.apply_stock_presence(status, stock)
+        jobs_filament.apply_stock_presence(status, stock)
         sel = {"slot": 1, "material": "PLA", "color": "white", "spoolman_id": 10}
-        self.assertEqual(model_job.check_filament_readiness({}, status, sel, observed_at=100, now=100), [])
+        self.assertEqual(launch_gates.check_filament_readiness({}, status, sel, observed_at=100, now=100), [])
         sel2 = dict(sel, slot=2, color="pink")
-        problems = model_job.check_filament_readiness({}, status, sel2, observed_at=100, now=100)
+        problems = launch_gates.check_filament_readiness({}, status, sel2, observed_at=100, now=100)
         self.assertTrue(any("no buffer switch" in p for p in problems))
         self.assertFalse(any("clicks" in p for p in problems))
         status["zmod_color"]["slots"][1]["hasFilament"] = None
-        problems = model_job.check_filament_readiness({}, status, sel2, observed_at=100, now=100)
+        problems = launch_gates.check_filament_readiness({}, status, sel2, observed_at=100, now=100)
         self.assertTrue(any("presence is unknown" in p for p in problems))
 
     def test_stock_failures_fail_closed(self):
@@ -1812,7 +1826,7 @@ class StockIfsPresenceTests(unittest.TestCase):
         stock = self._read(self._reply([{"slotId": 1, "hasFilament": "yes"}, {"slotId": 2, "hasFilament": True},
                                         {"slotId": 3}, {"slotId": 4, "hasFilament": False}]))
         status = {"zmod_color": {"slots": [{"ID": "1"}, {"ID": "3"}]}}
-        model_job.apply_stock_presence(status, stock)
+        jobs_filament.apply_stock_presence(status, stock)
         self.assertEqual([s["hasFilament"] for s in status["zmod_color"]["slots"]], [None, None])
 
     def test_missing_slot_refuses(self):
@@ -1831,17 +1845,17 @@ class TaskT0b676477Tests(unittest.TestCase):
     """Offline: Z offset fail-closed, single-use approval, live Job Details, routine receipts."""
 
     def _ok_patches(self, d):
-        return [mock.patch.object(model_job, "START_CLAIMS", Path(d) / "claims.json"),
+        return [mock.patch.object(launch_print_now, "START_CLAIMS", Path(d) / "claims.json"),
                 mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}),
-                mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")),
-                mock.patch.object(model_job, "verify_gcode"),
-                mock.patch.object(model_job, "_verify_filament_readiness"),
-                mock.patch.object(model_job, "_mr"),
-                mock.patch.object(model_job, "_wait_printing", return_value="printing"),
-                mock.patch.object(model_job, "record_start", return_value="/vault/x.md"),
-                mock.patch.object(model_job, "live_snapshot", return_value={"nozzle_c": 25.0, "bed_c": 24.0, "slots": "unknown"}),
-                mock.patch.object(model_job, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0, "problem": None, "stale": None, "z_offset_mm": -0.005, "offset_source": "saved gcode offset"}),
-                mock.patch.object(model_job, "screen_z_offset", return_value=0.025),
+                patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")),
+                patch_bound(gcode_verify, "verify_gcode"),
+                patch_bound(launch_gates, "_verify_filament_readiness"),
+                patch_bound(jobs_common, "_mr"),
+                mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"),
+                patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"),
+                mock.patch.object(launch_print_now, "live_snapshot", return_value={"nozzle_c": 25.0, "bed_c": 24.0, "slots": "unknown"}),
+                patch_bound(launch_gates, "mesh_readiness", return_value={"profile": "auto", "saved_at": None, "print_leveling": 0, "problem": None, "stale": None, "z_offset_mm": -0.005, "offset_source": "saved gcode offset"}),
+                patch_bound(launch_gates, "screen_z_offset", return_value=0.025),
                 mock.patch.object(model_job, "_fetch_remote_gcode_sha256", side_effect=lambda url, name: name.rsplit(".", 1)[0].split("_", 1)[1] if "_" in name else "")]
 
     def _job(self, d, z=True):
@@ -1859,7 +1873,7 @@ class TaskT0b676477Tests(unittest.TestCase):
             for p in ps: p.start()
             try:
                 with mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run):
-                    out = model_job.print_now(self._job(d, z=False))
+                    out = launch_print_now.print_now(self._job(d, z=False))
             finally:
                 for p in ps: p.stop()
         self.assertTrue(out["started"])
@@ -1873,11 +1887,11 @@ class TaskT0b676477Tests(unittest.TestCase):
         bad = {"profile": None, "saved_at": None, "print_leveling": 0, "problem": "no saved 'auto' bed mesh", "stale": None}
         with tempfile.TemporaryDirectory() as d, \
              mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}), \
-             mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
-             mock.patch.object(model_job, "mesh_readiness", return_value=bad), \
+             patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")), \
+             patch_bound(launch_gates, "mesh_readiness", return_value=bad), \
              mock.patch.object(model_job.subprocess, "run") as run:
             with self.assertRaisesRegex(SystemExit, "REFUSED: no saved 'auto' bed mesh.*Nothing uploaded"):
-                model_job.print_now(self._job(d))
+                launch_print_now.print_now(self._job(d))
             run.assert_not_called()
 
     def _mr_fake(self, profiles, modified=1791051432.0):
@@ -1894,26 +1908,26 @@ class TaskT0b676477Tests(unittest.TestCase):
 
     def test_mesh_readiness_reads_profiles_and_flags_stale_after_nozzle_change(self):
         st = {"moonraker_url": "http://m", "nozzle": {"installed": "2026-10-02"}}
-        with mock.patch.object(model_job, "_mr", side_effect=self._mr_fake({"auto": {}, "MESH_DATA": {}})):
-            ok = model_job.mesh_readiness(st)
+        with patch_bound(jobs_common, "_mr", side_effect=self._mr_fake({"auto": {}, "MESH_DATA": {}})):
+            ok = launch_gates.mesh_readiness(st)
             self.assertIsNone(ok["problem"]); self.assertEqual(ok["profile"], "auto"); self.assertFalse(ok["stale"])
-            self.assertEqual(model_job.screen_z_offset(st), 0.025)
-        with mock.patch.object(model_job, "_mr", side_effect=self._mr_fake({"auto": {}}, modified=1_700_000_000.0)):
-            self.assertTrue(model_job.mesh_readiness(st)["stale"])
-            self.assertIn("Nozzle changed after this mesh", model_job.mesh_line(model_job.mesh_readiness(st)))
-        with mock.patch.object(model_job, "_mr", side_effect=self._mr_fake({"MESH_DATA": {}})):
-            self.assertIn("no saved 'auto' bed mesh", model_job.mesh_readiness(st)["problem"])
+            self.assertEqual(launch_gates.screen_z_offset(st), 0.025)
+        with patch_bound(jobs_common, "_mr", side_effect=self._mr_fake({"auto": {}}, modified=1_700_000_000.0)):
+            self.assertTrue(launch_gates.mesh_readiness(st)["stale"])
+            self.assertIn("Nozzle changed after this mesh", launch_print_now.mesh_line(launch_gates.mesh_readiness(st)))
+        with patch_bound(jobs_common, "_mr", side_effect=self._mr_fake({"MESH_DATA": {}})):
+            self.assertIn("no saved 'auto' bed mesh", launch_gates.mesh_readiness(st)["problem"])
         lv1 = self._mr_fake({"auto": {}})
         def fake_lv1(st_, path, data=None, timeout=30):
             r = lv1(st_, path, data, timeout)
             if path.startswith("/printer/objects/query?bed_mesh"):
                 r["result"]["status"]["save_variables"]["variables"]["print_leveling"] = 1
             return r
-        with mock.patch.object(model_job, "_mr", side_effect=fake_lv1):
-            self.assertIn("PRINT_LEVELING=1", model_job.mesh_readiness(st)["problem"])
-        with mock.patch.object(model_job, "_mr", side_effect=OSError("down")):
-            self.assertIn("could not read the bed mesh", model_job.mesh_readiness(st)["problem"])
-            self.assertIsNone(model_job.screen_z_offset(st))
+        with patch_bound(jobs_common, "_mr", side_effect=fake_lv1):
+            self.assertIn("PRINT_LEVELING=1", launch_gates.mesh_readiness(st)["problem"])
+        with patch_bound(jobs_common, "_mr", side_effect=OSError("down")):
+            self.assertIn("could not read the bed mesh", launch_gates.mesh_readiness(st)["problem"])
+            self.assertIsNone(launch_gates.screen_z_offset(st))
 
     def test_screenless_authority_and_mesh_test_modes(self):
         for mode in (0, 1, 2, 3, 4, None):
@@ -1923,8 +1937,8 @@ class TaskT0b676477Tests(unittest.TestCase):
                         "save_variables": {"variables": {"display_off": 1, "load_zoffset": 1,
                         "gcode_offsets": {"z": 0.025}, "print_leveling": 0, "mesh_test": mode}}}}}
                 return {"result": []}
-            with self.subTest(mode=mode), mock.patch.object(model_job, "_mr", side_effect=reply):
-                result = model_job.mesh_readiness({})
+            with self.subTest(mode=mode), patch_bound(jobs_common, "_mr", side_effect=reply):
+                result = launch_gates.mesh_readiness({})
                 if mode in (0, 1):
                     self.assertIsNone(result["problem"])
                     self.assertEqual(result["z_offset_mm"], 0.025)
@@ -1944,13 +1958,13 @@ class TaskT0b676477Tests(unittest.TestCase):
                     return payload
                 return {"result": []}
             return fake
-        with mock.patch.object(model_job, "_mr", side_effect=reply(1)):
-            screenless = model_job.mesh_readiness({})
+        with patch_bound(jobs_common, "_mr", side_effect=reply(1)):
+            screenless = launch_gates.mesh_readiness({})
             self.assertIsNone(screenless["problem"])
             self.assertEqual(screenless["z_offset_mm"], -0.005)
             self.assertEqual(screenless["offset_source"], "saved gcode offset")
-        with mock.patch.object(model_job, "_mr", side_effect=reply(0)):
-            native = model_job.mesh_readiness({})
+        with patch_bound(jobs_common, "_mr", side_effect=reply(0)):
+            native = launch_gates.mesh_readiness({})
             self.assertIsNone(native["problem"])
             self.assertEqual(native["z_offset_mm"], 0.025)
             self.assertNotEqual(native["z_offset_mm"], 9.0)
@@ -1960,13 +1974,13 @@ class TaskT0b676477Tests(unittest.TestCase):
         for bad in ({"leftExtruderOffset": {"zOffset": 0.0}},
                     {"leftExtruderOffset": {"zProbeOffset": float("inf")}, "level": {"zProbeOffset": 0.025}},
                     {"level": {"zProbeOffset": float("nan")}}):
-            with self.subTest(payload=bad), mock.patch.object(model_job, "_mr", side_effect=reply(0, bad)):
-                missing = model_job.mesh_readiness({})
+            with self.subTest(payload=bad), patch_bound(jobs_common, "_mr", side_effect=reply(0, bad)):
+                missing = launch_gates.mesh_readiness({})
                 self.assertIn("zProbeOffset is unreadable", missing["problem"])
                 self.assertIsNone(missing["z_offset_mm"])
         fallback = {"level": {"zProbeOffset": 0.025}}
-        with mock.patch.object(model_job, "_mr", side_effect=reply(0, fallback)):
-            legacy = model_job.mesh_readiness({})
+        with patch_bound(jobs_common, "_mr", side_effect=reply(0, fallback)):
+            legacy = launch_gates.mesh_readiness({})
             self.assertIsNone(legacy["problem"])
             self.assertEqual(legacy["z_offset_mm"], 0.025)
 
@@ -1979,19 +1993,19 @@ class TaskT0b676477Tests(unittest.TestCase):
                         "gcode_offsets": {"z": z}, "print_leveling": 0, "mesh_test": 0}}}}}
                 return {"result": []}
             return fake
-        with mock.patch.object(model_job, "_mr", side_effect=reply(-0.005, 1)):
-            ok = model_job.mesh_readiness({})
+        with patch_bound(jobs_common, "_mr", side_effect=reply(-0.005, 1)):
+            ok = launch_gates.mesh_readiness({})
             self.assertIsNone(ok["problem"])
             self.assertEqual(ok["z_offset_mm"], -0.005)
-        with mock.patch.object(model_job, "_mr", side_effect=reply(0.025, 0)):
-            bad = model_job.mesh_readiness({})
+        with patch_bound(jobs_common, "_mr", side_effect=reply(0.025, 0)):
+            bad = launch_gates.mesh_readiness({})
             self.assertIn("not authoritative", bad["problem"])
-        with mock.patch.object(model_job, "_mr", side_effect=reply(None, 1)):
-            missing = model_job.mesh_readiness({})
+        with patch_bound(jobs_common, "_mr", side_effect=reply(None, 1)):
+            missing = launch_gates.mesh_readiness({})
             self.assertIn("not authoritative", missing["problem"])
         for nonfinite in (float("nan"), float("inf"), float("-inf"), True, False):
-            with self.subTest(z=nonfinite), mock.patch.object(model_job, "_mr", side_effect=reply(nonfinite, 1)):
-                bad = model_job.mesh_readiness({})
+            with self.subTest(z=nonfinite), patch_bound(jobs_common, "_mr", side_effect=reply(nonfinite, 1)):
+                bad = launch_gates.mesh_readiness({})
                 self.assertIn("not authoritative", bad["problem"])
 
     def test_z_offset_flag_allows_start_and_never_injects_value(self):
@@ -2002,11 +2016,11 @@ class TaskT0b676477Tests(unittest.TestCase):
                 with mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run):
                     jp = self._job(d, z=False)
                     before = Path(json.loads(jp.read_text())["gcode"]).read_text()
-                    out = model_job.print_now(jp, accept_default_z_offset=True)
+                    out = launch_print_now.print_now(jp, accept_default_z_offset=True)
                     self.assertEqual(Path(json.loads(jp.read_text())["gcode"]).read_text(), before)
             finally:
                 for p in ps: p.stop()
-        self.assertEqual(out["z_offset_notice"], model_job.Z_OFFSET_NOTICE)
+        self.assertEqual(out["z_offset_notice"], launch_print_now.Z_OFFSET_NOTICE)
 
     def test_bed_clear_approval_is_single_use_per_gcode(self):
         with tempfile.TemporaryDirectory() as d:
@@ -2015,14 +2029,14 @@ class TaskT0b676477Tests(unittest.TestCase):
             try:
                 with mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run) as run:
                     jp = self._job(d)
-                    model_job.print_now(jp)
+                    launch_print_now.print_now(jp)
                     approvals = json.loads(jp.read_text())["approvals"]
                     self.assertEqual(len(approvals), 1); self.assertEqual(approvals[0]["kind"], "bed_clear")
                     self.assertTrue(approvals[0]["consumed_at"])
                     with self.assertRaisesRegex(SystemExit, "already used.*--reprint"):
-                        model_job.print_now(jp)
+                        launch_print_now.print_now(jp)
                     self.assertEqual(run.call_count, 1)  # refused reuse uploaded nothing
-                    model_job.print_now(jp, reprint=True)
+                    launch_print_now.print_now(jp, reprint=True)
                     self.assertEqual([a["kind"] for a in json.loads(jp.read_text())["approvals"]], ["bed_clear", "reprint"])
             finally:
                 for p in ps: p.stop()
@@ -2032,7 +2046,7 @@ class TaskT0b676477Tests(unittest.TestCase):
                 "slots": [{"slot": "1", "color": "black", "material": "PLA", "loaded": True},
                           {"slot": "2", "color": None, "material": "PETG", "loaded": None}]}
         before = json.dumps(live, sort_keys=True)
-        txt = model_job.job_details({"title": "X"}, live=live)
+        txt = launch_print_now.job_details({"title": "X"}, live=live)
         self.assertNotIn("Current temps", txt)
         self.assertNotIn("IFS slots", txt)
         self.assertNotIn("PETG", txt)
@@ -2041,35 +2055,35 @@ class TaskT0b676477Tests(unittest.TestCase):
 
     def test_live_snapshot_reads_mocks_and_degrades_to_unknown(self):
         st = {"moonraker_url": "http://m"}
-        with mock.patch.object(model_job, "_mr", return_value={"result": {"status": {
+        with patch_bound(jobs_common, "_mr", return_value={"result": {"status": {
                  "extruder": {"temperature": 30.0}, "heater_bed": {"temperature": 22.0}}}}), \
-             mock.patch.object(model_job, "read_filament_telemetry", return_value={"configured_palette": [
+             patch_bound(jobs_filament, "read_filament_telemetry", return_value={"configured_palette": [
                  {"ID": "1", "Color": "white", "Material": "PLA"}, {"ID": "2", "Color": "pink", "Material": "PLA"}]}), \
-             mock.patch.object(model_job, "read_stock_filament_slots", return_value={1: True, 2: False}):
-            snap = model_job.live_snapshot(st)
+             patch_bound(jobs_filament, "read_stock_filament_slots", return_value={1: True, 2: False}):
+            snap = launch_print_now.live_snapshot(st)
         self.assertEqual((snap["nozzle_c"], snap["bed_c"]), (30.0, 22.0))
         self.assertEqual([s["loaded"] for s in snap["slots"]], [True, False])
-        with mock.patch.object(model_job, "_mr", side_effect=OSError("down")), \
-             mock.patch.object(model_job, "read_filament_telemetry", side_effect=OSError("down")):
-            self.assertEqual(model_job.live_snapshot(st), {"nozzle_c": None, "bed_c": None, "slots": "unknown"})
+        with patch_bound(jobs_common, "_mr", side_effect=OSError("down")), \
+             patch_bound(jobs_filament, "read_filament_telemetry", side_effect=OSError("down")):
+            self.assertEqual(launch_print_now.live_snapshot(st), {"nozzle_c": None, "bed_c": None, "slots": "unknown"})
 
     def test_routine_receipt_uses_static_typical_table(self):
-        self.assertEqual(model_job.routine_receipt("leveling"),
+        self.assertEqual(jobs_cli.routine_receipt("leveling"),
                          "Running full bed leveling, about 5 to 10 min (typical, not measured on this printer).")
-        for r in model_job.ROUTINE_TYPICAL_MIN:
-            self.assertIn("typical", model_job.routine_receipt(r))
+        for r in jobs_cli.ROUTINE_TYPICAL_MIN:
+            self.assertIn("typical", jobs_cli.routine_receipt(r))
         with self.assertRaises(ValueError):
-            model_job.routine_receipt("make_coffee")
+            jobs_cli.routine_receipt("make_coffee")
 
     def test_routine_phase_reads_idle_timeout_only(self):
         st = {"moonraker_url": "http://m"}
         def q(state): return {"result": {"status": {"idle_timeout": {"state": state}}}}
-        with mock.patch.object(model_job, "_mr", return_value=q("Printing")):
-            self.assertEqual(model_job.routine_phase(st), "running")
-        with mock.patch.object(model_job, "_mr", return_value=q("Ready")):
-            self.assertEqual(model_job.routine_phase(st), "completed")
-        with mock.patch.object(model_job, "_mr", side_effect=OSError("down")):
-            self.assertEqual(model_job.routine_phase(st), "unknown")
+        with patch_bound(jobs_common, "_mr", return_value=q("Printing")):
+            self.assertEqual(jobs_cli.routine_phase(st), "running")
+        with patch_bound(jobs_common, "_mr", return_value=q("Ready")):
+            self.assertEqual(jobs_cli.routine_phase(st), "completed")
+        with patch_bound(jobs_common, "_mr", side_effect=OSError("down")):
+            self.assertEqual(jobs_cli.routine_phase(st), "unknown")
 
 
 class SelectionConsistencyTests(unittest.TestCase):
@@ -2079,20 +2093,20 @@ class SelectionConsistencyTests(unittest.TestCase):
             "2": {"spoolman_id": 11, "color": "pink", "material": "PLA"}}}
 
     def test_missing_spool_resolves_from_requested_slot_not_global_spool(self):
-        result = model_job.resolve_filament_selection(self.state(), {
+        result = jobs_filament.resolve_filament_selection(self.state(), {
             "slot": 2, "color": "pink", "material": "PLA", "spoolman_id": None})
         self.assertEqual(result["spoolman_id"], 11)
 
     def test_star_contradiction_is_rejected_before_network(self):
         selection = {"slot": 2, "color": "pink", "material": "PLA", "spoolman_id": 10}
-        with mock.patch.object(model_job, "request_json") as request:
+        with patch_bound(jobs_common, "request_json") as request:
             with self.assertRaisesRegex(RuntimeError, "slot.*spool"):
-                model_job._verify_filament_readiness(self.state(), selection)
+                launch_gates._verify_filament_readiness(self.state(), selection)
             request.assert_not_called()
 
     def test_unknown_mapping_never_inherits_active_spool(self):
         with self.assertRaisesRegex(ValueError, "explicit Spoolman"):
-            model_job.resolve_filament_selection({"spool": {"spoolman_id": 10}}, {
+            jobs_filament.resolve_filament_selection({"spool": {"spoolman_id": 10}}, {
                 "slot": 2, "color": "pink", "material": "PLA", "spoolman_id": None})
 
     def test_configured_color_and_material_contradictions_are_rejected(self):
@@ -2100,7 +2114,7 @@ class SelectionConsistencyTests(unittest.TestCase):
             selection = {"slot": 2, "color": "pink", "material": "PLA", "spoolman_id": 11}
             selection[key] = value
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
-                model_job.resolve_filament_selection(self.state(), selection)
+                jobs_filament.resolve_filament_selection(self.state(), selection)
 
     def test_fetch_contradiction_refuses_before_source_inventory(self):
         with mock.patch.object(sys, "argv", ["model_job.py", "fetch", "https://makerworld.com/en/models/123",
@@ -2108,9 +2122,9 @@ class SelectionConsistencyTests(unittest.TestCase):
                 "--filament-spoolman-id", "10"]), \
              mock.patch.object(model_job.printer_state, "load", return_value=self.state()), \
              mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
-             mock.patch.object(model_job, "maker_inventory") as inventory:
+             mock.patch.object(jobs_sources, "maker_inventory") as inventory:
             with self.assertRaisesRegex(SystemExit, "slot.*spool"):
-                model_job.main()
+                jobs_cli.main()
             inventory.assert_not_called()
 
     def verified_state(self):
@@ -2123,7 +2137,7 @@ class SelectionConsistencyTests(unittest.TestCase):
         # Regression: a verified slot 2 job must not be refused because
         # Moonraker's active spool still points at slot 1.
         st = self.verified_state()
-        slot = model_job._validate_slot_selection(st, {
+        slot = jobs_filament._validate_slot_selection(st, {
             "slot": 2, "color": "pink", "material": "PLA", "spoolman_id": 11})
         self.assertEqual(slot["spoolman_id"], 11)
 
@@ -2136,7 +2150,7 @@ class SelectionConsistencyTests(unittest.TestCase):
                  mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
                  mock.patch.object(model_job.subprocess, "run") as slicer:
                 with self.assertRaisesRegex(RuntimeError, "selected IFS slot 2"):
-                    model_job.slice_job(path)
+                    jobs_slice.slice_job(path)
                 slicer.assert_not_called()
 
     def sync_transport(self, active, fail_write=False):
@@ -2155,11 +2169,11 @@ class SelectionConsistencyTests(unittest.TestCase):
         active = [10]
         reply, calls = self.sync_transport(active)
         spool = {"archived": False, "filament": {"material": "PLA", "name": "Pink PLA"}}
-        with mock.patch.object(model_job, "_mr", side_effect=reply), \
+        with patch_bound(jobs_common, "_mr", side_effect=reply), \
              mock.patch.object(model_job.spoolman_client, "get_spool", return_value=spool), \
              mock.patch.object(model_job.printer_state, "load", return_value=self.verified_state()), \
              mock.patch.object(model_job.printer_state, "save") as save:
-            result = model_job._sync_active_spool(st, 2)
+            result = launch_print_now._sync_active_spool(st, 2)
         self.assertEqual(result["spool_id"], 11)
         self.assertEqual(active[0], 11)
         self.assertIn(("/server/spoolman/spool_id", {"spool_id": 11}), calls)
@@ -2169,10 +2183,10 @@ class SelectionConsistencyTests(unittest.TestCase):
     def test_sync_active_spool_noop_when_already_current(self):
         st = self.verified_state()
         reply, calls = self.sync_transport([10])
-        with mock.patch.object(model_job, "_mr", side_effect=reply), \
+        with patch_bound(jobs_common, "_mr", side_effect=reply), \
              mock.patch.object(model_job.spoolman_client, "get_spool") as http, \
              mock.patch.object(model_job.printer_state, "save") as save:
-            self.assertFalse(model_job._sync_active_spool(st, 1)["changed"])
+            self.assertFalse(launch_print_now._sync_active_spool(st, 1)["changed"])
         self.assertEqual(calls, [("/server/spoolman/spool_id", None)])
         http.assert_not_called()
         save.assert_not_called()
@@ -2182,11 +2196,11 @@ class SelectionConsistencyTests(unittest.TestCase):
         st["spoolman_url"] = "http://spoolman.invalid"
         reply, _ = self.sync_transport([10], fail_write=True)
         spool = {"archived": False, "filament": {"material": "PLA"}}
-        with mock.patch.object(model_job, "_mr", side_effect=reply), \
+        with patch_bound(jobs_common, "_mr", side_effect=reply), \
              mock.patch.object(model_job.spoolman_client, "get_spool", return_value=spool), \
              mock.patch.object(model_job.printer_state, "save") as save:
             with self.assertRaisesRegex(RuntimeError, "readback.*nothing uploaded"):
-                model_job._sync_active_spool(st, 2)
+                launch_print_now._sync_active_spool(st, 2)
         save.assert_not_called()
 
     def test_sync_active_spool_warns_on_archived_spool_and_keeps_the_slot_record(self):
@@ -2197,12 +2211,12 @@ class SelectionConsistencyTests(unittest.TestCase):
         st["spoolman_url"] = "http://spoolman.invalid"
         reply, calls = self.sync_transport([10])
         out = io.StringIO()
-        with mock.patch.object(model_job, "_mr", side_effect=reply), \
+        with patch_bound(jobs_common, "_mr", side_effect=reply), \
              mock.patch.object(model_job.spoolman_client, "get_spool", return_value={"archived": True, "filament": {"material": "PLA"}}), \
              mock.patch.object(model_job.printer_state, "load", return_value=self.verified_state()), \
              mock.patch.object(model_job.printer_state, "save"), \
              contextlib.redirect_stdout(out):
-            result = model_job._sync_active_spool(st, 2)
+            result = launch_print_now._sync_active_spool(st, 2)
         self.assertTrue(result["changed"])
         self.assertIn("archived; printing with the slot record", out.getvalue())
         self.assertEqual(st["spool"]["material"], self.verified_state()["filament_slots"]["2"]["material"])
@@ -2221,25 +2235,25 @@ class SelectionConsistencyTests(unittest.TestCase):
         st["spoolman_url"] = "http://spoolman.invalid"
         reply, _ = self.sync_transport([10], fail_write=True)
         spool = {"archived": False, "filament": {"material": "PLA+"}}
-        with mock.patch.object(model_job, "_mr", side_effect=reply), \
+        with patch_bound(jobs_common, "_mr", side_effect=reply), \
              mock.patch.object(model_job.spoolman_client, "get_spool", return_value=spool), \
              mock.patch.object(model_job.printer_state, "save"):
             # Material check passes; the forced write failure is the next gate.
             with self.assertRaisesRegex(RuntimeError, "readback.*nothing uploaded"):
-                model_job._sync_active_spool(st, 2)
+                launch_print_now._sync_active_spool(st, 2)
 
     def test_filament_select_rejects_contradiction_before_job_write(self):
         with mock.patch.object(sys, "argv", ["model_job.py", "filament-select", "unused.json",
                 "--slot", "2", "--color", "pink", "--material", "PLA", "--spoolman-id", "10"]), \
              mock.patch.object(model_job.printer_state, "load", return_value=self.state()), \
-             mock.patch.object(model_job, "save_filament_selection") as save:
+             patch_bound(jobs_store, "save_filament_selection") as save:
             with self.assertRaisesRegex(ValueError, "slot.*spool"):
-                model_job.main()
+                jobs_cli.main()
             save.assert_not_called()
 
     def test_z_notice_does_not_claim_historical_cause(self):
-        self.assertNotIn("that is why", model_job.Z_OFFSET_NOTICE)
-        self.assertIn("not established", model_job.Z_OFFSET_NOTICE)
+        self.assertNotIn("that is why", launch_print_now.Z_OFFSET_NOTICE)
+        self.assertIn("not established", launch_print_now.Z_OFFSET_NOTICE)
 
 
 if __name__ == "__main__":
@@ -2252,58 +2266,58 @@ class JobCardTests(unittest.TestCase):
             "a": {"slot": 3, "color": "black", "material": "PLA", "spoolman_id": 8},
             "b": {"slot": 3, "color": "black", "material": "PLA", "spoolman_id": 8},
             "c": {"slot": 1, "color": "white", "material": "PLA", "spoolman_id": 5}}}}
-        card = model_job.job_card(job, "Can-Holder_plate_1_x.gcode", "; total filament used [g] = 95.56\n")
+        card = launch_print_now.job_card(job, "Can-Holder_plate_1_x.gcode", "; total filament used [g] = 95.56\n")
         self.assertEqual((card["copies"], card["filament_g"], [s["spoolman_id"] for s in card["spools"]]), (3, 95.6, [8, 5]))
-        self.assertEqual(model_job.job_card(None, "plate_1_x.gcode")["spools"], [])
+        self.assertEqual(launch_print_now.job_card(None, "plate_1_x.gcode")["spools"], [])
 
     def test_card_reads_bambu_studio_weight_spelling(self):
         """#444: Bambu Studio's header block spells the total 'total filament weight [g] : X'.
 
         Header lines shaped from a real Bambu Studio 2.8.2.61 A1 slice.
         """
-        card = model_job.job_card({"title": "Cube"}, "plate_1.gcode",
+        card = launch_print_now.job_card({"title": "Cube"}, "plate_1.gcode",
                                   "; HEADER_BLOCK_START\n; BambuStudio 02.08.02.61\n"
                                   "; total filament weight [g] : 3.77\n; HEADER_BLOCK_END\n")
         self.assertEqual(card["filament_g"], 3.8)
         # A genuinely absent total stays unknown (None), never zero.
-        self.assertIsNone(model_job.job_card({"title": "Cube"}, "plate_1.gcode", "G1 X1\n")["filament_g"])
+        self.assertIsNone(launch_print_now.job_card({"title": "Cube"}, "plate_1.gcode", "G1 X1\n")["filament_g"])
 
 
 class RemoteNameTests(unittest.TestCase):
     def test_title_leads_the_moonraker_name(self):
         sha = "a" * 64
-        self.assertEqual(model_job.remote_name(Path("/x/plate_1.gcode"), sha, {"title": "Slim 12oz Can Holder, Red Bull"}),
+        self.assertEqual(jobs_store.remote_name(Path("/x/plate_1.gcode"), sha, {"title": "Slim 12oz Can Holder, Red Bull"}),
                          f"Slim-12oz-Can-Holder-Red-Bull_plate_1_{sha}.gcode")
-        self.assertEqual(model_job.remote_name(Path("/x/plate_1.gcode"), sha, None), f"plate_1_{sha}.gcode")
-        self.assertEqual(model_job.remote_name(Path("/x/Cube.gcode"), sha, {"title": "cube"}), f"Cube_{sha}.gcode")
+        self.assertEqual(jobs_store.remote_name(Path("/x/plate_1.gcode"), sha, None), f"plate_1_{sha}.gcode")
+        self.assertEqual(jobs_store.remote_name(Path("/x/Cube.gcode"), sha, {"title": "cube"}), f"Cube_{sha}.gcode")
 
 
 class AnnouncePrintNameTests(unittest.TestCase):
     def test_publishes_friendly_title_as_display_message(self):
-        with mock.patch.object(model_job, "request_json") as http:
-            name = model_job._announce_print_name({"moonraker_url": "http://m"}, {"title": 'Build "Plate" Cleaner'})
+        with patch_bound(jobs_common, "request_json") as http:
+            name = launch_print_now._announce_print_name({"moonraker_url": "http://m"}, {"title": 'Build "Plate" Cleaner'})
         self.assertEqual(name, "Build Plate Cleaner")
         http.assert_called_once()
         self.assertEqual(http.call_args.kwargs["data"], {"script": 'SET_DISPLAY_TEXT MSG="Build Plate Cleaner"'})
 
     def test_appends_slot_colors(self):
         st = {"moonraker_url": "http://m", "filament_slots": {"1": {"color": "white"}, "4": {"color": "dark green"}}}
-        with mock.patch.object(model_job, "request_json"):
-            self.assertEqual(model_job._announce_print_name(st, {"title": "Cleaner"}, [4, 1]),
+        with patch_bound(jobs_common, "request_json"):
+            self.assertEqual(launch_print_now._announce_print_name(st, {"title": "Cleaner"}, [4, 1]),
                              "Cleaner (Dark Green + White)")
-        with mock.patch.object(model_job, "request_json"):
-            self.assertEqual(model_job._announce_print_name(st, {"title": "Cleaner", "filament_selection": {"color": "pink"}}),
+        with patch_bound(jobs_common, "request_json"):
+            self.assertEqual(launch_print_now._announce_print_name(st, {"title": "Cleaner", "filament_selection": {"color": "pink"}}),
                              "Cleaner (Pink)")
 
     def test_failure_never_blocks_print(self):
-        with mock.patch.object(model_job, "request_json", side_effect=OSError("down")):
-            self.assertIsNone(model_job._announce_print_name({"moonraker_url": "http://m"}, {"title": "X"}))
+        with patch_bound(jobs_common, "request_json", side_effect=OSError("down")):
+            self.assertIsNone(launch_print_now._announce_print_name({"moonraker_url": "http://m"}, {"title": "X"}))
 
     def test_numbers_multi_plate_parts(self):
         st = {"moonraker_url": "http://m", "filament_slots": {"2": {"color": "pink"}}}
         job = {"title": "Holder", "derived_plates": [{"gcode": "/a/p1.gcode"}, {"gcode": "/b/p1.gcode"}]}
-        with mock.patch.object(model_job, "request_json"):
-            self.assertEqual(model_job._announce_print_name(st, job, [2], Path("/b/p1.gcode")), "Holder 2/2 (Pink)")
+        with patch_bound(jobs_common, "request_json"):
+            self.assertEqual(launch_print_now._announce_print_name(st, job, [2], Path("/b/p1.gcode")), "Holder 2/2 (Pink)")
 
 
 def test_assign_print_number_mints_per_launch_and_ignores_scratch_jobs(tmp_path, monkeypatch):
@@ -2319,8 +2333,8 @@ def test_assign_print_number_mints_per_launch_and_ignores_scratch_jobs(tmp_path,
     numbers.write_text('{"numbers": {"/old/JOB.json": 4}}')
     monkeypatch.setattr(print_control, 'ARCHIVE', archive)
     monkeypatch.setattr(print_control, 'PRINT_NUMBERS', numbers)
-    assert model_job._assign_print_number(job) == 5
-    assert model_job._assign_print_number(job) == 6
+    assert launch_print_now._assign_print_number(job) == 5
+    assert launch_print_now._assign_print_number(job) == 6
     registry = json.loads(numbers.read_text())
     # The old per-job map is adopted into launches and not written back.
     assert "numbers" not in registry
@@ -2330,24 +2344,25 @@ def test_assign_print_number_mints_per_launch_and_ignores_scratch_jobs(tmp_path,
     scratch = tmp_path / 'scratch' / 'JOB.json'
     scratch.parent.mkdir()
     scratch.write_text('{}')
-    assert model_job._assign_print_number(scratch) is None
-    assert model_job._assign_print_number(None) is None
+    assert launch_print_now._assign_print_number(scratch) is None
+    assert launch_print_now._assign_print_number(None) is None
 
 
 def test_shared_extruder_total_is_split_across_parts_and_checked_against_model_page():
     """Valentines stand regression: 5 parts on one guessed extruder showed 5 x 247.8 g = 1,239 g."""
     from print_handy.core import launch_state, model_job as mj
+    from print_handy.jobs import prompts as jobs_prompts
     parts = [{'key': f'p{i}', 'source_extruder': 1, 'volume_mm3': v} for i, v in enumerate([10, 10, 30, 50, 100])]
     manifest = {'parts': parts, 'filament_stats': {'total_g': 247.8, 'extruders': {1: {'g': 247.8}}, 'estimated': True}}
     pick = {'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 13}
     job = {'color_manifest': manifest,
            'selected_source': {'plates': [{'prediction_s': 3600, 'weight_g': 100}, {'prediction_s': 600, 'weight_g': 60}]},
            'color_decisions': {'mode': 'per_part', 'choices': {f'part:p{i}': dict(pick) for i in range(5)}}}
-    usage = mj.filament_usage_by_selection(job)
+    usage = jobs_prompts.filament_usage_by_selection(job)
     assert len(usage) == 1 and abs(usage[0][1] - 160.0) < 0.01  # model page weight, not 1,239 g
     del job['selected_source']
-    assert abs(mj.filament_usage_by_selection(job)[0][1] - 247.8) < 0.01  # never N x the total
-    assert mj.source_site_estimate({'plates': [{'prediction_s': 3600, 'weight_g': 100}]}) == (3600.0, 100.0)
+    assert abs(jobs_prompts.filament_usage_by_selection(job)[0][1] - 247.8) < 0.01  # never N x the total
+    assert jobs_prompts.source_site_estimate({'plates': [{'prediction_s': 3600, 'weight_g': 100}]}) == (3600.0, 100.0)
 
 
 def test_plates_without_model_instances_still_count_as_separate_beds(tmp_path, monkeypatch):
@@ -2368,7 +2383,7 @@ def test_plates_without_model_instances_still_count_as_separate_beds(tmp_path, m
     with zipfile.ZipFile(source, 'w') as archive:
         for name, data in entries.items():
             archive.writestr(name, data)
-    assert model_job.audit(source)['plates'] == 2
+    assert jobs_audit.audit(source)['plates'] == 2
     manifest = tmp_path / 'JOB.json'
     manifest.write_text(json.dumps({'downloaded_file': str(source), 'audit': {}, 'title': 'Two plates'}))
     monkeypatch.setattr(model_job.printer_state, 'load', _slice_state)
@@ -2380,4 +2395,4 @@ def test_plates_without_model_instances_still_count_as_separate_beds(tmp_path, m
         raise MultiPlate()
     monkeypatch.setattr(source_colors, 'validate_plate_usage_if_present', seen_as_multi_plate)
     with pytest.raises(MultiPlate):
-        model_job.slice_job(manifest)
+        jobs_slice.slice_job(manifest)

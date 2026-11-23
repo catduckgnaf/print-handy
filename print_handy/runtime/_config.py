@@ -45,12 +45,6 @@ def pinned_state_home() -> Path:
     return Path(_pinned["paths"]["state_home"])
 
 
-# The old names (paths.hermes_home, #1323), kept through 2.3.x and removed in 2.4.0
-# (docs/PROJECT-REFERENCE.md, Scheduled removals in 2.4.0).
-hermes_home = state_home
-pinned_hermes_home = pinned_state_home
-
-
 def bot_name() -> str:
     """The name the bot uses for itself: [discord] bot_name."""
     return str(cfg()["discord"]["bot_name"]).strip() or "Print Handy"

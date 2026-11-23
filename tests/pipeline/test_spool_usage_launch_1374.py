@@ -24,6 +24,7 @@ from unittest import mock
 import pytest
 
 from print_handy.core import model_job, spoolman_client
+from print_handy.jobs import store as jobs_store
 from print_handy.launch import print_now
 from print_handy.runtime import print_records
 
@@ -33,6 +34,7 @@ from tests.runtime.test_spool_usage_runaway_1374 import (
 
 from .test_launch_state import make_job, mapped, printer  # noqa: F401  (fixtures)
 from .test_start_path import MoonrakerScript, moonraker_status
+from tests.bound_names import patch_bound
 
 REAL_RECORD_START = print_now.record_start
 
@@ -54,10 +56,10 @@ def _record_start(tmp_path, monkeypatch, jp, g, *, current, slot):
     context_path = tmp_path / "print_handy_context.json"
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
     started = time.time()
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=json.loads(jp.read_text())), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=json.loads(jp.read_text())), \
          mock.patch.object(model_job.printer_state, "load", return_value=_state(slot)), \
          mock.patch.object(model_job.printers, "current", return_value=current), \
-         mock.patch.object(model_job, "CONTEXT", context_path):
+         patch_bound(jobs_store, "CONTEXT", context_path):
         REAL_RECORD_START(str(g), FILE, started_at=_iso(started), print_number=113)
     return json.loads(context_path.read_text())["jobs"][FILE], started
 
@@ -70,10 +72,10 @@ def _end_with_runaway(monkeypatch, tmp_path, fake, started):
 def test_one_slot_mapped_launch_keeps_the_baseline_and_the_runaway_is_corrected(mapped, monkeypatch, tmp_path):
     fake = FakeSpoolman(BASELINE_G)
     monkeypatch.setattr(spoolman_client, "request", fake)
-    model_job._sync_active_spool.return_value = {"spool_id": SPOOL, "changed": False}
+    print_now._sync_active_spool.return_value = {"spool_id": SPOOL, "changed": False}
     jp, g = make_job(mapped.root, "a")
-    with mock.patch.object(model_job, "_wait_printing", lambda *a, **k: "printing"):
-        out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+    with mock.patch.object(print_now, "_wait_printing", lambda *a, **k: "printing"):
+        out = print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
                                             json.loads(jp.read_text()), jp, 0, False)
     assert out["started"] is True
     assert json.loads(jp.read_text())["spool_usage_baseline"]["used_weight"] == BASELINE_G
@@ -101,8 +103,8 @@ def test_unmapped_moonraker_launch_records_the_baseline_and_the_runaway_is_corre
         return script.mr(st, path, data=data, timeout=timeout)
     printer.mr.side_effect = mr
     jp, g = make_job(printer.root, "a")
-    with mock.patch.object(model_job, "_wait_printing", lambda *a, **k: "printing"):
-        out = model_job.print_now(jp)
+    with mock.patch.object(print_now, "_wait_printing", lambda *a, **k: "printing"):
+        out = print_now.print_now(jp)
     assert out["started"] is True and script.posts == 1
     baseline = json.loads(jp.read_text())["spool_usage_baseline"]
     assert baseline["spool_id"] == SPOOL and baseline["used_weight"] == BASELINE_G
@@ -128,8 +130,8 @@ def test_unmapped_launch_without_a_moonraker_spool_clears_a_stale_baseline(print
     job = json.loads(jp.read_text())
     job["spool_usage_baseline"] = {"spool_id": SPOOL, "used_weight": 1.0, "recorded_at": 1.0}
     jp.write_text(json.dumps(job))
-    with mock.patch.object(model_job, "_wait_printing", lambda *a, **k: "printing"):
-        assert model_job.print_now(jp)["started"] is True
+    with mock.patch.object(print_now, "_wait_printing", lambda *a, **k: "printing"):
+        assert print_now.print_now(jp)["started"] is True
     assert "spool_usage_baseline" not in json.loads(jp.read_text())
     assert not [c for c in fake.calls if c[0] == "GET"]
 
@@ -145,11 +147,11 @@ def test_two_slot_mapped_launch_carries_no_baseline(mapped, monkeypatch, tmp_pat
     state["filament_slots"]["2"] = {"spoolman_id": 20, "material": "PLA"}
     context_path = tmp_path / "print_handy_context.json"
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=job), \
          mock.patch.object(model_job.printer_state, "load", return_value=state), \
          mock.patch.object(model_job.printers, "current",
                            return_value=mock.Mock(multi_slot=True, native_or_none=native)), \
-         mock.patch.object(model_job, "CONTEXT", context_path):
+         patch_bound(jobs_store, "CONTEXT", context_path):
         REAL_RECORD_START(str(g), FILE, started_at=_iso(time.time()), print_number=114)
     context = json.loads(context_path.read_text())["jobs"][FILE]
     assert context["tool_to_physical_slot"] == {"0": 1, "1": 2}
@@ -168,11 +170,11 @@ def test_a_multi_slot_start_is_recorded_when_the_active_spool_record_is_empty(ma
                                 "2": {"spoolman_id": SPOOL + 1, "material": "PLA+", "hex": "#ffffff"}}}
     context_path = tmp_path / "print_handy_context.json"
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=json.loads(jp.read_text())), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=json.loads(jp.read_text())), \
          mock.patch.object(model_job.printer_state, "load", return_value=empty), \
          mock.patch.object(model_job.printers, "current",
                            return_value=mock.Mock(multi_slot=True, native_or_none=native)), \
-         mock.patch.object(model_job, "CONTEXT", context_path):
+         patch_bound(jobs_store, "CONTEXT", context_path):
         REAL_RECORD_START(str(g), FILE, started_at=_iso(time.time()), print_number=114)
     context = json.loads(context_path.read_text())["jobs"][FILE]
     assert context["tool_to_physical_slot"] == {"0": 1, "1": 2}

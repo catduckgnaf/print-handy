@@ -41,13 +41,15 @@ def report(check, ok, **details):
 
 
 def payload():
-    """Handlers, config, templates and plugins come from the image, not a mounted checkout."""
+    """Handlers, config and templates come from the image, not a mounted checkout."""
     from print_handy import printers, settings
-    from print_handy.bot.router import PLUGIN, Router
+    from print_handy.bot import handlers
+    from print_handy.bot.router import Router
     root = settings.ROOT
     data = settings.load()
+    handlers_dir = root / "print_handy" / "bot" / "handlers"
     missing = [str(p) for p in (root / "config" / "docker.yaml", root / "config" / "docker.toml",
-                                root / "plugins" / "print-feedback", Path(PLUGIN)) if not p.exists()]
+                                handlers_dir, Path(handlers.__file__)) if not p.exists()]
     templates = {}
     for key, model in printers.MODELS.items():
         if model.generated_templates:  # Bambu: profiles come from the user's slicer at runtime; none ship

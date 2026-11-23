@@ -24,7 +24,8 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, painted_geometry, source_colors as sc
+from print_handy.core import orca_adapter, painted_geometry, source_colors as sc
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate
 from tests.corpus.make_models import _write_package
 
@@ -151,7 +152,7 @@ def _decisions(source, picks):
     for row in sc.canonical_prompts(manifest):
         part = next(p for p in manifest["parts"] if "part:" + p["key"] == row["key"])
         slot = picks[part["source_extruder"]]
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     return {"schema": "part_slots_v1", "mode": "per_part",
             "source_sha256": manifest["source_sha256"], "choices": choices}
@@ -300,7 +301,7 @@ def test_single_color_plate_copy_refuses_a_volume_inside_the_mesh_by_name(tmp_pa
     path = prusa_volume_source(tmp_path / "sign.3mf", _volume(12, 23, "Hole", kind="NegativeVolume"))
     state = json.loads(STATE.read_text())
     manifest = sc.inventory(path)
-    white = model_job.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
     decisions = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
                  "choices": {row["key"]: white for row in sc.canonical_prompts(manifest)}}
     with pytest.raises(RuntimeError, match=r"PrusaSlicer object 1 .*'Hole' \(NegativeVolume\)"):

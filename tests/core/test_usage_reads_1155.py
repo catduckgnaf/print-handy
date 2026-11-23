@@ -24,7 +24,8 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from print_handy.core import model_job, source_colors as sc
+from print_handy.core import source_colors as sc
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_color_geometry
 from tests.corpus.make_models import _write_package
 
@@ -145,7 +146,7 @@ def _decisions(source, picks):
     for row in sc.canonical_prompts(manifest):
         part = next(p for p in manifest["parts"] if "part:" + p["key"] == row["key"])
         slot = picks[part["source_extruder"]]
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     return {"schema": "part_slots_v1", "mode": "per_part",
             "source_sha256": manifest["source_sha256"], "choices": choices}

@@ -4,7 +4,7 @@
     python3 -m print_handy.bot check      validate the setup offline, exit 1 on a problem
     python3 -m print_handy.bot health     exit 0 only while a running bot reports a fresh heartbeat
 
-The bot runs the print-feedback handlers in their plugin order, with
+The bot runs the chat handlers (print_handy.bot.handlers) in their dispatch order, with
 Print Handy's own Discord adapter and prompt registry. Importing this package does not import
 discord.py; only the runtime does.
 """

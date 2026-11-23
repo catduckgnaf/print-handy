@@ -14,10 +14,20 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job as mj
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
 from print_handy.core import orca_adapter, prepared_intake, source_colors
+from print_handy.intake import worker as intake_worker
 from print_handy.printers.base import MultiColorUnsupported
 
 from .test_source_colors import source
+from tests.bound_names import setattr_bound
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = ROOT / "tests" / "corpus" / "cases"
@@ -66,7 +76,7 @@ def write_job(tmp_path, model_file, model_key=None):
 
 def test_packet_questions_offer_toolheads(creator, tmp_path):
     jp = write_job(tmp_path, source(tmp_path), creator)
-    assert mj.intake_color_choices(jp, tool_state()) is False  # packet printed, questions recorded
+    assert jobs_prompts.intake_color_choices(jp, tool_state()) is False  # packet printed, questions recorded
     saved = json.loads(jp.read_text())
     assert saved['color_questions']
     for question in saved['color_questions']:
@@ -83,7 +93,7 @@ def test_per_part_answers_record_toolhead_picks(creator, tmp_path):
     picks = {1: 2, 2: 4}
     slots = [picks[row['source_extruder']] for row in rows]
     jp = write_job(tmp_path, src, creator)
-    assert mj.intake_color_choices(jp, tool_state(), mode='per_part', slots=slots)
+    assert jobs_prompts.intake_color_choices(jp, tool_state(), mode='per_part', slots=slots)
     saved = json.loads(jp.read_text())
     choices = saved['color_decisions']['choices']
     assert {key: sel['slot'] for key, sel in choices.items()} == {row['key']: picks[row['source_extruder']]
@@ -98,9 +108,9 @@ def test_five_colours_refused_but_single_colour_still_open(creator, tmp_path):
     src = CASES / 'five-colors-over-slots' / 'model.3mf'
     jp = write_job(tmp_path, src, creator)
     with pytest.raises(MultiColorUnsupported, match='5 toolheads|toolheads'):
-        mj.intake_color_choices(jp, tool_state(), mode='per_part', slots=[1, 2, 3, 4, 1])
+        jobs_prompts.intake_color_choices(jp, tool_state(), mode='per_part', slots=[1, 2, 3, 4, 1])
     # One toolhead printing everything needs no assignment: still allowed.
-    assert mj.intake_color_choices(jp, tool_state(), mode='single_color', slots=[2])
+    assert jobs_prompts.intake_color_choices(jp, tool_state(), mode='single_color', slots=[2])
     saved = json.loads(jp.read_text())
     assert saved['color_decisions']['selection']['slot'] == 2
 
@@ -111,13 +121,13 @@ def test_double_assigning_a_toolhead_is_refused(creator, tmp_path):
     slots = [1] * len(rows)  # two different source colours onto toolhead 1
     jp = write_job(tmp_path, src, creator)
     with pytest.raises(ValueError, match='one toolhead prints one color'):
-        mj.intake_color_choices(jp, tool_state(), mode='per_part', slots=slots)
+        jobs_prompts.intake_color_choices(jp, tool_state(), mode='per_part', slots=slots)
 
 
 def test_single_colour_source_needs_no_questions(creator, tmp_path):
     # No packet, no refusal: a single-colour Creator job gains no new questions.
     jp = write_job(tmp_path, CASES / 'single-part' / 'model.3mf', creator)
-    assert mj.intake_color_choices(jp, tool_state()) is True
+    assert jobs_prompts.intake_color_choices(jp, tool_state()) is True
 
 
 # ---------------------------------------------------------------- Discord collect flow (discord_color_intake)
@@ -249,8 +259,8 @@ def flow_env(creator, tmp_path, monkeypatch):
     from .helpers import external
     print_next = external("print_next")
     root = tmp_path / 'receipts'
-    monkeypatch.setattr(mj, 'ARCHIVE', tmp_path / 'archive')
-    monkeypatch.setattr(mj, 'printables_inventory', lambda url: {
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path / 'archive')
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'ghost', 'title': 'Ghost Stand',
         'sources': [{'name': 'ghost.3mf', 'instance_id': 1}]})
     holder = {}
@@ -261,14 +271,14 @@ def flow_env(creator, tmp_path, monkeypatch):
         out = dest / 'ghost.3mf'
         out.write_bytes(holder['bytes'])
         return out
-    monkeypatch.setattr(mj, 'printables_download', download)
-    monkeypatch.setattr(mj, 'audit', lambda path: {'plates': 1})
+    monkeypatch.setattr(jobs_sources, 'printables_download', download)
+    setattr_bound(monkeypatch, jobs_audit, 'audit', lambda path: {'plates': 1})
     from print_handy.core import orca_adapter as oa
     monkeypatch.setattr(oa, 'orca_plate_capacity', lambda path, st: 1)
 
     async def thread_heavy(func, *args, **kwargs):
         return await asyncio.to_thread(func, *args, **kwargs)
-    monkeypatch.setattr(prepared_intake, '_heavy', thread_heavy)
+    setattr_bound(monkeypatch, intake_worker, '_heavy', thread_heavy)
 
     sliced = []
     slice_scopes = []
@@ -283,10 +293,10 @@ def flow_env(creator, tmp_path, monkeypatch):
         gcode.parent.mkdir(parents=True, exist_ok=True)
         gcode.write_text('; estimated printing time (normal mode) = 1h 0m 0s\nG1 X1\n')
         data['derived_plates'] = [{'gcode': str(gcode), 'plate_id': 1, 'slot': None}]
-        mj.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         sliced.append(str(gcode))
         return [gcode]
-    monkeypatch.setattr(mj, 'slice_job', fake_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
 
     stub = tmp_path / 'print-now-stub'
     stub.write_text('#!/bin/sh\necho "started $2"\n')
@@ -611,7 +621,7 @@ def test_slice_job_single_colour_slices_on_the_picked_toolhead(creator, tmp_path
     src = CASES / 'single-part' / 'model.3mf'
     manifest = source_colors.inventory(src)
     state = tool_state()
-    selection = mj.resolve_filament_selection(state, dict(state['filament_slots']['2'], slot=2))
+    selection = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['2'], slot=2))
     job = {'model_id': '1', 'downloaded_file': str(src), 'printer_model': creator,
            'color_schema': 'part_slots_v1',
            'audit': {'plates': 1, 'size_x': '30', 'size_y': '30', 'size_z': '10'},
@@ -622,9 +632,9 @@ def test_slice_job_single_colour_slices_on_the_picked_toolhead(creator, tmp_path
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', _verify_gcode_offline_ok)
-    monkeypatch.setattr(mj, 'verify_gcode', _verify_gcode_none)
-    out = mj.slice_job(jp)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode_offline', _verify_gcode_offline_ok)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', _verify_gcode_none)
+    out = jobs_slice.slice_job(jp)
     # The merged multi-tool route ran (placement shifts were planned and
     # passed), not the generic tail that used to drop the pick.
     assert fake.calls and fake.calls[0].get('item_shifts') is not None
@@ -639,7 +649,7 @@ def _single_colour_job(tmp_path, creator, **extra):
     src = CASES / 'single-part' / 'model.3mf'
     manifest = source_colors.inventory(src)
     state = tool_state()
-    selection = mj.resolve_filament_selection(state, dict(state['filament_slots']['2'], slot=2))
+    selection = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['2'], slot=2))
     job = {'model_id': '1', 'downloaded_file': str(src), 'printer_model': creator,
            'color_schema': 'part_slots_v1',
            'audit': {'plates': 1, 'size_x': '30', 'size_y': '30', 'size_z': '10'},
@@ -659,7 +669,7 @@ def test_slice_job_single_colour_toolhead_pick_refuses_copies(creator, tmp_path,
     fake = _recording_slice_model({'1': 2})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
     with pytest.raises(RuntimeError, match='copies, resizing and rotation are not supported'):
-        mj.slice_job(jp)
+        jobs_slice.slice_job(jp)
     assert not fake.calls
 
 
@@ -669,7 +679,7 @@ def test_slice_job_single_colour_toolhead_pick_refuses_a_resize(creator, tmp_pat
     fake = _recording_slice_model({'1': 2})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
     with pytest.raises(RuntimeError, match='copies, resizing and rotation are not supported'):
-        mj.slice_job(jp)
+        jobs_slice.slice_job(jp)
     assert not fake.calls
 
 
@@ -698,9 +708,9 @@ def test_merge_for_toolhead_picks_survives_a_creator_process(creator, tmp_path, 
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2, '3': 4})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', _verify_gcode_offline_ok)
-    monkeypatch.setattr(mj, 'verify_gcode', _verify_gcode_none)
-    out = mj.slice_job(jp)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode_offline', _verify_gcode_offline_ok)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', _verify_gcode_none)
+    out = jobs_slice.slice_job(jp)
     assert Path(out).exists()
     saved = json.loads(jp.read_text())
     assert saved['plate_merge']['mode'] == 'merge'

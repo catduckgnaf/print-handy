@@ -826,8 +826,8 @@ def launch_mapped_slots(filename):
     command (T<tool>=<slot> pairs). No printer call; any failure reads as no
     record, and the caller falls back to its other evidence."""
     try:
-        from ..core import model_job
-        artifact = Path(model_job.resolve_print_target(filename))
+        from ..jobs import store as jobs_store
+        artifact = Path(jobs_store.resolve_print_target(filename))
         data = json.loads(artifact.with_suffix(".launch.json").read_text())
         command = str((data or {}).get("command") or "")
     except (Exception, SystemExit):  # resolve_print_target refuses with SystemExit
@@ -3965,15 +3965,15 @@ class Listener:
     async def read_slots(self):
         """(stock /detail or None, {slot: present}). Screenless ZMod has no stock API; Klipper has the slots."""
         from print_handy.core import printer_state
-        from print_handy.core import model_job
+        from ..jobs import filament as jobs_filament
         reply = await asyncio.to_thread(print_control._call, "/printer/objects/query?zmod_color&zmod_ifs&save_variables")
         status = (reply.get("result") or {}).get("status") or {}
         self.ifs_channel = zmod_active_channel(status)
         self.display_off = zmod_display_off(status)
         if self.display_off == 1:
             return None, zmod_slot_presence(status)
-        detail = await asyncio.to_thread(model_job.read_stock_detail, printer_state.load())
-        return detail, model_job.read_stock_filament_slots_from_detail(detail)
+        detail = await asyncio.to_thread(jobs_filament.read_stock_detail, printer_state.load())
+        return detail, jobs_filament.read_stock_filament_slots_from_detail(detail)
 
     async def open_question(self, slot, cause):
         """Stop charging every spool, remember the question, and ask once. Nag loop repeats it."""
@@ -6820,7 +6820,7 @@ class Listener:
         except Exception as exc:
             warn(f"multi-slot usage retry failed: {exc!r}")
         try:
-            from ..core import model_job
+            from ..jobs import prompts as jobs_prompts
             from .. import listeners as _listeners
             try:
                 instance_id = _listeners.instance_printer_id()
@@ -6830,10 +6830,10 @@ class Listener:
             filename = stats.get("filename") or ""
             if stats.get("state") not in ("printing", "paused") or not filename:
                 return
-            done = (await asyncio.to_thread(model_job.retry_pending_spool_sync, filename,
+            done = (await asyncio.to_thread(jobs_prompts.retry_pending_spool_sync, filename,
                                             printer_id=instance_id)
                     if instance_id else
-                    await asyncio.to_thread(model_job.retry_pending_spool_sync, filename))
+                    await asyncio.to_thread(jobs_prompts.retry_pending_spool_sync, filename))
             if done:
                 log(f"pending active-spool sync completed for {filename!r}")
         except Exception as exc:

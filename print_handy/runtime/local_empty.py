@@ -34,7 +34,7 @@ The calibration flow is surface-agnostic — :func:`begin_calibration`
 stages a captured frame (kept apart from the live reference until
 confirmed), :func:`confirm_calibration` promotes it,
 :func:`discard_calibration` drops it — so the bot command in
-``plugins/print-feedback`` and a future Web UI page call the same
+``print_handy.bot.handlers`` and a future Web UI page call the same
 routines. Storage sits with the install's state, alongside the detector
 model directory (``<state_home>/models/``).
 """

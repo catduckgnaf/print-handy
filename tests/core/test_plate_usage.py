@@ -10,7 +10,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from print_handy.core import model_job as mj
+from print_handy.jobs import prompts as jobs_prompts
 from print_handy.core import source_colors as sc
 
 PALETTE = [("#FF0000", "PLA"), ("#00FF00", "PLA"), ("#0000FF", "PETG"), ("#FFFF00", "PLA")]
@@ -583,10 +583,10 @@ class UsageUndercountTests(unittest.TestCase):
     def test_selected_plate_stats_tolerates_a_record_missing_an_amount(self):
         manifest = {"filament_stats": {"plates": {"1": {"usage_known": True,
                                                         "extruders": {"1": {"g": 3.0}}}}}}
-        self.assertIsNone(mj._selected_plate_stats(manifest, ["1"]))
+        self.assertIsNone(jobs_prompts._selected_plate_stats(manifest, ["1"]))
         good = {"filament_stats": {"plates": {"1": {"usage_known": True,
                                                     "extruders": {"1": {"g": 3.0, "m": 1.0}}}}}}
-        self.assertEqual(mj._selected_plate_stats(good, ["1"])["filament_stats"]["total_g"], 3.0)
+        self.assertEqual(jobs_prompts._selected_plate_stats(good, ["1"])["filament_stats"]["total_g"], 3.0)
 
 
 class SelectedPlatePromptTests(unittest.TestCase):
@@ -778,17 +778,17 @@ class SelectedPlateUsageTotalsTests(unittest.TestCase):
         job = {"selected_plates": [2],
                "color_decisions": {"mode": "per_part",
                                    "choices": {"part:" + knob["key"]: selection(3, spool=30)}}}
-        rows = mj.filament_usage_by_selection(job, manifest)
+        rows = jobs_prompts.filament_usage_by_selection(job, manifest)
         self.assertEqual([(row[0]["spoolman_id"], row[1]) for row in rows], [(30, 7.0)])
         # Without a plate selection the same choices still count (the knob is
         # the only chosen part), against whole-source extruder totals.
         job.pop("selected_plates")
-        total = sum(grams for _, grams in mj.filament_usage_by_selection(job, manifest))
+        total = sum(grams for _, grams in jobs_prompts.filament_usage_by_selection(job, manifest))
         self.assertEqual(total, 7.0)
         job["color_decisions"]["choices"] = {
             "part:" + p["key"]: selection(p["source_extruder"], spool=p["source_extruder"] * 10)
             for p in manifest["parts"]}
-        total = sum(grams for _, grams in mj.filament_usage_by_selection(job, manifest))
+        total = sum(grams for _, grams in jobs_prompts.filament_usage_by_selection(job, manifest))
         self.assertEqual(total, 21.0)
 
 

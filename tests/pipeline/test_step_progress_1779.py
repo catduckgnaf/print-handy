@@ -14,6 +14,8 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.core import prepared_intake, running_jobs
+from tests.bound_names import setattr_bound
+from print_handy.intake import worker as intake_worker
 
 
 @pytest.fixture(autouse=True)
@@ -169,18 +171,20 @@ def test_the_discord_stop_view_message_ticks_and_ends_done(monkeypatch):
 def test_parts_intake_records_download_before_the_combine_finishes(tmp_path, monkeypatch):
     """2026-11-21: four minutes into a two-file intake TIMING.jsonl held only
     message_received, because download_done was stamped after the combine."""
-    from print_handy.core import model_job, model_parts
+    from print_handy.core import model_parts
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import sources as jobs_sources
     from print_handy.runtime import _config as runtime_config
     from .test_color_intake import state
     from .test_running_job_cancel import _IntakeAdapter, _grid_stl
 
-    monkeypatch.setattr(model_job, "ARCHIVE", tmp_path / "archive")
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", tmp_path / "archive")
     monkeypatch.setattr(runtime_config, "cache_dir", lambda: tmp_path / "cache")
-    monkeypatch.setattr(model_job, "printables_inventory", lambda url: {
+    monkeypatch.setattr(jobs_sources, "printables_inventory", lambda url: {
         "site": "printables", "slug": "two-parts", "title": "Two Parts", "model_id": 1,
         "sources": [{"id": 1, "name": "part_a.stl", "kind": "stls"},
                     {"id": 2, "name": "part_b.stl", "kind": "stls"}]})
-    monkeypatch.setattr(model_job, "printables_download",
+    monkeypatch.setattr(jobs_sources, "printables_download",
                         lambda job, chosen, dest: str(_grid_stl(Path(dest) / chosen["name"], 20, 20)))
     seen = {}
 
@@ -190,7 +194,7 @@ def test_parts_intake_records_download_before_the_combine_finishes(tmp_path, mon
         raise RuntimeError("stop the intake here")
 
     monkeypatch.setattr(model_parts, "combine", combine)
-    monkeypatch.setattr(prepared_intake, "_heavy",
+    setattr_bound(monkeypatch, intake_worker, "_heavy",
                         lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
     event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id="parts-timing", text="https://www.printables.com/model/1-two-parts")

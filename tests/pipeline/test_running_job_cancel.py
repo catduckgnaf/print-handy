@@ -9,6 +9,7 @@ import pytest
 
 from print_handy.core import prepared_intake, running_jobs
 from print_handy.core.prepared_intake import Stopped
+from tests.bound_names import setattr_bound
 
 
 @pytest.fixture(autouse=True)
@@ -360,13 +361,16 @@ def test_owner_cancel_during_audit_ends_the_intake_cleanly(tmp_path, monkeypatch
     import threading
     import time as _time
 
-    from print_handy.core import model_job
+    from print_handy.jobs import audit as jobs_audit
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import slice as jobs_slice
+    from print_handy.jobs import sources as jobs_sources
     from .test_color_intake import state
 
-    monkeypatch.setattr(model_job, "ARCHIVE", tmp_path / "archive")
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", tmp_path / "archive")
     from print_handy.runtime import _config as runtime_config
     monkeypatch.setattr(runtime_config, "cache_dir", lambda: tmp_path / "cache")
-    monkeypatch.setattr(model_job, "printables_inventory", lambda url: {
+    monkeypatch.setattr(jobs_sources, "printables_inventory", lambda url: {
         "site": "printables", "slug": "snacking-tongs", "title": "Snacking Tongs",
         "model_id": 1,
         "sources": [{"id": 1, "name": "tongs_a.stl", "kind": "stls"},
@@ -382,9 +386,9 @@ def test_owner_cancel_during_audit_ends_the_intake_cleanly(tmp_path, monkeypatch
         _time.sleep(5)
         return {"plates": 1}
 
-    monkeypatch.setattr(model_job, "printables_download", download)
-    monkeypatch.setattr(model_job, "audit", slow_audit)
-    monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
+    monkeypatch.setattr(jobs_sources, "printables_download", download)
+    setattr_bound(monkeypatch, jobs_audit, "audit", slow_audit)
+    setattr_bound(monkeypatch, jobs_slice, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
 
     adapter = _IntakeAdapter([0])
     event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
@@ -419,13 +423,16 @@ def test_owner_cancel_during_audit_ends_the_intake_cleanly(tmp_path, monkeypatch
 
 
 def test_owner_cancel_during_combine_ends_the_intake_cleanly(tmp_path, monkeypatch):
-    from print_handy.core import model_job
+    from print_handy.jobs import audit as jobs_audit
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import slice as jobs_slice
+    from print_handy.jobs import sources as jobs_sources
     from .test_color_intake import state
 
-    monkeypatch.setattr(model_job, "ARCHIVE", tmp_path / "archive")
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", tmp_path / "archive")
     from print_handy.runtime import _config as runtime_config
     monkeypatch.setattr(runtime_config, "cache_dir", lambda: tmp_path / "cache")
-    monkeypatch.setattr(model_job, "printables_inventory", lambda url: {
+    monkeypatch.setattr(jobs_sources, "printables_inventory", lambda url: {
         "site": "printables", "slug": "snacking-tongs", "title": "Snacking Tongs",
         "model_id": 1,
         "sources": [{"id": 1, "name": "tongs_a.stl", "kind": "stls"},
@@ -434,9 +441,9 @@ def test_owner_cancel_during_combine_ends_the_intake_cleanly(tmp_path, monkeypat
     def download(job, chosen, dest):
         return str(_grid_stl(Path(dest) / chosen["name"]))
 
-    monkeypatch.setattr(model_job, "printables_download", download)
-    monkeypatch.setattr(model_job, "audit", lambda path: pytest.fail("audit ran after a cancel"))
-    monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
+    monkeypatch.setattr(jobs_sources, "printables_download", download)
+    setattr_bound(monkeypatch, jobs_audit, "audit", lambda path: pytest.fail("audit ran after a cancel"))
+    setattr_bound(monkeypatch, jobs_slice, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
 
     adapter = _IntakeAdapter([0])
     event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
@@ -486,13 +493,16 @@ def test_owner_cancel_during_download_waits_for_the_download_thread(tmp_path, mo
     not still being written."""
     import time as _time
 
-    from print_handy.core import model_job
+    from print_handy.jobs import audit as jobs_audit
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import slice as jobs_slice
+    from print_handy.jobs import sources as jobs_sources
     from .test_color_intake import state
 
-    monkeypatch.setattr(model_job, "ARCHIVE", tmp_path / "archive")
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", tmp_path / "archive")
     from print_handy.runtime import _config as runtime_config
     monkeypatch.setattr(runtime_config, "cache_dir", lambda: tmp_path / "cache")
-    monkeypatch.setattr(model_job, "printables_inventory", lambda url: {
+    monkeypatch.setattr(jobs_sources, "printables_inventory", lambda url: {
         "site": "printables", "slug": "snacking-tongs", "title": "Snacking Tongs",
         "model_id": 1,
         "sources": [{"id": 1, "name": "tongs_a.stl", "kind": "stls"},
@@ -517,12 +527,12 @@ def test_owner_cancel_during_download_waits_for_the_download_thread(tmp_path, mo
         written[target] = len(data)
         return str(target)
 
-    monkeypatch.setattr(model_job, "printables_download", download)
+    monkeypatch.setattr(jobs_sources, "printables_download", download)
     # The download runs about 1.2 s; a short quiet window makes its Stop prompt
     # appear (the "still running after the window" path), which this test waits on.
     monkeypatch.setattr(prepared_intake, "STEP_QUIET_S", 0.05)
-    monkeypatch.setattr(model_job, "audit", lambda path: pytest.fail("audit ran after a cancel"))
-    monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
+    setattr_bound(monkeypatch, jobs_audit, "audit", lambda path: pytest.fail("audit ran after a cancel"))
+    setattr_bound(monkeypatch, jobs_slice, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
 
     adapter = _IntakeAdapter([0])
     event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),

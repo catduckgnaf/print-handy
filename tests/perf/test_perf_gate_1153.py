@@ -13,7 +13,8 @@ import time
 import pytest
 
 from print_handy import settings
-from print_handy.core import fuzzy, model_job
+from print_handy.core import fuzzy
+from print_handy.gcode import verify as gcode_verify
 from tests.core.test_gcode_lines_equivalence import _Adapter, new_answers, old_answers
 from tests.gcode_factory import TOOLPATH
 from tests.perf.test_perf_gate import check_gate, paired_ratio
@@ -36,7 +37,7 @@ def plate():
 
 
 def _new(text):
-    lines = model_job._verify_lines(text, _Adapter(*MACROS))
+    lines = gcode_verify._verify_lines(text, _Adapter(*MACROS))
     answers = new_answers(lines, *MACROS)
     assert lines.scans == 1
     return answers

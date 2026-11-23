@@ -12,7 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import failure_report, model_job, support_clearance
+from print_handy.core import failure_report, support_clearance
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
 from print_handy.core import slice_warnings
 from print_handy.core.slice_recipe import RECIPE_VERSION
 
@@ -254,20 +258,20 @@ def test_flat_low_underside_is_still_a_clearance_risk(tmp_path):
 
 
 def test_supports_are_not_recommended_for_a_gap_they_cannot_reach(tmp_path):
-    from print_handy.core import prepared_intake
+    from print_handy.intake import support_flow as intake_support_flow
     shelf = box(0, 0, 0.5, 60, 34, 5.0)
     rep = support_clearance.analyze(str(write_3mf(tmp_path / 'flat.3mf', [('SHELF', shelf, '', None)])))
-    line = prepared_intake.with_supports_line('too low for supports to reach', '1h', None, rep)
+    line = intake_support_flow.with_supports_line('too low for supports to reach', '1h', None, rep)
     assert '(not recommended: too low for supports to reach)' in line
     finding = {'objects': ['a']}
-    assert '(recommended: floats)' in prepared_intake.with_supports_line('floats', '1h', finding, rep)
-    assert '(recommended: floats)' in prepared_intake.with_supports_line('floats', '1h', None, {'findings': []})
+    assert '(recommended: floats)' in intake_support_flow.with_supports_line('floats', '1h', finding, rep)
+    assert '(recommended: floats)' in intake_support_flow.with_supports_line('floats', '1h', None, {'findings': []})
 
 
 def test_clearance_reason_shows_the_measured_gap_unrounded():
     report = {'risky': True, 'findings': [{'code': support_clearance.CODE_CLEARANCE, 'clearance_mm': {'min': 0.05}}]}
-    from print_handy.core import prepared_intake
-    _show, reason, _inputs = prepared_intake.supports_decision(False, None, report)
+    from print_handy.intake import support_flow as intake_support_flow
+    _show, reason, _inputs = intake_support_flow.supports_decision(False, None, report)
     assert 'by only 0.05 mm' in reason
 
 
@@ -533,7 +537,7 @@ def test_cantilever_override_record_is_bound_to_warning_and_hash(tmp_path):
     slice_warnings.record_unsupported_cantilever_override(job, finding, source_file=str(src))
     rec = job['unsupported_cantilever_override']
     assert rec['code'] == 'UNSUPPORTED_CANTILEVER_OVERRIDE'
-    assert rec['source_sha256'] == model_job.file_sha256(src)
+    assert rec['source_sha256'] == gcode_artifact.file_sha256(src)
     assert rec['warning'] == finding['texts']
 
 
@@ -551,9 +555,9 @@ def _guard_job(tmp_path, via):
         'support_clearance': support_clearance.analyze(str(V12_FIXTURE)),
         'color_decisions': {},
         'artifact_binding': {
-            'source_sha256': model_job.file_sha256(V12_FIXTURE),
-            'decisions_sha256': model_job.decisions_digest({}),
-            'gcode_sha256': model_job.file_sha256(gcode),
+            'source_sha256': gcode_artifact.file_sha256(V12_FIXTURE),
+            'decisions_sha256': jobs_store.decisions_digest({}),
+            'gcode_sha256': gcode_artifact.file_sha256(gcode),
             'recipe_version': RECIPE_VERSION,
             'recipe_sha256': 'dummy',
         },
@@ -567,7 +571,7 @@ def _guard_job(tmp_path, via):
 def test_with_supports_acknowledgement_does_not_satisfy_low_clearance(tmp_path):
     job, gcode = _guard_job(tmp_path, via='with_supports')
     with pytest.raises(RuntimeError, match='insufficient support clearance'):
-        model_job.require_current_artifact(job, str(gcode))
+        launch_gates.require_current_artifact(job, str(gcode))
 
 
 def test_without_supports_acknowledgement_satisfies_low_clearance(tmp_path):
@@ -575,7 +579,7 @@ def test_without_supports_acknowledgement_satisfies_low_clearance(tmp_path):
     # this flow behavior): recorded via='without_supports', it satisfies.
     job, gcode = _guard_job(tmp_path, via='without_supports')
     try:
-        model_job.require_current_artifact(job, str(gcode))
+        launch_gates.require_current_artifact(job, str(gcode))
     except RuntimeError as exc:
         assert 'insufficient support clearance' not in str(exc)
 
@@ -583,7 +587,7 @@ def test_without_supports_acknowledgement_satisfies_low_clearance(tmp_path):
 def test_print_anyway_acknowledgement_satisfies_low_clearance(tmp_path):
     job, gcode = _guard_job(tmp_path, via='print_anyway')
     try:
-        model_job.require_current_artifact(job, str(gcode))
+        launch_gates.require_current_artifact(job, str(gcode))
     except RuntimeError as exc:
         # The clearance guard is satisfied; a later, unrelated guard in
         # this synthetic job (its dummy recipe record) may still refuse.
@@ -669,7 +673,7 @@ def test_openscad_3mf_without_pid_matches_single_part_stl(tmp_path):
                  'schema': 'part_slots_v1',
                  'selection': {'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 10}}
     validated = source_colors.validate_decisions(manifest, decisions, {},
-                                                 model_job.resolve_filament_selection)
+                                                 jobs_filament.resolve_filament_selection)
     source_colors.require_single_color(manifest, validated)
 
 

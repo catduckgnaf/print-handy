@@ -284,7 +284,10 @@ class DockerReleaseContract(unittest.TestCase):
         ignored = (ROOT / ".dockerignore").read_text().splitlines()
         self.assertNotIn("plugins", ignored)
         self.assertIn(".env", ignored)
-        self.assertTrue((ROOT / "plugins" / "print-feedback").is_dir())
+        handlers = ROOT / "print_handy" / "bot" / "handlers"
+        self.assertTrue(handlers.is_dir())
+        self.assertTrue((handlers / "__init__.py").is_file())
+        self.assertFalse((ROOT / "plugins" / "print-feedback").exists())
         # The old opt-in override file is gone: Spoolman lives in the base file (#214).
         self.assertFalse((ROOT / "docker-compose.spoolman.yml").exists())
 
@@ -603,7 +606,7 @@ class DockerReleaseContract(unittest.TestCase):
         ignore = (ROOT / ".dockerignore").read_text()
         self.assertIn("**/__pycache__", ignore)
         runtime = (ROOT / "Dockerfile").read_text().split("AS runtime", 1)[1]
-        step = "RUN python -m compileall -q -j 0 /app/print_handy /app/plugins"
+        step = "RUN python -m compileall -q -j 0 /app/print_handy"
         self.assertIn(step, runtime)
         compiled = runtime.index(step)
         self.assertLess(runtime.index("COPY . ."), compiled)

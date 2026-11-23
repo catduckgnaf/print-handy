@@ -1,8 +1,4 @@
 """A G-code file read once: its bytes, its text and its digest (#1323).
-
-``file_sha256`` and ``_text_like_read_text`` moved verbatim from
-``print_handy.core.model_job``; the old names are still importable from
-there for one release.
 """
 import contextvars, hashlib
 from pathlib import Path

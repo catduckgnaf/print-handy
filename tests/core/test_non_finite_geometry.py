@@ -3,7 +3,8 @@ import struct
 
 import pytest
 
-from print_handy.core import model_job
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import slice as jobs_slice
 
 GOOD = [((0, 0, 0), (10, 0, 0), (0, 10, 0)), ((0, 0, 0), (0, 0, 10), (10, 0, 0)),
         ((0, 0, 0), (0, 10, 0), (0, 0, 10)), ((10, 0, 0), (0, 0, 10), (0, 10, 0))]
@@ -18,15 +19,15 @@ def _stl(path, tris):
 
 
 def test_finite_model_still_measures(tmp_path):
-    info = model_job.model_info_output(_stl(tmp_path / "ok.stl", GOOD))
+    info = jobs_slice.model_info_output(_stl(tmp_path / "ok.stl", GOOD))
     assert "size_x = 10.00" in info
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
 def test_non_finite_coordinate_is_refused(tmp_path, bad):
     path = _stl(tmp_path / "bad.stl", GOOD + [((bad, 0, 0), (1, 1, 1), (2, 2, 2))])
-    with pytest.raises(model_job.NoPrintableVolume, match="non-finite"):
-        model_job.model_info_output(path)
-    audit = model_job.audit(path)
+    with pytest.raises(jobs_slice.NoPrintableVolume, match="non-finite"):
+        jobs_slice.model_info_output(path)
+    audit = jobs_audit.audit(path)
     assert audit["no_printable_volume"] is True
     assert "non-finite" in audit["geometry_error"]

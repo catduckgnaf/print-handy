@@ -24,12 +24,12 @@ def _resolve_job_id(ref):
     called through asyncio.to_thread)."""
     from pathlib import Path
 
-    from print_handy.core import model_job
+    from ...jobs import common as jobs_common
     if ref:
         from .color_selection import resolve_job_ref
-        job_path = resolve_job_ref(ref, model_job.ARCHIVE)
+        job_path = resolve_job_ref(ref, jobs_common.ARCHIVE)
         return job_path.parent.name if job_path is not None else None
-    folders = sorted(Path(model_job.ARCHIVE).glob('*/JOB.json'),
+    folders = sorted(Path(jobs_common.ARCHIVE).glob('*/JOB.json'),
                      key=lambda p: p.stat().st_mtime if p.exists() else 0,
                      reverse=True)
     return folders[0].parent.name if folders else None
@@ -41,14 +41,15 @@ async def slice_result_dispatch(event, gateway, **kwargs):
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'slice result delivery unavailable'}
-    from print_handy.core import model_job, slice_result
+    from print_handy.core import slice_result
+    from ...jobs import common as jobs_common
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     text = str(getattr(event, 'text', '')).strip()
     ref = text[len('/print-slice-result'):].strip()
     try:
         job_id = await asyncio.to_thread(_resolve_job_id, ref)
         artifacts = (await asyncio.to_thread(
-            slice_result.result_for_job, model_job.ARCHIVE, job_id)
+            slice_result.result_for_job, jobs_common.ARCHIVE, job_id)
             if job_id else None)
         if artifacts is None:
             message = ('No sliced job matches that yet. Slice something first, or '
@@ -59,7 +60,7 @@ async def slice_result_dispatch(event, gateway, **kwargs):
             # one: the delivery layer turns the MEDIA: marker into the
             # attachment (the diagnostics-bundle pattern).
             png = await asyncio.to_thread(
-                slice_result.thumbnail_png, model_job.ARCHIVE, job_id, 0)
+                slice_result.thumbnail_png, jobs_common.ARCHIVE, job_id, 0)
             if png:
                 folder = _state_dir() / 'slice-result-thumbnails'
                 folder.mkdir(parents=True, exist_ok=True)

@@ -25,6 +25,8 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import model_job
+from print_handy.jobs import common as jobs_common
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import _config
 
 from .helpers import FIXTURES, MOONRAKER_TIMEOUT_S, SCALE, hardware_record, recorded, reported_name
@@ -264,13 +266,13 @@ def ad5x(moonraker, tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "_override", data)
     monkeypatch.setattr(_config, "_override", data)
     assert str(_config.records_vault()).startswith("/tmp"), "replay tests must not write the host's records vault"
-    monkeypatch.setattr(model_job, "START_CLAIMS", tmp_path / "claims.json")
+    monkeypatch.setattr(launch_print_now, "START_CLAIMS", tmp_path / "claims.json")
     # A real timeout, scaled: _mr's 30 s becomes 1.5 s, and the fake holds a 35 s POST for 1.75 s.
-    monkeypatch.setattr(model_job._mr, "__defaults__", (None, MOONRAKER_TIMEOUT_S * moonraker.scale))
+    monkeypatch.setattr(jobs_common._mr, "__defaults__", (None, MOONRAKER_TIMEOUT_S * moonraker.scale))
     real_run = subprocess.run
 
     def upload_only(cmd, *args, **kwargs):
-        if len(cmd) >= 4 and str(cmd[0]) == str(model_job.MOONRAKERCTL) and cmd[1] == "upload":
+        if len(cmd) >= 4 and str(cmd[0]) == str(jobs_common.MOONRAKERCTL) and cmd[1] == "upload":
             if moonraker.upload_fails:
                 return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="curl: (7) printer unreachable")
             moonraker.uploads.append(cmd[3])

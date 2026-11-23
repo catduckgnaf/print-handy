@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from print_handy.core import intake_resources, mesh_fast, mesh_native, mesh_numpy, mesh_sidecar, model_parts
-from print_handy.core import model_job as mj
+from print_handy.jobs import audit as jobs_audit
 from tests.pipeline.test_native_mesh import CORPUS, CASES, MESHES, _binary_stl, _native_module, _render, impl
 from tests.corpus import make_models
 
@@ -151,9 +151,9 @@ def test_the_audit_is_the_same_with_and_without_the_record(tmp_path, monkeypatch
     with monkeypatch.context() as patch:
         patch.setattr(mesh_fast, '_parse_member', no_parse)
         patch.setattr(intake_resources, '_stream_counts', no_parse)
-        recorded = mj.audit(with_record)
+        recorded = jobs_audit.audit(with_record)
     mesh_fast._TABLE_CACHE.clear()
-    parsed = mj.audit(without)
+    parsed = jobs_audit.audit(without)
     assert recorded == parsed
 
 

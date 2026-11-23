@@ -24,6 +24,7 @@ from unittest import mock
 import pytest
 
 from print_handy.core import link_intake, model_job, prepared_intake
+from print_handy.jobs import sources as jobs_sources
 from .test_color_intake import state  # noqa: F401  (used by the e2e flow)
 from .test_prepared_intake import Adapter, env  # noqa: F401  (env is the shared harness fixture)
 
@@ -125,15 +126,15 @@ def test_model_link_rejects_non_model_crealitycloud(text):
 
 
 def test_crealitycloud_slug_and_profile_id():
-    assert model_job.crealitycloud_slug(URL) == SLUG
-    assert model_job.crealitycloud_slug(PLAIN_URL) == SLUG
-    assert model_job.crealitycloud_profile_id(URL) == PROFILE_ID
-    assert model_job.crealitycloud_profile_id(PLAIN_URL) is None
+    assert jobs_sources.crealitycloud_slug(URL) == SLUG
+    assert jobs_sources.crealitycloud_slug(PLAIN_URL) == SLUG
+    assert jobs_sources.crealitycloud_profile_id(URL) == PROFILE_ID
+    assert jobs_sources.crealitycloud_profile_id(PLAIN_URL) is None
 
 
 def test_crealitycloud_slug_rejects_non_model_url():
     with pytest.raises(ValueError, match='Creality Cloud URL needs'):
-        model_job.crealitycloud_slug('https://www.crealitycloud.com/user/6087373030')
+        jobs_sources.crealitycloud_slug('https://www.crealitycloud.com/user/6087373030')
 
 
 def test_crealitycloud_token_missing_names_the_fix(tmp_path, monkeypatch):
@@ -141,7 +142,7 @@ def test_crealitycloud_token_missing_names_the_fix(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv('HOME', str(home))
     with pytest.raises(RuntimeError) as caught:
-        model_job.crealitycloud_token()
+        jobs_sources.crealitycloud_token()
     message = str(caught.value)
     assert '.config/crealitycloud/token' in message.replace('\\', '/')
     assert 'model_token' in message
@@ -150,13 +151,13 @@ def test_crealitycloud_token_missing_names_the_fix(tmp_path, monkeypatch):
 def test_crealitycloud_token_empty_refuses(token_home):
     (token_home/'.config'/'crealitycloud'/'token').write_text('  \n')
     with pytest.raises(RuntimeError, match='token empty'):
-        model_job.crealitycloud_token()
+        jobs_sources.crealitycloud_token()
 
 
 def test_crealitycloud_inventory_happy_path(monkeypatch):
     calls = []
-    monkeypatch.setattr(model_job, '_crealitycloud_request', api_fake(calls=calls))
-    job = model_job.crealitycloud_inventory(URL)
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', api_fake(calls=calls))
+    job = jobs_sources.crealitycloud_inventory(URL)
     assert job['site'] == 'crealitycloud'
     assert job['model_id'] == GROUP_ID
     assert job['title'] == 'Bag Closure Clips'
@@ -177,17 +178,17 @@ def test_crealitycloud_inventory_happy_path(monkeypatch):
 
 
 def test_crealitycloud_inventory_without_profile_keeps_site_order(monkeypatch):
-    monkeypatch.setattr(model_job, '_crealitycloud_request', api_fake())
-    job = model_job.crealitycloud_inventory(PLAIN_URL)
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', api_fake())
+    job = jobs_sources.crealitycloud_inventory(PLAIN_URL)
     assert job['sources'][0]['name'] == 'bag clip 150mm.stl'
     assert not any(row.get('suggested_by_link') for row in job['sources'])
 
 
 def test_crealitycloud_inventory_no_geometry_names_the_reason(monkeypatch):
     empty = {'code': 0, 'msg': 'ok', 'result': {'count': 0, 'list': []}}
-    monkeypatch.setattr(model_job, '_crealitycloud_request',
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request',
                         api_fake(files=empty, profiles=empty))
-    job = model_job.crealitycloud_inventory(PLAIN_URL)
+    job = jobs_sources.crealitycloud_inventory(PLAIN_URL)
     assert job['sources'] == []
     assert 'no STL/3MF source' in job['no_geometry_reason']
     assert 'pre-sliced G-code' in job['no_geometry_reason']
@@ -195,29 +196,29 @@ def test_crealitycloud_inventory_no_geometry_names_the_reason(monkeypatch):
 
 def test_crealitycloud_inventory_model_not_found(monkeypatch):
     gone = {'code': 0, 'msg': 'ok', 'result': {'groupItem': None}}
-    monkeypatch.setattr(model_job, '_crealitycloud_request', api_fake(detail=gone))
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', api_fake(detail=gone))
     with pytest.raises(RuntimeError, match='model not found'):
-        model_job.crealitycloud_inventory(PLAIN_URL)
+        jobs_sources.crealitycloud_inventory(PLAIN_URL)
 
 
 def test_crealitycloud_inventory_deleted_model_code(monkeypatch):
     deleted = {'code': 517, 'msg': 'The item does not exist', 'result': None}
-    monkeypatch.setattr(model_job, '_crealitycloud_request', api_fake(detail=deleted))
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', api_fake(detail=deleted))
     with pytest.raises(RuntimeError, match='does not exist'):
-        model_job.crealitycloud_inventory(PLAIN_URL)
+        jobs_sources.crealitycloud_inventory(PLAIN_URL)
 
 
 def test_crealitycloud_code4_is_a_token_refusal(monkeypatch):
     refused = {'code': 4, 'msg': 'Invalid Token', 'result': None}
-    monkeypatch.setattr(model_job, '_crealitycloud_request', api_fake(detail=refused))
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', api_fake(detail=refused))
     with pytest.raises(RuntimeError) as caught:
-        model_job.crealitycloud_inventory(PLAIN_URL)
+        jobs_sources.crealitycloud_inventory(PLAIN_URL)
     message = str(caught.value)
     assert 'login token' in message and 'model_token' in message
 
 
 def test_crealitycloud_headers_carry_the_required_fields():
-    headers = model_job.crealitycloud_headers(TOKEN)
+    headers = jobs_sources.crealitycloud_headers(TOKEN)
     # The saved login splits into the two headers the web client sends;
     # the token alone is refused as "Invalid Token" (verified live).
     assert headers['__CXY_TOKEN_'] == 'test-login-token'
@@ -244,7 +245,7 @@ def test_crealitycloud_request_sends_token_and_reads_gzip(monkeypatch):
         seen['body'] = json.loads(req.data.decode())
         return Resp()
     monkeypatch.setattr(model_job.urllib.request, 'urlopen', fake_urlopen)
-    out = model_job._crealitycloud_request(
+    out = jobs_sources._crealitycloud_request(
         '/api/cxy/v3/model/modelGroupDetail', {'id': SLUG}, token=TOKEN)
     assert out == DETAIL
     assert seen['url'].endswith('/api/cxy/v3/model/modelGroupDetail')
@@ -266,9 +267,9 @@ def test_crealitycloud_result_retries_a_dropped_read(monkeypatch):
         if len(attempts) < 3:
             raise http.client.IncompleteRead(b'partial', 100)
         return DETAIL
-    monkeypatch.setattr(model_job, '_crealitycloud_request', flaky)
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', flaky)
     monkeypatch.setattr(model_job.time, 'sleep', lambda s: None)
-    result = model_job._crealitycloud_result(
+    result = jobs_sources._crealitycloud_result(
         '/api/cxy/v3/model/modelGroupDetail', {'id': SLUG})
     assert result['groupItem']['id'] == GROUP_ID
     assert len(attempts) == 3
@@ -277,21 +278,21 @@ def test_crealitycloud_result_retries_a_dropped_read(monkeypatch):
 def test_crealitycloud_http_403_is_plain(monkeypatch):
     def refuse(path, body, token=None):
         raise urllib.error.HTTPError(PLAIN_URL, 403, 'Forbidden', None, None)
-    monkeypatch.setattr(model_job, '_crealitycloud_request', refuse)
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', refuse)
     with pytest.raises(RuntimeError, match='does not try to bypass'):
-        model_job.crealitycloud_inventory(PLAIN_URL)
+        jobs_sources.crealitycloud_inventory(PLAIN_URL)
 
 
 def _download_setup(monkeypatch, tmp_path, download_result, payload=b'solid fake\n'):
     """Wire a fake memberDownload + file download; returns (job, source, calls)."""
     calls = []
-    monkeypatch.setattr(model_job, '_crealitycloud_request',
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request',
                         api_fake(download_result=download_result, calls=calls))
 
     def fake_download(url, target, headers=None):
         Path(target).parent.mkdir(parents=True, exist_ok=True)
         Path(target).write_bytes(payload(url) if callable(payload) else payload)
-    monkeypatch.setattr(model_job, 'download', fake_download)
+    monkeypatch.setattr(jobs_sources, 'download', fake_download)
     job = {'site': 'crealitycloud', 'model_id': GROUP_ID}
     source = {'id': '6aa15cfc305edea496978f13', 'name': 'bag clip 30mm.stl'}
     return job, source, calls
@@ -300,7 +301,7 @@ def _download_setup(monkeypatch, tmp_path, download_result, payload=b'solid fake
 def test_crealitycloud_download_string_url(token_home, monkeypatch, tmp_path):
     result = {'code': 0, 'msg': 'ok', 'result': 'https://cdn.example/files/30mm.stl'}
     job, source, calls = _download_setup(monkeypatch, tmp_path, result)
-    dest = model_job.crealitycloud_download(job, source, tmp_path/'src')
+    dest = jobs_sources.crealitycloud_download(job, source, tmp_path/'src')
     assert dest == tmp_path/'src'/'bag clip 30mm.stl'
     assert dest.read_bytes() == b'solid fake\n'
     call = next(c for c in calls if c[0].endswith('/memberDownload'))
@@ -313,7 +314,7 @@ def test_crealitycloud_download_dict_url(token_home, monkeypatch, tmp_path):
     result = {'code': 0, 'msg': 'ok',
               'result': {'downloadUrl': 'https://cdn.example/files/30mm.stl'}}
     job, source, _ = _download_setup(monkeypatch, tmp_path, result)
-    dest = model_job.crealitycloud_download(job, source, tmp_path/'src')
+    dest = jobs_sources.crealitycloud_download(job, source, tmp_path/'src')
     assert dest.read_bytes() == b'solid fake\n'
 
 
@@ -326,7 +327,7 @@ def test_crealitycloud_download_zip_answer(token_home, monkeypatch, tmp_path):
               'result': {'downloadZip': 'https://cdn.example/files/model.zip'}}
     job, source, _ = _download_setup(monkeypatch, tmp_path, result,
                                      payload=buffer.getvalue())
-    dest = model_job.crealitycloud_download(job, source, tmp_path/'src')
+    dest = jobs_sources.crealitycloud_download(job, source, tmp_path/'src')
     assert dest.name == 'bag clip 30mm.stl'
     assert dest.read_bytes() == b'solid zipped\n'
     assert not (tmp_path/'src'/'bag clip 30mm.stl.download').exists()
@@ -337,14 +338,14 @@ def test_crealitycloud_download_answer_without_url_is_a_named_gap(
     result = {'code': 0, 'msg': 'ok', 'result': {'unexpected': True}}
     job, source, _ = _download_setup(monkeypatch, tmp_path, result)
     with pytest.raises(RuntimeError, match='could not find a file URL'):
-        model_job.crealitycloud_download(job, source, tmp_path/'src')
+        jobs_sources.crealitycloud_download(job, source, tmp_path/'src')
 
 
 def test_crealitycloud_download_refused_token(token_home, monkeypatch, tmp_path):
     refused = {'code': 4, 'msg': 'Invalid Token', 'result': None}
     job, source, _ = _download_setup(monkeypatch, tmp_path, refused)
     with pytest.raises(RuntimeError, match='refused the login token'):
-        model_job.crealitycloud_download(job, source, tmp_path/'src')
+        jobs_sources.crealitycloud_download(job, source, tmp_path/'src')
 
 
 def test_crealitycloud_download_without_token_never_networks(
@@ -352,26 +353,26 @@ def test_crealitycloud_download_without_token_never_networks(
     home = tmp_path/'home'
     home.mkdir()
     monkeypatch.setenv('HOME', str(home))
-    monkeypatch.setattr(model_job, '_crealitycloud_request',
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request',
                         mock.Mock(side_effect=AssertionError('network attempted')))
     job = {'site': 'crealitycloud', 'model_id': GROUP_ID}
     with pytest.raises(RuntimeError, match='need a login token'):
-        model_job.crealitycloud_download(
+        jobs_sources.crealitycloud_download(
             job, {'id': 'f1', 'name': 'x.stl'}, tmp_path/'src')
 
 
 def test_registry_routes_crealitycloud(monkeypatch):
-    monkeypatch.setattr(model_job, '_crealitycloud_request', api_fake())
-    job = model_job.inventory_for_url(URL)
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', api_fake())
+    job = jobs_sources.inventory_for_url(URL)
     assert job['site'] == 'crealitycloud'
     with pytest.raises(ValueError) as caught:
-        model_job.inventory_for_url('https://unknown.example/model/1')
+        jobs_sources.inventory_for_url('https://unknown.example/model/1')
     assert 'Creality Cloud' in str(caught.value)
 
 
 def test_design_fetch_crealitycloud_names_multi_file_refusal(monkeypatch):
     from print_handy.core import design
-    monkeypatch.setattr(model_job, '_crealitycloud_request',
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request',
                         api_fake(profiles={'code': 0, 'result': {'list': []}}))
     with pytest.raises(design.DesignError, match='cannot pick'):
         design.fetch_link_source(PLAIN_URL, Path('/tmp/cc-design'))
@@ -388,8 +389,8 @@ def test_design_fetch_crealitycloud_uses_profile_file(
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b'solid fake\n')
         return dest
-    monkeypatch.setattr(model_job, '_crealitycloud_request', api_fake())
-    monkeypatch.setattr(model_job, 'crealitycloud_download', fake_download)
+    monkeypatch.setattr(jobs_sources, '_crealitycloud_request', api_fake())
+    monkeypatch.setattr(jobs_sources, 'crealitycloud_download', fake_download)
     dest = design.fetch_link_source(URL, tmp_path/'src')
     assert dest.name == 'bag clip 30mm.stl'
     assert seen['source']['suggested_by_link'] is True
@@ -406,7 +407,7 @@ def test_prepared_intake_crealitycloud_stops_at_token_gap(
            'title': 'Bag Closure Clips', 'slug': SLUG, 'license': 'CXY-SL',
            'sources': [{'id': 'f1', 'name': 'bag clip 30mm.stl',
                         'kind': 'files'}]}
-    monkeypatch.setattr(model_job, 'crealitycloud_inventory', lambda url: job)
+    monkeypatch.setattr(jobs_sources, 'crealitycloud_inventory', lambda url: job)
     previews = []
 
     async def fake_preview(*args, **kw):
@@ -436,7 +437,7 @@ def test_crealitycloud_download_3mf_is_not_unpacked(token_home, monkeypatch, tmp
         archive.writestr('3D/3dmodel.model', '<model/>')
     result = {'code': 0, 'msg': 'ok', 'result': 'https://cdn.example/files/clip.3mf'}
     job, _, _ = _download_setup(monkeypatch, tmp_path, result, payload=buffer.getvalue())
-    dest = model_job.crealitycloud_download(
+    dest = jobs_sources.crealitycloud_download(
         job, {'id': 'f3', 'name': 'bag clip.3mf'}, tmp_path/'src')
     assert dest.name == 'bag clip.3mf'
     assert dest.read_bytes() == buffer.getvalue()
@@ -445,7 +446,7 @@ def test_crealitycloud_download_3mf_is_not_unpacked(token_home, monkeypatch, tmp
 def test_crealitycloud_token_without_user_id_is_named(token_home):
     (token_home/'.config'/'crealitycloud'/'token').write_text('only-the-model-token\n')
     with pytest.raises(RuntimeError) as caught:
-        model_job.crealitycloud_token()
+        jobs_sources.crealitycloud_token()
     assert 'model_user_id:model_token' in str(caught.value)
     assert caught.value.reason == 'missing'
 
@@ -461,6 +462,6 @@ def test_crealitycloud_download_live_answer_shape(token_home, monkeypatch, tmp_p
     seen = []
     job, source, _ = _download_setup(monkeypatch, tmp_path, result,
                                      payload=lambda url: seen.append(url) or b'solid fake\n')
-    dest = model_job.crealitycloud_download(job, source, tmp_path/'src')
+    dest = jobs_sources.crealitycloud_download(job, source, tmp_path/'src')
     assert dest.name == 'bag clip 30mm.stl'
     assert seen == ['https://oss.example/model%2F743d4cb8.stl?Signature=1']

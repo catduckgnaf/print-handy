@@ -19,8 +19,15 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import material_accept, model_job, printer_state, spoolman_client
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import slice as jobs_slice
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.gcode import verify as gcode_verify
 from print_handy.runtime import print_next
+from tests.bound_names import setattr_bound
 
 PRUSA = "prusa.mk4s"
 
@@ -55,7 +62,7 @@ def prusa_start(tmp_path, monkeypatch):
     monkeypatch.setattr(model_job.printers, "current", lambda config=None: adapter)
     monkeypatch.setattr(model_job.printer_state, "load", lambda *a, **k: dict(state["value"]))
     monkeypatch.setattr(spoolman_client, "get_spool", lambda sid, **k: None)
-    monkeypatch.setattr(model_job, "_print_now_control_lock", lambda target: _NoLock())
+    monkeypatch.setattr(launch_print_now, "_print_now_control_lock", lambda target: _NoLock())
     from print_handy.core import delivery
     monkeypatch.setattr(delivery, "methods", lambda *a, **k: ["download"])
 
@@ -65,7 +72,7 @@ def prusa_start(tmp_path, monkeypatch):
         gcode.write_text(text)
         monkeypatch.setattr("sys.argv", ["model_job", "print-now", str(gcode), "--bed-clear-confirmed", *flags])
         with pytest.raises(SystemExit) as out:
-            model_job.main()
+            jobs_cli.main()
         return str(out.value.code), gcode
     return run
 
@@ -106,7 +113,7 @@ def test_sliced_vs_loaded_accepted_prints_as_sliced_at_its_own_temperatures(prus
 def test_accept_by_key_bound_to_this_gcode_sha(prusa_start):
     text = _gcode("PETG", hotend=240, bed=80)
     _, gcode = prusa_start(text)
-    sha = model_job.file_sha256(gcode)
+    sha = gcode_artifact.file_sha256(gcode)
     detail, _ = prusa_start(text, "--accept-material", "material|PETG|PLA", "--accept-material-sha256", sha)
     assert _passed(detail), detail
 
@@ -124,7 +131,7 @@ def test_an_acceptance_names_its_materials(prusa_start):
     text = _gcode("ABS", hotend=250, bed=100)
     _, gcode = prusa_start(text)
     detail, _ = prusa_start(text, "--accept-material", "material|PETG|PLA",
-                            "--accept-material-sha256", model_job.file_sha256(gcode))
+                            "--accept-material-sha256", gcode_artifact.file_sha256(gcode))
     assert [w["key"] for w in material_accept.pending(detail)] == ["material|ABS|PLA"]
 
 
@@ -196,13 +203,13 @@ def test_spoolman_material_differing_from_the_slot_record_only_warns(monkeypatch
     def mr(state, path, data=None):
         calls.append((path, data))
         return {"result": {"spool_id": 4 if data is None and len(calls) == 1 else 5}}
-    monkeypatch.setattr(model_job, "_mr", mr)
+    setattr_bound(monkeypatch, jobs_common, "_mr", mr)
     monkeypatch.setattr(spoolman_client, "get_spool",
                         lambda sid, **k: {"archived": False, "filament": {"material": "PETG"}})
     saved = {}
     monkeypatch.setattr(printer_state, "load", lambda *a, **k: {})
     monkeypatch.setattr(printer_state, "save", lambda value, *a: saved.update(value))
-    result = model_job._sync_active_spool(st, 1)
+    result = launch_print_now._sync_active_spool(st, 1)
     assert result["changed"] is True
     assert "WARNING: Spoolman spool #5 is PETG, but slot 1 records PLA" in capsys.readouterr().out
     assert saved["spool"]["material"] == "PLA"  # the slot record is kept
@@ -215,7 +222,7 @@ def _readiness(label, wanted):
               "print_stats": {"state": "standby"},
               "zmod_color": {"slots": [{"ID": 1, "hasFilament": True, "Material": label, "Color": "#FF0000"}]}}
     selection = {"slot": 1, "spoolman_id": 5, "material": wanted, "color": "#FF0000"}
-    return model_job.check_filament_readiness({}, status, selection, observed_at=100.0, now=100.0)
+    return launch_gates.check_filament_readiness({}, status, selection, observed_at=100.0, now=100.0)
 
 
 def test_screen_label_family_matches_and_a_real_difference_is_acceptable():
@@ -267,7 +274,7 @@ def _remap_env(tmp_path, monkeypatch):
                                                       "color": "white"}}
     (tmp_path / "JOB.json").write_text(json.dumps(job))
     resliced = []
-    monkeypatch.setattr(model_job, "slice_job", lambda path: resliced.append(
+    setattr_bound(monkeypatch, jobs_slice, "slice_job", lambda path: resliced.append(
         json.loads(Path(path).read_text())["filament_selection"]) or gcode)
     return tmp_path / "JOB.json", resliced
 
@@ -275,7 +282,7 @@ def _remap_env(tmp_path, monkeypatch):
 def _remap_cli(monkeypatch, job_json, *flags):
     monkeypatch.setattr("sys.argv", ["model_job", "remap-slot", str(job_json), "--slot", "2", *flags])
     try:
-        model_job.main()
+        jobs_cli.main()
     except SystemExit as exc:
         return str(exc.code)
     return "OK"

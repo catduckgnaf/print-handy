@@ -7,7 +7,6 @@ is a fake client behind spool_sync's own functions, with a write log so
 cancel tests can prove zero Spoolman writes happened.
 """
 import asyncio
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace as S
@@ -16,9 +15,7 @@ from unittest import mock
 import pytest
 
 HERE = Path(__file__).resolve().parent
-SPEC = importlib.util.spec_from_file_location("pf_spool_guided", HERE.parents[1] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 from print_handy.runtime import spool_sync
 

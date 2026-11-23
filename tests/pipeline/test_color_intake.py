@@ -8,8 +8,16 @@ from unittest.mock import patch
 
 import pytest
 from print_handy.core import model_job as job
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import cli as jobs_cli
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.launch import print_now as launch_print_now
 from print_handy.core import source_colors as colors
 from .test_source_colors import source
+from tests.bound_names import patch_bound
 
 
 def assembly(tmp_path, component='<component objectid="1"/><component objectid="2"/>', extra=''):
@@ -88,7 +96,7 @@ def test_unresolved_or_contradictory_metadata_cannot_reach_adapter(tmp_path, roo
     from print_handy.core import orca_adapter
     with patch.object(job.printer_state, 'load', return_value={}), patch.object(job.printer_state, 'check', return_value=(True, [], {})), patch.object(orca_adapter, 'slice_model') as slicer:
         with pytest.raises(RuntimeError, match=error):
-            job.slice_job(jp)
+            jobs_slice.slice_job(jp)
         slicer.assert_not_called()
 
 
@@ -151,8 +159,8 @@ def test_normal_fetch_outputs_part_questions_without_slicing(tmp_path):
     path = source(tmp_path)
     metadata = {'title': 'Model', 'site': 'makerworld', 'model_id': '1', 'slug': 'model',
                 'sources': [{'title': 'One plate two parts', 'site_nozzle_mm': 0.6, 'plates': [{}], 'materials': ['PLA']}]}
-    with patch.object(sys, 'argv', ['model_job.py', 'fetch', 'https://makerworld.com/en/models/1', '--select', '1', '--approved']), patch.object(job, 'ARCHIVE', tmp_path), patch.object(job.printer_state, 'load', return_value=state()), patch.object(job.printer_state, 'check', return_value=(True, [], {})), patch.object(job, 'maker_inventory', return_value=metadata), patch.object(job, 'maker_download', return_value=path), patch.object(job, 'audit', return_value={'plates': 1}), patch.object(job, 'slice_job') as slicer, patch.object(job, 'print_now') as start, patch.object(sys.stdin, 'isatty', return_value=False), patch('sys.stdout', new_callable=io.StringIO) as out:
-        job.main()
+    with patch.object(sys, 'argv', ['model_job.py', 'fetch', 'https://makerworld.com/en/models/1', '--select', '1', '--approved']), patch_bound(jobs_common, 'ARCHIVE', tmp_path), patch.object(job.printer_state, 'load', return_value=state()), patch.object(job.printer_state, 'check', return_value=(True, [], {})), patch.object(jobs_sources, 'maker_inventory', return_value=metadata), patch.object(jobs_sources, 'maker_download', return_value=path), patch_bound(jobs_audit, 'audit', return_value={'plates': 1}), patch_bound(jobs_slice, 'slice_job') as slicer, patch_bound(launch_print_now, 'print_now') as start, patch.object(sys.stdin, 'isatty', return_value=False), patch('sys.stdout', new_callable=io.StringIO) as out:
+        jobs_cli.main()
         assert 'COLOR_CHOICES_REQUIRED' in out.getvalue()
         assert 'Shell' in out.getvalue() and 'Eyes' in out.getvalue()
         slicer.assert_not_called()
@@ -167,20 +175,20 @@ def test_interactive_intake_persists_per_part_answers(tmp_path):
     jp = tmp_path / 'JOB.json'
     jp.write_text(json.dumps({'model_id': '1', 'downloaded_file': str(path)}))
     with patch('builtins.input', side_effect=['per_part', '1', '3', '1', '3']), patch('sys.stdout', new_callable=io.StringIO):
-        assert job.intake_color_choices(jp, state(), interactive=True)
+        assert jobs_prompts.intake_color_choices(jp, state(), interactive=True)
     saved = json.loads(jp.read_text())
     assert saved['color_decisions']['choices']['part:1:3']['slot'] == 3
     with pytest.raises(RuntimeError, match='cannot preserve colors'):
         colors.require_single_color(saved['color_manifest'], saved['color_decisions'])
-    assert job.intake_color_choices(jp, state())
+    assert jobs_prompts.intake_color_choices(jp, state())
 
 
 def test_slice_cli_does_not_phone_the_printer(tmp_path):
     path = source(tmp_path)
     jp = tmp_path / 'JOB.json'
     jp.write_text(json.dumps({'model_id': '1', 'downloaded_file': str(path)}))
-    with patch.object(sys, 'argv', ['model_job.py', 'slice', str(jp), '--approved', '--color-mode', 'single_color', '--color-slot', '3']), patch.object(job.printer_state, 'load', return_value=state()), patch.object(job.printer_state, 'check', side_effect=AssertionError('slice contacted the printer')), patch.object(job, 'slice_job', return_value='fake.gcode') as slicer, patch.object(job, 'print_now') as start:
-        job.main()
+    with patch.object(sys, 'argv', ['model_job.py', 'slice', str(jp), '--approved', '--color-mode', 'single_color', '--color-slot', '3']), patch.object(job.printer_state, 'load', return_value=state()), patch.object(job.printer_state, 'check', side_effect=AssertionError('slice contacted the printer')), patch_bound(jobs_slice, 'slice_job', return_value='fake.gcode') as slicer, patch_bound(launch_print_now, 'print_now') as start:
+        jobs_cli.main()
         slicer.assert_called_once()
         start.assert_not_called()
 
@@ -189,8 +197,8 @@ def test_slice_cli_direct_slots_no_handwritten_json(tmp_path):
     path = source(tmp_path)
     jp = tmp_path / 'JOB.json'
     jp.write_text(json.dumps({'model_id': '1', 'downloaded_file': str(path)}))
-    with patch.object(sys, 'argv', ['model_job.py', 'slice', str(jp), '--approved', '--color-mode', 'single_color', '--color-slot', '3']), patch.object(job.printer_state, 'load', return_value=state()), patch.object(job.printer_state, 'check', return_value=(True, [], {})), patch.object(job, 'slice_job', return_value='fake.gcode') as slicer, patch.object(job, 'print_now') as start:
-        job.main()
+    with patch.object(sys, 'argv', ['model_job.py', 'slice', str(jp), '--approved', '--color-mode', 'single_color', '--color-slot', '3']), patch.object(job.printer_state, 'load', return_value=state()), patch.object(job.printer_state, 'check', return_value=(True, [], {})), patch_bound(jobs_slice, 'slice_job', return_value='fake.gcode') as slicer, patch_bound(launch_print_now, 'print_now') as start:
+        jobs_cli.main()
         slicer.assert_called_once()
         start.assert_not_called()
     saved = json.loads(jp.read_text())
@@ -199,7 +207,7 @@ def test_slice_cli_direct_slots_no_handwritten_json(tmp_path):
     with zipfile.ZipFile(path, 'a') as z:
         z.writestr('changed', 'new bytes')
     with pytest.raises(ValueError, match='SHA256'):
-        job.intake_color_choices(jp, state())
+        jobs_prompts.intake_color_choices(jp, state())
 
 
 def test_bambu_ams_job_still_refuses_source_color_choices(tmp_path):
@@ -214,4 +222,4 @@ def test_bambu_ams_job_still_refuses_source_color_choices(tmp_path):
                               'printer_model': 'bambulab.p1s'}))
     from print_handy.printers.base import MultiColorUnsupported
     with pytest.raises(MultiColorUnsupported, match='single extruder'):
-        job.intake_color_choices(jp, {})
+        jobs_prompts.intake_color_choices(jp, {})

@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from print_handy.core import model_job as mj  # noqa: E402
 from print_handy.core import support_clearance  # noqa: E402
-from print_handy.core.prepared_intake import supports_decision  # noqa: E402
+from print_handy.intake.support_flow import supports_decision  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures" / "support_clearance"
 

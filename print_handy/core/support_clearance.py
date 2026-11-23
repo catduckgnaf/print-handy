@@ -2033,13 +2033,14 @@ def record_clearance_acknowledgement(folder_or_job, gcode=None, source_file=None
         job = folder_or_job
         jp = None
 
-    from print_handy.core import model_job as mj
+    from ..gcode import artifact as gcode_artifact
+    from ..jobs import store as jobs_store
     src = source_file or job.get('downloaded_file')
-    src_sha = mj.file_sha256(src) if src and Path(src).is_file() else None
+    src_sha = gcode_artifact.file_sha256(src) if src and Path(src).is_file() else None
     binding = job.get('artifact_binding') or {}
     rec_sha = binding.get('recipe_sha256')
     gc = gcode or job.get('gcode')
-    gc_sha = mj.file_sha256(gc) if gc and Path(gc).is_file() else binding.get('gcode_sha256')
+    gc_sha = gcode_artifact.file_sha256(gc) if gc and Path(gc).is_file() else binding.get('gcode_sha256')
 
     job['clearance_acknowledgement'] = {
         'acknowledged': True,
@@ -2051,5 +2052,5 @@ def record_clearance_acknowledgement(folder_or_job, gcode=None, source_file=None
     }
 
     if is_path and jp is not None:
-        mj.write_job(jp.parent, job)
+        jobs_store.write_job(jp.parent, job)
     return job

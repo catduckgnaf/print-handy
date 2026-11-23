@@ -1,7 +1,4 @@
 """The typed quantity chat handler.
-
-Moved verbatim from ``plugins/print-feedback/__init__.py`` (#1323). The plugin file still
-loads the same handlers for one release.
 """
 
 from .common import _adapter_for, _delete_secret_message, _is_print_discord_event

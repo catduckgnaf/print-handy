@@ -9,13 +9,16 @@ from pathlib import Path
 import pytest
 
 from print_handy import printers
-from print_handy.core import delivery, model_job
+from print_handy.core import delivery
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from printers import a1_fixture
 from printers.test_bambulab_a1 import A1 as A1_KEY, a1_gcode, ad5x_gcode, adapter_for
 from .helpers import external
 from .test_delivery import _delivery_menu, config_for, use_config
 from .test_plate_thumbnail import box_stl
 from .test_prepared_intake import env, run_flow  # noqa: F401  (pytest fixture)
+from tests.bound_names import setattr_bound
 
 print_next = external("print_next")
 A1 = "bambulab.a1"
@@ -46,16 +49,16 @@ def _a1_job(monkeypatch):
     the slice-approval freshness guard, which rightly refuses a job whose model changed
     mid-flow.
     """
-    inventory = model_job.printables_inventory
+    inventory = jobs_sources.printables_inventory
 
     def a1_inventory(url):
         return {**inventory(url), "printer_model": A1}
 
-    monkeypatch.setattr(model_job, "printables_inventory", a1_inventory)
+    monkeypatch.setattr(jobs_sources, "printables_inventory", a1_inventory)
 
 
 def _a1_slice(monkeypatch, text):
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
 
     def slice_as_a1(job_path, **kw):
         out = real_slice(job_path, **kw)
@@ -63,7 +66,7 @@ def _a1_slice(monkeypatch, text):
             Path(gcode).write_text(text)
             box_stl(Path(gcode).parent / "geometry.stl", origin=(118, 123, 0))  # what a real slice leaves beside it
         return out
-    monkeypatch.setattr(model_job, "slice_job", slice_as_a1)
+    setattr_bound(monkeypatch, jobs_slice, "slice_job", slice_as_a1)
 
 
 def test_a1_offers_no_print_and_packages_through_its_guard(env, monkeypatch, tmp_path):  # noqa: F811

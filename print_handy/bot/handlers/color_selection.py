@@ -1,7 +1,4 @@
 """The color selection chat handler.
-
-Moved verbatim from ``plugins/print-feedback/__init__.py`` (#1323). The plugin file still
-loads the same handlers for one release.
 """
 import json, logging, time
 from pathlib import Path
@@ -20,8 +17,8 @@ def resolve_job_ref(ref, archive=None):
     argument is a job reference a person can supply — a print number, an
     archive folder name or a job title — never a server file path.
     """
-    from print_handy.core import model_job
-    archive = Path(archive if archive is not None else model_job.ARCHIVE)
+    from ...jobs import common as jobs_common
+    archive = Path(archive if archive is not None else jobs_common.ARCHIVE)
     raw = str(ref or '').strip()
     if not raw:
         return None
@@ -66,8 +63,9 @@ async def color_selection_dispatch(event, gateway, **kwargs):
     from print_handy.core import printer_state
     from print_handy.core.discord_color_intake import collect
     from print_handy.core.link_intake import PromptCancelled
-    from print_handy.core import model_job
-    ARCHIVE = model_job.ARCHIVE
+    from ...jobs import common as jobs_common
+    from ...jobs import store as jobs_store
+    ARCHIVE = jobs_common.ARCHIVE
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     path = resolve_job_ref(text[len('/print-colors '):], ARCHIVE)
     if path is None:
@@ -87,7 +85,7 @@ async def color_selection_dispatch(event, gateway, **kwargs):
         # printer_id picks the state record, never the channel's or the
         # configured printer's.
         try:
-            job_pid = model_job._job_printer_id(json.loads(path.read_text()))
+            job_pid = jobs_store._job_printer_id(json.loads(path.read_text()))
         except Exception:
             job_pid = None
         result = await collect(path, printer_state.load(**_pkw(job_pid)), adapter, source.chat_id,

@@ -1,6 +1,8 @@
 """Mapped native start: slow AD5X preparation is reported as accepted/preparing, not a failure."""
 import json
-from print_handy.core import model_job as mj
+from tests.bound_names import setattr_bound
+from print_handy.jobs import common as jobs_common
+from print_handy.launch import print_now as launch_print_now
 
 
 def _status(ext, bed):
@@ -8,10 +10,10 @@ def _status(ext, bed):
 
 
 def test_preparation_evidence_reads_heater_targets(monkeypatch):
-    monkeypatch.setattr(mj, '_mr', lambda st, path, **k: _status(0, 60))
-    assert mj._preparation_evidence({}) is True
-    monkeypatch.setattr(mj, '_mr', lambda st, path, **k: _status(0, 0))
-    assert mj._preparation_evidence({}) is False
+    setattr_bound(monkeypatch, jobs_common, '_mr', lambda st, path, **k: _status(0, 60))
+    assert launch_print_now._preparation_evidence({}) is True
+    setattr_bound(monkeypatch, jobs_common, '_mr', lambda st, path, **k: _status(0, 0))
+    assert launch_print_now._preparation_evidence({}) is False
     def boom(*a, **k): raise OSError('offline')
-    monkeypatch.setattr(mj, '_mr', boom)
-    assert mj._preparation_evidence({}) is None
+    setattr_bound(monkeypatch, jobs_common, '_mr', boom)
+    assert launch_print_now._preparation_evidence({}) is None

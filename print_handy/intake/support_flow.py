@@ -1,7 +1,4 @@
 """The supports decision: whether a model needs supports, the question and the re-slice labels.
-
-Moved verbatim from ``print_handy.core.prepared_intake`` (#1323). The old names are still
-importable from there for one release.
 """
 
 

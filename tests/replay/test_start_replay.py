@@ -13,6 +13,9 @@ import urllib.error
 import pytest
 
 from print_handy.core import launch_state, model_job
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 
 from .helpers import intake_outcome, make_job, reported_name, run_print_now
 
@@ -20,7 +23,7 @@ HOLD_S = 35  # printer seconds a screenless SET_ZCOLOR POST stayed open while th
 
 
 def leases():
-    return launch_state.pending(model_job._job_printer_id(None))
+    return launch_state.pending(jobs_store._job_printer_id(None))
 
 
 def printer_starts(after_s, hold_s=0, heat_after_s=None):
@@ -81,11 +84,11 @@ def test_the_lease_after_a_lost_response_settles_once_the_printer_reports_the_fi
     # The next launch attempt reads the same printer: its current file settles the lease, and it still
     # does not start the first job again.
     st = model_job.printer_state.load()
-    _state, observed, _busy = model_job._printer_phase(st)
+    _state, observed, _busy = launch_gates._printer_phase(st)
     capsys.readouterr()
-    lease = launch_state.acquire(model_job._job_printer_id(None), job_json="next.json", remote="next.gcode",
+    lease = launch_state.acquire(jobs_store._job_printer_id(None), job_json="next.json", remote="next.gcode",
                                  observed_file=observed,
-                                 started_files=lambda: model_job._moonraker_started_files(st))
+                                 started_files=lambda: launch_print_now._moonraker_started_files(st))
     assert "LAUNCH RECONCILED" in capsys.readouterr().out
     assert [row["remote"] for row in leases()] == ["next.gcode"]
     lease.release()
@@ -165,7 +168,7 @@ def test_a_start_still_preparing_when_the_wait_ends_keeps_its_lease_uncertain(ad
                        .split("MAPPED START READBACK ", 1)[1])["phase"]
     assert phase == "preparing", tail
     assert [row["phase"] for row in leases()] == ["uncertain"]  # today: [] (released on prep evidence)
-    assert model_job._read_claims() != {}  # the claimed start card is still this start's to edit
+    assert launch_print_now._read_claims() != {}  # the claimed start card is still this start's to edit
     assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1
 
 
@@ -190,7 +193,7 @@ def test_a_preheat_during_the_upload_refuses_before_the_start_is_sent(ad5x, tmp_
     assert status == "START_REFUSED", tail
     assert message.startswith("Didn't start"), tail
     assert ad5x.zcolor() == [] and len(ad5x.uploads) == 1  # the start was never sent
-    assert leases() == [] and model_job._read_claims() == {}
+    assert leases() == [] and launch_print_now._read_claims() == {}
 
 
 @pytest.mark.parametrize("hold_s", [HOLD_S, 0])

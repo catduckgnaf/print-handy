@@ -1,8 +1,5 @@
 """The intake's chat questions: the ask helper, the color and label confirmations and their
 recorded acceptances, and the reply parsers they share.
-
-Moved verbatim from ``print_handy.core.prepared_intake`` (#1323). The old names are still
-importable from there for one release.
 """
 import contextvars, json, logging, re, time
 from pathlib import Path
@@ -153,24 +150,25 @@ def screen_unpushed_note(confirms):
 
 def accept_color_mismatch(job_json, target, confirms):
     """Record a single-use Print anyway for this exact G-code and these listed differences (#795)."""
-    from ..core import model_job as mj
+    from ..jobs import store as jobs_store
+    from ..launch import print_now as launch_print_now
     job = json.loads(Path(job_json).read_text())
-    keys = [mj.color_mismatch_key(c['slot'], c['live'], c['recorded']) for c in confirms]
-    prior = mj.accepted_color_mismatches(job, target['gcode_sha256'])  # a later round adds to the earlier ones
+    keys = [launch_print_now.color_mismatch_key(c['slot'], c['live'], c['recorded']) for c in confirms]
+    prior = launch_print_now.accepted_color_mismatches(job, target['gcode_sha256'])  # a later round adds to the earlier ones
     job['color_mismatch_accepted'] = {
         'gcode_sha256': target['gcode_sha256'],
         'slots': sorted(prior | set(keys)),
         'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'via': 'button'}
-    mj.write_job(Path(job_json).parent, job)
+    jobs_store.write_job(Path(job_json).parent, job)
     return job['color_mismatch_accepted']
 
 
 def clear_color_acceptance(job_json):
     """Consume the acknowledgement: it never carries over to a later start."""
-    from ..core import model_job as mj
+    from ..jobs import store as jobs_store
     job = json.loads(Path(job_json).read_text())
     if job.pop('color_mismatch_accepted', None) is not None:
-        mj.write_job(Path(job_json).parent, job)
+        jobs_store.write_job(Path(job_json).parent, job)
 
 
 _CONFIRM_LABEL = re.compile(r'printer slot (\d+) is labeled (.+?) but Spoolman has (.+?) there \(T(\d+)\)')
@@ -200,21 +198,22 @@ def accept_label_mismatch(job_json, target, confirms):
     Mirrors accept_color_mismatch: same per-G-code-SHA binding, consumed
     by the caller before the retry's start runs.
     """
-    from ..core import model_job as mj
+    from ..jobs import store as jobs_store
+    from ..launch import print_now as launch_print_now
     job = json.loads(Path(job_json).read_text())
-    keys = [mj.label_mismatch_key(c['slot'], c['live'], c['recorded']) for c in confirms]
-    prior = mj.accepted_label_mismatches(job, target['gcode_sha256'])  # a later round adds to the earlier ones
+    keys = [launch_print_now.label_mismatch_key(c['slot'], c['live'], c['recorded']) for c in confirms]
+    prior = launch_print_now.accepted_label_mismatches(job, target['gcode_sha256'])  # a later round adds to the earlier ones
     job['label_mismatch_accepted'] = {
         'gcode_sha256': target['gcode_sha256'],
         'slots': sorted(prior | set(keys)),
         'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'via': 'button'}
-    mj.write_job(Path(job_json).parent, job)
+    jobs_store.write_job(Path(job_json).parent, job)
     return job['label_mismatch_accepted']
 
 
 def clear_label_acceptance(job_json):
     """Consume the acknowledgement: it never carries over to a later start."""
-    from ..core import model_job as mj
+    from ..jobs import store as jobs_store
     job = json.loads(Path(job_json).read_text())
     if job.pop('label_mismatch_accepted', None) is not None:
-        mj.write_job(Path(job_json).parent, job)
+        jobs_store.write_job(Path(job_json).parent, job)

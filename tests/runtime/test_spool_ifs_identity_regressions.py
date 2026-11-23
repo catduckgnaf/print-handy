@@ -1,6 +1,7 @@
 import pytest
 from print_handy.runtime import spool_sync
 from print_handy.core import model_job
+from print_handy.jobs import filament as jobs_filament
 from print_handy.printers.flashforge.zmod import stock
 
 
@@ -13,13 +14,13 @@ def test_rebinding_slot_does_not_keep_previous_spool_color():
 def test_selection_material_and_color_match_configured_slot():
     state = {"filament_slots": {"1": {"spoolman_id": 7, "color": "Coffee", "material": "PLA+"}}}
     with pytest.raises(ValueError):
-        model_job.resolve_filament_selection(state, {"slot": 1, "spoolman_id": 7, "color": "Blue", "material": "PLA+"})
+        jobs_filament.resolve_filament_selection(state, {"slot": 1, "spoolman_id": 7, "color": "Blue", "material": "PLA+"})
 
 
 def test_selection_rejects_material_mismatch():
     state = {"filament_slots": {"1": {"spoolman_id": 7, "color": "Coffee", "material": "PLA+"}}}
     with pytest.raises(ValueError):
-        model_job.resolve_filament_selection(state, {"slot": 1, "spoolman_id": 7, "color": "coffee", "material": "PETG"})
+        jobs_filament.resolve_filament_selection(state, {"slot": 1, "spoolman_id": 7, "color": "coffee", "material": "PETG"})
 
 
 def test_partial_stock_detail_is_rejected(monkeypatch):

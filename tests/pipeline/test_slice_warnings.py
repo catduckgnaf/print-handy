@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import model_job as mj
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
 from print_handy.core import orca_adapter, slice_warnings
 from print_handy.jobs import slice as jobs_slice
 
@@ -86,22 +88,22 @@ def _warned_slice(tmp_path, monkeypatch):
                      **slice_warnings.provenance_fields(folder, {'enable_support': '0'}, kw.get('supports'))}, []
     jp, st, gcode = setup_job(tmp_path, monkeypatch)
     monkeypatch.setattr(orca_adapter, 'slice_model', slice_fake)
-    return jp, Path(mj.slice_job(jp))
+    return jp, Path(jobs_slice.slice_job(jp))
 
 
 def test_warned_slice_cannot_reach_start_without_a_decision(tmp_path, monkeypatch):
     jp, gcode = _warned_slice(tmp_path, monkeypatch)
     job = json.loads(jp.read_text())
     with pytest.raises(RuntimeError, match='supports decision needed'):
-        mj.require_current_artifact(job, gcode)
+        launch_gates.require_current_artifact(job, gcode)
 
 
 def test_print_without_supports_proceeds_and_is_remembered(tmp_path, monkeypatch):
     jp, gcode = _warned_slice(tmp_path, monkeypatch)
-    mj.record_support_decision(jp.parent, False)
+    jobs_store.record_support_decision(jp.parent, False)
     job = json.loads(jp.read_text())
     assert job['support_decision']['supports'] is False
-    mj.require_current_artifact(job, gcode)  # no refusal, and nothing asks again on a reprint
+    launch_gates.require_current_artifact(job, gcode)  # no refusal, and nothing asks again on a reprint
     assert slice_warnings.support_finding(job) is None
 
 
@@ -114,8 +116,8 @@ def test_reslice_with_supports_passes_the_decision_to_the_slicer(tmp_path, monke
         seen.update(kw)
         return real(*a, **kw)
     monkeypatch.setattr(orca_adapter, 'slice_model', spy)
-    mj.record_support_decision(jp.parent, True)
-    mj.slice_job(jp)
+    jobs_store.record_support_decision(jp.parent, True)
+    jobs_slice.slice_job(jp)
     assert seen.get('supports') is True
     job = json.loads(jp.read_text())
     assert slice_warnings.support_finding(job) is None
@@ -140,7 +142,7 @@ def _warned_reslice(tmp_path, monkeypatch, orientation):
     job['orientation'] = orientation
     jp.write_text(json.dumps(job))
     monkeypatch.setattr(orca_adapter, 'slice_model', slice_fake)
-    return jp, Path(mj.slice_job(jp)), seen
+    return jp, Path(jobs_slice.slice_job(jp)), seen
 
 
 _IDENTITY_ROTATION = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
@@ -157,7 +159,7 @@ def test_rotation_without_a_support_choice_leaves_the_question_open(tmp_path, mo
     assert job['provenance']['support_decided'] is False
     assert slice_warnings.support_finding(job) is not None
     with pytest.raises(RuntimeError, match='supports decision needed'):
-        mj.require_current_artifact(job, gcode)
+        launch_gates.require_current_artifact(job, gcode)
 
 
 def test_rotation_keeps_an_existing_support_choice(tmp_path, monkeypatch):
@@ -174,27 +176,27 @@ def test_rotation_keeps_an_existing_support_choice(tmp_path, monkeypatch):
 
 def test_job_fit_leaves_supports_unresolved_after_a_plain_rotation():
     # The per-plate fit channel carried the same forced False (#916).
-    _fit, supports, _brim = mj._job_fit(
+    _fit, supports, _brim = jobs_slice._job_fit(
         {'scale': 1.0, 'orientation': {'rotation': _IDENTITY_ROTATION}}, None)
     assert supports is None
-    _fit, supports, _brim = mj._job_fit(
+    _fit, supports, _brim = jobs_slice._job_fit(
         {'scale': 1.0, 'orientation': {'rotation': _IDENTITY_ROTATION, 'supports': False}}, None)
     assert supports is False
-    _fit, supports, _brim = mj._job_fit(
+    _fit, supports, _brim = jobs_slice._job_fit(
         {'scale': 1.0, 'orientation': {'rotation': _IDENTITY_ROTATION},
          'support_decision': {'supports': True}}, None)
     assert supports is True
 
 
 def test_support_kw_carries_the_operator_choice_into_every_branch():
-    assert mj._support_kw({}) == {}
-    assert mj._support_kw({}, False) == {'supports': False}
-    assert mj._support_kw({'support_decision': {'supports': True}}) == {'supports': True}
+    assert jobs_slice._support_kw({}) == {}
+    assert jobs_slice._support_kw({}, False) == {'supports': False}
+    assert jobs_slice._support_kw({'support_decision': {'supports': True}}) == {'supports': True}
     # "Re-slice with supports" wins over a path default of off (it came after the warning).
-    assert mj._support_kw({'support_decision': {'supports': True}}, False) == {'supports': True}
-    assert mj._support_kw({'support_decision': {'supports': False}}) == {'supports': False}
+    assert jobs_slice._support_kw({'support_decision': {'supports': True}}, False) == {'supports': True}
+    assert jobs_slice._support_kw({'support_decision': {'supports': False}}) == {'supports': False}
     # A path's own recorded choice (reorientation offer) is kept when the operator said no supports.
-    assert mj._support_kw({'support_decision': {'supports': False}}, True) == {'supports': True}
+    assert jobs_slice._support_kw({'support_decision': {'supports': False}}, True) == {'supports': True}
 
 
 def _slice_model_calls(module):
@@ -234,10 +236,10 @@ def test_every_job_slicing_path_passes_the_support_decision():
 
 def test_chosen_supports_never_print_an_unsupported_artifact(tmp_path, monkeypatch):
     jp, gcode = _warned_slice(tmp_path, monkeypatch)
-    job = mj.record_support_decision(jp.parent, True)
+    job = jobs_store.record_support_decision(jp.parent, True)
     job['provenance']['supports_on'] = False  # a branch that dropped the decision
     with pytest.raises(RuntimeError, match='sliced without them'):
-        mj.require_current_artifact(job, gcode)
+        launch_gates.require_current_artifact(job, gcode)
     assert slice_warnings.support_mismatch({'support_decision': {'supports': False},
                                             'provenance': {'supports_on': False}}) == []
     assert slice_warnings.support_mismatch({'support_decision': {'supports': True},
@@ -319,10 +321,10 @@ def test_every_job_slicing_path_passes_the_chat_edit_settings():
 def test_edit_kw_and_support_kw_carry_the_chat_edit():
     from print_handy.core import edit_plan as ep
     job = {'scale': 1.0, 'orientation': {}}
-    assert mj._edit_kw(job) == {}
+    assert jobs_slice._edit_kw(job) == {}
     ep.apply_plan(job, {'kind': 'supports', 'enabled': True, 'type': 'tree'})
-    assert mj._edit_kw(job) == {'edits': {'support_type': 'tree'}}
-    assert mj._support_kw(job) == {'supports': True}
+    assert jobs_slice._edit_kw(job) == {'edits': {'support_type': 'tree'}}
+    assert jobs_slice._support_kw(job) == {'supports': True}
     # The operator's own support decision still wins over the edit.
     job['support_decision'] = {'supports': False}
-    assert mj._support_kw(job) == {'supports': False}
+    assert jobs_slice._support_kw(job) == {'supports': False}

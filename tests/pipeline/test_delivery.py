@@ -13,11 +13,14 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy import printers, settings
-from print_handy.core import delivery, model_job, prepared_intake
+from print_handy.core import delivery, prepared_intake
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from print_handy.printers.base import PrinterModel
 from print_handy.printers.klipper.adapter import KlipperAdapter
 from .test_prepared_intake import env, run_flow  # noqa: F401  (pytest fixture)
 from .helpers import external
+from tests.bound_names import setattr_bound
 
 print_next = external("print_next")
 
@@ -370,12 +373,12 @@ def _bambu_job(monkeypatch):
     race the slice-approval freshness guard, which rightly refuses a job whose model
     changed mid-flow.
     """
-    inventory = model_job.printables_inventory
+    inventory = jobs_sources.printables_inventory
 
     def bambu_inventory(url):
         return {**inventory(url), "printer_model": BAMBU_KEY}
 
-    monkeypatch.setattr(model_job, "printables_inventory", bambu_inventory)
+    monkeypatch.setattr(jobs_sources, "printables_inventory", bambu_inventory)
 
 
 def test_bambu_printer_offers_no_print_and_hands_off_a_package(env, monkeypatch, bambu_model):  # noqa: F811
@@ -407,7 +410,7 @@ def test_bambu_package_over_the_limit_is_never_offered_for_download(env, monkeyp
     limit = 100_000
     use_config(monkeypatch, config_for(BAMBU_KEY, upload_max_bytes=limit))
     _bambu_job(monkeypatch)
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
     rng = random.Random(272)
 
     def bambu_slice(job_path, **kw):
@@ -416,7 +419,7 @@ def test_bambu_package_over_the_limit_is_never_offered_for_download(env, monkeyp
         Path(out[0]).write_text("".join(f"G1 X{rng.uniform(1, 99):.3f} Y{rng.uniform(1, 99):.3f} "
                                          f"E{rng.uniform(0, 1):.5f}\n" for _ in range(20000)))
         return out
-    monkeypatch.setattr(model_job, "slice_job", bambu_slice)
+    setattr_bound(monkeypatch, jobs_slice, "slice_job", bambu_slice)
     # one color, slot 1, "Slice and Download", package (the menu then ends: nothing is left to offer)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0])
     gcode = Path(env.sliced[0])

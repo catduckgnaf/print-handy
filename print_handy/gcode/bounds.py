@@ -1,16 +1,11 @@
 """Motion bounds of a G-code file: the Python parser, the native accelerator and the cache.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names
-are still importable from there for one release.
 """
 import hashlib, json, logging, math, os, re
 from pathlib import Path
 
 from .. import settings
 
-# The logger name stays the one the code had in model_job, so log routing
-# and filters see the same records after the move.
-logger = logging.getLogger("print_handy.core.model_job")
+logger = logging.getLogger(__name__)
 
 
 NUMBER=r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?'

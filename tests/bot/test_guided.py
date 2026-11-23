@@ -10,7 +10,9 @@ import pytest
 
 from print_handy import __version__, settings
 from print_handy.bot import commands, guided, runtime
+from print_handy.jobs import common as jobs_common
 from print_handy.runtime import _config
+from tests.bound_names import patch_bound
 
 from corpus import fake_discord
 
@@ -468,7 +470,7 @@ def test_debugging_never_invokes_printer_write_operations(tmp_path):
               mock.patch("print_handy.runtime.print_control.resume"),
               mock.patch("print_handy.runtime.print_control.coldpull"),
               mock.patch("print_handy.core.printer_state.save", create=True),
-              mock.patch("print_handy.core.model_job.request_json")]
+              patch_bound(jobs_common, "request_json")]
     with writes[0] as a, writes[1] as b, writes[2] as c, writes[3] as d, writes[4] as e:
         report = run_report(tmp_path, cfg)
     assert "debugging" in report.lower() or "configuration" in report

@@ -16,12 +16,16 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, prepared_intake, split_fit
+from print_handy.core import orca_adapter, prepared_intake, split_fit
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
 from print_handy.intake.fit_flow import _fit_choice_reply, fit_choice_rows
 
 from .test_plate_merge import _fake_slice
 from .test_prepared_intake import Adapter, _copy, env, state  # noqa: F401  (env is a fixture)
 from .test_split_fit import _box_tris, _solid_source, _split_job
+from tests.bound_names import setattr_bound
 
 
 class _AsDesigned(Adapter):
@@ -122,7 +126,7 @@ def test_slicing_the_as_designed_split_scales_every_plate_and_reorients_nothing(
     job_path = _split_job(tmp_path, source, designed)
     fake = _fake_slice()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2
     saved = json.loads(job_path.read_text())
     for row in saved['derived_plates']:
@@ -145,12 +149,12 @@ def test_slicing_refuses_a_scaled_plan_that_still_reorients(tmp_path, monkeypatc
     job_path = _split_job(tmp_path, source, plan)
     monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
     with pytest.raises(RuntimeError, match='scaled split plan may not carry reorientations'):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
 
 
 def test_the_intake_offers_the_as_designed_split_and_records_it(env, monkeypatch):
     path = _stand_and_base(env.tmp / 'stand-and-base.3mf')
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(path, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
                         lambda path, st, scale=1.0, copy_limit=16, **kw: 0 if scale == 1.0 else 1)
     monkeypatch.setattr(orca_adapter, 'fit_options',
@@ -167,11 +171,11 @@ def test_the_intake_offers_the_as_designed_split_and_records_it(env, monkeypatch
             gcodes.append(gcode)
             rows.append({'gcode': str(gcode), 'plate_id': index, 'slot': 1, 'part_keys': keys})
         data['derived_plates'] = rows
-        model_job.write_job(job_path.parent, data)
+        jobs_store.write_job(job_path.parent, data)
         env.sliced.extend(map(str, gcodes))
         return gcodes
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_split_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_split_slice)
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='as-designed', text='https://www.printables.com/model/1-ghost')
     adapter = _AsDesigned([1, 0, 0, 1, 2])  # the fit question picks the as-designed split

@@ -19,6 +19,7 @@ from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
 from print_handy.core import author_settings, model_job, orca_adapter, source_colors
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate
 from print_handy.core.orca_adapter import export_geometry
 from tests.corpus.make_models import _write_package
@@ -243,7 +244,7 @@ def test_multicolor_export_carries_cutter_settings(tmp_path):
     choices = {}
     for part in manifest["parts"]:
         slot = part["source_extruder"]
-        choices["part:" + part["key"]] = model_job.resolve_filament_selection(
+        choices["part:" + part["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     decisions = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
                  "choices": choices}
@@ -281,7 +282,7 @@ def test_derived_plate_from_a_prusa_project_is_rewritten(tmp_path):
     src = prusa_object_source(tmp_path / "prusa.3mf")
     state = model_job.printer_state.load()
     manifest = source_colors.inventory(src)
-    white = model_job.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
     decisions = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
                  "choices": {row["key"]: white for row in source_colors.canonical_prompts(manifest)}}
     keys = [part["key"] for part in manifest["parts"] if part["source_extruder"] == 1]

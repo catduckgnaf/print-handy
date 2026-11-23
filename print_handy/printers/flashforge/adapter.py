@@ -63,8 +63,8 @@ class ZmodAdapter(PrinterAdapter):
         return self.native.normalize_mapping(mapping, state)
 
     def readiness_problems(self, state, status, selection=None, **kw):
-        from ...core import model_job
-        return list(model_job.check_filament_readiness(state, status, selection, **kw))
+        from ...launch import gates as launch_gates
+        return list(launch_gates.check_filament_readiness(state, status, selection, **kw))
 
     def screen_command(self, slot, material, hex_code):
         return self.native.screen.screen_command(slot, material, hex_code)

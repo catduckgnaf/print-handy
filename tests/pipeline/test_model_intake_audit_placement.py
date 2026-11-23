@@ -2,7 +2,7 @@
 import hashlib
 import struct
 
-from print_handy.core import model_job
+from print_handy.jobs import audit as jobs_audit
 
 
 def _write_cube_stl(path):
@@ -20,7 +20,7 @@ def _write_cube_stl(path):
 
 def test_stl_file_audit_carries_real_geometry_into_ranked_printer_placement(tmp_path):
     source = _write_cube_stl(tmp_path / 'part.stl')
-    report = model_job.audit(source, printer_model='offline-printer')
+    report = jobs_audit.audit(source, printer_model='offline-printer')
 
     assert report['path'] == 'part.stl'
     assert report['kind'] == '.stl'

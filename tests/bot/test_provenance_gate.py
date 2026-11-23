@@ -270,6 +270,7 @@ MODEL_IMPORT_ALLOWLIST = {
     "print_handy/bot/__main__.py": "status reporting only",
     "print_handy/bot/natural_language.py": "typed read-only tools for the conversational lane",
     "print_handy/bot/handlers/purchase.py": "purchase intake (chat)",
+    "print_handy/bot/handlers/fix.py": "explicit, authorized model-repair conversation",
     "print_handy/core/ai_fix.py": "edit repair",
     "print_handy/core/design.py": "design transport",
     "print_handy/webui/spools.py": "purchase intake (Web UI)",

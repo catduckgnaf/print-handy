@@ -9,6 +9,7 @@ carries the resolved temperatures and the verify paths check against them.
 import pytest
 
 from print_handy.core import model_job, printer_state
+from print_handy.gcode import verify as gcode_verify
 
 STATE = {'temps_c': {'nozzle': 210, 'bed': 60},
          'spool': {'material': 'PLA', 'spoolman_id': 7},
@@ -44,36 +45,36 @@ def rig(tmp_path, monkeypatch):
 
 
 def test_verify_uses_the_recorded_slice_temperatures(rig):
-    result = model_job.verify_gcode(rig, adapter=_OfflineAdapter(), state=dict(STATE),
+    result = gcode_verify.verify_gcode(rig, adapter=_OfflineAdapter(), state=dict(STATE),
                                     printer_id='p1', recorded_temps=dict(SLICED_AT))
     assert result['offline'] is True
 
 
 def test_verify_without_recorded_temperatures_still_reresolves(rig):
     with pytest.raises(RuntimeError, match='nozzle 220'):
-        model_job.verify_gcode(rig, adapter=_OfflineAdapter(), state=dict(STATE), printer_id='p1')
+        gcode_verify.verify_gcode(rig, adapter=_OfflineAdapter(), state=dict(STATE), printer_id='p1')
 
 
 def test_routed_verify_reads_temperatures_from_the_job_provenance(rig):
     job = {'gcode': str(rig), 'provenance': {'temperatures': dict(SLICED_AT)}}
-    result = model_job._verify_routed(rig, _OfflineAdapter(), dict(STATE), 'p1', job=job)
+    result = gcode_verify._verify_routed(rig, _OfflineAdapter(), dict(STATE), 'p1', job=job)
     assert result['offline'] is True
 
 
 def test_routed_verify_reads_temperatures_from_a_split_jobs_plate_row(rig):
     job = {'gcode': '/elsewhere/other.gcode',
            'derived_plates': [{'gcode': str(rig), 'provenance': {'temperatures': dict(SLICED_AT)}}]}
-    result = model_job._verify_routed(rig, _OfflineAdapter(), dict(STATE), 'p1', job=job)
+    result = gcode_verify._verify_routed(rig, _OfflineAdapter(), dict(STATE), 'p1', job=job)
     assert result['offline'] is True
 
 
 def test_recorded_temperatures_lookup_edges(tmp_path):
     path = tmp_path / 'a.gcode'
-    assert model_job._recorded_temperatures(None, path) is None
-    assert model_job._recorded_temperatures({'gcode': str(path)}, path) is None
-    assert model_job._recorded_temperatures(
+    assert gcode_verify._recorded_temperatures(None, path) is None
+    assert gcode_verify._recorded_temperatures({'gcode': str(path)}, path) is None
+    assert gcode_verify._recorded_temperatures(
         {'gcode': str(path), 'provenance': {'temperatures': 'hot'}}, path) is None
-    assert model_job._recorded_temperatures(
+    assert gcode_verify._recorded_temperatures(
         {'gcode': str(path), 'provenance': {'temperatures': dict(SLICED_AT)}}, path) == SLICED_AT
 
 
@@ -82,12 +83,12 @@ def test_with_gcode_temperatures_prefers_recorded_without_resolving(monkeypatch)
         raise AssertionError('recorded temperatures must not trigger a re-resolution')
 
     monkeypatch.setattr(printer_state, 'gcode_temperatures', forbidden)
-    out = model_job._with_gcode_temperatures(dict(STATE), GCODE, recorded={'nozzle': '225', 'bed': 65})
+    out = gcode_verify._with_gcode_temperatures(dict(STATE), GCODE, recorded={'nozzle': '225', 'bed': 65})
     assert out['temps_c'] == {'nozzle': 225.0, 'bed': 65.0}
 
 
 def test_with_gcode_temperatures_ignores_a_malformed_record(monkeypatch):
     monkeypatch.setattr(printer_state, 'gcode_temperatures',
                         lambda state, materials, fetch=None, text=None, **_: dict(DEFAULTS))
-    out = model_job._with_gcode_temperatures(dict(STATE), GCODE, recorded={'nozzle': 'hot'})
+    out = gcode_verify._with_gcode_temperatures(dict(STATE), GCODE, recorded={'nozzle': 'hot'})
     assert out['temps_c'] == DEFAULTS

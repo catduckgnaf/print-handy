@@ -27,7 +27,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import color_geometry, model_job, package_remap, source_colors
+from print_handy.core import color_geometry, package_remap, source_colors
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core.color_geometry import export_color_geometry
 
 from .test_color_geometry import (_cut_recess_and_plug_source, _cutter_source, _painted_two_plate_source,
@@ -67,7 +68,7 @@ def _decisions(path):
 
 def _plates(path, manifest):
     try:
-        plates = model_job.plate_manifest(path)['plates']
+        plates = jobs_slice.plate_manifest(path)['plates']
     except RuntimeError:
         plates = [{'id': 1, 'object_ids': sorted({str(p['object_id']) for p in manifest['parts']})}]
     known = {str(p['object_id']) for p in manifest['parts']}
@@ -134,10 +135,10 @@ def test_corpus_painted_models_measure_and_fit_like_the_written_export(rel):
     manifest, decisions = _decisions(path)
     assert manifest['painted']
     _compare_reports(path, (3.0, 1.0))
-    view = model_job._per_part_view(manifest, decisions)
+    view = jobs_slice._per_part_view(manifest, decisions)
     plates = _plates(path, manifest)
     for ceiling, tower in ((3.0, None), (1.0, 0.0)):
-        assert _same_or_better(model_job.painted_fit(path, view, plates, ceiling, tower),
+        assert _same_or_better(jobs_slice.painted_fit(path, view, plates, ceiling, tower),
                                _old_painted_fit(path, view, plates, ceiling, tower))
 
 
@@ -163,7 +164,7 @@ def _same_or_better(new, old):
 def _old_painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
     """The pre-#1246 fit, frozen: a full written export at every step."""
     def plate_scale(object_ids, ceiling):
-        steps = [ceiling] + [s for s in model_job.PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
+        steps = [ceiling] + [s for s in jobs_slice.PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
         with tempfile.TemporaryDirectory(prefix='painted-fit-') as tmp:
             for scale in steps:
                 if scale > ceiling + 1e-9:
@@ -173,7 +174,7 @@ def _old_painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
                                                         scale=scale, tower_mm=tower_mm)
                 except RuntimeError:
                     continue
-                if all(0 <= ax[0] and ax[1] <= model_job.BED_LIMIT_MM
+                if all(0 <= ax[0] and ax[1] <= jobs_slice.BED_LIMIT_MM
                        for row in geometry['parts'] for ax in row['bounds_mm'][:2]):
                     return scale
         return None
@@ -197,7 +198,7 @@ def _old_painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
         fitted = plate_scale(ids, scale)
         if fitted is None:
             result = {'scale': None, 'blocking_plate': plate['id'], 'plates': len(plates)}
-            measured = layout(ids, model_job.PAINTED_SCALE_STEPS[-1])
+            measured = layout(ids, jobs_slice.PAINTED_SCALE_STEPS[-1])
             if measured is not None:
                 result['blocking_layout'] = measured
             return result
@@ -210,12 +211,12 @@ def test_fit_verdicts_equal_the_written_export_fit(tmp_path):
     verdicts = set()
     for path in _sources(tmp_path):
         manifest, decisions = _decisions(path)
-        view = model_job._per_part_view(manifest, decisions)
+        view = jobs_slice._per_part_view(manifest, decisions)
         plates = _plates(path, manifest)
         for ceiling in (3.0, 1.2, 1.0, 0.99, 0.6):
             for tower in (None, 0.0):
                 old = _old_painted_fit(path, view, plates, ceiling, tower)
-                new = model_job.painted_fit(path, view, plates, ceiling, tower)
+                new = jobs_slice.painted_fit(path, view, plates, ceiling, tower)
                 assert _same_or_better(new, old), (path.name, ceiling, tower, new, old)
                 verdicts.add((new['scale'] is None, new['scale'] == ceiling))
     # fits at the ceiling, fits only lower on the ladder, and no fit at all
@@ -226,7 +227,7 @@ def test_a_fit_writes_nothing_and_parses_the_source_once(tmp_path, monkeypatch):
     path = tmp_path / 'painted-two-plates.3mf'
     _painted_two_plate_source(path)
     manifest, decisions = _decisions(path)
-    view = model_job._per_part_view(manifest, decisions)
+    view = jobs_slice._per_part_view(manifest, decisions)
     plates = _plates(path, manifest)
     assert len(plates) == 2
 
@@ -241,7 +242,7 @@ def test_a_fit_writes_nothing_and_parses_the_source_once(tmp_path, monkeypatch):
     # 8x does not fit either plate: each plate steps down the ladder. Since #1648
     # each plate is first measured once towerless (does it change tools?), and a
     # turn that fits at the ceiling is tried before shrinking.
-    fit = model_job.painted_fit(path, view, plates, 8.0, None)
+    fit = jobs_slice.painted_fit(path, view, plates, 8.0, None)
     assert fit['scale'] == 1.0 and exports[0] == 8.0 and exports.count(1.0) >= 2 and len(exports) <= 20
     # Three model members, each parsed once per selection (two plates).
     assert len(parsed) == 3 * len(plates)
@@ -279,10 +280,10 @@ def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path, monkeypatch)
     path = _dense_painted_source(tmp_path / 'dense.3mf')
     manifest, decisions = _decisions(path)
     assert manifest['painted'] and manifest['parts']
-    view = model_job._per_part_view(manifest, decisions)
+    view = jobs_slice._per_part_view(manifest, decisions)
     plates = _plates(path, manifest)
     # The measured verdict is the written one before anything is timed.
-    assert _same_or_better(model_job.painted_fit(path, view, plates, 3.0), _old_painted_fit(path, view, plates, 3.0))
+    assert _same_or_better(jobs_slice.painted_fit(path, view, plates, 3.0), _old_painted_fit(path, view, plates, 3.0))
 
     # Since #1648 the new fit also measures towerless and tries turns, so it
     # takes more steps than the frozen ladder. The gate compares the cost of
@@ -298,7 +299,7 @@ def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path, monkeypatch)
     monkeypatch.setattr(sys.modules[__name__], 'export_color_geometry', counting('old'))
     _old_painted_fit(path, view, plates, 3.0)
     monkeypatch.setattr(color_geometry, 'export_color_geometry', counting('new'))
-    model_job.painted_fit(path, view, plates, 3.0)
+    jobs_slice.painted_fit(path, view, plates, 3.0)
     monkeypatch.undo()
     assert steps['old'] and steps['new'], steps
 
@@ -310,7 +311,7 @@ def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path, monkeypatch)
             times.append(time.perf_counter() - start)
         return min(times)
     old = best(lambda: _old_painted_fit(path, view, plates, 3.0))
-    new = best(lambda: model_job.painted_fit(path, view, plates, 3.0))
+    new = best(lambda: jobs_slice.painted_fit(path, view, plates, 3.0))
     # Per step: about 0.30 on this source (one parse, nothing serialized),
     # about 0.42 under CI's coverage. The fit's fixed costs (the hull sweep)
     # count against it; the gate leaves room for a loaded runner.
@@ -345,12 +346,12 @@ def test_a_paint_code_the_written_export_refuses_is_refused_when_measuring(tmp_p
     full = _outcome(written)
     assert full[0] == 'raised' and full[1] == 'ValueError'
     assert _outcome(lambda: export_color_geometry(path, None, decisions, scale=1.0)) == full
-    view = model_job._per_part_view(manifest, decisions)
+    view = jobs_slice._per_part_view(manifest, decisions)
     plates = _plates(path, manifest)
     with pytest.raises(ValueError, match=re.escape(full[2])):
         _old_painted_fit(path, view, plates, 1.0)
     with pytest.raises(ValueError, match=re.escape(full[2])):
-        model_job.painted_fit(path, view, plates, 1.0)
+        jobs_slice.painted_fit(path, view, plates, 1.0)
 
 
 def _long_painted_strip(path, length=226.0, width=30.0):
@@ -371,15 +372,15 @@ def _long_painted_strip(path, length=226.0, width=30.0):
 def test_1648_painted_fit_turns_before_shrinking_and_names_sizes(tmp_path):
     path = _long_painted_strip(tmp_path / 'strip.3mf')
     manifest, decisions = _decisions(path)
-    view = model_job._per_part_view(manifest, decisions)
+    view = jobs_slice._per_part_view(manifest, decisions)
     plates = _plates(path, manifest)
     old = _old_painted_fit(path, view, plates, 1.0, 0.0)
     assert old['scale'] is not None and old['scale'] < 1.0  # the ladder-only fit shrank it
-    fit = model_job.painted_fit(path, view, plates, 1.0, 0.0)
+    fit = jobs_slice.painted_fit(path, view, plates, 1.0, 0.0)
     assert fit['scale'] == 1.0
     (row,) = fit['layouts'].values()
     assert row['yaw'] not in (0.0, 90.0) and row['tower_mm'] == 0.0
-    assert all(v <= model_job.BED_LIMIT_MM for v in row['extent_mm'][:2])
+    assert all(v <= jobs_slice.BED_LIMIT_MM for v in row['extent_mm'][:2])
     from print_handy.intake.fit_flow import _painted_fit_sizes
     sizes = _painted_fit_sizes(fit, {'bed_mm': [220, 220]})
     assert 'turned' in sizes and ' mm' in sizes and '220 x 220 mm' in sizes
@@ -391,8 +392,8 @@ def test_1648_one_tool_painted_plate_reserves_no_tower(tmp_path):
     manifest, decisions = _decisions(path)
     for row in decisions['choices'].values():
         row['slot'] = 1
-    view = model_job._per_part_view(manifest, decisions)
-    fit = model_job.painted_fit(path, view, _plates(path, manifest), 1.0, None)
+    view = jobs_slice._per_part_view(manifest, decisions)
+    fit = jobs_slice.painted_fit(path, view, _plates(path, manifest), 1.0, None)
     (row,) = fit['layouts'].values()
     assert fit['scale'] == 1.0 and row['tower_mm'] == 0.0
 

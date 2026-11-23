@@ -12,7 +12,7 @@ Or in a Matrix room: set `bot.platform` to `matrix` and follow
 [Matrix bot setup](MATRIX-BOT-SETUP.md). The Matrix bot is a pure bot with no LLM too; prompts are a
 numbered list answered by typing the number (Matrix has no buttons), and the room must be unencrypted.
 
-The bot's handlers live in one module: `print_handy.bot.router` loads `plugins/print-feedback` through its
+The bot's handlers live in one package: `print_handy.bot.router` loads `print_handy.bot.handlers` through its
 own `register()` hook and runs its handlers in order. Every safety gate applies: nothing heats, moves or
 starts without a button press from an allowed user, and the G-code guards and fit checks run on every print.
 
@@ -298,7 +298,7 @@ counters and the recent unmatched phrases). Nothing in this layer is transmitted
 
 | Piece | Where it lives |
 |---|---|
-| Dispatch handlers | `plugins/print-feedback` (the handler module); `print_handy.bot.router.Router` calls its `register()` and runs the handlers in order |
+| Dispatch handlers | `print_handy.bot.handlers` (one module per handler); `print_handy.bot.router.Router` calls its `register()` and runs the handlers in order |
 | Authorization, delivery adapter, session key | `print_handy.bot.runtime`: allowed user IDs plus the print channel; replies go to the same channel or thread; one session per person per channel |
 | Adapter `send` / `send_clarify` | The platform interface in `print_handy.bot.platform`: `send`, `send_clarify`, `answer_typed`, `close_prompt`, `is_allowed_id`, plus per-platform limits (`message_limit`, `upload_max_bytes`, `supports_buttons`, `max_buttons`). Discord's implementation is `print_handy.bot.adapter.StandaloneAdapter` over discord.py. `MEDIA:/path` becomes an attachment; long text is split at 2000 characters |
 | Question registry (register, wait, resolve, cancelled) | `print_handy.core.prompts`. The bot draws its own questions: they are posted from the bot's own registry, clicks and typed answers are resolved by the bot, and an answered question edits in place ("you chose X", buttons removed) |

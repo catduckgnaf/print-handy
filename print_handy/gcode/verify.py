@@ -1,7 +1,4 @@
 """Offline and live verification of a sliced G-code artifact.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names
-are still importable from there for one release.
 """
 import logging
 

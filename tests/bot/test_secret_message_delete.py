@@ -6,7 +6,6 @@ from types import SimpleNamespace as S
 
 from print_handy.bot import adapter as discord_adapter
 from print_handy.bot import matrix, platform
-from print_handy.bot.router import load_plugin
 
 
 def run(coro):
@@ -71,7 +70,7 @@ def test_matrix_redacts_the_event():
 
 
 def test_plugin_helper_uses_the_adapter_and_says_what_happened():
-    plugin = load_plugin()
+    from tests.handler_namespace import plugin
     sent = []
 
     class Good:
@@ -93,7 +92,7 @@ def test_plugin_helper_uses_the_adapter_and_says_what_happened():
 
 
 def test_plugin_helper_falls_back_to_the_hermes_discord_client():
-    plugin = load_plugin()
+    from tests.handler_namespace import plugin
     deleted = []
 
     class Partial:
@@ -115,7 +114,7 @@ def test_plugin_helper_falls_back_to_the_hermes_discord_client():
 
 def test_plugin_helper_deletes_when_delete_message_lives_only_on_host():
     """A wrapper with no delete_message of its own still removes the secret via _host."""
-    plugin = load_plugin()
+    from tests.handler_namespace import plugin
     deleted, sent = [], []
 
     class Host:
@@ -137,7 +136,7 @@ def test_plugin_helper_deletes_when_delete_message_lives_only_on_host():
 
 
 def test_a_failed_host_delete_keeps_the_note_and_does_not_log_the_secret():
-    plugin = load_plugin()
+    from tests.handler_namespace import plugin
     sent, records = [], []
     secret = "pasted-login-secret"
 

@@ -9,7 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import background_slice, geometry_layout, heavy_worker, model_job, orca_adapter, prepared_intake
+from print_handy.core import background_slice, geometry_layout, heavy_worker, orca_adapter
+from print_handy.intake import fit_flow as intake_fit_flow
+from print_handy.intake import worker as intake_worker
+from print_handy.jobs import slice as jobs_slice
 
 
 def _box_triangles(dx: float, dy: float, dz: float, offset=(0.0, 0.0, 0.0)):
@@ -298,23 +301,23 @@ def test_intake_fit_choice_rows_and_cli_layout_subcommand(tmp_path):
     assert probe['scale'] == 1.0
     assert probe['part_count'] == 6
 
-    rows = prepared_intake.fit_choice_rows({
+    rows = intake_fit_flow.fit_choice_rows({
         'rearrange_100': probe,
         'scales': [0.95],
         'rotations': [],
     })
     assert rows[0]['kind'] == 'rearrange'
     assert rows[0]['label'] == '100% · rearrange 1 plate'
-    assert prepared_intake._fit_choice_reply('rearrange', rows) == 0
-    assert prepared_intake._fit_choice_reply('100%', rows) == 0
+    assert intake_fit_flow._fit_choice_reply('rearrange', rows) == 0
+    assert intake_fit_flow._fit_choice_reply('100%', rows) == 0
 
     job = {'full_size_rearrange_plan': probe}
-    assert model_job.copies_supported(job) is False
+    assert jobs_slice.copies_supported(job) is False
     b1 = background_slice.slice_binding({}, 'abc')
     b2 = background_slice.slice_binding(job, 'abc')
     assert b1 != b2
     assert ('geometry_layout', 'arrange_and_export') in heavy_worker.ALLOWED
-    assert ('geometry_layout', 'arrange_and_export') in prepared_intake._OFFLOAD
+    assert ('geometry_layout', 'arrange_and_export') in intake_worker._OFFLOAD
 
     cli_out = tmp_path / 'cli_out'
     proc = subprocess.run(

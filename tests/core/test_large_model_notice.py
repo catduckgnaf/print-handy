@@ -1,6 +1,6 @@
 import zipfile
 
-from print_handy.core.prepared_intake import large_model_notice
+from print_handy.intake.fit_flow import large_model_notice
 
 
 def _3mf(path, mesh_bytes):

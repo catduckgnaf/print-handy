@@ -13,9 +13,11 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import model_job, prepared_intake, status_voice
+from print_handy.core import prepared_intake, status_voice
+from print_handy.intake import fit_flow as intake_fit_flow
 from .test_prepared_intake import Adapter, env, run_flow, run_preview  # noqa: F401  (pytest fixture)
 from .test_start_progress import ACCEPTED, UPLOADED, log as log_stage, run as run_start
+from tests.bound_names import setattr_bound
 
 LARGE = 'This is a large model (90 MB of mesh). Checking it takes about 2 minutes, so it is not stuck.'
 
@@ -40,12 +42,12 @@ def record_progress(monkeypatch):
         texts.append(text)
         return await with_stop(adapter, source, key, metadata, text, work, **kw)
     monkeypatch.setattr(prepared_intake, '_with_stop', recorded)
-    run = prepared_intake.FitStatus.run
+    run = intake_fit_flow.FitStatus.run
 
     async def recorded_run(self, phase, work, first_text=None, voice=None):
         phases.append((phase, first_text, voice() if voice else None))
         return await run(self, phase, work, first_text=first_text, voice=voice)
-    monkeypatch.setattr(prepared_intake.FitStatus, 'run', recorded_run)
+    monkeypatch.setattr(intake_fit_flow.FitStatus, 'run', recorded_run)
     return texts, phases
 
 
@@ -68,7 +70,7 @@ def test_link_preview_is_neutral_and_keeps_its_factual_acknowledgment(env, monke
 @pytest.mark.parametrize('speak', [True, False])
 def test_intake_progress_lines_carry_their_stage_quip(env, monkeypatch, speak):
     seed(monkeypatch, speak)
-    monkeypatch.setattr(prepared_intake, 'large_model_notice', lambda path: LARGE)
+    setattr_bound(monkeypatch, intake_fit_flow, 'large_model_notice', lambda path: LARGE)
     texts, phases = record_progress(monkeypatch)
     adapter, _result, _receipt = run_flow(env, [2, 0, 0])
 
@@ -88,7 +90,7 @@ def test_intake_progress_lines_carry_their_stage_quip(env, monkeypatch, speak):
 
 def test_progress_quip_keys_are_stable_per_intake_and_stage(env, monkeypatch):
     calls = seed(monkeypatch)
-    monkeypatch.setattr(prepared_intake, 'large_model_notice', lambda path: LARGE)
+    setattr_bound(monkeypatch, intake_fit_flow, 'large_model_notice', lambda path: LARGE)
     run_flow(env, [2, 0, 0])
     keys = {(stage, kwargs['event_key']) for stage, kwargs in calls}
     iid = next(key for stage, key in keys if stage == 'slice').rsplit(':', 1)[0]
@@ -112,10 +114,10 @@ class _Editing:
 
 
 def _fit_texts(monkeypatch, voice):
-    monkeypatch.setattr(prepared_intake, 'FIT_HEARTBEAT_S', 0.01)
-    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 0)
+    monkeypatch.setattr(intake_fit_flow, 'FIT_HEARTBEAT_S', 0.01)
+    monkeypatch.setattr(intake_fit_flow, 'FIT_QUIET_S', 0)
     adapter = _Editing()
-    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id=None, user_id='u'), {})
+    status = intake_fit_flow.FitStatus(adapter, S(chat_id='c1', thread_id=None, user_id='u'), {})
 
     async def work():
         await asyncio.sleep(0.05)

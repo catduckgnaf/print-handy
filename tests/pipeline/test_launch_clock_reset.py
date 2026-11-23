@@ -10,6 +10,7 @@ from unittest import mock
 import pytest
 
 from print_handy.core import launch_state
+from tests.bound_names import setattr_bound
 
 REMOTE = "Panel-A-Lower-V21_plate_1_ad4a.gcode.3mf"
 ZMOD_NAME = "3mf_print/Panel-A-Lower-V21_plate_1_ad4a.gcode"
@@ -90,13 +91,15 @@ def test_settling_never_depends_on_the_printer_clock(monkeypatch, offset, synced
     """Every combination of printer clock error and a clock sync between the run and the
     history read: the submission's own run settles its lease, an earlier same-file run never does."""
     from print_handy.core import model_job
+    from print_handy.jobs import common as jobs_common
+    from print_handy.launch import print_now as launch_print_now
     own = {"job_id": "000063", "filename": ZMOD_NAME, "start_time": HOST_START + offset}
     earlier = {"job_id": "00005f", "filename": ZMOD_NAME, "start_time": HOST_START - 3 * 86400 + offset}
-    monkeypatch.setattr(model_job, "_mr", lambda st, path, timeout=10: {"result": {"jobs": [own, earlier]}})
+    setattr_bound(monkeypatch, jobs_common, "_mr", lambda st, path, timeout=10: {"result": {"jobs": [own, earlier]}})
     skew = 0 if synced_before_read else -offset  # host minus printer
     monkeypatch.setattr(launch_state, "printer_clock_skew", lambda url, timeout=6: skew)
     monkeypatch.setattr(model_job.time, "time", lambda: HOST_START + 7200)
-    history = model_job._moonraker_started_files({"moonraker_url": "http://m"})
+    history = launch_print_now._moonraker_started_files({"moonraker_url": "http://m"})
     assert launch_state.reached_printer(row(), "", history, baseline=BASELINE)
     assert not launch_state.reached_printer(row(), "", [h for h in history if h[0] == "00005f"],
                                             baseline=BASELINE)

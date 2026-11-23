@@ -10,7 +10,12 @@ from unittest import mock
 import pytest
 
 from print_handy.core import model_job
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import cli as jobs_cli
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.flashforge.zmod import multicolor_contract as contract
+from tests.bound_names import patch_bound, setattr_bound
 
 
 def _state():
@@ -44,20 +49,20 @@ def _gcode(d):
 
 def _ready(stack):
     stack.enter_context(mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}))
-    stack.enter_context(mock.patch.object(model_job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")))
-    stack.enter_context(mock.patch.object(model_job, "live_snapshot", return_value={"slots": "unknown"}))
-    stack.enter_context(mock.patch.object(model_job, "mesh_readiness", return_value={"problem": None}))
+    stack.enter_context(patch_bound(launch_gates, "_printer_phase", return_value=("standby", "x.gcode", "Ready")))
+    stack.enter_context(mock.patch.object(launch_print_now, "live_snapshot", return_value={"slots": "unknown"}))
+    stack.enter_context(patch_bound(launch_gates, "mesh_readiness", return_value={"problem": None}))
 
 
 def test_print_now_reports_contract_refusal_as_one_line():
     with tempfile.TemporaryDirectory() as d, contextlib.ExitStack() as stack:
         _ready(stack)
-        stack.enter_context(mock.patch.object(model_job, "verify_gcode"))
+        stack.enter_context(patch_bound(gcode_verify, "verify_gcode"))
         stack.enter_context(mock.patch("print_handy.printers.flashforge.zmod.multicolor_contract.embedded_mapping", return_value={"0": {}}))
         stack.enter_context(mock.patch("print_handy.printers.flashforge.zmod.multicolor_contract.normalize_mapping",
                                        side_effect=RuntimeError("slot 2 spool changed since slicing (was 3, now 7);\n reslice or confirm")))
         with pytest.raises(SystemExit) as exc:
-            model_job.print_now(_gcode(d))
+            launch_print_now.print_now(_gcode(d))
     assert str(exc.value) == ("REFUSED: slot 2 spool changed since slicing (was 3, now 7); reslice or confirm. "
                               "Nothing uploaded or started.")
 
@@ -65,21 +70,21 @@ def test_print_now_reports_contract_refusal_as_one_line():
 def test_print_now_reports_verify_failure_as_refused():
     with tempfile.TemporaryDirectory() as d, contextlib.ExitStack() as stack:
         _ready(stack)
-        stack.enter_context(mock.patch.object(model_job, "verify_gcode", side_effect=RuntimeError("bad gcode")))
+        stack.enter_context(patch_bound(gcode_verify, "verify_gcode", side_effect=RuntimeError("bad gcode")))
         with pytest.raises(SystemExit, match="REFUSED: bad gcode. Nothing uploaded or started."):
-            model_job.print_now(_gcode(d))
+            launch_print_now.print_now(_gcode(d))
 
 
 def test_cli_flag_sets_the_confirmation_for_the_process(monkeypatch):
     monkeypatch.delenv("PRINT_ACCEPT_SPOOL_CHANGE", raising=False)
     seen = {}
-    monkeypatch.setattr(model_job, "print_now",
+    setattr_bound(monkeypatch, launch_print_now, "print_now",
                         lambda target, **kw: seen.update(env=os.environ.get("PRINT_ACCEPT_SPOOL_CHANGE")))
     monkeypatch.setattr("sys.argv", ["model_job", "print-now", "x.gcode", "--accept-spool-change"])
-    model_job.main()
+    jobs_cli.main()
     assert seen["env"] == "1"
     monkeypatch.delenv("PRINT_ACCEPT_SPOOL_CHANGE")
     seen.clear()
     monkeypatch.setattr("sys.argv", ["model_job", "print-now", "x.gcode"])
-    model_job.main()
+    jobs_cli.main()
     assert seen["env"] is None

@@ -22,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, source_colors
+from print_handy.core import orca_adapter, source_colors
+from print_handy.jobs import filament as jobs_filament
 
 from tests.corpus.make_models import box, t_shape, write_3mf
 
@@ -52,7 +53,7 @@ def decisions_for(source, state, slot_of):
     manifest = source_colors.inventory(source)
 
     def selection(slot):
-        return model_job.resolve_filament_selection(state, dict(state["filament_slots"][str(slot)], slot=slot))
+        return jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"][str(slot)], slot=slot))
 
     choices = {}
     for row in source_colors.canonical_prompts(manifest):

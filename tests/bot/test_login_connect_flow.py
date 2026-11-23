@@ -19,8 +19,11 @@ import asyncio
 from pathlib import Path
 from unittest import mock
 
-from print_handy.core import intake_resources, model_job, site_accounts
+from print_handy.core import intake_resources, site_accounts
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import sources as jobs_sources
 from .test_telegram import CHAT, USER, BotApiStub, _callback, cfg, make_core, run  # noqa: F401
+from tests.bound_names import setattr_bound
 
 LINK = 'https://www.nexprint.com/en/models/2076455756517335040'
 MODEL = {'code': 0, 'data': {
@@ -56,7 +59,7 @@ def _rig(tmp_path, monkeypatch, cfg, token):
     home.mkdir()
     monkeypatch.setenv('HOME', str(home))
     monkeypatch.delenv('NEXPRINT_TOKEN', raising=False)
-    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path/'archive')
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path/'archive')
     api_calls = []
     fetched = []
 
@@ -78,8 +81,8 @@ def _rig(tmp_path, monkeypatch, cfg, token):
 
     def stop_after_download(path, *a, **kw):
         raise Stopped(f'downloaded {Path(path).name}')
-    monkeypatch.setattr(model_job, '_web_api', fake_api)
-    monkeypatch.setattr(model_job, 'download', fake_download)
+    monkeypatch.setattr(jobs_sources, '_web_api', fake_api)
+    monkeypatch.setattr(jobs_sources, 'download', fake_download)
     monkeypatch.setattr(intake_resources, 'check_source', stop_after_download)
     stub = BotApiStub()
     client, core = make_core(cfg, stub)

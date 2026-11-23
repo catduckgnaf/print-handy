@@ -1,7 +1,7 @@
 """Printer control for Discord: resume a paused print, print the last job again, force restart.
 
-Backs the ``/print-resume``, ``/print-again`` and ``/print-reboot`` commands in the
-print-feedback plugin. Rules learned the hard way (2026-10-10 desk stand):
+Backs the ``/print-resume``, ``/print-again`` and ``/print-reboot`` chat commands.
+Rules learned the hard way (2026-10-10 desk stand):
 
 * A Moonraker resume only works while Klipper is ready and the job is paused.
   After an emergency stop Klipper is shut down; the only live recovery is the
@@ -1117,9 +1117,9 @@ def _record_printer_id(record: Path, archive: Path) -> str | None:
         job = json.loads(job_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    from ..core import model_job
+    from ..jobs import store as jobs_store
 
-    return str(model_job._job_printer_id(job))
+    return str(jobs_store._job_printer_id(job))
 
 
 def resolve_last_print(archive: Path | None = None, printer_id: str | None = None) -> dict[str, Any]:
@@ -1709,7 +1709,7 @@ def force_reboot(
 
     def default_native():
         from print_handy.core import printer_state
-        from print_handy.core.model_job import read_stock_detail
+        from ..jobs.filament import read_stock_detail
         return read_stock_detail(printer_state.load(printer_id))
 
     mr_read = moonraker_reader or default_mr

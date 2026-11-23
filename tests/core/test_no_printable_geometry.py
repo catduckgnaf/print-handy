@@ -7,7 +7,8 @@ import zipfile
 
 import pytest
 
-from print_handy.core import model_job
+from print_handy.jobs import audit as jobs_audit
+from print_handy.jobs import slice as jobs_slice
 
 MODEL = ('<?xml version="1.0" encoding="UTF-8"?>'
          '<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
@@ -18,7 +19,7 @@ def test_a_3mf_without_triangles_is_no_printable_volume(tmp_path):
     path = tmp_path / "empty.3mf"
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("3D/3dmodel.model", MODEL)
-    with pytest.raises(model_job.NoPrintableVolume, match="no printable geometry"):
-        model_job.model_info_output(path)
-    audit = model_job.audit(path)
+    with pytest.raises(jobs_slice.NoPrintableVolume, match="no printable geometry"):
+        jobs_slice.model_info_output(path)
+    audit = jobs_audit.audit(path)
     assert audit["no_printable_volume"] is True

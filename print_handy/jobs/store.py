@@ -1,8 +1,5 @@
 """Job records: reading and writing JOB.json, the job a G-code file belongs to, the printer
 and adapter a job targets, and the digests that bind a job's decisions.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import logging
 import contextvars
@@ -14,9 +11,7 @@ from ..core import launch_state, printer_state
 from .common import ARCHIVE
 from .filament import position_limit, validate_filament_selection
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.core.model_job")
+logger = logging.getLogger(__name__)
 
 
 def _timing(job_path, stage, at=None, **extra):

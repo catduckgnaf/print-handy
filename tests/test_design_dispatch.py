@@ -7,7 +7,6 @@ wait is patched to press the button each test chooses. Real-OpenSCAD
 turns are skipped where openscad/xvfb-run are absent.
 """
 import asyncio
-import importlib.util
 import shutil
 from pathlib import Path
 from types import SimpleNamespace as S
@@ -20,10 +19,7 @@ from print_handy.core import prompts as core_prompts
 from print_handy.runtime import _config
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_design", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 GOOD = ("plate_z = 3;\n$fn = 48;\ndifference() {\n"
         "  translate([-20, -10, 0]) cube([40, 20, plate_z]);\n"

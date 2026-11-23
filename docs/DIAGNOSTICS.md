@@ -587,7 +587,7 @@ ValueError, `NextPlateError`, `DesignError`).
    dead listener, and a doctor run on a host where listeners are
    legitimately stopped must not fail.
 6. **Stage 6 (done):** per-post audit of the Discord action handlers in
-   `plugins/print-feedback`; the generic failure posts (color selection,
+   `print_handy.bot.handlers` (then `plugins/print-feedback`); the generic failure posts (color selection,
    next plate, stop, resume, print again, restart, plate picker, alert
    buttons) now go through one helper that keeps the operator detail and
    the state/remedy note and appends the greppable `PH_*` reference

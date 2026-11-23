@@ -318,8 +318,8 @@ def for_printer(printer_id: str | None = None, *, adapter=None, view=None) -> Pr
 # each one and fails when it is missing, does not call the service, or reaches
 # a transport driver directly. A new entry point is added here and to the test.
 ENTRY_POINTS = (
-    # chat commands (the chat handlers serve Discord, Telegram, Matrix and Web UI chat;
-    # they moved from plugins/print-feedback into print_handy/bot/handlers, #1323)
+    # chat commands (the chat handlers in print_handy/bot/handlers serve Discord,
+    # Telegram, Matrix and Web UI chat)
     ("print_handy/bot/handlers/print_stop.py", "print_stop_dispatch"),
     ("print_handy/bot/handlers/print_status.py", "print_status_dispatch"),
     ("print_handy/bot/handlers/print_pause.py", "print_pause_dispatch"),

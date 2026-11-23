@@ -6,19 +6,16 @@ gateway)``. ``HANDLERS`` is the dispatch order: the first handler that
 answers wins. ``register(ctx)`` installs them on the bot's Router, which
 skips a command handler whose ``match`` fails without calling it.
 
-The handlers moved here from ``plugins/print-feedback/__init__.py`` so a
-wheel install has them. That file still loads the same handlers for one
-release. This package re-exports every name the plugin module had, and
-assignments to it (``mock.patch``, ``monkeypatch``) reach the handler that
-uses the name (``print_handy/_relocated.py``).
+Each name lives in its own module (``print_handy.bot.handlers.common``,
+``print_handy.bot.handlers.print_stop`` and so on); the package itself
+holds only the dispatch order and ``register``.
 """
 import importlib
-
-from ... import _relocated
 
 # Dependency order: shared code first, then each handler.
 _MODULES = (
     'common',
+    'fix',
     'model_link',
     'upload_wait',
     'print_again',
@@ -57,9 +54,10 @@ _MODULES = (
 )
 _homes = tuple(importlib.import_module(f"{__name__}.{name}") for name in _MODULES)
 
-# Dispatch order (the plugin's _DISPATCH_HOOKS).
+# Dispatch order: the first handler that answers wins.
 HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'guided',
+    'fix',
     'design',
     'maintenance',
     'coldpull',
@@ -103,13 +101,7 @@ _DISPATCH_HOOKS = tuple(module.handle for module in HANDLERS)
 _COMMAND_GATES = {module.handle: (module.match.command, module.match.with_args) for module in HANDLERS
                    if getattr(module.match, "with_args", None) is not None}
 
-_INTERFACE = {"match", "handle", "logger", "_LIVE_SESSION"}
-for _home in _homes:
-    for _name, _value in vars(_home).items():
-        if not _name.startswith("__") and _name not in _INTERFACE:
-            globals().setdefault(_name, _value)
-del _home, _name, _value
-logger = _homes[0].logger
+from .common import alert_button_handlers  # noqa: E402
 
 
 def register(ctx):
@@ -117,7 +109,4 @@ def register(ctx):
     for hook in _DISPATCH_HOOKS:
         ctx.register_hook('pre_gateway_dispatch', hook)
     if hasattr(ctx, 'register_platform_handler'):
-        ctx.register_platform_handler('discord', alert_button_handlers)  # noqa: F821
-
-
-_relocated.keep_old_path(__name__, *_homes, live=("_LIVE_SESSION",))
+        ctx.register_platform_handler('discord', alert_button_handlers)

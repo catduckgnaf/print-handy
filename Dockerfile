@@ -289,7 +289,7 @@ RUN set -e; cd /tmp/bounds-wheel && python -m zipfile -e *.whl x && \
 # of each worker spawn's imports, measured). COPY keeps the source mtimes
 # the .pyc files record, so they stay valid; a failed compile fails the
 # build rather than shipping a module that cannot import.
-RUN python -m compileall -q -j 0 /app/print_handy /app/plugins
+RUN python -m compileall -q -j 0 /app/print_handy
 # The pip install above ran against the staged skeleton, so site-packages holds
 # only a stub print_handy package; the real one is the /app working copy. Put
 # /app first on every interpreter's path so a process started from any working

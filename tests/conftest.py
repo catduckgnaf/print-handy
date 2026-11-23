@@ -45,6 +45,7 @@ for _name in CREDENTIAL_ENV:
 
 from print_handy import settings  # noqa: E402
 from print_handy.runtime import _config
+from tests.bound_names import setattr_bound
 
 _tmp = Path(tempfile.mkdtemp(prefix="3dp-test-state-"))
 os.environ.setdefault("PRINT_BOT_CANCEL_MARKER", str(_tmp / "last_bot_cancel.json"))
@@ -251,8 +252,8 @@ def _bed_clear_confirmed(request, monkeypatch):
         return
     import contextvars
 
-    from print_handy.core import model_job
-    monkeypatch.setattr(model_job, "_BED_CLEAR", contextvars.ContextVar("test_bed_clear", default=True))
+    from print_handy.launch import gates as launch_gates
+    setattr_bound(monkeypatch, launch_gates, "_BED_CLEAR", contextvars.ContextVar("test_bed_clear", default=True))
 
 
 def pytest_configure(config):
@@ -281,10 +282,10 @@ def _instant_start_confirmation(monkeypatch):
     Tests drive that window on a fake clock instead of sleeping; one that wants to assert on the clock
     patches _confirm_clock and _confirm_sleep itself, which wins over this default.
     """
-    from print_handy.core import model_job
+    from print_handy.launch import print_now as launch_print_now
     clock = _FakeStartClock()
-    monkeypatch.setattr(model_job, "_confirm_clock", clock)
-    monkeypatch.setattr(model_job, "_confirm_sleep", clock.sleep)
+    monkeypatch.setattr(launch_print_now, "_confirm_clock", clock)
+    monkeypatch.setattr(launch_print_now, "_confirm_sleep", clock.sleep)
     return clock
 
 

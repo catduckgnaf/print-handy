@@ -18,7 +18,7 @@ ROOT = settings.ROOT
 def test_payload_setup_outside_checkout_without_source_masking(tmp_path):
     payload = tmp_path / "payload"
     payload.mkdir()
-    for name in ("print_handy", "plugins", "config"):
+    for name in ("print_handy", "config"):
         shutil.copytree(ROOT / name, payload / name,
                         ignore=shutil.ignore_patterns("__pycache__", "local.*", "after-update.sh"))
     env = {k: v for k, v in os.environ.items()
@@ -41,10 +41,10 @@ def audit(event, args):
         raise AssertionError('network forbidden')
 sys.addaudithook(audit)
 from print_handy.bot.__main__ import check
-from print_handy.bot.router import PLUGIN
+from print_handy.bot.router import load_plugin
 from print_handy import settings
 assert check() == 0
-print('PAYLOAD ' + json.dumps({'root': str(settings.ROOT), 'plugin': str(PLUGIN)}))
+print('PAYLOAD ' + json.dumps({'root': str(settings.ROOT), 'plugin': str(load_plugin().__file__)}))
 """
     result = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
                             capture_output=True, text=True, timeout=60)
@@ -52,7 +52,7 @@ print('PAYLOAD ' + json.dumps({'root': str(settings.ROOT), 'plugin': str(PLUGIN)
     report = json.loads(next(line[8:] for line in result.stdout.splitlines() if line.startswith("PAYLOAD ")))
     assert report["root"] == str(payload)
     assert report["plugin"].startswith(str(payload))
-    assert "ok    handlers: 36" in result.stdout
+    assert "ok    handlers: 37" in result.stdout
 
 
 def test_no_orca_fit_refuses_without_an_artifact(tmp_path):

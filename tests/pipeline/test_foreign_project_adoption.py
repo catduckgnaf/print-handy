@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from print_handy.core import model_job, orca_adapter, source_colors
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_single_color_plate
 from tests.corpus.make_models import box, write_3mf
 
@@ -62,7 +63,7 @@ def foreign_source(path, project=FOREIGN):
 def derived_plate(tmp_path, source):
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    white = model_job.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
     decisions = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
                  "choices": {row["key"]: white for row in source_colors.canonical_prompts(manifest)}}
     keys = [part["key"] for part in manifest["parts"] if part["source_extruder"] == 1]

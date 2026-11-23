@@ -196,9 +196,10 @@ def test_download_stops_before_filling_the_disk(tmp_path):
 
 def test_non_archive_3mf_fails_cleanly(tmp_path):
     """A .3mf that is not a zip is rejected by the zip parser, not by a byte-size cap. (#1824)"""
-    from print_handy.core import model_job, source_colors, geometry_layout
+    from print_handy.core import source_colors, geometry_layout
+    from print_handy.jobs import audit as jobs_audit
     source = tmp_path / 'notazip.3mf'
     source.write_bytes(b'not even a zip')
-    for entry in (model_job.audit, source_colors.inventory, geometry_layout.load_parts):
+    for entry in (jobs_audit.audit, source_colors.inventory, geometry_layout.load_parts):
         with pytest.raises(zipfile.BadZipFile):
             entry(source)

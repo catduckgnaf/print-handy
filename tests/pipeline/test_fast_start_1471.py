@@ -13,11 +13,14 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy.core import model_job
+from print_handy.jobs import common as jobs_common
+from print_handy.launch import gates as launch_gates
 from print_handy.launch import print_now
 
 from .test_launch_state import leases, make_job, mapped, uploads  # noqa: F401  (mapped is a fixture)
+from tests.bound_names import setattr_bound
 
-REAL_WAIT_PRINTING = model_job._wait_printing
+REAL_WAIT_PRINTING = print_now._wait_printing
 
 
 def timing_stages(job_path):
@@ -29,7 +32,7 @@ def timing_stages(job_path):
 
 def held_open_post(mapped, exc):
     """Replace the mapped fixture's transport: the SET_ZCOLOR POST raises `exc`."""
-    original = model_job._mr.side_effect
+    original = jobs_common._mr.side_effect
     posts = []
 
     def mr(st, path, data=None, timeout=30):
@@ -38,7 +41,7 @@ def held_open_post(mapped, exc):
             raise exc
         return original(st, path, data=data, timeout=timeout)
 
-    model_job._mr.side_effect = mr
+    jobs_common._mr.side_effect = mr
     return posts
 
 
@@ -47,8 +50,8 @@ def test_held_open_start_is_not_a_lost_response(mapped):
     job = json.loads(jp.read_text())
     posts = held_open_post(mapped, TimeoutError("timed out"))
     # The heaters come on once the start is out (the pre-POST reads see them off).
-    model_job._preparation_evidence.side_effect = lambda st: bool(posts)
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    print_now._preparation_evidence.side_effect = lambda st: bool(posts)
+    out = print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["phase"] == "preparing" and out["accepted"] is True
     assert out["start_response"] == "held_open"
     # One POST, sent with the short held-open timeout, never resent.
@@ -58,15 +61,15 @@ def test_held_open_start_is_not_a_lost_response(mapped):
     assert "start_submitted" in stages and "start_response_lost" not in stages
     # Provisional, exactly as an answered preparing start: lease uncertain, claim held.
     assert any(row["phase"] == "uncertain" for row in leases())
-    assert model_job._read_claims() != {}
+    assert print_now._read_claims() != {}
 
 
 def test_held_open_confirmed_printing_keeps_the_duplicate_guard(mapped):
     jp, g = make_job(mapped.root, "held-printing")
     job = json.loads(jp.read_text())
     posts = held_open_post(mapped, TimeoutError("timed out"))
-    with mock.patch.object(model_job, "_wait_printing", lambda *a, **k: "printing"):
-        out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    with mock.patch.object(print_now, "_wait_printing", lambda *a, **k: "printing"):
+        out = print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["phase"] == "executing" and out["started"] is True and len(posts) == 1
     # The response never arrived, so the duplicate guard holds until the printer's
     # history settles it — the lost-response rule — even though the readback
@@ -81,8 +84,8 @@ def test_held_open_heating_without_a_proven_off_baseline_is_not_credited(mapped)
     job = json.loads(jp.read_text())
     posts = held_open_post(mapped, TimeoutError("timed out"))
     # Unreadable before the POST (no baseline proven), on after it.
-    model_job._preparation_evidence.side_effect = lambda st: True if posts else None
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    print_now._preparation_evidence.side_effect = lambda st: True if posts else None
+    out = print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["phase"] == "preparing_or_unresolved" and out["accepted"] is False
     assert [row["phase"] for row in leases()] == ["uncertain"] and len(posts) == 1
 
@@ -91,7 +94,7 @@ def test_a_reset_start_post_is_still_a_lost_response(mapped):
     jp, g = make_job(mapped.root, "reset")
     job = json.loads(jp.read_text())
     posts = held_open_post(mapped, ConnectionResetError("reset"))
-    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    out = print_now.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert out["phase"] == "preparing_or_unresolved" and out["accepted"] is False
     assert len(posts) == 1  # never resubmitted
     stages = timing_stages(jp)
@@ -114,7 +117,7 @@ def test_wait_printing_records_preparation_seen_once(tmp_path, monkeypatch):
     clock = iter(range(0, 60))
     monkeypatch.setattr(model_job.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(model_job.time, "sleep", lambda s: None)
-    monkeypatch.setattr(model_job, "_printer_phase", lambda st: ("standby", "", "Ready"))
+    setattr_bound(monkeypatch, launch_gates, "_printer_phase", lambda st: ("standby", "", "Ready"))
     assert REAL_WAIT_PRINTING({}, "x.gcode", 30, prep_check=lambda st: True, job_path=jp) == "standby"
     assert timing_stages(jp) == ["preparation_seen"]
 
@@ -125,7 +128,7 @@ def test_wait_printing_without_preparation_records_no_stage(tmp_path, monkeypatc
     clock = iter(range(0, 60))
     monkeypatch.setattr(model_job.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(model_job.time, "sleep", lambda s: None)
-    monkeypatch.setattr(model_job, "_printer_phase", lambda st: ("standby", "", "Ready"))
+    setattr_bound(monkeypatch, launch_gates, "_printer_phase", lambda st: ("standby", "", "Ready"))
     assert REAL_WAIT_PRINTING({}, "x.gcode", 30, prep_check=lambda st: False, job_path=jp) == "standby"
     assert timing_stages(jp) == []
 

@@ -23,7 +23,7 @@ import random
 
 import pytest
 
-from print_handy.core import model_job
+from print_handy.gcode import bounds as gcode_bounds
 
 SEEDS = list(range(40))
 
@@ -45,9 +45,9 @@ def _native_module():
 @pytest.fixture(autouse=True)
 def _reset_native_state(monkeypatch):
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "auto")
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
     yield
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
 
 
 def _number(rng):
@@ -101,16 +101,16 @@ def generated_wild(rng):
 @pytest.mark.parametrize('seed', SEEDS)
 def test_generated_valid_gcode_agrees_on_python_and_dispatcher(seed):
     text = generated_valid(random.Random(40_000 + seed))
-    expected = _outcome(model_job._gcode_motion_bounds_python, text)
+    expected = _outcome(gcode_bounds._gcode_motion_bounds_python, text)
     assert expected[0] == 'ok', f'seed {seed}: the valid generator produced a refusal: {expected}'
-    assert _outcome(model_job.gcode_motion_bounds, text) == expected
+    assert _outcome(gcode_bounds.gcode_motion_bounds, text) == expected
 
 
 @pytest.mark.parametrize('seed', SEEDS)
 def test_generated_wild_gcode_agrees_on_python_and_dispatcher(seed):
     text = generated_wild(random.Random(50_000 + seed))
-    expected = _outcome(model_job._gcode_motion_bounds_python, text)
-    assert _outcome(model_job.gcode_motion_bounds, text) == expected, f'seed {seed}: {text!r}'
+    expected = _outcome(gcode_bounds._gcode_motion_bounds_python, text)
+    assert _outcome(gcode_bounds.gcode_motion_bounds, text) == expected, f'seed {seed}: {text!r}'
 
 
 @pytest.mark.parametrize('seed', SEEDS)
@@ -123,16 +123,16 @@ def test_generated_gcode_agrees_on_native_when_built(seed):
         if not text.isascii():
             pytest.skip("non-ASCII generated cases are Python-path by design (ASCII gate)")
         assert _outcome(module.parse_bounds, text) == \
-            _outcome(model_job._gcode_motion_bounds_python, text), f'seed {seed}: {text!r}'
+            _outcome(gcode_bounds._gcode_motion_bounds_python, text), f'seed {seed}: {text!r}'
 
 
 def test_generated_corpus_exercises_both_outcomes():
     """Guard the generator itself: the wild corpus must contain real bounds
     and real refusals, or the differentials above prove nothing."""
-    outcomes = [_outcome(model_job._gcode_motion_bounds_python,
+    outcomes = [_outcome(gcode_bounds._gcode_motion_bounds_python,
                          generated_wild(random.Random(50_000 + seed))) for seed in SEEDS]
     assert any(status == 'ok' for status, _ in outcomes)
     assert any(status == 'raise' for status, _ in outcomes)
-    valid = [_outcome(model_job._gcode_motion_bounds_python,
+    valid = [_outcome(gcode_bounds._gcode_motion_bounds_python,
                       generated_valid(random.Random(40_000 + seed))) for seed in SEEDS]
     assert all(status == 'ok' for status, _ in valid)

@@ -1,7 +1,7 @@
 """Stop/pause alerts with Resume and Cancel buttons for #3d-printer.
 
 The listener posts the alert (Discord REST, bot token) and records a short alert id.
-The print-feedback gateway plugin receives the button click and calls ``handle_click``.
+The chat handlers receive the button click and calls ``handle_click``.
 Every action re-reads the printer first and refuses when the state no longer matches.
 """
 from __future__ import annotations

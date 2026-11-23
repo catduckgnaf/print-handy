@@ -1,7 +1,7 @@
 """Drive a corpus model through the Discord intake, with a fake Discord.
 
 A case is a folder with one supported model file (`.3mf` or `.stl`) and case.toml. The direct
-driver loads the real print-feedback module and calls its model_link_dispatch hook with a
+driver calls model_link_dispatch from print_handy.bot.handlers with a
 dropped-file event; the standalone driver posts the file to the real bot (print_handy.bot).
 The fake adapter answers every button question from the case's [[click]] rules. Nothing contacts
 Moonraker, Spoolman or a printer: the start step runs the real print_next gates against a stub
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import importlib.util
 import json
 import os
 import re
@@ -41,7 +40,6 @@ from . import printer_overrides
 
 CORPUS = Path(__file__).resolve().parent
 CASES = CORPUS / "cases"
-PLUGIN = settings.ROOT / "plugins" / "print-feedback" / "__init__.py"
 WORK = settings.ROOT / ".slicer-work"
 FIXTURE_STATE = settings.ROOT / "tests" / "pipeline" / "fixtures" / "printer_hardware.json"
 SUPPORT_FEATURE = re.compile(r"^;\s*(?:FEATURE|TYPE):\s*Support", re.I | re.M)
@@ -229,10 +227,14 @@ class FakeAdapter:
 
 
 def load_plugin(name="corpus_print_feedback"):
-    spec = importlib.util.spec_from_file_location(name, PLUGIN)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """The model-link handler and the state directory it writes receipts under.
+
+    Both live in print_handy.bot.handlers. ``name`` is unused; callers still pass a label.
+    """
+    from print_handy.bot.handlers import register
+    from print_handy.bot.handlers.common import _state_dir
+    from print_handy.bot.handlers.model_link import model_link_dispatch
+    return S(model_link_dispatch=model_link_dispatch, _state_dir=_state_dir, register=register)
 
 
 def drop_event(model, case_name, message_id="corpus-message-1"):
@@ -443,7 +445,14 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
     spoolman_calls_built = len(spoolman.calls) if spoolman else 0
     entry = getattr(case, "entry", None) or {}
     from print_handy.core import background_slice, model_job, orca_adapter, prepared_intake, printer_state, source_colors
+    from print_handy.gcode import bounds as gcode_bounds
+    from print_handy.gcode import verify as gcode_verify
+    from print_handy.intake import worker as intake_worker
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import store as jobs_store
+    from print_handy.launch import print_now as launch_print_now
     from print_handy.runtime import _config, print_next, print_records
+    from tests.bound_names import patch_bound
 
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
@@ -491,11 +500,11 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         # verify_gcode asks Moonraker for the display mode. The offline check is the same minus that.
         # The stub takes verify_gcode's current arguments (adapter/state/printer_id)
         # and verifies against the state the caller resolved for the job's printer.
-        return model_job.verify_gcode_offline(
+        return gcode_verify.verify_gcode_offline(
             out, state if state is not None else printer_state.load(), adapter=adapter)
 
     def find_job(filename, *args):
-        path = sorted(Path(model_job.ARCHIVE).rglob("JOB.json"))[-1]
+        path = sorted(Path(jobs_common.ARCHIVE).rglob("JOB.json"))[-1]
         return json.loads(path.read_text()), {"gcode": str(filename), "plate": 1, "parts": [case.name],
                                               "slot": 1, "color": "white", "material": "PLA",
                                               "filament_g": None, "seconds": 3600}
@@ -513,19 +522,19 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
               lambda path=None: Path(path) if path is not None else work / "state" / "color_mappings.json")
         archive = (WORK / f"{case.name}-{uuid.uuid4().hex[:8]}") if real_slicer else work / "archive"
         archive.mkdir(parents=True, exist_ok=True)
-        patch(model_job, "ARCHIVE", archive)
+        enter(patch_bound(jobs_common, "ARCHIVE", archive))
         if entry.get("kind") == "print-next":
             # resolve_next checks the plan's job against print_next.ARCHIVE, a module constant
             # bound from config at import time; in the corpus it must be the same patched
             # archive model_job gets, or every plan reads as foreign.
             patch(print_next, "ARCHIVE", archive)
         patch(print_records, "PLANS_DIR", work / "plans")
-        patch(model_job, "START_CLAIMS", work / "claims.json")
-        patch(model_job, "CONTEXT", work / "context.json")
-        patch(model_job, "BOUNDS_CACHE", work / "bounds-cache")
-        patch(prepared_intake, "_heavy", thread_heavy)
+        patch(launch_print_now, "START_CLAIMS", work / "claims.json")
+        enter(patch_bound(jobs_store, "CONTEXT", work / "context.json"))
+        patch(gcode_bounds, "BOUNDS_CACHE", work / "bounds-cache")
+        enter(patch_bound(intake_worker, "_heavy", thread_heavy))
         patch(background_slice.BackgroundSlice, "start", observe_slice_start)
-        patch(model_job, "verify_gcode", offline_verify)
+        enter(patch_bound(gcode_verify, "verify_gcode", offline_verify))
         # The already-verified shortcut in _verify_routed still asks the printer (#1373): the
         # mock tier has none, so a re-slice of identical bytes failed with "the printer could
         # not be reached". Offline, the live check is the same no-op the offline verify is.
@@ -540,7 +549,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         patch(purge, "refresh_best_effort", lambda *a, **kw: {})
         # The first confirmation card's spool-remap note reads the ZMod version
         # the same fail-soft way (P2-242); model it unavailable too.
-        patch(model_job, "_zmod_version", lambda st: None)
+        patch(launch_print_now, "_zmod_version", lambda st: None)
         patch(print_next, "start", start)
         patch(prepared_intake.print_summary, "find_job", find_job)
         patch(prepared_intake._external.load("moonraker_event_listener"), "generate_roast", lambda *a, **kw: "")
@@ -774,8 +783,8 @@ def gcode_checks(run):
 
 
 def model_job_verify(path, state):
-    from print_handy.core import model_job
-    return model_job.verify_gcode_offline(path, state)
+    from print_handy.gcode import verify as gcode_verify
+    return gcode_verify.verify_gcode_offline(path, state)
 
 
 def check_refusal(case, run):

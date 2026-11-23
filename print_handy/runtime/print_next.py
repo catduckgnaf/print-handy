@@ -1,7 +1,6 @@
 """Resolve and start the next required plate of a multipart plan.
 
-Used by the ``/print-next <plan_id>`` Discord command in the print-feedback
-plugin. Resolution is exact: the plan part must record the archived
+Used by the ``/print-next <plan_id>`` chat command. Resolution is exact: the plan part must record the archived
 ``job_json`` and absolute ``gcode_path`` written when the plate was sliced.
 Bare filenames are never searched for, because names like ``plate_1.gcode``
 repeat across jobs and a guess could start the wrong plate.
@@ -402,7 +401,7 @@ def live_idle_check(printer_id: str | None = None) -> None:
     """
     from print_handy import printers
     from print_handy.core import printer_state
-    from print_handy.core.model_job import _printer_phase
+    from ..launch.gates import _printer_phase
 
     if printer_id:
         from print_handy import settings

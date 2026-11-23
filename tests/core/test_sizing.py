@@ -4,6 +4,7 @@ import unittest
 from print_handy.core import orca_adapter as oa
 from print_handy.core import quantity_selection as qs
 import math
+from tests.bound_names import patch_bound
 
 
 class FeatureClearanceTests(unittest.TestCase):
@@ -52,7 +53,7 @@ class FeatureClearanceTests(unittest.TestCase):
         self.assertIsNone(capacity.call_args.kwargs['brim_policy'])
 
     def test_fit_question_names_part_extent_options_and_future_cut_issue(self):
-        from print_handy.core.prepared_intake import fit_question
+        from print_handy.intake.fit_flow import fit_question
         text = fit_question('Model', {'scales': [0.95], 'parts': [{'name': 'Stand', 'extent_mm': [130, 230, 30],
                              'orientations_checked': ['authored XY', 'best yaw 90°']} ]})
         self.assertIn('Stand (130 × 230 × 30 mm)', text)
@@ -61,7 +62,7 @@ class FeatureClearanceTests(unittest.TestCase):
         self.assertNotIn('issues/83', text)  # no GitHub links or option essays in chat
 
     def test_fit_question_explains_an_individually_oversized_part(self):
-        from print_handy.core.prepared_intake import fit_question
+        from print_handy.intake.fit_flow import fit_question
         text = fit_question('Model', {'scales': [0.956], 'parts': [{
             'name': 'Stand', 'extent_mm': [130, 230, 30], 'fits_full_size': False,
             'blocking_reason': 'footprint 130 x 230 mm exceeds the usable 204 x 204 mm bed '
@@ -72,7 +73,7 @@ class FeatureClearanceTests(unittest.TestCase):
         self.assertIn('95.6%', text)  # shrink stays a separate, labelled option
 
     def test_fit_question_does_not_call_a_yaw_fitting_part_blocking(self):
-        from print_handy.core.prepared_intake import fit_question
+        from print_handy.intake.fit_flow import fit_question
         text = fit_question('Model', {'scales': [], 'parts': [{
             'name': 'Rail', 'extent_mm': [230, 50, 20], 'fits_full_size': True,
             'blocking_reason': None}]})
@@ -80,7 +81,7 @@ class FeatureClearanceTests(unittest.TestCase):
         self.assertNotIn('does not shrink this part', text)
 
     def test_painted_scale_search_uses_small_coarse_ladder(self):
-        from print_handy.core.model_job import PAINTED_SCALE_STEPS
+        from print_handy.jobs.slice import PAINTED_SCALE_STEPS
         self.assertLessEqual(len(PAINTED_SCALE_STEPS), 12)
         self.assertEqual(PAINTED_SCALE_STEPS[0], 1.0)
         self.assertEqual(PAINTED_SCALE_STEPS[-1], 0.5)
@@ -90,22 +91,23 @@ class FeatureClearanceTests(unittest.TestCase):
         # scales (99%, 105%); the painted fit must try that exact size
         # first, not snap to the nearest ladder step below it.
         from unittest.mock import patch
-        from print_handy.core import color_geometry, model_job as mj
+        from print_handy.core import color_geometry
+        from print_handy.jobs import slice as jobs_slice
 
         def fake_export(base):
             def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
                 return None, {'parts': [{'bounds_mm': [[0, base * scale], [0, 10], [0, 10]]}]}
             return export
 
-        limit = mj.BED_LIMIT_MM
+        limit = jobs_slice.BED_LIMIT_MM
         with patch.object(color_geometry, 'export_color_geometry', fake_export(limit)):
             # 99% fits as-is: the exact ceiling wins over the 95% ladder step.
-            self.assertEqual(mj.painted_plate_scale('src', None, {'1'}, ceiling=0.99), 0.99)
+            self.assertEqual(jobs_slice.painted_plate_scale('src', None, {'1'}, ceiling=0.99), 0.99)
             # Below the ladder floor the exact ceiling is still tried.
-            self.assertEqual(mj.painted_plate_scale('src', None, {'1'}, ceiling=0.4), 0.4)
+            self.assertEqual(jobs_slice.painted_plate_scale('src', None, {'1'}, ceiling=0.4), 0.4)
         with patch.object(color_geometry, 'export_color_geometry', fake_export(limit / 0.97)):
             # 99% does not fit but 95% does: the ladder fallback still applies.
-            self.assertEqual(mj.painted_plate_scale('src', None, {'1'}, ceiling=0.99), 0.95)
+            self.assertEqual(jobs_slice.painted_plate_scale('src', None, {'1'}, ceiling=0.99), 0.95)
 
     def test_largest_fitting_scale_searches_below_the_refused_ceiling(self):
         from unittest.mock import patch
@@ -337,12 +339,11 @@ class MultiPlateFitFailureTests(unittest.TestCase):
     def test_uninspectable_multi_plate_raises_instead_of_reporting_one_copy(self):
         import tempfile
         from pathlib import Path
-        from unittest import mock
-        from print_handy.core import model_job as mj
+        from print_handy.jobs import slice as jobs_slice
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / 'broken.3mf'
             source.write_bytes(b'not a zip')
-            with mock.patch.object(mj, 'plate_manifest', return_value={'plates': [{'object_ids': [1]}]}):
+            with patch_bound(jobs_slice, 'plate_manifest', return_value={'plates': [{'object_ids': [1]}]}):
                 with self.assertRaises(RuntimeError):
                     oa._multi_plate_capacity(source, {'bed_mm': [220, 220], 'max_print_height_mm': 220})
 
@@ -366,14 +367,15 @@ class TestScaleSearches(unittest.TestCase):
 
     def test_painted_fit_reports_the_blocking_plate_layout(self):
         from unittest.mock import patch
-        from print_handy.core import color_geometry, model_job as mj
+        from print_handy.core import color_geometry
+        from print_handy.jobs import slice as jobs_slice
 
         def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
             return None, {'parts': [{'bounds_mm': [[0, 500 * scale], [0, 100 * scale], [0, 10]]}],
                           'build_bounds_mm': [(0.0, 500 * scale), (0.0, 100 * scale), (0.0, 10.0)]}
 
         with patch.object(color_geometry, 'export_color_geometry', export):
-            fit = mj.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
+            fit = jobs_slice.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
         self.assertIsNone(fit['scale'])
         # Measured at the 50% floor: the size that still did not fit.
         self.assertEqual(fit['blocking_layout']['extent_mm'], [250.0, 50.0])
@@ -382,7 +384,8 @@ class TestScaleSearches(unittest.TestCase):
 
     def test_painted_fit_layout_is_measured_without_a_fitting_tower(self):
         from unittest.mock import patch
-        from print_handy.core import color_geometry, model_job as mj
+        from print_handy.core import color_geometry
+        from print_handy.jobs import slice as jobs_slice
 
         def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
             # The real export raises when no prime tower position clears
@@ -394,7 +397,7 @@ class TestScaleSearches(unittest.TestCase):
                           'build_bounds_mm': [(0.0, 500 * scale), (0.0, 100 * scale), (0.0, 10.0)]}
 
         with patch.object(color_geometry, 'export_color_geometry', export):
-            fit = mj.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
+            fit = jobs_slice.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
         self.assertIsNone(fit['scale'])
         # The tower-blocked no-fit case still reports its measured extent
         # and the tower size it could not place.
@@ -403,12 +406,13 @@ class TestScaleSearches(unittest.TestCase):
 
     def test_painted_fit_without_a_measurable_layout_omits_it(self):
         from unittest.mock import patch
-        from print_handy.core import color_geometry, model_job as mj
+        from print_handy.core import color_geometry
+        from print_handy.jobs import slice as jobs_slice
 
         def broken(src, out, view, object_ids=None, scale=1.0, tower_mm=None, **kw):
             raise RuntimeError('mesh parse exploded')
 
         with patch.object(color_geometry, 'export_color_geometry', broken):
-            fit = mj.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
+            fit = jobs_slice.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
         self.assertIsNone(fit['scale'])
         self.assertNotIn('blocking_layout', fit)

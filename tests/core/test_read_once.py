@@ -3,7 +3,7 @@ import hashlib
 
 import pytest
 
-from print_handy.core import model_job as mj
+from print_handy.gcode import artifact as gcode_artifact
 
 SAMPLES = [
     b"; plain\nG1 X1 Y2\n",
@@ -19,9 +19,9 @@ SAMPLES = [
 def test_decoding_the_bytes_matches_read_text(tmp_path, raw):
     path = tmp_path / "plate.gcode"
     path.write_bytes(raw)
-    assert mj._text_like_read_text(raw) == path.read_text()
-    assert mj._text_like_read_text(raw, "ignore") == path.read_text(errors="ignore")
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == mj.file_sha256(path)
+    assert gcode_artifact._text_like_read_text(raw) == path.read_text()
+    assert gcode_artifact._text_like_read_text(raw, "ignore") == path.read_text(errors="ignore")
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == gcode_artifact.file_sha256(path)
 
 
 def test_undecodable_bytes_still_fail_like_read_text(tmp_path):
@@ -32,7 +32,7 @@ def test_undecodable_bytes_still_fail_like_read_text(tmp_path):
         expected = path.read_text()
     except UnicodeDecodeError:
         with pytest.raises(UnicodeDecodeError):
-            mj._text_like_read_text(raw)
+            gcode_artifact._text_like_read_text(raw)
     else:  # a locale codec that maps every byte
-        assert mj._text_like_read_text(raw) == expected
-    assert mj._text_like_read_text(raw, "ignore") == path.read_text(errors="ignore")
+        assert gcode_artifact._text_like_read_text(raw) == expected
+    assert gcode_artifact._text_like_read_text(raw, "ignore") == path.read_text(errors="ignore")

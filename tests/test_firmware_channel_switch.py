@@ -11,7 +11,6 @@ moonraker.conf ZMod owns, and for a channel the component's type does
 not accept.
 """
 import asyncio
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
@@ -26,10 +25,7 @@ from print_handy.runtime import spool_sync
 from print_handy.webui import channel_jobs, firmware_handlers, firmware_page
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_channel", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def entry(key):

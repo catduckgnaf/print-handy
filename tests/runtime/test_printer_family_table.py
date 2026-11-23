@@ -20,6 +20,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job, start_truth
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import family_control
 from print_handy.runtime import print_alert_buttons as pab
 
@@ -100,11 +101,11 @@ def _polled_verdict(connection, raw):
     model, _build, _read, remote, truth = FAMILIES[connection]
     adapter = _adapter(model)
     # An empty (unreadable) baseline: only the read itself decides.
-    poll = model_job._poll_start_confirmation(lambda: adapter.normalize_status(raw), remote, window_s=0,
+    poll = launch_print_now._poll_start_confirmation(lambda: adapter.normalize_status(raw), remote, window_s=0,
                                               truth=lambda live, rem: truth(live, rem, {}))
     lease = FakeLease()
-    with mock.patch.object(model_job, "release_start_announcement"):
-        out = model_job._settle_polled_start(lease, poll, remote, method=connection)
+    with mock.patch.object(launch_print_now, "release_start_announcement"):
+        out = launch_print_now._settle_polled_start(lease, poll, remote, method=connection)
     return out, lease.calls
 
 

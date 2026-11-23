@@ -7,7 +7,8 @@ import sys
 import pytest
 
 from print_handy import diagnostics
-from print_handy.core import owned_worker, prepared_intake, slice_failure, worker_errors
+from print_handy.core import owned_worker, slice_failure, worker_errors
+from print_handy.intake import worker as intake_worker
 from print_handy.core.resources import ResourceLimitError
 from print_handy.core.slice_refusal import unconfirmed_slot_color
 
@@ -56,12 +57,12 @@ def test_real_child_process_error_reaches_parent_heavy_boundary(monkeypatch, tmp
     # Only the slice function is replaced; the transport, JSON and parent decoder
     # are real. No printer, external download or installed slicer is needed.
     script = f'''import runpy, subprocess
-from print_handy.core import model_job
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core.resources import ResourceLimitError
 from print_handy.core.slice_failure import SliceFailure
 def fail(*args, **kwargs):
     raise {error_code}
-model_job.slice_job = fail
+jobs_slice.slice_job = fail
 runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
 '''
     real_run = owned_worker.run
@@ -70,9 +71,9 @@ runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
         return await real_run([sys.executable, '-c', script], payload, **kwargs)
 
     monkeypatch.setattr(owned_worker, 'run', child)
-    from print_handy.core import model_job
+    from print_handy.jobs import slice as jobs_slice
     with pytest.raises(RuntimeError) as info:
-        asyncio.run(prepared_intake._heavy(model_job.slice_job, str(tmp_path / 'JOB.json')))
+        asyncio.run(intake_worker._heavy(jobs_slice.slice_job, str(tmp_path / 'JOB.json')))
     assert diagnostics.classify(info.value).value == category
     post = slice_failure.post(info.value)
     assert phrase in post and 'SECRET' not in post
@@ -180,10 +181,10 @@ def test_unexplained_worker_error_logs_child_traceback_but_not_in_chat(monkeypat
     # A real child raises a plain bug (the P2-282 shape). The parent log must
     # name the child's failing frame, or the operator sees only the message.
     script = '''import runpy
-from print_handy.core import model_job
+from print_handy.jobs import slice as jobs_slice
 def failing_build_item_edit(*args, **kwargs):
     None.group(1)
-model_job.slice_job = failing_build_item_edit
+jobs_slice.slice_job = failing_build_item_edit
 runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
 '''
     real_run = owned_worker.run
@@ -192,10 +193,10 @@ runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
         return await real_run([sys.executable, '-c', script], payload, **kwargs)
 
     monkeypatch.setattr(owned_worker, 'run', child)
-    from print_handy.core import model_job
-    with caplog.at_level('ERROR', logger='print_handy.core.prepared_intake'):
+    from print_handy.jobs import slice as jobs_slice
+    with caplog.at_level('ERROR', logger='print_handy.intake.worker'):
         with pytest.raises(worker_errors.RemoteError) as info:
-            asyncio.run(prepared_intake._heavy(model_job.slice_job, str(tmp_path / 'JOB.json')))
+            asyncio.run(intake_worker._heavy(jobs_slice.slice_job, str(tmp_path / 'JOB.json')))
     assert "'NoneType' object has no attribute 'group'" in str(info.value)
     assert 'failing_build_item_edit' in info.value.worker_traceback
     assert 'failing_build_item_edit' in caplog.text and 'worker traceback' in caplog.text

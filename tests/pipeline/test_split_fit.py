@@ -239,7 +239,7 @@ def test_split_plan_yaw_does_not_cure_the_issue_76_stand(tmp_path):
 
 
 def test_fit_choice_rows_carry_the_split_yaw():
-    from print_handy.core.prepared_intake import fit_choice_rows
+    from print_handy.intake.fit_flow import fit_choice_rows
     rows = fit_choice_rows({'scales': [], 'rotations': [],
                             'split_plan': {'plates': [['1:1'], ['2:1']],
                                            'yaw_by_object': {'1': 43.0}}})
@@ -262,7 +262,8 @@ def _split_job(tmp_path, source, plan):
 def test_slicing_a_yaw_split_applies_the_recorded_turn_to_its_plate(tmp_path, monkeypatch):
     import json
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'yaw.3mf'
     _source(source, {'1': (230, 50, 20), '2': (150, 150, 10)}, [['1', '2']])
@@ -271,7 +272,7 @@ def test_slicing_a_yaw_split_applies_the_recorded_turn_to_its_plate(tmp_path, mo
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     by_plate = {row['plate_id']: row for row in saved['derived_plates']}
@@ -291,7 +292,8 @@ def test_slicing_a_yaw_split_applies_the_recorded_turn_to_its_plate(tmp_path, mo
 def test_slicing_refuses_a_turn_recorded_for_a_shared_plate(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'shared.3mf'
     _source(source, {'1': (150, 150, 10), '2': (150, 150, 10)}, [['1', '2']])
@@ -299,7 +301,7 @@ def test_slicing_refuses_a_turn_recorded_for_a_shared_plate(tmp_path, monkeypatc
     job_path = _split_job(tmp_path, source, plan)
     monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
     with pytest.raises(RuntimeError, match='not that part alone'):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
 
 
 def test_per_part_fit_judges_a_plus_part_by_its_mesh_not_its_rectangle(tmp_path):
@@ -476,7 +478,8 @@ def test_slicing_a_turned_exclusion_split_applies_the_turn_and_the_placement(tmp
     # clear of the exclusion — not the authored 200 mm width at x=18.
     import json
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'turn-to-avoid.3mf'
     _mesh_source(source, {'1': _rect_points(200, 190, 10), '2': _rect_points(50, 50, 10)},
@@ -486,7 +489,7 @@ def test_slicing_a_turned_exclusion_split_applies_the_turn_and_the_placement(tmp
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     turned = next(row for row in saved['derived_plates'] if row['part_keys'] == ['1:1'])
@@ -497,7 +500,7 @@ def test_slicing_a_turned_exclusion_split_applies_the_turn_and_the_placement(tmp
 
 
 def test_fit_choice_rows_carry_the_split_placement():
-    from print_handy.core.prepared_intake import fit_choice_rows
+    from print_handy.intake.fit_flow import fit_choice_rows
     rows = fit_choice_rows({'scales': [], 'rotations': [],
                             'split_plan': {'plates': [['1:1'], ['2:1']],
                                            'placement_by_object': {'1': [18.0, 8.0]}}})
@@ -508,7 +511,8 @@ def test_fit_choice_rows_carry_the_split_placement():
 def test_slicing_an_exclusion_split_lands_the_plate_at_the_recorded_placement(tmp_path, monkeypatch):
     import json
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'placed.3mf'
     _source(source, {'1': (150, 150, 10), '2': (150, 150, 10)}, [['1', '2']])
@@ -517,7 +521,7 @@ def test_slicing_an_exclusion_split_lands_the_plate_at_the_recorded_placement(tm
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     for row in saved['derived_plates']:
@@ -533,7 +537,8 @@ def test_slicing_an_exclusion_split_lands_the_plate_at_the_recorded_placement(tm
 def test_slicing_refuses_a_placement_recorded_for_a_shared_plate(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'shared.3mf'
     _source(source, {'1': (150, 150, 10), '2': (150, 150, 10)}, [['1', '2']])
@@ -541,13 +546,14 @@ def test_slicing_refuses_a_placement_recorded_for_a_shared_plate(tmp_path, monke
     job_path = _split_job(tmp_path, source, plan)
     monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
     with pytest.raises(RuntimeError, match='not that part alone'):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
 
 
 def test_slicing_refuses_an_out_of_range_or_unknown_placement(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'bad-placement.3mf'
     _source(source, {'1': (150, 150, 10), '2': (150, 150, 10)}, [['1', '2']])
@@ -556,7 +562,7 @@ def test_slicing_refuses_an_out_of_range_or_unknown_placement(tmp_path, monkeypa
         job_path = _split_job(tmp_path, source, plan)
         monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
         with pytest.raises(RuntimeError, match='placement'):
-            model_job.slice_job(job_path)
+            jobs_slice.slice_job(job_path)
 
 
 # --- #221 stage 3: brim/feature extents in the fit offer -------------------
@@ -817,7 +823,7 @@ def test_split_plan_rectangle_only_sources_record_no_shifts(tmp_path):
 
 
 def test_fit_choice_rows_carry_the_split_shifts():
-    from print_handy.core.prepared_intake import fit_choice_rows
+    from print_handy.intake.fit_flow import fit_choice_rows
     shifts = [{'1': [1.0, 2.0, 0.0], '2': [3.0, 4.0, 0.0]}, None]
     rows = fit_choice_rows({'scales': [], 'rotations': [],
                             'split_plan': {'plates': [['1:1', '2:1'], ['3:1']],
@@ -831,7 +837,8 @@ def test_slicing_a_polygon_split_lands_at_the_recorded_shifts(tmp_path, monkeypa
 
     import pytest
 
-    from print_handy.core import color_geometry, model_job, orca_adapter
+    from print_handy.core import color_geometry, orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'tri-split.3mf'
     _tri_source(source)
@@ -840,7 +847,7 @@ def test_slicing_a_polygon_split_lands_at_the_recorded_shifts(tmp_path, monkeypa
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     shared = next(row for row in saved['derived_plates'] if row['part_keys'] == ['1:1', '2:1'])
@@ -867,7 +874,8 @@ def test_slicing_a_polygon_split_lands_at_the_recorded_shifts(tmp_path, monkeypa
 def test_slicing_refuses_unproved_or_malformed_shifts(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'tri-split.3mf'
     _tri_source(source)
@@ -890,7 +898,7 @@ def test_slicing_refuses_unproved_or_malformed_shifts(tmp_path, monkeypatch):
         job_path = _split_job(tmp_path, source, plan)
         monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
         with pytest.raises((RuntimeError, ValueError), match=match):
-            model_job.slice_job(job_path)
+            jobs_slice.slice_job(job_path)
 
 
 # --- #221 R1: reorientation (face change) for solo split plates ------------
@@ -1118,7 +1126,8 @@ def test_reorientation_candidates_prove_each_item_of_a_multi_item_object(tmp_pat
 def test_reorientation_records_supports_and_slicing_passes_them_for_that_plate_only(tmp_path, monkeypatch):
     import json
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'frame.3mf'
     _frame_source(source)
     (row,) = [r for r in split_fit.per_part_fit(source, 220) if r['object_id'] == '1']
@@ -1130,7 +1139,7 @@ def test_reorientation_records_supports_and_slicing_passes_them_for_that_plate_o
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice_recording_supports()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     by_printable = {tuple(call['printable']): call['supports'] for call in fake.calls}
     # The recorded decision reaches the slicer for the reoriented plate
@@ -1145,14 +1154,15 @@ def test_slicing_a_reoriented_split_applies_the_recorded_rotation(tmp_path, monk
 
     import pytest
 
-    from print_handy.core import color_geometry, model_job, orca_adapter
+    from print_handy.core import color_geometry, orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'frame.3mf'
     _frame_source(source)
     plan = split_fit.split_plan_100(source, 220)
     record = plan['reorientation_by_object']['1']
     job_path = _split_job(tmp_path, source, plan)
     monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice_recording_supports())
-    model_job.slice_job(job_path)
+    jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     row = next(r for r in saved['derived_plates'] if r['part_keys'] == ['1:1'])
     assert row['reorientation']['axis'] == record['axis']
@@ -1172,7 +1182,8 @@ def test_slicing_a_reoriented_split_applies_the_recorded_rotation(tmp_path, monk
 def test_slicing_refuses_unproved_or_mixed_reorientations(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'frame.3mf'
     _frame_source(source)
     plan = split_fit.split_plan_100(source, 220)
@@ -1202,11 +1213,11 @@ def test_slicing_refuses_unproved_or_mixed_reorientations(tmp_path, monkeypatch)
         job_path = _split_job(tmp_path, source, bad_plan)
         monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice_recording_supports())
         with pytest.raises((RuntimeError, ValueError), match=match):
-            model_job.slice_job(job_path)
+            jobs_slice.slice_job(job_path)
 
 
 def test_fit_choice_rows_carry_the_split_reorientation():
-    from print_handy.core.prepared_intake import fit_choice_rows
+    from print_handy.intake.fit_flow import fit_choice_rows
     record = {'axis': '-X', 'rotation': [0, 0, 1, 0, 1, 0, -1, 0, 0], 'yaw_deg': 0.0,
               'dims_mm': [40.0, 190.0, 210.0], 'supports': True, 'brim_recommended': False,
               'bed_contact_mm2': 7600, 'overhang_mm2': 3200}
@@ -1339,7 +1350,8 @@ def test_slicing_a_diagonal_reorientation_lands_at_the_recorded_rotation(tmp_pat
 
     import pytest
 
-    from print_handy.core import color_geometry, model_job, orca_adapter
+    from print_handy.core import color_geometry, orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'stand.3mf'
     _solid_source(source, {'1': _box_tris(0, 130, 0, 230, 0, 30),
                            '2': _box_tris(0, 195, 0, 200, 0, 119.8)}, [['1'], ['2']])
@@ -1349,7 +1361,7 @@ def test_slicing_a_diagonal_reorientation_lands_at_the_recorded_rotation(tmp_pat
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice_recording_supports()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     # The record's supports decision (False for the plain Stand) reaches
     # the slicer for the diagonal plate only.
@@ -1372,7 +1384,8 @@ def test_slicing_a_diagonal_reorientation_lands_at_the_recorded_rotation(tmp_pat
 def test_slicing_refuses_diagonal_reorientation_records_that_do_not_prove(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from print_handy.core.orca_adapter import UP_AXES, _matmul, _yaw
     source = tmp_path / 'stand.3mf'
     _solid_source(source, {'1': _box_tris(0, 130, 0, 230, 0, 30),
@@ -1398,7 +1411,7 @@ def test_slicing_refuses_diagonal_reorientation_records_that_do_not_prove(tmp_pa
         job_path = _split_job(tmp_path, source, bad_plan)
         monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice_recording_supports())
         with pytest.raises((RuntimeError, ValueError), match=match):
-            model_job.slice_job(job_path)
+            jobs_slice.slice_job(job_path)
 
 
 def test_split_plan_diagonal_reorientation_can_share_a_plate(tmp_path, monkeypatch):
@@ -1408,7 +1421,8 @@ def test_split_plan_diagonal_reorientation_can_share_a_plate(tmp_path, monkeypat
     # the diagonal bar is genuinely free — hull-true packing, not AABB).
     import json
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'diagonal-share.3mf'
     _solid_source(source, {'1': _box_tris(0, 130, 0, 230, 0, 30),
                            '2': _box_tris(0, 60, 0, 60, 0, 10),
@@ -1421,7 +1435,7 @@ def test_split_plan_diagonal_reorientation_can_share_a_plate(tmp_path, monkeypat
     assert set(_shared_shifts(plan, {'1:1', '2:1'})) == {'1', '2'}
     job_path = _split_job(tmp_path, source, plan)
     monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice_recording_supports())
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2
     saved = json.loads(job_path.read_text())
     shared = next(row for row in saved['derived_plates']
@@ -1540,7 +1554,8 @@ def test_slicing_a_shared_yaw_split_lands_at_the_recorded_turn(tmp_path, monkeyp
 
     import pytest
 
-    from print_handy.core import color_geometry, model_job, orca_adapter
+    from print_handy.core import color_geometry, orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'yaw-share.3mf'
     _yaw_share_source(source)
@@ -1549,7 +1564,7 @@ def test_slicing_a_shared_yaw_split_lands_at_the_recorded_turn(tmp_path, monkeyp
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     shared = next(row for row in saved['derived_plates']
@@ -1585,7 +1600,8 @@ def test_slicing_a_shared_yaw_split_lands_at_the_recorded_turn(tmp_path, monkeyp
 def test_slicing_refuses_unproved_shared_yaws(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'yaw-share.3mf'
     _yaw_share_source(source)
@@ -1612,7 +1628,7 @@ def test_slicing_refuses_unproved_shared_yaws(tmp_path, monkeypatch):
         job_path = _split_job(tmp_path, source, plan)
         monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
         with pytest.raises((RuntimeError, ValueError), match=match):
-            model_job.slice_job(job_path)
+            jobs_slice.slice_job(job_path)
     # Swapped shifts: each object would land somewhere its recorded turn
     # was never proved for — the exporter refuses the off-bed placement.
     plan = split_fit.split_plan_100(source, 220)
@@ -1622,7 +1638,7 @@ def test_slicing_refuses_unproved_shared_yaws(tmp_path, monkeypatch):
     job_path = _split_job(tmp_path, source, plan)
     monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
     with pytest.raises(RuntimeError, match='(does not fit|did not land)'):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
 
 
 def test_exporter_refuses_a_per_object_fit_combined_with_a_whole_plate_fit(tmp_path):
@@ -1715,7 +1731,8 @@ def test_slicing_a_shared_reorientation_lands_at_the_recorded_rotation(tmp_path,
 
     import pytest
 
-    from print_handy.core import color_geometry, model_job, orca_adapter
+    from print_handy.core import color_geometry, orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from print_handy.core.orca_adapter import _rotate
     source = tmp_path / 'reorientation-share.3mf'
     _reorientation_share_source(source)
@@ -1725,7 +1742,7 @@ def test_slicing_a_shared_reorientation_lands_at_the_recorded_rotation(tmp_path,
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice_recording_supports()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     shared = next(row for row in saved['derived_plates']
@@ -1762,7 +1779,8 @@ def test_slicing_a_shared_reorientation_lands_at_the_recorded_rotation(tmp_path,
 def test_slicing_refuses_unproved_shared_reorientations(tmp_path, monkeypatch):
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     from .test_plate_merge import _fake_slice
     source = tmp_path / 'reorientation-share.3mf'
     _reorientation_share_source(source)
@@ -1784,7 +1802,7 @@ def test_slicing_refuses_unproved_shared_reorientations(tmp_path, monkeypatch):
         job_path = _split_job(tmp_path, source, bad_plan)
         monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
         with pytest.raises((RuntimeError, ValueError), match=match):
-            model_job.slice_job(job_path)
+            jobs_slice.slice_job(job_path)
     # Swapped shifts: each object would land somewhere its recorded
     # orientation was never proved for — refused at export or re-read.
     index = next(i for i, plate in enumerate(plan['plates']) if set(plate) == {'1:1', '2:1'})
@@ -1793,7 +1811,7 @@ def test_slicing_refuses_unproved_shared_reorientations(tmp_path, monkeypatch):
     job_path = _split_job(tmp_path, source, plan)
     monkeypatch.setattr(orca_adapter, 'slice_model', _fake_slice())
     with pytest.raises(RuntimeError, match='(does not fit|did not land)'):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
 
 
 def test_slicing_a_placed_reorientation_lands_at_the_recorded_placement(tmp_path, monkeypatch):
@@ -1801,7 +1819,8 @@ def test_slicing_a_placed_reorientation_lands_at_the_recorded_placement(tmp_path
 
     import pytest
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'placed-frame.3mf'
     _solid_source(source, {'1': _frame_tris(210, 190, 40, 80, 130, 60, 140),
                            '2': _box_tris(0, 150, 0, 150, 0, 10)}, [['1'], ['2']])
@@ -1811,7 +1830,7 @@ def test_slicing_a_placed_reorientation_lands_at_the_recorded_placement(tmp_path
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice_recording_supports()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     row = next(r for r in saved['derived_plates'] if r['part_keys'] == ['1:1'])
@@ -1852,7 +1871,8 @@ def test_split_plan_reoriented_part_can_share_with_a_turned_part(tmp_path):
 def test_slicing_a_mixed_turned_and_reoriented_plate(tmp_path, monkeypatch):
     import json
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'mixed-share.3mf'
     _solid_source(source, {'1': _box_tris(0, 205, 0, 20, 0, 10),
                            '2': _frame_tris(210, 190, 25, 80, 130, 60, 140),
@@ -1862,7 +1882,7 @@ def test_slicing_a_mixed_turned_and_reoriented_plate(tmp_path, monkeypatch):
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice_recording_supports()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     saved = json.loads(job_path.read_text())
     shared = next(row for row in saved['derived_plates']
@@ -1885,7 +1905,8 @@ def test_slicing_a_shared_reorientation_without_supports_keeps_the_plate_default
     # record of its own.
     import json
 
-    from print_handy.core import model_job, orca_adapter
+    from print_handy.core import orca_adapter
+    from print_handy.jobs import slice as jobs_slice
     source = tmp_path / 'shared-no-supports.3mf'
     _solid_source(source, {'1': _box_tris(0, 210, 0, 100, 0, 20),
                            '2': _box_tris(0, 210, 0, 100, 0, 20),
@@ -1900,7 +1921,7 @@ def test_slicing_a_shared_reorientation_without_supports_keeps_the_plate_default
     job_path = _split_job(tmp_path, source, plan)
     fake = _fake_slice_recording_supports()
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     assert len(paths) == 2 and len(fake.calls) == 2
     by_printable = {tuple(call['printable']): call['supports'] for call in fake.calls}
     assert by_printable[('1', '2', '3')] is None and by_printable[('4',)] is None

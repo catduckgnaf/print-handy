@@ -20,6 +20,12 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import model_job, prepared_intake
+from tests.bound_names import setattr_bound
+from print_handy.gcode import verify as gcode_verify
+from print_handy.intake import questions as intake_questions
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import slice as jobs_slice
+from print_handy.launch import gates as launch_gates
 
 TWO_PRINTERS = """
 discord:
@@ -64,7 +70,7 @@ def _run_offer(monkeypatch, printer_id):
     async def ask(adapter, source, key, question, choices, timeout=None, **kw):
         return 0  # the operator pressed "Force restart"
 
-    monkeypatch.setattr(prepared_intake, "_ask", ask)
+    setattr_bound(monkeypatch, intake_questions, "_ask", ask)
     adapter = S(send=AsyncMock())
     source = S(chat_id="222", metadata=None)
     kwargs = {} if printer_id is None else {"printer_id": printer_id}
@@ -108,7 +114,7 @@ def test_slice_job_loads_the_jobs_printer_record(monkeypatch, tmp_path, two_prin
         # The .txt source refuses immediately after the record load, which
         # is the seam under test: which printer's record was loaded.
         with pytest.raises(RuntimeError, match="only STL/3MF"):
-            model_job.slice_job(jp)
+            jobs_slice.slice_job(jp)
     assert loads == ["garage-ad5x", "workshop-ad5x"]
 
 
@@ -135,7 +141,7 @@ def test_verify_gcode_uses_the_jobs_printer_not_the_default(monkeypatch, tmp_pat
     gcode = tmp_path / "plate_1.gcode"
     gcode.write_text("G1 X1 Y1\n")
     with pytest.raises(RuntimeError, match="job printer problem"):
-        model_job.verify_gcode(gcode, adapter=job_adapter, state=job_state,
+        gcode_verify.verify_gcode(gcode, adapter=job_adapter, state=job_state,
                                printer_id="workshop-ad5x")
     assert checks and checks[0][0] is job_state
     assert checks[0][1].get("printer_id") == "workshop-ad5x"
@@ -159,9 +165,9 @@ def test_filament_readiness_uses_the_printers_own_adapter(monkeypatch):
     # the job adapter's own readiness check.
     monkeypatch.setattr(model_job.printers, "current",
                         lambda *a, **k: S(multi_slot=True, label="Garage AD5X"))
-    monkeypatch.setattr(model_job, "request_json",
+    setattr_bound(monkeypatch, jobs_common, "request_json",
                         lambda url, **kw: {"result": {"status": {"print_stats": {"state": "standby"}}}})
-    model_job._verify_filament_readiness({"moonraker_url": "http://192.0.2.61:7125"}, None,
+    launch_gates._verify_filament_readiness({"moonraker_url": "http://192.0.2.61:7125"}, None,
                                          adapter=job_adapter)
     assert judged == [{"print_stats": {"state": "standby"}}]
 

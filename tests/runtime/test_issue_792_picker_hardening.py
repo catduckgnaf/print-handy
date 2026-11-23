@@ -9,9 +9,7 @@ fragment, and the Discord bind confirmation that stands between a spool
 picker selection and any bind.
 """
 import asyncio
-import importlib.util
 import json
-from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
@@ -22,10 +20,7 @@ from print_handy.runtime import print_alert_buttons as pab
 from print_handy.runtime import spool_sync
 from print_handy.runtime.discord_print_summary import spool_picker_label
 
-SPEC = importlib.util.spec_from_file_location(
-    "pf_issue_792", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 # ---------------------------------------------------------------- label shape
