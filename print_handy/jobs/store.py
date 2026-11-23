@@ -300,7 +300,11 @@ def resolve_print_target(target, archive=None):
             except (OSError, ValueError):
                 continue
             item = d.get("item") if isinstance(d.get("item"), dict) else {}
-            names = [n for n in (d.get("file"), item.get("path")) if n]
+            # Archived leases from earlier releases may only record the
+            # uploaded name as remote/remote_name. Preserve read compatibility
+            # without reintroducing legacy record *writers*.
+            names = [n for n in (d.get("file"), d.get("remote"),
+                                 d.get("remote_name"), item.get("path")) if n]
             if raw in names or (reported and any(launch_state.same_remote(raw, n) for n in names)):
                 artifact = rec.with_name(rec.name.split(".", 1)[0] + ".gcode")
                 if artifact.is_file():
