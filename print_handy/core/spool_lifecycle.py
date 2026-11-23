@@ -930,6 +930,8 @@ def main():
     if args.cmd == "reconcile":
         if args.state_file:
             st = json.loads(Path(args.state_file).read_text())
+            from . import filament_color
+            filament_color.adopt_renamed_slots_key(st)  # a pre-2.4 record may still say ifs_slots
         else:
             st = printer_state.load()
 

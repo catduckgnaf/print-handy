@@ -6,7 +6,7 @@ printer's included. Releases before 2.4 kept the default printer's files at
 whose per-printer copy is missing is *stranded*: nothing reads it any more, so
 the default printer would start empty (no loaded spools, maintenance hours
 reset, a held launch lease forgotten). A root file next to its per-printer copy
-is *stale*: a leftover the code never reads, safe to delete.
+is *stale*: a leftover the code never reads, to compare against the live copy and then remove.
 
 ``root_files`` finds both kinds. The doctor reports them, and the loaders of
 the files that hold real data (``stranded_error``) refuse with the exact move

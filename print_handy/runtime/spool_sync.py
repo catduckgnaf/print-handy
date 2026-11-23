@@ -1762,9 +1762,14 @@ def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: C
     spools = [row for row in rows if isinstance(row, dict) and row.get("id") is not None]
     by_id = {int(row["id"]): row for row in spools}
     deferred_clears: list[int] = []
-    with record_lock():
-        assignments = _reconcile_record(pid, result, spools=spools, by_id=by_id,
-                                        state_path=state_path, deferred_clears=deferred_clears)
+    from ..state_layout import StrandedStateError
+    try:
+        with record_lock():
+            assignments = _reconcile_record(pid, result, spools=spools, by_id=by_id,
+                                            state_path=state_path, deferred_clears=deferred_clears)
+    except StrandedStateError as exc:
+        result["error"] = f"Spool reconcile: nothing was changed. {exc}"
+        return result
     if assignments is None:
         # Spoolman holds no claim for this printer: the cache seeds it, with no lock held.
         assignments = _reconcile_seed(pid, result, client=client, by_id=by_id,
@@ -1784,8 +1789,14 @@ def _reconcile_record(pid: str, result: dict[str, Any], *, spools: list[dict[str
     printer and the cache names spools to seed it with (the cache is left in
     ``result["_old_slots"]`` for _reconcile_seed).
     """
+    from ..state_layout import StrandedStateError
     try:
         state = load_state(state_path, printer_id=pid)
+    except StrandedStateError:
+        # The real record is still at the pre-2.4 root (#1817 D). Rebuilding
+        # here would save a slots-only record at the per-printer path, which
+        # silences the refusal and makes the doctor call the real record stale.
+        raise
     except FileNotFoundError:
         state = {"filament_slots": {}}  # no cache yet: a rebuild from Spoolman, not a conflict
     except Exception:
@@ -2149,8 +2160,12 @@ def sync_external_spoolman(printer_id: str | None = None, *, client: Client = sp
     if not isinstance(rows, list):
         result["error"] = ("Outside Spoolman sync: Spoolman did not answer, so nothing was changed")
         return result
+    from ..state_layout import StrandedStateError
     try:
         state = load_state(state_path, printer_id=pid)
+    except StrandedStateError as exc:
+        result["error"] = f"Outside Spoolman sync: nothing was changed. {exc}"
+        return result
     except Exception as exc:
         __import__("logging").getLogger(__name__).warning(
             "Outside Spoolman sync: the local slot record could not be read: %s", exc)

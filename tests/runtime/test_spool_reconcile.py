@@ -434,3 +434,41 @@ def test_reconcile_carries_a_slot_replacement_into_the_active_spool(tmp_path):
     assert saved["spool"]["name"] == "Bronze"
     # Usage repair no longer counts the displaced spool as loaded.
     assert active[0] == 12
+
+
+def _stranded(monkeypatch):
+    """load_state refuses the way printer_state does for a root-only record (#1817 D)."""
+    from print_handy.state_layout import StrandedStateError
+    message = "printer_hardware.json is still at the old root: mkdir -p printers/ad5x && mv a b"
+
+    def refuse(*_a, **_k):
+        raise StrandedStateError(message)
+
+    saved = []
+    monkeypatch.setattr(spool_sync, "load_state", refuse)
+    monkeypatch.setattr(spool_sync, "save_state", lambda *a, **k: saved.append((a, k)))
+    return message, saved
+
+
+def test_reconcile_never_rebuilds_over_a_stranded_hardware_record(tmp_path, monkeypatch):
+    """B1: the startup reconcile must not write a slots-only record over the real one."""
+    message, saved = _stranded(monkeypatch)
+    fake = FakeSpoolman([_spool(11, ph_slot="ad5x:1")])
+    state = tmp_path / "printers" / PID / "printer_hardware.json"
+    result = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
+                                  pending_path=tmp_path / "pending.json")
+    assert result["ok"] is False
+    assert "mv" in result["error"] and message in result["error"]
+    assert saved == []
+    assert not state.exists()
+
+
+def test_outside_spoolman_sync_never_writes_over_a_stranded_hardware_record(tmp_path, monkeypatch):
+    message, saved = _stranded(monkeypatch)
+    fake = FakeSpoolman([_spool(11, ph_slot="ad5x:1")])
+    state = tmp_path / "printers" / PID / "printer_hardware.json"
+    result = spool_sync.sync_external_spoolman(PID, client=fake, mr=_mr(), state_path=state,
+                                               pending_path=tmp_path / "pending.json")
+    assert message in (result.get("error") or "")
+    assert saved == []
+    assert not state.exists()

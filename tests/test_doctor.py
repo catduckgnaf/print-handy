@@ -212,7 +212,7 @@ class DoctorTests(unittest.TestCase):
     def test_a_root_hardware_record_beside_the_per_printer_one_is_a_stale_warning(self):
         code, text = self.run_doctor(root_files={"printer_hardware.json": "{}"})
         self.assertIn("ok    state layout: per-printer layout", text)
-        self.assertIn("WARN  pre-2.4 state files: stale, safe to delete", text)
+        self.assertIn("WARN  pre-2.4 state files: stale (the per-printer copy is the live one; compare, then remove)", text)
         self.assertIn(str(self.state / "printer_hardware.json"), text)
         self.assertNotIn("FAIL  state layout", text)
 

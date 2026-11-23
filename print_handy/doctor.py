@@ -113,7 +113,7 @@ def check_state_layout(data):
     record, launch database) still at the root with no per-printer copy
     raises: nothing reads it, so the default printer would start empty. A
     stranded queue or listener file is a warning with its move, and a root
-    file beside its per-printer copy is a stale leftover, safe to delete.
+    file beside its per-printer copy is a stale leftover to compare, then remove.
     """
     entries = state_layout.for_settings(data)
     stranded = [e for e in entries if e.required and not e.stale]
@@ -125,7 +125,7 @@ def check_state_layout(data):
         notes.append("not read since 2.4, move to keep: " + "; ".join(e.move_command() for e in optional))
     stale = [e for e in entries if e.stale]
     if stale:
-        notes.append("stale, safe to delete (the per-printer copy is the live one): "
+        notes.append("stale (the per-printer copy is the live one; compare, then remove): "
                      + ", ".join(str(e.root) for e in stale))
     return "per-printer layout", " | ".join(notes) or None
 
