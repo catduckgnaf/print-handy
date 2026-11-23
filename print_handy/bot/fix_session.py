@@ -266,16 +266,24 @@ def _repoint_job(session: FixSession) -> None:
         raise ValueError('the job file was not updated')
 
 
-def _accept(session: FixSession) -> dict[str, Any]:
-    """Accept only after the job record points at a file that is not the original."""
+def _accept(session: FixSession, *, resume_intake=None) -> dict[str, Any]:
+    """Accept only after the normal verified intake flow has completed."""
     if _same_path(session.current_file, session.original_file) or not Path(session.current_file).is_file():
         reply = 'There is no fixed file to accept and the original is unchanged.'
         return _remember(session, reply)
+    if resume_intake is None:
+        return _remember(session, 'The fixed file is ready, but normal intake has not run. '
+                         'Use the chat acceptance flow to verify and re-slice it. '
+                         'The job has not changed.')
     try:
+        from print_handy.core.intake_resources import check_source
+        check_source(session.current_file)
+        if not resume_intake(session):
+            return _remember(session, 'Normal intake did not complete; the fixed file was not accepted.')
         _repoint_job(session)
     except Exception:
-        logger.exception('could not update the job for an AI fix session')
-        reply = 'The job was not changed. The fixed file was not accepted.'
+        logger.exception('normal intake or the job update failed for an AI fix session')
+        reply = 'The normal intake or job update failed. The fixed file was not accepted.'
         return _remember(session, reply)
     msg = end_session(session, 'accept')
     return _remember(session, msg, accepted=True, cancelled=False)
@@ -291,7 +299,8 @@ def _completion(completion) -> tuple[str, list]:
     return str(completion.get('content') or ''), calls
 
 
-def process_turn(session: FixSession, user_message: str, *, ai_complete) -> dict[str, Any]:
+def process_turn(session: FixSession, user_message: str, *, ai_complete,
+                 resume_intake=None) -> dict[str, Any]:
     """Run one fix-session turn.
 
     Contract for the model call::
@@ -314,7 +323,7 @@ def process_turn(session: FixSession, user_message: str, *, ai_complete) -> dict
     session.history.append({'role': 'user', 'content': user_message, 'ts': time.time()})
     low = user_message.lower().strip()
     if low in _ACCEPT:
-        return _accept(session)
+        return _accept(session, resume_intake=resume_intake)
     if low in _CANCEL:
         msg = end_session(session, 'cancel')
         return _remember(session, msg, accepted=False, cancelled=True)
