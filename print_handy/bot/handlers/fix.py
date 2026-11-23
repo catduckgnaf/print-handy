@@ -223,6 +223,7 @@ async def fix_dispatch(event, gateway, **_kwargs):
     return {'action': 'skip', 'reason': 'repair session handled'}
 
 
+# --- handler interface (#1323) ---
 from ._gates import free_text
 
 match = free_text
