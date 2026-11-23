@@ -202,7 +202,9 @@ def _assert_flow_built_state(run, case):
     assert {s["location"] for s in run.spoolman.spools} == {f"IFS Slot {n}" for n in numbers}
     if "nozzle" in printer:
         assert run.state["nozzle"]["diameter_mm"] == printer["nozzle"]
-    assert Path(run.state_file).parent.name == "built-state"
+    assert Path(run.source_state_file).parent.name == "built-state"
+    routed = Path(run.state_file)
+    assert (routed.name, routed.parent.parent.name) == ("printer_hardware.json", "printers")
 
 
 def test_checked_in_models_match_the_generator(tmp_path, monkeypatch):

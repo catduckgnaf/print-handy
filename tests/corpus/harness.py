@@ -463,6 +463,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
     routed_state = hardware_root / "printers" / settings.default_printer_id() / "printer_hardware.json"
     routed_state.parent.mkdir(parents=True, exist_ok=True)
     routed_state.write_bytes(Path(state_file).read_bytes())
+    source_state_file = Path(state_file)
     state_file = routed_state
     stub = _stub_print_now(work)
     model_copy = None
@@ -646,7 +647,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
              slice_starts=slice_starts, state_root=state_root, receipts=receipts, archive=archive,
              gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,
              spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file,
-             real_slicer=real_slicer, wall_s=wall_s, segment=segment)
+             source_state_file=source_state_file, real_slicer=real_slicer, wall_s=wall_s, segment=segment)
 
 
 def _standalone_core(case, work, plugin, events, patch, *, auto=True):
