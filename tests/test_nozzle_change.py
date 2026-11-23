@@ -110,6 +110,9 @@ def test_finish_change_persists_via_printer_state(tmp_path, monkeypatch):
     import json
     monkeypatch.setattr(printer_state, "STATE_ROOT", str(tmp_path))
     monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    # This file's autouse fixture only supplies nozzle_temp_offsets to
+    # settings.current(), so pin a test printer ID for the real state path.
+    monkeypatch.setattr(settings, "default_printer_id", lambda data=None: "fixture-nozzle")
     state_file = printer_state.state_path()
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps(_state()))
