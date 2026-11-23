@@ -11,28 +11,33 @@ Safety limits in this revision:
 | --- | --- |
 | Download or local source | No byte cap; refused only when the volume would drop below 512 MiB free |
 | ZIP members | 4,096 |
-| Total expanded ZIP content | 512 MiB |
-| Any expanded ZIP member | 400 MiB |
-| Aggregate `.model` XML | 400 MiB |
+| Standalone 3MF expanded ZIP total, members, and `.model` XML | No fixed byte cap; stream-counted geometry budget applies |
+| Standalone 3MF ZIP compression ratio | At most 100:1 for members above 1 MiB expanded |
 | STL file | No byte cap; triangle count (binary header, ASCII facets) under the triangle budget |
 | XML triangles / vertices | 10,000,000 each |
 | XML elements across models | 40,000,000 |
 | Estimated geometry working storage | 1,536 MiB |
 
-ZIP sizes are checked before opening any member. Model XML is then counted
-with a streaming parser. XML document type declarations are refused. Binary
+ZIP member counts and compression ratios are checked before opening any member.
+The 400 MiB model XML, 400 MiB member and 512 MiB expanded limits no longer
+apply to standalone 3MF sources, including model-site links. Model XML is
+counted with a streaming parser; geometry and XML-element budgets still bound
+the parser's work. XML document type declarations are refused. Binary
 STL triangle counts are checked from the header when its length matches the
 file. ASCII STL is counted by its facets with a streaming read, and a file that
 is neither is sized as a binary STL would be, so no STL skips the triangle
 budget. There is no download or STL byte cap (#1824): a download, upload or
-archive extraction is stopped only when it would leave less than 512 MiB free on
-the volume, and the partial file is removed. A ZIP member compressed more than
-100:1 is refused as a zip bomb on every path, including site downloads.
+archive extraction is stopped when it would leave less than 512 MiB free on
+the volume, and the partial file is removed. A standalone 3MF ZIP member
+expanded above 1 MiB and compressed more than 100:1 is refused as a zip bomb.
+A separately uploaded `.zip` bundle follows its own extraction limits.
 
 Discord upload, link and reprint intake check before title extraction, audit and
 color prompts. Direct audit, color inventory and geometry loading apply the same
-guard. A safety-ceiling refusal explains the exceeded budget and asks you to
-simplify or split the file. Nothing is sliced or started for a refused intake.
+guard. A geometry refusal names the file and the measured triangle or vertex
+count (at least the count seen when the limit was crossed), including for
+model-site links. It does not assume the source can be edited in a modeling app.
+Nothing is sliced or started for a refused intake.
 
 ## Large-source heads-up
 
