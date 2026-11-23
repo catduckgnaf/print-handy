@@ -50,6 +50,10 @@ _tmp = Path(tempfile.mkdtemp(prefix="3dp-test-state-"))
 os.environ.setdefault("PRINT_BOT_CANCEL_MARKER", str(_tmp / "last_bot_cancel.json"))
 os.environ.setdefault("PRINT_ALERT_STATE", str(_tmp / "print_alert_buttons.json"))
 os.environ.setdefault("PRINT_WATCH_FRAME_DIR", str(_tmp / "print-watch"))
+# #1844: the image bundles the detector model at /opt/print-handy/models.
+# Tests run against the download path (with a faked fetch), never a copy
+# that happens to exist on the host or in the image.
+os.environ["PRINT_HANDY_BUNDLED_MODEL"] = str(_tmp / "no-bundled-model" / "obico-failure-detector.onnx")
 
 
 def _test_settings():
@@ -344,3 +348,63 @@ def _wrapped_season_is_open(monkeypatch):
 
     monkeypatch.setattr(data_module, "_now",
                         lambda tz: datetime.now(tz).replace(month=12, day=15))
+
+
+# #1844: a test that silently downloaded the 202 MB detector model from
+# obico.io on every CI run cost its maintainers about USD 500 a month.
+# No test may open a connection to a public internet address. The
+# connection is refused (as an unreachable network would be) and the test
+# then fails, even when the code under test swallowed the error, so a
+# background download or retry loop cannot hide. Loopback, private,
+# documentation (TEST-NET) and Unix sockets are untouched, and UDP
+# "connect" (which sends nothing) is allowed.
+def _public_address(sock, address) -> str | None:
+    import ipaddress
+    import socket as _socket
+
+    if sock.family not in (_socket.AF_INET, _socket.AF_INET6) or sock.type == _socket.SOCK_DGRAM:
+        return None
+    host = address[0] if isinstance(address, tuple) and address else None
+    if not isinstance(host, str):
+        return None
+    try:
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return None
+    return f"{host}:{address[1]}" if ip.is_global else None
+
+
+@pytest.fixture(autouse=True)
+def _no_public_internet(monkeypatch):
+    import errno
+    import socket as _socket
+
+    attempts: list[str] = []
+    real_connect = _socket.socket.connect
+    real_connect_ex = _socket.socket.connect_ex
+
+    def _guard(sock, address):
+        target = _public_address(sock, address)
+        if target is None:
+            return None
+        attempts.append(target)
+        return OSError(errno.ENETUNREACH, f"tests may not reach the public internet ({target}); see #1844")
+
+    def connect(self, address):
+        refused = _guard(self, address)
+        if refused is not None:
+            raise refused
+        return real_connect(self, address)
+
+    def connect_ex(self, address):
+        refused = _guard(self, address)
+        if refused is not None:
+            return refused.errno
+        return real_connect_ex(self, address)
+
+    monkeypatch.setattr(_socket.socket, "connect", connect)
+    monkeypatch.setattr(_socket.socket, "connect_ex", connect_ex)
+    yield
+    if attempts:
+        pytest.fail(f"this test tried to reach the public internet: {', '.join(attempts)} (#1844). "
+                    "Fake the fetch at its urlopen or client seam instead.", pytrace=False)

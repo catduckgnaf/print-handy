@@ -67,6 +67,15 @@ def cfg(tmp_path, monkeypatch):
     return data
 
 
+def _fake_model_download(local_vision, monkeypatch):
+    """Stand in for the 202 MB model fetch (#1844: these tests once ran the
+    real download from obico.io on every CI run)."""
+    def fake(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"stub detector model")
+    monkeypatch.setattr(local_vision, "_download_model", fake)
+
+
 def calibrate(cfg, frame=EMPTY, now=None):
     le.begin_calibration(cfg, frame, now=now)
     return le.confirm_calibration(cfg, frame, now=now, force=True)
@@ -243,6 +252,7 @@ def test_visual_verdict_idle_endpoint_answer_wins(cfg, monkeypatch):
     # the background prefetch must have landed first, as it does in
     # production once the watch reports ready.
     from print_handy.runtime import local_vision
+    _fake_model_download(local_vision, monkeypatch)
     assert local_vision.prefetch_model(cfg, wait=True)
     cfg["vision"]["watch_source"] = "auto"  # the endpoint route goes first
     monkeypatch.setattr(vw, "_vision_answer",
@@ -263,6 +273,7 @@ def test_visual_verdict_idle_part_present_falls_through_to_detector(
     # the background prefetch must have landed first, as it does in
     # production once the watch reports ready.
     from print_handy.runtime import local_vision
+    _fake_model_download(local_vision, monkeypatch)
     assert local_vision.prefetch_model(cfg, wait=True)
     cfg["vision"]["watch_source"] = "auto"  # no endpoint route: local routes stand in
     monkeypatch.setattr(vw, "_local_verdict",
