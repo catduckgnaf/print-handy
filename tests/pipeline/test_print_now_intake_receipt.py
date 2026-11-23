@@ -47,7 +47,7 @@ class PrintNowIntakeReceiptTests(unittest.TestCase):
         g = folder / "out" / "x.gcode"
         g.write_text("START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60 Z_OFFSET=-0.2\n")
         jp = folder / "JOB.json"
-        jp.write_text(json.dumps({"title": "X", "gcode": str(g), "intake_id": IID}))
+        jp.write_text(json.dumps({"title": "X", "printer_model": "flashforge.ad5x", "gcode": str(g), "intake_id": IID}))
         sha = model_job.file_sha256(g)
         receipts = Path(d) / "model-link-intakes"; receipts.mkdir()
         receipt = {"intake_id": IID, "url": "https://example.invalid/x", "status": "SLICED_NOT_STARTED",

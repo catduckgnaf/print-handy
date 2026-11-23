@@ -268,6 +268,8 @@ def test_p1s_slices_each_material_with_its_checked_profile_and_refuses_the_rest(
         Path(command[command.index("--outputdir") + 1], "plate_1.gcode").write_text(text)
         return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
+    # The fake slicer must set the recorded bed temperature, not merely describe it.
+    text = text.replace("; EXECUTABLE_BLOCK_START", "; EXECUTABLE_BLOCK_START\nM140 S80")
     monkeypatch.setattr(orca_adapter.subprocess, "run", run)
     orca_adapter.slice_model(CUBE, tmp_path / "slice", st, adapter=adapter_for())
     assert json.loads((tmp_path / "slice" / "filament.json").read_text())["filament_settings_id"] == [petg]
