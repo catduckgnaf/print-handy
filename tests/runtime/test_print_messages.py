@@ -381,6 +381,24 @@ def test_slot_self_check_warns_when_initial_channels_are_unavailable(monkeypatch
     assert "zmod_ifs Chan reports slot 4" in posts[0]
 
 
+def test_slot_self_check_does_not_treat_unchanged_available_channel_as_activation(monkeypatch):
+    listener = mel.Listener()
+    samples = iter([(3, 2, None, None), (3, 2, 2, None)])
+    monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
+    waits = []
+
+    async def no_wait(delay):
+        waits.append(delay)
+        if len(waits) == 2:
+            return
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(mel, "post", lambda _: pytest.fail("must not report stale channel"))
+    with pytest.raises(StopIteration):
+        asyncio.run(listener._slot_self_check())
+    assert waits == [1, 1]
+
+
 def test_slot_self_check_does_not_warn_if_activation_is_unobserved(monkeypatch):
     listener = mel.Listener()
     monkeypatch.setattr(listener, "_slot_sources", lambda: (3, 2, 2, None))
