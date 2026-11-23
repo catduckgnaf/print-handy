@@ -1,6 +1,8 @@
 """Repair tools must change geometry or say so, and a fix session accepts only a real new file (#1778)."""
+import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import numpy as np
@@ -261,3 +263,88 @@ def test_tools_unavailable_does_not_claim_a_repair(tmp_path):
     assert 'repaired file' not in out['reply'].lower()
     assert 'was accepted' not in out['reply'].lower()
     assert fix_session._same_path(session.current_file, stl)
+
+
+def test_cross_platform_fix_handler_routes_followups_and_resumes_normal_intake(tmp_path, monkeypatch):
+    from print_handy.bot.handlers import fix as handler
+    from print_handy.bot.handlers import model_link
+
+    folder, job_path, stl = _workspace(tmp_path)
+    original = stl.read_bytes()
+    source = SimpleNamespace(user_id='owner', chat_id='channel-1', thread_id='thread-9')
+    gateway = SimpleNamespace(_is_user_authorized_for_source=lambda _source: True)
+    messages = []
+
+    class Adapter:
+        async def send(self, **kwargs):
+            messages.append(kwargs.get('content'))
+            return True
+
+    monkeypatch.setattr(handler, '_is_print_discord_event', lambda _event: True)
+    monkeypatch.setattr(handler, '_adapter_for', lambda _gateway, _source: Adapter())
+    monkeypatch.setattr(handler.ai_routes, 'ready', lambda _tier: True)
+    monkeypatch.setattr(handler, '_new_session', lambda _event:
+                        fix_session.start_session('owner', 'channel-1', 'thread-9',
+                                                  job_path, stl))
+    monkeypatch.setattr(handler, '_complete', lambda bound, msg, schemas: {
+        'content': 'Making a copy.', 'tool_calls': [
+            {'name': 'sink', 'arguments': {'mesh': 'source/part.stl', 'mm': 1}}]})
+
+    def event(text, as_user=source):
+        return SimpleNamespace(source=as_user, text=text, media_urls=[], internal=False)
+
+    assert asyncio.run(handler.fix_dispatch(event('/fix'), gateway))['reason'] == 'repair session started'
+    owner_session = fix_session.get_session('owner', 'channel-1', 'thread-9')
+    assert owner_session is not None
+    assert asyncio.run(handler.fix_dispatch(event('sink it'), gateway))['reason'] == 'repair session handled'
+    assert owner_session.current_file.is_file()
+    assert owner_session.current_file.read_bytes() != original
+    assert stl.read_bytes() == original
+
+    other = SimpleNamespace(user_id='stranger', chat_id='channel-1', thread_id='thread-9')
+    assert asyncio.run(handler.fix_dispatch(event('accept', other), gateway)) is None
+
+    calls = []
+
+    async def confirmed_intake(reentry, _gateway):
+        calls.append(reentry.media_urls)
+        assert reentry.text == ''
+        assert reentry.source is source
+        return {'action': 'skip', 'reason': 'sliced and start handled by button flow'}
+
+    monkeypatch.setattr(model_link, 'model_link_dispatch', confirmed_intake)
+    assert asyncio.run(handler.fix_dispatch(event('accept'), gateway))['reason'] == 'repair accepted'
+    assert calls == [[str(owner_session.current_file)]]
+    assert owner_session.accepted and not owner_session.active()
+    assert Path(json.loads(job_path.read_text())['downloaded_file']).resolve() == owner_session.current_file.resolve()
+    assert stl.read_bytes() == original
+
+
+def test_fix_handler_does_not_accept_a_repaired_file_when_intake_refuses(tmp_path, monkeypatch):
+    from print_handy.bot.handlers import fix as handler
+    from print_handy.bot.handlers import model_link
+
+    _folder, job_path, stl, session = _session(tmp_path)
+    session.current_file = stl.parent / 'part-sunk.stl'
+    support_clearance._write_binary_stl(session.current_file, box(0, 0, -1, 10, 10, 10))
+    source = SimpleNamespace(user_id='user', chat_id='chat', thread_id='thread')
+    gateway = SimpleNamespace(_is_user_authorized_for_source=lambda _source: True)
+    messages = []
+
+    class Adapter:
+        async def send(self, **kwargs):
+            messages.append(kwargs['content'])
+
+    monkeypatch.setattr(handler, '_is_print_discord_event', lambda _event: True)
+    monkeypatch.setattr(handler, '_adapter_for', lambda _gateway, _source: Adapter())
+
+    async def rejected(_event, _gateway):
+        return {'action': 'skip', 'reason': 'slice refused: failed'}
+
+    monkeypatch.setattr(model_link, 'model_link_dispatch', rejected)
+    out = asyncio.run(handler.fix_dispatch(
+        SimpleNamespace(source=source, text='accept', media_urls=[]), gateway))
+    assert out['reason'] == 'repair intake incomplete'
+    assert not session.accepted and session.active()
+    assert Path(json.loads(job_path.read_text())['downloaded_file']).resolve() == stl.resolve()
+    assert messages and 'not accepted' in messages[-1]
