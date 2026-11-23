@@ -70,3 +70,19 @@ def write_home_toml(path, data=None):
     path = Path(path)
     path.write_text(home_toml(data), encoding="utf-8")
     return path
+
+
+def yaml_fixture(path):
+    """Convert a legacy TOML *test fixture* to a real YAML file for settings.load.
+
+    This helper lives only in tests; production rejects TOML by name.
+    """
+    import tomllib
+
+    path = Path(path)
+    if path.suffix.lower() != ".toml":
+        return path
+    text = path.read_text(encoding="utf-8")
+    target = path.with_suffix(".yaml")
+    target.write_text(yaml.safe_dump(tomllib.loads(text), sort_keys=False), encoding="utf-8")
+    return target

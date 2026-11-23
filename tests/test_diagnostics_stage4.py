@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import toml_twin
+
 from print_handy import logs, settings
 
 
@@ -12,7 +14,7 @@ class LevelsSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "local.toml"
             path.write_text(toml)
-            return settings.load(local=path, environ={})
+            return settings.load(local=toml_twin.yaml_fixture(path), environ={})
 
     def test_levels_are_validated_and_normalised(self):
         data = self._load('[logging]\nlevels = { "print_handy.core.orca_adapter" = "debug" }\n')
