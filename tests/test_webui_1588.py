@@ -94,17 +94,15 @@ def test_session_store_rotation_changes_both_token_kinds():
     assert store.validate(session_id) == session_id  # sessions survive rotation
 
 
-def test_server_session_attributes_delegate_to_the_store(tmp_path):
+def test_session_state_lives_only_on_the_store(tmp_path):
     data = load_settings(tmp_path)
     httpd, _port = start(data)
     try:
         assert isinstance(httpd.session_store, server.SessionStore)
-        assert httpd.sessions is httpd.session_store.sessions
-        assert httpd.remembered_sessions is httpd.session_store.remembered_sessions
-        assert httpd.form_token == httpd.session_store.form_token
-        assert httpd.remembered_lock is httpd.session_store.lock
+        for old in ("sessions", "remembered_sessions", "remembered_lock", "form_token", "csrf_secret"):
+            assert not hasattr(httpd, old), old
         session_id = httpd.session_store.mint()
-        assert httpd.sessions[session_id] > time.time()
+        assert httpd.session_store.sessions[session_id] > time.time()
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -223,7 +221,7 @@ def test_wrapped_posts_refuse_the_process_token_beside_a_session(tmp_path):
     httpd, port = start(data, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
     try:
         session_id = "wrapped-1588-session"
-        httpd.sessions[session_id] = time.time() + 3600
+        httpd.session_store.sessions[session_id] = time.time() + 3600
         cookie = {"Cookie": f"{server.SESSION_COOKIE}={session_id}"}
         form_headers = {"Content-Type": "application/x-www-form-urlencoded",
                         **cookie}
@@ -232,7 +230,7 @@ def test_wrapped_posts_refuse_the_process_token_beside_a_session(tmp_path):
             # (before #1588 the process_token flag accepted it).
             code, _h, _b = call(
                 port, "POST", path,
-                urlencode({pages.CSRF_FIELD: httpd.form_token, "year": "abc"}),
+                urlencode({pages.CSRF_FIELD: httpd.session_store.form_token, "year": "abc"}),
                 form_headers)
             assert code == 403, path
             # The session-bound token the page now embeds passes the

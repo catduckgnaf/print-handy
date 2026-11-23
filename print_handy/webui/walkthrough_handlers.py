@@ -52,7 +52,7 @@ def sync_access(handler):
             server.access = new_access
             return
         server.access = new_access
-        server.sessions.clear()
+        server.session_store.clear()
         handler._rotate_form_token()
         handler._revoke_remembered_sessions()
         handler._revoke_upload_links()
@@ -151,7 +151,7 @@ def walkthrough_apply(handler, form):
         # Every session issued under the old rule ends — an intruder's
         # live session must not survive the owner changing the
         # password. The browser that made the change gets a fresh one.
-        handler.server.sessions.clear()
+        handler.server.session_store.clear()
         handler._rotate_form_token()
         handler._revoke_remembered_sessions()
         handler._revoke_upload_links()

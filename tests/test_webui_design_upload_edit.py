@@ -158,7 +158,7 @@ def _multipart(token, filename, content, change=None):
 
 
 def _upload(browser, path, filename, content, change=None):
-    body, ctype = _multipart(browser.srv.form_token, filename, content, change)
+    body, ctype = _multipart(browser.srv.session_store.form_token, filename, content, change)
     conn = http.client.HTTPConnection("127.0.0.1", browser.port, timeout=15)
     headers = {"Content-Type": ctype}
     if browser.cookies:

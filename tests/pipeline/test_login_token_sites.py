@@ -518,7 +518,7 @@ def test_design_fetch_makeronline_names_the_gap(tmp_path):
 # ---------------------------------------------------------------- connect flow
 
 def _event(url):
-    return S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    return S(source=S(chat_id='c1', thread_id=None, user_id='u'),
              message_id='lt1', text=url)
 
 

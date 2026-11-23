@@ -139,7 +139,7 @@ class AuthSweepTests(WebServerCase):
                 f"/api/printers/{pid}/spools",
                 f"/api/printers/{pid}/camera/snapshot",
                 f"/api/printers/{pid}/bogus", "/walkthrough",
-                "/theme?set=dark", "/nope"]
+                "/nope"]
 
     def test_every_get_route_refuses_without_a_token(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,7 +252,7 @@ class RouteShapeTests(WebServerCase):
                 ("/", "Print Handy status"),
                 ("/config", f'name="{pages.CSRF_FIELD}"'),
                 ("/printers", "Add a printer"),
-                ("/designs", "Print Handy designs"),
+                ("/chat?view=design", "Print Handy designs"),
                 ("/data", "Print Handy data"),
                 ("/wrapped", "Print Handy wrapped"),
                 ("/login", f'name="{pages.LOGIN_TOKEN_FIELD}"'),
@@ -476,7 +476,7 @@ class RouteShapeTests(WebServerCase):
             httpd, port = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
             # A claimed install: the page's token posts only with a session.
             session_id = "wrapped-test-session"
-            httpd.sessions[session_id] = time.time() + 3600
+            httpd.session_store.sessions[session_id] = time.time() + 3600
             cookie = {"Cookie": f"{server.SESSION_COOKIE}={session_id}"}
             _, _, page = self.get(port, "/wrapped", headers=cookie)
             match = re.search(rf'name="{pages.CSRF_FIELD}" value="([^"]+)"',

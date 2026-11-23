@@ -88,7 +88,7 @@ def _intake(tmp_path, monkeypatch, names):
         monkeypatch.setattr(prepared_intake, '_heavy', lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
     else:
         monkeypatch.setattr(intake_resources, 'check_source', stop_at('check'))
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='big-' + str(len(names)), text='https://www.printables.com/model/1-big-model')
     from .test_color_intake import state
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), tmp_path / 'receipts', timeout=30))
@@ -190,7 +190,7 @@ def test_a_failed_heads_up_leaves_the_audit_its_large_model_prompt(tmp_path, mon
             return await super().send(chat_id, content, reply_to=reply_to, metadata=metadata)
 
     adapter = FailingHeadsUp([0])
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='big-failed-send', text='https://www.printables.com/model/1-big-model')
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), tmp_path / 'receipts', timeout=30))
     assert not any('is big' in m for m in adapter.sent)

@@ -49,8 +49,8 @@ class FakeAdapter:
 
 
 def _event(text, platform="discord", user_id="42"):
-    source = S(platform=S(value=platform), profile="3dprinting", is_bot=False,
-               profile_route_rejected=False, user_id=user_id, chat_id="c", thread_id=None)
+    source = S(platform=S(value=platform), is_bot=False,
+               user_id=user_id, chat_id="c", thread_id=None)
     return S(source=source, text=text, internal=False, message_id="m1", metadata={})
 
 

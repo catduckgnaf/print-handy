@@ -44,16 +44,25 @@ class Lane:
     """At most `slots` workers at once and `waiting` more queued; anything beyond is refused at once."""
 
     def __init__(self, name, slots, waiting):
-        self.name, self.slots, self.waiting = name, slots, waiting
-        self._state = weakref.WeakKeyDictionary()  # per event loop: [semaphore, queued]
+        self.name, self.waiting = name, waiting
+        self._slots = slots  # an int, or a callable read when a loop first uses the lane
+        self._state = weakref.WeakKeyDictionary()  # per event loop: [semaphore, queued, slots]
+
+    @property
+    def slots(self):
+        return self._slots() if callable(self._slots) else self._slots
 
     @contextlib.asynccontextmanager
     async def slot(self):
-        state = self._state.setdefault(asyncio.get_running_loop(), [asyncio.Semaphore(self.slots), 0])
+        loop = asyncio.get_running_loop()
+        state = self._state.get(loop)
+        if state is None:
+            count = self.slots
+            state = self._state[loop] = [asyncio.Semaphore(count), 0, count]
         sem = state[0]
         if sem.locked():
             if state[1] >= self.waiting:
-                raise WorkerBusy(f'Print Handy is busy with {self.slots + state[1]} other {self.name} '
+                raise WorkerBusy(f'Print Handy is busy with {state[2] + state[1]} other {self.name} '
                                  'steps; try again when one finishes')
             state[1] += 1
             try:
@@ -69,10 +78,17 @@ class Lane:
 
 
 # Concurrent Flatpak Orca runs collide (orca_adapter, exit 243), so steps that can launch it run
-# one at a time across every printer, whatever the CPU budget. Only real slicer steps take this
+# one at a time across every printer, whatever the CPU budget, unless the host qualifies for
+# parallel previews (preview_parallel.py: [slicer] parallel_preview on, 4+ CPUs, no Flatpak),
+# where the lane holds exactly two, never more. Only real slicer steps take this
 # lane: an AI design's model call and its OpenSCAD render never do, so a design in progress does
 # not hold up another printer's slice (only a design's own "Slice it" queues here, as a slice).
-SLICER = Lane('slicing', slots=1, waiting=4)
+def _slicer_slots():
+    from . import preview_parallel
+    return preview_parallel.slicer_slots()
+
+
+SLICER = Lane('slicing', slots=_slicer_slots, waiting=4)
 GENERAL = Lane('model check', slots=2, waiting=8)
 
 _LIVE = {}  # pid -> process, for shutdown()

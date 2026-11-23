@@ -30,8 +30,11 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from .. import settings
+from .. import __version__, settings
 from . import filament_color, spoolman_client
+
+# Sent on the Moonraker reads below.
+_USER_AGENT = f"print-handy/{__version__}"
 
 LOCAL_TZ = ZoneInfo(settings.current()["discord"]["timezone"])
 
@@ -782,7 +785,7 @@ def fetch_moonraker_zmod_color(
             from .. import moonraker
             data = moonraker.url_json(f"{mr_url.rstrip('/')}/printer/objects/query?zmod_color",
                                       timeout=timeout, moonraker=True,
-                                      headers={"User-Agent": "Hermes-SpoolLifecycle/1.0"})
+                                      headers={"User-Agent": _USER_AGENT})
         return (data.get("result") or {}).get("status", {}).get("zmod_color")
     except Exception:
         return None
@@ -805,7 +808,7 @@ def fetch_moonraker_active_spool(
             from .. import moonraker
             data = moonraker.url_json(f"{mr_url.rstrip('/')}/server/spoolman/spool_id",
                                       timeout=timeout, moonraker=True,
-                                      headers={"User-Agent": "Hermes-SpoolLifecycle/1.0"})
+                                      headers={"User-Agent": _USER_AGENT})
         return (data.get("result") or {}).get("spool_id")
     except Exception:
         return None

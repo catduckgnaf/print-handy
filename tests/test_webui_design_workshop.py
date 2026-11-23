@@ -227,7 +227,7 @@ def call(port, method, path, body=None, headers=None):
     return response.status, payload
 
 
-def chat_cookie(port, path="/designs"):
+def chat_cookie(port, path="/chat?view=design"):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     conn.request("GET", path)
     response = conn.getresponse()
@@ -241,7 +241,7 @@ def chat_cookie(port, path="/designs"):
 
 def test_server_page_without_design_config_shows_the_reason(running):
     _srv, port = running
-    status, page = call(port, "GET", "/designs")
+    status, page = call(port, "GET", "/chat?view=design")
     assert status == 200
     assert "not set up yet" in page
     assert 'class="design-composer"' not in page
@@ -273,9 +273,9 @@ def running_configured(tmp_path, monkeypatch):
 def test_server_start_form_posts_the_command_to_web_chat(running_configured):
     srv, port = running_configured
     browser, secret = chat_cookie(port)
-    status, page = call(port, "GET", "/designs", headers=browser)
+    status, page = call(port, "GET", "/chat?view=design", headers=browser)
     assert status == 200 and 'class="design-composer"' in page
-    body = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "a small storage box"})
+    body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token, "text": "a small storage box"})
     status, _page = call(port, "POST", "/designs", body=body, headers=browser)
     assert status == 303
     # The submission is in this browser's design thread (its own scope,
