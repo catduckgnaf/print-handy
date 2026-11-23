@@ -4476,8 +4476,8 @@ class Listener:
                 ffm, ifs = sources[1:3]
                 if ffm is None or ffm != ifs:
                     continue
-                if ffm == job_slot or (initial_ffm is not None and initial_ifs is not None
-                                       and ffm != initial_ffm and ffm != initial_ifs):
+                if ffm == job_slot or initial_ffm is None or initial_ifs is None or (
+                        ffm != initial_ffm and ffm != initial_ifs):
                     warning = self._slot_agreement(sources)
                     if warning:
                         await asyncio.to_thread(post, warning)
