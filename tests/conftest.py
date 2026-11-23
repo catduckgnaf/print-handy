@@ -408,3 +408,33 @@ def _no_public_internet(monkeypatch):
     if attempts:
         pytest.fail(f"this test tried to reach the public internet: {', '.join(attempts)} (#1844). "
                     "Fake the fetch at its urlopen or client seam instead.", pytrace=False)
+
+
+# #1844: the two fetches the guard above caught across the suite, stubbed
+# for every test by default. A background model download outlives the test
+# that started it, so a per-file fake is not enough: any test whose config
+# turns the local detector on would otherwise start the real 202 MB fetch.
+# tests/runtime/test_local_vision.py tests the download itself and fakes
+# urlopen instead; any test may still override either stub.
+_DOWNLOAD_TEST_MODULES = {"tests.runtime.test_local_vision", "test_local_vision"}
+
+
+@pytest.fixture(autouse=True)
+def _no_detector_model_download(request, monkeypatch):
+    if request.module.__name__ in _DOWNLOAD_TEST_MODULES:
+        return
+    from print_handy.runtime import local_vision
+
+    def refuse(path):
+        raise local_vision.LocalVisionError("tests never download the detector model (#1844)")
+
+    monkeypatch.setattr(local_vision, "_download_model", refuse)
+
+
+@pytest.fixture(autouse=True)
+def _no_firmware_feed_fetch(monkeypatch):
+    """The Web UI's Firmware page reads the published feed through the
+    process-wide cache; tests get an empty one (the "feed unknown" state)."""
+    from print_handy import firmware_feed
+
+    monkeypatch.setattr(firmware_feed, "_shared", firmware_feed.FeedCache(fetcher=lambda: None))
