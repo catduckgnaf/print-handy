@@ -175,9 +175,12 @@ jobs:
     # #1790: real multi-MB sources through intake (unit question, load,
     # combine), with the native mesh kernel and on the Python fallback, with
     # stage timings. The files (tests/corpus/large_mesh/*/case.toml) are
-    # fetched from their source pinned by SHA-256 on every run and never
-    # cached, committed or released; a refused or changed download fails the
-    # job instead of skipping the case.
+    # fetched from their source pinned by SHA-256 and never committed or
+    # released. They are kept in this repository's private Actions cache
+    # (not public, not a release) so the source site is not asked for 56 MB
+    # on every run; fetch.py re-verifies every cached file's size and
+    # SHA-256 and downloads only a missing or changed one. A refused or
+    # changed download still fails the job instead of skipping the case.
     name: Large-mesh intake (native kernel and Python fallback)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -210,6 +213,11 @@ jobs:
           PURELIB="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
           cp "$PURELIB"/print_handy/core/_bounds_native*.so print_handy/core/
           python -c 'from print_handy.core import _bounds_native as m; print("MESH_KERNEL_VERSION", m.MESH_KERNEL_VERSION)'
+      - name: Cache the large-mesh corpus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ runner.temp }}/large-mesh
+          key: large-mesh-${{ hashFiles('tests/corpus/large_mesh/*/case.toml') }}
       - name: Fetch the large-mesh corpus by SHA-256
         env:
           PRINT_HANDY_LARGE_MESH_CORPUS: ${{ runner.temp }}/large-mesh
