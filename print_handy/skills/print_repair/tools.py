@@ -7,9 +7,10 @@ the session's workspace (the job folder): a ``mesh`` argument is a path
 relative to it, and anything outside, absent, or of another type is refused
 before any work. Every mesh is loaded and welded once per session.
 
-This module holds the read-only diagnosis tools. Repair tools (which always
-write a copy) and the verification loop that re-slices after a repair are
-added on top of the same registry.
+Diagnosis tools are read-only. A repair tool writes a new mesh only when the
+geometry actually changes, and reports that volume change. A repair that
+cannot be done returns an error and does not leave a copy behind. The
+verification loop re-slices after a repair.
 """
 from __future__ import annotations
 
@@ -19,14 +20,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ...core import layer_scan, mesh_diagnosis
+import numpy as np
+
+from ...core import layer_scan, mesh_diagnosis, mesh_repair, plane_cut, support_clearance
 
 logger = logging.getLogger(__name__)
 
 MESH_SUFFIXES = ('.stl', '.3mf')
-# Largest model file a tool loads (bytes); intake's own limits apply first.
 MAX_MESH_BYTES = 512 * 1024 * 1024
-# Longest list of findings one tool returns; the rest are counted.
 MAX_ITEMS = 60
 
 
@@ -115,7 +116,6 @@ def _underside_profile(session, mesh, region, z_range=None):
 
 
 def _clearance_report(session, mesh, first_layer_mm=None):
-    from ...core import support_clearance
     path = session.path(mesh)
     if first_layer_mm is None:
         first_layer_mm = support_clearance.profile_first_layer_mm(source=path)
@@ -127,6 +127,190 @@ def _clearance_report(session, mesh, first_layer_mm=None):
            'first_layer_mm': first_layer_mm}
     out.update(_clip(findings, 'findings'))
     out.update(_clip(regions, 'regions'))
+    return out
+
+
+# ---------------------------------------------------------------- repair tools
+
+def _dest(session, original_rel: str, suffix: str, *, stl: bool = False) -> tuple[Path, str]:
+    """A new workspace path for a repair copy. Never the source path."""
+    src = session.path(original_rel)
+    ext = '.stl' if stl else src.suffix
+    dest = src.parent / f'{src.stem}{suffix}{ext}'
+    n = 1
+    while dest.exists() or dest.resolve() == src.resolve():
+        dest = src.parent / f'{src.stem}{suffix}-{n}{ext}'
+        n += 1
+    return dest, str(dest.relative_to(session.workspace))
+
+
+def _discard(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning('could not remove an unused repair copy')
+
+
+def _fail(dest: Path | None, error: str) -> dict:
+    """A repair that did not happen: no file, and not ok."""
+    _discard(dest)
+    return {'ok': False, 'error': error}
+
+
+def _mesh_differs(src: Path, dest: Path) -> bool:
+    """True when the two files are not the same triangles (a format rewrite is not a change)."""
+    try:
+        before = np.asarray(mesh_repair.load_triangles(src), dtype=float)
+        after = np.asarray(mesh_repair.load_triangles(dest), dtype=float)
+    except Exception:
+        logger.exception('could not compare repair meshes geometrically; falling back to byte comparison')
+        try:
+            return src.read_bytes() != dest.read_bytes()
+        except OSError:
+            return False
+    if before.shape != after.shape:
+        return True
+    return not np.allclose(before, after, rtol=0, atol=1e-3)
+
+
+def _ok_if_changed(src: Path, dest: Path, rel: str, *, volume_key: str, volume: float) -> dict:
+    """ok only when the volume change is real or the triangles actually differ."""
+    delta = float(volume)
+    if not dest.is_file() or (abs(delta) <= 1e-3 and not _mesh_differs(src, dest)):
+        return _fail(dest, 'the repair did not change the mesh, so nothing was changed')
+    return {'ok': True, 'new_mesh': rel, volume_key: round(delta, 3)}
+
+
+def _unavailable(session, mesh: str, name: str) -> dict:
+    session.path(mesh)  # same path refusal as a tool that does run
+    return _fail(None, f'{name} is not available yet, so nothing was changed')
+
+
+def _trim_below_plane(session, mesh, region, z):
+    """Drop solid below ``z`` when that sag is inside ``region``.
+
+    ``plane_cut.cut`` splits the whole mesh. That is this tool only when
+    every vertex below the plane is inside the region; a partial trim would
+    cut design that was not asked for, so it is refused and nothing is written.
+    """
+    src = session.path(mesh)
+    try:
+        tris = mesh_repair.load_triangles(src)
+    except mesh_repair.FixError as exc:
+        return _fail(None, str(exc))
+    except Exception as exc:
+        return _fail(None, f'could not read the mesh: {exc}')
+    if len(tris) == 0:
+        return _fail(None, 'the mesh has no triangles to trim, so nothing was changed')
+    xmin, ymin, xmax, ymax = (float(value) for value in region)
+    if not (xmin < xmax and ymin < ymax):
+        return _fail(None, 'region must be an XY box with positive area, so nothing was changed')
+    z = float(z)
+    below = tris[:, :, 2] < z - 1e-6
+    if not bool(below.any()):
+        return _fail(None, 'nothing sags below that plane, so nothing was changed')
+    xs, ys = tris[:, :, 0], tris[:, :, 1]
+    outside = ((xs < xmin - 1e-6) | (xs > xmax + 1e-6)
+               | (ys < ymin - 1e-6) | (ys > ymax + 1e-6))
+    if bool((below & outside).any()):
+        return _fail(None, 'geometry below the plane sits outside the region, and a partial '
+                     'trim is not available, so nothing was changed')
+    # Triangles can cross the plane with all their *below* vertices inside
+    # the requested region and an above-plane vertex far outside. A whole-
+    # mesh cut also removes the portion between those vertices and the plane.
+    # Check the intersection points, which together with the below vertices
+    # are the vertices of each clipped polygon (a convex shape).
+    for edge in range(3):
+        first = tris[:, edge, :]
+        second = tris[:, (edge + 1) % 3, :]
+        first_low = first[:, 2] < z - 1e-6
+        second_low = second[:, 2] < z - 1e-6
+        crossing = first_low != second_low
+        if not bool(crossing.any()):
+            continue
+        a, b = first[crossing], second[crossing]
+        ratio = (z - a[:, 2]) / (b[:, 2] - a[:, 2])
+        xy = a[:, :2] + ratio[:, None] * (b[:, :2] - a[:, :2])
+        if bool(((xy[:, 0] < xmin - 1e-6) | (xy[:, 0] > xmax + 1e-6)
+                 | (xy[:, 1] < ymin - 1e-6) | (xy[:, 1] > ymax + 1e-6)).any()):
+            return _fail(None, 'the cut crosses geometry outside the requested region; '
+                         'nothing was changed')
+    try:
+        cut = plane_cut.cut(tris, 2, z)
+    except mesh_repair.FixError as exc:
+        return _fail(None, str(exc))
+    except Exception as exc:
+        logger.exception('trim_below_plane failed')
+        return _fail(None, f'trim_below_plane failed: {type(exc).__name__}: {exc}')
+    if cut is None:
+        return _fail(None, 'the plane does not separate any geometry, so nothing was changed')
+    removed = abs(float(plane_cut.volume(*cut.lower)))
+    points, faces = cut.upper
+    if removed <= 1e-3 or len(faces) == 0:
+        return _fail(None, 'the trim would not remove a measurable volume, so nothing was changed')
+    dest, rel = _dest(session, mesh, '-trimmed', stl=True)
+    try:
+        support_clearance._write_binary_stl(dest, points[faces])
+    except Exception as exc:
+        return _fail(dest, f'could not write the trimmed mesh: {exc}')
+    return _ok_if_changed(src, dest, rel, volume_key='volume_removed_mm3', volume=removed)
+
+
+def _gusset_45(session, mesh, overhang_region, wall_x):
+    return _unavailable(session, mesh, 'gusset_45')
+
+
+def _fill_under_lip(session, mesh, region):
+    return _unavailable(session, mesh, 'fill_under_lip')
+
+
+def _straight_base(session, mesh, height):
+    return _unavailable(session, mesh, 'straight_base')
+
+
+def _extend_underside(session, mesh, mm):
+    """Move a low underside onto the plate. A no-op write is not a repair."""
+    src = session.path(mesh)
+    dest, rel = _dest(session, mesh, '-extended')
+    try:
+        report = support_clearance.extend_underside(src, dest_path=dest, gap_mm=float(mm))
+    except Exception as exc:
+        return _fail(dest, f'extend_underside failed: {exc}')
+    added = float(report.get('added_volume_mm3') or 0.0)
+    modified = int(report.get('modified_vertices') or 0)
+    if modified <= 0 and abs(added) <= 1e-3:
+        return _fail(dest, 'no underside at that height was extended, so nothing was changed')
+    return _ok_if_changed(src, dest, rel, volume_key='volume_added_mm3', volume=added)
+
+
+def _sink(session, mesh, mm):
+    """Sink the model by ``mm``. The original file is not opened for writing."""
+    src = session.path(mesh)
+    dest, rel = _dest(session, mesh, '-sunk')
+    try:
+        report = support_clearance.sink_model(src, dest_path=dest, dz=float(mm))
+    except Exception as exc:
+        return _fail(dest, f'sink failed: {exc}')
+    removed = float(report.get('removed_volume_mm3') or 0.0)
+    return _ok_if_changed(src, dest, rel, volume_key='volume_removed_mm3', volume=removed)
+
+
+def _repair_mesh(session, mesh):
+    """Run ``mesh_repair.repair`` (not ``repair_mesh``). Failure writes nothing."""
+    src = session.path(mesh)
+    dest, rel = _dest(session, mesh, '-repaired', stl=True)
+    try:
+        report = mesh_repair.repair(src, dest)
+    except Exception as exc:
+        return _fail(dest, str(exc))
+    before = (report.get('before') or {}).get('signed_volume_mm3')
+    after = (report.get('after') or {}).get('signed_volume_mm3')
+    delta = 0.0 if before is None or after is None else float(after) - float(before)
+    out = _ok_if_changed(src, dest, rel, volume_key='volume_change_mm3', volume=delta)
+    if out.get('ok'):
+        out['note'] = 'mesh repaired'
     return out
 
 
@@ -169,12 +353,64 @@ TOOLS: dict[str, Tool] = {tool.name: tool for tool in (
          'Print Handy\'s support clearance check: undersides too close to the plate or a part '
          'below for slicer supports to fit, below-bed geometry, ineffective modeled supports.',
          _params({'mesh': _MESH, 'first_layer_mm': _FIRST}), _clearance_report),
+    # Repair tools
+    Tool('trim_below_plane',
+         'Remove geometry sagging below a face plane in the given region. Writes a new copy '
+         'only when the cut removes volume.',
+         _params({'mesh': _MESH, 'region': _REGION,
+                  'z': {'type': 'number',
+                        'description': 'Z of the face plane in the model file, millimeters.'}},
+                 required=('mesh', 'region', 'z')),
+         _trim_below_plane),
+    Tool('gusset_45',
+         'Add a self-supporting 45-degree gusset under a cantilever. Writes a new copy.',
+         _params({'mesh': _MESH, 'overhang_region': _REGION,
+                  'wall_x': {'type': 'number',
+                             'description': 'X of the wall the gusset grows from, millimeters.'}},
+                 required=('mesh', 'overhang_region', 'wall_x')),
+         _gusset_45),
+    Tool('fill_under_lip',
+         'Fill under a lip with a 45-degree ramp to the plate. Writes a new copy.',
+         _params({'mesh': _MESH, 'region': _REGION}, required=('mesh', 'region')),
+         _fill_under_lip),
+    Tool('straight_base',
+         'Replace the bottom with a straight-walled base of the given height. Writes a new copy.',
+         _params({'mesh': _MESH,
+                  'height': {'type': 'number', 'exclusiveMinimum': 0,
+                             'description': 'Height of the straight base, millimeters.'}},
+                 required=('mesh', 'height')),
+         _straight_base),
+    Tool('extend_underside',
+         'Extend a low underside down to the plate. Writes a new copy only when vertices move.',
+         _params({'mesh': _MESH,
+                  'mm': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 5,
+                         'description': 'Underside height to extend to the plate, millimeters (at most 5).'}},
+                 required=('mesh', 'mm')),
+         _extend_underside),
+    Tool('sink',
+         'Sink the model so the underside meets the plate (clips below). Writes a new copy.',
+         _params({'mesh': _MESH,
+                  'mm': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 5,
+                         'description': 'How far to sink the model, millimeters (at most 5).'}},
+                 required=('mesh', 'mm')),
+         _sink),
+    Tool('repair_mesh',
+         'Deterministic mesh repair (holes, inverted normals, non-manifold). Writes a new copy.',
+         _params({'mesh': _MESH}),
+         _repair_mesh),
 )}
 
 
+# These repair implementations are still under construction. They may be called
+# explicitly (and safely return unavailable), but must not be advertised to
+# the model as executable geometry edits.
+UNAVAILABLE_REPAIRS = frozenset({'gusset_45', 'fill_under_lip', 'straight_base'})
+
+
 def openai_tools() -> list[dict]:
-    """The function schemas to pass to an OpenAI-compatible endpoint, in registry order."""
-    return [tool.schema() for tool in TOOLS.values()]
+    """Only tools actually implemented and available to the model."""
+    return [tool.schema() for tool in TOOLS.values()
+            if tool.name not in UNAVAILABLE_REPAIRS]
 
 
 def _check_type(name, key, value, schema):
@@ -262,17 +498,23 @@ class Session:
 
         Bad calls (unknown tool, bad arguments, refused paths, input a tool
         cannot measure) come back as errors the model can read and correct.
-        An unexpected failure is logged and reported without its traceback.
+        A repair result with ``ok`` false is an error too: a no-op must not
+        look like a successful tool call. An unexpected failure is logged
+        and reported without its traceback.
         """
         tool = TOOLS.get(name)
         try:
             if tool is None:
                 raise ToolError(f'unknown tool {name!r}')
             args = _arguments(tool, {} if arguments is None else arguments)
-            return {'ok': True, 'result': tool.run(self, **args)}
+            result = tool.run(self, **args)
         except (ToolError, layer_scan.ScanError) as exc:
             return {'ok': False, 'error': str(exc)}
         except Exception as exc:
             logger.exception('print repair tool %s failed', name)
             return {'ok': False, 'error': f'{name} failed: {type(exc).__name__}: {exc}'}
+        if isinstance(result, dict) and result.get('ok') is False:
+            error = str(result.get('error') or f'{name} did not change the file')
+            return {'ok': False, 'error': error, 'result': result}
+        return {'ok': True, 'result': result}
 

@@ -38,6 +38,10 @@ button = "One copy"
 question = "·"
 button = "Slice and print"
 
+[[click]]
+question = "That model could not be sliced"
+button = "Not now"
+
 [expect]
 status = "SLICE_FAILED"
 started = false

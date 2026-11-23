@@ -107,6 +107,7 @@ del _path, _source
 
 _DISPATCH_HOOKS = (
     guided_dispatch,
+    fix_dispatch,
     design_dispatch,
     maintenance_dispatch,
     coldpull_dispatch,

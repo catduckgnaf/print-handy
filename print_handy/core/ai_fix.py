@@ -111,17 +111,22 @@ FILE_FIELDS = ('downloaded_file', 'sources', 'selected_source', 'color_manifest'
 AI_CALLS: dict = {}
 
 
-def lane_allowed(user_id, cfg=None, now=None):
+def lane_allowed(user_id, cfg=None, now=None, *, record=True):
     """(allowed, reason) for one AI fix request: the same [ai] allowed_users
     list and per-user edit_requests_per_hour limit as the AI edit lane (#902).
-    A refused request sends nothing to the endpoint."""
+    A refused request sends nothing to the endpoint.
+
+    ``record=False`` only checks: an offer or a session start that sends
+    nothing to the endpoint must not spend one of the user's hourly calls
+    (#1778)."""
     if cfg is None:
         try:
             from .. import settings
             cfg = settings.current()
         except Exception:  # noqa: BLE001 - no settings reads as no restriction configured
             cfg = {}
-    return edit_plan.ai_lane_allowed(user_id, (cfg or {}).get('ai') or {}, AI_CALLS,
+    calls = AI_CALLS if record else dict(AI_CALLS)
+    return edit_plan.ai_lane_allowed(user_id, (cfg or {}).get('ai') or {}, calls,
                                      time.time() if now is None else now)
 
 
@@ -137,13 +142,19 @@ FixError = mesh_repair.FixError
 
 
 def intake_fix_offered(cfg=None) -> bool:
-    """Whether a model-link intake offers "Fix this for my printer" (#1373: never).
+    """Whether the prepared intake's own gates offer "Fix this for my printer" (never).
 
-    Owner ruling (2026-11-12): the AI fix is part of design, a "fix this
-    file" request the operator makes on purpose, never a last-resort button
-    at the end of an intake. Intake gates (slice refusals, failed slices,
-    support coverage) answer with deterministic choices only, and say
-    nothing about an AI fix.
+    History: the #1373 owner ruling (2026-11-12) said the AI fix is a request
+    the operator makes on purpose, never a last-resort button after an
+    intake. That ruling is superseded by the owner's later issue #1778, which
+    explicitly asks for an AI offer after a slice failure. #1778's offer is
+    not this button: it is "Work on this with AI", posted by the chat handler
+    after the intake has finished and refused or failed the slice
+    (``bot/handlers/fix.offer_failed_intake``), gated on the heavy tier being
+    ready and on the [ai] allowlist and rate limit, and it opens a fix session
+    on a copy. The intake's in-gate one-shot fix buttons (the #978 support and
+    slice gates below) stay off, so a refused slice is never offered two
+    different AI fixes, and the intake gates keep their deterministic choices.
     """
     return False
 
