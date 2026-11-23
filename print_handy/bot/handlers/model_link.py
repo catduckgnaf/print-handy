@@ -306,8 +306,12 @@ async def model_link_dispatch(event, gateway, **kwargs):
     # cross-platform adapter; unrelated archived jobs are never guessed.
     reason = result.get('reason', '') if isinstance(result, dict) else ''
     if str(reason).startswith(('slice refused:', 'slice failed:', 'slice retry failed')):
-        from print_handy.bot.handlers.fix import offer_failed_intake
-        repair = await offer_failed_intake(event, gateway, adapter)
+        # The one-release plugin executes handlers into its own namespace;
+        # prefer that local hook so fake/real adapters use the same routing.
+        offer = globals().get('offer_failed_intake')
+        if offer is None:
+            from print_handy.bot.handlers.fix import offer_failed_intake as offer
+        repair = await offer(event, gateway, adapter)
         if repair is not None:
             return repair
     # A question beside the model is answered from the job the intake just
