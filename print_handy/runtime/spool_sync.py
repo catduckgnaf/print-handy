@@ -194,14 +194,15 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
     """The id of another printer whose record already loads this spool, or None (#334).
 
     One physical spool sits on one printer. The scan covers every per-printer
-    record under <state>/printers/ (the state root the target record sits in,
-    or the configured one), excluding the target printer's own record.
+    record under the state root the target record sits in, excluding the
+    target printer's own record: <state>/printers/<id>/printer_hardware.json
+    scans <state>/printers/, and an explicit record anywhere else scans the
+    printers/ folder beside it (as before 2.4), never a different configured root.
     Best-effort: a record that cannot be read proves nothing and is skipped.
     """
-    from ..core import printer_state
     target = _hardware_path(state_path, printer_id)
     printers_dir = (target.parent.parent if target.parent.parent.name == "printers"
-                    else printer_state.state_root() / "printers")
+                    else target.parent / "printers")
     for candidate in sorted(printers_dir.glob("*/printer_hardware.json")):
         if candidate == target:
             continue
