@@ -40,6 +40,26 @@ def setup_job(tmp_path, monkeypatch):
     return jp,st,Path(old)
 
 
+def test_unbound_job_refused_even_without_color_decisions(tmp_path):
+    gcode = tmp_path / 'plain.gcode'
+    gcode.write_text('G1 X1\\n')
+    job = {'gcode': str(gcode), 'gcode_verified': True}
+    with pytest.raises(RuntimeError, match='stale color artifact: reslice current JOB'):
+        launch_gates.require_current_artifact(job, gcode)
+    job['artifact_binding'] = {}
+    with pytest.raises(RuntimeError, match='stale color artifact: reslice current JOB'):
+        launch_gates.require_current_artifact(job, gcode)
+    # A loose G-code path has no JOB.json to bind. That separate route is unchanged.
+    assert launch_gates.require_current_artifact(None, gcode) is None
+
+
+def test_normal_single_color_slice_persists_binding(tmp_path, monkeypatch):
+    jp, _state, gcode = setup_job(tmp_path, monkeypatch)
+    job = json.loads(jp.read_text())
+    assert job['artifact_binding']['gcode_sha256'] == gcode_artifact.file_sha256(gcode)
+    launch_gates.require_current_artifact(job, gcode)
+
+
 @pytest.mark.asyncio
 async def test_persisted_derived_binding_hash_keys_roundtrip_and_tamper_refusal(tmp_path, monkeypatch):
     jp, st, gcode = setup_job(tmp_path, monkeypatch)

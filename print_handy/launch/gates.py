@@ -375,8 +375,6 @@ def require_current_artifact(job, gcode):
             desc = '; '.join(support_clearance.describe(clearance)[:2]) or 'insufficient support clearance'
             raise RuntimeError(f'insufficient support clearance: {desc}; choose a geometry repair or confirm print anyway. Nothing uploaded or started.')
     binding = job.get('artifact_binding')
-    if binding is None and not job.get('color_decisions'):
-        return  # Preserve legacy jobs without source-color decisions.
     if not binding or job.get('gcode_verified') is not True:
         raise RuntimeError('stale color artifact: reslice current JOB before launch')
     from ..core.slice_recipe import RECIPE_VERSION, require_recorded
