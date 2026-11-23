@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import tomllib
+import yaml
 from pathlib import Path
 from unittest import mock
 
@@ -93,7 +95,10 @@ class OverrideTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def toml(self, text, name="local.toml"):
-        path = self.dir / name
+        """Convert historical TOML test fixtures to the supported YAML format."""
+        if text.lstrip().startswith("["):
+            text = yaml.safe_dump(tomllib.loads(text), sort_keys=False)
+        path = self.dir / (name[:-5] + ".yaml" if name.endswith(".toml") else name)
         path.write_text(text)
         return path
 
@@ -127,12 +132,14 @@ class OverrideTests(unittest.TestCase):
             self.assertNotIn("mode", data["bot"])
             self.assertIn("[bot] mode", settings.unknown_settings_warning())
 
-    def test_yaml_and_legacy_toml_local_precedence_is_yaml_first(self):
-        toml_path = self.toml("[layout]\nmulti_copy_edge_mm = 4\n", "local.toml")
+
+    def test_yaml_local_is_used_even_if_retired_toml_exists(self):
+        legacy = self.dir / "local.toml"
+        legacy.write_text("[layout]\nmulti_copy_edge_mm = 4\n")
         yaml_path = self.toml("layout:\n  multi_copy_edge_mm: 6\n", "local.yaml")
-        with mock.patch.object(settings, "LOCAL", yaml_path), mock.patch.object(settings, "LEGACY_LOCAL", toml_path):
+        with mock.patch.object(settings, "LOCAL", yaml_path):
             data = settings.load(local=None, environ={})
-        self.assertEqual(data["layout"]["multi_copy_edge_mm"], 6)
+        self.assertEqual(data["layout"]["multi_copy_edge_mm"], 6.0)
 
     def test_explicit_config_path_selects_yaml(self):
         path = self.toml("visual_watch:\n  enabled: false\n", "selected.yaml")
@@ -195,30 +202,35 @@ class OverrideTests(unittest.TestCase):
         data = settings.load(local=path, environ={})
         self.assertIs(data["visual_watch"]["enabled"], True)
 
-    def legacy_home(self, name="legacy-home.toml", data=None):
-        """A TOML home with home.yaml's values (config/home.toml was retired in #1322)."""
-        return toml_twin.write_home_toml(self.dir / name, data)
+    def legacy_home(self, name="fixture-home.yaml", data=None):
+        """An editable YAML home fixture made from the canonical config."""
+        target = self.dir / (name[:-5] + ".yaml" if name.endswith(".toml") else name)
+        target.write_text(yaml.safe_dump(toml_twin.home_data() if data is None else data,
+                                         sort_keys=False))
+        return target
 
-    def test_yaml_home_preserves_effective_legacy_toml_values(self):
-        yaml_data = settings.load(home=settings.HOME, local=False, environ={})
-        toml_data = settings.load(home=self.legacy_home(), local=False, environ={})
-        self.assertEqual(yaml_data, toml_data)
 
-    def test_legacy_home_toml_is_used_when_yaml_is_absent(self):
-        home = self.legacy_home("home.toml")
-        yaml_home = self.dir / "home.yaml"
-        with mock.patch.object(settings, "HOME", yaml_home), mock.patch.object(settings, "LEGACY_HOME", home):
-            data = settings.load(home=None, local=False, environ={})
-        self.assertEqual(data["printer"]["model"], "flashforge.ad5x")
-        self.assertIs(data["visual_watch"]["enabled"], True)
+    def test_yaml_home_round_trip_preserves_effective_values(self):
+        shipped = settings.load(home=settings.HOME, local=False, environ={})
+        fixture = settings.load(home=self.legacy_home(), local=False, environ={})
+        self.assertEqual(shipped, fixture)
 
-    def test_legacy_local_toml_is_used_when_yaml_is_absent(self):
-        home = self.toml(Path(settings.HOME).read_text(), "home.yaml")
-        local = self.toml("[layout]\nmulti_copy_edge_mm = 6\n", "local.toml")
+
+    def test_missing_yaml_home_does_not_fall_back_to_toml(self):
+        missing = self.dir / "missing-home.yaml"
+        (self.dir / "home.toml").write_text("[printer]\nmodel = 'flashforge.ad5x'\n")
+        with mock.patch.object(settings, "HOME", missing):
+            with self.assertRaisesRegex(settings.SettingsError, "missing-home.yaml"):
+                settings.load(home=None, local=False, environ={})
+
+
+    def test_retired_local_toml_refused_when_yaml_is_missing(self):
+        local = self.dir / "local.toml"
+        local.write_text("[layout]\nmulti_copy_edge_mm = 6\n")
         missing_yaml = self.dir / "local.yaml"
-        with mock.patch.object(settings, "HOME", home), mock.patch.object(settings, "LOCAL", missing_yaml), mock.patch.object(settings, "LEGACY_LOCAL", local):
-            data = settings.load(home=home, local=None, environ={})
-        self.assertEqual(data["layout"]["multi_copy_edge_mm"], 6.0)
+        with mock.patch.object(settings, "LOCAL", missing_yaml):
+            with self.assertRaisesRegex(settings.SettingsError, "local.toml.*convert"):
+                settings.load(home=settings.HOME, local=None, environ={})
 
     def test_yaml_can_enable_visual_watch_with_legacy_home_toml(self):
         home = self.legacy_home()
@@ -391,30 +403,23 @@ class OverrideTests(unittest.TestCase):
         with self.assertRaisesRegex(settings.SettingsError, "camera_source"):
             settings.load(local=False, environ={"PRINT_HANDY__SERVICES__CAMERA_SOURCE": "webcam"})
 
-    def test_docker_yaml_matches_legacy_toml_effective_settings(self):
+
+    def test_shipped_docker_config_is_yaml_only(self):
         docker_yaml = settings.ROOT / "config" / "docker.yaml"
-        docker_toml = settings.ROOT / "config" / "docker.toml"
-        yaml_data = settings.load(home=settings.HOME, local=docker_yaml, environ={})
-        toml_data = settings.load(home=settings.HOME, local=docker_toml, environ={})
-        self.assertEqual(yaml_data, toml_data)
+        self.assertTrue(docker_yaml.is_file())
+        self.assertFalse((settings.ROOT / "config" / "docker.toml").exists())
+        self.assertIn(docker_yaml.resolve(), settings.SHIPPED_DOCKER_CONFIGS)
 
-    def test_docker_default_selects_yaml_and_explicit_legacy_mount_selects_toml(self):
-        import yaml
-        import tomllib
 
+    def test_docker_default_selects_yaml_and_toml_override_is_documented_as_retired(self):
         dockerfile = (settings.ROOT / "Dockerfile").read_text()
         compose = (settings.ROOT / "docker-compose.yml").read_text()
+        env = (settings.ROOT / ".env.example").read_text()
         self.assertIn("ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml", dockerfile)
         self.assertIn("PRINT_HANDY_CONFIG: ${PRINT_HANDY_CONFIG:-/app/config/docker.yaml}", compose)
-        self.assertIn("/app/config/docker.toml", compose)
-        env = (settings.ROOT / ".env.example").read_text()
-        self.assertIn("PRINT_HANDY_CONFIG=/app/config/docker.toml", env)
-        yaml_data = yaml.safe_load((settings.ROOT / "config/docker.yaml").read_text())
-        toml_data = tomllib.loads((settings.ROOT / "config/docker.toml").read_text())
-        self.assertEqual(yaml_data["orca"], toml_data["orca"])
-        self.assertEqual(yaml_data["paths"], toml_data["paths"])
-        self.assertEqual(yaml_data["services"], toml_data["services"])
-        self.assertEqual(yaml_data["printer"], toml_data["printer"])
+        self.assertNotIn("/app/config/docker.toml", compose)
+        self.assertNotIn("/app/config/docker.toml", env)
+        self.assertTrue((settings.ROOT / "config/docker.yaml").is_file())
 
     def test_gitignore_preserves_yaml_and_legacy_local_configuration(self):
         result = subprocess.run(
@@ -469,7 +474,7 @@ class OverrideTests(unittest.TestCase):
             self.assertEqual(settings.load()["layout"]["multi_copy_edge_mm"], 5.0)
 
     def test_env_var_to_missing_file_fails_loudly(self):
-        with mock.patch.dict(os.environ, {"PRINT_HANDY_CONFIG": str(self.dir / "nope.toml")}):
+        with mock.patch.dict(os.environ, {"PRINT_HANDY_CONFIG": str(self.dir / "nope.yaml")}):
             with self.assertRaisesRegex(settings.SettingsError, "missing file"):
                 settings.load()
 
@@ -484,7 +489,7 @@ class OverrideTests(unittest.TestCase):
                               ('[services]\nspoolman_url = "spoolman.lan"\n', "must be a URL"),
                               ("[nozzle_temp_offsets]\nbrass = 16\n", "between -10 and \\+15"),
                               ("[nozzle_temp_offsets]\nmystery = 2\n", "unknown nozzle type"),
-                              ("[printer\n", "local.toml")]:
+                              ("printer: [\n", "local.yaml")]:
 
             with self.subTest(text=text):
                 with self.assertRaisesRegex(settings.SettingsError, message):
@@ -612,6 +617,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             with self.assertRaisesRegex(settings.SettingsError, "roast_enabled"):
                 settings.load(local=local, environ={})
 
+
     def test_visual_watch_sensitivity_is_one_to_five(self):
         self.assertEqual(settings.load(local=False, environ={})["visual_watch"]["sensitivity"], 3)
         data = settings.load(local=False, environ={"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": "1"})
@@ -620,19 +626,18 @@ class RuntimeSettingsTests(unittest.TestCase):
             with self.subTest(value=bad), self.assertRaisesRegex(settings.SettingsError, "1 to 5"):
                 settings.load(local=False, environ={"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": bad})
         with tempfile.TemporaryDirectory() as tmp:
-            local = Path(tmp) / "local.toml"
-            local.write_text("[visual_watch]\nsensitivity = 2.5\n")
+            local = Path(tmp) / "local.yaml"
+            local.write_text("visual_watch:\n  sensitivity: 2.5\n")
             with self.assertRaisesRegex(settings.SettingsError, "1 to 5"):
                 settings.load(local=local, environ={})
 
+
     def test_visual_watch_sensitivity_non_finite_is_a_settings_error(self):
-        # int(nan) raises ValueError and int(inf) OverflowError; neither may
-        # escape as a raw crash instead of the named SettingsError (P2-15).
         with tempfile.TemporaryDirectory() as tmp:
-            local = Path(tmp) / "local.toml"
+            local = Path(tmp) / "local.yaml"
             for bad in ("nan", "inf", "-inf"):
                 with self.subTest(value=bad):
-                    local.write_text(f"[visual_watch]\nsensitivity = {bad}\n")
+                    local.write_text("visual_watch:\n  sensitivity: " + bad + "\n")
                     with self.assertRaisesRegex(settings.SettingsError, "1 to 5"):
                         settings.load(local=local, environ={})
 
@@ -1107,29 +1112,22 @@ def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):
         settings.load(environ={"PRINT_HANDY_CONFIG": str(mine), "HOME": str(home)})
 
 
-def test_shipped_yaml_and_toml_configs_hold_the_same_values():
-    """YAML is canonical (#1322). docker.toml stays because PRINT_HANDY_CONFIG=/app/config/docker.toml
-    is a documented selection that needs no mount; it must parse to the same data as docker.yaml and
-    load to the same settings with no unknown-setting warnings, so the two cannot drift apart."""
-    root = settings.ROOT / "config"
-    assert settings._read(root / "docker.yaml") == settings._read(root / "docker.toml")
-    yaml_data = settings.load(local=root / "docker.yaml", environ={}, user=False)
-    yaml_unknown = settings.unknown_settings()
-    toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
-    assert yaml_data == toml_data
-    assert yaml_unknown == [] and settings.unknown_settings() == []
+
+def test_retired_toml_settings_are_refused_even_with_yaml_contents(tmp_path):
+    stale = tmp_path / "docker.toml"
+    stale.write_text("printer:\n  model: flashforge.ad5x\n")
+    with pytest.raises(settings.SettingsError, match="TOML settings are no longer supported"):
+        settings.load(local=stale, environ={}, user=False)
+    with pytest.raises(settings.SettingsError, match="TOML settings are no longer supported"):
+        settings._read(stale)
 
 
-def test_docker_toml_is_the_only_shipped_toml_twin():
-    """#1322: config/home.toml was retired. home.yaml ships in every tree and the loader prefers it,
-    so the TOML twin was never read and only doubled every new key. The loader still takes a TOML
-    home when home.yaml is absent (pinned by OverrideTests with a TOML rendered from home.yaml)."""
+def test_there_are_no_shipped_toml_settings_files():
     root = settings.ROOT / "config"
-    assert sorted(p.name for p in root.glob("*.toml")) == ["docker.toml"]
-    assert settings.HOME.is_file() and not settings.LEGACY_HOME.exists()
+    assert list(root.glob("*.toml")) == []
+    assert settings.HOME.is_file()
     assert settings.load(local=False, environ={}, user=False) == settings.load(
         home=settings.HOME, local=False, environ={}, user=False)
-
 
 def test_retired_discord_session_reset_settings_are_gone_but_old_files_still_load(tmp_path):
     """The settings and bot no longer read these retired session-reset values.
