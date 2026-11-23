@@ -1157,6 +1157,7 @@ def coverage_scan(text):
     try:
         return _GcodeScan(text)
     except Exception:  # noqa: BLE001 - the legacy scans are the reference
+        logger.warning('coverage scan failed; using the legacy per-function scans', exc_info=True)
         return None
 
 
