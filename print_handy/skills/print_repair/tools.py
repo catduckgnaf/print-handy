@@ -217,6 +217,26 @@ def _trim_below_plane(session, mesh, region, z):
     if bool((below & outside).any()):
         return _fail(None, 'geometry below the plane sits outside the region, and a partial '
                      'trim is not available, so nothing was changed')
+    # Triangles can cross the plane with all their *below* vertices inside
+    # the requested region and an above-plane vertex far outside. A whole-
+    # mesh cut also removes the portion between those vertices and the plane.
+    # Check the intersection points, which together with the below vertices
+    # are the vertices of each clipped polygon (a convex shape).
+    for edge in range(3):
+        first = tris[:, edge, :]
+        second = tris[:, (edge + 1) % 3, :]
+        first_low = first[:, 2] < z - 1e-6
+        second_low = second[:, 2] < z - 1e-6
+        crossing = first_low != second_low
+        if not bool(crossing.any()):
+            continue
+        a, b = first[crossing], second[crossing]
+        ratio = (z - a[:, 2]) / (b[:, 2] - a[:, 2])
+        xy = a[:, :2] + ratio[:, None] * (b[:, :2] - a[:, :2])
+        if bool(((xy[:, 0] < xmin - 1e-6) | (xy[:, 0] > xmax + 1e-6)
+                 | (xy[:, 1] < ymin - 1e-6) | (xy[:, 1] > ymax + 1e-6)).any()):
+            return _fail(None, 'the cut crosses geometry outside the requested region; '
+                         'nothing was changed')
     try:
         cut = plane_cut.cut(tris, 2, z)
     except mesh_repair.FixError as exc:
