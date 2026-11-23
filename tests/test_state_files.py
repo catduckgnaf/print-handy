@@ -11,7 +11,7 @@ from print_handy import doctor, settings, state_files
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_NAME = re.compile(
-    r"""(?:state_file\(\s*(?:None|["'][A-Za-z_]+["'])\s*,\s*|state_dir\([^)]*\)\s*/\s*)["']([^"']+)["']""")
+    r"""(?:state_file\(\s*(?:None|["'][A-Za-z_]+["'])\s*,\s*|state_dir\((?:[^()]|\([^()]*\))*\)\s*/\s*)["']([^"']+)["']""")
 
 
 class KnownNamesTests(unittest.TestCase):
@@ -20,6 +20,13 @@ class KnownNamesTests(unittest.TestCase):
         for folder in ("print_handy", "plugins"):
             for path in (ROOT / folder).rglob("*.py"):
                 names.update(SOURCE_NAME.findall(path.read_text()))
+        # Names the layout table still looks for at the state root and under
+        # printers/<id>/. Some are no longer a state_file() literal (the old
+        # launch database name, the screen-sync queue).
+        from print_handy.state_layout import ROOT_FILES
+        for old, new, _required in ROOT_FILES:
+            names.add(old)
+            names.add(new)
         return names
 
     def test_every_state_name_in_the_code_is_known(self):
