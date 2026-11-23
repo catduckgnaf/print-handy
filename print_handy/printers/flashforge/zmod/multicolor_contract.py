@@ -216,7 +216,7 @@ def validate_materials(text, material, state, mapping=None, tools=None):
         raise RuntimeError('used tools disagree with explicit mapping')
     unused = sorted(set(map(int, mapping)) - tools)
     if unused and explicit:
-        # An explicit map entry for a tool the file never selects would be
+        # A map entry for a tool the file never selects would be
         # finalized into zmod_color_data and SET_ZCOLOR, and launch would
         # require that slot loaded and color-matched, for nothing (#1305).
         names = ', '.join(f'T{tool}' for tool in unused)

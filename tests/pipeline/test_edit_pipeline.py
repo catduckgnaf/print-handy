@@ -56,7 +56,7 @@ def _edited_job(tmp_path, monkeypatch, edit_settings=None, orientation=None):
                               "color_manifest": source_colors.inventory(p),
                               "audit": {"plates": 1, "size_x": 40, "size_y": 10, "size_z": 1}}))
     mj.intake_color_choices(jp, st, "single_color", [1])
-    monkeypatch.setattr(mj.printer_state, "load", lambda: st)
+    monkeypatch.setattr(mj.printer_state, "load", lambda *_a, **_k: st)
     monkeypatch.setattr(mj.printer_state, "check", lambda _: (True, [], {}))
     monkeypatch.setattr(mj, "verify_gcode", lambda _: None)
     from print_handy.printers.flashforge.zmod import multicolor_contract
@@ -169,7 +169,7 @@ def test_per_part_plates_receive_the_edit_settings(tmp_path, monkeypatch):
     jp.write_text(json.dumps({"downloaded_file": str(p), "color_schema": "part_slots_v1",
                               "color_manifest": _sc.inventory(p),
                               "audit": {"plates": 1, "size_x": 40, "size_y": 10, "size_z": 1}}))
-    monkeypatch.setattr(mj.printer_state, "load", lambda: st)
+    monkeypatch.setattr(mj.printer_state, "load", lambda *_a, **_k: st)
     monkeypatch.setattr(mj.printer_state, "check", lambda _: (True, [], {}))
     monkeypatch.setattr(mj, "verify_gcode_offline", lambda *a, **k: {"ok": True})
     monkeypatch.setattr(mj, "finalize_multicolor", lambda *a, **k: None)

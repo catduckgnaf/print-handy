@@ -71,7 +71,7 @@ sed -e "s#^PRINT_HANDY_IMAGE=.*#PRINT_HANDY_IMAGE=$image#" \
     -e "s#^PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=.*#PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=200000000000000002#" \
     "$repo/.env.example" > "$work/.env"
 export ACCEPTANCE_FIXTURES="$work/fixture" PRINT_HANDY_IMAGE="$image"
-mkdir -p "$data"/{state,hermes,archive,records,cache,spoolman}
+mkdir -p "$data"/{state,archive,records,cache,spoolman}
 if ! chown -R 1000:1000 "$data" 2> /dev/null; then
     sudo chown -R 1000:1000 "$data"
 fi

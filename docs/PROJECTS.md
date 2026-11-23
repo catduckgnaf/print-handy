@@ -69,7 +69,7 @@ over these bounds:
 | --- | --- |
 | Entries | 1,000 |
 | Printable STL/3MF files | 64 |
-| One printable file, uncompressed | 200 MiB (then the usual [intake limits](INTAKE-LIMITS.md)) |
+| One printable file, uncompressed | No separate cap (the all-entries total and the usual [intake limits](INTAKE-LIMITS.md) apply) |
 | All entries, uncompressed | 512 MiB |
 | Compression ratio of an entry over 1 MiB | 100:1 (a ZIP bomb) |
 

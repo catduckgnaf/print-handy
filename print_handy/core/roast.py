@@ -185,11 +185,9 @@ class CorpusError(RuntimeError):
 def entry_id(bank: str, text: str) -> str:
     """The Phase 1 id of one entry: its bank and a hash of its text.
 
-    Kept for two compat jobs: entries still written as bare strings get
-    this id, and a persisted Phase 1 state file's ids are translated to
-    the stored stable ids through the corpus's alias map (an unchanged
-    line's hash id still names it). New entries carry their id in the
-    bank file itself, so editing a line no longer changes its id.
+    Entries still written as bare strings get this id. Other entries
+    carry their id in the bank file itself, so editing a line does not
+    change its id.
     """
     return f"{bank}:{hashlib.sha1(text.encode('utf-8')).hexdigest()[:10]}"
 
@@ -415,10 +413,9 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
     {keyword: [(id, text)]}, "fragments": {...}, "blocklist": [...],
     "color_roasts": {...}, "reprint_failed": {...}, "history_callbacks": {...},
     "dictionary": {...}, "dictionary_lookup": {...}, "families": {id: family},
-    "aliases": {phase-1 hash id: stable id}, "version": digest}."""
+    "version": digest}."""
     banks: dict[str, list[tuple[str, str]]] = {}
     families: dict[str, str] = {}
-    aliases: dict[str, str] = {}
 
     def collect(bank: str, rows: Any) -> list[tuple[str, str]]:
         if not isinstance(rows, list):
@@ -429,7 +426,6 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
             if eid in families:
                 raise CorpusError(f"roast entry id {eid} is used twice")
             families[eid] = family
-            aliases[entry_id(bank, text)] = eid
             out.append((eid, text))
         return out
 
@@ -477,7 +473,6 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
             blocklist=blocklist)
         for eid, family, text in custom_entries:
             families[eid] = family
-            aliases[entry_id(CUSTOM_BANK, text)] = eid
             banks[CUSTOM_BANK].append((eid, text))
         for problem in custom_problems:
             logger.warning("%s", problem)
@@ -516,7 +511,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
         "reprint_failed": reprint_failed, "history_callbacks": history_callbacks,
         "material_roasts": material_roasts, "milestone": milestone,
         "dictionary": dictionary, "dictionary_lookup": dict_lookup,
-        "families": families, "aliases": aliases, "version": digest,
+        "families": families, "version": digest,
         "custom_problems": custom_problems,
     }
 
@@ -933,21 +928,31 @@ def _save_state(path: Path | None, state: Mapping[str, Any]) -> None:
 
 
 def _normalized(state: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, Any]:
-    """State in the current corpus's id space.
+    """Normalize saved IDs without losing the duplicate-prevention history.
 
-    Ids a Phase 1 state file carries are content hashes; the corpus's
-    alias map names the same (unchanged) lines by their stable ids, so
-    history, bags and stored choices survive the migration — and any
-    later corpus edit, since ids no longer derive from the text. Ids
-    with no alias (a line since removed or reworded past recognition)
-    stay as they are: they match nothing eligible and age out of the
-    windows on their own.
+    Phase 1 stored content hashes; shipped entries now carry stable IDs.
+    Derive a narrow mapping for unchanged texts from today's corpus instead
+    of reintroducing the general compatibility registry. Unknown hashes stay
+    untouched and expire from the bounded history normally.
     """
-    aliases = corpus.get("aliases") or {}
+    aliases = {}
+    groups = list(corpus.get("banks", {}).items())
+    for section, prefix in (("title_reactions", "title"),
+                            ("color_roasts", "color"),
+                            ("reprint_failed", "reprint_failed"),
+                            ("history_callbacks", "history"),
+                            ("material_roasts", "material"),
+                            ("milestone", "milestone")):
+        groups.extend((f"{prefix}:{key}", rows)
+                      for key, rows in corpus.get(section, {}).items())
+    for pool, rows in groups:
+        for current_id, template in rows:
+            legacy_id = entry_id(pool, template)
+            if legacy_id != current_id:
+                aliases[legacy_id] = current_id
 
-    def translate(eid: Any) -> Any:
-        return aliases.get(eid, eid) if isinstance(eid, str) else eid
-
+    def translate(entry):
+        return aliases.get(entry, entry) if isinstance(entry, str) else entry
     bags = state.get("bags") if isinstance(state.get("bags"), dict) else {}
     bags = {pool: [translate(e) for e in bag if isinstance(e, str)]
             for pool, bag in bags.items() if isinstance(bag, list)}
@@ -956,9 +961,7 @@ def _normalized(state: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str
                if isinstance(h, str)][-HISTORY_WINDOW:]
     chosen = {}
     for key, value in (state.get("chosen") if isinstance(state.get("chosen"), dict) else {}).items():
-        if isinstance(value, dict):
-            value = {**value, "id": translate(value.get("id"))}
-        chosen[key] = value
+        chosen[key] = {**value, "id": translate(value.get("id"))} if isinstance(value, dict) else value
     pool_history = state.get("pool_history")
     pool_history = [name for name in (pool_history if isinstance(pool_history, list) else [])
                     if isinstance(name, str)][-64:]

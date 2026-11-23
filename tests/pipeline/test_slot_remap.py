@@ -112,6 +112,7 @@ def test_print_now_with_remap_slot_arg(tmp_path):
 
     job_data = {
         "model_id": "test-model-2",
+        "printer_model": "flashforge.ad5x",
         "gcode": str(gcode),
         "filament_selection": {
             "slot": 1,
@@ -254,6 +255,7 @@ def _sparse_job(tmp_path, tools, mapping):
     job_file = tmp_path / "JOB.json"
     job_file.write_text(json.dumps({
         "model_id": "sparse-model",
+            "printer_model": "flashforge.ad5x",
         "gcode": str(gcode),
         "filament_selection": {"slot": 3, "spoolman_id": 8, "color": "Black PLA", "material": "PLA"},
     }, indent=2))

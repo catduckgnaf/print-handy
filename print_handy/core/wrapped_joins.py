@@ -251,9 +251,8 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None, scope=Non
     ``scope`` is the records the per-record work is done for (stop
     sidecars and archived-G-code color splits), normally the selected
     year's: a Wrapped page for one year must not read every other year's
-    files. The aggregate still filters ``per_print``,
-    ``per_color_grams_by_print`` and ``support_waiver_print_numbers`` by
-    what is in scope.
+    files. The aggregate still filters ``per_print`` and
+    ``support_waiver_print_numbers`` by what is in scope.
 
     ``derived_cache`` is a JSON file path. A record's per-color split
     recovered from an archived G-code is stored there against the
@@ -344,13 +343,8 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None, scope=Non
             if title and title not in almost_titles:
                 almost_titles.append(title)
 
-    # Per-color grams for archived jobs, and the stop sidecar detail —
-    # both keyed by the record's own print number.
-    per_color_by_print: dict[int, dict] = {}
-    # The same joins keyed by each record's own identity: print_number is
-    # not unique in pre-#988 history (a reprint reused the original's
-    # number), so the by-number maps above merge two prints. Readers use
-    # these first; the by-number maps stay for compatibility.
+    # Per-color grams for archived jobs, and the stop sidecar detail, both
+    # keyed by each record's own identity.
     per_color_by_record: dict[str, dict] = {}
     stop_by_record: dict[str, dict] = {}
     jobs_for_number = {number: list(rows) for number, rows in jobs_by_number.items()}
@@ -367,7 +361,6 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None, scope=Non
             continue
         detail = _stop_detail(record)
         if detail is not None:
-            per_print.setdefault(number, {})["stop_detail"] = detail
             stop_by_record[record_key(record)] = detail
         if _native_color_rows(record) is not None:
             continue  # the record carries it natively; never double-count
@@ -388,14 +381,12 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None, scope=Non
             derived[key] = {"signature": signature, "colors": merged}
             derived_changed = True
         if merged:
-            per_color_by_print[number] = merged
             per_color_by_record[key] = merged
     if derived_cache and derived_changed:
         _save_derived(derived_cache, derived)
 
     return {
         "per_print": per_print,
-        "per_color_grams_by_print": per_color_by_print,
         "per_color_grams_by_record": per_color_by_record,
         "stop_detail_by_record": stop_by_record,
         "support_waiver_print_numbers": sorted(waivers),

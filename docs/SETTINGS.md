@@ -55,7 +55,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `printer.nozzle_type` | `PRINT_HANDY__PRINTER__NOZZLE_TYPE` | unset | Optional nozzle material, limited to the model's supported types |
 | `printer.build_plate` | `PRINT_HANDY__PRINTER__BUILD_PLATE` | unset | The plate on the printer: `smooth_pei`, `textured_pei` (PEI powder-coated), `smooth_pc` or `cool_plate`. Unset means unknown and never warns. Set, the preparation message warns once when the job's material can damage that plate (for example PETG or PCTG on smooth PEI: use the textured plate or a thin layer of glue stick). A warning, never a block. The slicer also uses the plate's Orca bed type (`High Temp Plate`, `Textured PEI Plate`, `Engineering Plate`, `Cool Plate`); unset leaves Orca's default. Set it in the Web UI printer editor (#1788) |
 | `orca.templates` | `PRINT_HANDY__ORCA__TEMPLATES` | the model's folder *model* | Folder with the Orca machine, process and filament JSON |
-| `orca.command` | file only | `["/usr/local/bin/orca-slicer"]` | How to start the OrcaSlicer CLI; Print Handy ships one bundled OrcaSlicer and `PRINT_HANDY_ORCA_CHANNEL=stable` (default) selects it (`preview` and `alpha` start on the same single build with a startup notice; the preview channel was removed); the binary exists only when `WITH_ORCA=true` |
+| `orca.command` | file only | `["/usr/local/bin/orca-slicer"]` | How to start the OrcaSlicer CLI; Print Handy ships one bundled OrcaSlicer and `PRINT_HANDY_ORCA_CHANNEL=stable` selects it (any other value, including the removed `preview` and `alpha`, stops the container); the binary exists only when `WITH_ORCA=true` |
 | `delivery.methods` | `PRINT_HANDY__DELIVERY__METHODS` | `["printer"]` *model* | Post-slice options offered, from the vendor profile (for example `printer`); comma- or space-separated in the environment, an empty value keeps the file value. Choosing **Slice and Download** in chat always also offers the chat download ("Send the files here") when the vendor profile offers it, whatever this list holds: Slice and Download is a request for the file (#1443) |
 | `bambu.command` | file only | `["/usr/bin/bambu-studio"]` | Bambu Studio CLI: the default slicer for Bambu Lab printers, Orca's one-shot fallback elsewhere; exists only in a `WITH_BAMBU=true` image |
 | `bambu.lan_host` | `PRINT_HANDY__BAMBU__LAN_HOST` | `""` | Bambu Lab printer LAN address for read-only status; must be set together with `lan_serial`; empty disables LAN status |
@@ -66,7 +66,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `prusa.link_host` | `PRINT_HANDY__PRUSA__LINK_HOST` | `""` | Prusa printer LAN address for PrusaLink; empty leaves the printer offline (slicing, checks and Discord delivery only). Prusa models only |
 | `elegoo_sdcp.host` | `PRINT_HANDY__ELEGOO_SDCP__HOST` | `""` | Centauri printer LAN address for SDCP; empty leaves the printer offline (slicing, checks and Discord delivery only). Elegoo SDCP models only. SDCP has no authentication; there is no key to configure |
 | `prusa.api_key_env` | `PRINT_HANDY__PRUSA__API_KEY_ENV` | `"PRUSA_LINK_API_KEY"` | Name of the environment variable holding the PrusaLink API key. The key itself is never a setting |
-| `paths.state_home` | `PRINT_HANDY__PATHS__STATE_HOME` | `/data/state` | State folder (`state/`, `logs/`). Called `paths.hermes_home` (`PRINT_HANDY__PATHS__HERMES_HOME`) before 2.3.0; the old spelling is still read through 2.3.x, with a warning in the log, and is removed in 2.4.0. `/data/hermes` was the Docker path before 2.2.5 and stays accepted: the entrypoint links `/data/state` to it when only the legacy volume holds data |
+| `paths.state_home` | `PRINT_HANDY__PATHS__STATE_HOME` | `/data/state` | State folder (`state/`, `logs/`). Called `paths.hermes_home` (`PRINT_HANDY__PATHS__HERMES_HOME`) before 2.3.0; the old spelling is still read through 2.3.x, with a warning in the log, and is removed in 2.4.0. `/data/hermes` was the Docker path before 2.2.5 and is no longer read: a container whose state is only there refuses to start and names the rename |
 | `paths.archive` | `PRINT_HANDY__PATHS__ARCHIVE` | `/data/archive` | Job archive |
 | `paths.records_vault` | `PRINT_HANDY__PATHS__RECORDS_VAULT` | `/data/records` | Print records: one JSON file per print in `Prints/` |
 | `paths.cache` | `PRINT_HANDY__PATHS__CACHE` | `/data/cache` | Regenerable cache |
@@ -554,7 +554,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 | Variable | Default | What it does |
 |---|---|---|
 | `PRINT_HANDY_IMAGE` | none, required | Image the combined container runs. Set a tested immutable digest (`ghcr.io/catduckgnaf/print-handy@sha256:...`), not `:latest`, `:develop` or `:nightly`. The current release digest is in [Pinning the image](DOCKER.md#pinning-the-image). |
-| `PRINT_HANDY_DATA` | `./data` | Host folder holding the `state`, `archive`, `records` and `cache` volumes (plus the legacy `hermes` folder name, #914) |
+| `PRINT_HANDY_DATA` | `./data` | Host folder holding the `state`, `archive`, `records` and `cache` volumes (a pre-2.2.5 `hermes` folder there is only checked, read-only, so an unmigrated install refuses to start, #1817) |
 | `PRINT_HANDY_SPOOLMAN_DATA` | `./data/spoolman` | Host folder for the bundled Spoolman database, config, logs and backups |
 | `PRINT_HANDY_CONFIG` | `/app/config/docker.yaml` | Settings file Print Handy reads (YAML, or legacy `.toml`) |
 | `DISCORD_CLIENT_ID` | empty | The Discord application's ID for the live view: a plain identifier (it appears in invite URLs), not a secret. The Activity server refuses to start without it when live viewing is enabled |
@@ -566,7 +566,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PRINT_HANDY_ORCA_CHANNEL` | `stable` | Selects the one bundled OrcaSlicer at startup; Print Handy ships a single build (v2.5.1), `preview` and `alpha` start on it with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops the container |
+| `PRINT_HANDY_ORCA_CHANNEL` | `stable` | Selects the one bundled OrcaSlicer at startup; Print Handy ships a single build (v2.5.1), any other value, including the removed `preview` and `alpha`, stops the container |
 | `PRINT_HANDY_USER_CONFIG` | `$HOME/.config/print-handy/settings.yaml` | Your own settings file, layered over `PRINT_HANDY_CONFIG` and under environment variables. Optional (the default location may be absent), but a path set here must exist or startup stops; image updates never replace it. In Docker `HOME=/data`, so it is `/data/.config/print-handy/settings.yaml`, which is `.config/print-handy/settings.yaml` in the Unraid Appdata folder (Compose maps it to `dot-config` under its data folder) |
 | `PRINT_HANDY_BUNDLED_SPOOLMAN` | `true` | `true` runs the bundled Spoolman API; `false` uses `services.spoolman_url` only |
 | `SPOOLMAN_HOST` | `127.0.0.1` | Bundled Spoolman bind address; widen it only together with an approved port mapping, see docs/DOCKER.md |
@@ -576,7 +576,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 
 ## Build arguments
 
-Image build inputs (`docker build --build-arg NAME=value`), not runtime settings. `PRINT_HANDY_ORCA_CHANNEL` is a runtime environment variable (default `stable`; `preview` and `alpha` start on the same single build with a startup notice, because the preview channel was removed) and requires an image built with `WITH_ORCA=true`.
+Image build inputs (`docker build --build-arg NAME=value`), not runtime settings. `PRINT_HANDY_ORCA_CHANNEL` is a runtime environment variable (default `stable`, the only accepted value) and requires an image built with `WITH_ORCA=true`.
 
 | Argument | Default | What it does |
 |---|---|---|
@@ -629,7 +629,7 @@ The MakerWorld account token is not an environment variable. It is the file `~/.
 
 The Creality Cloud download token is likewise a file, not an environment variable: `~/.config/crealitycloud/token` (Docker: `/data/.config/crealitycloud/token`), needed only for Creality Cloud downloads; see [Creality Cloud login token](PROJECT-REFERENCE.md#creality-cloud-login-token). Thangs and Nexprint work the same way, with `~/.config/thangs/token` and `~/.config/nexprint/token` (Docker: under `/data/.config/`); see [Connecting a login-token site from chat](PROJECT-REFERENCE.md#connecting-a-login-token-site-from-chat).
 
-Direct file links (a public link straight at a `.stl` or `.3mf` file on any host, including a Dropbox share link) need no token and no setting; the fetch is guarded (public addresses only, the shared 200 MiB intake size limit) as described in [Direct file links](PROJECT-REFERENCE.md#direct-file-links).
+Direct file links (a public link straight at a `.stl` or `.3mf` file on any host, including a Dropbox share link) need no token and no setting; the fetch is guarded (public addresses only, no byte cap but the shared free-disk reserve) as described in [Direct file links](PROJECT-REFERENCE.md#direct-file-links).
 
 ## MQTT topics
 

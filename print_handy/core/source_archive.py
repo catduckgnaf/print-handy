@@ -31,18 +31,19 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 import stat
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from .intake_resources import IntakeLimitExceeded, MAX_DOWNLOAD_BYTES, MIB
+from .intake_resources import MIN_FREE_BYTES, IntakeLimitExceeded, MIB
 
 ARCHIVE_EXTS = {'.zip'}
 PRINTABLE_EXTS = {'.stl', '.3mf'}
 
 MAX_ENTRIES = 1000
 MAX_PRINTABLE_FILES = 64
-MAX_FILE_BYTES = MAX_DOWNLOAD_BYTES  # one printable file; check_source still applies its own limits after
+MAX_FILE_BYTES = 10 * 1024 * MIB  # practical ceiling; no download-style refusal for ordinary models (#1824)
 MAX_TOTAL_BYTES = 512 * MIB          # every entry, uncompressed, printable or not
 MAX_RATIO = 100                      # uncompressed / compressed, per entry
 RATIO_FLOOR_BYTES = 1 * MIB          # tiny entries compress absurdly well and are harmless
@@ -215,6 +216,11 @@ def extract(path, dest) -> tuple[list[Path], dict]:
                         if written > info.file_size or written > MAX_FILE_BYTES:
                             raise ArchiveRefused(f'{info.filename} in {path.name} is larger than its '
                                                  'header says; the archive is damaged or hostile.')
+                        if shutil.disk_usage(target.parent).free < len(chunk) + MIN_FREE_BYTES:
+                            raise IntakeLimitExceeded(
+                                'Model intake refused: the server is low on disk space '
+                                f'(archive extraction needs {MIN_FREE_BYTES // MIB} MiB of free '
+                                'disk space reserved). Nothing was kept, sliced or started.')
                         digest.update(chunk)
                         sink.write(chunk)
             except BaseException:

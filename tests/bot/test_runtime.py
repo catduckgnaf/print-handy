@@ -394,8 +394,8 @@ def test_dropped_scad_is_saved_for_design_but_intake_ignores_it(cfg, tmp_path):
     paths = run(core.save_attachments(message))
     assert len(paths) == 1 and paths[0].endswith("_widget.scad")
     from types import SimpleNamespace
-    from print_handy.core.prepared_intake import model_file
-    assert model_file(SimpleNamespace(media_urls=paths)) is None
+    from print_handy.core.prepared_intake import model_files
+    assert model_files(SimpleNamespace(media_urls=paths)) == []
 
 
 def test_dropped_zip_is_saved_for_archive_intake_only(cfg, tmp_path):
@@ -409,9 +409,9 @@ def test_dropped_zip_is_saved_for_archive_intake_only(cfg, tmp_path):
     paths = run(core.save_attachments(message))
     assert len(paths) == 1 and paths[0].endswith("_Rack.zip")
     from types import SimpleNamespace
-    from print_handy.core.prepared_intake import archive_files, model_file, model_files
+    from print_handy.core.prepared_intake import archive_files, model_files
     event = SimpleNamespace(media_urls=paths)
-    assert model_file(event) is None and model_files(event) == []
+    assert model_files(event) == []
     assert [str(p) for p in archive_files(event)] == paths
 
 
