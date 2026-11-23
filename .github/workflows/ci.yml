@@ -984,18 +984,13 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
           unshare -rm true
-      - name: Real bind-mounted state volume test
+      - name: Entrypoint layout matrix, real mountpoint cell (#1817)
         env:
-          # The suite is container-marked (#971); this job provides the
-          # environment the marked test needs, so it opts in explicitly,
-          # exactly like the offline-tests job does.
-          PRINT_HANDY_IN_CONTAINER: '1'
-        run: python -m pytest -v -rs "tests/test_state_volume.py::TestEntrypointMigration::test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied"
-      - name: Entrypoint layout matrix, real mountpoint cell (#1144)
-        env:
+          # The cell is container-marked (#971); this job provides the
+          # environment it needs, so it opts in explicitly.
           PRINT_HANDY_IN_CONTAINER: '1'
           PRINT_HANDY_LAYOUT_TEST_MOUNT: '1'
-        run: python -m pytest -v -rs "tests/test_entrypoint_layout_matrix.py::test_mounted_state_volume_copies_instead_of_symlinking"
+        run: python -m pytest -v -rs "tests/test_entrypoint_layout_matrix.py::test_an_empty_mounted_state_volume_with_legacy_data_refuses"
 
   webui-browser-smoke:
     needs: scope

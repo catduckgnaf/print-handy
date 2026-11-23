@@ -2,13 +2,15 @@
 
 `print-handy-ca.xml` is a byte-exact snapshot of the Community
 Applications (CA) template `templates/print-handy.xml` in the
-`catduckgnaf/catduck-unraid-templates` repository, refreshed from that
-repository's main head `d448e92bfb7b` on 2026-11-19, for issue #1143.
-The template itself last changed in `c78a08c`
-(catduckgnaf/catduck-unraid-templates#42, the current description) on
-2026-11-15; the original snapshot was taken from that repository's head
-for catduckgnaf/catduck-unraid-templates#38 (the `:latest` change) on
-2026-11-11.
+`catduckgnaf/catduck-unraid-templates` repository, refreshed on
+2026-11-22 for issue #1817 from `8a30d15e41ab`, the head of
+catduckgnaf/catduck-unraid-templates#48 (drops the `/data/hermes` path and
+adds the rename sentence to `Requires`). That pull request must merge
+before the print-handy change that removes the `/data/hermes` migration;
+after it merges, the snapshot equals that repository's main. Earlier
+refreshes: main head `d448e92bfb7b` on 2026-11-19 (#1143), and the
+original snapshot for catduckgnaf/catduck-unraid-templates#38 (the
+`:latest` change) on 2026-11-11.
 
 `UnraidCaTemplateParityTests` in `tests/test_docker_release.py` parses
 this snapshot and the in-repo template (`docker/unraid/print-handy.xml`)
@@ -43,15 +45,18 @@ The two files are the same install surface, not the same file:
   only in the CA copy; `Support` is the GitHub issue tracker in-repo
   and the Unraid forum thread in CA.
 - Paths: the CA copy keeps an explicit `Path` entry for each former
-  image `VOLUME` folder (`state`, `hermes`, `archive`, `records`,
-  `cache`, `spoolman`) plus `.config`, so installs created on images
-  that still declared those volumes keep their data on the host. The
-  in-repo template relies on the single Appdata path now that the
-  image declares no `VOLUME`.
-- The bundled/external Spoolman URL variable exists only in-repo.
+  image `VOLUME` folder (`state`, `archive`, `records`, `cache`,
+  `spoolman`) plus `.config`, so installs created on images that still
+  declared those volumes keep their data on the host. The in-repo
+  template relies on the single Appdata path now that the image
+  declares no `VOLUME`. Neither maps the pre-2.2.5 `/data/hermes`
+  folder, which 2.4.0 no longer reads (#1817).
+- Every in-repo variable, the Spoolman URL and the bundled-firmware
+  override included, is also in the CA copy.
 - The `Overview` texts match apart from the closing docs-link
   sentence, and the `/data` and `/dev/dri` `Description` texts differ
   in wording while keeping the same safety content (the ownership
   command, and the empty-by-default device with its render-group
   note). The CA `Requires` text additionally carries the upgrade and
-  recovery warnings, including the `dot-config` rename.
+  recovery warnings, including the `dot-config` rename and the
+  `hermes` to `state` rename.

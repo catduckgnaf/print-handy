@@ -12,7 +12,7 @@
 #   upgrade   previous on a new tree, seeded with a launch record, a spool and file markers;
 #             stopped; backed up; candidate on the same tree: healthy and every seed intact.
 #   restore   the pre-upgrade backup restored into a new tree, candidate on it: healthy, seeds
-#             intact (migration is idempotent on restored data).
+#             intact.
 #   downgrade the pre-upgrade backup restored into a new tree, previous image on it: healthy,
 #             seeds intact. This is the rollback path; no automatic database downgrade exists.
 #
@@ -117,10 +117,7 @@ phase() { local name=$1 image=$2 tree=$3; shift 3
     (cd "$work" && PRINT_HANDY_IMAGE="$image" PRINT_HANDY_DATA="$tree" PRINT_HANDY_SPOOLMAN_DATA="$tree/spoolman" \
         docker compose --env-file "$env_file" -p "ph-life-$name-$run_id" "${phase_files[@]}" "$@"); }
 new_tree() {  # new_tree DIR: an empty data tree owned by the image's uid 1000
-    # Both state-volume names (#914): the previous image seeds under
-    # hermes/, this one under state/ — the upgrade phase exercises the
-    # entrypoint migration between them.
-    mkdir -p "$1"/{state,hermes,archive,records,cache,spoolman}
+    mkdir -p "$1"/{state,archive,records,cache,spoolman}
     chown -R 1000:1000 "$1" 2> /dev/null || sudo chown -R 1000:1000 "$1"
 }
 # as_handy IMAGE TREE CMD...: a one-shot, no-network helper container on a stopped tree.
