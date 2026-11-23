@@ -134,6 +134,41 @@ async def _accept(event, gateway, adapter, session):
             else 'repair acceptance refused'}
 
 
+async def offer_failed_intake(event, gateway, adapter):
+    """Offer a scoped, explicit repair action after a failed uploaded-model slice.
+
+    Only the requesting user's uploaded file is eligible: a recent unrelated
+    archived job is never treated as the source of a repair. This uses the
+    same adapter confirmation UI on Discord, Telegram, Matrix and Web chat.
+    """
+    if not ai_routes.ready('heavy') or _source_file(event) is None:
+        return None
+    from .common import _confirm
+    source = event.source
+    metadata = {'thread_id': source.thread_id} if getattr(source, 'thread_id', None) else None
+    live_key = (gateway._session_key_for_source(source)
+                if hasattr(gateway, '_session_key_for_source') else None)
+    choice = await _confirm(
+        adapter, source, metadata, 'fix-problem-file',
+        'That model could not be sliced. Work on a repaired copy with AI?',
+        [fix_session.WORK_WITH_AI_LABEL, 'Not now'], 600,
+        **({'live_key': live_key} if live_key is not None else {}))
+    if choice != fix_session.WORK_WITH_AI_LABEL:
+        return None
+    try:
+        session = await asyncio.to_thread(_new_session, event)
+    except Exception:
+        logger.exception('cannot start repair for rejected intake model')
+        session = None
+    if session is None:
+        await _send(adapter, source, 'The original upload is no longer available. '
+                    'Reattach the STL or 3MF with /fix to start a repair. Nothing changed.')
+        return {'action': 'skip', 'reason': 'repair original unavailable'}
+    await _send(adapter, source, fix_session.SESSION_START
+                + ' Describe what needs fixing; accept or cancel when ready.')
+    return {'action': 'skip', 'reason': 'repair session started after slice refusal'}
+
+
 async def fix_dispatch(event, gateway, **_kwargs):
     if not _is_print_discord_event(event):
         return None
