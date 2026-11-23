@@ -176,7 +176,7 @@ Live camera streaming starts with a delivery-agnostic core in `print_handy/live_
 
 ## Settings
 
-`config/home.yaml` holds the shared defaults and picks the printer. Printer-specific defaults (bed, height, nozzle, slots, margins, prime tower and macros) come from the selected model and can be overridden in YAML. Put machine-specific overrides in the gitignored `config/local.yaml`; YAML is preferred for new configuration. An existing `config/local.toml` remains supported; when both formats are present, YAML wins, and TOML is used when the corresponding YAML file is absent. The shipped `config/home.toml` twin was retired in 2.3.0 (#1322); `config/docker.toml` still ships for `PRINT_HANDY_CONFIG=/app/config/docker.toml`. `PRINT_HANDY_CONFIG=/path/to/settings.yaml` selects one YAML file, and `.toml` paths remain supported. Environment variables (`PRINT_HANDY__SECTION__KEY` and the existing legacy names) override file settings.
+`config/home.yaml` holds the shared defaults and picks the printer. Printer-specific defaults (bed, height, nozzle, slots, margins, prime tower and macros) come from the selected model and can be overridden in YAML. Put machine-specific overrides in the gitignored `config/local.yaml`. The 2.4.0 hard cut refuses `local.toml`, `home.toml`, `docker.toml` and any explicitly selected `.toml` settings path; when only `local.toml` exists, startup names the required YAML conversion. `PRINT_HANDY_CONFIG=/path/to/settings.yaml` selects one YAML file. Environment variables (`PRINT_HANDY__SECTION__KEY` and the existing legacy names) override file settings.
 
 Settings merge in this order: printer-model defaults, home configuration, the selected local or explicit configuration, then environment. An invalid value for a known setting stops startup and identifies the setting; a setting the running version does not know is ignored with a warning that names it, so a config written for a newer release never blocks a rollback. Python 3.12 or newer is required. Changes require restarting the relevant process; settings are loaded once at process startup. See [YAML configuration and TOML migration](../docs/CONFIGURATION-YAML.md) for schema, precedence, safety limits and migration guidance.
 
@@ -196,7 +196,7 @@ One package per brand under `print_handy/printers/`, one file per printer inside
 
 Adding a printer is one new file in its brand package plus its templates; nothing in `core/` changes. The AD5X and ZMod code lives in `print_handy/printers/flashforge/zmod/`, and `base.py` lists what core still shares with it.
 
-Upgrading from `[printer] family`: replace it in `config/local.toml` with `model = "flashforge.ad5x"` (or `sovol.sv06`, `klipper.generic`). A leftover `family` stops the import and names the key.
+Upgrading from the retired `[printer] family` key: convert the old TOML settings to YAML, then set `printer.model: flashforge.ad5x` (or `sovol.sv06`, `klipper.generic`). A leftover `family` stops the import and names the key.
 
 ### Camera stall sensitivity
 
@@ -453,7 +453,7 @@ Check the setup any time with `python3 -m print_handy.doctor`. It also checks Mo
 
 ## Run with Docker
 
-Prerequisites: Docker Engine with the Docker Compose plugin, and Git. From the repository root, copy `.env.example` to `.env` and set `PRINT_HANDY__SERVICES__MOONRAKER_URL` to your printer's Moonraker URL. Set other scalar settings with `PRINT_HANDY__SECTION__KEY` variables in `.env`; `config/docker.yaml` supplies Docker defaults. Lists such as `orca.command` belong in a config file, not environment variables. To replace the full config, mount YAML and set `PRINT_HANDY_CONFIG` to its container path. Existing TOML mounts remain compatible by mounting at `/app/config/docker.toml` and setting `PRINT_HANDY_CONFIG=/app/config/docker.toml` in `.env`.
+Prerequisites: Docker Engine with the Docker Compose plugin, and Git. From the repository root, copy `.env.example` to `.env` and set `PRINT_HANDY__SERVICES__MOONRAKER_URL` to your printer's Moonraker URL. Set other scalar settings with `PRINT_HANDY__SECTION__KEY` variables in `.env`; `config/docker.yaml` supplies Docker defaults. Lists such as `orca.command` belong in a config file, not environment variables. To replace the full config, mount YAML and set `PRINT_HANDY_CONFIG` to its container path. Old TOML mounts must be converted to YAML before starting 2.4.0; the runtime refuses them by path.
 
 Compose stores persistent data in `./data/state`, `./data/archive`, `./data/records`, and `./data/cache`; the included Spoolman uses `./data/spoolman`. (A pre-2.2.5 install whose state is still only in `./data/hermes` refuses to start until that folder is renamed to `./data/state`, #1817; new installs never create it.) Compose creates these directories on first start. Spoolman is included in the Compose stack and published on no host port; Print Handy has no published host port and connects to Moonraker and Spoolman over the Compose network.
 
