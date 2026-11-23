@@ -79,7 +79,7 @@ def test_stock_settings_load_with_chat_ai_and_vision_ai_off():
         settings.load(local=False, environ={"PRINT_HANDY__VISION__AI_ENABLED": "sometimes"})
 
 
-@pytest.mark.parametrize("name", ["docker.toml", "docker.yaml"])
+@pytest.mark.parametrize("name", ["docker.yaml"])
 def test_shipped_docker_configs_keep_chat_ai_and_vision_ai_off(name):
     data = settings.load(local=ROOT / "config" / name, environ={})
     assert "chat_llm_enabled" not in data["discord"]

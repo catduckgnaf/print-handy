@@ -27,9 +27,8 @@ def test_healthcheck_no_longer_reports_a_state_volume():
 
 
 def test_docker_defaults_point_at_the_state_volume():
-    for suffix in ("yaml", "toml"):
-        text = (ROOT / "config" / f"docker.{suffix}").read_text()
-        assert "/data/hermes" not in text
-        cfg = settings.load(local=ROOT / "config" / f"docker.{suffix}", user=False, environ={})
-        assert cfg["paths"]["state_home"] == Path("/data/state")
-        assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"
+    text = (ROOT / "config" / "docker.yaml").read_text()
+    assert "/data/hermes" not in text
+    cfg = settings.load(local=ROOT / "config" / "docker.yaml", user=False, environ={})
+    assert cfg["paths"]["state_home"] == Path("/data/state")
+    assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"

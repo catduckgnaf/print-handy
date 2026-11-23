@@ -660,7 +660,7 @@ class RuntimeSettingsTests(unittest.TestCase):
     def test_visual_watch_sensitivity_non_finite_is_a_settings_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             local = Path(tmp) / "local.yaml"
-            for bad in ("nan", "inf", "-inf"):
+            for bad in (".nan", ".inf", "-.inf"):
                 with self.subTest(value=bad):
                     local.write_text("visual_watch:\n  sensitivity: " + bad + "\n")
                     with self.assertRaisesRegex(settings.SettingsError, "1 to 5"):

@@ -84,8 +84,8 @@ class HomeUpdateTests(unittest.TestCase):
         # a throwaway fixture cannot do for real: the modeled install carries
         # a token, and update() runs the checks with a sitecustomize stub
         # (below) answering Discord's users/@me probe.
-        (self.home / "config" / "local.toml").write_text(
-            f'[printer]\nname = "Home AD5X"\n\n[orca]\ncommand = ["true"]\n\n[paths]\nstate_home = "{profile}"\n\n[discord]\nchat_id = "123"\n')
+        (self.home / "config" / "local.yaml").write_text(
+            f'printer:\n  name: Home AD5X\n\norca:\n  command: ["true"]\n\npaths:\n  state_home: "{profile}"\n\ndiscord:\n  chat_id: "123"\n')
         (profile / ".env").write_text("DISCORD_BOT_TOKEN=fixture-token\n")
         stub = base / "discord-stub"
         stub.mkdir()
@@ -107,7 +107,7 @@ class HomeUpdateTests(unittest.TestCase):
         return git(self.upstream, "rev-parse", "HEAD")
 
     def update(self, home=None):
-        # Environment overrides beat local.toml, so a caller's
+        # Environment overrides beat local.yaml, so a caller's
         # PRINT_HANDY__SECTION__KEY value (or PRINT_HANDY_CONFIG) would
         # point the doctor at the real install instead of the throwaway
         # profile. Legacy short names are no longer settings (#1817).
@@ -128,7 +128,7 @@ class HomeUpdateTests(unittest.TestCase):
         result = self.update()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
-        self.assertIn("Home AD5X", (self.home / "config" / "local.toml").read_text())
+        self.assertIn("Home AD5X", (self.home / "config" / "local.yaml").read_text())
 
     def test_breaking_update_rolls_back(self):
         before = git(self.home, "rev-parse", "HEAD")
@@ -149,8 +149,8 @@ class HomeUpdateTests(unittest.TestCase):
 
     def test_a_missing_slicer_is_reported_by_the_doctor_but_keeps_the_update(self):
         head = self.commit_upstream("NOTES.txt", "harmless\n")
-        local = self.home / "config" / "local.toml"
-        local.write_text(local.read_text().replace('command = ["true"]', 'command = ["no-such-slicer-binary"]'))
+        local = self.home / "config" / "local.yaml"
+        local.write_text(local.read_text().replace('command: ["true"]', 'command: ["no-such-slicer-binary"]'))
         result = self.update()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)

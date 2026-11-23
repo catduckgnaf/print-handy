@@ -48,7 +48,7 @@ def payload():
     root = settings.ROOT
     data = settings.load()
     handlers_dir = root / "print_handy" / "bot" / "handlers"
-    missing = [str(p) for p in (root / "config" / "docker.yaml", root / "config" / "docker.toml",
+    missing = [str(p) for p in (root / "config" / "docker.yaml",
                                 handlers_dir, Path(handlers.__file__)) if not p.exists()]
     templates = {}
     for key, model in printers.MODELS.items():
