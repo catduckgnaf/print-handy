@@ -15,6 +15,7 @@ import importlib
 # Dependency order: shared code first, then each handler.
 _MODULES = (
     'common',
+    'fix',
     'model_link',
     'upload_wait',
     'print_again',
@@ -56,6 +57,7 @@ _homes = tuple(importlib.import_module(f"{__name__}.{name}") for name in _MODULE
 # Dispatch order: the first handler that answers wins.
 HANDLERS = tuple(importlib.import_module(f"{__name__}.{name}") for name in (
     'guided',
+    'fix',
     'design',
     'maintenance',
     'coldpull',

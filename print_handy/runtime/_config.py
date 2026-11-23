@@ -57,16 +57,15 @@ def state_dir() -> Path:
 def state_file(env_var: str | None, name: str, *, per_instance: bool = False) -> Path:
     """A state file: the legacy env var if set (tests rely on it), else <state_dir>/<name>.
 
-    With per_instance, a process serving a non-default roster printer (a
-    per-printer listener instance, #336) gets its own copy under
-    <state_dir>/printers/<id>/ — #334's layout — so sibling listener
-    instances never share operational state (P1-82). The default printer
-    keeps the legacy path: its state was always the singleton's, so
-    nothing is orphaned at upgrade. A process serving no instance (the
-    bot, one-shot tools) is unchanged, and an env override always wins.
-    Files that are cross-process channels by design (the start claims
-    print-now writes and the listeners read) stay shared: callers opt in
-    per file.
+    With per_instance, the file is per printer, under
+    <state_dir>/printers/<id>/ (#334's layout): a process serving a roster
+    printer (a per-printer listener instance, #336) gets that printer's
+    copy, so sibling listener instances never share operational state
+    (P1-82), and a process serving no instance (the bot, one-shot tools)
+    gets the default printer's. The default printer is no exception
+    (#1817). An env override always wins. Files that are cross-process
+    channels by design (the start claims print-now writes and the
+    listeners read) stay at the state root: callers opt in per file.
     """
     if env_var and os.environ.get(env_var):
         return Path(os.environ[env_var])
@@ -78,17 +77,14 @@ def state_file(env_var: str | None, name: str, *, per_instance: bool = False) ->
 
 
 def _instance_state_path(name: str) -> Path | None:
-    """<state>/printers/<id>/<name> for a non-default instance printer, else None."""
+    """<state>/printers/<id>/<name> for this process's printer (the default without an instance).
+
+    None only when no roster resolves (no printer to file the state under).
+    """
     try:
         from print_handy import instance
 
-        printer_id = instance.printer_id()
-        if not printer_id:
-            return None
-        data = cfg()
-        if printer_id == settings.default_printer_id(data):
-            return None
-        return settings.printer_state_dir(printer_id, data) / name
+        return settings.printer_state_dir(instance.printer_id() or None, cfg()) / name
     except Exception:
         return None
 

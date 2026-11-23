@@ -6,6 +6,7 @@ Moonraker object list) and/or the IFS slot presence — and a slot that empties
 while an already-posted pause is still generic must upgrade the alert.
 All Moonraker state here is fake; nothing touches a live printer.
 """
+import os
 import json
 import tempfile
 import unittest
@@ -210,11 +211,11 @@ class ListenerRunoutCase(unittest.IsolatedAsyncioTestCase):
         self.hardware = Path(self.tmp.name) / "hardware.json"
         self.hardware.write_text(json.dumps({"active_slot": 1, "filament_slots": {
             "1": {"spoolman_id": 10, "material": "PLA", "color": "white"}}}))
-        self.old_hardware = mel.HARDWARE_STATE
-        mel.HARDWARE_STATE = self.hardware
+        self._hardware_env = mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(self.hardware)})
+        self._hardware_env.start()
 
     def tearDown(self):
-        mel.HARDWARE_STATE = self.old_hardware
+        self._hardware_env.stop()
         self.tmp.cleanup()
 
     def listener(self, slots, head, native=True):

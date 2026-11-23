@@ -18,7 +18,7 @@ from print_handy.bot.router import Router, message_text
 FREE_TEXT_HOOKS = {
     "guided_dispatch", "design_dispatch", "typed_quantity_dispatch", "upload_wait_dispatch",
     "model_link_dispatch", "runout_intake_dispatch", "roast_dispatch", "print_again_dispatch",
-    "edit_dispatch", "loaded_spools_dispatch", "purchase_dispatch", "spool_dispatch",
+    "edit_dispatch", "fix_dispatch", "loaded_spools_dispatch", "purchase_dispatch", "spool_dispatch",
     "print_reboot_dispatch", "upload_collection_dispatch",
 }
 
@@ -71,7 +71,7 @@ async def _run_hook(hook, text):
 def test_every_dispatch_hook_is_classified(plugin):
     names = [hook.__name__ for hook in plugin._DISPATCH_HOOKS]
     gated = {hook.__name__ for hook in plugin._DISPATCH_HOOKS if getattr(hook, "dispatch_gate", None)}
-    assert len(names) == len(set(names)) == 36
+    assert len(names) == len(set(names)) == 37
     assert gated | FREE_TEXT_HOOKS == set(names) and not gated & FREE_TEXT_HOOKS
     assert len(gated) == 22
 

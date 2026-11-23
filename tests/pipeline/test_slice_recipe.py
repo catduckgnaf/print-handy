@@ -81,7 +81,7 @@ def test_binding_is_a_versioned_recipe_and_ignores_dict_order():
 
 
 def _hardware(**change):
-    st = json.loads(Path(printer_state.STATE).read_text())
+    st = json.loads(printer_state.state_path().read_text())
     for path, value in change.items():
         target = st
         *parents, leaf = path.split('.')

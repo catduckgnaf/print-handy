@@ -457,8 +457,8 @@ def _tracked_lock(held):
     return hardware_lock
 
 
-@pytest.mark.parametrize("migrated", [False, True])
-def test_item7_the_hardware_lock_is_never_held_across_a_spoolman_call(tmp_path, monkeypatch, migrated):
+@pytest.mark.parametrize("claimed", [False, True])
+def test_item7_the_hardware_lock_is_never_held_across_a_spoolman_call(tmp_path, monkeypatch, claimed):
     from print_handy.core import printer_state
     held = []
     monkeypatch.setattr(printer_state, "hardware_lock", _tracked_lock(held))
@@ -468,11 +468,9 @@ def test_item7_the_hardware_lock_is_never_held_across_a_spoolman_call(tmp_path, 
     monkeypatch.setattr(spool_sync, "_printer_adapter", lambda pid: None)
     state_path = tmp_path / "hw.json"
     record = {"filament_slots": {"1": {"spoolman_id": 7, "material": "PLA"}}}
-    if migrated:
-        record["ph_slot_migrated"] = True
     state_path.write_text(json.dumps(record))
     rows = [{"id": 7, "filament": {"material": "PLA", "name": "PLA"},
-             "extra": {spool_sync.PH_SLOT_FIELD: json.dumps(spool_sync.format_ph_slot("p1", 1))} if migrated else {}},
+             "extra": {spool_sync.PH_SLOT_FIELD: json.dumps(spool_sync.format_ph_slot("p1", 1))} if claimed else {}},
             {"id": 9, "archived": True, "filament": {"material": "PLA"},
              "extra": {spool_sync.PH_SLOT_FIELD: json.dumps(spool_sync.format_ph_slot("p1", 2))}}]
     client = SlowSpoolman(held, rows)
@@ -480,7 +478,7 @@ def test_item7_the_hardware_lock_is_never_held_across_a_spoolman_call(tmp_path, 
                                pending_path=tmp_path / "pending.json")
     assert out["ok"] is True, out
     assert any(m == "PATCH" for m, _ in client.calls)  # the writes did go out, unlocked
-    assert json.loads(state_path.read_text())["ph_slot_migrated"] is True
+    assert "ph_slot_migrated" not in json.loads(state_path.read_text())  # no marker any more (#1817)
 
 
 def test_item7_a_slow_spoolman_does_not_block_a_launch_waiting_for_the_record(tmp_path, monkeypatch):
@@ -496,7 +494,7 @@ def test_item7_a_slow_spoolman_does_not_block_a_launch_waiting_for_the_record(tm
     monkeypatch.setattr(spool_sync, "repair_usage_spool", lambda **k: "ok")
     monkeypatch.setattr(spool_sync, "_printer_adapter", lambda pid: None)
     state_path = tmp_path / "hw.json"
-    state_path.write_text(json.dumps({"filament_slots": {}, "ph_slot_migrated": True}))
+    state_path.write_text(json.dumps({"filament_slots": {}}))
     in_spoolman, release = threading.Event(), threading.Event()
 
     def client(method, path, body=None):

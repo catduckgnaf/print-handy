@@ -114,7 +114,7 @@ def test_a_seeded_record_carries_the_models_own_nozzle_type(tmp_path, monkeypatc
     view = {"printer": {"name": "Bench", "model": model, "bed_mm": [256, 256], "max_print_height_mm": 256,
                         "nozzle_diameter_mm": 0.4, **{k: v for k, v in data["printer"].items() if k == "nozzle_type"}},
             "services": {"moonraker_url": ""}, "material_temps": {"PLA": {"nozzle": 210, "bed": 60}}}
-    monkeypatch.setattr(printer_state, "STATE", str(tmp_path / "printer_hardware.json"))
+    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(tmp_path / "printer_hardware.json"))
     assert printer_state.seed_hardware_record("bench", view) is True
     recorded = printer_state.load("bench")["nozzle"]["type"]
     assert recorded != "stock" and normalize_nozzle_type(recorded) == expected

@@ -33,9 +33,19 @@ def _never_write_live_printer_state(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _neutral_printer_hardware(monkeypatch):
-    """Tests that read the hardware record get a neutral AD5X record, never the home machine's."""
-    monkeypatch.setattr(printer_state, "STATE", str(FIXTURES / "printer_hardware.json"))
+def _neutral_printer_hardware(tmp_path, monkeypatch):
+    """Tests that read the hardware record get a neutral AD5X record, never the home machine's.
+
+    A per-test copy of the read-only fixture, placed where the default
+    printer's record lives (<state>/printers/<id>/), under a temp state root.
+    """
+    import shutil
+    root = tmp_path / "hardware-state"
+    monkeypatch.setattr(printer_state, "STATE_ROOT", str(root))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    record = printer_state.state_path()
+    record.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "printer_hardware.json", record)
 
 
 @pytest.fixture(autouse=True)

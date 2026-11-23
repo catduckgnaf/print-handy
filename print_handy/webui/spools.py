@@ -5,8 +5,8 @@ printer's slots with their assigned spool (id, name, material, color,
 remaining weight and percent where known), plus the unassigned spools
 on the shelf, from Spoolman. Slot assignment is read from the Spoolman
 ``ph_slot`` extra field (#798) — the reconciled state — with the local
-slot cache as the fallback for assignments Spoolman has not been
-migrated to yet, and duplicate or archived claims are named as
+slot cache as the fallback for assignments Spoolman does not hold yet
+(the next reconcile seeds them), and duplicate or archived claims are named as
 conflicts in the response instead of silently picking a winner.
 
 ``POST /api/printers/<id>/spools/{assign,swap,unassign,add,edit,sync}``

@@ -155,7 +155,9 @@ def test_cli_remap_slot_subcommand(tmp_path):
     test_config.write_text(
         "[paths]\nstate_home = " + json.dumps(str(tmp_path / "hermes")) + "\n"
     )
-    state_path = tmp_path / "hermes" / "state" / "printer_hardware.json"
+    # The hardware record lives in the default printer's folder, not the pre-2.4 root.
+    state_path = (tmp_path / "hermes" / "state" / "printers" / "flashforge-ad5x"
+                  / "printer_hardware.json")
     state_path.parent.mkdir(parents=True)
     state_path.write_text(json.dumps(st))
 

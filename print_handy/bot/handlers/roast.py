@@ -34,7 +34,7 @@ async def roast_dispatch(event, gateway, **kwargs):
         message = 'Roasts are turned off (vision.roast_enabled is false).'
     else:
         from print_handy.runtime import _config as runtime_config
-        state_path = runtime_config.state_file('PRINT_HANDY_ROAST_STATE', 'roast_state.json')
+        state_path = runtime_config.state_file('PRINT_HANDY_ROAST_STATE', 'roast_state.json', per_instance=True)
         try:
             message = await asyncio.to_thread(roast_chat.roast_reply, text, state_path=state_path,
                                               tz=runtime_config.tz())

@@ -85,13 +85,13 @@ docker compose exec combined python3 scripts/bambu-templates.py --printer a1 --r
 docker compose exec combined python3 scripts/bambu-templates.py --printer a1 --resources /opt/orca-stable/resources --check
 ```
 
-The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5.1 (BBL vendor profiles 02.08.00.16) to /data/state/state/orca-profiles/bambulab_a1`; `--check` writes nothing and should end with `matches; generated folder is current`. The templates live in the state volume, so they survive a recreate. Nothing is downloaded. Print Handy ships one bundled OrcaSlicer: `PRINT_HANDY_ORCA_CHANNEL=preview` (or `alpha`, its old name) starts on the same single stable build with a startup notice, because the preview channel was removed.
+The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5.1 (BBL vendor profiles 02.08.00.16) to /data/state/state/orca-profiles/bambulab_a1`; `--check` writes nothing and should end with `matches; generated folder is current`. The templates live in the state volume, so they survive a recreate. Nothing is downloaded. Print Handy ships one bundled OrcaSlicer: `PRINT_HANDY_ORCA_CHANNEL` accepts only `stable`, and the removed `preview` and `alpha` names stop the container with that fix named.
 
 ## 3. Write the hardware record by hand
 
-**Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<state_home>/state/printer_hardware.json` (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand.
+**Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<state_home>/state/printers/<id>/printer_hardware.json`, where `<id>` is the printer's roster id (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand.
 
-Create `data/state/state/printer_hardware.json` on the host (the container sees it as `/data/state/state/printer_hardware.json`). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
+Create `data/state/state/printers/<id>/printer_hardware.json` on the host (the container sees it as `/data/state/state/printers/<id>/printer_hardware.json`; a record at the old `state/printer_hardware.json` path is refused since 2.4.0). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
 
 ```json
 {

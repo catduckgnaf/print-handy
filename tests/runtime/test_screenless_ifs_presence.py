@@ -34,7 +34,6 @@ class ListenerCase(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         for name, value in (("NATIVE_ERROR_STATE", root / "native_error.json"),
-                            ("HARDWARE_STATE", root / "hardware.json"),
                             ("RUNOUT_PAUSE_STATE", root / "runout.json")):
             patch = mock.patch.object(mel, name, value, create=True)
             patch.start()
