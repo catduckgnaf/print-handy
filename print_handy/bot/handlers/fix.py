@@ -101,8 +101,27 @@ async def _send(adapter, source, text):
 
 
 async def _accept(event, gateway, adapter, session):
-    """Verified normal intake BEFORE committing accepted/repointed state."""
+    """Verified normal intake BEFORE committing accepted/repointed state.
+
+    The session lock is held from here until the job is repointed, so a repair
+    turn cannot change current_file between intake and acceptance.
+    """
     source = event.source
+    if not session.lock.acquire(blocking=False):
+        await _send(adapter, source, 'A repair step is still running. Type accept again '
+                    'when it finishes. Nothing was accepted.')
+        return {'action': 'skip', 'reason': 'repair step still running'}
+    try:
+        return await _accept_locked(event, gateway, adapter, session)
+    finally:
+        session.lock.release()
+
+
+async def _accept_locked(event, gateway, adapter, session):
+    source = event.source
+    if not session.active():
+        await _send(adapter, source, 'This repair session already ended. Nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair session ended'}
     if fix_session._same_path(session.current_file, session.original_file):
         await _send(adapter, source, 'There is no repaired copy to accept. The original is unchanged.')
         return {'action': 'skip', 'reason': 'no repaired file to accept'}
@@ -125,7 +144,7 @@ async def _accept(event, gateway, adapter, session):
             return {'action': 'skip', 'reason': 'repair intake incomplete'}
         output = fix_session.process_turn(
             session, 'accept', ai_complete=lambda *_: None,
-            resume_intake=lambda _session: True)
+            resume_intake=lambda _session: True, locked=True)
     except Exception:
         logger.exception('normal intake failed during fix acceptance')
         await _send(adapter, source, 'Normal intake failed. The repair was not accepted; '
@@ -212,7 +231,8 @@ async def fix_dispatch(event, gateway, **_kwargs):
     if text.lower() in fix_session._ACCEPT:
         return await _accept(event, gateway, adapter, session)
     if text.lower() in fix_session._CANCEL:
-        output = fix_session.process_turn(session, text, ai_complete=lambda *_: None)
+        output = await asyncio.to_thread(
+            fix_session.process_turn, session, text, ai_complete=lambda *_: None)
     elif starting and text == '/fix':
         await _send(adapter, source, 'A repair session is open. Describe the change, '
                     'or type accept or cancel.')

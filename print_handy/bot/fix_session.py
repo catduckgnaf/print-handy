@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,6 +54,9 @@ class FixSession:
     cancelled: bool = False
     history: list[dict] = field(default_factory=list)
     skill_session: Any = None  # print_repair.Session once loaded
+    # One turn or acceptance at a time: acceptance must not repoint the job while a
+    # turn can still change current_file (#1778 review).
+    lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property
     def key(self) -> tuple:
@@ -300,7 +304,7 @@ def _completion(completion) -> tuple[str, list]:
 
 
 def process_turn(session: FixSession, user_message: str, *, ai_complete,
-                 resume_intake=None) -> dict[str, Any]:
+                 resume_intake=None, locked: bool = False) -> dict[str, Any]:
     """Run one fix-session turn.
 
     Contract for the model call::
@@ -319,7 +323,27 @@ def process_turn(session: FixSession, user_message: str, *, ai_complete,
     Accept (``accept`` / ``do it`` / ``yes`` / ``looks good``) repoints the
     job only when ``current_file`` is a different file and the job record
     was written. Otherwise the session stays open and nothing is called accepted.
+
+    Turns and acceptance for one session run one at a time under ``session.lock``.
+    A caller that already holds the lock (the chat acceptance, which keeps it across
+    intake) passes ``locked=True``.
     """
+    if locked:
+        return _process_turn_locked(session, user_message, ai_complete=ai_complete,
+                                    resume_intake=resume_intake)
+    with session.lock:
+        return _process_turn_locked(session, user_message, ai_complete=ai_complete,
+                                    resume_intake=resume_intake)
+
+
+def _process_turn_locked(session: FixSession, user_message: str, *, ai_complete,
+                         resume_intake=None) -> dict[str, Any]:
+    """The body of ``process_turn``; the caller holds ``session.lock``."""
+    if session.accepted or session.cancelled:
+        # A turn that waited on the lock while the session ended must not touch
+        # current_file or the job.
+        return {'reply': 'This repair session already ended; nothing was changed.',
+                'accepted': False, 'cancelled': session.cancelled}
     session.history.append({'role': 'user', 'content': user_message, 'ts': time.time()})
     low = user_message.lower().strip()
     if low in _ACCEPT:

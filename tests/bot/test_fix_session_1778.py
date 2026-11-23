@@ -242,7 +242,7 @@ def test_process_turn_accept_does_not_claim_success_when_the_job_write_fails(tmp
                                    resume_intake=lambda _session: True)
     assert out['accepted'] is False
     assert session.accepted is False and session.active()
-    assert 'was not changed' in out['reply'].lower()
+    assert 'not accepted' in out['reply'].lower()
     assert fix_session.SESSION_END_ACCEPT not in out['reply']
     assert 'was accepted' not in out['reply'].lower()
     job = json.loads(job_path.read_text(encoding='utf-8'))
@@ -347,12 +347,12 @@ def test_fix_handler_does_not_accept_a_repaired_file_when_intake_refuses(tmp_pat
     assert out['reason'] == 'repair intake incomplete'
     assert not session.accepted and session.active()
     assert Path(json.loads(job_path.read_text())['downloaded_file']).resolve() == stl.resolve()
-    assert messages and 'not accepted' in messages[-1]
+    assert messages and 'nothing was accepted' in messages[-1]
 
 
 def test_failed_uploaded_model_offers_repair_then_starts_scoped_session(tmp_path, monkeypatch):
     from print_handy.bot.handlers import fix as handler
-    from print_handy.bot.handlers import common, model_link
+    from print_handy.bot.handlers import model_link
 
     _folder, job_path, stl = _workspace(tmp_path)
     source = SimpleNamespace(user_id='owner', chat_id='private', thread_id='thread')
@@ -375,7 +375,7 @@ def test_failed_uploaded_model_offers_repair_then_starts_scoped_session(tmp_path
     monkeypatch.setattr(handler, '_new_session',
                         lambda _event: fix_session.start_session('owner', 'private', 'thread',
                                                                   job_path, stl))
-    monkeypatch.setattr(common, '_confirm', choice)
+    monkeypatch.setattr(handler, '_confirm', choice)
     result = asyncio.run(handler.offer_failed_intake(event, gateway, Adapter()))
     assert result['reason'] == 'repair session started after slice refusal'
     assert choices[0][1][0] == fix_session.WORK_WITH_AI_LABEL
@@ -405,3 +405,53 @@ def test_one_release_plugin_imports_and_registers_the_fix_handler():
     spec.loader.exec_module(module)
     assert module.fix_dispatch in module._DISPATCH_HOOKS
     assert callable(module.offer_failed_intake)
+
+
+def test_acceptance_waits_out_a_running_turn_and_cannot_repoint_under_it(tmp_path):
+    """While a turn holds the session lock the chat acceptance refuses and changes nothing (#1778)."""
+    from print_handy.bot.handlers import fix as handler
+
+    _folder, job_path, stl, session = _session(tmp_path)
+    session.current_file = stl.parent / 'part-sunk.stl'
+    support_clearance._write_binary_stl(session.current_file, box(0, 0, -1, 10, 10, 10))
+    messages = []
+
+    class Adapter:
+        async def send(self, **kwargs):
+            messages.append(kwargs['content'])
+
+    event = SimpleNamespace(source=SimpleNamespace(user_id='user', chat_id='chat', thread_id='thread'),
+                            text='accept', media_urls=[])
+    with session.lock:
+        out = asyncio.run(handler._accept(event, SimpleNamespace(), Adapter(), session))
+    assert out['reason'] == 'repair step still running'
+    assert 'nothing was accepted' in messages[-1].lower()
+    assert not session.accepted and session.active()
+    assert Path(json.loads(job_path.read_text())['downloaded_file']).resolve() == stl.resolve()
+    assert not session.lock.locked()
+
+
+def test_a_turn_queued_behind_acceptance_cannot_change_the_accepted_file(tmp_path):
+    """A turn that waited on the lock while the session ended leaves current_file alone."""
+    import threading
+
+    _folder, job_path, stl, session = _session(tmp_path)
+    calls = []
+
+    def ai_complete(_bound, _message, _tools):
+        calls.append(1)
+        return {'content': '', 'tool_calls': [
+            {'name': 'sink', 'arguments': {'mesh': 'source/part.stl', 'mm': 1}}]}
+
+    outcome = {}
+    session.lock.acquire()
+    worker = threading.Thread(target=lambda: outcome.update(
+        fix_session.process_turn(session, 'sink it', ai_complete=ai_complete)))
+    worker.start()
+    fix_session.end_session(session, 'accept')   # acceptance finishes while the turn waits
+    session.lock.release()
+    worker.join(10)
+    assert not worker.is_alive()
+    assert calls == []
+    assert fix_session._same_path(session.current_file, stl)
+    assert 'already ended' in outcome['reply'] and outcome['accepted'] is False
