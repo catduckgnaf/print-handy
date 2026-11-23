@@ -88,11 +88,11 @@ class PWAFoundationUnitTests(unittest.TestCase):
         self.assertIn("addEventListener('activate'", sw)
         self.assertIn("caches.delete(key)", sw)
 
-        # Non-caching boundaries: API, token uploads, auth, theme.
+        # Non-caching boundaries: API, token uploads, auth.
         self.assertIn("indexOf('/api/') === 0", sw)
         self.assertIn("indexOf('/u/') === 0", sw)
         self.assertIn("'/login'", sw)
-        self.assertIn("'/theme'", sw)
+        self.assertNotIn("'/theme'", sw)
         self.assertIn("event.request.method !== 'GET'", sw)
         self.assertIn("url.origin !== self.location.origin", sw)
 

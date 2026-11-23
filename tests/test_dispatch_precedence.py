@@ -195,7 +195,6 @@ def test_print_it_again_reprints_instead_of_refetching_the_link(monkeypatch):
                         lambda archive=None, printer_id=None: {"title": "Panel A",
                                                                "intake_id": "panel"})
     monkeypatch.setattr(printer_state, "load", lambda **kw: object())
-    monkeypatch.setattr(plugin, "_is_hosting_profile", lambda value: True)
     monkeypatch.setattr(plugin, "_recent_model_link", lambda source: URL)
     monkeypatch.setattr(plugin, "_routed_printer_id", lambda source, gateway=None: None)
     monkeypatch.setattr(plugin, "_undecided_printer_ids", lambda source, gateway=None: [])

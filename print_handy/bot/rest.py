@@ -17,6 +17,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from .. import __version__
+
 logger = logging.getLogger(__name__)
 
 API = "https://discord.com/api/v10"
@@ -176,8 +178,13 @@ def _multipart(payload, files):
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
+# The User-Agent every Discord REST call sends, in the form Discord asks
+# bots to use: "DiscordBot ($url, $versionNumber)".
+USER_AGENT = f"DiscordBot (https://github.com/catduckgnaf/print-handy, {__version__})"
+
+
 def _request(token, method, path, payload=None, files=(), timeout=30, opener=None):
-    headers = {"Authorization": f"Bot {token}", "User-Agent": "PrintHandy (standalone, 1.0)"}
+    headers = {"Authorization": f"Bot {token}", "User-Agent": USER_AGENT}
     data = None
     if files:
         data, headers["Content-Type"] = _multipart(payload or {}, files)

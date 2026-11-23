@@ -140,7 +140,7 @@ def answer_current_question(port, srv, headers, index):
     page = wait_page(port, headers, 'action="/workflow/choice"')
     match = re.search(r'name="clarify_id" value="([^"]+)"', page)
     assert match, page[-800:]
-    body = urllib.parse.urlencode({"_csrf": srv.form_token,
+    body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token,
                                    "clarify_id": match.group(1), "index": index})
     status, _h, _p = call(port, "POST", "/workflow/choice", body=body,
                           headers=headers)
@@ -178,7 +178,7 @@ def test_link_entry_download_ending(harness):
     status, _h, page = call(port, "GET", "/sources", headers=me)
     assert 'action="/workflow/link"' in page.decode()
     body = urllib.parse.urlencode(
-        {"_csrf": srv.form_token,
+        {"_csrf": srv.session_store.form_token,
          "url": "https://www.printables.com/model/123456-workflow-widget"})
     status, _h, _p = call(port, "POST", "/workflow/link", body=body, headers=me)
     assert status == 303
@@ -198,7 +198,7 @@ def test_link_entry_download_ending(harness):
 def test_upload_entry_send_to_printer_ending(harness):
     srv, port, seen, data = harness
     me = browser(port)
-    body, ctype = multipart(srv.form_token, "widget.stl", b"solid widget\nendsolid widget\n")
+    body, ctype = multipart(srv.session_store.form_token, "widget.stl", b"solid widget\nendsolid widget\n")
     status, _h, _p = call(port, "POST", "/workflow/upload", body=body,
                           headers=me, content_type=ctype)
     assert status in (200, 303)
@@ -216,13 +216,13 @@ def test_upload_entry_send_to_printer_ending(harness):
 def test_inbox_file_starts_from_the_upload_page(harness, tmp_path):
     srv, port, seen, data = harness
     me = browser(port)
-    body, ctype = multipart(srv.form_token, "inboxed.stl", b"solid x\nendsolid x\n")
+    body, ctype = multipart(srv.session_store.form_token, "inboxed.stl", b"solid x\nendsolid x\n")
     status, _h, _p = call(port, "POST", "/upload", body=body, headers=me,
                           content_type=ctype)
     assert status == 200
     status, _h, page = call(port, "GET", "/upload", headers=me)
     assert 'action="/workflow/start"' in page.decode()
-    body = urllib.parse.urlencode({"_csrf": srv.form_token, "name": "inboxed.stl"})
+    body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token, "name": "inboxed.stl"})
     status, _h, _p = call(port, "POST", "/workflow/start", body=body, headers=me)
     assert status == 303
     drive_to_menu(port, srv, me)
@@ -240,7 +240,7 @@ def test_leaving_and_returning_reattaches(harness):
     srv, port, seen, data = harness
     me = browser(port)
     body = urllib.parse.urlencode(
-        {"_csrf": srv.form_token,
+        {"_csrf": srv.session_store.form_token,
          "url": "https://www.printables.com/model/123456-workflow-widget"})
     call(port, "POST", "/workflow/link", body=body, headers=me)
     first = wait_page(port, me, "Which color?")
@@ -264,7 +264,7 @@ def test_download_belongs_to_the_session_that_sliced(harness):
     srv, port, seen, data = harness
     me = browser(port)
     body = urllib.parse.urlencode(
-        {"_csrf": srv.form_token,
+        {"_csrf": srv.session_store.form_token,
          "url": "https://www.printables.com/model/123456-workflow-widget"})
     call(port, "POST", "/workflow/link", body=body, headers=me)
     drive_to_menu(port, srv, me)
@@ -339,7 +339,7 @@ def test_disabled_chat_disables_the_workflow(tmp_path, monkeypatch):
         status, _h, page = call(port, "GET", "/workflow")
         assert status == 200 and "Web chat is turned off" in page.decode()
         body = urllib.parse.urlencode(
-            {"_csrf": srv.form_token,
+            {"_csrf": srv.session_store.form_token,
              "url": "https://www.printables.com/model/123456-x"})
         status, _h, page = call(port, "POST", "/workflow/link", body=body)
         assert status == 200 and "Web chat is turned off" in page.decode()

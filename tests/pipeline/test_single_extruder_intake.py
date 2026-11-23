@@ -41,7 +41,7 @@ def a1_state(spoolman_id=None):
 
 
 def link_event(mid="a1"):
-    return S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"), message_id=mid,
+    return S(source=S(chat_id="c1", thread_id=None, user_id="u"), message_id=mid,
              text="https://www.printables.com/model/1-ghost")
 
 

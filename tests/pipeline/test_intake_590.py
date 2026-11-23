@@ -18,7 +18,7 @@ def _run(env, monkeypatch, error, mid):
     def fail(url):
         raise error
     monkeypatch.setattr(model_job, "maker_inventory", fail)
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id=mid, text=URL)
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

@@ -36,7 +36,6 @@ from .router import Router
 
 logger = logging.getLogger(__name__)
 
-PROFILE = "3dprinting"  # the plugin's handlers only answer events of the print profile
 # A refused user hears why at most once per period (#386): often enough that
 # a household member who was never told about a list learns it exists, never
 # often enough to spam the channel while they keep posting.
@@ -900,11 +899,11 @@ def make_source(user_id, chat_id, thread_id=None, is_bot=False, platform_name="d
     # platform carries one (#1647): it is stamped onto print records as
     # the starter's name. Absent when the platform supplies none — the
     # starter is then recorded by id only, never by an invented name.
-    return SimpleNamespace(platform=SimpleNamespace(value=str(platform_name)), profile=PROFILE,
+    return SimpleNamespace(platform=SimpleNamespace(value=str(platform_name)),
                            user_id=str(user_id),
                            display_name=str(display_name).strip() if display_name else None,
                            chat_id=str(chat_id), thread_id=str(thread_id) if thread_id else None,
-                           is_bot=bool(is_bot), profile_route_rejected=False,
+                           is_bot=bool(is_bot),
                            printer_id=str(printer_id) if printer_id else None,
                            shared_printer_ids=tuple(str(pid) for pid in shared_printer_ids)
                            if shared_printer_ids else None)

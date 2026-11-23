@@ -438,7 +438,8 @@ def test_server_injects_toasts_into_shell_pages_only(tmp_path):
         data, "kl1", "Garage Klipper",
         _status(fw.Component("klipper", current="1", remote="2")))
     handler = server_module._Handler.__new__(server_module._Handler)
-    handler.server = SimpleNamespace(settings_data=data, form_token="proc-token",
+    handler.server = SimpleNamespace(settings_data=data,
+                                     session_store=SimpleNamespace(form_token="proc-token"),
                                      access=SimpleNamespace(required=False))
     handler.path = "/"
     page = b"<html><body><header class=\"site\">x</header><main>y</main></body></html>"

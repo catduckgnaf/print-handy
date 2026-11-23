@@ -194,7 +194,7 @@ def test_prepared_intake_thingiverse_end_to_end(env, monkeypatch):
         'sources': [{'id': 101, 'name': 'benchy.stl', 'bytes': 10, 'kind': 'files'}]})
     monkeypatch.setattr(model_job, 'thingiverse_download',
                         lambda job, chosen, dest: _copy_named(src, dest, 'benchy.stl'))
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='tv1', text=THING_URL)
     adapter = Adapter([1, 0, 0])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
@@ -211,7 +211,7 @@ def test_prepared_intake_printables_gcode_only_refuses_with_specific_reason(env,
         'sources': [{'id': '2636', 'name': 'benchy.gcode', 'kind': 'gcodes'}],
         'no_geometry_reason': 'Printables listing for model 3111 exposes no STL/3MF via the '
                               'Printables API (stls is empty; only pre-sliced G-code is listed)'})
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='p3111', text='https://www.printables.com/model/3111-3d-benchy')
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

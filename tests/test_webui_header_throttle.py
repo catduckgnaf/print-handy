@@ -55,7 +55,7 @@ class PasswordGuidanceTests(unittest.TestCase):
         local.write_text(f"paths:\n  state_home: {tmp}/hermes\n")
         self.data = settings.load(local=local, environ={})
 
-    def refused(self, password, username=None):
+    def refused(self, password, username="owner"):
         with self.assertRaises(access.AccessError) as ctx:
             access.save_password(self.data, password, password, username=username)
         self.assertFalse(access.access_path(self.data).exists())

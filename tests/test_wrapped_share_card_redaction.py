@@ -252,7 +252,7 @@ class ShareRouteDefaults(unittest.TestCase):
     def post(self, httpd, fields):
         conn = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=5)
         try:
-            body = "&".join([f"_csrf={httpd.form_token}", "year=2025",
+            body = "&".join([f"_csrf={httpd.session_store.form_token}", "year=2025",
                              "visibility=public", *fields])
             conn.request("POST", "/wrapped/share", body=body.encode(),
                          headers={"Content-Type": "application/x-www-form-urlencoded",

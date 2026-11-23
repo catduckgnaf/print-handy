@@ -387,7 +387,7 @@ def test_owner_cancel_during_audit_ends_the_intake_cleanly(tmp_path, monkeypatch
     monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
 
     adapter = _IntakeAdapter([0])
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id="tongs",
               text="https://www.printables.com/model/1-snacking-tongs")
     receipts = tmp_path / "receipts"
@@ -439,7 +439,7 @@ def test_owner_cancel_during_combine_ends_the_intake_cleanly(tmp_path, monkeypat
     monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
 
     adapter = _IntakeAdapter([0])
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id="tongs",
               text="https://www.printables.com/model/1-snacking-tongs")
     receipts = tmp_path / "receipts"
@@ -525,7 +525,7 @@ def test_owner_cancel_during_download_waits_for_the_download_thread(tmp_path, mo
     monkeypatch.setattr(model_job, "slice_job", lambda *a, **k: pytest.fail("slice ran after a cancel"))
 
     adapter = _IntakeAdapter([0])
-    event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
+    event = S(source=S(chat_id="c1", thread_id=None, user_id="u"),
               message_id="tongs",
               text="https://www.printables.com/model/1-snacking-tongs")
     receipts = tmp_path / "receipts"

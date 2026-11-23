@@ -280,7 +280,7 @@ class StandaloneAdapter(BasePlatformAdapter):
         cid, index = parsed
         async def answer(text):
             await self._answer_callback(query_id, text)
-        if not self._is_allowed_user(user_id, S(bot=bool(sender.get("is_bot")))):
+        if not self.is_allowed_user(user_id, S(bot=bool(sender.get("is_bot")))):
             await answer("Not allowed. Nothing changed.")
             return True
         if prompts.is_approval(cid) and not self.may_approve_id(user_id):
@@ -333,7 +333,7 @@ class StandaloneAdapter(BasePlatformAdapter):
             await answer("")
             return False
         action, aid = parsed
-        if not self._is_allowed_user(user_id, S(bot=bool(sender.get("is_bot")))):
+        if not self.is_allowed_user(user_id, S(bot=bool(sender.get("is_bot")))):
             await answer("Not allowed. Nothing changed.")
             return True
         alert = await asyncio.to_thread(pab.peek, aid)

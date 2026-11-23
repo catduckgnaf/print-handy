@@ -71,7 +71,7 @@ class ShellSyntaxTests(unittest.TestCase):
         scripts = [ROOT / name for name in ROOT_SCRIPTS] + [
             ROOT / "scripts" / name for name in
             ("install-standalone.sh", "home-update.sh",
-             "install-orca-flatpak.sh", "migrate-names.sh")]
+             "install-orca-flatpak.sh")]
         for script in scripts:
             with self.subTest(script=script.name):
                 self.assertTrue(script.is_file(), script)
@@ -213,10 +213,6 @@ class StandaloneSandboxRunTests(unittest.TestCase):
                     if "hermes" in line.casefold() and "paths.state_home" not in line]
         self.assertEqual([], leftover)
         with tempfile.TemporaryDirectory() as tmp:
-            units = Path(tmp) / "units"
-            units.mkdir()
-            for leftover_unit in ("hermes-gateway.service", "hermes-3dprinting-moonraker-listener.service"):
-                (units / leftover_unit).write_text("[Service]\n")
             result, _, _ = self.run_installer(tmp)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertNotIn("hermes", (result.stdout + result.stderr).casefold())

@@ -585,8 +585,10 @@ def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=N
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
     parts.append(_render_workshop(workshop, form_token=form_token, route=route))
-    if route == "/designs":
-        parts.append("<h2>Designs on this machine</h2>"
+    # The catalog is the Designs page, including when that page is the Chat
+    # design view (/chat?view=design). Gating it on route == "/designs" dropped
+    # every saved session from the only page operators open (#1817).
+    parts.append("<h2>Designs on this machine</h2>"
                  "<p>Every design session kept here (14 days), from this page or "
                  "from chat with <code>/print-design</code> (or <code>/design</code>) "
                  "(<a href=\"https://github.com/catduckgnaf/print-handy/blob/main/docs/DESIGN.md\">"
@@ -614,8 +616,7 @@ def render_designs_page(rows, *, theme=shell.DEFAULT_THEME, nav=None, workshop=N
             f"<td>{_esc(row['updated'])}</td>"
             f"<td>{preview}</td>"
             "</tr>")
-    if route == "/designs":
-        parts.append('<div class="table-scroll"><table class="design-catalog"><tr>'
+    parts.append('<div class="table-scroll"><table class="design-catalog"><tr>'
                  '<th>Design</th><th>Kind</th>'
                  "<th>State</th><th>Turns</th><th>Created</th><th>Updated</th>"
                  "<th>Preview</th></tr>" + "".join(body) + "</table></div>")
