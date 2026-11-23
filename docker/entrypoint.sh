@@ -116,20 +116,20 @@ if [[ "$tz" == *[!A-Za-z0-9._+/-]* || "$tz" == */../* || "$tz" == ../* || ! -f "
     tz="America/New_York"
 fi
 export TZ="$tz"
-# Print Handy ships ONE bundled OrcaSlicer, and 'stable' is the only channel.
-# The removed preview channel's names ('preview', 'alpha') are refused like
-# any other value (#1817).
+# The image ships one stable OrcaSlicer. Older installs could select
+# preview/alpha as aliases; retain their stable fallback for upgrades.
 channel="${PRINT_HANDY_ORCA_CHANNEL:-stable}"
-export PRINT_HANDY_ORCA_CHANNEL="$channel"
 case "$channel" in
-    stable)
+    stable|preview|alpha)
         selected=/usr/local/bin/orca-slicer-stable
+        channel=stable
         ;;
     *)
         echo "PRINT_HANDY_ORCA_CHANNEL must be 'stable'; got '$channel' (Print Handy ships one bundled OrcaSlicer; drop the setting or set it to stable)" >&2
         exit 2
         ;;
 esac
+export PRINT_HANDY_ORCA_CHANNEL="$channel"
 : "${PRINT_HANDY_ORCA_CMD:=/usr/local/bin/orca-slicer-stable}"
 export PRINT_HANDY_ORCA_CMD
 # Thread pools follow a cgroup CPU quota (or PRINT_HANDY_THREADS) when one exists; with neither,
