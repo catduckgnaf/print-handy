@@ -525,6 +525,10 @@ def apply_screen_assignment(printer_id: str, slot: int, spool_id: int | None, *,
                 f"Spoolman did not accept the slot assignment for spool #{spool_id}; "
                 "nothing was changed")
     spool_sync._clear_ph_slot_claims(client, printer_id, int(slot), keep_spool_id=spool_id)
+    if spool_id is None:
+        # The claim is gone. Drop the cache entry before reconcile, or a
+        # printer with no claims left seeds this slot straight back.
+        spool_sync.forget_cached_slot(int(slot), state_path=state_path, printer_id=printer_id)
     result = spool_sync.reconcile(printer_id, client=client, mr=mr,
                                   state_path=state_path, pending_path=pending_path)
     if not result.get("ok"):

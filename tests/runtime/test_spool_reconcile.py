@@ -227,6 +227,36 @@ def test_reconcile_seeds_spoolman_from_the_cache_while_it_holds_no_claim(tmp_pat
     assert "ph_slot_migrated" not in json.loads(state.read_text())
 
 
+def test_reconcile_seed_rolls_back_a_partial_spoolman_write(tmp_path):
+    """A later slot write that fails must not leave the earlier claim behind."""
+
+    class FailSecondSlotWrite(FakeSpoolman):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.slot_writes = 0
+
+        def __call__(self, method, path, body=None):
+            extra = (body or {}).get("extra") if isinstance(body, dict) else None
+            if method == "PATCH" and isinstance(extra, dict) and extra.get("ph_slot") is not None:
+                self.slot_writes += 1
+                if self.slot_writes == 2:
+                    raise OSError("spoolman refused the second slot write")
+            return super().__call__(method, path, body)
+
+    fake = FailSecondSlotWrite([_spool(11), _spool(12, "White", "PLA", "FFFFFF")])
+    state = _state_file(tmp_path, {
+        "1": _record(11),
+        "2": _record(12, "White PLA", "PLA", "white", "FFFFFF"),
+    })
+    result = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
+                                  pending_path=tmp_path / "pending.json")
+    assert result["assignments"] == {}
+    assert result.get("seeded") is not True
+    assert spool_sync.spool_ph_slot(fake.spools[11]) is None
+    assert spool_sync.spool_ph_slot(fake.spools[12]) is None
+    assert any("could not be written" in line for line in result["conflicts"])
+
+
 def test_reconcile_rebuilds_the_cache_from_spoolman(tmp_path):
     fake = FakeSpoolman([
         _spool(11, ph_slot="ad5x:1"),

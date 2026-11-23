@@ -150,8 +150,10 @@ def load_state(path: Path | None = None, *, printer_id: str | None = None) -> di
         from ..core import printer_state
         return printer_state.load(printer_id)
     state = json.loads(Path(path).read_text())
-    # Same load fix-up as printer_state.load: a slot with no color code gets
-    # one from its name; a valid hex is never touched.
+    # Same load fix-ups as printer_state.load: adopt the pre-#672 slot-map key,
+    # then backfill slot color codes (a slot with no color code gets one from
+    # its name; a valid hex is never touched).
+    filament_color.adopt_renamed_slots_key(state)
     filament_color.fill_missing_slot_hexes(state)
     return state
 
@@ -899,6 +901,29 @@ def _clear_ph_slot_claims(client: Client, printer_id: str, slot: int, *, keep_sp
     return cleared
 
 
+def forget_cached_slot(slot: int, *, state_path: Path | None = None,
+                       printer_id: str | None = None) -> None:
+    """Drop one slot from the local cache so a no-claim seed cannot write it back.
+
+    A screen unload clears the Spoolman claim and then reconciles. Seeding
+    runs whenever this printer has no claims left, so a stale cache entry
+    would be written straight back. Same reason ``unbind_slot`` removes the
+    cache record before anything can reconcile.
+    """
+    from ..core import printer_state
+    target = _hardware_path(state_path, printer_id)
+    with printer_state.hardware_lock(path=target):
+        try:
+            state = load_state(state_path, printer_id=printer_id)
+        except FileNotFoundError:
+            return
+        slots = state.get("filament_slots")
+        if not isinstance(slots, dict) or str(int(slot)) not in slots:
+            return
+        slots.pop(str(int(slot)), None)
+        save_state(state, state_path, printer_id=printer_id)
+
+
 # ---------------------------------------------------------------- slot binding
 
 def _slot_record(slot: int, spool: dict[str, Any], old: dict[str, Any] | None, note: str) -> dict[str, Any]:
@@ -1403,6 +1428,10 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
     except (OSError, ValueError):
         return []
     state = json.loads(json.dumps(raw))
+    # A record written before the #672 rename carries only ifs_slots;
+    # adopt it like both state loaders do, or legacy slots never
+    # backfill (P2-268). The save below then writes the current name.
+    filament_color.adopt_renamed_slots_key(state)
     slots = state.get("filament_slots") or {}
     pending = {str(key): rec for key, rec in slots.items() if isinstance(rec, dict) and rec.get("spoolman_id")
                and (not filament_color.normalize_hex(rec.get("hex"))
@@ -1822,9 +1851,16 @@ def _reconcile_seed(pid: str, result: dict[str, Any], *, client: Client,
     printer's cache seeds Spoolman; once a claim exists, the rebuild wins.
     A spool Spoolman no longer has, an archived one, or one another slot or
     printer already claims is named and left alone (never taken over).
+    A write that fails after another succeeded is rolled back: those
+    ``ph_slot`` claims are cleared, nothing is reported seeded, and no
+    assignments are returned, so the local cache is not treated as
+    reconciled. A skip (missing, archived, or already claimed) is not a
+    write failure and does not undo writes that succeeded.
     """
     assignments: dict[int, int] = {}
     records: dict[str, dict[str, Any]] = {}
+    written: list[int] = []
+    write_failed = False
     for key in sorted(old_slots, key=lambda k: int(k) if k.isdigit() else 0):
         rec = old_slots[key]
         sid = rec.get("spoolman_id")
@@ -1851,10 +1887,25 @@ def _reconcile_seed(pid: str, result: dict[str, Any], *, client: Client,
         if _set_ph_slot(client, int(sid), format_ph_slot(pid, slot)):
             assignments[slot] = int(sid)
             records[key] = rec
+            written.append(int(sid))
         else:
+            write_failed = True
             result["conflicts"].append(
                 f"Slot {slot}: spool #{sid} could not be written to Spoolman — try the sync again")
-    if assignments:
+    if write_failed and written:
+        # The next reconcile rebuilds from whatever claims stuck. Clear the
+        # ones this run wrote so a partial seed is not the printer's map.
+        for sid in written:
+            if not _set_ph_slot(client, sid, None):
+                result["conflicts"].append(
+                    f"Spool #{sid}: its slot claim from the partial seed could not be cleared "
+                    "— try the sync again")
+        assignments = {}
+        records = {}
+        result["conflicts"].append(
+            "A slot write failed after another had succeeded, so those claims were cleared "
+            "and nothing was seeded — try the sync again")
+    elif assignments:
         result["seeded"] = True
         result["changed"] = True
     result["_records"] = records

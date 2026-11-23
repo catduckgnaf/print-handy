@@ -818,7 +818,8 @@ def load(printer_id=None):
     # neutral default it says out loud), never overwriting a valid hex. The
     # next save persists it; the listener upgrades it from Spoolman or the
     # printer's own report when those answer.
-    from .filament_color import fill_missing_slot_hexes
+    from .filament_color import adopt_renamed_slots_key, fill_missing_slot_hexes
+    adopt_renamed_slots_key(state)
     fill_missing_slot_hexes(state)
     return state
 

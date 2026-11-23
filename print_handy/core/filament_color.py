@@ -421,6 +421,21 @@ def printer_slot_hexes(zmod_color: Any) -> dict[str, str]:
     return out
 
 
+def adopt_renamed_slots_key(state):
+    """Adopt a hardware record written before the #672 rename. Mutates ``state``.
+
+    Records used to name the loaded-spool map ``ifs_slots``; the same map is
+    ``filament_slots`` now, matching the renamed setting. Both state loaders
+    call this right after parsing, so an existing record keeps its loaded
+    spools and the next save writes only the current name. The current name
+    wins when a record somehow carries both.
+    """
+    if isinstance(state, dict) and "ifs_slots" in state:
+        legacy = state.pop("ifs_slots")
+        state.setdefault("filament_slots", legacy)
+    return state
+
+
 def fill_missing_slot_hexes(state: dict[str, Any], *,
                             spoolman_hexes: Mapping[Any, Any] | None = None,
                             printer_hexes: Mapping[Any, Any] | None = None) -> list[dict[str, Any]]:
