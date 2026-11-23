@@ -64,3 +64,27 @@ def test_source_archive_extract_keeps_member_when_reserve_preserved(tmp_path, mo
                         lambda _: type("Usage", (), {"free": free})())
     paths, _report = source_archive.extract(archive, tmp_path / "out")
     assert paths[0].read_bytes() == data
+
+
+def test_zip_download_refuses_a_zip_bomb_member(tmp_path, monkeypatch):
+    """The chosen member keeps a compression-ratio guard; free space alone is not enough."""
+    from print_handy.core import source_archive
+    _mock_zip_download(monkeypatch, tmp_path, b"\0" * (4 * 1024 * 1024))
+    folder = tmp_path / "extracted"
+    with pytest.raises(intake_resources.IntakeLimitExceeded, match="zip-bomb") as refused:
+        sources._fetch_chosen("https://example.invalid/download", folder, "part.stl", "test", exact=False)
+    assert f"{source_archive.MAX_RATIO}:1" in str(refused.value)
+    assert not (folder / "part.stl").exists()
+    assert not (folder / "part.stl.download").exists()
+
+
+def test_zip_download_disk_refusal_names_the_server_not_the_mesh(tmp_path, monkeypatch):
+    _mock_zip_download(monkeypatch, tmp_path, b"A" * 4096)
+    free = intake_resources.MIN_FREE_BYTES
+    monkeypatch.setattr(sources.shutil, "disk_usage",
+                        lambda _: type("Usage", (), {"free": free})())
+    with pytest.raises(intake_resources.IntakeLimitExceeded) as refused:
+        sources._fetch_chosen("https://example.invalid/download", tmp_path / "x", "part.stl",
+                              "test", exact=False)
+    assert "low on disk space" in str(refused.value)
+    assert "Simplify" not in str(refused.value)

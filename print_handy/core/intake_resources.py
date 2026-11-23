@@ -40,6 +40,40 @@ def _refuse(detail):
         'files in your modeling app, then upload again. Nothing was sliced or started.')
 
 
+def _refuse_disk(detail):
+    # The operator's volume is short of space; the model is not at fault, so the
+    # mesh-editing advice in _refuse does not apply. (#1833)
+    raise IntakeLimitExceeded(
+        f'Model intake refused: the server is low on disk space ({detail}). '
+        'Nothing was kept, sliced or started.')
+
+
+_ASCII_FACET = b'endfacet'
+
+
+def _stl_triangle_count(source, size, header):
+    """Triangle count used by the STL geometry guard, read in bounded memory.
+
+    A binary STL whose length matches its header count is trusted. Otherwise an
+    ASCII STL is counted by its ``endfacet`` tokens, stopping as soon as the
+    count passes MAX_TRIANGLES. A file with neither is sized as a binary STL
+    would be, so a large malformed file cannot bypass the guard. (#1833)
+    """
+    if len(header) == 84:
+        declared = struct.unpack('<I', header[80:84])[0]
+        if 84 + 50 * declared == size:
+            return declared
+    count = header.count(_ASCII_FACET)
+    tail = header[-(len(_ASCII_FACET) - 1):]
+    while count <= MAX_TRIANGLES and (chunk := source.read(CHUNK * 16)):
+        window = tail + chunk
+        count += window.count(_ASCII_FACET)
+        tail = window[-(len(_ASCII_FACET) - 1):]
+    if count:
+        return count
+    return max(0, size - 84) // 50
+
+
 def save_download(response, target):
     """Stream the response to disk with no byte-size cap; remove partial downloads.
 
@@ -54,9 +88,9 @@ def save_download(response, target):
             while chunk := response.read(CHUNK):
                 free = shutil.disk_usage(parent).free
                 if free < len(chunk) + MIN_FREE_BYTES:
-                    _refuse(
-                        f'not enough free disk space to keep this download '
-                        f'({MIN_FREE_BYTES // MIB} MiB must stay free)')
+                    _refuse_disk(
+                        f'{MIN_FREE_BYTES // MIB} MiB of free disk space must remain and '
+                        'this download would use it')
                 output.write(chunk)
     except BaseException:
         target.unlink(missing_ok=True)
@@ -78,14 +112,12 @@ def check_source(path):
     size = path.stat().st_size
     # No overall file-size refusal. Geometry budgets and zip-bomb guards apply below.
     if path.suffix.lower() == '.stl':
-        # Triangle count (when the file is a valid binary STL of matching size)
-        # is the geometry guard. Byte size alone never refuses. (#1824)
+        # Triangle count is the geometry guard for binary and ASCII STL alike.
+        # Byte size alone never refuses. (#1824, #1833)
         with path.open('rb') as source:
             header = source.read(84)
-            if len(header) == 84:
-                triangles = struct.unpack('<I', header[80:84])[0]
-                if 84 + 50 * triangles == size and triangles > MAX_TRIANGLES:
-                    _refuse(f'triangle count exceeds {MAX_TRIANGLES:,} limit')
+            if _stl_triangle_count(source, size, header) > MAX_TRIANGLES:
+                _refuse(f'triangle count exceeds {MAX_TRIANGLES:,} limit')
         return
     if path.suffix.lower() != '.3mf':
         return

@@ -218,9 +218,9 @@ def extract(path, dest) -> tuple[list[Path], dict]:
                                                  'header says; the archive is damaged or hostile.')
                         if shutil.disk_usage(target.parent).free < len(chunk) + MIN_FREE_BYTES:
                             raise IntakeLimitExceeded(
-                                'Model intake refused: archive extraction needs '
-                                f'{MIN_FREE_BYTES // MIB} MiB of free disk space reserved; '
-                                'nothing was sliced or started.')
+                                'Model intake refused: the server is low on disk space '
+                                f'(archive extraction needs {MIN_FREE_BYTES // MIB} MiB of free '
+                                'disk space reserved). Nothing was kept, sliced or started.')
                         digest.update(chunk)
                         sink.write(chunk)
             except BaseException:

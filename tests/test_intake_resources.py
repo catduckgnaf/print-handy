@@ -138,14 +138,60 @@ def test_large_stl_accepted(tmp_path):
     limits.check_source(source)
 
 
+def _ascii_stl(facets):
+    facet = (b'facet normal 0 0 1\n outer loop\n  vertex 0 0 0\n  vertex 1 0 0\n'
+             b'  vertex 0 1 0\n endloop\nendfacet\n')
+    return b'solid part\n' + facet * facets + b'endsolid part\n'
+
+
+def test_ascii_stl_triangle_budget(tmp_path):
+    """ASCII STL has no header count; its facets are counted instead (#1833)."""
+    from print_handy.core import geometry_layout
+    source = tmp_path / 'ascii.stl'
+    source.write_bytes(_ascii_stl(3))
+    with patch.object(limits, 'MAX_TRIANGLES', 2):
+        with pytest.raises(limits.IntakeLimitExceeded, match='triangle'):
+            limits.check_source(source)
+        # The production loader runs the same guard before reading the mesh.
+        with pytest.raises(limits.IntakeLimitExceeded, match='triangle'):
+            geometry_layout.load_parts(source)
+    with patch.object(limits, 'MAX_TRIANGLES', 3):
+        limits.check_source(source)
+
+
+def test_ascii_stl_facets_counted_across_read_chunks(tmp_path):
+    source = tmp_path / 'ascii-large.stl'
+    data = _ascii_stl(limits.CHUNK)  # several read chunks, tokens straddle boundaries
+    source.write_bytes(data)
+    with patch.object(limits, 'MAX_TRIANGLES', limits.CHUNK - 1):
+        with pytest.raises(limits.IntakeLimitExceeded, match='triangle'):
+            limits.check_source(source)
+    with patch.object(limits, 'MAX_TRIANGLES', limits.CHUNK):
+        limits.check_source(source)
+
+
+def test_malformed_stl_is_sized_as_binary(tmp_path):
+    """A file that is neither a size-matched binary STL nor ASCII cannot skip the guard."""
+    source = tmp_path / 'garbage.stl'
+    source.write_bytes(b'\0' * 80 + b'\x01\0\0\0' + b'\x07' * (50 * 5 + 3))
+    with patch.object(limits, 'MAX_TRIANGLES', 4):
+        with pytest.raises(limits.IntakeLimitExceeded, match='triangle'):
+            limits.check_source(source)
+    with patch.object(limits, 'MAX_TRIANGLES', 5):
+        limits.check_source(source)
+
+
 def test_download_stops_before_filling_the_disk(tmp_path):
     """A download that would leave the volume under MIN_FREE_BYTES is refused."""
     target = tmp_path / 'full.stl'
     usage = type('U', (), {'free': limits.MIN_FREE_BYTES})()
     with patch('print_handy.core.intake_resources.shutil.disk_usage', return_value=usage):
-        with pytest.raises(limits.IntakeLimitExceeded, match='free disk'):
+        with pytest.raises(limits.IntakeLimitExceeded, match='free disk') as refused:
             limits.save_download(io.BytesIO(b'x' * 4096), target)
     assert not target.exists()
+    # The operator's disk is short, not the model: no mesh-editing advice. (#1833)
+    assert 'Simplify' not in str(refused.value)
+    assert 'low on disk space' in str(refused.value)
 
 
 def test_non_archive_3mf_fails_cleanly(tmp_path):
