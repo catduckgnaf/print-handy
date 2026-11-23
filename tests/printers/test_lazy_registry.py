@@ -82,6 +82,13 @@ def test_unknown_vendor_and_resolve_key_errors_are_unchanged():
     assert printers.resolve_key("ad5x", vendor="flashforge") == "flashforge.ad5x"
 
 
+def test_bare_sv06_keeps_the_legacy_sovol_key():
+    assert printers.resolve_key("sv06") == "sovol.sv06"
+    assert printers.resolve_key("sv06", vendor="sovol") == "sovol.sv06"
+    assert printers.resolve_key("sv06", vendor="sovol_marlin") == "sovol_marlin.sv06"
+    assert printers.resolve_key("sovol_marlin.sv06") == "sovol_marlin.sv06"
+
+
 def test_tables_can_still_be_patched_by_tests(monkeypatch):
     model = printers.MODELS["klipper.generic"]
     monkeypatch.setitem(printers.MODELS, "klipper.test_only", model)

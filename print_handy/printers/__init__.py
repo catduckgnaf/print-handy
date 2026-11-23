@@ -212,6 +212,11 @@ def vendor_key(name):
     return VENDOR_ALIASES.get(name, name)
 
 
+# Bare printer names that resolved to one model before another vendor added the
+# same name (#638 added sovol_marlin.sv06 beside sovol.sv06).
+_LEGACY_BARE_NAMES = {"sv06": "sovol.sv06"}
+
+
 def resolve_key(model, vendor=None):
     """The registered "vendor.printer" key for a [printer] model value, with an optional [printer] vendor.
 
@@ -232,6 +237,10 @@ def resolve_key(model, vendor=None):
         key = f"{want_vendor}.{raw}"
     else:
         matches = [k for k, m in MODELS.items() if m.printer_key == raw]
+        if len(matches) > 1 and raw in _LEGACY_BARE_NAMES:
+            # A bare name that was unique before a later vendor reused it keeps
+            # resolving the way existing configs were written against.
+            matches = [_LEGACY_BARE_NAMES[raw]]
         if len(matches) > 1:
             raise ValueError(f"[printer] model {raw!r} exists for several vendors ({', '.join(matches)}); "
                              "set [printer] vendor or use the full vendor.printer key")
