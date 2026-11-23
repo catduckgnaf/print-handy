@@ -420,14 +420,19 @@ def _no_public_internet(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_detector_model_download(request, monkeypatch):
-    if request.module.__name__.rpartition(".")[2] == "test_local_vision":
-        return
     from print_handy.runtime import local_vision
 
-    def refuse(path):
-        raise local_vision.LocalVisionError("tests never download the detector model (#1844)")
+    if request.module.__name__.rpartition(".")[2] != "test_local_vision":
+        def refuse(path):
+            raise local_vision.LocalVisionError("tests never download the detector model (#1844)")
 
-    monkeypatch.setattr(local_vision, "_download_model", refuse)
+        monkeypatch.setattr(local_vision, "_download_model", refuse)
+    yield
+    # A background download this test started must finish while its fakes
+    # are still in place, not run on into the next test against the real
+    # network (this fixture tears down before monkeypatch undoes them).
+    for thread in list(local_vision._prefetching.values()):
+        thread.join(timeout=10)
 
 
 @pytest.fixture(autouse=True)
