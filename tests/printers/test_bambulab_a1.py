@@ -21,13 +21,16 @@ from pathlib import Path
 import pytest
 
 from print_handy import printers, settings
-from print_handy.core import delivery, model_job, orca_adapter, printer_state, slice_guard, spoolman_client
+from print_handy.core import delivery, orca_adapter, printer_state, slice_guard, spoolman_client
+from print_handy.jobs import common as jobs_common
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.bambulab import VENDOR, facts, guard, profiles
 from print_handy.printers.bambulab.a1 import MODEL, A1Adapter
 from print_handy.printers.bambulab.adapter import BambuAdapter, LiveUnsupported
 from print_handy.printers.base import MultiColorUnsupported
 
 from . import a1_fixture
+from tests.bound_names import setattr_bound
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "tests" / "pipeline" / "fixtures" / "printer_hardware.json"
@@ -894,7 +897,7 @@ def a1_current(monkeypatch):
     monkeypatch.setattr(printer_state, "load", state)
     monkeypatch.setattr(printer_state, "_get", get)
     monkeypatch.setattr(spoolman_client, "request", spoolman_request)
-    monkeypatch.setattr(model_job, "_mr", lambda *a, **k: (_ for _ in ()).throw(AssertionError("Moonraker contacted")))
+    setattr_bound(monkeypatch, jobs_common, "_mr", lambda *a, **k: (_ for _ in ()).throw(AssertionError("Moonraker contacted")))
     return contacted
 
 
@@ -915,7 +918,7 @@ def test_print_now_refuses_a_job_prepared_for_another_printer(a1_current, tmp_pa
     gcode.write_text(ad5x_gcode())
     (tmp_path / "JOB.json").write_text(json.dumps({"printer_model": AD5X, "gcode": str(gcode)}))
     with pytest.raises(SystemExit, match="prepared for flashforge.ad5x, but the configured printer model is bambulab.a1"):
-        model_job.print_now(tmp_path / "JOB.json")
+        launch_print_now.print_now(tmp_path / "JOB.json")
     assert a1_current == []
 
 

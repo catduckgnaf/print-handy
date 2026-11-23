@@ -51,7 +51,8 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
     copies, scale and brim_override are the slice_job arguments that take precedence over the job.
     """
     from .. import printers, settings
-    from . import model_job as mj, orca_adapter, printer_state, purge
+    from . import orca_adapter, printer_state, purge
+    from ..jobs import store as jobs_store
     from .nozzle import get_tuned_nozzle_profile
     if state is None:
         # Slicing passes the loaded hardware record. A binding compared before any record
@@ -65,7 +66,7 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
                      else printer_state.load())
         except FileNotFoundError:
             state = {'nozzle': {'diameter_mm': settings.current()['printer']['nozzle_diameter_mm']}}
-    adapter = mj._job_adapter(job)
+    adapter = jobs_store._job_adapter(job)
     # Mirrors slice_job/slice_model: the configured model slices from [orca] templates.
     templates = (Path(orca_adapter.TEMPLATES) if adapter.key == printers.current().key
                  else Path(adapter.templates_dir()))
@@ -103,7 +104,7 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
         # Where a ZMod printer's color-change purge goes decides whether the slice has a prime
         # tower and its flush volumes (#832), so a change of plan must not reuse an old slice.
         'purge': purge.resolve(job.get('printer_id'), state=state, adapter=adapter).recipe(),
-        'filament': {'decisions_sha256': mj.decisions_digest(decisions) if decisions else None,
+        'filament': {'decisions_sha256': jobs_store.decisions_digest(decisions) if decisions else None,
                      'selected_slot': (job.get('filament_selection') or {}).get('slot'),
                      'slots': {str(key): {field: (row or {}).get(field) for field in ('material', 'color', 'hex')}
                                for key, row in slots.items()},

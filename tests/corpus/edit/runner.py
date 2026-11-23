@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-from print_handy.core import edit_plan, model_job as mj
+from print_handy.core import edit_plan
 
 
 def resolve_plan(text, job, source=None):

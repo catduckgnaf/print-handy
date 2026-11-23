@@ -8,19 +8,13 @@ fuzzy target the chat lanes use against typed, misspelled, unrelated and
 long messages.
 """
 from __future__ import annotations
-
-import importlib.util
 import itertools
-import sys
 from difflib import SequenceMatcher
-from pathlib import Path
 
 import pytest
 
 from print_handy.core import fuzzy
 from print_handy.core.fuzzy_vocabulary import TYPO_FORMS
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------- frozen copy of the removed path
@@ -64,13 +58,8 @@ def old_fuzzy_score(query, target):
 # ---------------------------------------------------------------- inputs
 
 def _plugin():
-    name = "print_feedback_fuzzy_equivalence"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, ROOT / "plugins" / "print-feedback" / "__init__.py")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
-    return sys.modules[name]
+    from print_handy.bot.handlers import loaded_spools
+    return loaded_spools
 
 
 def _targets():

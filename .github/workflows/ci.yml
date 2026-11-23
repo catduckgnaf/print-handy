@@ -614,14 +614,14 @@ jobs:
               || echo "::warning title=Timing (reporting only)::repeat $i had a failed or errored flow"
           done
       - name: Time one Discord standalone-transport case (3 repeats, reporting only)
-        # Deep-dive expansion (#734 follow-up): the leg's timed cases all run the hermes
+        # Deep-dive expansion (#734 follow-up): the leg's timed cases all run the direct
         # transport, so the standalone Discord bot flow — the other Discord surface a user
         # waits on — was never timed against the real slicer. single-part is timed on the
-        # standalone transport and recorded like the hermes runs, but it is NOT part of the
+        # standalone transport and recorded like the direct runs, but it is NOT part of the
         # baseline comparison below: it has no recorded baseline yet, and the comparison
         # treats a baselineless case as a problem. Its proposed baseline is written with the
-        # hermes one so a reviewed baseline can be added once a few runs of data exist —
-        # the same staging the hermes leg went through before its baseline was recorded.
+        # direct one so a reviewed baseline can be added once a few runs of data exist —
+        # the same staging the direct runs went through before their baseline was recorded.
         run: |
           for i in 1 2 3; do
             xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport standalone --case single-part \
@@ -686,13 +686,14 @@ jobs:
       - name: pip-audit
         run: python -m pip_audit
 
-  standalone-no-hermes:
-    # #73: the standalone bot installs from the runtime dependencies alone (pip install .), loads every handler and imports no Hermes module.
+  standalone-wheel:
+    # #73: the standalone bot installs from the runtime dependencies alone (pip install .) and loads every handler.
     # The setup checks run against the installed wheel (#1196): from a directory outside the checkout, with
     # `python -I` (no cwd or PYTHONPATH on sys.path), after a guard step proves print_handy comes from the venv.
-    # A file missing from print_handy/ in the wheel therefore fails them. The root-level config/ and plugins/
-    # are not in the wheel (a source checkout or the image provides them), so the known-gap step reports that
-    # separately and the checks below lay those two folders beside the installed package, as a source install has them.
+    # A file missing from print_handy/ in the wheel therefore fails them, the command handlers
+    # (print_handy.bot.handlers) included. The root-level config/ is not in the wheel (a source checkout or the
+    # image provides it), so the known-gap step reports that separately and the checks below lay config/ beside
+    # the installed package, as a source install has it.
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
       image: python:3.12-slim-trixie
@@ -708,8 +709,8 @@ jobs:
       # wheel installed above: they prove the runtime dependencies and the standalone code path, not the
       # package a user gets from pip. This step runs from outside the checkout and so tests the installed
       # wheel. It fails today because the wheel ships only print_handy/: config/home.yaml (settings.ROOT
-      # is the parent of the package) and plugins/print-feedback (the command handlers, bot/router.py)
-      # are not packaged. Fix the packaging, then delete continue-on-error so this step blocks.
+      # is the parent of the package) is not packaged. Fix the packaging, then delete continue-on-error
+      # so this step blocks.
       - name: Installed wheel check from outside the checkout (known gap, not blocking)
         id: wheel-check
         continue-on-error: true
@@ -726,16 +727,15 @@ jobs:
       - name: Say plainly that the wheel check failed
         if: steps.wheel-check.outcome == 'failure'
         run: >-
-          echo "::warning title=standalone-no-hermes::The installed wheel cannot run the bot check by itself
-          (it lacks config/ and plugins/print-feedback at the package root). The checks below run the installed
-          package with those two folders laid beside it. Known gap, not a full pass."
-      - name: Lay config and plugins beside the installed wheel
+          echo "::warning title=standalone-wheel::The installed wheel cannot run the bot check by itself
+          (it lacks config/ at the package root). The checks below run the installed
+          package with that folder laid beside it. Known gap, not a full pass."
+      - name: Lay config beside the installed wheel
         run: |
           mkdir -p /tmp/outside && cd /tmp/outside
           root="$("/tmp/clean/bin/python" -I -c "import pathlib, print_handy; print(pathlib.Path(print_handy.__file__).resolve().parent.parent)")"
           case "$root" in /tmp/clean/*) ;; *) echo "print_handy is not the installed wheel: $root"; exit 1 ;; esac
           cp -r "$GITHUB_WORKSPACE/config" "$root/config"
-          mkdir -p "$root/plugins" && cp -r "$GITHUB_WORKSPACE/plugins/print-feedback" "$root/plugins/print-feedback"
           "/tmp/clean/bin/python" -I -c "import print_handy, sys; assert print_handy.__file__.startswith('/tmp/clean/'), print_handy.__file__; assert not any(p.startswith('$GITHUB_WORKSPACE') for p in sys.path), sys.path"
       - name: Standalone bot setup check
         env:

@@ -9,7 +9,9 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from print_handy import diagnostics
-from print_handy.core import model_job, orca_adapter
+from print_handy.core import orca_adapter
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import audit as jobs_audit
 from print_handy.core.painted_geometry import paint_census
 from print_handy.core.threemf_canonical import (
     UnsupportedThreeMFUnit, canonical_model_parts, canonicalize_3mf, intake_working_copy)
@@ -190,14 +192,14 @@ def test_inch_model_passes_the_fit_footprint_after_intake(tmp_path):
 def test_prefixed_core_model_is_audited_with_the_right_object_and_item_counts(tmp_path):
     raw = _package(tmp_path / 'raw.3mf', _g01())
     # The audit and the paint census read raw tag names, so they must tolerate the prefix on their own too.
-    report = model_job.audit(raw)
+    report = jobs_audit.audit(raw)
     assert (report['objects'], report['components'], report['build_items']) == (2, 1, 1)
     assert set(paint_census(raw)) == {'1'}
     working = _package(tmp_path / 'work.3mf', _g01())
     intake_working_copy(working)
-    report = model_job.audit(working)
+    report = jobs_audit.audit(working)
     assert (report['objects'], report['components'], report['build_items']) == (2, 1, 1)
     assert len(report['color_manifest']['parts']) == 1
-    assert report['color_manifest']['source_sha256'] == model_job.file_sha256(working)
+    assert report['color_manifest']['source_sha256'] == gcode_artifact.file_sha256(working)
     _, size = _extent(working)
     assert size == pytest.approx((32, 23, 8))

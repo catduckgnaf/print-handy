@@ -68,9 +68,12 @@ def test_debug_mode_reaches_the_handler_and_listener_loggers():
         root.setLevel(before)
 
 
-def test_python_dash_m_through_the_old_package_name_runs_the_real_module():
-    run = subprocess.run([sys.executable, "-W", "always", "-m", "print_handy.hermes.panic", "--help"],
+def test_python_dash_m_rejects_removed_module_name():
+    old = subprocess.run([sys.executable, "-W", "always", "-m", "print_handy.hermes.panic", "--help"],
                          cwd=ROOT, capture_output=True, text=True, timeout=120)
-    assert run.returncode == 0, run.stdout + run.stderr
-    assert "No-LLM printer panic controls" in run.stdout
-    assert "print_handy.runtime.panic" in run.stderr
+    assert old.returncode != 0
+    assert "No module named 'print_handy.hermes'" in old.stderr
+    current = subprocess.run([sys.executable, "-m", "print_handy.runtime.panic", "--help"],
+                             cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert current.returncode == 0, current.stdout + current.stderr
+    assert "No-LLM printer panic controls" in current.stdout

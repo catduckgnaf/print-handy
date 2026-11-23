@@ -1,7 +1,4 @@
 """The source audit: mesh topology, the mesh audit and the 3MF/STL audit a job records.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import logging
 

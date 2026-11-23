@@ -47,8 +47,8 @@ def test_typed_intake_refusals_are_classified_not_unknown(text, expected, stage)
 
 
 def test_zero_volume_corpus_refusal_is_classified():
-    from print_handy.core import model_job
-    post = failure_report.post(model_job.NoPrintableVolume('model has no printable volume (flat or zero-volume mesh)'),
+    from print_handy.jobs import slice as jobs_slice
+    post = failure_report.post(jobs_slice.NoPrintableVolume('model has no printable volume (flat or zero-volume mesh)'),
                                'intake', subsystem='intake', headline='Preparing that model stopped before it was ready.')
     assert 'Stage: parse.' in post and 'no solid volume' in post and 'solid, closed mesh' in post
 

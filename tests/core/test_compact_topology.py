@@ -1,7 +1,7 @@
 """Exact comparison against the established topology contract."""
 import random
 import pytest
-from print_handy.core.model_job import mesh_topology
+from print_handy.jobs.audit import mesh_topology
 from print_handy.core.compact_topology import mesh_topology_compact
 
 

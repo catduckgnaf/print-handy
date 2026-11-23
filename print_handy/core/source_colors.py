@@ -980,8 +980,8 @@ def _plate_membership(path, manifest):
     """
     parts = list(manifest.get('parts') or [])
     try:
-        from . import model_job as _mj
-        plates = _mj.plate_manifest(path)['plates']
+        from ..jobs import slice as jobs_slice
+        plates = jobs_slice.plate_manifest(path)['plates']
     except Exception:
         plates = None
     if plates:
@@ -1961,8 +1961,8 @@ def _append_filament_stats(path, manifest):
                                                   'usage_unknown_reason': USAGE_UNREADABLE}}
     if stats['total_g'] == 0:
         try:
-            from . import model_job as _mj
-            info_out = _mj.model_info_output(path)
+            from ..jobs import slice as jobs_slice
+            info_out = jobs_slice.model_info_output(path)
             vols = re.findall(r'volume\s*=\s*([0-9.]+)', info_out)
             if vols:
                 tot_cm3 = sum(float(v) for v in vols) / 1000.0

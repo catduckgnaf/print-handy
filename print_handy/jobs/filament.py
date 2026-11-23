@@ -1,7 +1,4 @@
 """Filament slot selection and the printer's filament telemetry.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 import logging
 import time

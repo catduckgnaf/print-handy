@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import color_geometry, edit_plan, model_job, slice_refusal, source_colors
+from print_handy.jobs import filament as jobs_filament
+from print_handy.launch import gates as launch_gates
 from print_handy.core.orca_adapter import _rotate, _yaw
 from print_handy.jobs import slice as jobs_slice
 
@@ -71,7 +73,7 @@ def _plaque(path):
 def _decisions(manifest):
     """The plaque prints in slot 1, the letters in slot 2."""
     state = json.loads(STATE.read_text())
-    sel = {s: model_job.resolve_filament_selection(state, dict(state['filament_slots'][s], slot=int(s)))
+    sel = {s: jobs_filament.resolve_filament_selection(state, dict(state['filament_slots'][s], slot=int(s)))
            for s in ('1', '2')}
     choices = {}
     for part in manifest['parts']:
@@ -141,7 +143,7 @@ def _relative_offset(geometry, manifest):
 ])
 def test_resized_or_turned_multicolor_plaque_slices_as_one_multicolor_bed(tmp_path, monkeypatch, fields):
     job_path, manifest, calls = _job(tmp_path, monkeypatch, **fields)
-    out = model_job.slice_job(job_path)
+    out = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     # One multicolor G-code: never a per-slot plate that prints the letters alone.
     assert isinstance(out, (str, Path)), f'split into plates: {out}'
@@ -163,7 +165,7 @@ def test_resized_or_turned_multicolor_plaque_slices_as_one_multicolor_bed(tmp_pa
                       for oid in ('1', '2')}
         authored = [min(p[a] for p in points['2']) - min(p[a] for p in points['1']) for a in range(3)]
     assert _relative_offset(geometry, manifest) == pytest.approx(authored, abs=1e-3)
-    model_job.require_current_artifact(saved, out)
+    launch_gates.require_current_artifact(saved, out)
 
 
 def test_whole_assembly_rotation_refuses_per_object_placement(tmp_path):
@@ -180,7 +182,7 @@ def test_a_fitted_assembly_that_cannot_stay_one_plate_says_so_plainly(tmp_path, 
     # 220 mm bed, and the split reason says so in plain words.
     job_path, manifest, calls = _job(tmp_path, monkeypatch, scale=2.9)
     job = json.loads(job_path.read_text())
-    with pytest.raises(model_job.ImplicitPlateSplit) as caught:
+    with pytest.raises(jobs_slice.ImplicitPlateSplit) as caught:
         jobs_slice.slice_multi_plate(job, job_path, Path(job['downloaded_file']), manifest,
                                      job['color_decisions'], json.loads(STATE.read_text()), None)
     assert calls == []  # measured before slicing; no slice was attempted

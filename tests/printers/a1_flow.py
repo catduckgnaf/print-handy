@@ -3,8 +3,8 @@
     PRINT_HANDY__PRINTER__MODEL=bambulab.a1 python3 -m tests.printers.a1_flow <workdir> \
         (--resources ORCA_RESOURCES | --fixture-resources DIR) [--fake-gcode FILE] [--stl FILE]
 
-Runs what the Discord intake runs after an approval: model_job.slice_job (slice, post-slice guards, offline
-verification, JOB.json binding), then delivery.bambu_handoff (the .gcode.3mf package), then model_job.print_now,
+Runs what the Discord intake runs after an approval: jobs.slice.slice_job (slice, post-slice guards, offline
+verification, JOB.json binding), then delivery.bambu_handoff (the .gcode.3mf package), then launch.print_now.print_now,
 which must refuse. Every network attempt is recorded and refused except the Spoolman spool lookup, answered
 locally. Nothing contacts a printer. With --fake-gcode, Orca is replaced by a copy of that file; without it the
 configured Orca command slices for real. The A1 templates are generated first into the configured profile:
@@ -35,8 +35,13 @@ def main(argv):
     fake = Path(argv[argv.index("--fake-gcode") + 1]) if "--fake-gcode" in argv else None
     stl = Path(argv[argv.index("--stl") + 1]) if "--stl" in argv else ROOT / "tests" / "slicer" / "fixtures" / "cube.stl"
     from print_handy import printers
-    from print_handy.core import delivery, model_job, orca_adapter, printer_state, slice_guard
+    from print_handy.core import delivery, orca_adapter, printer_state, slice_guard
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import slice as jobs_slice
+    from print_handy.jobs import store as jobs_store
+    from print_handy.launch import print_now as launch_print_now
     from print_handy.printers.bambulab import profiles
+    from tests import bound_names
 
     assert printers.current().key == "bambulab.a1", printers.current().key
     if "--fixture-resources" in argv:
@@ -62,7 +67,8 @@ def main(argv):
     urllib.request.urlopen = refuse
     printer_state.load = a1_state
     printer_state._get = spoolman
-    model_job._mr = refuse
+    for module in bound_names.binders(jobs_common, "_mr"):
+        module._mr = refuse
     if fake is not None:
         real_run = orca_adapter.subprocess.run
 
@@ -79,12 +85,12 @@ def main(argv):
     source = job_dir / "source" / stl.name
     shutil.copy(stl, source)
     job_path = job_dir / "JOB.json"
-    model_job.write_job(job_dir, {"downloaded_file": str(source), "audit": {"plates": 1}, "approvals": [],
+    jobs_store.write_job(job_dir, {"downloaded_file": str(source), "audit": {"plates": 1}, "approvals": [],
                                   "slug": "a1-flow"})
     result = {"model": printers.current().key, "connection": printers.current().connection,
               "profiles": identity["label"], "templates": str(printers.current().templates_dir())}
     try:
-        out = model_job.slice_job(job_path)
+        out = jobs_slice.slice_job(job_path)
         job = json.loads(job_path.read_text())
         result.update(sliced=str(out), printer_model=job.get("printer_model"), gcode_verified=job.get("gcode_verified"),
                       slice_guard=job["provenance"]["slice_guard"]["status"],
@@ -93,7 +99,7 @@ def main(argv):
         result["packages"] = [str(p) for p in packages]
         before = job_path.read_text()
         try:
-            model_job.print_now(job_path)
+            launch_print_now.print_now(job_path)
             result["print_now"] = "NOT REFUSED"
         except SystemExit as exc:
             result["print_now"] = str(exc)

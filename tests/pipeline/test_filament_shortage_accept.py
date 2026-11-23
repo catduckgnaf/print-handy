@@ -19,9 +19,14 @@ from unittest import mock
 import pytest
 
 from print_handy.core import material_accept, model_job, spoolman_client
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import filament as jobs_filament
+from print_handy.launch import gates as launch_gates
 from print_handy.launch import print_now
 
 from .test_launch_state import PRINTER, make_job, upload_ok, uploads
+from tests.bound_names import patch_bound
 
 
 def _two_slot_gcode(name):
@@ -68,21 +73,8 @@ def two_slot(tmp_path):
     st = {"moonraker_url": PRINTER, "spoolman_url": "http://spoolman.invalid",
           "filament_slots": json.loads(json.dumps(SLOTS))}
     with mock.patch.object(model_job.printers, "current", return_value=adapter), \
-         mock.patch.object(model_job, "START_CLAIMS", tmp_path / "claims.json"), \
-         mock.patch.object(model_job, "validate_saved_mesh_start"), \
-         mock.patch.object(model_job, "_mr", side_effect=fake_mr), \
-         mock.patch.object(model_job, "read_stock_detail", return_value={}), \
-         mock.patch.object(model_job, "read_stock_filament_slots_from_detail", return_value={2: True, 3: True}), \
-         mock.patch.object(model_job, "_sync_active_spool"), \
-         mock.patch.object(model_job, "_announce_print_name"), \
-         mock.patch.object(model_job, "_publish_job_card"), \
-         mock.patch.object(model_job, "_assign_print_number", return_value=None), \
-         mock.patch.object(model_job, "record_start", return_value="/vault/x.md"), \
-         mock.patch.object(model_job, "_wait_printing", return_value="standby"), \
-         mock.patch.object(model_job, "_preparation_evidence", return_value=False), \
-         mock.patch.object(print_now.printer_state, "spoolman_url",
-                           return_value="http://spoolman.invalid"), \
-         mock.patch.object(spoolman_client, "get_spool", side_effect=lambda sid, **k: SPOOLMAN.get(sid)), \
+         mock.patch.object(print_now, "START_CLAIMS", tmp_path / "claims.json"),          patch_bound(launch_gates, "validate_saved_mesh_start"),          patch_bound(jobs_common, "_mr", side_effect=fake_mr),          patch_bound(jobs_filament, "read_stock_detail", return_value={}),          patch_bound(jobs_filament, "read_stock_filament_slots_from_detail", return_value={2: True, 3: True}),          patch_bound(print_now, "_sync_active_spool"),          mock.patch.object(print_now, "_announce_print_name"),          mock.patch.object(print_now, "_publish_job_card"),          mock.patch.object(print_now, "_assign_print_number", return_value=None),          patch_bound(print_now, "record_start", return_value="/vault/x.md"),          mock.patch.object(print_now, "_wait_printing", return_value="standby"),          mock.patch.object(print_now, "_preparation_evidence", return_value=False),          mock.patch.object(print_now.printer_state, "spoolman_url",
+                           return_value="http://spoolman.invalid"),          mock.patch.object(spoolman_client, "get_spool", side_effect=lambda sid, **k: SPOOLMAN.get(sid)), \
          mock.patch.object(model_job.subprocess, "run", side_effect=upload_ok) as run:
         yield mock.Mock(scripts=scripts, run=run, st=st, root=tmp_path)
 
@@ -91,7 +83,7 @@ def _launch(m, name="giveaway"):
     jp, g = make_job(m.root, name)
     g.write_text(_two_slot_gcode(name))
     job = json.loads(jp.read_text())
-    return g, lambda: model_job.print_mapped_native(g, m.st, {"display_off": 0}, {"0": 2, "1": 3}, job, jp, 0, False)
+    return g, lambda: print_now.print_mapped_native(g, m.st, {"display_off": 0}, {"0": 2, "1": 3}, job, jp, 0, False)
 
 
 def test_two_slot_print_with_one_short_slot_asks_before_upload(two_slot):
@@ -119,7 +111,7 @@ def test_accepting_the_shortage_uploads_and_starts_once(two_slot, capsys):
     with pytest.raises(SystemExit) as out:
         launch()
     keys = [w["key"] for w in material_accept.pending(str(out.value.code))]
-    sha = model_job.file_sha256(g)
+    sha = gcode_artifact.file_sha256(g)
     with material_accept.accepting(keys, gcode_sha256=sha, expected_sha256=sha):
         launch()
     assert len(uploads(two_slot.run)) == 1 and len(two_slot.scripts) == 1

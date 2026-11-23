@@ -9,6 +9,7 @@ import pytest
 
 from print_handy.core import projects
 from print_handy.runtime import print_records
+from tests.bound_names import patch_bound
 
 
 @pytest.mark.parametrize("index,expected", [
@@ -272,6 +273,8 @@ def test_record_start_gives_every_plate_the_first_plates_project_number(tmp_path
     its records read 82B. The claim lives in the job's JOB.json."""
     from unittest import mock
     from print_handy.core import model_job
+    from print_handy.jobs import store as jobs_store
+    from print_handy.launch import print_now as launch_print_now
 
     job_dir = tmp_path / "archive" / "rack"
     job_dir.mkdir(parents=True)
@@ -292,15 +295,15 @@ def test_record_start_gives_every_plate_the_first_plates_project_number(tmp_path
     state = {"printer": "Test", "filament_slots": {},
              "spool": {"spoolman_id": None, "name": "PLA", "material": "PLA",
                        "diameter_mm": 1.75, "density": 1.24}}
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
-         mock.patch.object(model_job, "_job_record_for_gcode", return_value=(job, job_json)), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=job), \
+         patch_bound(jobs_store, "_job_record_for_gcode", return_value=(job, job_json)), \
          mock.patch.object(model_job.printer_state, "load", return_value=state), \
          mock.patch.object(model_job.printer_state, "summary", return_value="test printer"), \
          mock.patch.object(model_job.printers, "current",
                            return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
-         mock.patch.object(model_job, "CONTEXT", context_path):
-        model_job.record_start(str(plates[0]), started_at="2026-11-07T07:00:00Z", print_number=82)
-        model_job.record_start(str(plates[1]), started_at="2026-11-07T09:00:00Z", print_number=83)
+         patch_bound(jobs_store, "CONTEXT", context_path):
+        launch_print_now.record_start(str(plates[0]), started_at="2026-11-07T07:00:00Z", print_number=82)
+        launch_print_now.record_start(str(plates[1]), started_at="2026-11-07T09:00:00Z", print_number=83)
     jobs = json.loads(context_path.read_text())["jobs"]
     assert (jobs["center.gcode"]["print_number"], jobs["center.gcode"]["project_number"]) == (82, 82)
     assert (jobs["arm.gcode"]["print_number"], jobs["arm.gcode"]["project_number"]) == (83, 82)

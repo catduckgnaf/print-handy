@@ -24,7 +24,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from print_handy.core import filament_color, model_job  # noqa: E402
+from print_handy.core import filament_color  # noqa: E402
+from print_handy.gcode import bounds as gcode_bounds
 from print_handy.runtime import spool_sync  # noqa: E402
 
 TEXT = "G90\nG1 X10 Y20 Z0.2\nG1 X-5 Y30\nG0 Z5\n"
@@ -37,12 +38,12 @@ class _FakeRefusal(RuntimeError):
 
 def _fake_module(**overrides):
     module = types.SimpleNamespace()
-    module.API_VERSION = model_job._BOUNDS_NATIVE_API_VERSION
+    module.API_VERSION = gcode_bounds._BOUNDS_NATIVE_API_VERSION
     module.BoundsRefusal = _FakeRefusal
 
     def parse_bounds(text):
         try:
-            return model_job._gcode_motion_bounds_python(text)
+            return gcode_bounds._gcode_motion_bounds_python(text)
         except RuntimeError as exc:
             raise _FakeRefusal(str(exc))
 
@@ -56,15 +57,15 @@ def _install_fake(monkeypatch, fake):
 
     monkeypatch.setitem(sys.modules, "print_handy.core._bounds_native", fake)
     monkeypatch.setattr(core_pkg, "_bounds_native", fake, raising=False)
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
 
 
 @pytest.fixture(autouse=True)
 def _reset_native_state(monkeypatch):
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "auto")
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
     yield
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
 
 
 # ------------------------------------------------------- bounds dispatcher
@@ -87,12 +88,12 @@ def test_kills_b1_ascii_gate_removed_fake_native_never_sees_non_ascii(monkeypatc
 
     fake.parse_bounds = counting
     _install_fake(monkeypatch, fake)
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT  # verifies + caches the fake
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT  # verifies + caches the fake
     calls.clear()
     # Arabic-Indic digits: the Python parser reads X12; the native crate
     # implements only the ASCII subset and must never be handed this.
     text = "G1 X١٢ Y1 Z1\n"
-    assert model_job.gcode_motion_bounds(text) == {
+    assert gcode_bounds.gcode_motion_bounds(text) == {
         "x": (12.0, 12.0), "y": (1.0, 1.0), "z": (1.0, 1.0)}
     assert calls == [], "the ASCII gate must route non-ASCII input to the Python parser"
 
@@ -108,9 +109,9 @@ def test_kills_b2_setting_value_not_normalized(monkeypatch):
     monkeypatch.setitem(sys.modules, "print_handy.core._bounds_native", None)
     monkeypatch.delattr(core_pkg, "_bounds_native", raising=False)
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", " Native ")
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
     with pytest.raises(RuntimeError, match="native bounds parser required but unavailable"):
-        model_job.gcode_motion_bounds(TEXT)
+        gcode_bounds.gcode_motion_bounds(TEXT)
 
 
 def test_kills_b2_python_spelling_with_case_and_whitespace(monkeypatch):
@@ -120,12 +121,12 @@ def test_kills_b2_python_spelling_with_case_and_whitespace(monkeypatch):
 
     def counting(text):
         calls.append(text)
-        return model_job._gcode_motion_bounds_python(text)
+        return gcode_bounds._gcode_motion_bounds_python(text)
 
     fake.parse_bounds = counting
     _install_fake(monkeypatch, fake)
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", " PYTHON ")
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     assert calls == []
 
 
@@ -150,7 +151,7 @@ def test_kills_b3_and_b10_native_result_low_high_swapped_or_order_flipped(monkey
 
     fake.parse_bounds = disagreeing
     _install_fake(monkeypatch, fake)
-    assert model_job.gcode_motion_bounds(TEXT) == custom
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == custom
 
 
 def test_kills_b6_native_refusal_swallowed_into_the_python_fallback(monkeypatch):
@@ -173,7 +174,7 @@ def test_kills_b6_native_refusal_swallowed_into_the_python_fallback(monkeypatch)
     fake.parse_bounds = refusing
     _install_fake(monkeypatch, fake)
     with pytest.raises(RuntimeError, match="fake native refusal"):
-        model_job.gcode_motion_bounds(TEXT)
+        gcode_bounds.gcode_motion_bounds(TEXT)
 
 
 # ------------------------------------------------------- slot conversion

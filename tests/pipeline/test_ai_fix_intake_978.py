@@ -13,10 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import ai_fix, model_job, prepared_intake, slice_failure, support_clearance
+from print_handy.core import ai_fix, prepared_intake, slice_failure, support_clearance
+from print_handy.intake import questions as intake_questions
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from .helpers import external
 from .test_color_intake import state  # noqa: F401  (re-exported fixture state)
 from .test_intake_support_precheck import Adapter, env, run_flow, _warning_slice, _coverage_only_report  # noqa: F401
+from tests.bound_names import setattr_bound
 
 print_next = external("print_next")
 
@@ -46,7 +50,7 @@ def _coverage_sequence(monkeypatch):
 
 def test_support_gate_failure_offers_fix_and_the_fix_reslices_with_gates_rerun(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     calls = _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(
         plans=[{'kind': 'supports', 'enabled': True, 'type': 'tree'}], summary='use tree supports'))
@@ -82,7 +86,7 @@ def test_nonapprover_can_ask_for_a_fix_at_the_gate_but_the_waiver_stays_approver
     monkeypatch.setattr(prompts, 'mark_approval',
                         lambda cid: (marked.append(str(cid)), real_mark(cid))[1])
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
                                                    'type': 'tree'}]))
@@ -107,14 +111,14 @@ def test_decide_without_a_fix_keeps_the_waiver_question_approval_marked(env, mon
     monkeypatch.setattr(prompts, 'mark_approval',
                         lambda cid: (marked.append(str(cid)), real_mark(cid))[1])
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
                                                    'type': 'tree'}]))
     # Decide without a fix (1), then Print anyway (0) on the waiver question.
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1, 0], mid='gate-decide')
     waiver = [q for q in adapter.questions
-              if (q.get('choices') or []) == [prepared_intake.PRINT_ANYWAY_LABEL,
+              if (q.get('choices') or []) == [intake_questions.PRINT_ANYWAY_LABEL,
                                               print_next.CANCEL_LABEL]]
     assert len(waiver) == 1
     assert waiver[0]['clarify_id'] in marked
@@ -133,7 +137,7 @@ def test_unbuildable_geometry_fix_records_nothing_and_earns_no_acknowledgement(
     run: "...moves nothing on it), so nothing was changed), so nothing was
     changed." and the same Fix button again)."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'extend', 'mm': 5.0},
                                            summary='extend the underside'))
@@ -151,7 +155,7 @@ def test_unbuildable_geometry_fix_records_nothing_and_earns_no_acknowledgement(
     offers = [q for q in adapter.questions if ai_fix.FIX_LABEL in (q.get('choices') or [])]
     assert len(offers) == 1  # offered once, not re-posted after it failed
     regate = adapter.questions[-1]
-    assert regate['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert regate['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert ai_fix.FAILED_NOTE in regate['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert 'ai_fix' not in receipt and 'support_override' not in receipt
@@ -173,7 +177,7 @@ def test_yolo_never_auto_answers_a_fix_question():
     async def drive(adapter, choices):
         token = yolo.ACTIVE.set(True)
         try:
-            return await prepared_intake._ask(adapter, src, 'k', 'A question?', choices, 5)
+            return await intake_questions._ask(adapter, src, 'k', 'A question?', choices, 5)
         finally:
             yolo.ACTIVE.reset(token)
 
@@ -196,7 +200,7 @@ def test_yolo_never_auto_answers_a_fix_question():
 def test_ai_disabled_gate_has_no_fix_button_and_the_note_instead(env, monkeypatch):
     """No intake fix offer (#1373): the gate's own choices, and no AI-fix note."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     # heavy_ready is NOT patched: with the one endpoint blanked, no tier
     # is ready (#1731: tiers are model names over the [llm] endpoint).
@@ -205,7 +209,7 @@ def test_ai_disabled_gate_has_no_fix_button_and_the_note_instead(env, monkeypatc
     assert ai_fix.heavy_ready() is False
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert ai_fix.UNCONFIGURED_NOTE not in q['question'] and 'AI fix' not in q['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert 'ai_fix' not in receipt
@@ -219,7 +223,7 @@ def test_wrong_nozzle_slice_refusal_offers_fix_and_reslices_on_the_job_profile(
     fix re-slices the same job (its own printer profile -- the harness job
     is the AD5X-profile intake job) and the print can then start through
     the normal fresh start question."""
-    real_slice = model_job.slice_job
+    real_slice = jobs_slice.slice_job
     calls = []
 
     def fail_once(job_path, *args, **kwargs):
@@ -230,7 +234,7 @@ def test_wrong_nozzle_slice_refusal_offers_fix_and_reslices_on_the_job_profile(
                 'different bed; no tuned profile matches', kind='guard')
         return real_slice(job_path, *args, **kwargs)
 
-    monkeypatch.setattr(model_job, 'slice_job', fail_once)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fail_once)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'scale_percent', 'percent': 90.0}],
                                            summary='scale to fit the target bed'))
     # one color (2 on the #1473 offer), slot 1 (0), slice and print (0), Fix (0), Apply (0), start (0)
@@ -249,7 +253,7 @@ def test_wrong_nozzle_slice_refusal_offers_fix_and_reslices_on_the_job_profile(
 
 def test_profile_fix_at_the_gate_lands_in_edit_settings(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(profile={'wall_loops': 3},
                                            summary='thicker walls'))
@@ -264,7 +268,7 @@ def test_profile_fix_at_the_gate_lands_in_edit_settings(env, monkeypatch):
 
 def test_filament_map_fix_at_the_gate_re_resolves_the_choice(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(filament_map={1: 2},
                                            summary='filament 1 is loaded in slot 2'))
@@ -283,7 +287,7 @@ def test_filament_map_fix_at_the_gate_re_resolves_the_choice(env, monkeypatch):
 
 def _v12(monkeypatch):
     from .test_intake_support_precheck import V12_FIXTURE, _copy
-    monkeypatch.setattr(model_job, 'printables_download',
+    monkeypatch.setattr(jobs_sources, 'printables_download',
                         lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
@@ -326,7 +330,7 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0), then on the
     # re-graded gate: Decide without a fix (1), Print anyway (0)
     adapter, result, receipt = run_flow(env, [2, 0, 3, 0, 0, 1, 0])
-    gate = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in (q.get('choices') or [])]
+    gate = [q for q in adapter.questions if intake_questions.PRINT_ANYWAY_LABEL in (q.get('choices') or [])]
     assert len(gate) == 1 and 'under 1.0 mm' in gate[0]['question']
     assert receipt['status'] == 'STARTED'
     assert receipt['support_override']['via'] == 'print_anyway'
@@ -341,7 +345,7 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
 
 def test_gate_offers_no_fix_once_the_job_budget_is_spent(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
                                                    'type': 'tree'}]))
@@ -349,14 +353,14 @@ def test_gate_offers_no_fix_once_the_job_budget_is_spent(env, monkeypatch):
     # one color (2 on the #1473 offer), slot 1 (0), with supports (0), Cancel (1) at the gate
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     gate = adapter.questions[-1]
-    assert gate['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert gate['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert ai_fix.out_of_attempts_message() in gate['question']
     assert ai_fix.UNCONFIGURED_NOTE not in gate['question']  # AI is set up; the budget is spent
 
 
 def test_intake_fix_requests_are_counted_on_the_job_and_attributed(env, monkeypatch):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
                                                    'type': 'tree'}]))
@@ -410,7 +414,7 @@ def test_gate_offers_no_fix_button_on_a_multi_file_job(env, monkeypatch):
     a multi-file job draws no Fix button, the gate question carries the
     multi-file reason, and no AI call is made."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(
         plans=[{'kind': 'supports', 'enabled': True, 'type': 'tree'}], summary='use tree supports'))
@@ -420,7 +424,7 @@ def test_gate_offers_no_fix_button_on_a_multi_file_job(env, monkeypatch):
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     assert not any(ai_fix.FIX_LABEL in (q.get('choices') or []) for q in adapter.questions)
     gate = adapter.questions[-1]
-    assert gate['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert gate['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'built from 2 files' in gate['question']
     assert 'would drop the others' in gate['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
@@ -432,7 +436,7 @@ def test_a_failed_fix_is_recorded_on_the_job(env, monkeypatch):
     not offer the identical fix again (the within-intake withdrawal is
     pinned by the unbuildable-fix test above)."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'extend', 'mm': 5.0},
                                            summary='extend the underside'))
@@ -455,7 +459,7 @@ def test_intake_never_offers_the_ai_fix_even_with_ai_ready_1373(env, monkeypatch
     support gate still offers only Print anyway and Cancel, and says nothing
     about an AI fix."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     monkeypatch.setattr(ai_fix, 'heavy_ready', lambda cfg=None: True)
     monkeypatch.setattr(ai_fix, 'propose_fix', lambda *a, **k: pytest.fail('no AI call at intake'))
@@ -463,5 +467,5 @@ def test_intake_never_offers_the_ai_fix_even_with_ai_ready_1373(env, monkeypatch
     adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     assert not any(ai_fix.FIX_LABEL in (q.get('choices') or []) for q in adapter.questions)
     assert not any('AI fix' in (q.get('question') or '') for q in adapter.questions)
-    assert adapter.questions[-1]['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert adapter.questions[-1]['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'ai_fix_attempts' not in json.loads(Path(receipt['job_json']).read_text())

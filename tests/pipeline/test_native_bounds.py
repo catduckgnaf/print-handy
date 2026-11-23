@@ -29,7 +29,7 @@ import types
 
 import pytest
 
-from print_handy.core import model_job
+from print_handy.gcode import bounds as gcode_bounds
 from tests.pipeline.native_bounds_corpus import CASES, EXPECTED
 
 assert len(CASES) == len(EXPECTED) == 162
@@ -52,16 +52,16 @@ def _native_module():
 @pytest.fixture(autouse=True)
 def _reset_native_state(monkeypatch):
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "auto")
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
     yield
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
 
 
 # ------------------------------------------------------------ corpus: Python
 
 @pytest.mark.parametrize("text,expected", list(zip(CASES, EXPECTED)), ids=range(len(CASES)))
 def test_python_parser_matches_the_frozen_corpus(text, expected):
-    assert _outcome(model_job._gcode_motion_bounds_python, text) == expected
+    assert _outcome(gcode_bounds._gcode_motion_bounds_python, text) == expected
 
 
 # ------------------------------------------------------------ corpus: native
@@ -80,14 +80,14 @@ def test_native_module_reports_the_expected_api_version():
     module = _native_module()
     if module is None:
         pytest.skip("native bounds extension not built")
-    assert module.API_VERSION == model_job._BOUNDS_NATIVE_API_VERSION
+    assert module.API_VERSION == gcode_bounds._BOUNDS_NATIVE_API_VERSION
 
 
 # --------------------------------------------------------- corpus: dispatch
 
 @pytest.mark.parametrize("text,expected", list(zip(CASES, EXPECTED)), ids=range(len(CASES)))
 def test_dispatcher_matches_the_frozen_corpus(text, expected):
-    assert _outcome(model_job.gcode_motion_bounds, text) == expected
+    assert _outcome(gcode_bounds.gcode_motion_bounds, text) == expected
 
 
 # ------------------------------------------------------- Unicode (API level)
@@ -116,8 +116,8 @@ UNICODE_CASES = [
 @pytest.mark.parametrize("text,expected", UNICODE_CASES)
 def test_unicode_inputs_match_the_python_parser_at_the_api(text, expected):
     assert not text.isascii()
-    assert _outcome(model_job._gcode_motion_bounds_python, text) == expected
-    assert _outcome(model_job.gcode_motion_bounds, text) == expected
+    assert _outcome(gcode_bounds._gcode_motion_bounds_python, text) == expected
+    assert _outcome(gcode_bounds.gcode_motion_bounds, text) == expected
 
 
 def test_ascii_gate_never_sends_non_ascii_to_the_native_parser(monkeypatch):
@@ -132,9 +132,9 @@ def test_ascii_gate_never_sends_non_ascii_to_the_native_parser(monkeypatch):
         return real(text)
 
     monkeypatch.setattr(module, "parse_bounds", spy)
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
     text, _expected = UNICODE_CASES[0]
-    model_job.gcode_motion_bounds(text)
+    gcode_bounds.gcode_motion_bounds(text)
     # Only the ASCII self-check inputs reached the native parser; the
     # non-ASCII text itself never did.
     assert text not in calls
@@ -148,8 +148,8 @@ def test_dot_before_exponent_reads_the_python_way():
     # Rust's float parser needs the equal-valued "1.0e2" normalization.
     text = "G1 X1.e2 Y1 Z1\n"
     expected = ("ok", {"x": (100.0, 100.0), "y": (1.0, 1.0), "z": (1.0, 1.0)})
-    assert _outcome(model_job._gcode_motion_bounds_python, text) == expected
-    assert _outcome(model_job.gcode_motion_bounds, text) == expected
+    assert _outcome(gcode_bounds._gcode_motion_bounds_python, text) == expected
+    assert _outcome(gcode_bounds.gcode_motion_bounds, text) == expected
     module = _native_module()
     if module is not None:
         assert _outcome(module.parse_bounds, text) == expected
@@ -167,8 +167,8 @@ def _large_text(lines=120_000):
 def test_large_generated_file_agrees_on_both_paths():
     text = _large_text()
     expected = ("ok", {"x": (0.5, 209.5), "y": (0.25, 209.25), "z": (0.2, 0.4)})
-    assert _outcome(model_job._gcode_motion_bounds_python, text) == expected
-    assert _outcome(model_job.gcode_motion_bounds, text) == expected
+    assert _outcome(gcode_bounds._gcode_motion_bounds_python, text) == expected
+    assert _outcome(gcode_bounds.gcode_motion_bounds, text) == expected
     module = _native_module()
     if module is not None:
         assert _outcome(module.parse_bounds, text) == expected
@@ -182,12 +182,12 @@ class _FakeRefusal(RuntimeError):
 
 def _fake_module(**overrides):
     module = types.SimpleNamespace()
-    module.API_VERSION = model_job._BOUNDS_NATIVE_API_VERSION
+    module.API_VERSION = gcode_bounds._BOUNDS_NATIVE_API_VERSION
     module.BoundsRefusal = _FakeRefusal
 
     def parse_bounds(text):
         try:
-            return model_job._gcode_motion_bounds_python(text)
+            return gcode_bounds._gcode_motion_bounds_python(text)
         except RuntimeError as exc:
             raise _FakeRefusal(str(exc))
 
@@ -201,7 +201,7 @@ def _install_fake(monkeypatch, fake):
 
     monkeypatch.setitem(sys.modules, "print_handy.core._bounds_native", fake)
     monkeypatch.setattr(core_pkg, "_bounds_native", fake, raising=False)
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
 
 
 TEXT = "G90\nG1 X10 Y20 Z0.2\nG1 X-5 Y30\nG0 Z5\n"
@@ -219,7 +219,7 @@ def test_dispatcher_uses_a_verified_fake_native_module(monkeypatch):
 
     fake.parse_bounds = counting
     _install_fake(monkeypatch, fake)
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     assert TEXT in calls
 
 
@@ -243,8 +243,8 @@ def test_dispatcher_uses_the_native_module_when_required(monkeypatch):
 
     monkeypatch.setattr(module, "parse_bounds", counting)
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "native")
-    model_job._reset_native_bounds_cache()
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    gcode_bounds._reset_native_bounds_cache()
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     assert TEXT in calls
 
 
@@ -255,23 +255,23 @@ def test_missing_module_falls_back(monkeypatch):
     # A previously imported real module also lives as an attribute of
     # the package, which `from . import ...` would find first.
     monkeypatch.delattr(core_pkg, "_bounds_native", raising=False)
-    model_job._reset_native_bounds_cache()
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    gcode_bounds._reset_native_bounds_cache()
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
 
 
 def test_version_mismatch_falls_back(monkeypatch):
     _install_fake(monkeypatch, _fake_module(API_VERSION=999))
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
 
 
 def test_self_check_failure_falls_back(monkeypatch):
     def wrong_bounds(text):
         if text == TEXT:
-            return model_job._gcode_motion_bounds_python(text)
+            return gcode_bounds._gcode_motion_bounds_python(text)
         return {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)}
 
     _install_fake(monkeypatch, _fake_module(parse_bounds=wrong_bounds))
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
 
 
 def test_a_native_build_with_the_old_tokenizer_is_never_used(monkeypatch):
@@ -284,8 +284,8 @@ def test_a_native_build_with_the_old_tokenizer_is_never_used(monkeypatch):
 
     _install_fake(monkeypatch, _fake_module(parse_bounds=old_tokenizer))
     text = "G90\nG1 X10 Y1 Z1\nG91;rel\nG1 X100\nG1 X100\nG1 X100\n"
-    assert model_job.gcode_motion_bounds(text)["x"] == (10.0, 310.0)
-    assert model_job._native_bounds_broken
+    assert gcode_bounds.gcode_motion_bounds(text)["x"] == (10.0, 310.0)
+    assert gcode_bounds._native_bounds_broken
 
 
 def test_mid_parse_internal_error_falls_back_and_sticks(monkeypatch):
@@ -303,12 +303,12 @@ def test_mid_parse_internal_error_falls_back_and_sticks(monkeypatch):
     _install_fake(monkeypatch, fake)
     # First call verifies the module and parses through it; only then
     # does the failure start, so this is a genuine mid-parse error.
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     state["armed"] = True
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     calls_after_failure = state["calls"]
     # The native path is disabled for the rest of the process.
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     assert state["calls"] == calls_after_failure
 
 
@@ -326,10 +326,10 @@ def test_refusal_propagates_from_the_native_path(monkeypatch):
     fake.parse_bounds = refusing
     _install_fake(monkeypatch, fake)
     with pytest.raises(RuntimeError, match="arc motion is unsupported"):
-        model_job.gcode_motion_bounds("G90\nG2 X1 Y3\n")
+        gcode_bounds.gcode_motion_bounds("G90\nG2 X1 Y3\n")
     # The refusal came from the verified native path, not from a fallback.
     assert "G90\nG2 X1 Y3\n" in calls
-    assert not model_job._native_bounds_broken
+    assert not gcode_bounds._native_bounds_broken
 
 
 def test_malformed_native_result_falls_back(monkeypatch):
@@ -343,7 +343,7 @@ def test_malformed_native_result_falls_back(monkeypatch):
 
     fake.parse_bounds = malformed
     _install_fake(monkeypatch, fake)
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
 
 
 def test_python_setting_never_touches_native(monkeypatch):
@@ -352,12 +352,12 @@ def test_python_setting_never_touches_native(monkeypatch):
 
     def counting(text):
         calls.append(text)
-        return model_job._gcode_motion_bounds_python(text)
+        return gcode_bounds._gcode_motion_bounds_python(text)
 
     fake.parse_bounds = counting
     _install_fake(monkeypatch, fake)
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "python")
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     assert calls == []
 
 
@@ -367,9 +367,9 @@ def test_native_setting_raises_when_the_module_is_missing(monkeypatch):
     monkeypatch.setitem(sys.modules, "print_handy.core._bounds_native", None)
     monkeypatch.delattr(core_pkg, "_bounds_native", raising=False)
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "native")
-    model_job._reset_native_bounds_cache()
+    gcode_bounds._reset_native_bounds_cache()
     with pytest.raises(RuntimeError, match="native bounds parser required but unavailable"):
-        model_job.gcode_motion_bounds(TEXT)
+        gcode_bounds.gcode_motion_bounds(TEXT)
 
 
 class _FakePanic(BaseException):
@@ -388,10 +388,10 @@ def test_a_native_panic_falls_back_and_sticks(monkeypatch):
 
     fake.parse_bounds = panicking
     _install_fake(monkeypatch, fake)
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     state["armed"] = True
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
-    assert model_job._native_bounds_broken
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds._native_bounds_broken
 
 
 def test_a_panic_during_the_self_check_falls_back(monkeypatch):
@@ -399,7 +399,7 @@ def test_a_panic_during_the_self_check_falls_back(monkeypatch):
         raise _FakePanic("rust panicked")
 
     _install_fake(monkeypatch, _fake_module(parse_bounds=panicking))
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
 
 
 def test_keyboard_interrupt_is_never_swallowed(monkeypatch):
@@ -414,10 +414,10 @@ def test_keyboard_interrupt_is_never_swallowed(monkeypatch):
 
     fake.parse_bounds = interrupted
     _install_fake(monkeypatch, fake)
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     state["armed"] = True
     with pytest.raises(KeyboardInterrupt):
-        model_job.gcode_motion_bounds(TEXT)
+        gcode_bounds.gcode_motion_bounds(TEXT)
 
 
 def test_native_setting_stays_strict_after_a_failure(monkeypatch):
@@ -433,10 +433,10 @@ def test_native_setting_stays_strict_after_a_failure(monkeypatch):
     fake.parse_bounds = flaky
     _install_fake(monkeypatch, fake)
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "native")
-    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert gcode_bounds.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     state["armed"] = True
     with pytest.raises(RuntimeError, match="native bounds parser required but failed"):
-        model_job.gcode_motion_bounds(TEXT)
+        gcode_bounds.gcode_motion_bounds(TEXT)
     # Later calls never degrade silently to the Python parser.
     with pytest.raises(RuntimeError, match="disabled after an earlier failure"):
-        model_job.gcode_motion_bounds(TEXT)
+        gcode_bounds.gcode_motion_bounds(TEXT)

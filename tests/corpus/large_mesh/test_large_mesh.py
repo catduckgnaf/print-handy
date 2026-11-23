@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import geometry_layout, mesh_fast, mesh_native, mesh_sidecar, model_parts, orca_adapter
-from print_handy.core import model_job as mj
+from print_handy.jobs import audit as jobs_audit
 from print_handy.jobs import prompts
 
 from . import fetch
@@ -133,7 +133,7 @@ def test_large_mesh_intake(name, tmp_path, monkeypatch):
         raise AssertionError('the audit parsed the combined XML instead of the recorded tables')
     with monkeypatch.context() as patch:
         patch.setattr(mesh_fast, '_parse_member', no_parse)
-        audit = timed('audit', lambda: mj.audit(target))
+        audit = timed('audit', lambda: jobs_audit.audit(target))
     # Download to the first question: the unit question, the combine and the
     # audit (#1790's acceptance target; recorded, budgeted by its stages).
     timings['front_total'] = round(sum(timings[s] for s in ('parts_unit_question', 'combine', 'audit')), 3)

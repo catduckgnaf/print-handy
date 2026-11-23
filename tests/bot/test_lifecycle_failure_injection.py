@@ -37,9 +37,13 @@ import pytest
 
 from print_handy.bot import rest
 from print_handy.core import model_job, spoolman_client
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import moonraker_discord_announcements as watcher
 from print_handy.runtime import moonraker_event_listener as listener
 from print_handy.runtime import print_records as records
+from tests.bound_names import patch_bound, setattr_bound
 
 DEAD = "http://127.0.0.1:9"  # nothing ever connects; the socket seam is faked below
 REFUSED = urllib.error.URLError(OSError(111, "Connection refused"))
@@ -85,13 +89,13 @@ def test_start_guard_refuses_a_busy_printer_and_uploads_nothing(tmp_path, monkey
     verified = []
     monkeypatch.setattr(model_job.printer_state, "load",
                         lambda printer_id=None: {"moonraker_url": "http://printer.test:7125"})
-    monkeypatch.setattr(model_job, "_mr",
+    setattr_bound(monkeypatch, jobs_common, "_mr",
                         lambda st, path, **kw: _moonraker_status("printing", "other.gcode"))
-    monkeypatch.setattr(model_job, "verify_gcode", lambda *a, **kw: verified.append(a))
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda *a, **kw: verified.append(a))
     monkeypatch.setattr(model_job.subprocess, "run",
                         lambda *a, **kw: uploads.append(a) or mock.Mock(returncode=0, stdout="{}", stderr=""))
     with pytest.raises(SystemExit) as caught:
-        model_job.print_now(str(_gcode(tmp_path)))
+        launch_print_now.print_now(str(_gcode(tmp_path)))
     assert str(caught.value) == \
         "REFUSED: printer is busy (printing, other.gcode). Nothing uploaded or started."
     assert uploads == [], "an upload was attempted after the guard refused"
@@ -107,9 +111,9 @@ def test_start_guard_refuses_when_moonraker_does_not_answer(tmp_path, monkeypatc
           "spool": {"spoolman_id": 10}}
     saved = []
     monkeypatch.setattr(model_job.printer_state, "save", lambda fresh: saved.append(fresh))
-    with mock.patch.object(model_job, "_mr", side_effect=REFUSED):
+    with patch_bound(jobs_common, "_mr", side_effect=REFUSED):
         with pytest.raises(RuntimeError) as caught:
-            model_job._sync_active_spool(st, 2)
+            launch_print_now._sync_active_spool(st, 2)
     assert "Moonraker active spool read failed" in str(caught.value)
     assert "nothing uploaded or started" in str(caught.value)
     assert saved == [], "a spool record was written for a refused launch"

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from print_handy.core import model_job
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import print_records as records
 
 
@@ -63,7 +63,7 @@ def test_build_record_data_normalizes_timestamps():
 
 
 def test_model_job_card_started_at_is_utc_z():
-    card = model_job.job_card({"title": "Test Card"}, "test.gcode")
+    card = launch_print_now.job_card({"title": "Test Card"}, "test.gcode")
     assert "started_at" in card
     assert card["started_at"].endswith("Z")
     assert records.normalize_utc(card["started_at"]) == card["started_at"]

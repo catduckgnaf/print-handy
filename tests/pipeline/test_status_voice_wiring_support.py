@@ -6,7 +6,7 @@ notice byte-identical.
 """
 import pytest
 
-from print_handy.core import model_job
+from print_handy.jobs import sources as jobs_sources
 from .test_intake_support_precheck import V12_FIXTURE, _copy, env, run_flow  # noqa: F401  (pytest fixture)
 from .test_status_voice_wiring import seed
 
@@ -20,7 +20,7 @@ REORIENTED = ('Reoriented: laid the largest face flat. The support question will
 @pytest.mark.parametrize('speak', [True, False])
 def test_reorient_notice_carries_the_rotation_quip(env, monkeypatch, speak):
     seed(monkeypatch, speak)
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
     # The fixture already lies flat (its lay-flat turn is identity, which
@@ -36,7 +36,7 @@ def test_reorient_notice_carries_the_rotation_quip(env, monkeypatch, speak):
 @pytest.mark.parametrize('speak', [True, False])
 def test_extend_underside_notice_carries_the_mesh_repair_quip(env, monkeypatch, speak):
     seed(monkeypatch, speak)
-    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(jobs_sources, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
     adapter, _result, _receipt = run_flow(env, [2, 0, 0, 2])

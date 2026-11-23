@@ -31,8 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "print_handy"
 NATIVE = re.compile(r"_bounds_native[^/]*\.(?:so|pyd|dylib)$")
 # Files the build needs beside the package: metadata, the MANIFEST includes, the plugin handlers.
-BUILD_FILES = ("pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "NOTICE",
-               "plugins/print-feedback/__init__.py")
+BUILD_FILES = ("pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "NOTICE")
 _BUILD = ("import sys\nfrom setuptools import build_meta as backend\n"
           "print(backend.build_sdist(sys.argv[1]) if sys.argv[2] == 'sdist' else backend.build_wheel(sys.argv[1]))\n")
 
@@ -107,8 +106,10 @@ def test_the_sdist_manifest_carries_the_same_data_files_as_the_wheel(artifacts):
     sdist_data = {n for n in artifacts["sdist"] if n.startswith(PACKAGE + "/") and _is_data(n)}
     assert sorted(artifacts["wheel"] - sdist_data) == [], "in package-data but not MANIFEST.in"
     assert sorted(sdist_data - artifacts["wheel"]) == [], "in MANIFEST.in but not package-data"
-    # The command handlers live outside the package and ride in the sdist by name (#1146).
-    assert "plugins/print-feedback/__init__.py" in artifacts["sdist"]
+    # The chat handlers ship inside the package (#1323), not as a plugin file.
+    assert "print_handy/bot/handlers/__init__.py" in artifacts["sdist"]
+    assert "print_handy/bot/handlers/model_link.py" in artifacts["sdist"]
+    assert "plugins/print-feedback/__init__.py" not in artifacts["sdist"]
 
 
 def test_a_wheel_built_from_the_sdist_loses_no_data_file(artifacts):

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from .compact_geometry import CompactTriangles, IndexedTriangles, transform_vertices_array
 from .mesh_fast import archive_tables, bounds_and_volume, compact_points
-from .model_job import mesh_topology
+from ..jobs.audit import mesh_topology
 from .orca_adapter import _hull, _printed_faces, _prusa_printed_ranges, read_stl_triangles, transform_mirrors
 from .painted_geometry import paint_census
 from .source_colors import cutter_ids, inventory as color_inventory, prusa_volume_layout

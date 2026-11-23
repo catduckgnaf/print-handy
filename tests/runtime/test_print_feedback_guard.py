@@ -4,17 +4,12 @@
 loop guard and the Discord clarify cap — were deleted with the Hermes
 host that ran them.)
 """
-import importlib.util
 from pathlib import Path
 from unittest import mock
 
 from print_handy.runtime import _config  # noqa: F401  (kept: handler tests read config helpers)
 
-SPEC = importlib.util.spec_from_file_location(
-    "print_feedback_guard", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-assert SPEC is not None and SPEC.loader is not None
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def test_reboot_dispatch_requires_safe_job_and_controller_states(monkeypatch):

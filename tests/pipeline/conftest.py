@@ -11,6 +11,7 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import printer_state
+from tests.bound_names import setattr_bound
 
 REAL_SLICER = "PRINT_HANDY_REAL_SLICER"
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -96,14 +97,17 @@ def _no_leftover_background_slice():
 @pytest.fixture(autouse=True)
 def _scratch_state(tmp_path, monkeypatch):
     """Job archives, claims and context sidecars default to a temp dir, never the home profile."""
-    from print_handy.core import model_job
+    from print_handy.gcode import bounds as gcode_bounds
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import store as jobs_store
+    from print_handy.launch import print_now as launch_print_now
     root = tmp_path / "pipeline-state"
     root.mkdir()
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(root / "launch-state.db"))
-    monkeypatch.setattr(model_job, "ARCHIVE", root / "archive")
-    monkeypatch.setattr(model_job, "START_CLAIMS", root / "claims.json")
-    monkeypatch.setattr(model_job, "CONTEXT", root / "context.json")
-    monkeypatch.setattr(model_job, "BOUNDS_CACHE", root / "bounds-cache")
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", root / "archive")
+    monkeypatch.setattr(launch_print_now, "START_CLAIMS", root / "claims.json")
+    setattr_bound(monkeypatch, jobs_store, "CONTEXT", root / "context.json")
+    monkeypatch.setattr(gcode_bounds, "BOUNDS_CACHE", root / "bounds-cache")
 
 
 @pytest.fixture(scope="package", autouse=True)

@@ -25,8 +25,14 @@ from unittest import mock
 
 from print_handy import printers
 from print_handy.core import model_job as mj
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import prompts as jobs_prompts
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import store as jobs_store
 from print_handy.core import source_colors as sc
 from tests.core.test_plate_usage import write_source, two_plate_source
+from tests.bound_names import patch_bound
 
 
 def _slot(n, color, spool):
@@ -52,27 +58,27 @@ class FallbackSlotTests(unittest.TestCase):
     """Which slot the fallback names, from the hardware record print start uses."""
 
     def test_active_slot_wins_when_it_is_loaded(self):
-        self.assertEqual(mj.filament_fallback_slot({**STATE, 'active_slot': 3}, 4),
+        self.assertEqual(jobs_slice.filament_fallback_slot({**STATE, 'active_slot': 3}, 4),
                          (3, "slot 3, the printer's active slot"))
 
     def test_first_loaded_slot_when_no_active_slot(self):
         state = {**STATE, 'filament_slots': {'2': _slot(2, 'black', 11), '4': _slot(4, 'blue', 13)}}
-        self.assertEqual(mj.filament_fallback_slot(state, 4),
+        self.assertEqual(jobs_slice.filament_fallback_slot(state, 4),
                          (2, "slot 2, the printer's first loaded slot"))
 
     def test_active_slot_that_is_not_loaded_is_not_used(self):
         state = {**STATE, 'active_slot': 3,
                  'filament_slots': {'2': _slot(2, 'black', 11), '4': _slot(4, 'blue', 13)}}
-        self.assertEqual(mj.filament_fallback_slot(state, 4)[0], 2)
+        self.assertEqual(jobs_slice.filament_fallback_slot(state, 4)[0], 2)
 
     def test_slot_past_the_limit_is_never_the_fallback(self):
         state = {**STATE, 'active_slot': 6,
                  'filament_slots': {'6': _slot(6, 'x', 1), '3': _slot(3, 'red', 12)}}
-        self.assertEqual(mj.filament_fallback_slot(state, 4)[0], 3)
+        self.assertEqual(jobs_slice.filament_fallback_slot(state, 4)[0], 3)
 
     def test_no_loaded_slot_information_uses_slot_1_and_says_so(self):
         state = {'filament_slots': {}, 'spool': {}}
-        slot, phrase = mj.filament_fallback_slot(state, 4)
+        slot, phrase = jobs_slice.filament_fallback_slot(state, 4)
         self.assertEqual(slot, 1)
         self.assertIn('no loaded-slot information', phrase)
 
@@ -99,14 +105,14 @@ class FallbackRuleTests(unittest.TestCase):
     def test_no_condition_returns_the_decisions_unchanged(self):
         decisions = self._decisions({self._key(n): _sel(i + 1)
                                      for i, n in enumerate(('Base', 'Lid', 'Knob'))})
-        self.assertEqual(mj.filament_fallbacks(self.manifest, decisions, ['1', '2'], STATE, 4),
+        self.assertEqual(jobs_slice.filament_fallbacks(self.manifest, decisions, ['1', '2'], STATE, 4),
                          (decisions, []))
 
     def test_unmapped_part_takes_the_base_part_slot(self):
         # Plate 1 holds Base (filament 1) and Lid (filament 2); Lid has no
         # slot: it prints from the slot chosen for Base, the plate's first part.
         decisions = self._decisions({self._key('Base'): _sel(3)})
-        effective, warnings = mj.filament_fallbacks(self.manifest, decisions, ['1'], STATE, 4)
+        effective, warnings = jobs_slice.filament_fallbacks(self.manifest, decisions, ['1'], STATE, 4)
         self.assertEqual(effective['choices'][self._key('Lid')]['slot'], 3)
         self.assertEqual(warnings, ['plate 1: source filament 2 is used but has no slot chosen '
                                     '(part Lid); it prints from slot 3, the slot chosen for part Base'])
@@ -116,7 +122,7 @@ class FallbackRuleTests(unittest.TestCase):
 
     def test_unmapped_part_with_no_part_slot_on_the_plate_takes_the_fallback_slot(self):
         decisions = self._decisions({self._key('Base'): _sel(1), self._key('Lid'): _sel(2)})
-        effective, warnings = mj.filament_fallbacks(self.manifest, decisions, ['2'],
+        effective, warnings = jobs_slice.filament_fallbacks(self.manifest, decisions, ['2'],
                                                     {**STATE, 'active_slot': 4}, 4)
         self.assertEqual(effective['choices'][self._key('Knob')]['slot'], 4)
         self.assertEqual(warnings, ['plate 2: source filament 3 is used but has no slot chosen '
@@ -130,42 +136,42 @@ class FallbackRuleTests(unittest.TestCase):
         decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
                      'mode': 'per_part', 'choices': {'part:' + parts['Knob']['key']: _sel(1),
                                                      'part:' + parts['Lid']['key']: _sel(4)}}
-        effective, warnings = mj.filament_fallbacks(manifest, decisions, ['1'], STATE, 4)
+        effective, warnings = jobs_slice.filament_fallbacks(manifest, decisions, ['1'], STATE, 4)
         self.assertEqual(effective['choices']['part:' + parts['Base']['key']]['slot'], 4)
         self.assertIn('slot 4, the slot already chosen for source filament 1', warnings[0])
 
     def test_slot_past_the_limit_takes_the_fallback_slot(self):
         decisions = self._decisions({self._key('Base'): _sel(1), self._key('Lid'): _sel(2),
                                      self._key('Knob'): {**_sel(4), 'slot': 7}})
-        effective, warnings = mj.filament_fallbacks(self.manifest, decisions, None, STATE, 4)
+        effective, warnings = jobs_slice.filament_fallbacks(self.manifest, decisions, None, STATE, 4)
         self.assertEqual(effective['choices'][self._key('Knob')], _sel(1))
         self.assertEqual(warnings, ['slot 7 is chosen for part Knob, but the printer has only 4 '
                                     "slots; it prints from slot 1, the printer's first loaded slot instead"])
 
     def test_choices_never_made_print_single_color_from_the_fallback_slot(self):
-        effective, warnings = mj.filament_fallbacks(self.manifest, None, None,
+        effective, warnings = jobs_slice.filament_fallbacks(self.manifest, None, None,
                                                     {**STATE, 'active_slot': 2}, 4, choices_needed=True)
         self.assertEqual(effective['mode'], 'single_color')
         self.assertEqual(effective['selection'], _sel(2))
         self.assertEqual(warnings, ['color choices were never made for this print; every part prints '
                                     "single-color from slot 2, the printer's active slot"])
         # Not needed (a source with nothing to choose): nothing is invented.
-        self.assertEqual(mj.filament_fallbacks(self.manifest, None, None, STATE, 4), (None, []))
+        self.assertEqual(jobs_slice.filament_fallbacks(self.manifest, None, None, STATE, 4), (None, []))
 
     def test_fallback_is_deterministic_and_identified_by_the_original(self):
         decisions = self._decisions({self._key('Base'): _sel(3)})
-        first = mj.filament_fallbacks(self.manifest, decisions, ['1'], STATE, 4)
-        again = mj.filament_fallbacks(self.manifest, first[0], ['1'], STATE, 4)
+        first = jobs_slice.filament_fallbacks(self.manifest, decisions, ['1'], STATE, 4)
+        again = jobs_slice.filament_fallbacks(self.manifest, first[0], ['1'], STATE, 4)
         self.assertEqual(first, again)
-        self.assertEqual(mj.decisions_digest(first[0]), mj.decisions_digest(decisions))
+        self.assertEqual(jobs_store.decisions_digest(first[0]), jobs_store.decisions_digest(decisions))
 
     def test_decisions_bound_to_another_source_are_never_repaired(self):
         decisions = self._decisions({self._key('Base'): {**_sel(1), 'slot': 9}})
         decisions['source_sha256'] = 'another'
-        self.assertEqual(mj.filament_fallbacks(self.manifest, decisions, ['1'], STATE, 4),
+        self.assertEqual(jobs_slice.filament_fallbacks(self.manifest, decisions, ['1'], STATE, 4),
                          (decisions, []))
         with self.assertRaisesRegex(RuntimeError, 'print readiness blocked: .*not bound'):
-            mj._enforce_filament_readiness({}, self.manifest, decisions, ['1'],
+            jobs_slice._enforce_filament_readiness({}, self.manifest, decisions, ['1'],
                                            slot_capacity=4, state=STATE)
 
 
@@ -190,26 +196,26 @@ class SliceJobFallbackTests(unittest.TestCase):
             captured.append((json.loads(json.dumps(job_)), decisions))
             return Path("result.gcode")
 
-        patches = (mock.patch.object(mj, "ARCHIVE", self.work),
+        patches = (patch_bound(jobs_common, "ARCHIVE", self.work),
                    mock.patch.object(mj.printer_state, "load", return_value=state),
                    mock.patch.object(mj.printer_state, "check", return_value=(True, [], {})),
-                   mock.patch.object(mj, "slice_multi_plate", side_effect=fake_slice))
+                   mock.patch.object(jobs_slice, "slice_multi_plate", side_effect=fake_slice))
         return job_path, captured, patches
 
     def _round(self, job_path, captured, patches):
         """Pending with nothing sliced, then accept, then one slice; returns the pending warnings."""
         with patches[0], patches[1], patches[2], patches[3]:
             with self.assertRaises(mj.FilamentWarningPending) as caught:
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             self.assertEqual(captured, [], 'nothing slices without an acceptance')
             saved = json.loads(job_path.read_text())
             self.assertEqual(saved['filament_warnings_pending']['warnings'], caught.exception.warnings)
-            mj.record_filament_warning_acknowledgement(job_path)
-            self.assertEqual(mj.slice_job(job_path), Path("result.gcode"))
+            jobs_prompts.record_filament_warning_acknowledgement(job_path)
+            self.assertEqual(jobs_slice.slice_job(job_path), Path("result.gcode"))
             self.assertEqual(len(captured), 1)
             # A reslice presents the warnings again: the acceptance was used.
             with self.assertRaises(mj.FilamentWarningPending) as again:
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             self.assertEqual(again.exception.warnings, caught.exception.warnings)
             self.assertEqual(len(captured), 1)
         return caught.exception
@@ -234,7 +240,7 @@ class SliceJobFallbackTests(unittest.TestCase):
         self.assertEqual(sliced_job['filament_fallback']['warnings'], pending.warnings)
         # JOB.json keeps the operator's own decisions; the artifact binds to them.
         self.assertEqual(json.loads(job_path.read_text())['color_decisions'], decisions)
-        self.assertEqual(mj.decisions_digest(sliced), mj.decisions_digest(decisions))
+        self.assertEqual(jobs_store.decisions_digest(sliced), jobs_store.decisions_digest(decisions))
 
     def test_slot_past_what_the_printer_has_loaded(self):
         source = two_plate_source(self.work / "two.3mf")
@@ -273,7 +279,7 @@ class SliceJobFallbackTests(unittest.TestCase):
         self.assertNotIn('color_decisions', saved)
         self.assertEqual(saved['filament_selection'], _sel(1))
         with mock.patch.object(mj.printer_state, "load", return_value=STATE):
-            self.assertFalse(mj._recipe_changed(sliced_job, saved))
+            self.assertFalse(jobs_store._recipe_changed(sliced_job, saved))
 
     def test_ad5x_slot_past_4_falls_back_to_a_loaded_slot_and_passes_tool_verification(self):
         # The owner's printer: a stale choice names IFS slot 6 on the AD5X.
@@ -294,15 +300,15 @@ class SliceJobFallbackTests(unittest.TestCase):
         pending = self._round(job_path, captured, patches)
         self.assertIn("it prints from slot 4, the printer's active slot instead", pending.warnings[0])
         _, sliced = captured[0]
-        view = mj._per_part_view(manifest, sliced)
-        slots = sorted(set(mj._part_slots(view, manifest).values()))
+        view = jobs_slice._per_part_view(manifest, sliced)
+        slots = sorted(set(jobs_slice._part_slots(view, manifest).values()))
         self.assertEqual(slots, [1, 4])
         mapping = {str(tool): slot for tool, slot in enumerate(slots)}
         # The G-code selects one tool per mapped slot; print start's tool
         # verification accepts it because every tool maps to a loaded,
         # verified IFS slot the printer has.
         gcode = ''.join(f'T{tool}\nG1 X10 Y10\n' for tool in range(len(slots)))
-        tools = {str(t): mapping[str(t)] for t in sorted(mj._gcode_tools(gcode) | {0})}
+        tools = {str(t): mapping[str(t)] for t in sorted(gcode_verify._gcode_tools(gcode) | {0})}
         self.assertEqual(adapter.normalize_tool_mapping(tools, state), {'0': 1, '1': 4})
         # The operator's original slot would have failed that verification.
         with self.assertRaises(RuntimeError):
@@ -375,11 +381,11 @@ class MaterialRoundTests_1336(SliceJobFallbackTests):
                  'Accepting slices it for what slot 2 holds now')
         with patches[0], patches[1], patches[2], patches[3],                 mock.patch("print_handy.core.orca_adapter.slice_model", side_effect=AssertionError("must not slice")):
             with self.assertRaises(mj.FilamentWarningPending) as caught:
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             self.assertIn(drift, caught.exception.warnings)
-            mj.record_filament_warning_acknowledgement(job_path)
+            jobs_prompts.record_filament_warning_acknowledgement(job_path)
             try:
-                mj.slice_job(job_path)
+                jobs_slice.slice_job(job_path)
             except AssertionError as reached:  # the accepted run got as far as slicing
                 self.assertEqual(str(reached), "must not slice")
         saved = json.loads(job_path.read_text())
@@ -398,7 +404,7 @@ class MaterialRoundTests_1336(SliceJobFallbackTests):
         granted = []
         real = patches[3]
         patches = patches[:3] + (mock.patch.object(
-            mj, "slice_multi_plate",
+            jobs_slice, "slice_multi_plate",
             side_effect=lambda *a: (granted.append(material_accept.accepted('abrasive|Wood PLA|brass')),
                                     real.kwargs['side_effect'](*a))[1]),)
         pending = self._round(job_path, captured, patches)

@@ -1,7 +1,7 @@
 """Contract tests for the standalone and offline CI legs (.github/workflows/ci.yml).
 
-The standalone-no-hermes job (#73) proves the bot installs from
-the runtime dependencies alone (`pip install .`) and passes `bot check` with no Hermes module loaded.
+The standalone-wheel job (#73) proves the bot installs from
+the runtime dependencies alone (`pip install .`) and passes `bot check`.
 Discord was its only platform for a long time, but Telegram and Matrix
 (#164 stages 2-3) are standalone platforms too and stdlib-only by design:
 these tests pin a clean-venv `bot check` step for each of them, so a stray
@@ -39,7 +39,7 @@ def steps_by_name(job):
 
 class StandaloneWorkflowContract(unittest.TestCase):
     def test_job_builds_one_clean_venv_from_runtime_dependencies_only(self):
-        job = load_workflow()["jobs"]["standalone-no-hermes"]
+        job = load_workflow()["jobs"]["standalone-wheel"]
         runs = "\n".join(step.get("run", "") for step in job["steps"])
         self.assertIn('python -m venv "/tmp/clean"', runs)
         self.assertIn('"/tmp/clean/bin/python" -m pip install -c "$GITHUB_WORKSPACE/constraints.txt" .', runs)
@@ -47,30 +47,30 @@ class StandaloneWorkflowContract(unittest.TestCase):
 
     def test_installed_wheel_is_checked_from_outside_the_checkout_and_the_gap_is_labeled(self):
         """The other steps run from the checkout and so test the checkout. This one runs where the checkout's
-        print_handy cannot be imported. While the wheel lacks config/ and plugins/print-feedback it cannot
+        print_handy cannot be imported. While the wheel lacks config/ it cannot
         pass, so it is non-blocking and named a known gap; when packaging is fixed, drop continue-on-error
         (and this assertion) so it blocks."""
-        steps = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])
+        steps = steps_by_name(load_workflow()["jobs"]["standalone-wheel"])
         step = steps["Installed wheel check from outside the checkout (known gap, not blocking)"]
         self.assertEqual(step["continue-on-error"], "true")
         self.assertIn("cd /tmp/outside", step["run"])
         self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
         self.assertIn("'/tmp/clean/' in print_handy.__file__", step["run"])
-        names = [s.get("name") for s in load_workflow()["jobs"]["standalone-no-hermes"]["steps"]]
+        names = [s.get("name") for s in load_workflow()["jobs"]["standalone-wheel"]["steps"]]
         self.assertIn("Say plainly that the wheel check failed", names)
 
     def test_setup_checks_run_against_the_installed_wheel_not_the_checkout(self):
         """#1196: every platform check runs isolated (-I) from outside the checkout, after a step
         that proves print_handy resolves into the venv and the checkout is not on sys.path, so a
         file missing from the wheel's print_handy/ fails the job."""
-        job = load_workflow()["jobs"]["standalone-no-hermes"]
+        job = load_workflow()["jobs"]["standalone-wheel"]
         steps = steps_by_name(job)
-        layout = steps["Lay config and plugins beside the installed wheel"]["run"]
+        layout = steps["Lay config beside the installed wheel"]["run"]
         self.assertIn("case \"$root\" in /tmp/clean/*)", layout)
         self.assertIn("print_handy.__file__.startswith('/tmp/clean/')", layout)
         self.assertIn("$GITHUB_WORKSPACE", layout)
         names = [step.get("name") for step in job["steps"]]
-        self.assertLess(names.index("Lay config and plugins beside the installed wheel"),
+        self.assertLess(names.index("Lay config beside the installed wheel"),
                         names.index("Standalone bot setup check"))
         for name in ("Standalone bot setup check", "Standalone bot setup check (Telegram)",
                      "Standalone bot setup check (Matrix)"):
@@ -81,9 +81,11 @@ class StandaloneWorkflowContract(unittest.TestCase):
                 self.assertNotIn("continue-on-error", steps[name])
         runs = "\n".join(step.get("run", "") for step in job["steps"])
         self.assertNotIn('"/tmp/clean/bin/python" -m print_handy.bot', runs)
+        # The handlers ship in the wheel (print_handy.bot.handlers); nothing lays them beside it.
+        self.assertNotIn("plugins", layout)
 
     def test_bot_check_runs_for_discord(self):
-        step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[
+        step = steps_by_name(load_workflow()["jobs"]["standalone-wheel"])[
             "Standalone bot setup check"]
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__MODE"], "standalone")
         self.assertNotIn("PRINT_HANDY__BOT__PLATFORM", step["env"])
@@ -91,7 +93,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
         self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
 
     def test_bot_check_runs_for_telegram(self):
-        step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[
+        step = steps_by_name(load_workflow()["jobs"]["standalone-wheel"])[
             "Standalone bot setup check (Telegram)"]
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__MODE"], "standalone")
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__PLATFORM"], "telegram")
@@ -103,7 +105,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
         self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
 
     def test_bot_check_runs_for_matrix(self):
-        step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[
+        step = steps_by_name(load_workflow()["jobs"]["standalone-wheel"])[
             "Standalone bot setup check (Matrix)"]
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__MODE"], "standalone")
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__PLATFORM"], "matrix")

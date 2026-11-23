@@ -17,7 +17,6 @@ from unittest import mock
 import pytest
 
 from print_handy.bot import runtime
-from print_handy.bot.router import load_plugin
 from print_handy.core import prompts
 from print_handy.runtime import _config, print_next
 
@@ -117,7 +116,7 @@ def make_job(tmp_path, printer_id):
 
 def run_print_next(tmp_path, job_printer, chat_id=HOME):
     folder, plans, rows = make_job(tmp_path, job_printer)
-    plugin = load_plugin()
+    from tests.handler_namespace import plugin
     adapter = PickingAdapter()
     gateway = DedicatedGateway(adapter, {HOME: GARAGE, OTHER: WORKSHOP})
     started = []
@@ -162,7 +161,7 @@ def test_print_next_still_refuses_in_the_second_printers_channel(two_printer_cfg
 
 def run_print_again(tmp_path, job_printer, chat_id=HOME):
     folder, _plans, rows = make_job(tmp_path, job_printer)
-    plugin = load_plugin()
+    from tests.handler_namespace import plugin
     adapter = PickingAdapter()
     gateway = DedicatedGateway(adapter, {HOME: GARAGE, OTHER: WORKSHOP})
     target = {"job_json": str(folder / "JOB.json"), "gcode": rows[0]["gcode"], "title": "Ghost"}

@@ -13,11 +13,14 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.core import owned_worker, prepared_intake, support_clearance
+from print_handy.intake import questions as intake_questions
+from print_handy.intake import worker as intake_worker
 from .helpers import external
 from .test_color_intake import state
 from . import test_intake_support_precheck as _precheck
 from .test_intake_support_precheck import Adapter, _warning_slice, _coverage_only_report  # noqa: F401
 from .test_intake_support_unverified_968 import _in_process_heavy
+from tests.bound_names import setattr_bound
 
 env = _precheck.env  # re-exported pytest fixture
 print_next = external("print_next")
@@ -58,8 +61,8 @@ def _run_with_ticker(env, picks):
 
 def _setup(env, monkeypatch, verify):
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
-    from print_handy.core import model_job
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    from print_handy.jobs import slice as jobs_slice
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     monkeypatch.setattr(support_clearance, 'verify_coverage_by_plate', verify)
     _in_process_heavy(monkeypatch)
 
@@ -77,7 +80,7 @@ def test_slow_coverage_keeps_the_loop_responsive_and_the_gate_still_decides(env,
     assert max(gaps) < MAX_GAP_S, f'the loop stalled for {max(gaps):.2f}s while coverage ran'
     assert sum(gaps) > SLOW_S  # the slow worker really ran under the ticker
     assert receipt['status'] == status
-    gate_q = [q for q in adapter.questions if q['choices'] and prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
+    gate_q = [q for q in adapter.questions if q['choices'] and intake_questions.PRINT_ANYWAY_LABEL in q['choices']]
     assert bool(gate_q) is asked
     assert bool(env.starts) is (status == 'STARTED')
 
@@ -94,10 +97,10 @@ def test_coverage_worker_failure_is_unverified_and_asks_never_a_pass(env, monkey
         if func is support_clearance.verify_coverage_by_plate:
             raise boom
         return await asyncio.to_thread(func, *args, **kwargs)
-    monkeypatch.setattr(prepared_intake, '_heavy', heavy)
+    setattr_bound(monkeypatch, intake_worker, '_heavy', heavy)
     adapter, _res, receipt, _gaps = _run_with_ticker(env, [2, 0, 0, 1])
     q = adapter.questions[-1]
-    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert q['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
     assert 'could not run' in q['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
@@ -123,7 +126,7 @@ def test_ready_coverage_reuses_only_exact_checked_artifacts(env, monkeypatch, ch
     _setup(env, monkeypatch, verify)
     monkeypatch.setattr(support_clearance, 'source_extent', lambda _path: {
         'bounds': [0.0, 0.0, 30.0, 20.0], 'height': 10.0, 'part_count': 1})
-    monkeypatch.setattr(worker, '_heavy', prepared_intake._heavy)
+    monkeypatch.setattr(worker, '_heavy', worker._heavy)
     real_identity = coverage_reuse.coverage_identity
 
     async def heavy(func, *args, **kwargs):
@@ -140,13 +143,13 @@ def test_ready_coverage_reuses_only_exact_checked_artifacts(env, monkeypatch, ch
                 args = (gcodes, regions, inputs, plates)
         return await asyncio.to_thread(func, *args, **kwargs)
 
-    monkeypatch.setattr(prepared_intake, '_heavy', heavy)
+    setattr_bound(monkeypatch, worker, '_heavy', heavy)
     adapter, _res, receipt, _gaps = _run_with_ticker(env, [2, 0, 0, 1])
     ready = next(q['question'] for q in adapter.questions if q['question'].startswith('Ready to slice'))
     assert 'Slice and print with supports' in ready and 'Slice and print without supports' in ready
     assert ('couldn\'t verify' if change == 'unverified' else 'gaps found') in ready
     assert len(calls) == 1 + extra_scan
-    assert adapter.questions[-1]['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert adapter.questions[-1]['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert receipt['status'] == 'SLICED_NOT_STARTED' and not env.starts
     from pathlib import Path
     timing = Path(receipt['job_json']).with_name('TIMING.jsonl').read_text()
@@ -159,8 +162,8 @@ def test_coverage_steps_are_bounded_general_lane_worker_steps():
     for entry in (('support_clearance', 'verify_coverage_by_plate'), ('support_clearance', 'source_extent'),
                   ('coverage_reuse', 'check_for_preview'), ('coverage_reuse', 'coverage_identity')):
         assert entry in heavy_worker.ALLOWED
-        assert entry in prepared_intake._OFFLOAD
-        assert entry not in prepared_intake._SLICER_STEPS  # general lane (2 slots, 8 queued), never the slicer's
+        assert entry in intake_worker._OFFLOAD
+        assert entry not in intake_worker._SLICER_STEPS  # general lane (2 slots, 8 queued), never the slicer's
 
 
 def test_source_extent_matches_the_inline_computation():

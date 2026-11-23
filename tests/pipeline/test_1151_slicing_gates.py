@@ -14,16 +14,21 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, prepared_intake, support_clearance
+from print_handy.core import orca_adapter, prepared_intake, support_clearance
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.intake import questions as intake_questions
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from .test_intake_support_precheck import env, run_flow, _warning_slice, V12_FIXTURE, _copy  # noqa: F401
+from tests.bound_names import setattr_bound
 print_next = prepared_intake.print_next
 
 
 def _v12_warning_env(env, monkeypatch):
-    monkeypatch.setattr(model_job, 'printables_download',
+    monkeypatch.setattr(jobs_sources, 'printables_download',
                         lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', _warning_slice(env))
     # Coverage of the resliced artifact verifies cleanly, so the only gate
     # left for the new artifact is the low-clearance finding itself.
     monkeypatch.setattr(support_clearance, 'verify_coverage_by_plate',
@@ -41,7 +46,7 @@ def test_reslice_with_supports_requires_a_new_clearance_acknowledgement(env, mon
     gate_q = adapter.questions[-1]
     # The gate offers the deterministic low-gap repairs beside the waiver.
     assert gate_q['choices'] == ['Extend underside to plate', 'Flatten (sink) to plate',
-                                 prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+                                 intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'under 1.0 mm' in gate_q['question']
     assert receipt['status'] == 'STARTED'
     # The acknowledgement that starts the print is the fresh one, bound to
@@ -50,7 +55,7 @@ def test_reslice_with_supports_requires_a_new_clearance_acknowledgement(env, mon
     ack = job['clearance_acknowledgement']
     assert ack['acknowledged'] is True and ack['via'] == 'print_anyway'
     assert 'plate_1_supports.gcode' in job['gcode']
-    assert ack['gcode_sha256'] == model_job.file_sha256(job['gcode'])
+    assert ack['gcode_sha256'] == gcode_artifact.file_sha256(job['gcode'])
 
 
 def test_reslice_with_supports_cancel_at_the_reasked_gate_starts_nothing(env, monkeypatch):
@@ -61,7 +66,7 @@ def test_reslice_with_supports_cancel_at_the_reasked_gate_starts_nothing(env, mo
     # then Cancel at the re-asked gate question(1).
     adapter, result, receipt = run_flow(env, [2, 0, 5, 0, 3])
     gate_q = adapter.questions[-1]
-    assert gate_q['choices'][-2:] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert gate_q['choices'][-2:] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'under 1.0 mm' in gate_q['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert env.starts == []

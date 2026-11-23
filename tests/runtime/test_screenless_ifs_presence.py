@@ -12,7 +12,9 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
+from print_handy.jobs import filament as jobs_filament
 from print_handy.runtime import moonraker_event_listener as mel
+from tests.bound_names import patch_bound
 from print_handy.runtime import print_alert_buttons as pab
 from print_handy.runtime import print_control
 
@@ -54,7 +56,7 @@ class ScreenlessReadTests(ListenerCase):
     async def test_screenless_reads_zmod_color_and_never_the_stock_api(self):
         lis = self.listener()
         with mock.patch.object(print_control, "_call", return_value=zmod_status(1, (True, False, True, True))), \
-                mock.patch("print_handy.core.model_job.read_stock_detail",
+                patch_bound(jobs_filament, "read_stock_detail",
                            side_effect=AssertionError("stock /detail read in screenless mode")):
             detail, slots = await lis.read_slots()
         self.assertIsNone(detail)
@@ -65,8 +67,8 @@ class ScreenlessReadTests(ListenerCase):
         lis = self.listener()
         detail = {"status": "ready", "hasMatlStation": True}
         with mock.patch.object(print_control, "_call", return_value=zmod_status(0)), \
-                mock.patch("print_handy.core.model_job.read_stock_detail", return_value=detail) as read, \
-                mock.patch("print_handy.core.model_job.read_stock_filament_slots_from_detail", return_value={1: True}):
+                patch_bound(jobs_filament, "read_stock_detail", return_value=detail) as read, \
+                patch_bound(jobs_filament, "read_stock_filament_slots_from_detail", return_value={1: True}):
             self.assertEqual(await lis.read_slots(), (detail, {1: True}))
         read.assert_called_once()
 

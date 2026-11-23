@@ -6,12 +6,16 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import model_job  # noqa: E402
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import print_now as launch_print_now
 from print_handy.jobs import slice as jobs_slice  # noqa: E402
 from print_handy.core import plate_merge  # noqa: E402
-from print_handy.core import prepared_intake  # noqa: E402
+from print_handy.intake import fit_flow as intake_fit_flow
 from .helpers import external  # noqa: E402
 print_next = external("print_next")
 from print_handy.core import source_colors  # noqa: E402
+from tests.bound_names import setattr_bound
 
 def manifest(*names):
     return {'source_sha256': 'x' * 64, 'painted': False, 'filaments': [],
@@ -92,7 +96,7 @@ def _split_job(tmp_path):
 
 def test_split_plan_is_resolvable_by_print_next_and_states_reason(tmp_path):
     jp, job, m, gcodes = _split_job(tmp_path)
-    plan = prepared_intake.write_split_plan(jp, job, m, gcodes, 'intake-abc', plans_dir=tmp_path)
+    plan = intake_fit_flow.write_split_plan(jp, job, m, gcodes, 'intake-abc', plans_dir=tmp_path)
     assert plan['split_reason'] == 'the source says to print the stencils separately'
     assert [p['label'] for p in plan['parts']] == [
         'Stencil 1 (Square) - Staggered Tabs, Stencil 2 (Circle) - Staggered Tabs, '
@@ -107,7 +111,7 @@ def test_split_plan_is_resolvable_by_print_next_and_states_reason(tmp_path):
 
 def test_print_context_carries_multipart_plan_for_split_plate(tmp_path):
     jp, job, m, gcodes = _split_job(tmp_path)
-    prepared_intake.write_split_plan(jp, job, m, gcodes, 'intake-abc', plans_dir=tmp_path)
+    intake_fit_flow.write_split_plan(jp, job, m, gcodes, 'intake-abc', plans_dir=tmp_path)
     job = json.loads(jp.read_text())
     plan = job['multipart_plan']
     second = [p for p in plan['parts'] if Path(p['gcode_path']) == gcodes[1].resolve()][0]
@@ -123,12 +127,12 @@ def test_record_start_binds_plate_two_of_a_split_job_to_its_plan(tmp_path, monke
     print_records = external("print_records")
     jp, job, m, gcodes = _split_job(tmp_path)
     plans = tmp_path / 'Plans'
-    prepared_intake.write_split_plan(jp, job, m, gcodes, 'intake-abc', plans_dir=plans)
-    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path)
-    monkeypatch.setattr(model_job, 'CONTEXT', tmp_path / 'context.json')
+    intake_fit_flow.write_split_plan(jp, job, m, gcodes, 'intake-abc', plans_dir=plans)
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path)
+    setattr_bound(monkeypatch, jobs_store, 'CONTEXT', tmp_path / 'context.json')
     monkeypatch.setattr(print_records, 'PLANS_DIR', plans)
     monkeypatch.setattr(print_records, 'write_start_record', lambda ctx: str(tmp_path / 'start.md'))
-    model_job.record_start(gcodes[1], moonraker_name='slot2.gcode')
+    launch_print_now.record_start(gcodes[1], moonraker_name='slot2.gcode')
     ctx = json.loads((tmp_path / 'context.json').read_text())['jobs']['slot2.gcode']
     assert ctx['multipart_plan_id'] == 'intake-abc' and ctx['part_id'] == 'plate2'
     assert ctx['title'] == 'Post-it'

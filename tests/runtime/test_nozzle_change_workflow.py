@@ -7,8 +7,6 @@ hotend at the 250 °C loosen temperature. These tests use fakes only — no
 live printer is ever touched.
 """
 import asyncio
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
@@ -17,12 +15,7 @@ import pytest
 from print_handy.runtime import nozzle_change as nc
 from print_handy.runtime import print_control as pc
 
-SPEC = importlib.util.spec_from_file_location(
-    "print_feedback_nozzle_workflow",
-    Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-assert SPEC is not None and SPEC.loader is not None
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 HEAT_DETAIL = "Hotend is at 250 °C (target 250 °C). Remove the old nozzle now."
 

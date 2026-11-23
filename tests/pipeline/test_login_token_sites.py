@@ -20,10 +20,13 @@ from unittest import mock
 
 import pytest
 
-from print_handy.core import link_intake, model_job, prepared_intake, site_accounts
+from print_handy.core import link_intake, prepared_intake, site_accounts
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import sources as jobs_sources
 from print_handy.core.site_accounts import SiteLoginNeeded
 from .test_color_intake import state  # noqa: F401  (used by the e2e flow)
 from .test_prepared_intake import Adapter, env  # noqa: F401  (env is the shared harness fixture)
+from tests.bound_names import setattr_bound
 
 THANGS_URL = 'https://thangs.com/designer/Hobson318/3d-model/Nimitz%20Benchy-29424'
 NEXPRINT_URL = 'https://www.nexprint.com/en/models/1970971018767982592'
@@ -88,7 +91,7 @@ def fake_file_download(monkeypatch, payload=b'solid fake\n', seen=None):
             seen.append(url)
         Path(target).parent.mkdir(parents=True, exist_ok=True)
         Path(target).write_bytes(payload)
-    monkeypatch.setattr(model_job, 'download', fake)
+    monkeypatch.setattr(jobs_sources, 'download', fake)
 
 
 @pytest.fixture
@@ -145,27 +148,27 @@ def test_model_link_rejects_non_model_pages(text):
 
 
 def test_ids_from_urls():
-    assert model_job.thangs_id(THANGS_URL) == '29424'
-    assert model_job.thangs_id('https://thangs.com/m/29424') == '29424'
-    assert model_job.nexprint_id(NEXPRINT_URL) == '1970971018767982592'
-    assert model_job.makeronline_id(MAKERONLINE_URL) == '1000'
-    for parse, url in ((model_job.thangs_id, 'https://thangs.com/designer/x'),
-                       (model_job.nexprint_id, 'https://www.nexprint.com/en/'),
-                       (model_job.makeronline_id, 'https://makeronline.com/en/')):
+    assert jobs_sources.thangs_id(THANGS_URL) == '29424'
+    assert jobs_sources.thangs_id('https://thangs.com/m/29424') == '29424'
+    assert jobs_sources.nexprint_id(NEXPRINT_URL) == '1970971018767982592'
+    assert jobs_sources.makeronline_id(MAKERONLINE_URL) == '1000'
+    for parse, url in ((jobs_sources.thangs_id, 'https://thangs.com/designer/x'),
+                       (jobs_sources.nexprint_id, 'https://www.nexprint.com/en/'),
+                       (jobs_sources.makeronline_id, 'https://makeronline.com/en/')):
         with pytest.raises(ValueError):
             parse(url)
 
 
 def test_registry_routes_the_new_sites(monkeypatch):
-    monkeypatch.setattr(model_job, '_web_api', web_fake({
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({
         '/api/models/v2/29424': (200, THANGS_MODEL),
         'model-base-info/get': (200, NEXPRINT_MODEL),
         '/api/mold/detail': (200, MAKERONLINE_MODEL)}))
-    assert model_job.inventory_for_url(THANGS_URL)['site'] == 'thangs'
-    assert model_job.inventory_for_url(NEXPRINT_URL)['site'] == 'nexprint'
-    assert model_job.inventory_for_url(MAKERONLINE_URL)['site'] == 'makeronline'
+    assert jobs_sources.inventory_for_url(THANGS_URL)['site'] == 'thangs'
+    assert jobs_sources.inventory_for_url(NEXPRINT_URL)['site'] == 'nexprint'
+    assert jobs_sources.inventory_for_url(MAKERONLINE_URL)['site'] == 'makeronline'
     with pytest.raises(ValueError) as caught:
-        model_job.inventory_for_url('https://unknown.example/model/1')
+        jobs_sources.inventory_for_url('https://unknown.example/model/1')
     assert 'Thangs, Nexprint, MakerOnline' in str(caught.value)
 
 
@@ -197,7 +200,7 @@ def test_missing_token_names_the_variable_too(home, monkeypatch):
 
 def test_crealitycloud_reads_its_variable(home, monkeypatch):
     monkeypatch.setenv('CREALITYCLOUD_TOKEN', '1234567890:cc-env')
-    assert model_job.crealitycloud_token() == '1234567890:cc-env'
+    assert jobs_sources.crealitycloud_token() == '1234567890:cc-env'
 
 
 def test_empty_token_refuses(home):
@@ -271,9 +274,9 @@ def test_source_report_shows_every_site_and_never_a_credential(home, monkeypatch
 
 def test_thangs_inventory(monkeypatch):
     calls = []
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         web_fake({'/api/models/v2/29424': (200, THANGS_MODEL)}, calls))
-    job = model_job.thangs_inventory(THANGS_URL)
+    job = jobs_sources.thangs_inventory(THANGS_URL)
     assert job['site'] == 'thangs' and job['model_id'] == '29424'
     assert job['title'] == 'Nimitz Benchy' and job['slug'] == 'nimitz-benchy'
     assert job['license'] == 'license file on the model page'
@@ -286,14 +289,14 @@ def test_thangs_inventory(monkeypatch):
 
 def test_thangs_inventory_marks_membership_models(monkeypatch):
     gated = dict(THANGS_MODEL, visibility='paid', plans=[120])
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/api/models/v2/': (200, gated)}))
-    assert model_job.thangs_inventory(THANGS_URL)['paid'] is True
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/api/models/v2/': (200, gated)}))
+    assert jobs_sources.thangs_inventory(THANGS_URL)['paid'] is True
 
 
 def test_thangs_missing_model_answers_403(monkeypatch):
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/api/models/v2/': (403, 'Forbidden')}))
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/api/models/v2/': (403, 'Forbidden')}))
     with pytest.raises(RuntimeError, match='not found'):
-        model_job.thangs_inventory('https://thangs.com/m/999999999')
+        jobs_sources.thangs_inventory('https://thangs.com/m/999999999')
 
 
 def _thangs_job():
@@ -309,13 +312,13 @@ def test_thangs_download_unpacks_the_chosen_part(home, monkeypatch, tmp_path):
         archive.writestr('Nimitz Benchy/Nimitz_Class_Benchy_Launching_Benchies.stl', b'solid a\n')
         archive.writestr('Nimitz Benchy/Nimitz_Class_Benchy_V1.3.stl', b'solid b\n')
     calls = []
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/download-url': (200, {
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/download-url': (200, {
         'fileName': 'Nimitz Benchy', 'modelSource': '0', 'downloadId': '27975304',
         'signedUrl': 'https://storage.googleapis.com/thangs-thumbnails/production/'
                      'f543a901/Nimitz_Benchy.zip?X-Goog-Signature=1'})}, calls))
     fake_file_download(monkeypatch, buffer.getvalue())
     job = _thangs_job()
-    dest = model_job.thangs_download(job, job['sources'][1], tmp_path/'src')
+    dest = jobs_sources.thangs_download(job, job['sources'][1], tmp_path/'src')
     assert dest.name == 'Nimitz_Class_Benchy_V1.3.stl'
     assert dest.read_bytes() == b'solid b\n'
     assert calls[0]['url'].endswith('/api/v2/models/29424/download-url')
@@ -324,13 +327,13 @@ def test_thangs_download_unpacks_the_chosen_part(home, monkeypatch, tmp_path):
 
 def test_thangs_single_file_answer_must_match_when_several_parts(home, monkeypatch, tmp_path):
     save_token('thangs')
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/download-url': (200, {
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/download-url': (200, {
         'signedUrl': 'https://storage.example/f/Nimitz_Class_Benchy_Launching_Benchies.stl?sig=1'})}))
     fake_file_download(monkeypatch)
     job = _thangs_job()
     with pytest.raises(RuntimeError, match='not the chosen'):
-        model_job.thangs_download(job, job['sources'][1], tmp_path/'src')
-    dest = model_job.thangs_download(job, job['sources'][0], tmp_path/'src2')
+        jobs_sources.thangs_download(job, job['sources'][1], tmp_path/'src')
+    dest = jobs_sources.thangs_download(job, job['sources'][0], tmp_path/'src2')
     assert dest.name == 'Nimitz_Class_Benchy_Launching_Benchies.stl'
 
 
@@ -343,23 +346,23 @@ def test_thangs_single_file_answer_must_match_when_several_parts(home, monkeypat
 ])
 def test_thangs_download_refusals(home, monkeypatch, tmp_path, answer, expected):
     save_token('thangs')
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/download-url': answer}))
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/download-url': answer}))
     job = _thangs_job()
     if expected is SiteLoginNeeded:
         with pytest.raises(SiteLoginNeeded) as caught:
-            model_job.thangs_download(job, job['sources'][0], tmp_path/'src')
+            jobs_sources.thangs_download(job, job['sources'][0], tmp_path/'src')
         assert caught.value.reason == 'refused'
     else:
         with pytest.raises(RuntimeError, match=expected):
-            model_job.thangs_download(job, job['sources'][0], tmp_path/'src')
+            jobs_sources.thangs_download(job, job['sources'][0], tmp_path/'src')
 
 
 def test_thangs_paid_403_names_membership(home, monkeypatch, tmp_path):
     save_token('thangs')
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/download-url': (403, 'Forbidden')}))
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/download-url': (403, 'Forbidden')}))
     job = dict(_thangs_job(), paid=True)
     with pytest.raises(RuntimeError, match='membership or a purchase') as caught:
-        model_job.thangs_download(job, job['sources'][0], tmp_path/'src')
+        jobs_sources.thangs_download(job, job['sources'][0], tmp_path/'src')
     assert not isinstance(caught.value, SiteLoginNeeded)
 
 
@@ -367,9 +370,9 @@ def test_thangs_paid_403_names_membership(home, monkeypatch, tmp_path):
 
 def test_nexprint_inventory(monkeypatch):
     calls = []
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         web_fake({'model-base-info/get': (200, NEXPRINT_MODEL)}, calls))
-    job = model_job.nexprint_inventory(NEXPRINT_URL)
+    job = jobs_sources.nexprint_inventory(NEXPRINT_URL)
     assert job['site'] == 'nexprint' and job['model_id'] == '1970971018767982592'
     assert job['license'] == 'Nexprint Standard License'
     # The duplicate setting row is dropped, the .step file filtered, and the
@@ -384,15 +387,15 @@ def test_nexprint_inventory(monkeypatch):
 
 def test_nexprint_unknown_id_is_not_found(monkeypatch):
     empty = {'code': 0, 'data': {'id': None, 'modelName': None}}
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'model-base-info/get': (200, empty)}))
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'model-base-info/get': (200, empty)}))
     with pytest.raises(RuntimeError, match='not found'):
-        model_job.nexprint_inventory('https://www.nexprint.com/en/models/1')
+        jobs_sources.nexprint_inventory('https://www.nexprint.com/en/models/1')
 
 
 def test_nexprint_download(home, monkeypatch, tmp_path):
     save_token('nexprint')
     calls = []
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'presigned-download-url': (200, {
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'presigned-download-url': (200, {
         'code': 0, 'data': {'from': None, 'fileInfoList': [{
             'fileId': '2564408', 'type': 5,
             'resultUrl': 'https://nexprint.oss-eu-central-1.aliyuncs.com/models/1/a.3mf?X-Amz-Signature=1'}]}})},
@@ -402,7 +405,7 @@ def test_nexprint_download(home, monkeypatch, tmp_path):
     job = {'site': 'nexprint', 'model_id': '1970971018767982592'}
     source = {'id': '2564408', 'name': 'articulated dragon.3mf', 'file_type': '5',
               'biz_id': '1972478188160307200'}
-    dest = model_job.nexprint_download(job, source, tmp_path/'src')
+    dest = jobs_sources.nexprint_download(job, source, tmp_path/'src')
     assert dest.name == 'articulated dragon.3mf'
     assert seen == ['https://nexprint.oss-eu-central-1.aliyuncs.com/models/1/a.3mf?X-Amz-Signature=1']
     assert calls[0]['method'] == 'POST'
@@ -420,25 +423,25 @@ def test_nexprint_download(home, monkeypatch, tmp_path):
 ])
 def test_nexprint_download_refusals(home, monkeypatch, tmp_path, envelope, expected):
     save_token('nexprint')
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         web_fake({'presigned-download-url': (200, envelope)}))
     job = {'site': 'nexprint', 'model_id': '1'}
     source = {'id': '2', 'name': 'a.stl'}
     if expected is SiteLoginNeeded:
         with pytest.raises(SiteLoginNeeded):
-            model_job.nexprint_download(job, source, tmp_path/'src')
+            jobs_sources.nexprint_download(job, source, tmp_path/'src')
     else:
         with pytest.raises(RuntimeError, match=expected):
-            model_job.nexprint_download(job, source, tmp_path/'src')
+            jobs_sources.nexprint_download(job, source, tmp_path/'src')
 
 
 # ---------------------------------------------------------------- MakerOnline
 
 def test_makeronline_inventory(monkeypatch):
     calls = []
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         web_fake({'/api/mold/detail?id=1000': (200, MAKERONLINE_MODEL)}, calls))
-    job = model_job.makeronline_inventory(MAKERONLINE_URL)
+    job = jobs_sources.makeronline_inventory(MAKERONLINE_URL)
     assert job['site'] == 'makeronline' and job['model_id'] == '1000'
     assert job['license'] == 'CC BY-NC-ND'
     assert job['sources'] == [{'id': '8816dd006d34f1a02a6ac631dd95bb2d',
@@ -449,26 +452,26 @@ def test_makeronline_inventory(monkeypatch):
 
 def test_makeronline_missing_model(monkeypatch):
     gone = {'code': 1, 'message': 'The model does not exist or has been deleted.', 'data': {}}
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/api/mold/detail': (200, gone)}))
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/api/mold/detail': (200, gone)}))
     with pytest.raises(RuntimeError, match='does not exist'):
-        model_job.makeronline_inventory(MAKERONLINE_URL)
+        jobs_sources.makeronline_inventory(MAKERONLINE_URL)
 
 
 def test_makeronline_is_inventory_only(monkeypatch, tmp_path):
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         web_fake({'/api/mold/detail': (200, MAKERONLINE_MODEL)}))
-    job = model_job.makeronline_inventory(MAKERONLINE_URL)
-    assert job['download_gap'] == model_job.MAKERONLINE_DOWNLOAD_GAP
-    monkeypatch.setattr(model_job, '_web_api',
+    job = jobs_sources.makeronline_inventory(MAKERONLINE_URL)
+    assert job['download_gap'] == jobs_sources.MAKERONLINE_DOWNLOAD_GAP
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         mock.Mock(side_effect=AssertionError('network attempted')))
     with pytest.raises(RuntimeError, match='cannot download files from MakerOnline'):
-        model_job.makeronline_download(job, job['sources'][0], tmp_path/'src')
+        jobs_sources.makeronline_download(job, job['sources'][0], tmp_path/'src')
 
 
 def test_prepared_intake_makeronline_lists_files_then_names_the_gap(env, monkeypatch):
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         web_fake({'/api/mold/detail': (200, MAKERONLINE_MODEL)}))
-    monkeypatch.setattr(model_job, 'download_for_site',
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site',
                         mock.Mock(side_effect=AssertionError('download attempted')))
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(
@@ -481,9 +484,9 @@ def test_prepared_intake_makeronline_lists_files_then_names_the_gap(env, monkeyp
     assert 'Nothing was downloaded' in receipt['error']
 
 
-@pytest.mark.parametrize('download', [model_job.thangs_download, model_job.nexprint_download])
+@pytest.mark.parametrize('download', [jobs_sources.thangs_download, jobs_sources.nexprint_download])
 def test_downloads_without_token_never_network(home, monkeypatch, tmp_path, download):
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         mock.Mock(side_effect=AssertionError('network attempted')))
     with pytest.raises(SiteLoginNeeded) as caught:
         download({'site': 'x', 'model_id': '1'}, {'id': 'f', 'name': 'a.stl'}, tmp_path/'src')
@@ -494,7 +497,7 @@ def test_downloads_without_token_never_network(home, monkeypatch, tmp_path, down
 
 def test_design_fetch_refuses_to_pick_among_several_files(monkeypatch):
     from print_handy.core import design
-    monkeypatch.setattr(model_job, '_web_api',
+    monkeypatch.setattr(jobs_sources, '_web_api',
                         web_fake({'/api/models/v2/29424': (200, THANGS_MODEL)}))
     with pytest.raises(design.DesignError, match='cannot pick'):
         design.fetch_link_source(THANGS_URL, Path('/tmp/thangs-design'))
@@ -504,7 +507,7 @@ def test_design_fetch_keeps_the_token_wording(home, monkeypatch, tmp_path):
     from print_handy.core import design
     one = json.loads(json.dumps(NEXPRINT_MODEL))
     one['data']['modelFileList'] = one['data']['modelFileList'][:1]
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'model-base-info/get': (200, one)}))
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'model-base-info/get': (200, one)}))
     with pytest.raises(design.DesignError, match='auth_token'):
         design.fetch_link_source(NEXPRINT_URL, tmp_path/'src')
 
@@ -538,7 +541,7 @@ def test_connect_flow_retries_the_download_after_saved(env, home, monkeypatch):
     # No token: the bot asks once, with the whole walkthrough in that one
     # message, and after "Saved — try again" retries the same download. The retry is stopped by a sentinel so this test covers
     # exactly the connect loop.
-    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    monkeypatch.setattr(jobs_sources, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
     attempts = []
 
@@ -547,7 +550,7 @@ def test_connect_flow_retries_the_download_after_saved(env, home, monkeypatch):
         if len(attempts) == 1:
             site_accounts.read_token('nexprint')  # raises: no file yet
         raise RuntimeError('sentinel: download retried')
-    monkeypatch.setattr(model_job, 'download_for_site', fake_download)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', fake_download)
     adapter = Adapter([0])
     asyncio.run(prepared_intake.prepare_link(
         _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
@@ -563,12 +566,12 @@ def test_connect_flow_retries_the_download_after_saved(env, home, monkeypatch):
 
 
 def test_connect_flow_refused_token_is_offered_again(env, home, monkeypatch):
-    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    monkeypatch.setattr(jobs_sources, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
 
     def refused(job, chosen, dest):
         raise site_accounts.refused('nexprint')
-    monkeypatch.setattr(model_job, 'download_for_site', refused)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', refused)
     adapter = Adapter([0, 1])
     asyncio.run(prepared_intake.prepare_link(
         _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
@@ -583,9 +586,9 @@ def test_connect_flow_refused_token_is_offered_again(env, home, monkeypatch):
 def test_connect_flow_cancel_is_one_terminal_post_and_cancelled(env, home, monkeypatch):
     # #712: Cancel on a connect prompt ends with exactly one terminal post,
     # receipt CANCELLED (not FAILED) and a short cause, never the walkthrough.
-    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    monkeypatch.setattr(jobs_sources, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
-    monkeypatch.setattr(model_job, 'download_for_site',
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site',
                         lambda job, chosen, dest: site_accounts.read_token('nexprint'))
     adapter = Adapter([1])
     asyncio.run(prepared_intake.prepare_link(
@@ -603,12 +606,12 @@ def test_connect_flow_cancel_is_one_terminal_post_and_cancelled(env, home, monke
 @pytest.mark.parametrize('site', sorted(set(site_accounts.LOGIN_SITES) - {'cults3d'}))
 def test_every_connect_prompt_cancel_is_cancelled(env, home, monkeypatch, site):
     # The same Cancel contract for every site that has a connect prompt.
-    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    monkeypatch.setattr(jobs_sources, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
 
     def needs(job, chosen, dest):
         raise site_accounts.SiteLoginNeeded(site, 'missing', f'needs {site_accounts.token_path(site)}')
-    monkeypatch.setattr(model_job, 'download_for_site', needs)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', needs)
     adapter = Adapter([1])
     asyncio.run(prepared_intake.prepare_link(
         _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
@@ -621,9 +624,9 @@ def test_every_connect_prompt_cancel_is_cancelled(env, home, monkeypatch, site):
 
 
 def test_gave_up_receipt_error_is_short_and_chat_has_no_home_path(env, home, monkeypatch):
-    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    monkeypatch.setattr(jobs_sources, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
-    monkeypatch.setattr(model_job, 'download_for_site',
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site',
                         lambda job, chosen, dest: (_ for _ in ()).throw(site_accounts.refused('nexprint')))
     adapter = Adapter([0] * prepared_intake.MAX_CONNECT_ROUNDS)
     asyncio.run(prepared_intake.prepare_link(
@@ -642,14 +645,14 @@ def test_chat_safe_hides_a_container_home(monkeypatch):
 
 
 def test_connect_flow_gives_up_after_three_rounds(env, home, monkeypatch):
-    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    monkeypatch.setattr(jobs_sources, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
     calls = []
 
     def refused(job, chosen, dest):
         calls.append(1)
         raise site_accounts.refused('nexprint')
-    monkeypatch.setattr(model_job, 'download_for_site', refused)
+    setattr_bound(monkeypatch, jobs_sources, 'download_for_site', refused)
     adapter = Adapter([0] * prepared_intake.MAX_CONNECT_ROUNDS)
     asyncio.run(prepared_intake.prepare_link(
         _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
@@ -677,9 +680,9 @@ def test_connect_flow_at_the_lookup_for_a_key_site(env, home, monkeypatch):
 
     def lookup(url):
         lookups.append(url)
-        model_job.thingiverse_headers()  # no token yet on the first call
+        jobs_sources.thingiverse_headers()  # no token yet on the first call
         raise RuntimeError('sentinel: lookup retried with the token saved')
-    monkeypatch.setattr(model_job, 'thingiverse_inventory', lookup)
+    monkeypatch.setattr(jobs_sources, 'thingiverse_inventory', lookup)
     url = 'https://www.thingiverse.com/thing:763622'
 
     class SavingAdapter(Adapter):
@@ -705,11 +708,11 @@ def test_archive_member_expands_without_byte_cap(home, monkeypatch, tmp_path):
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('a.stl', b'\0' * (1024 * 1024))   # 1 MiB
     save_token('thangs')
-    monkeypatch.setattr(model_job, '_web_api', web_fake({'/download-url': (200, {
+    monkeypatch.setattr(jobs_sources, '_web_api', web_fake({'/download-url': (200, {
         'signedUrl': 'https://storage.example/model.zip'})}))
     fake_file_download(monkeypatch, buffer.getvalue())
     job = {'site': 'thangs', 'model_id': '1', 'sources': [{'id': 'a', 'name': 'a.stl'}]}
-    result = model_job.thangs_download(job, job['sources'][0], tmp_path/'src')
+    result = jobs_sources.thangs_download(job, job['sources'][0], tmp_path/'src')
     assert result.exists()
     assert result.stat().st_size == 1024 * 1024
 
@@ -724,9 +727,9 @@ def test_makerworld_401_is_a_named_token_refusal(home, monkeypatch):
 
     def refuse(url, **kw):
         raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, None)
-    monkeypatch.setattr(model_job, 'request_json', refuse)
+    setattr_bound(monkeypatch, jobs_common, 'request_json', refuse)
     with pytest.raises(SiteLoginNeeded) as caught:
-        model_job.maker_inventory('https://makerworld.com/en/models/931302-holder')
+        jobs_sources.maker_inventory('https://makerworld.com/en/models/931302-holder')
     assert caught.value.site == 'makerworld' and caught.value.reason == 'refused'
     assert diagnostics.known_cause(caught.value) is not None
 

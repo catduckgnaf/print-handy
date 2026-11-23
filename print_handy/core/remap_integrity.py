@@ -587,9 +587,9 @@ def sliced_plates(source, object_ids=None):
                     if package_remap.MODEL_SETTINGS in names else b'')
     if b'<plate' not in settings:
         return ['1']
-    from . import model_job
+    from ..jobs import slice as jobs_slice
     try:
-        plates = model_job.plate_manifest(source)['plates']
+        plates = jobs_slice.plate_manifest(source)['plates']
     except RuntimeError as exc:
         logger.info('plate records of %s unreadable, sliced plates unknown: %s', source.name, exc)
         return None

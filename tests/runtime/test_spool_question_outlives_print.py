@@ -83,12 +83,12 @@ class ReconcileTests(QuestionCase):
             return {"result": {"status": {"print_stats": stats}}}
 
         import print_handy.listeners as listeners_mod
-        from print_handy.core import model_job
+        from print_handy.jobs import prompts as jobs_prompts
         with mock.patch.object(spool_sync, "reconcile",
                                return_value={"ok": True, "assignments": {3: 21}}), \
                 mock.patch.object(spool_sync, "reconcile_text", return_value="slot 3 -> spool #21"), \
                 mock.patch.object(mel.print_control, "_call", side_effect=fake_call), \
-                mock.patch.object(model_job, "retry_pending_spool_sync", return_value=False), \
+                mock.patch.object(jobs_prompts, "retry_pending_spool_sync", return_value=False), \
                 mock.patch.object(listeners_mod, "instance_printer_id", return_value=None):
             await lis.reconcile_spools()
 

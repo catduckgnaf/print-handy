@@ -10,7 +10,6 @@ label temperatures are recorded on the Spoolman filament. No live Discord,
 Spoolman or vision endpoint is used anywhere here.
 """
 import asyncio
-import importlib.util
 import json
 import urllib.request
 from pathlib import Path
@@ -28,10 +27,7 @@ from print_handy.runtime import spool_codes, spool_label, spool_sync, visual_wat
 # camera checks on (vision.ai_enabled, off by default since #1376).
 pytestmark = pytest.mark.usefixtures("vision_ai_on")
 
-SPEC = importlib.util.spec_from_file_location(
-    "pf_issue_514", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 # ------------------------------------------------------------- extraction parser

@@ -1,8 +1,5 @@
 """The gates a print start must pass: the current artifact, bed clear, idle printer, launch
 checkpoint, filament and mesh readiness, mechanical limits, and the yolo waivers.
-
-Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
-importable from there for one release.
 """
 
 import logging

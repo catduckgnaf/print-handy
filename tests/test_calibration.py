@@ -14,7 +14,6 @@ calibration is not offered; Z offset follows the Stage 0 mode verdict
 on accept, on discard and on failure.
 """
 import asyncio
-import importlib.util
 import json
 import socket
 import threading
@@ -29,14 +28,11 @@ from print_handy import calibration as cal
 from print_handy import printers, settings
 from print_handy.bot import commands as bot_commands
 from print_handy.bot import llm
-from print_handy.core import model_job
+from print_handy.launch import gates as launch_gates
 from print_handy.runtime import spool_sync
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_calibration", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def entry(key):
@@ -560,7 +556,7 @@ def test_mesh_generic_klipper_uses_bed_mesh_calibrate():
 def test_mesh_zmod_saves_to_and_compares_against_the_profile_prints_load():
     # ZMod START_PRINT loads MESH=auto; Print Handy's own saved-mesh
     # readiness check uses the same name.
-    assert cal.MESH_PROFILES["zmod"] == model_job.MESH_PROFILE == "auto"
+    assert cal.MESH_PROFILES["zmod"] == launch_gates.MESH_PROFILE == "auto"
     # Nothing active: the before value is the saved 'auto' profile (range
     # 0.42), not the scratch print_handy profile (range 0.20).
     transport = FakeTransport()

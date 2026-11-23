@@ -22,6 +22,8 @@ from unittest.mock import patch
 
 from print_handy import printers
 from print_handy.core import model_job, orca_adapter, package_remap, painted_geometry, source_colors
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate
 from tests.corpus.make_models import box, write_3mf
 
@@ -81,7 +83,7 @@ def _decisions(source, picks):
         part = next((p for p in manifest["parts"] if "part:" + p["key"] == row["key"]), None)
         filament = int(match.group(1)) if match else part["source_extruder"]
         slot = picks[filament]
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     return manifest, {"schema": "part_slots_v1", "mode": "per_part",
                       "source_sha256": manifest["source_sha256"], "choices": choices}
@@ -349,7 +351,7 @@ def test_non_identity_feature_remap_slices_to_gcode_that_passes_ad5x_tool_verifi
         match = re.fullmatch(r"filament:(\d+)", row["key"])
         part = next((p for p in manifest["parts"] if "part:" + p["key"] == row["key"]), None)
         slot = {1: 3, 2: 1}[int(match.group(1)) if match else part["source_extruder"]]
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     decisions = {"schema": "part_slots_v1", "mode": "per_part",
                  "source_sha256": manifest["source_sha256"], "choices": choices}
@@ -369,8 +371,8 @@ def test_non_identity_feature_remap_slices_to_gcode_that_passes_ad5x_tool_verifi
     assert embedded == {"0": 1, "1": 3}
     material = re.search(r"^; filament_type = (.+)$", text, re.M).group(1)
     assert adapter.native.validate_materials(text, material, state) == embedded
-    assert model_job._gcode_tools(text) <= {int(tool) for tool in embedded}
-    adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(model_job._gcode_tools(text) | {0})}, state)
+    assert gcode_verify._gcode_tools(text) <= {int(tool) for tool in embedded}
+    adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(gcode_verify._gcode_tools(text) | {0})}, state)
 
 
 # --- one read per call: .model members and paint decoded once --------------------

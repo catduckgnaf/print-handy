@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
-from print_handy.core import model_job
+from print_handy.jobs import prompts as jobs_prompts
 from print_handy.runtime import moonraker_event_listener as mel
 from print_handy.runtime import print_alert_buttons as pab
 
@@ -110,7 +110,7 @@ class RetryPendingSpoolSyncTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(mel.print_control, "_call", side_effect=fake_call), \
                 mock.patch.object(spool_sync, "moonraker_for",
                                   return_value=lambda method, path: fake_call(path)), \
-                mock.patch.object(model_job, "retry_pending_spool_sync", side_effect=fake_retry), \
+                mock.patch.object(jobs_prompts, "retry_pending_spool_sync", side_effect=fake_retry), \
                 mock.patch.object(listeners_mod, "instance_printer_id", return_value=instance_id), \
                 mock.patch.object(mel, "log"):
             await lis._retry_pending_spool_sync()

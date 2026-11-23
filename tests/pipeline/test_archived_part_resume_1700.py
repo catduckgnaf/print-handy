@@ -7,9 +7,14 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.bot.handlers import model_link
-from print_handy.core import model_job as mj, prepared_intake, printer_state
+from print_handy.core import prepared_intake, printer_state
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
 from . import test_multi_tool_intake as harness
 from tests.core.test_plate_usage import write_source
+from tests.bound_names import setattr_bound
 
 pytest_plugins = ('tests.pipeline.test_multi_tool_intake',)
 
@@ -34,7 +39,7 @@ def test_natural_part_two_reopens_checkpoint_and_slices_only_that_plate(flow_env
     asyncio.run(prepared_intake.prepare_link(
         event('first', 'https://www.printables.com/model/1-ghost'), Deferred([]),
         harness.tool_state(), flow_env.root, timeout=1, printer_id=printer_id))
-    first_job, = mj.ARCHIVE.glob('*/JOB.json')
+    first_job, = jobs_common.ARCHIVE.glob('*/JOB.json')
     original = json.loads(first_job.read_text())
     checkpoint = original['source_checkpoint']
     assert checkpoint['launch_approval'] is None
@@ -43,15 +48,15 @@ def test_natural_part_two_reopens_checkpoint_and_slices_only_that_plate(flow_env
     def no_download(*args, **kwargs):
         pytest.fail('The resumed intake must use the local archive')
 
-    monkeypatch.setattr(mj, 'printables_download', no_download)
+    monkeypatch.setattr(jobs_sources, 'printables_download', no_download)
     snapshot = []
-    original_slice = mj.slice_job
+    original_slice = jobs_slice.slice_job
 
     def capture_slice(job_path, **kwargs):
         snapshot.append(json.loads(Path(job_path).read_text()))
         return original_slice(job_path, **kwargs)
 
-    monkeypatch.setattr(mj, 'slice_job', capture_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', capture_slice)
     adapter = harness.FlowAdapter(['Resume plate', 'Change colors', 'Black', 'Red', 'Slice and Download'])
     gateway = S(_is_user_authorized_for_source=lambda source: True,
                 _session_key_for_source=lambda source: 'resume-session')
@@ -88,7 +93,7 @@ def test_selected_checkpoint_revalidation_accepts_relative_expected_source(flow_
         'request_scope': {'platform': 'discord', 'requester_id': 'u',
                           'channel_id': 'c1', 'printer_id': 'printer-1'},
         'source_path': str(relative_source),
-        'source_sha256': mj.file_sha256(source),
+        'source_sha256': gcode_artifact.file_sha256(source),
     }
     job_path = folder / 'JOB.json'
     job_path.write_text(json.dumps({'downloaded_file': str(relative_source),
@@ -118,7 +123,7 @@ def test_single_candidate_is_revalidated_before_resume(flow_env, monkeypatch, tm
         'request_scope': {'platform': 'discord', 'requester_id': 'u',
                           'channel_id': 'c1', 'printer_id': printer_id},
         'source_path': str(source),
-        'source_sha256': mj.file_sha256(source),
+        'source_sha256': gcode_artifact.file_sha256(source),
         'title': 'Only archived project',
         'authored_plates': [{'id': '1', 'name': 'Only plate'}],
     }
@@ -177,7 +182,7 @@ def test_ambiguous_archived_projects_need_project_and_fresh_confirmation(
             'request_scope': {'platform': 'discord', 'requester_id': 'u',
                               'channel_id': 'c1', 'printer_id': printer_id},
             'source_path': str(source),
-            'source_sha256': mj.file_sha256(source),
+            'source_sha256': gcode_artifact.file_sha256(source),
             'title': title,
             'authored_plates': [{'id': '1', 'name': 'First'}, {'id': '2', 'name': 'Second'}],
             'authored_parts': [{'key': 'part-1', 'name': 'Body'},

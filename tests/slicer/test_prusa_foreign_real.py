@@ -16,7 +16,8 @@ from unittest import mock
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, source_colors, spoolman_client
+from print_handy.core import orca_adapter, source_colors, spoolman_client
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_single_color_plate
 from tests.corpus.make_models import _write_package
 
@@ -149,7 +150,7 @@ def _decisions(manifest, state, picks):
     choices = {}
     for row in source_colors.canonical_prompts(manifest):
         slot = picks(row)
-        choices[row["key"]] = model_job.resolve_filament_selection(
+        choices[row["key"]] = jobs_filament.resolve_filament_selection(
             state, dict(state["filament_slots"][str(slot)], slot=slot))
     return {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
             "choices": choices}

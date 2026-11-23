@@ -291,6 +291,7 @@ def operator_record():
 
 def test_the_operator_record_slices_slot_2_silk_at_220_and_verifies_it(slice_inputs, tmp_path, monkeypatch):
     from print_handy.core import model_job, printer_state
+    from print_handy.gcode import verify as gcode_verify
     slice_inputs.spools[17] = {"id": 17, "filament": {"material": "Silk PLA", "settings_extruder_temp": None,
                                                       "settings_bed_temp": None}}
     state = operator_record()
@@ -301,7 +302,7 @@ def test_the_operator_record_slices_slot_2_silk_at_220_and_verifies_it(slice_inp
     state["nozzle"] = {**state.get("nozzle", {}), "type": "brass", "diameter_mm": 0.4}
     for gcode_nozzle, ok in ((220, True), (210, False)):
         try:
-            model_job.verify_gcode_offline(gcode_at(tmp_path, gcode_nozzle), state)
+            gcode_verify.verify_gcode_offline(gcode_at(tmp_path, gcode_nozzle), state)
             message = ""
         except RuntimeError as exc:
             message = str(exc)
@@ -311,12 +312,13 @@ def test_the_operator_record_slices_slot_2_silk_at_220_and_verifies_it(slice_inp
 @pytest.mark.parametrize("nozzle,ok", [(220, True), (210, False)])
 def test_offline_verification_checks_the_slot_job_at_its_own_temperature(tmp_path, monkeypatch, nozzle, ok):
     from print_handy.core import model_job
+    from print_handy.gcode import verify as gcode_verify
     monkeypatch.setattr(model_job.printers, "current", lambda: adapter_for("flashforge.ad5x"))
     monkeypatch.setattr(spoolman_client, "get_spool", lambda sid, **k: None)
     state = slot_job_state()
     state["nozzle"] = {**state.get("nozzle", {}), "type": "brass", "diameter_mm": 0.4}
     try:
-        model_job.verify_gcode_offline(gcode_at(tmp_path, nozzle), state)
+        gcode_verify.verify_gcode_offline(gcode_at(tmp_path, nozzle), state)
         message = ""
     except RuntimeError as exc:
         message = str(exc)

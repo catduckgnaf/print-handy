@@ -26,13 +26,12 @@ from .. import diagnostics, logs, printers, settings
 from . import job_correlation
 from . import _external, delivery, failure_report, owned_worker, plate_merge, purge, split_fit
 
-from ..intake.fit_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
-    BED, FIT_FALLBACK_HEARTBEAT_S, FIT_HEARTBEAT_S, FIT_HINT_PREFIX, FIT_QUIET_S, FitStatus,
-    LARGE_MESH_MB, SCALE_LABEL, SCALE_STEP_PERCENTS, _auto_rearrange_eligible, _elapsed_text,
-    _fit_choice_reply, _fit_failure, _fit_state, _painted_fit_sizes, _painted_no_fit_detail, _pct, _printer_name,
-    _rotation_phrase, _scale_direction_reply, _scale_fit_offer_reply, _scale_percent_reply,
+from ..intake.fit_flow import (
+    BED, FIT_HINT_PREFIX, FitStatus, SCALE_LABEL, SCALE_STEP_PERCENTS, _auto_rearrange_eligible,
+    _elapsed_text, _fit_choice_reply, _fit_state, _painted_fit_sizes, _painted_no_fit_detail, _pct,
+    _printer_name, _scale_direction_reply, _scale_fit_offer_reply, _scale_percent_reply,
     _single_body, _unit_oversize_reply, audit_dimensions, auto_rearrange_notice, fit_choice_rows,
-    fit_hint, fit_question, large_model_notice, row_brim_policy, write_split_plan,
+    fit_hint, fit_question, large_model_notice, row_brim_policy, write_split_plan
 )
 FILAMENT_SLOTS = settings.current()['printer']['filament_slots']
 print_summary = _external.lazy('discord_print_summary')
@@ -44,17 +43,14 @@ from .background_slice import drop_runner, runner_for, slice_binding  # noqa: E4
 from . import slice_warnings  # noqa: E402
 from . import status_voice  # noqa: E402
 
-from ..intake.support_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
+from ..intake.support_flow import (
     PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL, supports_decision, supports_recommended,
-    with_supports_line, repair_actions, gap_repairs, low_gap_text,
+    with_supports_line, repair_actions, gap_repairs, low_gap_text
 )
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
 
-from ..intake.worker import (  # moved in 2.3.0 (#1323); old path kept for one release
-    _LOG_LEVELS, _OFFLOAD, _SLICER_STEPS, _STEP_LABELS, _WORKER_LOG_LINE, _await_background_slice,
-    _forward_worker_log_lines, _heavy, _prefetch,
-)
+from ..intake.worker import _await_background_slice, _heavy, _prefetch
 
 
 logger = logging.getLogger(__name__)
@@ -86,7 +82,7 @@ def _voice(stage, source, key):
 STOP_LABEL = "Stop"
 STOP_CUSTOM_ID = "pbstop:"
 RETRY_CUSTOM_ID = "pbretry:"
-# Set by the print-feedback plugin: async (source, text, clarify_id) -> sent message with a single
+# Set by the chat handlers: async (source, text, clarify_id) -> sent message with a single
 # Stop button. None (tests, no Discord bot) falls back to the gateway clarify prompt.
 STOP_SENDER = None
 # Set by the plugin to edit the original Uploading/Stop prompt and install Retry after a safe refusal.
@@ -595,9 +591,6 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     return result
 
 
-
-
-
 # Start progress (#734): print-now runs as a child process and its result arrives only at
 # the end, while a real start spends 25-75 s between the tap and that result (the start
 # request itself, then the readback while the printer prepares). The child already logs its
@@ -695,32 +688,6 @@ START_PROGRESS = (
 START_PROGRESS_VOICE = {'upload_verified': 'print_start'}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _preview_description(text):
     """Brief source-derived description: first sentence, no URLs, paths, filenames or hashes."""
     text = re.sub(r'https?://\S+', ' ', str(text or ''))
@@ -812,8 +779,6 @@ def _preview_profile(row):
     return _preview_description(label)
 
 
-
-
 def preview_sentence(job, row, filament_note=None):
     title = re.sub(r'\s+', ' ', str((job or {}).get('title') or '')).strip()
     if not title:
@@ -835,14 +800,16 @@ def preview_sentence(job, row, filament_note=None):
         text += f' Filament: {filament_note}.'
     if est:
         from . import model_job as mj
-        text += (f' {_printer_name(job)} estimated print time about {mj.human_dur(est[0])}, plus ~5 min '
-                 f'warmup ({mj.human_dur(est[0] + 300)} total), and {round(est[1])} g of filament before color selection.')
+        from ..jobs import store as jobs_store
+        text += (f' {_printer_name(job)} estimated print time about {jobs_store.human_dur(est[0])}, plus ~5 min '
+                 f'warmup ({jobs_store.human_dur(est[0] + 300)} total), and {round(est[1])} g of filament before color selection.')
     else:
-        from . import model_job as mj
-        site = mj.source_site_estimate(row)
+        from ..jobs import prompts as jobs_prompts
+        from ..jobs import store as jobs_store
+        site = jobs_prompts.source_site_estimate(row)
         if site:
             plates = len((row or {}).get('plates') or [])
-            text += (f" Model page estimate: about {mj.human_dur(site[0])}"
+            text += (f" Model page estimate: about {jobs_store.human_dur(site[0])}"
                      f" and {round(site[1])} g of filament{f' over {plates} plates' if plates > 1 else ''}."
                      f' The {_printer_name(job)} figure after slicing will differ somewhat.')
         elif (job or {}).get('site') == 'upload':
@@ -859,8 +826,8 @@ def _filament_note(job, state):
     Display only: printers without a filament_summary (every non-Bambu printer today) add nothing.
     """
     try:
-        from . import model_job as mj
-        printer = mj._job_adapter(job if isinstance(job, dict) else None)
+        from ..jobs import store as jobs_store
+        printer = jobs_store._job_adapter(job if isinstance(job, dict) else None)
         describe = getattr(printer, "filament_summary", None)
         return describe(state) if describe else None
     except Exception:
@@ -877,46 +844,13 @@ async def send_preview(adapter, source, job, row, metadata, state=None):
         logger.debug("Best-effort recovery from Exception", exc_info=True)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-from ..intake.questions import (  # moved in 2.3.0 (#1323); old path kept for one release
-    COLOR_CONFIRM_ROUNDS, PRINT_ANYWAY_LABEL, SET_SCREEN_LABEL, _COLOR_NAMES, _CONFIRM_COLOR,
-    _CONFIRM_LABEL, _LIVE_KEY, _NOISE, _ask, _color_guess_text, _color_phrase,
-    _raw_preupload_refusal, _retry_choice_reply, _typo_words, accept_color_mismatch,
-    accept_label_mismatch, clear_color_acceptance, clear_label_acceptance, color_confirm,
-    color_confirm_question, label_confirm, label_confirm_question, screen_unpushed_note,
-    SPOOL_CHANGED, USE_LOADED_SPOOL_LABEL,
+from ..intake.questions import (
+    COLOR_CONFIRM_ROUNDS, PRINT_ANYWAY_LABEL, SET_SCREEN_LABEL, _LIVE_KEY, _ask, _color_guess_text,
+    _raw_preupload_refusal, _retry_choice_reply, accept_color_mismatch, accept_label_mismatch,
+    clear_color_acceptance, clear_label_acceptance, color_confirm, color_confirm_question,
+    label_confirm, label_confirm_question, screen_unpushed_note, SPOOL_CHANGED,
+    USE_LOADED_SPOOL_LABEL
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 MODEL_FILE_EXTS = {'.3mf', '.stl'}
@@ -1115,9 +1049,9 @@ def newest_archived_job(archive=None):
     selection must use last_printed_job (launch records) instead (#979).
     Local files only.
     """
-    from . import model_job as mj
+    from ..jobs import common as jobs_common
     best = None
-    for jp in Path(archive or mj.ARCHIVE).glob('*/JOB.json'):
+    for jp in Path(archive or jobs_common.ARCHIVE).glob('*/JOB.json'):
         try:
             job = json.loads(jp.read_text())
         except (OSError, ValueError):
@@ -1146,8 +1080,9 @@ def last_printed_job(archive=None, printer_id=None):
     G-code. Local files only; read only.
     """
     from ..runtime import print_control as pc
-    from . import model_job as mj
-    archive = Path(archive or mj.ARCHIVE).resolve()
+    from ..jobs import common as jobs_common
+    from ..jobs import store as jobs_store
+    archive = Path(archive or jobs_common.ARCHIVE).resolve()
     for record in pc._launch_records(archive):
         job_path = pc._job_for(pc._artifact_for(record).resolve(), archive)
         if job_path is None:
@@ -1156,7 +1091,7 @@ def last_printed_job(archive=None, printer_id=None):
             job = json.loads(job_path.read_text(encoding='utf-8'))
         except (OSError, ValueError):
             continue
-        if printer_id is not None and str(mj._job_printer_id(job)) != str(printer_id):
+        if printer_id is not None and str(jobs_store._job_printer_id(job)) != str(printer_id):
             continue
         title = str(job.get('title') or job_path.parent.name)
         if not job.get('selected_source'):
@@ -1271,11 +1206,12 @@ def previous_sliced_job(source_sha256, printer_id, archive=None, exclude=None, r
     job that failed any of those is skipped (and logged). ``exclude`` is
     the new intake's own folder. Local files only.
     """
-    from . import model_job as mj
+    from ..jobs import common as jobs_common
+    from ..jobs import store as jobs_store
     from ..jobs.store import artifact_gcodes, stale_build_refusal, unverified_artifact
     skip = Path(exclude).resolve() if exclude else None
     best = None
-    for jp in Path(archive or mj.ARCHIVE).glob('*/JOB.json'):
+    for jp in Path(archive or jobs_common.ARCHIVE).glob('*/JOB.json'):
         if skip is not None and jp.parent.resolve() == skip:
             continue
         try:
@@ -1284,7 +1220,7 @@ def previous_sliced_job(source_sha256, printer_id, archive=None, exclude=None, r
             continue
         if (not isinstance(job, dict) or not job.get('color_decisions')
                 or (job.get('color_manifest') or {}).get('source_sha256') != source_sha256
-                or str(mj._job_printer_id(job)) != str(printer_id)):
+                or str(jobs_store._job_printer_id(job)) != str(printer_id)):
             continue
         if not _same_requester(job, requester):
             logger.info('not offering the decisions of %s again: another requester sliced it',
@@ -1325,8 +1261,8 @@ def loaded_slot_change(decisions, state):
     The decisions are offered again only while every slot they name still
     holds the recorded material and color (#1648 item 7).
     """
-    from . import model_job as mj
-    slots = mj.configured_slots(state)
+    from ..jobs import filament as jobs_filament
+    slots = jobs_filament.configured_slots(state)
     for selection in _decision_selections(decisions):
         if not isinstance(selection, dict) or selection.get('slot') is None:
             return 'a color decision names no slot'
@@ -1340,11 +1276,11 @@ def loaded_slot_change(decisions, state):
 
 def decisions_summary(job):
     """'colors Black PLA (slot 3), scale 95%, no supports': what "like last time" means for ``job``."""
-    from . import model_job as mj
+    from ..jobs import store as jobs_store
     from .background_slice import _sliced_with_supports
     from .printer_state import display_material
     from ..jobs.store import artifact_gcodes
-    noun = 'toolhead' if mj._job_adapter(job).tool_based else 'slot'
+    noun = 'toolhead' if jobs_store._job_adapter(job).tool_based else 'slot'
     labels = {}
     for selection in _decision_selections(job.get('color_decisions')):
         if isinstance(selection, dict) and selection.get('slot') is not None:
@@ -1376,11 +1312,11 @@ async def _offer_previous_decisions(adapter, source, key, timeout, job, state, f
     whose G-code slice_job reuses when the recipe still matches; otherwise
     the job slices again with those decisions. "Start over" changes nothing.
     """
-    from . import model_job as mj
+    from ..jobs import store as jobs_store
     sha = (job.get('color_manifest') or {}).get('source_sha256')
     if not sha:
         return None
-    found = await asyncio.to_thread(previous_sliced_job, sha, mj._job_printer_id(job), exclude=folder,
+    found = await asyncio.to_thread(previous_sliced_job, sha, jobs_store._job_printer_id(job), exclude=folder,
                                     requester=job.get('started_by'), receipts_root=receipts_root)
     if found is None:
         return None
@@ -1394,7 +1330,7 @@ async def _offer_previous_decisions(adapter, source, key, timeout, job, state, f
     # from the earlier job's own record (#1648 item 7).
     prospective = carry_decisions(dict(job), earlier, REUSED_DECISION_FIELDS)
     try:
-        changed = await asyncio.to_thread(mj._recipe_changed, earlier, prospective)
+        changed = await asyncio.to_thread(jobs_store._recipe_changed, earlier, prospective)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         logger.warning('could not compare the earlier slice recipe (%s); it will be sliced again', exc)
         changed = True
@@ -1583,8 +1519,6 @@ async def announce_interrupted(root, adapter, now=None, platform=None):
     return announced
 
 
-
-
 from .link_intake import PromptCancelled as IntakeCancelled  # noqa: E402  typed Cancel/Stop at any prompt
 from .link_intake import PromptExpired as IntakeExpired  # noqa: E402  button question reached its timeout
 from .site_accounts import SiteLoginNeeded  # noqa: E402  a download needs the operator's site login (#464)
@@ -1600,9 +1534,9 @@ NO_DOWNLOAD_SITES = {'cults3d'}
 
 
 def _unsupported_for(site):
-    from . import model_job as mj
+    from ..jobs import sources as jobs_sources
     if site == 'cults3d':
-        return mj.DownloadUnsupported(mj.CULTS_REFUSAL, 'Cults3D does not allow app downloads')
+        return jobs_sources.DownloadUnsupported(jobs_sources.CULTS_REFUSAL, 'Cults3D does not allow app downloads')
     return None
 
 
@@ -1639,7 +1573,7 @@ def _cost_ready_line(variant_jobs):
         return ''
 
 
-def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
+def _sliced_spool_manifest(job, manifest, variant_jobs):
     """Use real sliced grams for a single spool; otherwise preserve source estimates.
 
     When both support variants are shown, the largest real single-color slice
@@ -1647,7 +1581,8 @@ def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
     """
     try:
         from print_handy.runtime import discord_print_summary as dps
-        usage = mj.filament_usage_by_selection(job, manifest)
+        from ..jobs import prompts as jobs_prompts
+        usage = jobs_prompts.filament_usage_by_selection(job, manifest)
         if len(usage) != 1:
             return manifest, False
         sliced_totals = []
@@ -1675,7 +1610,7 @@ def _sliced_spool_manifest(mj, job, manifest, variant_jobs):
         return manifest, False
 
 
-async def _spool_projection_text(mj, job, manifest, state, copies, shortages=None, sliced_variants=()):
+async def _spool_projection_text(job, manifest, state, copies, shortages=None, sliced_variants=()):
     """Display only: filament needed vs the chosen spool's grams. Never blocks the intake.
 
     ``shortages``, when given, collects the filament-shortage warning keys
@@ -1683,9 +1618,11 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
     text shows as short. A print button pressed under that text is the
     operator's answer to them, so the start does not ask again (#1373).
     """
-    manifest, used_sliced = _sliced_spool_manifest(mj, job, manifest, sliced_variants)
+    manifest, used_sliced = _sliced_spool_manifest(job, manifest, sliced_variants)
     try:
-        ids = [sel.get('spoolman_id') for sel, _ in mj.filament_usage_by_selection(job, manifest)]
+        from ..jobs import prompts as jobs_prompts
+        from ..jobs import store as jobs_store
+        ids = [sel.get('spoolman_id') for sel, _ in jobs_prompts.filament_usage_by_selection(job, manifest)]
         if not ids:
             return ''
         fetch = None
@@ -1696,8 +1633,8 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
 
             def fetch(sid):
                 return spool_lifecycle.fetch_spoolman_spool(sid, base_url=base)
-        weights = await _heavy(mj.intake_spool_weights, state, ids, fetch)
-        rows = mj.intake_spool_projection(job, weights, manifest, copies=copies)
+        weights = await _heavy(jobs_prompts.intake_spool_weights, state, ids, fetch)
+        rows = jobs_prompts.intake_spool_projection(job, weights, manifest, copies=copies)
         if shortages is not None and not getattr(weights, 'fetch_failed', False):
             from . import material_accept
             for row in rows:
@@ -1705,8 +1642,8 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
                         and row.get('spoolman_id') is not None):
                     shortages.append((material_accept.key('filament', row.get('slot'), row['spoolman_id']),
                                       float(row.get('estimated_used_g') or 0)))
-        text = mj.format_spool_projection(
-            rows, position_noun='Toolhead' if mj._job_adapter(job).tool_based else 'Slot')
+        text = jobs_prompts.format_spool_projection(
+            rows, position_noun='Toolhead' if jobs_store._job_adapter(job).tool_based else 'Slot')
         if sliced_variants and not used_sliced and (manifest or {}).get('filament_stats', {}).get('estimated'):
             text = f'{text}\nSpool usage is a model estimate from before slicing.' if text else ''
         if getattr(weights, 'fetch_failed', False):
@@ -1835,14 +1772,8 @@ async def _connect_account(adapter, source, key, metadata, exc, timeout):
     return saved in (0, SAVED_LABEL)
 
 
-
-
-
-
 _HEATER_TARGET = re.compile(
     r'(rightTargetTemp|platTargetTemp)\s*==\s*0\s*\(observed\s*([0-9]+(?:\.[0-9]+)?)', re.I)
-
-
 
 
 START_PENDING_MESSAGE = ('Start sent, but the printer has not confirmed it yet. It is probably still heating '
@@ -1874,30 +1805,6 @@ def classify_start(ok, tail):
     return StartClass('START_PENDING' if unknown else 'STARTED' if ok or pending else 'START_REFUSED',
                       None if unknown else bool(ok or pending), 'unknown' if unknown else phase or None,
                       unknown, pending)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 async def _post_yolo_waivers(adapter, source, metadata, tail, receipt=None, receipt_path=None):
@@ -2399,12 +2306,14 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded files.',
                          _checked(), allow_stop=True, quiet_s=STEP_QUIET_S)
-    from . import model_job as mj
+    from ..jobs import prompts as jobs_prompts
+    from ..jobs import slice as jobs_slice
+    from ..jobs import store as jobs_store
     # Every file is in the job folder (#1779): stamped here, not after the
     # combine, so a slow combine no longer hides the finished downloads.
-    mj.front_mark('download_done')
-    mj.front_mark('source_checked')
-    unit_q = await asyncio.to_thread(mj.parts_unit_question, job, paths)
+    jobs_store.front_mark('download_done')
+    jobs_store.front_mark('source_checked')
+    unit_q = await asyncio.to_thread(jobs_prompts.parts_unit_question, job, paths)
     inches = False
     if unit_q is not None:
         # The combined project is millimeters, so the STL files' units are settled here, once for the set.
@@ -2416,17 +2325,17 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
             'One answer covers all the STL files.'), unit_q['choices'], timeout)
     target = folder / 'source' / f"{job.get('slug') or 'model'}-parts.3mf"
     bed = list(state.get('bed_mm') or BED)[:2] + ([state['max_print_height_mm']] if state.get('max_print_height_mm') else [])
-    mj.front_mark('combine_begin')
+    jobs_store.front_mark('combine_begin')
     combined = await _with_stop(adapter, source, key, metadata,
                                 f'Putting the {len(paths)} files together as one project.',
                                 _heavy(model_parts.combine, target, [str(p) for p in paths], bed, stl_inches=inches),
                                 allow_stop=True)
-    mj.front_mark('combine_done')
+    jobs_store.front_mark('combine_done')
     job.update(_combined_source(job, parts, paths, combined))
     if unit_q is not None:
         job['unit_provenance'] = {'units': 'inch' if inches else 'mm', 'source': 'user_confirmation',
                                   'original_mm': unit_q['original_mm'],
-                                  'factor': mj.INCH_TO_MM if inches else 1.0}
+                                  'factor': jobs_slice.INCH_TO_MM if inches else 1.0}
     job['large_source_notice'] = bool(large)
     return Path(combined['path'])
 
@@ -2618,11 +2527,11 @@ def _variant_estimate_str(job_data, result):
         result = [result]
     if result and Path(result[0]).is_file():
         try:
-            from print_handy.core import model_job as mj
+            from ..jobs import store as jobs_store
             text = Path(result[0]).read_text()
-            sec = mj.gcode_estimate_s(text)
+            sec = jobs_store.gcode_estimate_s(text)
             if sec:
-                return f"~{mj.human_dur(sec)} printing"
+                return f"~{jobs_store.human_dur(sec)} printing"
         except Exception:
             logger.debug("Best-effort recovery from Exception", exc_info=True)
     return 'slicing...'
@@ -2704,12 +2613,12 @@ async def _verify_slots(adapter, source, key, metadata, state, printer_id, timeo
 
 def _refresh_rebound_selections(decisions, rebound, state):
     """Point decisions at the spool just confirmed for a rebound slot (never a guess; only after an answer)."""
-    from . import model_job as mj
+    from ..jobs import filament as jobs_filament
 
     def fresh(selection):
         if isinstance(selection, dict) and selection.get('slot') in rebound:
-            record = mj.configured_slots(state).get(str(selection['slot'])) or {}
-            return mj.resolve_filament_selection(state, dict(record, slot=int(selection['slot'])))
+            record = jobs_filament.configured_slots(state).get(str(selection['slot'])) or {}
+            return jobs_filament.resolve_filament_selection(state, dict(record, slot=int(selection['slot'])))
         return selection
 
     if decisions.get('mode') == 'single_color':
@@ -2776,7 +2685,10 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
     question asked here. It then goes to ``print-now --yolo`` exactly as
     sent: no slicing, every check reported instead of enforced.
     """
-    from . import model_job as mj, yolo
+    from . import yolo
+    from ..gcode import artifact as gcode_artifact
+    from ..jobs import common as jobs_common
+    from ..jobs import store as jobs_store
     source = event.source
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     key = (getattr(event, 'metadata', None) or {}).get('live_session_key') or source.chat_id
@@ -2836,8 +2748,8 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
                                content='Cancelled. Nothing uploaded or started. Send the .stl or .3mf '
                                        'model to have it sliced for this printer.')
             return {'action': 'skip', 'reason': 'operator declined printing sliced G-code as-is'}
-    sha = mj.file_sha256(path)
-    folder = Path(mj.ARCHIVE) / f'yolo-gcode--{sha[:16]}'
+    sha = gcode_artifact.file_sha256(path)
+    folder = Path(jobs_common.ARCHIVE) / f'yolo-gcode--{sha[:16]}'
     folder.mkdir(parents=True, exist_ok=True)
     note = ''
     if name.lower().endswith('.gcode.3mf'):
@@ -2853,10 +2765,10 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
         gcode = folder / name
         if Path(path).resolve() != gcode.resolve():
             shutil.copyfile(path, gcode)
-    gsha = mj.file_sha256(gcode)
+    gsha = gcode_artifact.file_sha256(gcode)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
-    iid = mj.intake_id_from_message(source, getattr(event, 'message_id', None) or gsha)
+    iid = jobs_store.intake_id_from_message(source, getattr(event, 'message_id', None) or gsha)
     receipt_path = root / (iid + '.json')
     target = {'plan_id': f'yolo-{iid[:16]}', 'part_id': 'file', 'copy': 1, 'quantity': 1,
               'gcode': str(gcode), 'gcode_sha256': gsha, 'reprint': True, 'yolo': True}
@@ -2888,15 +2800,18 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
     return {'action': 'skip', 'reason': f'yolo G-code {outcome.status.lower()}'}
 
 
-
-
-
-
-
-
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                         before_start=None, confirm_target=False):
     from . import model_job as mj
+    from ..gcode import artifact as gcode_artifact
+    from ..jobs import audit as jobs_audit
+    from ..jobs import common as jobs_common
+    from ..jobs import filament as jobs_filament
+    from ..jobs import prompts as jobs_prompts
+    from ..jobs import slice as jobs_slice
+    from ..jobs import sources as jobs_sources
+    from ..jobs import store as jobs_store
+    from ..launch import gates as launch_gates
     from .source_colors import (inventory, canonical_prompts, grouped_prompts, validate_decisions,
                                 color_groups, propose_mapping, remembered_color_mapping,
                                 mapping_summary, prompt_source_colour)
@@ -2908,7 +2823,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     mid = getattr(event, 'message_id', None)
     if not (url or uploads or archives or reuse) or not mid:
         raise ValueError('plain model link requires a stable Discord message ID')
-    iid = mj.intake_id_from_message(source, mid)
+    iid = jobs_store.intake_id_from_message(source, mid)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     receipt_path = root / (iid + '.json')
@@ -2932,7 +2847,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     live_token = _LIVE_KEY.set(event_metadata.get('live_session_key') or key)
     # Front-of-flow timing (#1476): message_received is stamped now;
     # the buffer is bound to the job folder when it is created below.
-    front_token = mj.front_begin()
+    front_token = jobs_store.front_begin()
     log_token = logs.bind(intake=iid, job_correlation_id=iid)
     logger.info('intake started origin=%s', logs.redact(str(origin)))
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
@@ -2997,7 +2912,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             job = await _with_connect(adapter, source, key, metadata, timeout,
                                       lambda: _with_stop(adapter, source, key, metadata,
                                                          'Reading the model page.',
-                                                         owned_worker.in_thread(mj.inventory_for_url, url),
+                                                         owned_worker.in_thread(jobs_sources.inventory_for_url, url),
                                                          allow_stop=True, quiet_s=STEP_QUIET_S))
         _running_job.attach_job(job)
         rows = job.get('sources', [])
@@ -3050,7 +2965,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             raise ValueError(
                 f"MakerOnline model \"{job.get('title') or 'untitled'}\": the inventory found "
                 f"{len(rows)} printable file(s): {names}. "
-                + (job.get('download_gap') or mj.MAKERONLINE_DOWNLOAD_GAP)
+                + (job.get('download_gap') or jobs_sources.MAKERONLINE_DOWNLOAD_GAP)
                 + " Nothing was downloaded or sliced.")
         hint = re.fullmatch(r'profileId-(\d+)', urlsplit(url or '').fragment or '')
         parts = None  # two or more files of one file-list model, printed together
@@ -3078,13 +2993,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 parts = picked
                 chosen = {'kind': 'parts', 'title': _parts_title(parts)}
         await send_preview(adapter, source, job, chosen, metadata, state=state)
-        folder = mj.intake_folder(mj.ARCHIVE, job['slug'], iid)
+        folder = jobs_store.intake_folder(jobs_common.ARCHIVE, job['slug'], iid)
         folder.mkdir(parents=True, exist_ok=False)
-        mj.front_bind(folder / 'JOB.json')  # buffered front stages land in TIMING.jsonl (#1476)
+        jobs_store.front_bind(folder / 'JOB.json')  # buffered front stages land in TIMING.jsonl (#1476)
         job.update(url=url, intake_id=iid, hardware=state, selected_source=chosen)
         stamp_started_by(job, source)
         fetch = copy_upload if (reuse or job['site'] == 'upload') else (
-            lambda j, chosen, dest: mj.download_for_site(j, chosen, dest))
+            lambda j, chosen, dest: jobs_sources.download_for_site(j, chosen, dest))
         from .intake_resources import check_source
         if parts:
             path = await _fetch_parts(adapter, source, key, metadata, timeout, job, parts, folder, fetch, state)
@@ -3097,9 +3012,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             job['downloaded_file'] = str(path)
         if reuse and reuse.get('source_checkpoint_resume'):
             expected = reuse['source_checkpoint_resume']['source_sha256']
-            if await asyncio.to_thread(mj.file_sha256, path) != expected:
+            if await asyncio.to_thread(gcode_artifact.file_sha256, path) != expected:
                 raise ValueError('The archived model changed while resuming. Nothing was sliced or started.')
-        mj.front_mark('download_done')  # the source file is in the job folder (#1476)
+        jobs_store.front_mark('download_done')  # the source file is in the job folder (#1476)
         if await asyncio.to_thread(is_gcode_3mf, path):
             # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
             # refuse before the audit can misreport it as bad_3mf_structure.
@@ -3113,7 +3028,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             await owned_worker.in_thread(intake_working_copy, path)
         await _with_stop(adapter, source, key, metadata, 'Checking the downloaded file.',
                          _checked_single(), allow_stop=True, quiet_s=STEP_QUIET_S)
-        mj.front_mark('source_checked')  # source checks and the working copy (#1779)
+        jobs_store.front_mark('source_checked')  # source checks and the working copy (#1779)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         # Cache only pure inspection output, bound to canonical source bytes and
@@ -3126,7 +3041,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             'channel_id': str(getattr(source, 'chat_id', '') or '').strip(),
             'printer_id': str(printer_id or '').strip(),
         }
-        actual_sha = await asyncio.to_thread(mj.file_sha256, path)
+        actual_sha = await asyncio.to_thread(gcode_artifact.file_sha256, path)
         cache_root = runtime_config.cache_dir()
         audit_cache_key = await asyncio.to_thread(
             intake_inspection_cache.get, cache_root, 'audit', actual_sha, inspection_scope)
@@ -3138,8 +3053,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # After the heads-up the audit's own prompt need not say "large" again.
                 _voiced('Checking the model. Press Stop to cancel.' if large else large_model_notice(path),
                         'model_audit', source, iid),
-                _heavy(mj.audit, path), allow_stop=True, quiet_s=STEP_QUIET_S)
-        if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
+                _heavy(jobs_audit.audit, path), allow_stop=True, quiet_s=STEP_QUIET_S)
+        if await asyncio.to_thread(gcode_artifact.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during audit; retry intake.')
         if audit_cache_key is None:
             # Never persist results if the source changed while inspection ran.
@@ -3147,15 +3062,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                     inspection_scope, job['audit'])
         if isinstance(job['audit'], dict):
             job['audit'] = intake_inspection_cache.bind_audit_to_path(job['audit'], path)
-        mj.front_mark('audit_done')  # (#1779)
+        jobs_store.front_mark('audit_done')  # (#1779)
         if isinstance(job['audit'], dict) and job['audit'].get('no_printable_volume'):
             # Refuse at intake (#194): asking for colors and copies first only to fail at slicing wastes the operator's time.
-            raise mj.NoPrintableVolume(job['audit']['geometry_error'])
+            raise jobs_slice.NoPrintableVolume(job['audit']['geometry_error'])
         # Inspecting a large multi-object 3MF is ~30 s of pure-Python XML work. It must never run on the
         # gateway event loop (that froze Discord button callbacks). The audit already inspected these exact
         # bytes; reuse its manifest only if it is bound to the file's current SHA256, else inspect off-loop.
         manifest = (job['audit'] or {}).get('color_manifest') if isinstance(job['audit'], dict) else None
-        actual_sha = await asyncio.to_thread(mj.file_sha256, path)
+        actual_sha = await asyncio.to_thread(gcode_artifact.file_sha256, path)
         if not (isinstance(manifest, dict) and manifest.get('source_sha256') == actual_sha):
             manifest = await _with_stop(
                 adapter, source, key, metadata,
@@ -3163,13 +3078,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 _heavy(inventory, path), allow_stop=True, quiet_s=STEP_QUIET_S)
         # STL has no source palette, but still needs an exact-source color decision.
         if not manifest.get('source_sha256'):
-            manifest.update(source_sha256=await asyncio.to_thread(mj.file_sha256, path))
+            manifest.update(source_sha256=await asyncio.to_thread(gcode_artifact.file_sha256, path))
         if reuse and reuse.get('source_checkpoint_resume'):
             plate_id = reuse['source_checkpoint_resume']['plate_id']
             if plate_id not in {str(value) for value in (manifest.get('plate_usage') or {})}:
                 raise ValueError('The archived source no longer identifies that authored plate. Nothing was sliced or started.')
         job['color_manifest'] = manifest
-        mj.front_mark('manifest_done')  # (#1779)
+        jobs_store.front_mark('manifest_done')  # (#1779)
         # An explicit plate request applies only to authored plate IDs from
         # this exact inspected source. An unknown or ambiguous request must
         # not widen to all plates.
@@ -3183,7 +3098,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # Persist a source-stage checkpoint immediately after inspection, before
         # any slicer decision. Keep this distinct from multipart_plan, whose
         # physical completion counters are created only for verified slices.
-        mj.stamp_job_printer(job, printer_id)
+        jobs_store.stamp_job_printer(job, printer_id)
         from . import projects as project_identity
         checkpoint_scope = {
             'platform': getattr(getattr(source, 'platform', None), 'value', None),
@@ -3193,7 +3108,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         }
         job['source_checkpoint'] = project_identity.source_checkpoint(
             job, manifest, checkpoint_scope)
-        mj.write_job(folder, job)
+        jobs_store.write_job(folder, job)
         from . import support_clearance
         # The job's own printer's nozzle and the project's first layer (#1373 review:
         # the default printer's profile was read on multi-printer installs).
@@ -3208,7 +3123,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 _heavy(support_clearance.safe_analyze, path,
                        first_layer_mm=clearance_first_layer),
                 allow_stop=True)
-        if await asyncio.to_thread(mj.file_sha256, path) != actual_sha:
+        if await asyncio.to_thread(gcode_artifact.file_sha256, path) != actual_sha:
             raise ValueError('Model source changed during inspection; retry intake.')
         if clearance_cache_key is None:
             await asyncio.to_thread(intake_inspection_cache.put, cache_root, 'clearance', actual_sha,
@@ -3216,9 +3131,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                     inputs={'first_layer_mm': clearance_first_layer})
         if clearance_rep:
             job['support_clearance'] = clearance_rep
-        mj.front_mark('inspection_done')  # audit, color manifest and clearance are done (#1476)
+        jobs_store.front_mark('inspection_done')  # audit, color manifest and clearance are done (#1476)
         jp = folder / 'JOB.json'
-        mj.write_job(folder, job)
+        jobs_store.write_job(folder, job)
         # The bed fit probes read the job's own printer's bed exclusions, not the default's (#1195).
         fit_state = _fit_state(state, job)
         receipt.update(job_json=str(jp), source_sha256=manifest['source_sha256'], status='AWAITING_COLOR')
@@ -3229,7 +3144,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             reused = await _offer_previous_decisions(adapter, source, key, timeout, job, state, folder,
                                                      receipts_root=root)
             if reused is not None:
-                mj.write_job(folder, job)
+                jobs_store.write_job(folder, job)
                 receipt.update(reused_decisions=reused)
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 await adapter.send(chat_id=source.chat_id, metadata=metadata, content=(
@@ -3263,7 +3178,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 except (TypeError, ValueError):
                     logger.debug("Best-effort recovery from (TypeError, ValueError)", exc_info=True)
         fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, fit_state, **fit_kw))
-        unit_q = mj.unit_question(job)
+        unit_q = jobs_prompts.unit_question(job)
         if unit_q is not None:
             # STL records no units and this part is small enough to be either
             # millimeters or inches. Ask before any fit or color work, and
@@ -3275,9 +3190,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                               f'Is that size in millimeters, or in inches (which would print at {as_inch} mm)?',
                               unit_q['choices'], timeout)
             units = 'mm' if pick == 0 else 'inch'
-            decision = mj.make_unit_decision(units, manifest['source_sha256'], unit_q['original_mm'])
-            mj.set_unit_decision(job, decision)
-            mj.write_job(folder, job)
+            decision = jobs_prompts.make_unit_decision(units, manifest['source_sha256'], unit_q['original_mm'])
+            jobs_prompts.set_unit_decision(job, decision)
+            jobs_store.write_job(folder, job)
             receipt.update(unit_decision=decision)
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             if units == 'inch':
@@ -3291,7 +3206,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # cancelled until the operator picks Cancel.
                     try:
                         fit_fraction = await _heavy(orca_adapter.largest_fitting_fraction,
-                                                    path, fit_state, mj.INCH_TO_MM, copy_limit=1)
+                                                    path, fit_state, jobs_slice.INCH_TO_MM, copy_limit=1)
                     except Exception:
                         logger.exception('inch fit search failed')
                         fit_fraction = None
@@ -3320,30 +3235,30 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                            metadata=metadata)
                         return {'action': 'skip', 'reason': 'inch-confirmed model exceeds printer volume'}
                     if row['kind'] == 'mm':
-                        decision = mj.make_unit_decision('mm', manifest['source_sha256'],
+                        decision = jobs_prompts.make_unit_decision('mm', manifest['source_sha256'],
                                                          unit_q['original_mm'])
-                        mj.set_unit_decision(job, decision)
+                        jobs_prompts.set_unit_decision(job, decision)
                         receipt.update(unit_decision=decision)
                     else:
                         # The scale is of the authored file, so it carries the
                         # inch factor: slicing's explicit scale then lands the
                         # part at the fitted fraction of the inch size.
-                        job['scale'] = round(mj.INCH_TO_MM * row['scale'], 6)
+                        job['scale'] = round(jobs_slice.INCH_TO_MM * row['scale'], 6)
                         receipt.update(scale=job['scale'])
-                    mj.write_job(folder, job)
+                    jobs_store.write_job(folder, job)
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-        job_adapter = mj._job_adapter(job)
+        job_adapter = jobs_store._job_adapter(job)
         # ZMod purge awareness (#832): re-read the printer's purge mode and plugins (read-only, short
         # timeouts, never blocks intake), then refuse a source an IFS Jacker printer cannot model yet.
         if getattr(job_adapter, 'has_native_screen', False):
             await asyncio.to_thread(purge.refresh_best_effort, state, job_adapter, job.get('printer_id'))
             purge.require_jacker_capacity(manifest, job_adapter, state)
-        selections = [mj.resolve_filament_selection(state, dict(label, slot=int(slot)))
-                      for slot, label in sorted(mj.configured_slots(state).items())]
+        selections = [jobs_filament.resolve_filament_selection(state, dict(label, slot=int(slot)))
+                      for slot, label in sorted(jobs_filament.configured_slots(state).items())]
         # A tool_based printer's positions are tools, never slots (#346, #1198).
         labels = (mj.build_tool_labels(selections) if job_adapter.tool_based
                   else mj.build_slot_labels(selections))
-        if not labels or len(labels) > mj.position_limit(job_adapter) or len(set(labels)) != len(labels):
+        if not labels or len(labels) > jobs_filament.position_limit(job_adapter) or len(set(labels)) != len(labels):
             raise ValueError('requires one to four distinct configured toolheads' if job_adapter.tool_based
                              else 'requires one to four distinct configured slots')
         # A job with a plate selection is asked only about the selected
@@ -3600,14 +3515,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         latest = json.loads(jp.read_text())
         if saved_decisions:
             if (latest.get('intake_id') != iid
-                    or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']):
+                    or gcode_artifact.file_sha256(latest['downloaded_file']) != decisions['source_sha256']):
                 raise ValueError('source/job changed during resume; decisions not saved')
         elif (latest.get('intake_id') != iid or latest.get('color_decisions')
-                or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']):
+                or gcode_artifact.file_sha256(latest['downloaded_file']) != decisions['source_sha256']):
             raise ValueError('source/job changed during selection; decisions not saved')
-        validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+        validated = validate_decisions(manifest, decisions, state, jobs_filament.resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
-        mj.set_color_decisions(latest, validated)
+        jobs_store.set_color_decisions(latest, validated)
         if getattr(job_adapter, 'has_native_screen', False):
             # #1788: advise about a slot this print uses when the printer screen and
             # Print Handy disagree about it. Advisory: only an explicit Cancel stops.
@@ -3622,9 +3537,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 return {'action': 'skip', 'reason': 'operator cancelled at the spool question'}
             if rebound:
                 _refresh_rebound_selections(decisions, set(rebound), state)
-                validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                validated = validate_decisions(manifest, decisions, state, jobs_filament.resolve_filament_selection,
                                                selected_plate_ids=selected_plates)
-                mj.set_color_decisions(latest, validated)
+                jobs_store.set_color_decisions(latest, validated)
         if validated.get('mode') == 'per_part':
             # #1473: remember the accepted mapping for the next post of this
             # file with the same spools loaded (best-effort, never blocking).
@@ -3661,7 +3576,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             title = latest.get('title') or 'This model'
             fit_error = None
             try:
-                fit = await _heavy(mj.painted_fit_for_job, path, latest['color_decisions'], state)
+                fit = await _heavy(jobs_slice.painted_fit_for_job, path, latest['color_decisions'], state)
             except Exception as exc:
                 fit = {'scale': None, 'error': str(exc)}
                 fit_error = exc
@@ -3690,7 +3605,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     return {'action': 'skip', 'reason': 'painted fit check failed; operator cancelled'}
                 fit_error = None
                 try:
-                    fit = await _heavy(mj.painted_fit_for_job, path, latest['color_decisions'], state)
+                    fit = await _heavy(jobs_slice.painted_fit_for_job, path, latest['color_decisions'], state)
                 except Exception as exc:
                     fit = {'scale': None, 'error': str(exc)}
                     fit_error = exc
@@ -3739,7 +3654,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             latest['scale'] = row['scale']
             receipt['scale'] = row['scale']
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-            mj.write_job(folder, latest)
+            jobs_store.write_job(folder, latest)
             capacity = 1
         # One object, one shell: there is nothing to rearrange or split, so both
         # searches are skipped (they only cost time) and neither is advertised.
@@ -3751,11 +3666,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # parts, do it and say so instead of asking. The check uses the
             # planner the slice path uses, so the plan is one it honors.
             try:
-                job_adapter = mj._job_adapter(latest)
+                job_adapter = jobs_store._job_adapter(latest)
                 one_plate = await fit_status.run('trying the parts rearranged on one plate at 100%',
-                                                 _heavy(mj.full_size_one_plate, path, state,
+                                                 _heavy(jobs_slice.full_size_one_plate, path, state,
                                                         latest.get('color_decisions'),
-                                                        capacity=mj.position_limit(job_adapter),
+                                                        capacity=jobs_filament.position_limit(job_adapter),
                                                         multi_tool=job_adapter.multi_tool,
                                                         job=latest),
                                                  voice=_voice('plate_arrangement', source, iid))
@@ -3772,7 +3687,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 receipt.update(full_size_rearrange=True, fit_auto_rearranged=True, scale=1.0,
                                fit_options={'rearrange_100': one_plate})
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                mj.write_job(folder, latest)
+                jobs_store.write_job(folder, latest)
                 await fit_status.finish('fits one plate at 100% rearranged.')
                 await adapter.send(chat_id=source.chat_id, content=auto_rearrange_notice(title, one_plate),
                                    metadata=metadata)
@@ -3808,7 +3723,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # full_size_one_plate proved it above.
                 options.pop('rearrange_100', None)
                 options = await fit_status.run('checking each color plate',
-                                               _heavy(mj.per_part_fit_options, path, latest['color_decisions'], options,
+                                               _heavy(jobs_slice.per_part_fit_options, path, latest['color_decisions'], options,
                                                       int((state.get('bed_mm') or BED)[0])))
             if options.get('parts'):
                 # Prefer the per-part fit evaluation (#76): a part blocks only
@@ -3996,7 +3911,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 receipt['full_size_rearrange'] = True
                 receipt['scale'] = 1.0
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                mj.write_job(folder, latest)
+                jobs_store.write_job(folder, latest)
             if row['kind'] == 'split':
                 latest['plate_mode'] = 'separate'
                 latest['scale'] = float(row.get('scale') or 1.0)
@@ -4025,7 +3940,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     receipt['split_as_designed'] = True
                 receipt['scale'] = latest['scale']
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                mj.write_job(folder, latest)
+                jobs_store.write_job(folder, latest)
             selected_scale = row.get('scale', 1.0)
             rotation = row.get('rotation')
             if row['kind'] in ('split', 'rearrange'):
@@ -4059,8 +3974,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 orientation = {k: row[k] for k in ('rotation', 'axis', 'dims_full_mm', 'supports', 'brim', 'label')}
                 latest['orientation'] = orientation
                 receipt['orientation'] = orientation
-            mj.write_job(folder, latest)
-        if capacity > 1 and not mj.copies_supported(latest):
+            jobs_store.write_job(folder, latest)
+        if capacity > 1 and not jobs_slice.copies_supported(latest):
             # Only single plate jobs clone copies into the G-code (#37); never offer a count it would lack.
             capacity = 1
             await adapter.send(chat_id=source.chat_id,
@@ -4094,7 +4009,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                            f'{capacity}. Nothing was changed.', metadata=metadata)
                 return {'action': 'skip', 'reason': 'quantity choice unresolved'}
         latest['copies'] = chosen_quantity
-        mj.write_job(folder, latest)
+        jobs_store.write_job(folder, latest)
         receipt.update(status='COLORS_SAVED', color_decisions=validated, copies=chosen_quantity)
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         # Quantity is validated against real capacity above. A once-per-user
@@ -4129,21 +4044,21 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # The clearance report follows the pose the fit flow chose (a turn or a
         # shrink) before anything is sliced or asked from it (#1373 review).
         await _refresh_posed_clearance(latest, path)
-        mj.write_job(folder, latest)
+        jobs_store.write_job(folder, latest)
         # Slice while the confirm question is on screen. Cancel below discards it,
         # so a job that never asked for G-code keeps none.
         early = runner_for(jp)
         binding = slice_binding(latest, decisions['source_sha256'])
         recipe_sha = binding_sha256(binding)  # the worker refuses to slice any other recipe
         await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
-                          _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                          _heavy(jobs_slice.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                               {'copies': copies} if copies and int(copies) > 1 else {})))
         await early.started.wait()  # armed before the question goes up
         multi = len(manifest['parts']) > 1
         def _color_of(sel):
             sel = sel or {}
             color = str(sel.get('color') or '').strip()
-            noun = 'Toolhead' if mj._job_adapter(latest).tool_based else 'Slot'
+            noun = 'Toolhead' if jobs_store._job_adapter(latest).tool_based else 'Slot'
             from .printer_state import display_material
             material = display_material(sel.get('material'))
             return ' '.join(v for v in (color[:1].upper() + color[1:], material) if v) or f"{noun} {sel.get('slot')}"
@@ -4416,7 +4331,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             else:
                 spool_variants = (early.job_with_supports if getattr(early, 'supports_result', None)
                                   else early.job_no_supports,)
-            spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity,
+            spool_text = await _spool_projection_text(latest, manifest, state, chosen_quantity,
                                                       shortages=shown_shortages, sliced_variants=spool_variants)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
@@ -4426,7 +4341,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 spool_text = (spool_text + '\n' + cost_text) if spool_text else cost_text
             estimate_s = source_estimate[0] * chosen_quantity if source_estimate else None
             # No source estimate: there is no time to show yet (the post-slice message gives it).
-            estimate_text = '' if estimate_s is None else f"~{mj.human_dur(estimate_s + 300)}"
+            estimate_text = '' if estimate_s is None else f"~{jobs_store.human_dur(estimate_s + 300)}"
             if chosen_quantity and chosen_quantity != 1:
                 estimate_text = ' · '.join(x for x in (f"{chosen_quantity} copies", estimate_text) if x)
             picked = await _ask(adapter, source, key,
@@ -4448,7 +4363,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # clobber the decision (see BackgroundSlice.settle).
                     if hasattr(early, 'settle'):
                         await early.settle()
-                    mj.record_support_decision(folder, True)
+                    jobs_store.record_support_decision(folder, True)
                     mj.record_supports_question(folder, question_audit)
                     # "With supports" does NOT waive a low-clearance finding
                     # (#922 gap 2): supports cannot fit into a sub-1.0 mm gap,
@@ -4464,7 +4379,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     choice = 0 if can_print else 1  # no print delivery: the slice-only path
                     if hasattr(early, 'settle'):
                         await early.settle()
-                    mj.record_support_decision(folder, False)
+                    jobs_store.record_support_decision(folder, False)
                     mj.record_supports_question(folder, question_audit)
                     if early.finding:
                         # An explicit override, bound to the slicer warning
@@ -4554,7 +4469,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     clearance = rotated
                     if rotated is not None:
                         early.clearance = rotated
-                    mj.write_job(folder, latest)
+                    jobs_store.write_job(folder, latest)
                     offer_reorient = False
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=_voiced('Reoriented: laid the largest face flat. The support '
@@ -4563,7 +4478,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     binding = slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
-                                      _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                                      _heavy(jobs_slice.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                                           {'copies': copies} if copies and int(copies) > 1 else {})))
                     await early.started.wait()
                     if (early.running() and not early.first_slice_done.is_set()
@@ -4584,7 +4499,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                            f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted, "
                                            f"added {res.get('added_volume_mm3', 0):.0f} mm3). Re-analyzing...",
                                            'mesh_repair', source, iid))
-                    new_sha = mj.file_sha256(path)
+                    new_sha = gcode_artifact.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
                     latest['color_manifest'] = manifest
@@ -4595,14 +4510,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # The repair changed the source bytes: rebind the saved
                     # color decisions to the repaired source, or the restarted
                     # slice refuses them for binding the old SHA256.
-                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                    validated = validate_decisions(manifest, decisions, state, jobs_filament.resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
-                    mj.set_color_decisions(latest, validated)
-                    mj.write_job(folder, latest)
+                    jobs_store.set_color_decisions(latest, validated)
+                    jobs_store.write_job(folder, latest)
                     binding = slice_binding(latest, new_sha)
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
-                                      _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                                      _heavy(jobs_slice.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                                           {'copies': copies} if copies and int(copies) > 1 else {})))
                     await early.started.wait()
                     if (early.running() and not early.first_slice_done.is_set()
@@ -4619,7 +4534,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                            f"Flattened model to plate by sinking {res['sink_mm']} mm "
                                            f"({res.get('removed_volume_mm3', 0):.0f} mm3 ends up below the plate and is clipped). Re-analyzing...",
                                            'mesh_repair', source, iid))
-                    new_sha = mj.file_sha256(path)
+                    new_sha = gcode_artifact.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
                     latest['color_manifest'] = manifest
@@ -4630,14 +4545,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # The repair changed the source bytes: rebind the saved
                     # color decisions to the repaired source, or the restarted
                     # slice refuses them for binding the old SHA256.
-                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                    validated = validate_decisions(manifest, decisions, state, jobs_filament.resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
-                    mj.set_color_decisions(latest, validated)
-                    mj.write_job(folder, latest)
+                    jobs_store.set_color_decisions(latest, validated)
+                    jobs_store.write_job(folder, latest)
                     binding = slice_binding(latest, new_sha)
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
-                                      _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                                      _heavy(jobs_slice.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                                           {'copies': copies} if copies and int(copies) > 1 else {})))
                     await early.started.wait()
                     if (early.running() and not early.first_slice_done.is_set()
@@ -4773,7 +4688,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             latest['copies'] = chosen_quantity
             # Gaps scale with the model (#1373 review): a 1.6 mm gap is 0.8 mm at 50%.
             await _refresh_posed_clearance(latest, path)
-            mj.write_job(folder, latest)
+            jobs_store.write_job(folder, latest)
             receipt.update(scale=new_scale, copies=chosen_quantity)
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             scale_note = (f'Scaled to {_pct(new_scale)} of the authored size.'
@@ -4781,7 +4696,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             binding = slice_binding(latest, decisions['source_sha256'])
             recipe_sha = binding_sha256(binding)  # the worker refuses to slice any other recipe
             await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
-                              _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                              _heavy(jobs_slice.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                                   {'copies': copies} if copies and int(copies) > 1 else {})))
             await early.started.wait()  # armed before the repeated question goes up
         if choice == 3:
@@ -4799,17 +4714,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             await early.settle()
         latest = json.loads(jp.read_text())
         if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
-                or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
+                or gcode_artifact.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
                 or slice_binding(latest, decisions['source_sha256']) != binding):
             await early.discard()  # the slice was for decisions that no longer match
             raise ValueError('source/job changed before slice approval; no handoff')
         logger.info('slice approved')
         receipt.update(status='SLICE_APPROVED', slice_attempt=1,
                        slice_approval={'intake_id': iid, 'source_sha256': decisions['source_sha256'],
-                                       'decisions_sha256': mj.decisions_digest(validated), 'attempt': 1,
+                                       'decisions_sha256': jobs_store.decisions_digest(validated), 'attempt': 1,
                                        'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha})
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-        mj._timing(jp, 'intake_slice_requested')
+        jobs_store._timing(jp, 'intake_slice_requested')
 
         # Set when an AI fix fails (not when it is declined): the same request
         # on the same job fails the same way, so the offer is withdrawn for the
@@ -4850,7 +4765,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         'source_sha256': decisions['source_sha256'],
                         'problem': str(problem)[:300],
                         'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
-                    mj.write_job(folder, current)
+                    jobs_store.write_job(folder, current)
                 except (OSError, ValueError) as exc:
                     logger.warning('could not record the AI fix failure on the job: %r', exc)
 
@@ -4869,7 +4784,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             actor = (f"{getattr(getattr(source, 'platform', None), 'value', None) or 'discord'}:"
                      f"{getattr(source, 'user_id', '')}")
             ai_fix.note_attempt(job_now, actor=actor, surface='intake')
-            mj.write_job(folder, job_now)
+            jobs_store.write_job(folder, job_now)
             mesh = await asyncio.to_thread(ai_fix.mesh_report, path)
             # Ground the proposal in what was measured on this job (#985): the
             # clearance gap a geometry fix must match, the bed it must fit and
@@ -4969,7 +4884,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     return None
             # The fix was built from the bytes the job is bound to; a source
             # that changed since gets no fix built for older bytes.
-            if not ai_fix.source_unchanged(path, decisions['source_sha256'], mj.file_sha256):
+            if not ai_fix.source_unchanged(path, decisions['source_sha256'], gcode_artifact.file_sha256):
                 ai_fix.discard_fixed_copy(fixed_path)
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content='The model file changed while the fix was being prepared, '
@@ -4984,7 +4899,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     new_decisions = ai_fix.remapped_decisions(
                         {'color_decisions': decisions, 'color_manifest': manifest},
                         proposal.filament_map,
-                        lambda sel: mj.resolve_filament_selection(state, sel))
+                        lambda sel: jobs_filament.resolve_filament_selection(state, sel))
                 except ai_fix.FixError as exc:
                     _record_fix_failed()
                     ai_fix.discard_fixed_copy(fixed_path)
@@ -4998,24 +4913,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # remap, the profile settings and every plan, restored together by
             # ai_fix.undo_last_fix.
             ai_fix.apply_to_job(latest, proposal, enriched, fixed_path=fixed_path, actor=actor,
-                                problem=problem, report=report, file_sha256=mj.file_sha256)
+                                problem=problem, report=report, file_sha256=gcode_artifact.file_sha256)
             if new_decisions is not None:
                 decisions.clear()
                 decisions.update(new_decisions)
                 validated = validate_decisions(manifest, decisions, state,
-                                               mj.resolve_filament_selection,
+                                               jobs_filament.resolve_filament_selection,
                                                selected_plate_ids=selected_plates)
-                mj.set_color_decisions(latest, validated)
+                jobs_store.set_color_decisions(latest, validated)
             if fixed_path is not None:
-                new_sha = mj.file_sha256(fixed_path)
+                new_sha = gcode_artifact.file_sha256(fixed_path)
                 path = fixed_path
                 decisions['source_sha256'] = new_sha
                 manifest['source_sha256'] = new_sha
                 latest['color_manifest'] = manifest
                 validated = validate_decisions(manifest, decisions, state,
-                                               mj.resolve_filament_selection,
+                                               jobs_filament.resolve_filament_selection,
                                                selected_plate_ids=selected_plates)
-                mj.set_color_decisions(latest, validated)
+                jobs_store.set_color_decisions(latest, validated)
                 # A pre-existing acknowledgement belongs to the old file.
                 latest.pop('clearance_acknowledgement', None)
             if fixed_path is not None or any(p.get('kind') in ('rotate', 'lay_flat') for p in enriched):
@@ -5035,7 +4950,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     latest.pop('support_clearance', None)
                     clearance = None
             latest.pop('ai_fix_failed', None)  # an applied fix clears the recorded failure
-            mj.write_job(folder, latest)
+            jobs_store.write_job(folder, latest)
             binding = slice_binding(latest, decisions['source_sha256'])
             recipe_sha = binding_sha256(binding)
             if receipt.get('slice_approval'):
@@ -5085,7 +5000,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f'That repair could not be built{detail}, so nothing was changed.')
                 return False
-            if not ai_fix.source_unchanged(path, decisions['source_sha256'], mj.file_sha256):
+            if not ai_fix.source_unchanged(path, decisions['source_sha256'], gcode_artifact.file_sha256):
                 ai_fix.discard_fixed_copy(fixed_path)
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content='The model file changed while the repair was being prepared, '
@@ -5097,15 +5012,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                      f"{getattr(source, 'user_id', '')}")
             ai_fix.apply_to_job(latest, proposal, [], fixed_path=fixed_path, actor=actor,
                                 problem='Post-slice low gap', report=report,
-                                file_sha256=mj.file_sha256, lane='gap_repair')
-            new_sha = mj.file_sha256(fixed_path)
+                                file_sha256=gcode_artifact.file_sha256, lane='gap_repair')
+            new_sha = gcode_artifact.file_sha256(fixed_path)
             path = fixed_path
             decisions['source_sha256'] = new_sha
             manifest['source_sha256'] = new_sha
             latest['color_manifest'] = manifest
-            validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+            validated = validate_decisions(manifest, decisions, state, jobs_filament.resolve_filament_selection,
                                            selected_plate_ids=selected_plates)
-            mj.set_color_decisions(latest, validated)
+            jobs_store.set_color_decisions(latest, validated)
             latest.pop('clearance_acknowledgement', None)  # it belonged to the old file
             try:
                 first = support_clearance.job_first_layer_mm(latest)
@@ -5116,7 +5031,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 logger.warning('could not re-analyze the repaired model', exc_info=True)
                 latest.pop('support_clearance', None)
                 clearance = None
-            mj.write_job(folder, latest)
+            jobs_store.write_job(folder, latest)
             binding = slice_binding(latest, new_sha)
             recipe_sha = binding_sha256(binding)
             # A Ready approval is bound to the old slice. A geometry repair
@@ -5179,7 +5094,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     recipe_sha = binding_sha256(binding)
                     out = await _with_stop(adapter, source, key, metadata,
                                            _voiced("Slicing with supports. Press Stop to cancel.", 'supports', source, iid),
-                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                                           _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                                {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
             elif supports_choice is False:
@@ -5189,7 +5104,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 if out is None:
                     out = await _with_stop(adapter, source, key, metadata,
                                            _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
-                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                                           _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                                {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
             else:
@@ -5211,12 +5126,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     if chosen_quantity and chosen_quantity > 1:
                         out = await _with_stop(adapter, source, key, metadata,
                                                _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
-                                               _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha),
+                                               _heavy(jobs_slice.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha),
                                                allow_stop=True)  # nothing uploaded yet, so Stop is safe
                     else:
                         out = await _with_stop(adapter, source, key, metadata,
                                                _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
-                                               _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha),
+                                               _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha),
                                                allow_stop=True)
         except mj.FilamentWarningPending as pending:
             # Filament findings warn instead of refusing (owner ruling,
@@ -5238,18 +5153,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                    content='Filament warnings not accepted. Nothing was sliced, '
                                            'uploaded or started.')
                 return {'action': 'skip', 'reason': 'filament warnings declined'}
-            mj.record_filament_warning_acknowledgement(
+            jobs_prompts.record_filament_warning_acknowledgement(
                 jp, warnings=pending.warnings, source_sha256=pending.source_sha256,
                 selected_plates=pending.selected_plates, via='print_anyway')
             latest = json.loads(jp.read_text())
             if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
-                    or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
+                    or gcode_artifact.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
                     or slice_binding(latest, decisions['source_sha256']) != binding):
                 raise ValueError('saved job changed before the accepted re-slice; no slice started')
             attempt = int(receipt.get('slice_attempt') or 1) + 1
             receipt.update(status='SLICE_APPROVED', slice_attempt=attempt,
                            slice_approval={'intake_id': iid, 'source_sha256': decisions['source_sha256'],
-                                           'decisions_sha256': mj.decisions_digest(validated), 'attempt': attempt,
+                                           'decisions_sha256': jobs_store.decisions_digest(validated), 'attempt': attempt,
                                            'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha})
             receipt.pop('slice_error', None)
             receipt.pop('failure', None)
@@ -5261,11 +5176,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 if chosen_quantity and chosen_quantity > 1:
                     out = await _with_stop(adapter, source, key, metadata,
                                            "Slicing with the accepted filament warnings. Press Stop to cancel.",
-                                           _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
+                                           _heavy(jobs_slice.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
                 else:
                     out = await _with_stop(adapter, source, key, metadata,
                                            "Slicing with the accepted filament warnings. Press Stop to cancel.",
-                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
+                                           _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha))
             except Exception as accepted_error:
                 logger.exception('slice after filament warning acceptance failed')
                 await early.discard()
@@ -5384,13 +5299,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 return {'action': 'skip', 'reason': 'slice retry cancelled'}
             latest = json.loads(jp.read_text())
             if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
-                    or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
+                    or gcode_artifact.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
                     or slice_binding(latest, decisions['source_sha256']) != binding):
                 raise ValueError('saved job changed before retry; no slice started')
             attempt = int(receipt.get('slice_attempt') or 1) + 1
             receipt.update(status='SLICE_APPROVED', slice_attempt=attempt,
                            slice_approval={'intake_id': iid, 'source_sha256': decisions['source_sha256'],
-                                           'decisions_sha256': mj.decisions_digest(validated), 'attempt': attempt,
+                                           'decisions_sha256': jobs_store.decisions_digest(validated), 'attempt': attempt,
                                            'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha})
             receipt.pop('slice_error', None)
             receipt.pop('failure', None)  # the first attempt's classification does not describe this one
@@ -5403,11 +5318,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     if chosen_quantity and chosen_quantity > 1:
                         out = await _with_stop(adapter, source, key, metadata,
                                                _voiced("Retrying the slice. Press Stop to cancel.", 'slice', source, iid),
-                                               _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
+                                               _heavy(jobs_slice.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
                     else:
                         out = await _with_stop(adapter, source, key, metadata,
                                                _voiced("Retrying the slice. Press Stop to cancel.", 'slice', source, iid),
-                                               _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
+                                               _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha))
                     break
                 except Exception as retry_error:
                     logger.exception('slice retry failed')
@@ -5440,7 +5355,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                 receipt.update(status='SLICE_APPROVED', slice_attempt=attempt,
                                                slice_approval={'intake_id': iid,
                                                                'source_sha256': decisions['source_sha256'],
-                                                               'decisions_sha256': mj.decisions_digest(validated),
+                                                               'decisions_sha256': jobs_store.decisions_digest(validated),
                                                                'attempt': attempt,
                                                                'recipe_version': RECIPE_VERSION,
                                                                'recipe_sha256': recipe_sha})
@@ -5457,7 +5372,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                            if _ai_fix.intake_fix_offered()
                                            else ''))
                     return {'action': 'skip', 'reason': 'slice retry failed'}
-        mj._timing(jp, 'intake_slice_returned')
+        jobs_store._timing(jp, 'intake_slice_returned')
         gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
         sliced = json.loads(jp.read_text())
         # Deliveries are bound to these exact bytes; a file that changes afterwards is refused.
@@ -5505,7 +5420,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         logger.warning('support coverage identity unavailable for intake %s: %s', iid, exc)
                         current = None
                     if current == preview_identity:
-                        mj._timing(jp, 'support_coverage_exact_reuse')
+                        jobs_store._timing(jp, 'support_coverage_exact_reuse')
                         return preview_result
                 return await _heavy(support_clearance.verify_coverage_by_plate, regions, plates)
             except Exception as exc:  # noqa: BLE001 - CancelledError is BaseException and propagates
@@ -5641,7 +5556,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         out = await _with_stop(
                             adapter, source, key, metadata,
                             'Re-slicing the repaired model. Press Stop to cancel.',
-                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                            _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                 {'copies': chosen_quantity}
                                 if chosen_quantity and chosen_quantity > 1 else {})),
                             allow_stop=True)
@@ -5702,7 +5617,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         out = await _with_stop(
                             adapter, source, key, metadata,
                             'Re-slicing with the AI fix. Press Stop to cancel.',
-                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                            _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                 {'copies': chosen_quantity}
                                 if chosen_quantity and chosen_quantity > 1 else {})),
                             allow_stop=True)
@@ -5841,7 +5756,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                    content='Cancelled. Nothing uploaded or started. '
                                            'The slice stays on disk.')
                 return {'action': 'skip', 'reason': 'operator cancelled on the support question'}
-            mj.record_support_decision(jp.parent, pick == 0)
+            jobs_store.record_support_decision(jp.parent, pick == 0)
             if pick == 1:
                 # Explicit no-supports override, bound to the warning and the
                 # artifact hash (#922 gap 3).
@@ -5861,7 +5776,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 copies_kw = {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {}
                 out = await _with_stop(adapter, source, key, metadata,
                                        _voiced('Re-slicing with supports. Press Stop to cancel.', 'supports', source, iid),
-                                       _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **copies_kw),
+                                       _heavy(jobs_slice.slice_job, str(jp), recipe_sha256=recipe_sha, **copies_kw),
                                        allow_stop=True)  # still entirely pre-upload, so Stop is safe
                 gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
                 sliced = json.loads(jp.read_text())
@@ -5979,15 +5894,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         exact_job, exact_plate = print_summary.find_job(str(first))
         if exact_job is None or exact_plate is None:
             raise ValueError('sliced artifact has no exact JOB.json record; refusing preparation message and start')
-        actual_estimate = mj.gcode_estimate_s(first.read_text())
+        actual_estimate = jobs_store.gcode_estimate_s(first.read_text())
         slot_lines = ''
         job_adapter = None
         try:
-            job_adapter = mj._job_adapter(exact_job)  # the exact job's printer, never "the current one" (#335)
+            job_adapter = jobs_store._job_adapter(exact_job)  # the exact job's printer, never "the current one" (#335)
             if job_adapter.tool_based:  # tools, not a slot map (#346, #1198)
                 mapping = (exact_job or {}).get('tool_mapping') or {}
                 if mapping:
-                    records = mj.configured_slots(state)
+                    records = jobs_filament.configured_slots(state)
                     lines = []
                     for tool, position in sorted(mapping.items(), key=lambda kv: int(kv[0])):
                         record = records.get(str(position), {})
@@ -6005,10 +5920,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         slot_lines = native.describe_mapping(_map, state)
         except Exception as exc:  # a bad map is refused later by print-now; show why now
             slot_lines = f'Heads-up on the filament positions: {exc}'
-        estimate_text = (f"~{mj.human_dur(actual_estimate)} printing, ~{mj.human_dur(actual_estimate + 300)} total "
+        estimate_text = (f"~{jobs_store.human_dur(actual_estimate)} printing, ~{jobs_store.human_dur(actual_estimate + 300)} total "
                          "including ~5 min warmup" if actual_estimate is not None else 'estimate unknown')
         target = {'plan_id': plan_id, 'part_id': parts[picked_plate]['id'] if split else 'plate1', 'copy': 1,
-                  'gcode': str(first), 'gcode_sha256': mj.file_sha256(first), 'reprint': False,
+                  'gcode': str(first), 'gcode_sha256': gcode_artifact.file_sha256(first), 'reprint': False,
                   'job_json': str(jp)}
         accepted = _preaccepted_shortage(choice, shown_shortages, jp)
         if accepted:
@@ -6051,8 +5966,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # disclosure above: that confirmation is the explicit acceptance
             # of the partial job print-now requires (P1-20).
             accepted = json.loads(jp.read_text())
-            accepted['partial_job_accepted'] = mj.refused_plates_digest(accepted)
-            mj.write_job(folder, accepted)
+            accepted['partial_job_accepted'] = launch_gates.refused_plates_digest(accepted)
+            jobs_store.write_job(folder, accepted)
         # One click recorded: bed clear, bound to the exact JOB.json and G-code. print-now still runs every gate
         # (verify-gcode, live readiness, single-use approval, duplicate-start claim).
         receipt['bed_clear_approval'] = {'job_json': str(jp), 'gcode': str(first), 'gcode_sha256': target['gcode_sha256'],
@@ -6079,7 +5994,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         prep_msg = ' · '.join(['Preparing to start']
                               + ([f'A reprint of print #{previous}; it gets its own new print number'] if previous else [])
                               + ([targets] if targets else []))
-        mj._timing(jp, 'intake_start_tapped')
+        jobs_store._timing(jp, 'intake_start_tapped')
         receipt['retry_target'] = target
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         start_context = {'target': target, 'receipt': receipt}
@@ -6211,7 +6126,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # A Print as sliced answer is this start's only: a later Retry asks again (#1336).
             target.pop('accept_material', None)
             target.pop('accept_spool_change', None)
-        mj._timing(jp, 'intake_start_returned', ok=bool(ok))
+        jobs_store._timing(jp, 'intake_start_returned', ok=bool(ok))
         started_as = classify_start(ok, tail)
         unknown, pending = started_as.unknown, started_as.pending
         receipt.update(status=started_as.status, started=started_as.started, start_outcome=started_as.outcome)
@@ -6353,10 +6268,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             except Exception:
                 logger.debug("could not discard the failed intake's slice", exc_info=True)
         from .site_accounts import chat_safe, short_cause
-        from . import model_job as _mj
+        from ..jobs import sources as jobs_sources
         if isinstance(exc, SiteLoginNeeded):
             cause = short_cause(exc)  # the walkthrough stays in chat, not the receipt
-        elif isinstance(exc, _mj.DownloadUnsupported):
+        elif isinstance(exc, jobs_sources.DownloadUnsupported):
             cause = exc.cause
         else:
             cause = chat_safe(exc)
@@ -6368,7 +6283,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # the remedy): keep its reason, lead plainly, drop its prefix.
             reason = str(exc).removeprefix('Model intake refused: ')
             content = (f'That model could not be prepared. {reason}')
-        elif isinstance(exc, _mj.DownloadUnsupported):
+        elif isinstance(exc, jobs_sources.DownloadUnsupported):
             content = str(exc)  # plain refusal, no walkthrough, no paths (#712)
         elif isinstance(exc, SiteLoginNeeded):
             # Curated and user-phrased by site_accounts: the text names the
@@ -6376,7 +6291,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # would hide the remedy. Chat shows the path home-relative (#712).
             content = (f'That model could not be downloaded: {chat_safe(exc)} '
                        'Nothing was sliced, uploaded or started.')
-        elif isinstance(exc, mj.DirectLinkError):
+        elif isinstance(exc, jobs_sources.DirectLinkError):
             # Also curated and user-phrased (#607): a direct file link that
             # returned a web page, pointed at a non-public address, or could
             # not be reached. Every curated case is on the diagnostics
@@ -6409,13 +6324,5 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             drop_runner(jp)
         running_jobs.unregister(_running_job)
         _LIVE_KEY.reset(live_token)
-        mj.front_end(front_token)
+        jobs_store.front_end(front_token)
         logs.unbind(log_token)
-
-
-# Code moved out of this module (#1323) still sees assignments made here
-# (mock.patch, monkeypatch) for one release; see print_handy/_relocated.py.
-from .. import _relocated  # noqa: E402
-from ..intake import fit_flow as _fit_flow, questions as _questions  # noqa: E402
-from ..intake import support_flow as _support_flow, worker as _worker  # noqa: E402
-_relocated.keep_old_path(__name__, _worker, _questions, _support_flow, _fit_flow)

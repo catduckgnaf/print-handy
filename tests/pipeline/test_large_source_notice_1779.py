@@ -15,6 +15,9 @@ import pytest
 
 
 from print_handy.core import prepared_intake
+from tests.bound_names import setattr_bound
+from print_handy.intake import fit_flow as intake_fit_flow
+from print_handy.intake import worker as intake_worker
 
 
 def _sized_stl(path, triangles):
@@ -61,17 +64,19 @@ def test_unreadable_sources_get_no_heads_up(tmp_path):
 
 
 def _intake(tmp_path, monkeypatch, names):
-    from print_handy.core import model_job, model_parts
+    from print_handy.core import model_parts
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import sources as jobs_sources
     from print_handy.runtime import _config as runtime_config
     from .test_running_job_cancel import _IntakeAdapter, _grid_stl
 
-    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path / 'archive')
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path / 'archive')
     monkeypatch.setattr(runtime_config, 'cache_dir', lambda: tmp_path / 'cache')
     monkeypatch.setattr(prepared_intake, 'LARGE_SOURCE_TRIANGLES', 500)  # the 800-triangle grids are "big"
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'big-model', 'title': 'Big Model', 'model_id': 1,
         'sources': [{'id': n, 'name': name, 'kind': 'stls'} for n, name in enumerate(names, 1)]})
-    monkeypatch.setattr(model_job, 'printables_download',
+    monkeypatch.setattr(jobs_sources, 'printables_download',
                         lambda job, chosen, dest: str(_grid_stl(Path(dest) / chosen['name'], 20, 20)))
     adapter = _IntakeAdapter([0])
     seen = {}
@@ -85,7 +90,7 @@ def _intake(tmp_path, monkeypatch, names):
     from print_handy.core import intake_resources
     if len(names) > 1:
         monkeypatch.setattr(model_parts, 'combine', stop_at('combine'))
-        monkeypatch.setattr(prepared_intake, '_heavy', lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
+        setattr_bound(monkeypatch, intake_worker, '_heavy', lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
     else:
         monkeypatch.setattr(intake_resources, 'check_source', stop_at('check'))
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
@@ -155,18 +160,21 @@ def test_only_a_delivered_heads_up_counts_as_posted(tmp_path, adapter, delivered
 
 def test_a_failed_heads_up_leaves_the_audit_its_large_model_prompt(tmp_path, monkeypatch):
     from print_handy.core import model_job, intake_resources  # noqa: F401
+    from print_handy.jobs import audit as jobs_audit
+    from print_handy.jobs import common as jobs_common
+    from print_handy.jobs import sources as jobs_sources
     from print_handy.runtime import _config as runtime_config
     from .test_color_intake import state
     from .test_running_job_cancel import _IntakeAdapter, _grid_stl
 
-    monkeypatch.setattr(model_job, 'ARCHIVE', tmp_path / 'archive')
+    setattr_bound(monkeypatch, jobs_common, 'ARCHIVE', tmp_path / 'archive')
     monkeypatch.setattr(runtime_config, 'cache_dir', lambda: tmp_path / 'cache')
     monkeypatch.setattr(prepared_intake, 'LARGE_SOURCE_TRIANGLES', 500)
-    monkeypatch.setattr(prepared_intake, 'large_model_notice', lambda path: 'LARGE MODEL PROMPT')
-    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+    setattr_bound(monkeypatch, intake_fit_flow, 'large_model_notice', lambda path: 'LARGE MODEL PROMPT')
+    monkeypatch.setattr(jobs_sources, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'big-model', 'title': 'Big Model', 'model_id': 1,
         'sources': [{'id': 1, 'name': 'part_a.stl', 'kind': 'stls'}]})
-    monkeypatch.setattr(model_job, 'printables_download',
+    monkeypatch.setattr(jobs_sources, 'printables_download',
                         lambda job, chosen, dest: str(_grid_stl(Path(dest) / chosen['name'], 20, 20)))
     audit_texts = []
     real_voiced = prepared_intake._voiced
@@ -180,8 +188,8 @@ def test_a_failed_heads_up_leaves_the_audit_its_large_model_prompt(tmp_path, mon
         raise RuntimeError('stop the intake here')
 
     monkeypatch.setattr(prepared_intake, '_voiced', voiced)
-    monkeypatch.setattr(model_job, 'audit', stop)
-    monkeypatch.setattr(prepared_intake, '_heavy', lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
+    setattr_bound(monkeypatch, jobs_audit, 'audit', stop)
+    setattr_bound(monkeypatch, intake_worker, '_heavy', lambda fn, *a, **k: asyncio.to_thread(fn, *a, **k))
 
     class FailingHeadsUp(_IntakeAdapter):
         async def send(self, chat_id, content, reply_to=None, metadata=None):

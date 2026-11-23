@@ -1,5 +1,4 @@
 # Runtime packaging adapted from zaheria985 Docker commit 3bb0984.
-# Keep plugins: standalone router dynamically loads plugins/print-feedback.
 .git
 .github
 .env

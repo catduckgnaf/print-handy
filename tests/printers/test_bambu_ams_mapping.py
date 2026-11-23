@@ -12,12 +12,16 @@ import zipfile
 import pytest
 
 from print_handy import printers, settings
-from print_handy.core import delivery, launch_state, model_job
+from print_handy.core import delivery, launch_state
+from print_handy.gcode import verify as gcode_verify
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.printers.bambulab import ams_mapping, facts
 from print_handy.printers.bambulab.client import project_file_payload
 
 from . import bambu_family_fixture as fixture
 from .test_bambu_print import CODE, DEV_ON, SERIAL, FakeClock, FakeFTP, FakeMqtt, RECORD
+from tests.bound_names import setattr_bound
 
 SID = "1700000000000"
 
@@ -260,15 +264,15 @@ def rig(monkeypatch, tmp_path):
     with zipfile.ZipFile(package, "w") as archive:
         archive.writestr("Metadata/plate_1.gcode", "G1 X1\n")
     gcode = tmp_path / "plate_1.gcode"
-    monkeypatch.setattr(model_job, "verify_gcode", lambda path: {"offline": True})
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda path: {"offline": True})
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
     monkeypatch.setattr(launch_state, "acquire", lambda *a, **kw: events.append("acquire") or _Lease(events))
-    monkeypatch.setattr(model_job, "_consume_approval", lambda *a, **kw: events.append("consume_approval"))
-    monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: "/records/1")
+    monkeypatch.setattr(launch_gates, "_consume_approval", lambda *a, **kw: events.append("consume_approval"))
+    setattr_bound(monkeypatch, launch_print_now, "record_start", lambda g, remote, **kw: "/records/1")
     clock = FakeClock()
-    monkeypatch.setattr(model_job, "_confirm_clock", clock)
-    monkeypatch.setattr(model_job, "_confirm_sleep", clock.sleep)
-    monkeypatch.setattr(model_job, "_bambu_start_confirm_window", lambda: 30.0)
+    monkeypatch.setattr(launch_print_now, "_confirm_clock", clock)
+    monkeypatch.setattr(launch_print_now, "_confirm_sleep", clock.sleep)
+    monkeypatch.setattr(launch_print_now, "_bambu_start_confirm_window", lambda: 30.0)
     return {"package": package, "gcode": gcode, "events": events, "ftp": FakeFTP(),
             "job_path": tmp_path / "JOB.json"}
 
@@ -291,7 +295,7 @@ def wire(monkeypatch, adapter, scripts, ftp):
 
 def run_print(rig, adapter, gcode_text, job=None):
     rig["gcode"].write_text(gcode_text)
-    return model_job._print_bambu(adapter, RECORD, rig["gcode"],
+    return launch_print_now._print_bambu(adapter, RECORD, rig["gcode"],
                                   job or {"printer_model": adapter.key}, rig["job_path"], 25, False)
 
 

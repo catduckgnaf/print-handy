@@ -181,11 +181,12 @@ def record_unsupported_cantilever_override(folder_or_job, finding, source_file=N
     else:
         job = folder_or_job
         jp = None
-    from print_handy.core import model_job as mj
+    from ..gcode import artifact as gcode_artifact
+    from ..jobs import store as jobs_store
     src = source_file or job.get('downloaded_file')
-    src_sha = mj.file_sha256(src) if src and _Path(src).is_file() else None
+    src_sha = gcode_artifact.file_sha256(src) if src and _Path(src).is_file() else None
     gc = job.get('gcode')
-    gc_sha = mj.file_sha256(gc) if gc and _Path(gc).is_file() else None
+    gc_sha = gcode_artifact.file_sha256(gc) if gc and _Path(gc).is_file() else None
     job['unsupported_cantilever_override'] = {
         'code': 'UNSUPPORTED_CANTILEVER_OVERRIDE',
         'acknowledged': True,
@@ -196,7 +197,7 @@ def record_unsupported_cantilever_override(folder_or_job, finding, source_file=N
         'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
     }
     if is_path and jp is not None:
-        mj.write_job(jp.parent, job)
+        jobs_store.write_job(jp.parent, job)
     return job
 
 

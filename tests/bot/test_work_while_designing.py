@@ -115,7 +115,7 @@ class Harness:
         self.model_calls = []   # instruction per design model call
         self.intakes = []       # (text, printer kwargs) per intake start
         self.tmp_path = tmp_path
-        plugin = load_plugin()
+        from tests.handler_namespace import plugin
 
         async def complete(messages):
             self.model_calls.append(messages[-1]["content"])
@@ -356,5 +356,5 @@ def test_await_answer_keeps_a_substituted_blocking_wait():
     ("design me a holder for the Garage AD5X", False),
 ])
 def test_print_requests_during_a_turn(env, text, expected):
-    plugin = load_plugin()
+    from tests.handler_namespace import plugin
     assert plugin._starts_a_print(text) is expected

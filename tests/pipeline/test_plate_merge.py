@@ -7,6 +7,9 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import model_job
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import slice as jobs_slice
+from print_handy.launch import gates as launch_gates
 from print_handy.core import plate_merge
 from print_handy.core import source_colors
 
@@ -45,7 +48,7 @@ def _source(path, sizes, plates, notes=None):
 def _job(tmp_path, source, plate_mode=None):
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
     job = {'downloaded_file': str(source), 'audit': {'plates': len(set(re.findall(r'plate_(\d+)\.png', ' '.join(zipfile.ZipFile(source).namelist()))))},
            'color_decisions': {'schema': 'part_slots_v1', 'mode': 'single_color', 'source_sha256': manifest['source_sha256'], 'selection': white}}
     if plate_mode:
@@ -87,7 +90,7 @@ def test_fits_is_merged_into_one_gcode_with_every_object(tmp_path, monkeypatch):
     job_path = _job(tmp_path, source)
     fake = _fake_slice()
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
-    out = model_job.slice_job(job_path)
+    out = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert isinstance(out, (str, Path)) and len(fake.calls) == 1
     assert sorted(fake.calls[0]['printable']) == ['1', '2', '3']
@@ -103,7 +106,7 @@ def test_fits_is_merged_into_one_gcode_with_every_object(tmp_path, monkeypatch):
             gap_x = max(b[0][0] - a[0][1], a[0][0] - b[0][1])
             gap_y = max(b[1][0] - a[1][1], a[1][0] - b[1][1])
             assert max(gap_x, gap_y) >= plate_merge.SPACING_MM - 1e-6
-    model_job.require_current_artifact(saved, out)
+    launch_gates.require_current_artifact(saved, out)
 
 
 def test_too_big_splits_with_reason_and_still_covers_every_part(tmp_path, monkeypatch):
@@ -112,12 +115,12 @@ def test_too_big_splits_with_reason_and_still_covers_every_part(tmp_path, monkey
     job_path = _job(tmp_path, source)
     fake = _fake_slice()
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert len(paths) == 2 and len(fake.calls) == 2
     assert saved['plate_merge']['mode'] == 'split' and 'do not fit' in saved['plate_merge']['reason']
     assert sorted(k for row in saved['derived_plates'] for k in row['part_keys']) == ['1:1', '2:1', '3:1']
-    model_job.require_current_artifact(saved, paths[1])
+    launch_gates.require_current_artifact(saved, paths[1])
 
 
 def test_estimate_over_twelve_hours_splits_with_reason(tmp_path, monkeypatch):
@@ -131,7 +134,7 @@ def test_estimate_over_twelve_hours_splits_with_reason(tmp_path, monkeypatch):
         calls.append(Path(args[0]).name)
         return _fake_slice(next(seq))(*args, **kwargs)
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert len(paths) == 2 and calls[0] == 'merged.3mf' and 'merged' not in ''.join(calls[1:])
     assert saved['plate_merge']['mode'] == 'split' and '12 h' in saved['plate_merge']['reason']
@@ -143,7 +146,7 @@ def test_author_note_requests_separate_printing(tmp_path, monkeypatch):
     job_path = _job(tmp_path, source)
     fake = _fake_slice()
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert len(paths) == 2
     assert 'author notes' in saved['plate_merge']['reason']
@@ -174,7 +177,7 @@ def _plan_with_slot_materials(tmp_path, slot_materials):
         state['filament_slots'][str(slot)]['color'] = color
         state['filament_slots'][str(slot)]['material'] = material
     manifest = source_colors.inventory(source)
-    plates = model_job.plate_manifest(source)['plates']
+    plates = jobs_slice.plate_manifest(source)['plates']
     slots = {p['key']: (1 if p['object_id'] == '1' else 2) for p in manifest['parts']}
     return plate_merge.plan(source, manifest, plates, slots, state)
 
@@ -211,7 +214,7 @@ def test_explicit_separate_mode_skips_merge(tmp_path, monkeypatch):
     _source(source, {'1': (40, 40, 10), '2': (40, 40, 10)}, [['1'], ['2']])
     job_path = _job(tmp_path, source, plate_mode='separate')
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', _fake_slice())
-    assert len(model_job.slice_job(job_path)) == 2
+    assert len(jobs_slice.slice_job(job_path)) == 2
     assert json.loads(job_path.read_text())['plate_merge']['reason'] == 'Print parts separately was chosen'
 
 
@@ -234,13 +237,13 @@ def test_missing_object_in_merged_output_is_refused(tmp_path, monkeypatch):
         return out, prov, cfg
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', drop_one)
     with pytest.raises(RuntimeError, match='prints 1 objects but the source has 2'):
-        model_job.slice_job(job_path)
+        jobs_slice.slice_job(job_path)
 
 
 def _two_slot_decisions(manifest):
     """Parts 1 and 3 print in slot 1, part 2 in slot 2 (a real multi-slot source)."""
     state = json.loads(STATE.read_text())
-    sel = {s: model_job.resolve_filament_selection(state, dict(state['filament_slots'][s], slot=int(s))) for s in ('1', '2')}
+    sel = {s: jobs_filament.resolve_filament_selection(state, dict(state['filament_slots'][s], slot=int(s))) for s in ('1', '2')}
     choices = {}
     for part in manifest['parts']:
         choices['part:' + part['key']] = sel['2'] if part['object_id'] == '2' else sel['1']
@@ -346,7 +349,7 @@ def _prism_source(path, shapes, plates):
 def _plan(source):
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    plates = model_job.plate_manifest(source)['plates']
+    plates = jobs_slice.plate_manifest(source)['plates']
     slots = {p['key']: 1 for p in manifest['parts']}
     return plate_merge.plan(source, manifest, plates, slots, state)
 
@@ -359,7 +362,7 @@ def test_plan_reserves_the_fitted_nozzles_tower_width(tmp_path, monkeypatch):
     state = json.loads(STATE.read_text())
     state['nozzle']['diameter_mm'] = 0.6
     manifest = source_colors.inventory(source)
-    plates = model_job.plate_manifest(source)['plates']
+    plates = jobs_slice.plate_manifest(source)['plates']
     slots = {p['key']: i + 1 for i, p in enumerate(manifest['parts'])}
     seen = []
     real_pack = plate_merge.pack
@@ -605,7 +608,7 @@ def test_yawed_merge_slices_to_one_gcode_at_the_recorded_turn(tmp_path, monkeypa
     job_path = _job(tmp_path, source)
     fake = _fake_slice()
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
-    out = model_job.slice_job(job_path)
+    out = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert isinstance(out, (str, Path)) and len(fake.calls) == 1
     assert saved['plate_merge']['mode'] == 'merge'
@@ -654,7 +657,7 @@ def test_slicing_a_merge_refuses_unproved_yaws(tmp_path, monkeypatch):
         fake = _fake_slice()
         monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
         with pytest.raises(RuntimeError, match=match):
-            model_job.slice_job(job_path)
+            jobs_slice.slice_job(job_path)
         assert fake.calls == []
 
 
@@ -768,7 +771,7 @@ def test_multi_slot_yawed_merge_slices_with_the_recorded_turn(tmp_path, monkeypa
                        f'{labels}G1 X10 Y10 Z0.2\nEND_PRINT\n')
         return out, {'geometry': geometry}, []
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    out = model_job.slice_job(job_path)
+    out = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert isinstance(out, (str, Path)) and len(calls) == 1
     assert calls[0]['fit_by_object'] == {'1': {'rotation': _yaw(45.0)}}
@@ -796,7 +799,7 @@ def test_polygon_merge_slices_to_one_gcode_at_the_recorded_corners(tmp_path, mon
     job_path = _job(tmp_path, source)
     fake = _fake_slice()
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake)
-    out = model_job.slice_job(job_path)
+    out = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert isinstance(out, (str, Path)) and len(fake.calls) == 1
     assert sorted(fake.calls[0]['printable']) == ['1', '2']
@@ -878,7 +881,7 @@ def test_assembly_bodies_share_one_build_item_and_one_plate(tmp_path):
     _assembly_source(source, (120, 120, 6))  # two such bodies cannot share a 220 mm bed as strangers
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    plates = model_job.plate_manifest(source)['plates']
+    plates = jobs_slice.plate_manifest(source)['plates']
     slots = {p['key']: i + 1 for i, p in enumerate(manifest['parts'])}  # two colors, so a tower is reserved
     verdict = plate_merge.plan(source, manifest, plates, slots, state)
     assert verdict['mode'] == 'merge', verdict.get('reason')
@@ -893,7 +896,7 @@ def test_assembly_too_big_for_the_bed_never_merges_through_a_hull_fallback(tmp_p
     _assembly_source(source, (30, 30, 6), second=(300, 300, 4))  # small representative, oversized second body
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    plates = model_job.plate_manifest(source)['plates']
+    plates = jobs_slice.plate_manifest(source)['plates']
     slots = {p['key']: i + 1 for i, p in enumerate(manifest['parts'])}
     for job in (None, {'full_size_rearrange_plan': True}):
         verdict = plate_merge.plan(source, manifest, plates, slots, state, job=job)

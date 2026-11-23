@@ -1,7 +1,8 @@
 """The one model-source registry: every surface reads the same list."""
 import re
 
-from print_handy.core import link_intake, model_job, model_sources, site_accounts
+from print_handy.core import link_intake, model_sources, site_accounts
+from print_handy.jobs import sources as jobs_sources
 from print_handy.webui import sources as sources_page
 
 
@@ -16,16 +17,16 @@ def test_registry_covers_the_nine_sites_plus_direct_and_dropbox():
 
 
 def test_model_job_dispatch_tables_come_from_the_registry():
-    assert model_job.SITE_HOSTS == model_sources.hosts_map()
-    assert model_job.SITE_INVENTORY_FUNCS == model_sources.inventory_funcs()
-    assert model_job.SITE_DOWNLOAD_FUNCS == model_sources.download_funcs()
+    assert jobs_sources.SITE_HOSTS == model_sources.hosts_map()
+    assert jobs_sources.SITE_INVENTORY_FUNCS == model_sources.inventory_funcs()
+    assert jobs_sources.SITE_DOWNLOAD_FUNCS == model_sources.download_funcs()
     # GrabCAD is listed as not supported and is never dispatchable.
-    assert "grabcad" not in model_job.SITE_HOSTS
-    assert "grabcad" not in model_job.SITE_INVENTORY_FUNCS
+    assert "grabcad" not in jobs_sources.SITE_HOSTS
+    assert "grabcad" not in jobs_sources.SITE_INVENTORY_FUNCS
 
 
 def test_supported_links_message_is_the_registry_sentence():
-    assert model_job.SUPPORTED_LINKS_MESSAGE == (
+    assert jobs_sources.SUPPORTED_LINKS_MESSAGE == (
         "supported links: MakerWorld, Printables, Thingiverse, MyMiniFactory, "
         "Cults3D, Creality Cloud, Thangs, Nexprint, MakerOnline model pages, "
         "or a direct link to a .stl/.3mf file (a Dropbox share link works too)")

@@ -8,7 +8,6 @@ and must never attempt a voice connection — start posts the Activity
 pointer for the configured channel and drives the session machine.
 """
 import asyncio
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace as S
 
@@ -18,10 +17,7 @@ from print_handy import live_stream
 from print_handy.runtime import _config
 
 ROOT = Path(__file__).parents[1]
-PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
-spec = importlib.util.spec_from_file_location("print_feedback_live", PLUGIN_PATH)
-plugin = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 ENABLED = {"enabled": True, "voice_channel_id": "123456789012345678",
            "auto_start_on_print": False, "max_height": 720, "fps": 15,

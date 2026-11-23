@@ -55,8 +55,8 @@ SITE_TOKEN_ERRORS = [
 
 
 def test_makeronline_gap_is_a_known_site_gap():
-    from print_handy.core import model_job
-    known = diagnostics.known_cause(RuntimeError(model_job.MAKERONLINE_DOWNLOAD_GAP))
+    from print_handy.jobs import sources as jobs_sources
+    known = diagnostics.known_cause(RuntimeError(jobs_sources.MAKERONLINE_DOWNLOAD_GAP))
     assert known is not None and known.category is Category.CONFIGURATION
     assert "MakerOnline" in known.cause and "browser" in known.remedy
 
@@ -99,8 +99,8 @@ def test_robot_check_is_a_transient_known_cause():
 
 
 def test_site_download_gaps_are_known_causes_with_a_browser_remedy():
-    from print_handy.core import model_job
-    for gap in (model_job.MAKERONLINE_DOWNLOAD_GAP, model_job.CULTS_DOWNLOAD_GAP):
+    from print_handy.jobs import sources as jobs_sources
+    for gap in (jobs_sources.MAKERONLINE_DOWNLOAD_GAP, jobs_sources.CULTS_DOWNLOAD_GAP):
         known = diagnostics.known_cause(RuntimeError(gap))
         assert known is not None and known.category is Category.CONFIGURATION
         assert "browser" in known.remedy and "upload or drop" in known.remedy
@@ -181,8 +181,8 @@ def test_next_step_for_only_suggests_retry_when_transient():
 # ------------------------------------------- direct links + Creality fold
 
 def _direct(text):
-    from print_handy.core import model_job
-    return model_job.DirectLinkError(text)
+    from print_handy.jobs import sources as jobs_sources
+    return jobs_sources.DirectLinkError(text)
 
 
 #: One case per curated DirectLinkError in model_job (#607), with the
@@ -280,8 +280,8 @@ def test_direct_link_post_leaks_no_host_or_url_credentials():
 
 
 def test_crealitycloud_answer_gap_is_a_known_cause():
-    from print_handy.core import model_job
-    known = diagnostics.known_cause(RuntimeError(model_job.CREALITYCLOUD_ANSWER_GAP))
+    from print_handy.jobs import sources as jobs_sources
+    known = diagnostics.known_cause(RuntimeError(jobs_sources.CREALITYCLOUD_ANSWER_GAP))
     assert known is not None and known.category is Category.CONFIGURATION
     assert "could not find a file URL" in known.cause
     assert "browser" in known.remedy and "upload or drop" in known.remedy

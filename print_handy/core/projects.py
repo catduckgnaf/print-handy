@@ -25,8 +25,8 @@ SOURCE_CHECKPOINT_SCHEMA = "source_checkpoint_v1"
 def discover_source_checkpoints(*, platform: str, requester_id: str, channel_id: str,
                                 printer_id: str, archive: Path | None = None) -> list[dict]:
     """Read scoped candidate metadata without hashing every archived source."""
-    from . import model_job as mj
-    directory = Path(archive or mj.ARCHIVE)
+    from ..jobs import common as jobs_common
+    directory = Path(archive or jobs_common.ARCHIVE)
     expected = {"platform": platform, "requester_id": requester_id,
                 "channel_id": channel_id, "printer_id": printer_id}
     if any(not isinstance(value, str) or not value.strip() for value in expected.values()):
@@ -61,8 +61,9 @@ def load_source_checkpoint(job_json: str | Path, *, platform: str, requester_id:
                            expected_source: str | None = None,
                            expected_sha256: str | None = None) -> dict | None:
     """Reload one chosen candidate and validate its scope, paths and source digest."""
-    from . import model_job as mj
-    directory = Path(archive or mj.ARCHIVE).resolve()
+    from ..gcode import artifact as gcode_artifact
+    from ..jobs import common as jobs_common
+    directory = Path(archive or jobs_common.ARCHIVE).resolve()
     path = Path(job_json)
     try:
         if not path.resolve().is_relative_to(directory):
@@ -83,7 +84,7 @@ def load_source_checkpoint(job_json: str | Path, *, platform: str, requester_id:
                 or (expected_source is not None
                     and source != Path(expected_source).expanduser().resolve())
                 or (expected_sha256 is not None and digest != expected_sha256)
-                or mj.file_sha256(source) != digest):
+                or gcode_artifact.file_sha256(source) != digest):
             return None
         return {"job_json": str(path), "job": job, "checkpoint": checkpoint}
     except (OSError, ValueError, TypeError, AttributeError):

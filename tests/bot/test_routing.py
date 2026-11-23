@@ -472,8 +472,8 @@ def plugin_cfg(monkeypatch):
 
 
 def _plugin():
-    from print_handy.bot.router import load_plugin
-    return load_plugin()
+    from tests.handler_namespace import plugin
+    return plugin
 
 
 def test_plugin_stop_in_a_routed_channel_acts_on_that_printer(plugin_cfg):

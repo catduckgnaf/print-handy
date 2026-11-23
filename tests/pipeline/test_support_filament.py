@@ -19,6 +19,7 @@ import pytest
 
 from print_handy import printers
 from print_handy.core import model_job, orca_adapter, source_colors
+from print_handy.jobs import filament as jobs_filament
 from tests.corpus.make_models import box, write_3mf
 from tests.pipeline.test_multi_tool_intake import creator_config, tool_state
 
@@ -40,7 +41,7 @@ def decisions_for(manifest, state, picks):
     choices = {}
     for row in source_colors.canonical_prompts(manifest):
         slot = picks[row["key"]]
-        record = model_job.resolve_filament_selection(state, dict(state["filament_slots"][str(slot)], slot=slot))
+        record = jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"][str(slot)], slot=slot))
         choices[row["key"]] = record
     return {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
             "choices": choices}
@@ -108,7 +109,7 @@ def test_a_decision_that_skips_the_support_question_is_refused(tmp_path):
     broken = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
               "choices": {k: v for k, v in full["choices"].items() if k != "filament:2"}}
     with pytest.raises(ValueError):
-        source_colors.validate_decisions(manifest, broken, state, model_job.resolve_filament_selection)
+        source_colors.validate_decisions(manifest, broken, state, jobs_filament.resolve_filament_selection)
 
 
 def test_support_spool_is_loaded_and_pointed_at(tmp_path):

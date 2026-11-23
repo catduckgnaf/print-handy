@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import model_parts, prepared_intake
+from print_handy.core import model_parts
+from print_handy.intake import worker as intake_worker
 from print_handy.core import heavy_worker
 
 # The live Printables listing of model 1875711 (CC BY), as its API names the files on 2026-10-29.
@@ -153,7 +154,7 @@ def test_combine_sets_parts_in_a_row_when_they_do_not_fit_one_bed(tmp_path):
 
 
 def test_combine_runs_in_the_heavy_worker():
-    assert ('model_parts', 'combine') in prepared_intake._OFFLOAD
+    assert ('model_parts', 'combine') in intake_worker._OFFLOAD
     assert ('model_parts', 'combine') in heavy_worker.ALLOWED
 
 

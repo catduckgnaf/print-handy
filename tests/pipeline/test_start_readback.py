@@ -1,6 +1,7 @@
 """Unit tests for classify_start_readback and start readback integration (Issue #84)."""
 import pytest
 from print_handy.core.model_job import classify_start_readback, StartReadback
+from tests.bound_names import setattr_bound
 
 
 # A readable pre-start baseline: heaters off, nothing loaded. A snapshot's
@@ -228,19 +229,19 @@ def test_classify_unconfirmed_idle_ready():
     ("paused", "Idle", True), ("error", "Idle", True), ("printing", "Printing", True),
     ("standby", "Printing", True)])
 def test_require_idle_mirrors_the_chat_paths_live_idle_check(monkeypatch, state, busy, refused):
-    from print_handy.core import model_job
-    monkeypatch.setattr(model_job, "_printer_phase", lambda st: (state, "x.gcode", busy))
+    from print_handy.launch import gates as launch_gates
+    setattr_bound(monkeypatch, launch_gates, "_printer_phase", lambda st: (state, "x.gcode", busy))
     if refused:
         with pytest.raises(SystemExit, match="REFUSED"):
-            model_job._require_idle({"display_off": 1})
+            launch_gates._require_idle({"display_off": 1})
     else:
-        assert model_job._require_idle({"display_off": 1})[0] == state
+        assert launch_gates._require_idle({"display_off": 1})[0] == state
 
 
 def test_require_idle_and_live_idle_check_share_one_idle_set():
     import inspect
-    from print_handy.core import model_job
+    from print_handy.launch import gates as launch_gates
     from print_handy.runtime import print_next
-    spelled = "(" + ", ".join(f'"{s}"' for s in model_job.IDLE_PRINT_STATES) + ")"
+    spelled = "(" + ", ".join(f'"{s}"' for s in launch_gates.IDLE_PRINT_STATES) + ")"
     source = inspect.getsource(print_next.live_idle_check)
     assert source.count(f"not in {spelled}") == 2  # the routed and the configured-printer branch

@@ -648,8 +648,8 @@ def test_file_download_uses_the_doc_prefix_the_intake_expects(cfg, tmp_path):
 
 
 def test_plugin_gate_serves_matrix_sources():
-    from print_handy.bot.router import load_plugin
-    assert "matrix" in load_plugin().BOT_PLATFORMS
+    from tests.handler_namespace import plugin
+    assert "matrix" in plugin.BOT_PLATFORMS
 
 
 # ---------------------------------------------------------------------- full intake

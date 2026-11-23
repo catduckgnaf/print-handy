@@ -13,6 +13,9 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import model_job as mj
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
 from print_handy.core import slice_recipe as recipe_module
 
 from .test_slice_recipe import _job
@@ -67,22 +70,22 @@ def _recorded(job, state, source_sha256):
 def test_recipe_changed_recomputes_against_the_jobs_own_printer(two_printers, monkeypatch):
     records = _two_records(monkeypatch)
     job = _recorded(_job(printer_id=SECONDARY), records[SECONDARY], 'source-a')
-    assert mj._recipe_changed(job, job) is False
-    assert mj._recipe_changed(job, job, SECONDARY) is False
+    assert jobs_store._recipe_changed(job, job) is False
+    assert jobs_store._recipe_changed(job, job, SECONDARY) is False
 
 
 def test_recipe_changed_still_detects_a_change_on_the_jobs_own_printer(two_printers, monkeypatch):
     records = _two_records(monkeypatch)
     job = _recorded(_job(printer_id=SECONDARY), records[SECONDARY], 'source-a')
-    assert mj._recipe_changed(job, job) is False
+    assert jobs_store._recipe_changed(job, job) is False
     records[SECONDARY]['nozzle']['diameter_mm'] = 0.8  # the secondary printer's nozzle changes after slicing
-    assert mj._recipe_changed(job, job) is True
+    assert jobs_store._recipe_changed(job, job) is True
 
 
 def test_recipe_changed_keeps_the_legacy_load_for_jobs_without_a_printer(two_printers, monkeypatch):
     records = _two_records(monkeypatch)
     job = _recorded(_job(), records[None], 'source-a')
-    assert mj._recipe_changed(job, job) is False
+    assert jobs_store._recipe_changed(job, job) is False
 
 
 def test_launch_accepts_an_unchanged_secondary_printer_job(two_printers, tmp_path, monkeypatch):
@@ -93,13 +96,13 @@ def test_launch_accepts_an_unchanged_secondary_printer_job(two_printers, tmp_pat
     gcode.write_text('G1 X0\n')
     job = _recorded(_job(printer_id=SECONDARY, downloaded_file=str(src),
                          gcode=str(gcode), gcode_verified=True),
-                    records[SECONDARY], mj.file_sha256(src))
-    job['artifact_binding'] = {'source_sha256': mj.file_sha256(src),
-                               'decisions_sha256': mj.decisions_digest(job.get('color_decisions')),
-                               'gcode_sha256': mj.file_sha256(gcode),
+                    records[SECONDARY], gcode_artifact.file_sha256(src))
+    job['artifact_binding'] = {'source_sha256': gcode_artifact.file_sha256(src),
+                               'decisions_sha256': jobs_store.decisions_digest(job.get('color_decisions')),
+                               'gcode_sha256': gcode_artifact.file_sha256(gcode),
                                'recipe_version': job['slice_recipe']['version'],
                                'recipe_sha256': job['slice_recipe']['sha256']}
-    mj.require_current_artifact(job, gcode)  # must not raise: nothing changed since slicing
+    launch_gates.require_current_artifact(job, gcode)  # must not raise: nothing changed since slicing
 
 
 def test_intake_binding_matches_the_recipe_slice_job_records_for_a_secondary_printer(two_printers, monkeypatch):

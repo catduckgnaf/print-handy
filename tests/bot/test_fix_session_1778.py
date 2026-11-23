@@ -396,17 +396,6 @@ def test_failed_intake_never_offers_an_unavailable_original_or_unconfigured_ai(t
     assert not fix_session._SESSIONS
 
 
-def test_one_release_plugin_imports_and_registers_the_fix_handler():
-    """The copied legacy handler path must not execute stripped interface imports."""
-    import importlib.util
-    old_plugin = Path(__file__).parents[2] / "plugins" / "print-feedback" / "__init__.py"
-    spec = importlib.util.spec_from_file_location("print_feedback_fix_1778", old_plugin)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    assert module.fix_dispatch in module._DISPATCH_HOOKS
-    assert callable(module.offer_failed_intake)
-
-
 def test_acceptance_waits_out_a_running_turn_and_cannot_repoint_under_it(tmp_path):
     """While a turn holds the session lock the chat acceptance refuses and changes nothing (#1778)."""
     from print_handy.bot.handlers import fix as handler

@@ -31,6 +31,7 @@ from print_handy.bot.platform import BasePlatformAdapter, SendResult
 from print_handy.bot.rest import split_media
 from print_handy.core import print_stats, prompts
 from print_handy.runtime import spool_sync
+from tests.bound_names import setattr_bound
 
 
 # --------------------------------------------------------------- (a) Spoolman race
@@ -143,6 +144,10 @@ def test_two_printers_binding_against_one_spoolman_lose_nothing(tmp_path):
 def test_start_while_printing_is_refused_and_touches_nothing(tmp_path, monkeypatch):
     from print_handy import settings
     from print_handy.core import model_job as job
+    from print_handy.gcode import verify as gcode_verify
+    from print_handy.jobs import common as jobs_common
+    from print_handy.launch import gates as launch_gates
+    from print_handy.launch import print_now as launch_print_now
 
     folder = tmp_path / "job"
     (folder / "out").mkdir(parents=True)
@@ -153,29 +158,29 @@ def test_start_while_printing_is_refused_and_touches_nothing(tmp_path, monkeypat
     (folder / "JOB.json").write_text(json.dumps(job_doc))
 
     uploads, starts = [], []
-    monkeypatch.setattr(job, "START_CLAIMS", S(
+    monkeypatch.setattr(launch_print_now, "START_CLAIMS", S(
         claim=lambda *a, **k: S(release=lambda: None),
         release=lambda *a, **k: None,
         record=lambda *a, **k: starts.append(a)))
     monkeypatch.setattr(job.printer_state, "load",
                         lambda *a, **k: {"moonraker_url": "http://m"})
-    monkeypatch.setattr(job, "_printer_phase",
+    setattr_bound(monkeypatch, launch_gates, "_printer_phase",
                         lambda cfg, printer=None: ("printing", "orig.gcode", "Printing"))
-    monkeypatch.setattr(job, "verify_gcode", lambda *a, **k: None)
-    monkeypatch.setattr(job, "_verify_filament_readiness", lambda *a, **k: None)
-    monkeypatch.setattr(job, "_mr", lambda cfg: S(call=lambda *a, **k: {"result": {}}))
-    monkeypatch.setattr(job, "_wait_printing", lambda *a, **k: None)
-    monkeypatch.setattr(job, "record_start", lambda *a, **k: starts.append(a))
-    monkeypatch.setattr(job, "live_snapshot", lambda *a, **k: None)
-    monkeypatch.setattr(job, "mesh_readiness", lambda *a, **k: {"action": "skip"})
-    monkeypatch.setattr(job, "screen_z_offset", lambda *a, **k: None)
-    monkeypatch.setattr(job, "_announce_print_name", lambda *a, **k: None)
-    monkeypatch.setattr(job, "_publish_job_card", lambda *a, **k: None)
+    setattr_bound(monkeypatch, gcode_verify, "verify_gcode", lambda *a, **k: None)
+    setattr_bound(monkeypatch, launch_gates, "_verify_filament_readiness", lambda *a, **k: None)
+    setattr_bound(monkeypatch, jobs_common, "_mr", lambda cfg: S(call=lambda *a, **k: {"result": {}}))
+    monkeypatch.setattr(launch_print_now, "_wait_printing", lambda *a, **k: None)
+    setattr_bound(monkeypatch, launch_print_now, "record_start", lambda *a, **k: starts.append(a))
+    monkeypatch.setattr(launch_print_now, "live_snapshot", lambda *a, **k: None)
+    setattr_bound(monkeypatch, launch_gates, "mesh_readiness", lambda *a, **k: {"action": "skip"})
+    setattr_bound(monkeypatch, launch_gates, "screen_z_offset", lambda *a, **k: None)
+    monkeypatch.setattr(launch_print_now, "_announce_print_name", lambda *a, **k: None)
+    monkeypatch.setattr(launch_print_now, "_publish_job_card", lambda *a, **k: None)
     monkeypatch.setattr(job.subprocess, "run",
                         lambda *a, **k: uploads.append(a) or S(returncode=0, stdout="", stderr=""))
 
     with pytest.raises(SystemExit, match=r"REFUSED: printer is busy \(printing, orig\.gcode\)"):
-        job.print_now(folder / "JOB.json")
+        launch_print_now.print_now(folder / "JOB.json")
     # State-level proof of the refusal: no upload ran, no start was
     # recorded or claimed, and the job document is byte-identical.
     assert uploads == [] and starts == []

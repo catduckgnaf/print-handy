@@ -55,11 +55,12 @@ def merges(source, colors, printer=None):
     plain rectangle packing counts: a fit that needs the polygon or turned fallbacks is a layout the
     corpus would not want to sit on the edge of.
     """
-    from print_handy.core import model_job, plate_merge, source_colors
+    from print_handy.core import plate_merge, source_colors
+    from print_handy.jobs import slice as jobs_slice
     _require_standard_layout(plate_merge)
     state = printer_state(printer)
     manifest = source_colors.inventory(source)
-    plates = model_job.plate_manifest(source)["plates"]
+    plates = jobs_slice.plate_manifest(source)["plates"]
     parts = manifest["parts"]
     slots = {part["key"]: index % colors + 1 for index, part in enumerate(parts)}
     capacity = max(int((printer or {}).get("slots", printer_overrides.MAX_SLOTS)), colors)

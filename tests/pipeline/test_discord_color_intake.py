@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace as S
 import pytest
 from print_handy.core import source_colors, model_job
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.discord_color_intake import collect
 from .test_color_intake import source, state
 
@@ -81,7 +82,7 @@ def test_all_stencils_same_color_uses_existing_single_color_collect_api(tmp_path
         adapter = Adapter([1, 0])  # one-color mode, then the selected configured slot
         result = await collect(jp, state(), adapter, 'offline', 'colors-all-stencils-one', timeout=1)
         saved = json.loads(jp.read_text())['color_decisions']
-        source_colors.validate_decisions(source_colors.inventory(p), saved, state(), model_job.resolve_filament_selection)
+        source_colors.validate_decisions(source_colors.inventory(p), saved, state(), jobs_filament.resolve_filament_selection)
         assert result['mode'] == 'single_color'
         assert result['slots'] == [1]
         assert saved['mode'] == 'single_color'
@@ -100,7 +101,7 @@ def test_legacy_prompts_preserve_existing_valid_round_trip(tmp_path):
         jp.write_text(json.dumps({'downloaded_file': str(p), 'color_manifest': source_colors.inventory(p)}))
         adapter = Adapter([0, 0, 0, 1, 0])
         result = await collect(jp, state(), adapter, 'offline', 'colors-legacy', timeout=1)
-        source_colors.validate_decisions(source_colors.inventory(p), result['decisions'], state(), model_job.resolve_filament_selection)
+        source_colors.validate_decisions(source_colors.inventory(p), result['decisions'], state(), jobs_filament.resolve_filament_selection)
         assert result['mode'] == 'per_part'
         assert len(adapter.questions) == 5
     asyncio.run(run())

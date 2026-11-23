@@ -1,6 +1,6 @@
 """Stop the current print with one Moonraker cancel, or one Bambu LAN stop. No agent, no retries.
 
-Used by the ``/print-stop`` Discord command in the print-feedback plugin and by the
+Used by the ``/print-stop`` chat command and by the
 listener's paused alert. Reads print_stats, sends at most one /printer/print/cancel,
 then reports the state Moonraker actually shows afterwards, and the heater targets it
 reads back (#1147): a heater left on after the stop is said plainly, never hidden

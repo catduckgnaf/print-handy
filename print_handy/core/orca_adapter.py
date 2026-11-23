@@ -1246,7 +1246,7 @@ def support_tool_pointers(manifest, decisions, mapping, multi_tool):
     if decisions.get('mode') == 'per_part':
         choices = decisions.get('choices') or {}
     else:
-        from .model_job import _per_part_view
+        from ..jobs.slice import _per_part_view
         choices = _per_part_view(manifest, decisions).get('choices') or {}
     tools = {int(tool): int(slot) for tool, slot in mapping.items()}
     out = {}
@@ -1595,7 +1595,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     author = {}
     geometry = {'policy': 'original STL unchanged', 'source_sha256': digest(source)}
     from .source_colors import inventory, validate_decisions
-    from .model_job import resolve_filament_selection
+    from ..jobs.filament import resolve_filament_selection
     manifest = inventory(source) if color_decisions else None
     color_decisions = (validate_decisions(manifest, color_decisions, state, resolve_filament_selection)
                        if color_decisions else None)
@@ -1652,7 +1652,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # decision stays single_color) and export every part onto the picked
         # toolhead; the per-toolhead profile assembly below does the rest.
         from .color_geometry import export_color_geometry
-        from .model_job import _per_part_view
+        from ..jobs.slice import _per_part_view
         input_path = folder / 'geometry.3mf'
         mapping, geometry = export_color_geometry(source, input_path,
                                                   _per_part_view(inventory(source), color_decisions),
@@ -1665,7 +1665,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # One extruder, manual swaps: every part on the picked slot, and the
         # height color changes written as pauses at their heights (#870).
         from .color_geometry import export_color_geometry
-        from .model_job import _per_part_view
+        from ..jobs.slice import _per_part_view
         input_path = folder / 'geometry.3mf'
         mapping, geometry = export_color_geometry(source, input_path,
                                                   _per_part_view(inventory(source), color_decisions),
@@ -3046,12 +3046,12 @@ def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_
     bed = state.get('bed_mm', BED)
     exclusion_polygon = _fit_exclusion_polygon(state)
     try:
-        from . import model_job as mj
+        from ..jobs import slice as jobs_slice
         from . import color_geometry as cg
         max_h = float(state.get('max_print_height_mm', MAX_HEIGHT_MM))
         eff_w = float(bed[0]) - 2 * single_margin
         eff_d = float(bed[1]) - 2 * single_margin
-        manifest = mj.plate_manifest(source)
+        manifest = jobs_slice.plate_manifest(source)
         with zipfile.ZipFile(source) as archive:
             for p in manifest.get('plates', []):
                 ids = {str(o) for o in p.get('object_ids', [])}

@@ -1,8 +1,5 @@
 """Handler helpers shared by more than one chat command: the gateway plumbing, prompts, printer
 routing and state the handlers use.
-
-Moved verbatim from ``plugins/print-feedback/__init__.py`` (#1323). The plugin file still
-loads the same handlers for one release.
 """
 import logging
 import asyncio, contextlib, functools, json, re, time
@@ -2504,6 +2501,7 @@ def alert_button_handlers(bot, adapter):
         import discord
         from print_handy.runtime import print_alert_buttons as pab, print_next
         from print_handy.core import prepared_intake as intake
+        from ...intake import questions as intake_questions
         receipt_path = _state_dir() / 'model-link-intakes' / f'{receipt_id}.json'
 
         def retry_view():
@@ -2564,7 +2562,7 @@ def alert_button_handlers(bot, adapter):
             logger.info('retry start accepted plan=%s part=%s', target.get('plan_id'), target.get('part_id'))
             await interaction.message.edit(content='Print accepted by the printer.', view=None)
             return
-        raw = intake._raw_preupload_refusal(detail)
+        raw = intake_questions._raw_preupload_refusal(detail)
         logger.warning('print retry refused detail=%s', intake.logs.redact(raw or detail))
         if intake._safe_preupload_refusal(detail):
             if _material_pending(detail):

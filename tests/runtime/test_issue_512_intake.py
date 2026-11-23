@@ -7,7 +7,6 @@ step. These tests pin the step machine, the component shapes, the 0 g
 disposition recommendation, and the new bind_slot 'delete' disposition.
 """
 import asyncio
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace as S
@@ -18,10 +17,7 @@ import pytest
 from print_handy.runtime import print_alert_buttons as pab
 from print_handy.runtime import spool_sync
 
-SPEC = importlib.util.spec_from_file_location(
-    "pf_issue_512", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
-plugin = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(plugin)
+from tests.handler_namespace import plugin
 
 
 def test_intake_parse_and_action_maps():

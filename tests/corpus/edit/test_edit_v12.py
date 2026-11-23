@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import color_geometry, edit_plan, model_job as mj, model_questions, source_colors
+from print_handy.core import color_geometry, edit_plan, model_questions, source_colors
 from print_handy.core.threemf_canonical import CORE_NS
 from tests.corpus.edit.runner import build_test_job, generate_mock_gcode, resolve_plan, verify_probe
 from tests.corpus.geometry import detect_underfaces_reference as det

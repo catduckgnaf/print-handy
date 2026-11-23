@@ -1,6 +1,6 @@
 """Discord delivery for the standalone bot: the Discord implementation of the platform interface.
 
-``send`` and ``send_clarify`` carry the signatures the print-feedback
+``send`` and ``send_clarify`` carry the signatures the chat
 handlers call, so the handlers run unchanged. A ``MEDIA:/path`` marker becomes an attachment. A button press resolves the
 core prompt registry (print_handy.core.prompts); the click handler lives here too. The shared
 interface and prompt bookkeeping live in ``print_handy.bot.platform`` (#164); this module is the

@@ -16,8 +16,8 @@ def _slots():
 
 
 def _request_json(*args, **kwargs):
-    from ....core import model_job
-    return model_job.request_json(*args, **kwargs)
+    from ....jobs import common as jobs_common
+    return jobs_common.request_json(*args, **kwargs)
 
 
 def _stock_credentials():

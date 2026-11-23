@@ -69,15 +69,8 @@ def test_maintenance_and_standalone_use_same_workflow_source_tags():
 def test_selected_options_map_to_exact_scripts_before_send(monkeypatch):
     """PLA 220/90, PLA 220/95, and PETG 245/100 are fixed before any gcode send."""
     import asyncio
-    import importlib.util
-    import sys
-    from pathlib import Path
 
-    plugin_path = Path(__file__).resolve().parents[2] / "plugins/print-feedback/__init__.py"
-    spec = importlib.util.spec_from_file_location("print_feedback_coldpull_map", plugin_path)
-    plugin = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = plugin
-    spec.loader.exec_module(plugin)
+    from tests.handler_namespace import plugin
 
     async def confirm(adapter, source, metadata, key, prompt, choices, timeout, live_key=None):
         return "Confirm cold pull" if key.endswith("-actuate") else None
@@ -116,15 +109,7 @@ def test_selected_options_map_to_exact_scripts_before_send(monkeypatch):
 
 
 def _load_coldpull_plugin():
-    import importlib.util
-    import sys
-    from pathlib import Path
-
-    plugin_path = Path(__file__).resolve().parents[2] / "plugins/print-feedback/__init__.py"
-    spec = importlib.util.spec_from_file_location("print_feedback_coldpull_policy", plugin_path)
-    plugin = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = plugin
-    spec.loader.exec_module(plugin)
+    from tests.handler_namespace import plugin
     return plugin
 
 

@@ -16,11 +16,13 @@ import pytest
 
 from print_handy import doctor
 from print_handy.core import model_job
+from print_handy.jobs import store as jobs_store
 from print_handy.launch import print_now
 from print_handy.runtime import klipper_report, multislot_usage, print_control, print_records
 
 from tests.printers.test_adapters import adapter_for
 from tests.printers.test_opencreator import _ready_status
+from tests.bound_names import patch_bound
 
 BASE = "flashforge_opencreator.creator5"
 PRO = "flashforge_opencreator.creator5_pro"
@@ -191,10 +193,10 @@ def test_a_multi_tool_print_is_charged_to_the_spools_the_printer_map_uses(tmp_pa
                                              "3": {"spoolman_id": 33, "material": "PETG"}}}
     context_path = tmp_path / "print_handy_context.json"
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
-    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
+    with patch_bound(jobs_store, "_job_for_gcode", return_value=job), \
             mock.patch.object(model_job.printer_state, "load", return_value=state), \
             mock.patch.object(model_job.printers, "current", return_value=adapter), \
-            mock.patch.object(model_job, "CONTEXT", context_path):
+            patch_bound(jobs_store, "CONTEXT", context_path):
         print_now.record_start(str(g), "x.gcode", started_at="2026-11-16T01:00:00Z", print_number=7)
     context = json.loads(context_path.read_text())["jobs"]["x.gcode"]
     plan = multislot_usage.slot_plan(context)

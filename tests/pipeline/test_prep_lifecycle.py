@@ -18,8 +18,9 @@ from types import SimpleNamespace as S
 import pytest
 
 
-from print_handy.core import model_job  # noqa: E402
+from print_handy.launch import print_now as launch_print_now
 from print_handy.core import prepared_intake  # noqa: E402
+from print_handy.intake import questions as intake_questions
 from .helpers import external  # noqa: E402
 print_next = external("print_next")
 from .test_color_intake import state  # noqa: E402
@@ -314,11 +315,11 @@ def test_color_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkey
     seen = _color_mismatch_start(monkeypatch)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # one color, slot 1, print now, Print anyway
     question = adapter.questions[-1]
-    assert question['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, prepared_intake.SET_SCREEN_LABEL,
+    assert question['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, intake_questions.SET_SCREEN_LABEL,
                                    print_next.CANCEL_LABEL]
     assert '#E53935' in question['question'] and '#CD7F32' in question['question']
     assert len(seen) == 2 and seen[0] is None
-    assert seen[1]['slots'] == [model_job.color_mismatch_key(1, '#E53935', '#CD7F32')]
+    assert seen[1]['slots'] == [launch_print_now.color_mismatch_key(1, '#E53935', '#CD7F32')]
     assert not any(m.startswith("Didn't start:") for m in adapter.log)
     assert receipt['status'] == 'STARTED' and receipt['color_mismatch']['choice'] == 0
     job_json = next(env.tmp.rglob('JOB.json'))
@@ -339,13 +340,13 @@ LABEL_REFUSAL = ("REFUSED: printer slot 2 is labeled PETG but Spoolman has Silk 
 
 def test_label_mismatch_parses_separately_from_color():
     # #839: label differences have their own parser; the color parser still ignores them.
-    assert prepared_intake.color_confirm(LABEL_REFUSAL) == []
-    assert prepared_intake.label_confirm(LABEL_REFUSAL) == [{'slot': 2, 'live': 'PETG',
+    assert intake_questions.color_confirm(LABEL_REFUSAL) == []
+    assert intake_questions.label_confirm(LABEL_REFUSAL) == [{'slot': 2, 'live': 'PETG',
                                                              'recorded': 'Silk PLA', 'tool': 0}]
-    assert prepared_intake.label_confirm(COLOR_REFUSAL) == []
-    assert prepared_intake.color_confirm(COLOR_REFUSAL) == [{'slot': 1, 'live': '#E53935',
+    assert intake_questions.label_confirm(COLOR_REFUSAL) == []
+    assert intake_questions.color_confirm(COLOR_REFUSAL) == [{'slot': 1, 'live': '#E53935',
                                                              'recorded': '#CD7F32', 'tool': 0}]
-    assert [c['slot'] for c in prepared_intake.color_confirm(TWO_COLOR_REFUSAL)] == [1, 2]
+    assert [c['slot'] for c in intake_questions.color_confirm(TWO_COLOR_REFUSAL)] == [1, 2]
 
 
 def _label_mismatch_start(monkeypatch, refusal=LABEL_REFUSAL):
@@ -369,10 +370,10 @@ def test_label_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkey
     seen = _label_mismatch_start(monkeypatch)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # one color, slot 1, print now, Print anyway
     question = adapter.questions[-1]
-    assert question['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert question['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'PETG' in question['question'] and 'Silk PLA' in question['question']
     assert len(seen) == 2 and seen[0] is None
-    assert seen[1]['slots'] == [model_job.label_mismatch_key(2, 'PETG', 'Silk PLA')]
+    assert seen[1]['slots'] == [launch_print_now.label_mismatch_key(2, 'PETG', 'Silk PLA')]
     assert not any(m.startswith("Didn't start:") for m in adapter.log)
     assert receipt['status'] == 'STARTED' and receipt['label_mismatch']['choice'] == 0
     job_json = next(env.tmp.rglob('JOB.json'))
@@ -391,15 +392,15 @@ def test_two_mismatched_slots_get_one_prompt_and_one_print_anyway_for_both(env, 
     """#795 review: both slots are named in one question, and one answer covers both."""
     seen = _color_mismatch_start(monkeypatch, TWO_COLOR_REFUSAL)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # ... then Print anyway
-    asked = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
+    asked = [q for q in adapter.questions if intake_questions.PRINT_ANYWAY_LABEL in q['choices']]
     assert len(asked) == 1
     question = asked[0]['question']
     assert 'slot 1' in question and 'slot 2' in question
     assert 'red #E53935' in question and 'bronze #CD7F32' in question
     assert 'blue #1E88E5' in question and 'green #43A047' in question
     assert len(seen) == 2  # one refused attempt, one that reaches the upload
-    assert seen[1]['slots'] == sorted([model_job.color_mismatch_key(1, '#E53935', '#CD7F32'),
-                                       model_job.color_mismatch_key(2, '#1E88E5', '#43A047')])
+    assert seen[1]['slots'] == sorted([launch_print_now.color_mismatch_key(1, '#E53935', '#CD7F32'),
+                                       launch_print_now.color_mismatch_key(2, '#1E88E5', '#43A047')])
     assert receipt['status'] == 'STARTED' and receipt['color_mismatch']['choice'] == 0
 
 
@@ -416,19 +417,19 @@ def test_color_refusal_that_surfaces_keeps_its_retry_text(env, monkeypatch):
         return False, COLOR_REFUSAL
 
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [2, 0, 0] + [0] * (prepared_intake.COLOR_CONFIRM_ROUNDS - 1))
-    asked = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
-    assert len(asked) == prepared_intake.COLOR_CONFIRM_ROUNDS - 1
+    adapter, result, receipt = run_flow(env, [2, 0, 0] + [0] * (intake_questions.COLOR_CONFIRM_ROUNDS - 1))
+    asked = [q for q in adapter.questions if intake_questions.PRINT_ANYWAY_LABEL in q['choices']]
+    assert len(asked) == intake_questions.COLOR_CONFIRM_ROUNDS - 1
     assert adapter.log[-1].startswith("Didn't start: printer slot 1 color is #E53935")
     assert adapter.log[-1].endswith('then press Retry.')
 
 
 def test_screen_unpushed_note_names_every_slot_and_says_the_screen_is_unchanged():
-    one = prepared_intake.screen_unpushed_note([{'slot': 2}])
+    one = intake_questions.screen_unpushed_note([{'slot': 2}])
     assert one == "Couldn't update the screen color for slot 2, so I'm printing with the screen color unchanged."
-    two = prepared_intake.screen_unpushed_note([{'slot': 1}, {'slot': 3}])
+    two = intake_questions.screen_unpushed_note([{'slot': 1}, {'slot': 3}])
     assert 'slot 1 and slot 3' in two and two.endswith('printing with the screen color unchanged.')
-    three = prepared_intake.screen_unpushed_note([{'slot': 1}, {'slot': 2}, {'slot': 4}])
+    three = intake_questions.screen_unpushed_note([{'slot': 1}, {'slot': 2}, {'slot': 4}])
     assert 'slot 1, slot 2 and slot 4' in three
 
 
@@ -451,7 +452,7 @@ def test_set_screen_that_fails_for_a_slot_prints_anyway_and_tells_the_channel(en
     notes = [m for m in adapter.log if 'screen color unchanged' in m]
     assert notes == ["Couldn't update the screen color for slot 2, so I'm printing with the screen color unchanged."]
     # Only the slot that stayed as it was is accepted; the pushed slot needs no acknowledgement.
-    assert seen[1]['slots'] == [model_job.color_mismatch_key(2, '#1E88E5', '#43A047')]
+    assert seen[1]['slots'] == [launch_print_now.color_mismatch_key(2, '#1E88E5', '#43A047')]
     assert receipt['status'] == 'STARTED'
 
 
@@ -555,6 +556,6 @@ def test_swapped_spool_asks_use_the_loaded_spool_in_the_intake_1336(env, monkeyp
 
     monkeypatch.setattr(print_next, 'start', start)
     adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # ... Use the loaded spool
-    assert adapter.questions[-1]['choices'][0] == prepared_intake.USE_LOADED_SPOOL_LABEL
+    assert adapter.questions[-1]['choices'][0] == intake_questions.USE_LOADED_SPOOL_LABEL
     assert seen == [False, True]
     assert 'accept_spool_change' not in (receipt.get('retry_target') or {})

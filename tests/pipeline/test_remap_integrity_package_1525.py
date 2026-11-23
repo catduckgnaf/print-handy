@@ -19,6 +19,7 @@ import pytest
 
 from print_handy.core import (editable_export, layer_gcode, model_job, orca_adapter, package_remap,
                               painted_geometry, remap_integrity, slice_route)
+from print_handy.jobs import slice as jobs_slice
 from tests.pipeline.test_remap_package_prusa_1155 import PRUSA_CASE
 from tests.pipeline.test_slice_route_1279 import _fake_orca, decisions, two_part_source
 
@@ -208,7 +209,7 @@ def test_each_separately_sliced_source_plate_records_its_own_plate(tmp_path, mon
     _source(source, {"1": (40, 40, 10), "2": (40, 40, 10)}, [["1"], ["2"]])
     job_path = _job(tmp_path, source, plate_mode="separate")
     monkeypatch.setattr("print_handy.core.orca_adapter.slice_model", _fake_slice())
-    model_job.slice_job(job_path)
+    jobs_slice.slice_job(job_path)
     plates = json.loads(job_path.read_text())["derived_plates"]
     assert [(row["plate_id"], row["provenance"]["selected_plates"]) for row in plates] == [
         (1, ["1"]), (2, ["2"])]

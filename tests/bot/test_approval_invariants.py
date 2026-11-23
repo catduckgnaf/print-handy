@@ -34,6 +34,7 @@ from print_handy.bot import platform
 from print_handy.bot.platform import SendResult
 from print_handy.core import ai_fix, prompts, yolo
 from print_handy.runtime import print_next
+from tests.bound_names import setattr_bound
 
 OPERATOR = "200000000000000002"
 MEMBER = "200000000000000777"
@@ -186,6 +187,7 @@ def test_yolo_never_auto_applies_an_ai_fix(monkeypatch):
     applying the fix is the bug (#978 F1, fixed by PR #987's guard in
     ``_ask``; this test is its regression pin)."""
     from print_handy.core import prepared_intake
+    from print_handy.intake import questions as intake_questions
 
     human_calls = []
 
@@ -194,13 +196,13 @@ def test_yolo_never_auto_applies_an_ai_fix(monkeypatch):
         human_calls.append(list(choices))
         return list(choices).index(print_next.CANCEL_LABEL)
 
-    monkeypatch.setattr(prepared_intake, "ask", fake_human_ask)
+    setattr_bound(monkeypatch, prepared_intake, "ask", fake_human_ask)
     adapter = OpenAdapter(approver=APPROVER)
     source = SimpleNamespace(chat_id="chan", thread_id=None,
                              user_id=APPROVER, printer_id=None)
     token = yolo.ACTIVE.set(True)
     try:
-        pick = run(prepared_intake._ask(
+        pick = run(intake_questions._ask(
             adapter, source, "sess",
             "Apply the AI-suggested fix?",
             [ai_fix.APPLY_LABEL, print_next.CANCEL_LABEL], timeout=5))

@@ -2,6 +2,8 @@ import json,re,zipfile,xml.etree.ElementTree as ET
 from pathlib import Path
 import pytest
 from print_handy.core import source_colors, model_job
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import slice as jobs_slice
 from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate, export_production_plate
 from print_handy.core import layer_gcode
 
@@ -16,7 +18,7 @@ def decisions(src,st):
  m=source_colors.inventory(src)
  slots=[1,2,4]
  return {'mode':'per_part','source_sha256':m['source_sha256'],'choices':{
-  q['key']:model_job.resolve_filament_selection(st,dict(st['filament_slots'][str(slots[q['source_extruder']-1])],slot=slots[q['source_extruder']-1])) for q in source_colors.prompts(m)}}
+  q['key']:jobs_filament.resolve_filament_selection(st,dict(st['filament_slots'][str(slots[q['source_extruder']-1])],slot=slots[q['source_extruder']-1])) for q in source_colors.prompts(m)}}
 
 def test_preserves_instances_and_transforms(tmp_path):
  src=COUPON;target=tmp_path/'instances.3mf'
@@ -147,7 +149,7 @@ def test_single_color_plate_shifts_without_cropping_or_rewriting_mesh(tmp_path):
     manifest = source_colors.inventory(source)
     state = json.loads(STATE.read_text())
     slot = dict(state['filament_slots']['4'], slot=4)
-    selection = model_job.resolve_filament_selection(state, slot)
+    selection = jobs_filament.resolve_filament_selection(state, slot)
     decisions = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
                  'choices': {row['key']: selection for row in source_colors.canonical_prompts(manifest)}}
     before = source.read_bytes()
@@ -243,7 +245,7 @@ def test_derived_plate_uses_its_own_slot_not_the_loaded_spool(tmp_path):
     state['spool'] = dict(state['filament_slots']['4'])
     assert state['filament_slots']['4']['hex'].lstrip('#').upper() == '067749'
     assert state['spool']['spoolman_id'] == state['filament_slots']['4']['spoolman_id']
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
     decisions = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
                  'choices': {row['key']: white for row in source_colors.canonical_prompts(manifest)}}
     report = export_single_color_plate(source, tmp_path / 'white.3mf', decisions, ['1:1'], slot_colors=state['filament_slots'])
@@ -269,8 +271,8 @@ def test_slice_job_emits_both_slots_without_calling_the_printer(tmp_path, monkey
     _two_slot_source(source)
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
-    green = model_job.resolve_filament_selection(state, dict(state['filament_slots']['4'], slot=4))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    green = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['4'], slot=4))
     by_extruder = {1: white, 2: green}
     choices = {}
     for row in source_colors.canonical_prompts(manifest):
@@ -293,7 +295,7 @@ def test_slice_job_emits_both_slots_without_calling_the_printer(tmp_path, monkey
 
     monkeypatch.setattr(model_job.printer_state, 'check', lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('slice contacted the printer')))
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert len(paths) == 2
     assert [row['slot'] for row in saved['derived_plates']] == [1, 4]
@@ -348,7 +350,7 @@ def test_multiline_objects_keep_their_own_component(tmp_path):
     manifest = source_colors.inventory(source)
     state = json.loads(STATE.read_text())
     slot = dict(state['filament_slots']['4'], slot=4)
-    selection = model_job.resolve_filament_selection(state, slot)
+    selection = jobs_filament.resolve_filament_selection(state, slot)
     decisions = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
                  'choices': {row['key']: selection for row in source_colors.canonical_prompts(manifest)}}
     report = export_single_color_plate(source, tmp_path / 'stencil.3mf', decisions, ['2:1'])
@@ -370,7 +372,7 @@ def test_selected_object_with_foreign_part_is_refused(tmp_path):
     _two_slot_source(source)
     manifest = source_colors.inventory(source)
     state = json.loads(STATE.read_text())
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
     decisions = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
                  'choices': {row['key']: white for row in source_colors.canonical_prompts(manifest)}}
     with pytest.raises(RuntimeError, match='do not match'):
@@ -383,8 +385,8 @@ def _two_slot_job(tmp_path, **extra):
     _two_slot_source(source)
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
-    green = model_job.resolve_filament_selection(state, dict(state['filament_slots']['4'], slot=4))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    green = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['4'], slot=4))
     by_extruder = {1: white, 2: green}
     choices = {}
     for row in source_colors.canonical_prompts(manifest):
@@ -493,7 +495,7 @@ def test_slice_job_applies_chosen_fit_to_the_whole_multicolor_plate(tmp_path, mo
 
     monkeypatch.setattr(model_job.printer_state, 'check', lambda *a, **k: (_ for _ in ()).throw(AssertionError('slice contacted the printer')))
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    out = model_job.slice_job(job_path)
+    out = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert isinstance(out, (str, Path))
     assert calls == [{'scale': 0.6, 'rotation': rotation, 'supports': True, 'brim': 5}]
@@ -507,7 +509,7 @@ def test_per_part_fit_options_drops_choices_a_slot_plate_cannot_honor(tmp_path):
     upright = {'label': 'Upright', 'scale': 0.9, 'rotation': [1, 0, 0, 0, 1, 0, 0, 0, 1]}
     impossible = {'label': 'Mirror', 'scale': 0.9, 'rotation': [-1, 0, 0, 0, 1, 0, 0, 0, 1]}
     options = {'scales': [0.9, 0.5], 'rotations': [upright, impossible]}
-    kept = model_job.per_part_fit_options(source, decisions, options, bed=220)
+    kept = jobs_slice.per_part_fit_options(source, decisions, options, bed=220)
     assert kept['scales'] == [0.9, 0.5]
     assert kept['rotations'] == [upright]
 
@@ -539,7 +541,7 @@ def test_single_color_export_of_a_direct_mesh_core_part_parks_the_rest(tmp_path)
     source = Path(__file__).parents[1] / 'corpus/cases/core-colorgroup-items/model.3mf'
     manifest = source_colors.inventory(source)
     state = json.loads(STATE.read_text())
-    selection = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    selection = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
     decisions = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
                  'choices': {row['key']: selection for row in source_colors.canonical_prompts(manifest)}}
     keys = [part['key'] for part in manifest['parts']]
@@ -610,7 +612,7 @@ def _cutter_source(path):
 
 def test_placed_bounds_without_cutters_are_the_part_rows():
     geometry = {'parts': [{'part_key': 'a', 'bounds_mm': [[0, 10], [0, 10], [0, 5]]}]}
-    assert model_job._placed_bounds_by_object(geometry, {'a': '1'}) == {'1': [[0, 10], [0, 10], [0, 5]]}
+    assert jobs_slice._placed_bounds_by_object(geometry, {'a': '1'}) == {'1': [[0, 10], [0, 10], [0, 5]]}
 
 
 def test_export_records_cutter_bounds_so_the_proof_compares_matching_volumes(tmp_path):
@@ -628,7 +630,7 @@ def test_export_records_cutter_bounds_so_the_proof_compares_matching_volumes(tmp
     [cutter_box] = report['cutter_bounds_by_object'].values()
     assert cutter_box[2][1] > 10  # the cutter reaches past the 10 mm body
     object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
-    placed = model_job._placed_bounds_by_object(report, object_of_key)
+    placed = jobs_slice._placed_bounds_by_object(report, object_of_key)
     oid = str(manifest['parts'][0]['object_id'])
     with zipfile.ZipFile(src) as archive:
         points = _world_points(archive, {oid})
@@ -764,10 +766,10 @@ def test_painted_one_color_view_exports_each_part_plate(tmp_path):
     assert manifest['painted']
     assert {row['key'] for row in source_colors.canonical_prompts(manifest)} == {'filament:1', 'filament:2'}
     state = json.loads(STATE.read_text())
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
     one_color = {'schema': 'part_slots_v1', 'mode': 'single_color', 'source_sha256': manifest['source_sha256'],
                  'selection': white}
-    view = model_job._per_part_view(manifest, one_color)
+    view = jobs_slice._per_part_view(manifest, one_color)
     for key in ('1:1', '2:1'):
         # Before the fix this raised KeyError: 'part:1:1' (painted decisions have no part rows).
         target = tmp_path / f'plate{key[0]}.3mf'
@@ -785,8 +787,8 @@ def test_painted_part_plate_refuses_paint_of_another_slot(tmp_path):
     _painted_two_plate_source(source)
     manifest = source_colors.inventory(source)
     state = json.loads(STATE.read_text())
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
-    green = model_job.resolve_filament_selection(state, dict(state['filament_slots']['4'], slot=4))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    green = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['4'], slot=4))
     view = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
             'choices': {'filament:1': white, 'filament:2': green}}
     # The Holder's painted filament-2 region is slot 4, its body slot 1.
@@ -838,9 +840,9 @@ def _bronze_for_black_view(manifest, state):
     """Print #120's picks: source filament 1 prints from slot 3, the painted
     filament 2 (the black regions) from slot 2."""
     return {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
-            'choices': {'filament:1': model_job.resolve_filament_selection(
+            'choices': {'filament:1': jobs_filament.resolve_filament_selection(
                             state, dict(state['filament_slots']['3'], slot=3)),
-                        'filament:2': model_job.resolve_filament_selection(
+                        'filament:2': jobs_filament.resolve_filament_selection(
                             state, dict(state['filament_slots']['2'], slot=2))}}
 
 
@@ -917,7 +919,7 @@ def test_slice_job_painted_plates_carry_the_region_remap(tmp_path, monkeypatch):
     monkeypatch.setattr(model_job.printer_state, 'check',
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError('slice contacted the printer')))
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert len(paths) == 2
     by_plate = {row['plate_id']: row for row in saved['derived_plates']}
@@ -933,7 +935,7 @@ def test_slice_job_splits_a_one_color_painted_model_per_plate(tmp_path, monkeypa
     _painted_two_plate_source(source)
     manifest = source_colors.inventory(source)
     state = json.loads(STATE.read_text())
-    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    white = jobs_filament.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
     job_path = tmp_path / 'JOB.json'
     job_path.write_text(json.dumps({'downloaded_file': str(source), 'audit': {'plates': 2}, 'plate_mode': 'separate',
                                     'color_decisions': {'schema': 'part_slots_v1', 'mode': 'single_color',
@@ -952,7 +954,7 @@ def test_slice_job_splits_a_one_color_painted_model_per_plate(tmp_path, monkeypa
     monkeypatch.setattr(model_job.printer_state, 'check',
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError('slice contacted the printer')))
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    paths = model_job.slice_job(job_path)
+    paths = jobs_slice.slice_job(job_path)
     saved = json.loads(job_path.read_text())
     assert len(paths) == 2
     assert 'refused_plates' not in saved

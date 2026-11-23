@@ -22,7 +22,14 @@ import pytest
 from print_handy import printers as printer_registry
 from print_handy import settings
 from print_handy.core import launch_state, model_job, printer_state
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import common as jobs_common
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from print_handy.runtime import maintenance, spool_sync
+from tests.bound_names import patch_bound
 
 
 def load_local(text, suffix=".yaml"):
@@ -109,10 +116,10 @@ printers:
 
 def test_stamp_job_printer_records_the_default_id():
     job = {}
-    model_job.stamp_job_printer(job)
+    jobs_store.stamp_job_printer(job)
     assert job["printer_id"] == DEFAULT_ID
     stamped = {"printer_id": "workshop-ad5x"}
-    model_job.stamp_job_printer(stamped)
+    jobs_store.stamp_job_printer(stamped)
     assert stamped["printer_id"] == "workshop-ad5x"  # an existing identity is never rewritten
 
 
@@ -197,16 +204,16 @@ def _make_job(root, name, printer_id=None):
 def test_approvals_are_consumed_per_printer_and_never_across(tmp_path, state_root):
     jp_a, g_a, job_a = _make_job(tmp_path, "a", "printer-a")
     jp_b, g_b, job_b = _make_job(tmp_path, "b", "printer-b")
-    model_job._consume_approval(jp_a, job_a, g_a)
-    model_job._consume_approval(jp_b, job_b, g_b)  # the other printer's approval is its own
+    launch_gates._consume_approval(jp_a, job_a, g_a)
+    launch_gates._consume_approval(jp_b, job_b, g_b)  # the other printer's approval is its own
     with pytest.raises(SystemExit, match="already used"):
-        model_job._consume_approval(jp_a, json.loads(jp_a.read_text()), g_a)
+        launch_gates._consume_approval(jp_a, json.loads(jp_a.read_text()), g_a)
     # Printer A's consumed approval cannot be spent under printer B's identity either:
     # the record is bound to the job, the printer and the artifact, in A's own database.
     with pytest.raises(SystemExit, match="already used"):
-        model_job._consume_approval(jp_a, {**job_a, "printer_id": "printer-b"}, g_a)
+        launch_gates._consume_approval(jp_a, {**job_a, "printer_id": "printer-b"}, g_a)
     with launch_state.transaction("printer-b") as con:
-        assert launch_state.consumed(con, str(jp_a.resolve()), model_job.file_sha256(g_a)) == []
+        assert launch_state.consumed(con, str(jp_a.resolve()), gcode_artifact.file_sha256(g_a)) == []
 
 
 # ---------------------------------------------------------------- hardware record
@@ -350,22 +357,22 @@ def _upload_ok(cmd, *args, **kwargs):
 
 @pytest.fixture
 def moonraker(tmp_path):
-    patches = [mock.patch.object(model_job, "START_CLAIMS", tmp_path / "claims.json"),
+    patches = [mock.patch.object(launch_print_now, "START_CLAIMS", tmp_path / "claims.json"),
                mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": "http://m"}),
-               mock.patch.object(model_job, "_printer_phase", return_value=("standby", "", "Ready")),
-               mock.patch.object(model_job, "verify_gcode"),
-               mock.patch.object(model_job, "_verify_filament_readiness"),
-               mock.patch.object(model_job, "_mr", return_value={"result": "ok"}),
-               mock.patch.object(model_job, "_wait_printing", return_value="printing"),
-               mock.patch.object(model_job, "record_start", return_value="/vault/x.md"),
-               mock.patch.object(model_job, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"}),
-               mock.patch.object(model_job, "mesh_readiness", return_value={"profile": "auto", "saved_at": None,
+               patch_bound(launch_gates, "_printer_phase", return_value=("standby", "", "Ready")),
+               patch_bound(gcode_verify, "verify_gcode"),
+               patch_bound(launch_gates, "_verify_filament_readiness"),
+               patch_bound(jobs_common, "_mr", return_value={"result": "ok"}),
+               mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"),
+               patch_bound(launch_print_now, "record_start", return_value="/vault/x.md"),
+               mock.patch.object(launch_print_now, "live_snapshot", return_value={"nozzle_c": None, "bed_c": None, "slots": "unknown"}),
+               patch_bound(launch_gates, "mesh_readiness", return_value={"profile": "auto", "saved_at": None,
                                                                            "print_leveling": 0, "problem": None,
                                                                            "stale": None, "z_offset_mm": 0.0,
                                                                            "offset_source": "saved gcode offset"}),
-               mock.patch.object(model_job, "screen_z_offset", return_value=0.0),
-               mock.patch.object(model_job, "_announce_print_name"),
-               mock.patch.object(model_job, "_publish_job_card"),
+               patch_bound(launch_gates, "screen_z_offset", return_value=0.0),
+               mock.patch.object(launch_print_now, "_announce_print_name"),
+               mock.patch.object(launch_print_now, "_publish_job_card"),
                mock.patch.object(model_job.subprocess, "run", side_effect=_upload_ok)]
     for p in patches:
         p.start()
@@ -378,7 +385,7 @@ def test_a_lease_on_another_printer_does_not_block_this_print(moonraker):
     jp, _g, _job = _make_job(moonraker, "a", DEFAULT_ID)
     other = launch_state.acquire("printer-b", remote="other.gcode")
     try:
-        assert model_job.print_now(jp)["started"] is True
+        assert launch_print_now.print_now(jp)["started"] is True
     finally:
         other.release()
 
@@ -388,7 +395,7 @@ def test_a_lease_on_the_jobs_own_printer_refuses_the_print(moonraker):
     held = launch_state.acquire(DEFAULT_ID, remote="held.gcode")
     try:
         with pytest.raises(SystemExit, match="another launch on this printer is in progress"):
-            model_job.print_now(jp)
+            launch_print_now.print_now(jp)
         assert "approvals" not in json.loads(jp.read_text())  # a refused lease consumes nothing
     finally:
         held.release()
@@ -401,7 +408,7 @@ def test_upload_goes_to_the_jobs_printer_not_the_global_url(moonraker, monkeypat
     jp, _g, _job = _make_job(moonraker, "a", DEFAULT_ID)
     with mock.patch.object(model_job.printer_state, "load",
                            return_value={"moonraker_url": "http://printer-b:7125/"}):
-        assert model_job.print_now(jp)["started"] is True
+        assert launch_print_now.print_now(jp)["started"] is True
     uploads = [c for c in model_job.subprocess.run.call_args_list
                if len(c.args[0]) >= 2 and c.args[0][1] == "upload"]
     assert uploads and all(c.kwargs["env"]["MOONRAKER_URL"] == "http://printer-b:7125" for c in uploads)
@@ -409,8 +416,8 @@ def test_upload_goes_to_the_jobs_printer_not_the_global_url(moonraker, monkeypat
 
 def test_moonrakerctl_env_keeps_the_environment_without_a_printer_url(monkeypatch):
     monkeypatch.setenv("MOONRAKER_URL", "http://global-default:7125")
-    assert model_job._moonrakerctl_env({})["MOONRAKER_URL"] == "http://global-default:7125"
-    assert model_job._moonrakerctl_env({"moonraker_url": "http://b"})["MOONRAKER_URL"] == "http://b"
+    assert jobs_common._moonrakerctl_env({})["MOONRAKER_URL"] == "http://global-default:7125"
+    assert jobs_common._moonrakerctl_env({"moonraker_url": "http://b"})["MOONRAKER_URL"] == "http://b"
 
 
 # ------------------------------------------- crash/concurrency integrity (audit P0)

@@ -22,6 +22,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job, orca_adapter, source_colors
+from print_handy.jobs import filament as jobs_filament
 from print_handy.core.color_geometry import export_single_color_plate
 from tests.corpus.make_models import box, write_3mf
 from tests.pipeline.test_multi_tool_intake import creator_config, tool_state
@@ -211,7 +212,7 @@ def test_audit_derived_plate_route(model_key, source_kind, tmp_path, monkeypatch
     spec = SOURCES[source_kind]
     source = spec["build"](tmp_path / "source.3mf")
     manifest = source_colors.inventory(source)
-    record = model_job.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
+    record = jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
     decisions = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
                  "choices": {row["key"]: record for row in source_colors.canonical_prompts(manifest)}}
     keys = [part["key"] for part in manifest["parts"] if part["source_extruder"] == 1]
@@ -244,7 +245,7 @@ def test_silent_drop_regression_author_keys_named_in_the_differs_list_reach_orca
     _provenance, job = _slice(tmp_path, source, state, adapter, captured, filament_slot=1)
     assert job["wall_loops"] == "4" and job["sparse_infill_density"] == "35%"
     manifest = source_colors.inventory(source)
-    record = model_job.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
+    record = jobs_filament.resolve_filament_selection(state, dict(state["filament_slots"]["1"], slot=1))
     decisions = {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
                  "choices": {row["key"]: record for row in source_colors.canonical_prompts(manifest)}}
     keys = [part["key"] for part in manifest["parts"] if part["source_extruder"] == 1]

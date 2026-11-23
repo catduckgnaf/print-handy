@@ -486,13 +486,13 @@ def fetch_link_source(url, target_dir) -> Path:
     offer exactly one too; Cults3D and MakerOnline stop with their named
     download gaps. Ambiguity is a plain refusal, never a silent pick.
     """
-    from . import model_job as mj
+    from ..jobs import sources as jobs_sources
     target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     host = urlsplit(str(url)).hostname or ""
     # Which site this is comes from the one registry (via model_job's
     # SITE_HOSTS, which model_sources builds); no host lists here.
-    site = mj.SITE_HOSTS.get(host.lower())
+    site = jobs_sources.SITE_HOSTS.get(host.lower())
     try:
         if site == "cults3d":
             # Metadata-only (#462 Stage 3): Cults' API exposes no files at all,
@@ -504,7 +504,7 @@ def fetch_link_source(url, target_dir) -> Path:
                 "through the signed-in website. Download the file from the model "
                 "page in a browser and drop the file here instead.")
         if site == "makerworld":
-            job = mj.maker_inventory(str(url))
+            job = jobs_sources.maker_inventory(str(url))
             from .makerworld_profiles import choose as choose_profile
             hint = re.fullmatch(r"profileId-(\d+)", urlsplit(str(url)).fragment or "")
             chosen = choose_profile(job["sources"], hint[1] if hint else None)
@@ -512,9 +512,9 @@ def fetch_link_source(url, target_dir) -> Path:
                 raise DesignError(
                     f"that MakerWorld link has {len(job['sources'])} profiles and no clear "
                     "default, so design cannot pick one; drop the file you want edited")
-            return Path(mj.maker_download(job, chosen, target_dir))
+            return Path(jobs_sources.maker_download(job, chosen, target_dir))
         if site == "thingiverse":
-            job = mj.thingiverse_inventory(str(url))
+            job = jobs_sources.thingiverse_inventory(str(url))
             rows = [row for row in job["sources"]
                     if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
             if not rows:
@@ -523,9 +523,9 @@ def fetch_link_source(url, target_dir) -> Path:
                 raise DesignError(
                     f"that Thingiverse link has {len(rows)} model files, so design cannot pick "
                     "one; drop the file you want edited")
-            return Path(mj.thingiverse_download(job, rows[0], target_dir))
+            return Path(jobs_sources.thingiverse_download(job, rows[0], target_dir))
         if site == "crealitycloud":
-            job = mj.crealitycloud_inventory(str(url))
+            job = jobs_sources.crealitycloud_inventory(str(url))
             rows = [row for row in job["sources"]
                     if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
             if not rows:
@@ -538,18 +538,18 @@ def fetch_link_source(url, target_dir) -> Path:
                     f"that Creality Cloud link has {len(rows)} model files, so design cannot pick "
                     "one; drop the file you want edited")
             try:
-                return Path(mj.crealitycloud_download(job, chosen, target_dir))
+                return Path(jobs_sources.crealitycloud_download(job, chosen, target_dir))
             except RuntimeError as exc:
                 # The download's own wording names the cause and remedy
                 # (the login-token file, a refused token), so keep it.
                 raise DesignError(str(exc)) from None
-        login_site = mj.SITE_HOSTS.get(host.lower()) if host else None
+        login_site = jobs_sources.SITE_HOSTS.get(host.lower()) if host else None
         if login_site == "makeronline":
-            raise DesignError(mj.MAKERONLINE_DOWNLOAD_GAP)
+            raise DesignError(jobs_sources.MAKERONLINE_DOWNLOAD_GAP)
         if login_site in ("thangs", "nexprint", "myminifactory"):
             label = {"thangs": "Thangs", "nexprint": "Nexprint",
                      "myminifactory": "MyMiniFactory"}[login_site]
-            job = mj.inventory_for_url(str(url))
+            job = jobs_sources.inventory_for_url(str(url))
             rows = [row for row in job["sources"]
                     if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
             if not rows:
@@ -559,12 +559,12 @@ def fetch_link_source(url, target_dir) -> Path:
                     f"that {label} link has {len(rows)} model files, so design cannot pick "
                     "one; drop the file you want edited")
             try:
-                return Path(mj.download_for_site(job, rows[0], target_dir))
+                return Path(jobs_sources.download_for_site(job, rows[0], target_dir))
             except RuntimeError as exc:
                 # The download's own wording names the cause and remedy
                 # (the login-token file, a refused token).
                 raise DesignError(str(exc)) from None
-        job = mj.printables_inventory(str(url))
+        job = jobs_sources.printables_inventory(str(url))
         rows = [row for row in job["sources"]
                 if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
         if not rows:
@@ -573,7 +573,7 @@ def fetch_link_source(url, target_dir) -> Path:
             raise DesignError(
                 f"that Printables link has {len(rows)} model files, so design cannot pick "
                 "one; drop the file you want edited")
-        return Path(mj.printables_download(job, rows[0], target_dir))
+        return Path(jobs_sources.printables_download(job, rows[0], target_dir))
     except DesignError:
         raise
     except Exception as exc:

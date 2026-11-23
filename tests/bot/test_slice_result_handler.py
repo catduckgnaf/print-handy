@@ -18,7 +18,8 @@ from PIL import Image
 
 from print_handy.bot import runtime
 from print_handy.bot.handlers import slice_result
-from print_handy.core import model_job
+from tests.bound_names import setattr_bound
+from print_handy.jobs import common as jobs_common
 
 OPERATOR = "200000000000000002"
 HOME = "100000000000000001"
@@ -85,7 +86,7 @@ def archive(tmp_path, monkeypatch):
     root = tmp_path / "archive"
     root.mkdir()
     make_job(root)
-    monkeypatch.setattr(model_job, "ARCHIVE", root)
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", root)
     monkeypatch.setattr(slice_result, "_state_dir", lambda: tmp_path / "state")
     return root
 
@@ -117,7 +118,7 @@ def test_card_for_the_newest_job_with_thumbnail_attached(archive, tmp_path):
 def test_no_job_answers_plainly(archive, tmp_path, monkeypatch):
     empty = tmp_path / "empty"
     empty.mkdir()
-    monkeypatch.setattr(model_job, "ARCHIVE", empty)
+    setattr_bound(monkeypatch, jobs_common, "ARCHIVE", empty)
     adapter = Adapter()
     run(slice_result.handle(event(), Gateway(adapter)))
     (message,) = adapter.sent

@@ -11,10 +11,19 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import model_job, orca_adapter, prepared_intake
+from print_handy.core import orca_adapter, prepared_intake
+from print_handy.gcode import artifact as gcode_artifact
+from print_handy.gcode import verify as gcode_verify
+from print_handy.jobs import filament as jobs_filament
+from print_handy.jobs import slice as jobs_slice
+from print_handy.jobs import sources as jobs_sources
+from print_handy.jobs import store as jobs_store
+from print_handy.launch import gates as launch_gates
+from print_handy.launch import print_now as launch_print_now
 from .test_color_intake import state  # noqa: F401
 from .test_prepared_intake import Adapter, env, run_flow  # noqa: F401
 from .test_source_colors import source as painted_source
+from tests.bound_names import setattr_bound
 
 
 def _receipt(env, mid):
@@ -62,9 +71,9 @@ def test_painted_oversize_fit_accept_does_not_crash(env, monkeypatch):
         out.write_bytes(painted.read_bytes())
         return out
 
-    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(jobs_sources, 'printables_download', copy_painted)
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
-    monkeypatch.setattr(model_job, 'painted_fit_for_job',
+    monkeypatch.setattr(jobs_slice, 'painted_fit_for_job',
                         lambda path, decisions, state=None: {'scale': 0.8, 'plates': 1, 'blocking_plate': None})
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='painted1', text='https://www.printables.com/model/1-ghost')
@@ -92,7 +101,7 @@ def test_single_color_rearranged_slice_binds_decisions_to_derivative(tmp_path, m
     _source(source, {'1': (100, 20, 10), '2': (100, 20, 10)}, [['1', '2']])
     manifest = source_colors.inventory(source)
     st = json.loads(STATE.read_text())
-    selection = model_job.resolve_filament_selection(st, dict(st['filament_slots']['1'], slot=1))
+    selection = jobs_filament.resolve_filament_selection(st, dict(st['filament_slots']['1'], slot=1))
     decisions = {'schema': 'part_slots_v1', 'mode': 'single_color',
                  'source_sha256': manifest['source_sha256'], 'selection': selection}
     job_path = tmp_path / 'JOB.json'
@@ -109,7 +118,7 @@ def test_single_color_rearranged_slice_binds_decisions_to_derivative(tmp_path, m
         if kw.get('color_decisions'):
             source_colors.validate_decisions(source_colors.inventory(src_arg),
                                              kw['color_decisions'], state_arg,
-                                             model_job.resolve_filament_selection)
+                                             jobs_filament.resolve_filament_selection)
         seen['src'] = Path(src_arg)
         seen['decisions'] = kw.get('color_decisions')
         folder = Path(folder)
@@ -138,11 +147,11 @@ def test_single_color_rearranged_slice_binds_decisions_to_derivative(tmp_path, m
 
     monkeypatch.setattr('print_handy.core.geometry_layout.arrange_and_export', fake_arrange)
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    monkeypatch.setattr(model_job, 'finalize_multicolor', lambda *a, **k: None)
-    monkeypatch.setattr(model_job, 'verify_gcode', lambda _path: None)
-    model_job.slice_job(job_path)
+    monkeypatch.setattr(jobs_slice, 'finalize_multicolor', lambda *a, **k: None)
+    setattr_bound(monkeypatch, gcode_verify, 'verify_gcode', lambda _path: None)
+    jobs_slice.slice_job(job_path)
     assert seen['src'] != source  # the arranged derivative was sliced
-    assert seen['decisions']['source_sha256'] == model_job.file_sha256(seen['src'])
+    assert seen['decisions']['source_sha256'] == gcode_artifact.file_sha256(seen['src'])
     saved = json.loads(job_path.read_text())
     assert saved['color_decisions']['source_sha256'] == manifest['source_sha256']
     assert saved['gcode_verified'] is True
@@ -155,18 +164,18 @@ REFUSED = [{'slot': 2, 'plate_id': 2, 'binding_key': '2:2', 'part_keys': ['2:1']
 def test_partial_job_refusal_names_refused_plates():
     """P1-20 (unit): the launch gate names every refused plate, and an
     explicitly accepted partial job is not gated."""
-    assert model_job.partial_job_refusal({}) is None
-    assert model_job.partial_job_refusal({'refused_plates': []}) is None
-    accepted = model_job.refused_plates_digest({'refused_plates': REFUSED})
-    assert model_job.partial_job_refusal(
+    assert launch_gates.partial_job_refusal({}) is None
+    assert launch_gates.partial_job_refusal({'refused_plates': []}) is None
+    accepted = launch_gates.refused_plates_digest({'refused_plates': REFUSED})
+    assert launch_gates.partial_job_refusal(
         {'refused_plates': REFUSED, 'partial_job_accepted': accepted}) is None
     # An acceptance of another plate set (or the old bare True) does not cover these plates.
     other = [{**REFUSED[0], 'plate_id': 3, 'binding_key': '3:3'}]
-    assert model_job.partial_job_refusal(
+    assert launch_gates.partial_job_refusal(
         {'refused_plates': other, 'partial_job_accepted': accepted}) is not None
-    assert model_job.partial_job_refusal(
+    assert launch_gates.partial_job_refusal(
         {'refused_plates': REFUSED, 'partial_job_accepted': True}) is not None
-    message = model_job.partial_job_refusal({'refused_plates': REFUSED})
+    message = launch_gates.partial_job_refusal({'refused_plates': REFUSED})
     assert 'plate 2' in message and 'does not fit the bed' in message
     assert 'incomplete' in message
 
@@ -180,11 +189,11 @@ def test_print_now_refuses_an_unaccepted_partial_job(tmp_path, monkeypatch):
     job['refused_plates'] = REFUSED
     jp.write_text(json.dumps(job))
     with pytest.raises(SystemExit, match='incomplete'):
-        model_job.print_now(str(jp))
-    job['partial_job_accepted'] = model_job.refused_plates_digest(job)
+        launch_print_now.print_now(str(jp))
+    job['partial_job_accepted'] = launch_gates.refused_plates_digest(job)
     jp.write_text(json.dumps(job))
     with pytest.raises(SystemExit) as excinfo:
-        model_job.print_now(str(jp))  # proceeds past the partial gate; no live printer here
+        launch_print_now.print_now(str(jp))  # proceeds past the partial gate; no live printer here
     assert 'incomplete' not in str(excinfo.value)
     assert 'were refused during slicing' not in str(excinfo.value)
     # Past the gate it reaches the start guard, whose unreachable-Moonraker refusal
@@ -202,16 +211,16 @@ def test_intake_discloses_refused_plates_and_records_acceptance(env, monkeypatch
         data = json.loads(Path(job_path).read_text())
         data['derived_plates'] = [{'gcode': str(gcode), 'plate_id': 1, 'slot': 1}]
         data['refused_plates'] = REFUSED
-        model_job.write_job(Path(job_path).parent, data)
+        jobs_store.write_job(Path(job_path).parent, data)
         return [gcode]
 
-    monkeypatch.setattr(model_job, 'slice_job', fake_slice)
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', fake_slice)
     adapter, _result, receipt = run_flow(env, [2, 0, 0], mid='partial1')
     assert receipt['status'] != 'FAILED', receipt
     posts = [post for post in adapter.sent if 'will NOT print' in post]
     assert posts and 'Plate 2' in posts[0] and 'does not fit the bed' in posts[0]
     job = json.loads(Path(receipt['job_json']).read_text())
-    assert job['partial_job_accepted'] == model_job.refused_plates_digest(job)
+    assert job['partial_job_accepted'] == launch_gates.refused_plates_digest(job)
     assert len(env.starts) == 1  # the disclosed, accepted partial job started
 
 
@@ -222,8 +231,8 @@ def test_dropbox_link_without_filename_survives_the_extension_filter(env, monkey
     filename (validated by direct_download). Serving HTML proves the flow
     reached the download: it refuses as a web page, not as empty inventory."""
     from .test_direct_links import FakeResponse
-    monkeypatch.setattr(model_job, '_resolve_host_ips', lambda host: {'93.184.216.34'})
-    monkeypatch.setattr(model_job, '_open_once', lambda url: FakeResponse(
+    monkeypatch.setattr(jobs_sources, '_resolve_host_ips', lambda host: {'93.184.216.34'})
+    monkeypatch.setattr(jobs_sources, '_open_once', lambda url: FakeResponse(
         b'<html><body>share page</body></html>', {'Content-Type': 'text/html'}))
 
     async def fake_preview(*args, **kw):
@@ -253,7 +262,7 @@ def test_painted_fit_crash_offers_retry_not_a_size_verdict(env, monkeypatch):
         out.write_bytes(painted.read_bytes())
         return out
 
-    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(jobs_sources, 'printables_download', copy_painted)
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
     calls = []
 
@@ -262,7 +271,7 @@ def test_painted_fit_crash_offers_retry_not_a_size_verdict(env, monkeypatch):
         if len(calls) == 1:
             raise RuntimeError('mesh parse exploded')
         return {'scale': 0.8, 'plates': 1, 'blocking_plate': None}
-    monkeypatch.setattr(model_job, 'painted_fit_for_job', flaky_fit)
+    monkeypatch.setattr(jobs_slice, 'painted_fit_for_job', flaky_fit)
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='painted-err', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0] * 30)  # every first choice; Retry is the first fit-error choice
@@ -288,12 +297,12 @@ def test_painted_fit_error_cancel_cancels_without_a_size_verdict(env, monkeypatc
         out.write_bytes(painted.read_bytes())
         return out
 
-    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(jobs_sources, 'printables_download', copy_painted)
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
 
     def broken_fit(path, decisions, state=None):
         raise RuntimeError('worker died')
-    monkeypatch.setattr(model_job, 'painted_fit_for_job', broken_fit)
+    monkeypatch.setattr(jobs_slice, 'painted_fit_for_job', broken_fit)
 
     class CancelRetry(Adapter):
         async def send_clarify(self, **kw):
@@ -327,9 +336,9 @@ def test_painted_no_fit_names_the_measured_layout(env, monkeypatch):
         out.write_bytes(painted.read_bytes())
         return out
 
-    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(jobs_sources, 'printables_download', copy_painted)
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
-    monkeypatch.setattr(model_job, 'painted_fit_for_job',
+    monkeypatch.setattr(jobs_slice, 'painted_fit_for_job',
                         lambda path, decisions, state=None: {
                             'scale': None, 'blocking_plate': 1, 'plates': 1,
                             'blocking_layout': {'extent_mm': [231.0, 198.0],
