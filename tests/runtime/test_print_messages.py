@@ -384,12 +384,11 @@ def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warn
         assert len(posts) == 1 and "zmod_ifs Chan reports slot 4" in posts[0]
 
 
-def test_slot_self_check_does_not_warn_when_baseline_channels_were_unavailable(monkeypatch):
-    """Both channels later agreeing on a wrong slot is not activation when
-    the start snapshot had no channel readings. A wrong-slot warning needs
-    both baseline readings known and then changed; otherwise the check
-    waits out the window."""
+def test_slot_self_check_posts_inconclusive_after_missing_baseline_timeout(monkeypatch):
+    """Unknown baseline plus later wrong readings gets uncertainty, not a mismatch claim."""
     listener = mel.Listener()
+    listener.filename = "job.gcode"
+    listener.print_identity = "job-1"
     monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
         (3, None, None, None), (3, 4, 4, None)]))
     waits = []
@@ -398,16 +397,63 @@ def test_slot_self_check_does_not_warn_when_baseline_channels_were_unavailable(m
         waits.append(delay)
 
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
-    monkeypatch.setattr(mel, "post", lambda _: pytest.fail(
-        "must not report an unconfirmed channel"))
+    posts = []
+    monkeypatch.setattr(mel, "post", posts.append)
     asyncio.run(listener._slot_self_check())
     assert waits == [1] * 30
+    assert len(posts) == 1
+    assert "inconclusive" in posts[0]
+    assert "may be stale" in posts[0]
+    posts.clear()
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1] * 60
+    assert posts == []
 
 
-def test_slot_self_check_does_not_treat_unchanged_available_channel_as_activation(monkeypatch):
-    """(3, 2, None) then (3, 2, 2): the channel that was already 2 did not
-    move, so the pair agreeing on 2 is still the previous print."""
+@pytest.mark.parametrize("baseline", [(3, None, None, None), (3, 2, None, None),
+                                      (3, None, 2, None), (3, 4, None, None),
+                                      (3, None, 4, None)])
+def test_slot_self_check_posts_inconclusive_for_partial_baseline(monkeypatch, baseline):
+    """Any unavailable baseline channel keeps the later agreeing reading inconclusive."""
     listener = mel.Listener()
+    listener.filename = "job.gcode"
+    listener.print_identity = "job-1"
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        baseline, (3, 4, 4, None)]))
+    async def no_wait(_delay):
+        return None
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    posts = []
+    monkeypatch.setattr(mel, "post", posts.append)
+    asyncio.run(listener._slot_self_check())
+    assert len(posts) == 1
+    assert "inconclusive" in posts[0] and "may be stale" in posts[0]
+
+
+def test_slot_self_check_suppresses_advisory_after_job_turnover(monkeypatch):
+    """Never post a delayed slot advisory for a job that is no longer current."""
+    listener = mel.Listener()
+    listener.filename = "old-job.gcode"
+    listener.print_identity = "job-1"
+    samples = _sticky_slot_samples([(3, None, None, None), (3, 4, 4, None)])
+
+    async def turnover_sleep(_delay):
+        listener.print_identity = "job-2"
+
+    monkeypatch.setattr(listener, "_slot_sources", samples)
+    monkeypatch.setattr(mel.asyncio, "sleep", turnover_sleep)
+    posts = []
+    monkeypatch.setattr(mel, "post", posts.append)
+    asyncio.run(listener._slot_self_check())
+    assert posts == []
+
+
+def test_slot_self_check_does_not_claim_stale_channel_as_activation(monkeypatch):
+    """(3, 2, None) then (3, 2, 2) cannot prove activation, but warrants an advisory."""
+    listener = mel.Listener()
+    listener.filename = "job.gcode"
+    listener.print_identity = "job-1"
     monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
         (3, 2, None, None), (3, 2, 2, None)]))
     waits = []
@@ -416,9 +462,13 @@ def test_slot_self_check_does_not_treat_unchanged_available_channel_as_activatio
         waits.append(delay)
 
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
-    monkeypatch.setattr(mel, "post", lambda _: pytest.fail("must not report stale channel"))
+    posts = []
+    monkeypatch.setattr(mel, "post", posts.append)
     asyncio.run(listener._slot_self_check())
     assert waits == [1] * 30
+    assert len(posts) == 1
+    assert "inconclusive" in posts[0] and "may be stale" in posts[0]
+    assert "activated" not in posts[0] and "wrong slot" not in posts[0]
 
 
 def test_slot_self_check_does_not_warn_if_activation_is_unobserved(monkeypatch):
