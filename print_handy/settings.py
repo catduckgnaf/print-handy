@@ -106,6 +106,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("bambu", "lan_access_code_env"): str,
                  ("bambu", "start_confirm_s"): int,
                  ("slicer", "flash_studio_path"): str,
+                 ("slicer", "parallel_preview"): bool,
                  ("webui", "enabled"): bool, ("webui", "host"): str,
                  ("webui", "port"): int, ("webui", "access_token_env"): str,
                  ("webui", "chat_llm_enabled"): bool,

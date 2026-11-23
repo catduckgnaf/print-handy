@@ -41,20 +41,30 @@ def web_chat_enabled(handler):
     return chat_enabled(handler.server.settings_data)
 
 def chat_page(handler, notice=None, error=None):
+    data = handler.server.settings_data
+    query = parse_qs(urlparse(handler.path).query)
+    design_view = (query.get("view") or [""])[0] == "design"
     if not handler._web_chat_enabled():
-        # Off is a page, not an error: it says the state and the way
-        # back on, and the chat service is never built behind it.
+        # Off is a page, not an error. The design view still says why and
+        # keeps the catalog: turning chat off must not hide designs already made.
+        if design_view:
+            handler._send(200, designs_module.render_designs_page(
+                designs_module.catalog_rows(data), theme=handler._theme(),
+                nav=data_module.nav_for(data),
+                workshop=designs_module.workshop_model(data, None),
+                form_token=handler._form_token(), notice=notice, error=error,
+                route="/chat?view=design"),
+                "text/html; charset=utf-8")
+            return
         handler._send(200, chat_module.render_chat_disabled_page(
             theme=handler._theme(),
-            nav=data_module.nav_for(handler.server.settings_data)),
+            nav=data_module.nav_for(data)),
             "text/html; charset=utf-8")
         return
     ft = handler._form_token()
-    data = handler.server.settings_data
-    query = parse_qs(urlparse(handler.path).query)
-    if (query.get("view") or [""])[0] == "design":
-        design_view = handler._design_view()
-        workshop = designs_module.workshop_model(data, design_view)
+    if design_view:
+        view = handler._design_view()
+        workshop = designs_module.workshop_model(data, view)
         headers = design_handlers_module._design_cookie_headers(handler)
         handler._send(200, designs_module.render_designs_page(
             designs_module.catalog_rows(data), theme=handler._theme(),

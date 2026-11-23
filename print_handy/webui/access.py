@@ -24,21 +24,21 @@ rules, first match wins:
 
 This reverses the first-run setup gate from #708 (and #440 before it):
 an unclaimed install is no longer blocked behind a setup page that
-serves nothing else. The ``SETUP`` mode name is kept only so older
-imports do not break; :func:`resolve` never returns it.
+serves nothing else.
 
 The password is stored only as a salted PBKDF2-HMAC-SHA256 hash, with
 the iteration count it was made with (``_ITERATIONS``, 600,000: the
-OWASP minimum for PBKDF2-HMAC-SHA256). A hash saved by an older release
-at a lower count still verifies at its own count, and is re-hashed at
-the current count on the next successful sign-in with the password
-(:func:`rehash_password`). The file is written atomically with mode 0600. Deleting it is the reset; the
+OWASP minimum for PBKDF2-HMAC-SHA256), next to the username. The file
+is written atomically with mode 0600. Deleting it is the reset; the
 environment token also signs in when the password is forgotten.
 
 A file that exists but cannot be used (unreadable, not JSON, missing
 fields) resolves to ``BROKEN``, never to "unclaimed": the server then
 refuses every request but ``/healthz`` with a 503 naming the file
 until the owner fixes or deletes it. Only a missing file is unclaimed.
+A login saved by an older release, with no username or hashed at fewer
+than ``_ITERATIONS``, is ``BROKEN`` too, with a message to reset it
+(#1817).
 """
 from __future__ import annotations
 
@@ -61,11 +61,11 @@ ACCESS_FILE = "webui_access.json"
 MIN_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 64
 # OWASP Password Storage Cheat Sheet: at least 600,000 iterations for
-# PBKDF2-HMAC-SHA256. Stored with every hash, so raising it never breaks
-# a saved login; a lower stored count is upgraded at the next sign-in.
+# PBKDF2-HMAC-SHA256. Stored with every hash; a saved login with a lower
+# count resolves to BROKEN and must be reset.
 _ITERATIONS = 600_000
 
-OPEN, TOKEN, PASSWORD, SETUP = "open", "token", "password", "setup"
+OPEN, TOKEN, PASSWORD = "open", "token", "password"
 # A saved login file that exists but cannot be used. Nothing matches it
 # and the server refuses every request (except /healthz) until the file
 # is fixed or deleted: a claimed install never silently reopens.
@@ -109,8 +109,7 @@ class Access:
     _salt: bytes = field(default=b"", repr=False)
     _hash: bytes = field(default=b"", repr=False)
     _iterations: int = _ITERATIONS
-    # The login name chosen on the setup page. Empty for a password saved
-    # before usernames existed: then any name is accepted with the password.
+    # The login name chosen on the setup page (PASSWORD only).
     username: str = ""
     # Passwords already verified this process, kept as SHA-256 digests so a
     # client polling with the header does not pay PBKDF2 on every request.
@@ -143,19 +142,6 @@ class Access:
                                 str(self._iterations),
                                 self._salt.hex(), self._hash.hex(), self.problem))
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
-
-    @property
-    def setup_pending(self):
-        """Kept for older callers: nothing is ever setup-pending any more.
-
-        The gate reversal removed the setup serving block; an install
-        with no credential is OPEN and ``unclaimed`` instead."""
-        return False
-
-    @property
-    def needs_rehash(self):
-        """True for a saved password hashed at fewer than _ITERATIONS."""
-        return self.mode == PASSWORD and self._iterations < _ITERATIONS
 
     def password_matches(self, provided):
         """The saved password alone (never the environment token)."""
@@ -193,7 +179,7 @@ class Access:
         if self._token and provided and hmac.compare_digest(
                 provided.encode(), self._token.encode()):
             return True
-        if self.mode == PASSWORD and self.username:
+        if self.mode == PASSWORD:
             if not hmac.compare_digest((username or "").strip().casefold().encode(),
                                        self.username.casefold().encode()):
                 # Still pay for the hash so a wrong name is not faster.
@@ -328,6 +314,21 @@ def _broken(path, cause):
         _broken_path=str(path))
 
 
+def _old_login(path):
+    """The BROKEN Access for a login saved by an older release (#1817).
+
+    A password saved before username logins existed, or hashed at fewer
+    than _ITERATIONS, is no longer accepted: the owner resets the login
+    instead of the Web UI signing in with the old form."""
+    return Access(BROKEN, problem=(
+        f"The Web UI login file {path.name} in the state folder was saved by an older "
+        "release (a password with no username, or hashed at a lower cost) and this "
+        "version no longer accepts it. Reset the login: delete the file, then set a new "
+        "username and password in the walkthrough's Login step. The Web UI refuses every "
+        "request until then."),
+        _broken_path=str(path))
+
+
 def _read_saved(path):
     """The saved choice as an Access, or None when there is no saved file.
 
@@ -356,12 +357,15 @@ def _read_saved(path):
         return Access(OPEN, open_reason=OPEN_SAVED)
     if saved.get("mode") == PASSWORD:
         try:
-            return Access(PASSWORD, _salt=base64.b64decode(saved["salt"], validate=True),
-                          _hash=base64.b64decode(saved["hash"], validate=True),
-                          _iterations=int(saved["iterations"]),
-                          username=str(saved.get("username") or "").strip())
+            access = Access(PASSWORD, _salt=base64.b64decode(saved["salt"], validate=True),
+                            _hash=base64.b64decode(saved["hash"], validate=True),
+                            _iterations=int(saved["iterations"]),
+                            username=str(saved.get("username") or "").strip())
         except (KeyError, TypeError, ValueError):
             return _broken(path, "is missing the fields a saved password needs")
+        if not access.username or access._iterations < _ITERATIONS:
+            return _old_login(path)
+        return access
     return _broken(path, "names no login mode this version knows")
 
 
@@ -444,13 +448,12 @@ def weak_password_reason(password, username=None):
     return None
 
 
-def check_password(password, confirm, username=None):
+def check_password(password, confirm, *, username):
     """The cleaned username for a login save_password would accept.
 
     Raises AccessError exactly as save_password does, without writing,
     so a caller can check the choice before it changes anything else."""
-    if username is not None:
-        username = clean_username(username)
+    username = clean_username(username)
     if len(password or "") < MIN_PASSWORD_LENGTH:
         raise AccessError(f"Use at least {MIN_PASSWORD_LENGTH} characters.")
     weak = weak_password_reason(password, username)
@@ -461,50 +464,14 @@ def check_password(password, confirm, username=None):
     return username
 
 
-def save_password(data, password, confirm, username=None):
-    """Store a new Web UI login (password hashed). Raises AccessError when refused.
-
-    ``username`` is required for a new login; None keeps the old
-    password-only form (any name accepted), which older callers use."""
-    username = check_password(password, confirm, username)
+def save_password(data, password, confirm, *, username):
+    """Store a new Web UI login (password hashed). Raises AccessError when refused."""
+    username = check_password(password, confirm, username=username)
     salt = secrets.token_bytes(16)
-    payload = {"mode": PASSWORD}
-    if username:
-        payload["username"] = username
     _write(access_path(data), {
-        **payload, "iterations": _ITERATIONS,
+        "mode": PASSWORD, "username": username, "iterations": _ITERATIONS,
         "salt": base64.b64encode(salt).decode(),
         "hash": base64.b64encode(_digest(password, salt, _ITERATIONS)).decode()})
-
-
-def rehash_password(data, access, password):
-    """Re-hash a saved password at the current cost, after a sign-in.
-
-    ``access`` is the Access the password was just verified against and
-    ``password`` the password itself. Only a PASSWORD Access whose hash
-    is below _ITERATIONS is touched, and only when ``password`` is that
-    saved password (the environment token, which also signs in, is never
-    hashed into the file). The username stays as it is. The file is
-    re-read first and left alone when it no longer holds the hash that
-    was verified: a login changed meanwhile by another process wins.
-    Returns True when the file was rewritten. Raises OSError when the
-    write fails; the caller keeps the sign-in either way."""
-    if not access.needs_rehash or not access.password_matches(password):
-        return False
-    path = access_path(data)
-    current = _read_saved(path)
-    if (current is None or current.mode != PASSWORD or current._salt != access._salt
-            or current._hash != access._hash or current._iterations != access._iterations):
-        return False
-    salt = secrets.token_bytes(16)
-    payload = {"mode": PASSWORD}
-    if current.username:
-        payload["username"] = current.username
-    _write(path, {
-        **payload, "iterations": _ITERATIONS,
-        "salt": base64.b64encode(salt).decode(),
-        "hash": base64.b64encode(_digest(password, salt, _ITERATIONS)).decode()})
-    return True
 
 
 def save_open(data, confirmed):

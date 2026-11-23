@@ -946,7 +946,7 @@ class RouteTests(unittest.TestCase):
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
                                     "  wrapped_video: false\n")
             port = httpd.server_address[1]
-            body = "_csrf=" + httpd.form_token + "&year=2025"
+            body = "_csrf=" + httpd.session_store.form_token + "&year=2025"
             code, raw = self.request(
                 port, "POST", "/wrapped/video", body=body.encode(),
                 headers={"Content-Type": "application/x-www-form-urlencoded",
@@ -1020,7 +1020,7 @@ class RouteTests(unittest.TestCase):
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
             try:
                 conn.request("POST", "/wrapped/video",
-                             body=("_csrf=" + httpd.form_token + "&year=2025").encode(),
+                             body=("_csrf=" + httpd.session_store.form_token + "&year=2025").encode(),
                              headers={"Content-Type": "application/x-www-form-urlencoded",
                                       server.TOKEN_HEADER: TOKEN})
                 response = conn.getresponse()

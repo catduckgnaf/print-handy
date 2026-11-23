@@ -290,7 +290,6 @@ class ServerStartTests(unittest.TestCase):
             self.assertEqual(server.check_start(data, {}), ("0.0.0.0", 8765, ""))
             httpd = server.make_server(data, environ={}, port=0)
             try:
-                self.assertFalse(httpd.access.setup_pending)
                 self.assertTrue(httpd.access.unclaimed)
             finally:
                 httpd.server_close()

@@ -27,8 +27,8 @@ def test_reboot_dispatch_requires_safe_job_and_controller_states(monkeypatch):
         async def send(self, **kw): self.sent.append(kw.get('content')); return S(success=True)
         async def send_clarify(self, **kw): raise AssertionError('unsafe state must not offer restart button')
     adapter = Adapter()
-    source = S(platform=S(value='discord'), profile='3dprinting', user_id='u', chat_id='c',
-               thread_id=None, is_bot=False, profile_route_rejected=False)
+    source = S(platform=S(value='discord'), user_id='u', chat_id='c',
+               thread_id=None, is_bot=False)
     gateway = S(_is_user_authorized_for_source=lambda _s: True,
                 _delivery_adapter_for=lambda _s: adapter)
     event = S(source=source, text='/print-reboot', internal=False)
@@ -52,8 +52,8 @@ def test_reboot_during_emergency_stop_offers_confirmed_firmware_restart():
         def __init__(self): self.sent = []
         async def send(self, **kw): self.sent.append(kw.get('content')); return S(success=True)
     adapter = Adapter()
-    source = S(platform=S(value='discord'), profile='3dprinting', user_id='u', chat_id='c',
-               thread_id=None, is_bot=False, profile_route_rejected=False)
+    source = S(platform=S(value='discord'), user_id='u', chat_id='c',
+               thread_id=None, is_bot=False)
     gateway = S(_is_user_authorized_for_source=lambda _s: True, _delivery_adapter_for=lambda _s: adapter,
                 _session_key_for_source=lambda _s: 'session-key')
     event = S(source=source, text='/print-reboot', internal=False)
@@ -145,8 +145,8 @@ def test_print_again_success_posts_its_own_start_announcement(monkeypatch):
             return S(success=True)
 
     adapter = Adapter()
-    source = S(platform=S(value='discord'), profile='3dprinting', user_id='u', chat_id='c',
-               thread_id=None, is_bot=False, profile_route_rejected=False)
+    source = S(platform=S(value='discord'), user_id='u', chat_id='c',
+               thread_id=None, is_bot=False)
     gateway = S(_is_user_authorized_for_source=lambda _s: True, _delivery_adapter_for=lambda _s: adapter,
                 _session_key_for_source=lambda _s: 'session-key')
     event = S(source=source, text='/print-again widget', internal=False)
@@ -185,8 +185,8 @@ def test_register_installs_only_the_dispatch_list_and_platform_handler():
 
 def test_upload_wait_suppresses_dispatch_until_explicit_resume(monkeypatch):
     plugin._upload_waits.clear()
-    src = mock.Mock(platform=mock.Mock(value='discord'), profile='3dprinting', chat_id='c', thread_id=None,
-                    user_id='u', is_bot=False, profile_route_rejected=False)
+    src = mock.Mock(platform=mock.Mock(value='discord'), chat_id='c', thread_id=None,
+                    user_id='u', is_bot=False)
     gateway = mock.Mock(_is_user_authorized_for_source=lambda source: True)
     wait = mock.Mock(source=src, text='Wait while I upload files', internal=False)
     ordinary = mock.Mock(source=src, text='here is another attachment', internal=False)

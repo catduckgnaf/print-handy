@@ -419,6 +419,9 @@ def resolve(preset: str, spool: filament_type.FilamentType, brand: str | None = 
 # - these come from the temperature resolution, so slicing and verification agree (#1816 moves the
 #   vendor temperatures into that resolution as its own step);
 # - pressure advance stays the printer's: turning it on from a filament profile would override firmware tuning.
+#   Decision (#1832): vendor pressure advance is never applied. Firmware tuning always wins. No code change.
+# - PLA sub-types (Silk, PLA+, Matte) stay on the tuned PLA template. Decision (#1832): do not move them to
+#   vendor profiles; the existing variant layer (#512) already handles them. No code change.
 VENDOR_LAYER_SKIP = frozenset({
     "bed_type", "filament_start_gcode", "filament_end_gcode", "filament_z_hop_types",
     "filament_type", "filament_density", "filament_colour", "filament_cost", "filament_vendor",
@@ -450,6 +453,12 @@ def vendor_layer(template: Mapping[str, Any], resolution: Resolution) -> dict[st
 
 def profile_name(resolution: Resolution | None, material: str, slot: int | None = None) -> str:
     """The filament profile name a slice records (``name`` and ``filament_settings_id``).
+
+    #123 trace: the archived PETG G-code labeled "Flashforge Generic PLA" with 1.05 flow came from
+    the printer's PLA template being used for a non-PLA material (before vendor profiles and the
+    profile_name fix). The 1.05 was the previous PLA template/material_tuning flow (now 0.98).
+    After #1827 non-PLA uses the vendor profile flow; the path that produced the wrong label and
+    flow is closed.
 
     The vendor profile's own name when one was resolved ("Flashforge HS PETG @FF AD5X"), otherwise the
     library generic for the material ("Print Handy PETG (library generic)"), never the printer template's

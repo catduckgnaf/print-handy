@@ -214,7 +214,7 @@ class CatalogTests(unittest.TestCase):
                                    "prime_tower.edge_mm", "prime_tower.merge_slack_mm",
                                    "purge.mode", "purge.prime_tower",
                                    "printer.start_macro", "printer.end_macro",
-                                   "slicer.flash_studio_path"})
+                                   "slicer.flash_studio_path", "slicer.parallel_preview"})
         self.assertEqual(field_by_id("timelapse.mode").group, "camera")
         self.assertEqual(field_by_id("services.camera_source").group, "camera")
         self.assertEqual(field_by_id("printer.model").group, "printers")

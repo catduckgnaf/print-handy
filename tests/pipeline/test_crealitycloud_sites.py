@@ -412,7 +412,7 @@ def test_prepared_intake_crealitycloud_stops_at_token_gap(
     async def fake_preview(*args, **kw):
         previews.append(args)
     monkeypatch.setattr(prepared_intake, 'send_preview', fake_preview)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None,
+    event = S(source=S(chat_id='c1', thread_id=None,
                        user_id='u'),
               message_id='cc1', text=PLAIN_URL)
     adapter = Adapter([1])

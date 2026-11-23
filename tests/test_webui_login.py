@@ -204,7 +204,7 @@ class LoginTests(unittest.TestCase):
             self.assertEqual(code, 200)
             # Expire the session server-side: the same cookie dies.
             session_id = cookie.split("=", 1)[1]
-            httpd.sessions[session_id] = time.time() - 1
+            httpd.session_store.sessions[session_id] = time.time() - 1
             code, _headers, _body = self.request(
                 port, "GET", "/", headers={"Cookie": cookie})
             self.assertEqual(code, 401)
@@ -415,7 +415,7 @@ class LoginTests(unittest.TestCase):
             handler.server = httpd
             handler._revoke_remembered_sessions()
             self.assertFalse(self.sessions_file(tmp).exists())
-            self.assertEqual(httpd.remembered_sessions, {})
+            self.assertEqual(httpd.session_store.remembered_sessions, {})
             code, _h, _b = self.request(
                 port, "GET", "/", headers={"Cookie": cookie})
             self.assertEqual(code, 401)
@@ -448,7 +448,7 @@ class LoginTests(unittest.TestCase):
             def do_login():
                 result["response"] = self.login_remember(port)
 
-            httpd.remembered_lock.acquire()
+            httpd.session_store.lock.acquire()
             try:
                 thread = threading.Thread(target=do_login, daemon=True)
                 thread.start()
@@ -456,7 +456,7 @@ class LoginTests(unittest.TestCase):
                 self.assertTrue(thread.is_alive(),
                                 "remember login did not wait for the lock")
             finally:
-                httpd.remembered_lock.release()
+                httpd.session_store.lock.release()
             thread.join(10)
             self.assertFalse(thread.is_alive())
             self.assertEqual(result["response"][0], 303)

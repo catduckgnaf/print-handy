@@ -317,20 +317,22 @@ def test_unclaimed_start_still_gets_the_normal_post(job, tmp_path, monkeypatch):
 def test_external_start_post_never_names_the_previous_prints_loaded_channel(job, tmp_path, monkeypatch):
     """#1648: at the printing edge ZMod has not swapped filament yet, so
     FFMInfo.channel / zmod_ifs Chan report the channel still loaded from
-    the previous print. A slot-3 screen start with slot 1 loaded must not
-    post a "Slot mismatch" naming slot 1 in the start post; the slot
-    self-check stays the one mismatch reporter, so the mismatch posts once."""
+    the previous print. Neither the start post nor the background check
+    should name that unchanged prior slot as a mismatch."""
     _claimed_listener(monkeypatch, tmp_path, job)
     monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: None)
     # The record says slot 3; both printer channels still report slot 1.
     monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 1, 1, None))
+    async def no_wait(delay):
+        return None
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
     posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=False)
     starts = [p for p in posted if p.startswith("Print started:")]
     assert len(starts) == 1 and posted[0] is starts[0]
     assert "Slot mismatch" not in starts[0] and "printer is loading" not in starts[0]
-    assert starts[0] == mel.start_message(job.hashed)  # the canonical start message
+    assert starts[0].startswith("Print started:") and job.data["title"] in starts[0]
     mismatches = [p for p in posted if "slot sources disagree" in p or "Slot mismatch" in p]
-    assert len(mismatches) == 1 and mismatches[0].startswith("**Slot check warning")
+    assert not mismatches
 
 
 def test_external_start_post_without_a_record_names_no_loaded_channel(job, tmp_path, monkeypatch):
@@ -342,6 +344,95 @@ def test_external_start_post_without_a_record_names_no_loaded_channel(job, tmp_p
     posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=False)
     assert posted == [mel.start_message(job.hashed)]
     assert "maps this job" not in posted[0]
+
+
+def _sticky_slot_samples(samples):
+    """Return each sample in order, then repeat the last one.
+
+    ``_slot_self_check`` reads ``_slot_sources`` via ``asyncio.to_thread``.
+    A finite iterator raises ``StopIteration`` in that worker, and asyncio
+    will not propagate ``StopIteration`` into the waiting future.
+    """
+    queued = list(samples)
+
+    def _next():
+        if len(queued) > 1:
+            return queued.pop(0)
+        return queued[0]
+
+    return _next
+
+
+@pytest.mark.parametrize("active_slot, warned", [(3, False), (4, True)])
+def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warned):
+    listener = mel.Listener()
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        (3, 2, 2, None), (3, active_slot, 2, None),
+        (3, active_slot, active_slot, None)]))
+    waits = []
+
+    async def no_wait(delay):
+        waits.append(delay)
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    posts = []
+    monkeypatch.setattr(mel, "post", posts.append)
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1, 1]
+    assert bool(posts) is warned
+    if warned:
+        assert len(posts) == 1 and "zmod_ifs Chan reports slot 4" in posts[0]
+
+
+def test_slot_self_check_does_not_warn_when_baseline_channels_were_unavailable(monkeypatch):
+    """Both channels later agreeing on a wrong slot is not activation when
+    the start snapshot had no channel readings. A wrong-slot warning needs
+    both baseline readings known and then changed; otherwise the check
+    waits out the window."""
+    listener = mel.Listener()
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        (3, None, None, None), (3, 4, 4, None)]))
+    waits = []
+
+    async def no_wait(delay):
+        waits.append(delay)
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(mel, "post", lambda _: pytest.fail(
+        "must not report an unconfirmed channel"))
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1] * 30
+
+
+def test_slot_self_check_does_not_treat_unchanged_available_channel_as_activation(monkeypatch):
+    """(3, 2, None) then (3, 2, 2): the channel that was already 2 did not
+    move, so the pair agreeing on 2 is still the previous print."""
+    listener = mel.Listener()
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        (3, 2, None, None), (3, 2, 2, None)]))
+    waits = []
+
+    async def no_wait(delay):
+        waits.append(delay)
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(mel, "post", lambda _: pytest.fail("must not report stale channel"))
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1] * 30
+
+
+def test_slot_self_check_does_not_warn_if_activation_is_unobserved(monkeypatch):
+    listener = mel.Listener()
+    monkeypatch.setattr(listener, "_slot_sources", lambda: (3, 2, 2, None))
+    waits = []
+
+    async def no_wait(delay):
+        waits.append(delay)
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(mel, "post", lambda _: pytest.fail("must not report stale channel"))
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1] * 30
 
 
 def test_slot_sources_prefer_this_files_launch_record_over_the_global_active_slot(monkeypatch):
@@ -1095,7 +1186,7 @@ def test_model_link_receipt_is_sent_before_slow_intake(monkeypatch):
     monkeypatch.setitem(sys.modules, "print_handy.core.prepared_intake", fake)
     monkeypatch.setattr(core_pkg, "prepared_intake", fake, raising=False)
     monkeypatch.setattr(core_pkg, "printer_state", types.SimpleNamespace(load=lambda: {}), raising=False)
-    src = S(platform=S(value="discord"), profile="3dprinting", user_id="42", chat_id="c", thread_id=None)
+    src = S(platform=S(value="discord"), user_id="42", chat_id="c", thread_id=None)
     gateway = S(_is_user_authorized_for_source=lambda s: True, _delivery_adapter_for=lambda s: adapter,
                 _session_key_for_source=lambda s: "k")
     event = S(source=src, text="https://makerworld.com/en/models/123", message_id="m9", internal=False, metadata={})

@@ -153,7 +153,7 @@ def test_server_lists_and_downloads_sliced_files(tmp_path):
     try:
         port = httpd.server_address[1]
         # Sliced files lives under the Designs tab's page strip.
-        status, _headers, body = _get(port, "/designs")
+        status, _headers, body = _get(port, "/chat?view=design")
         assert status == 200 and b'href="/sliced"' in body.split(b'aria-label="Designs pages"')[1]
         status, _headers, body = _get(port, "/sliced")
         assert status == 200 and b"Duplo swing" in body and b"plate_1.gcode.3mf" in body

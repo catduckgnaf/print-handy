@@ -10,7 +10,6 @@ semantics are unchanged.
 """
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import hmac
 import json
@@ -54,13 +53,7 @@ def session_form_token(server, session_id):
     """The ``_csrf`` value bound to one login session on ``server``: an
     HMAC-SHA256 of the session id under the server's in-memory secret
     (rotated with every access-rule change)."""
-    store = getattr(server, "session_store", None)
-    if store is not None:
-        return store.form_token_for(session_id)
-    secret = getattr(server, "csrf_secret", None)
-    if secret is None:
-        secret = server.csrf_secret = secrets.token_bytes(32)
-    return hmac.new(secret, session_id.encode("utf-8"), hashlib.sha256).hexdigest()
+    return server.session_store.form_token_for(session_id)
 
 class SessionStore:
     """The Web UI's session state, in one place with its own lock (#1588).
@@ -69,12 +62,9 @@ class SessionStore:
     the remembered sessions (SHA-256 of the id -> expiry; persistence to
     ``webui_sessions.json`` stays with ``_save_remembered_sessions``,
     which snapshots this store), the per-process form token and the
-    secret session-bound form tokens are derived from. Before #1588
-    these were bare attributes on the server object, created and mutated
-    at a dozen sites with ``getattr`` fallbacks; now ``make_server``
-    builds one store and the server's old attribute names delegate to
-    it, so the state has one owner and one lock (the same shape as
-    ``access.LoginThrottle``).
+    secret session-bound form tokens are derived from. ``make_server``
+    builds one store (``server.session_store``), so the state has one
+    owner and one lock (the same shape as ``access.LoginThrottle``).
     """
 
     def __init__(self, remembered_sessions=None):
@@ -204,15 +194,12 @@ class SessionStore:
                 _session_digest(session_id), None) is not None
 
 def _session_store(server):
-    """The server's :class:`SessionStore`, or None for a server object
-    that predates it (the mutation sites stay safe either way)."""
-    return getattr(server, "session_store", None)
+    """The server's :class:`SessionStore`."""
+    return server.session_store
 
 def _remember_lock(server):
-    """The server's remembered-session lock, or a no-op context when the
-    server object predates it (the mutation sites stay safe either way)."""
-    lock = getattr(server, "remembered_lock", None)
-    return lock if lock is not None else contextlib.nullcontext()
+    """The server's remembered-session lock (the store's lock)."""
+    return server.session_store.lock
 
 def _load_remembered_sessions(data, fingerprint):
     """{sha256(session id): expiry epoch} from SESSIONS_FILE.
@@ -252,7 +239,7 @@ def _load_remembered_sessions(data, fingerprint):
     return loaded
 
 def _save_remembered_sessions(server):
-    """Persist server.remembered_sessions atomically with mode 0600.
+    """Persist the store's remembered sessions atomically with mode 0600.
 
     The snapshot and the write happen under the server's remembered
     lock, so a concurrent logout or revocation cannot be overwritten by
@@ -264,9 +251,7 @@ def _save_remembered_sessions(server):
     path = sessions_path(server.settings_data)
     with _remember_lock(server):
         try:
-            store = _session_store(server)
-            payload = store.snapshot_remembered() if store is not None else \
-                dict(getattr(server, "remembered_sessions", {}) or {})
+            payload = _session_store(server).snapshot_remembered()
             access = getattr(server, "access", None)
             if access is not None:
                 payload[_FINGERPRINT_KEY] = access.credential_fingerprint()
@@ -316,32 +301,12 @@ def valid_session_id(handler):
     if not session_id:
         return ""
     store = _session_store(handler.server)
-    if store is not None:
-        valid = store.validate(session_id)
-        if store.take_remembered_pruned():
-            # An expired remembered entry was pruned in memory;
-            # persist the removal, as the bare-dict code did.
-            with _remember_lock(handler.server):
-                _save_remembered_sessions(handler.server)
-        return valid
-    now = time.time()
-    expiry = handler.server.sessions.get(session_id)
-    if expiry is not None:
-        if expiry <= now:
-            handler.server.sessions.pop(session_id, None)
-            return ""
-        return session_id
-    remembered = getattr(handler.server, "remembered_sessions", None) or {}
-    digest = _session_digest(session_id)
-    expiry = remembered.get(digest)
-    if expiry is None:
-        return ""
-    if expiry <= now:
+    valid = store.validate(session_id)
+    if store.take_remembered_pruned():
+        # An expired remembered entry was pruned in memory; persist the removal.
         with _remember_lock(handler.server):
-            if remembered.pop(digest, None) is not None:
-                _save_remembered_sessions(handler.server)
-        return ""
-    return session_id
+            _save_remembered_sessions(handler.server)
+    return valid
 
 def bound_form_token(handler, session_id):
     """The form token bound to one session: an HMAC of its id under a
@@ -361,7 +326,7 @@ def current_form_token(handler):
         session_id = handler._valid_session_id()
         if session_id:
             return handler._session_form_token(session_id)
-    return handler.server.form_token
+    return handler.server.session_store.form_token
 
 def login_page(handler):
     if not handler.server.access.required:
@@ -377,7 +342,7 @@ def password_mode(handler):
     return handler.server.access.mode == access_module.PASSWORD
 
 def username_mode(handler):
-    return handler._password_mode() and bool(handler.server.access.username)
+    return handler._password_mode()
 
 def cookie_secure(handler):
     secure = getattr(handler.server, "cookie_secure", None)
@@ -395,51 +360,24 @@ def start_session(handler, remember=False):
     write fails (a read-only state mount, say) the login still
     succeeds with a plain ephemeral session, as before."""
     store = _session_store(handler.server)
-    if store is not None:
-        session_id = secrets.token_urlsafe(32)
-        flags = "; Secure" if handler._cookie_secure() else ""
-        if remember:
-            # Mutation through persistence under the store's lock,
-            # so a concurrent logout or revocation is never
-            # overwritten by this mint's snapshot (and this mint is
-            # never lost to one).
-            with _remember_lock(handler.server):
-                store.remember(session_id)
-                if _save_remembered_sessions(handler.server):
-                    return ("Set-Cookie",
-                            f"{SESSION_COOKIE}={session_id}; HttpOnly; "
-                            f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
-                # Fail open to the current behavior: ephemeral, no Max-Age.
-                store.forget_remembered(session_id)
-        store.mint(session_id)
-        return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
-                f"SameSite=Strict; Path=/{flags}")
-    now = time.time()
-    sessions = handler.server.sessions
-    # list() snapshots the map and pop() tolerates a concurrent prune:
-    # two logins at once must not turn into a 500.
-    for stale in [sid for sid, expiry in list(sessions.items()) if expiry <= now]:
-        sessions.pop(stale, None)
     session_id = secrets.token_urlsafe(32)
     flags = "; Secure" if handler._cookie_secure() else ""
     if remember:
-        remembered = getattr(handler.server, "remembered_sessions", None)
-        if remembered is None:
-            remembered = handler.server.remembered_sessions = {}
-        # Mutation through persistence under the shared lock, so a
-        # concurrent logout or revocation is never overwritten by
-        # this mint's snapshot (and this mint is never lost to one).
+        # Mutation through persistence under the store's lock,
+        # so a concurrent logout or revocation is never
+        # overwritten by this mint's snapshot (and this mint is
+        # never lost to one).
         with _remember_lock(handler.server):
-            for stale in [d for d, expiry in remembered.items() if expiry <= now]:
-                del remembered[stale]
-            remembered[_session_digest(session_id)] = now + REMEMBER_TTL_S
+            store.remember(session_id)
             if _save_remembered_sessions(handler.server):
-                return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
+                return ("Set-Cookie",
+                        f"{SESSION_COOKIE}={session_id}; HttpOnly; "
                         f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
             # Fail open to the current behavior: ephemeral, no Max-Age.
-            del remembered[_session_digest(session_id)]
-    sessions[session_id] = now + SESSION_TTL_S
-    return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/{flags}")
+            store.forget_remembered(session_id)
+    store.mint(session_id)
+    return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
+            f"SameSite=Strict; Path=/{flags}")
 
 def login_submit(handler):
     form, error = handler._read_form()
@@ -475,69 +413,18 @@ def login_submit(handler):
             "text/html; charset=utf-8")
         return
     throttle.record_success(address)
-    handler._rehash_after_login(provided)
     remember = (form.get(pages.LOGIN_REMEMBER_FIELD) or [""])[0].strip().lower() \
         in _REMEMBER_TRUTHY
     handler._redirect("/", headers=[handler._start_session(remember=remember)])
-
-def rehash_after_login(handler, password):
-    """Upgrade a password saved at an older PBKDF2 cost, once.
-
-    Runs after a successful sign-in, on the login form or with the
-    ``X-WebUI-Token`` header (#1243): either way the password was
-    just verified, and rehash_password writes only the saved
-    password, never the environment token. Once the new Access is
-    adopted ``needs_rehash`` is false, so later requests pay one
-    attribute check. The re-hashed file is the same
-    login, so nothing issued under it is revoked: the server adopts
-    the new Access, and the remembered-session store and the upload
-    links are rebound to its fingerprint (which names the stored
-    hash). A failed write is logged and the sign-in stands; the
-    next sign-in tries again."""
-    server = handler.server
-    access = server.access
-    if not access.needs_rehash:
-        return
-    lock = getattr(server, "access_sync_lock", None) or contextlib.nullcontext()
-    with lock:
-        if server.access is not access:
-            return
-        data = server.settings_data
-        old_fingerprint = access.credential_fingerprint()
-        try:
-            if not access_module.rehash_password(data, access, password):
-                return
-        except OSError as exc:
-            log.warning("webui: could not re-hash the saved password: %s", exc)
-            return
-        server.access = access_module.resolve(
-            data, server.bind_host, server.webui_environ)
-        server.access_stamp = _access_stamp(data)
-        new_fingerprint = server.access.credential_fingerprint()
-        if getattr(server, "remembered_sessions", None):
-            _save_remembered_sessions(server)
-        try:
-            upload_module.rebind_links(data, old_fingerprint, new_fingerprint)
-        except OSError as exc:
-            log.warning("webui: could not rebind the upload links: %s", exc)
-        log.info("webui: the saved password was re-hashed at the current cost")
 
 def logout(handler):
     # Ends only the caller's own session, so no form token is needed:
     # the worst a cross-origin post can do is sign the operator out.
     session_id = handler._session_id()
     if session_id:
-        store = _session_store(handler.server)
-        if store is not None:
-            if store.revoke(session_id):
-                with _remember_lock(handler.server):
-                    _save_remembered_sessions(handler.server)
-        else:
-            handler.server.sessions.pop(session_id, None)
-            remembered = getattr(handler.server, "remembered_sessions", None) or {}
+        if _session_store(handler.server).revoke(session_id):
             with _remember_lock(handler.server):
-                if remembered.pop(_session_digest(session_id), None) is not None:
-                    _save_remembered_sessions(handler.server)
+                _save_remembered_sessions(handler.server)
     flags = "; Secure" if handler._cookie_secure() else ""
     cookie = (f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
               f"Path=/; Max-Age=0{flags}")
@@ -553,12 +440,7 @@ def rotate_form_token(handler):
     replacing or removing the login that was just set. The browser
     that made the change is signed in with a session, and every
     page it loads next carries the new token."""
-    store = _session_store(handler.server)
-    if store is not None:
-        store.rotate_tokens()
-        return
-    handler.server.form_token = secrets.token_urlsafe(32)
-    handler.server.csrf_secret = secrets.token_bytes(32)
+    _session_store(handler.server).rotate_tokens()
 
 def revoke_remembered_sessions(handler):
     """Revoke every remembered session and delete its store file.
@@ -569,13 +451,7 @@ def revoke_remembered_sessions(handler):
     credential must not outlive it. Ephemeral sessions are untouched
     — they die with the process, as before."""
     with _remember_lock(handler.server):
-        store = _session_store(handler.server)
-        if store is not None:
-            store.revoke_all_remembered()
-        else:
-            remembered = getattr(handler.server, "remembered_sessions", None)
-            if remembered is not None:
-                remembered.clear()
+        _session_store(handler.server).revoke_all_remembered()
         try:
             sessions_path(handler.server.settings_data).unlink(missing_ok=True)
         except OSError as exc:

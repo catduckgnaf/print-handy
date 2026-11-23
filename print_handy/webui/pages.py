@@ -253,18 +253,15 @@ def render_login_page(error=None, password=False, *, username=False,
     ``username`` is true when a saved username is checked (#875).
     The username field itself renders in every mode (#1720), named
     and autocompleted so a browser or password manager can save and
-    fill the pair: without a username field to save against, the
-    token and legacy password modes were never offered a save.
+    fill the pair: without a username field to save against, token
+    mode was never offered a save.
     """
     remembered = (' This browser stays signed in for 12 hours; tick '
                   '<strong>Keep me signed in on this browser</strong> below to '
                   'stay signed in for 30 days, including across server restarts.</p>')
-    if password and username:
+    if password:
         intro = ('<p>Sign in with the username and password chosen during setup. '
                  'Your browser can remember them.' + remembered)
-    elif password:
-        intro = ('<p>This Web UI is protected by the password chosen during setup. '
-                 'Enter it once.' + remembered)
     else:
         intro = ('<p>This Web UI is protected by an access token (the value of the '
                  'environment variable the <code>[webui] access_token_env</code> '
@@ -274,13 +271,11 @@ def render_login_page(error=None, password=False, *, username=False,
         parts.append(f'<p class="error">{_esc(error)}</p>')
     label = "Password" if password else "Access token"
     # Every mode carries the username field (#1720): a browser or
-    # password manager saves a credential against a username, so the
-    # modes without one (the access token, and a saved password from
-    # before usernames existed) were never offered a save and the
-    # password had to be typed on every visit. matches_login accepts
-    # any name in those modes, exactly as its docstring promises, so
-    # the field is optional there and required only when a saved
-    # username is actually checked.
+    # password manager saves a credential against a username, so token
+    # mode, which has none, was never offered a save and the token had
+    # to be typed on every visit. matches_login accepts any name with
+    # the token, exactly as its docstring promises, so the field is
+    # optional there and required only when a saved username is checked.
     user_required = " required" if username else ""
     user_row = (f'<p><label for="f-{LOGIN_USER_FIELD}">Username</label> '
                 f'<input type="text" id="f-{LOGIN_USER_FIELD}" name="{LOGIN_USER_FIELD}" '

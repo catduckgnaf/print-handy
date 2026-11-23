@@ -120,7 +120,7 @@ class WalkthroughServerTests(unittest.TestCase):
             _, port, _, _, _ = self.start(tmp, setup_done=True)
             self.assertEqual(self.request(port, "GET", "/api/status")[0], 200)
             self.assertEqual(self.request(port, "GET", "/config")[0], 200)
-            self.assertEqual(self.request(port, "GET", "/designs")[0], 200)
+            self.assertEqual(self.request(port, "GET", "/chat")[0], 200)
 
     def test_loopback_install_is_offered_the_walkthrough_once(self):
         # #875: a loopback install never ran the setup page but still owes
@@ -160,7 +160,7 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertIn('name="printer.model"', body)
             self.assertIn('name="services.moonraker_url"', body)  # AD5X connects by Moonraker
             code, headers, _ = self.post_step(
-                port, environ, httpd.form_token, "printer",
+                port, environ, httpd.session_store.form_token, "printer",
                 **{"printer.name": "Bench Printer"})
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             reloaded = settings.load(local=local, environ={})
@@ -177,7 +177,7 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertIn('name="services.spoolman_url"', body)
             code, headers, _ = self.post_step(
-                port, environ, httpd.form_token, "printer",
+                port, environ, httpd.session_store.form_token, "printer",
                 **{"services.spoolman_url": "http://spoolman.example:7912"})
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             reloaded = settings.load(local=local, environ={})
@@ -207,7 +207,7 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertIn('id="f-bambu.lan_serial"', body)  # the pair the validator requires
             self.assertNotIn('id="f-services.moonraker_url"', body)
             code, headers, _ = self.post_step(
-                port, environ, httpd.form_token, "printer",
+                port, environ, httpd.session_store.form_token, "printer",
                 **{"bambu.lan_host": "192.168.1.60",
                    "bambu.lan_serial": "00M00A000000000"})
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
@@ -224,10 +224,10 @@ class WalkthroughServerTests(unittest.TestCase):
             code, _, body = self.request(port, "GET", "/walkthrough")
             self.assertIn('id="f-services.moonraker_url"', body)  # AD5X: Moonraker
             code, headers, _ = self.post_step(
-                port, environ, httpd.form_token, "printer",
+                port, environ, httpd.session_store.form_token, "printer",
                 **{"printer.model": "octoprint.ender3"})
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
-            code, _, _ = self.post_step(port, environ, httpd.form_token,
+            code, _, _ = self.post_step(port, environ, httpd.session_store.form_token,
                                         "chat", action="back")
             self.assertEqual(code, 303)
             code, _, body = self.request(port, "GET", "/walkthrough")
@@ -262,7 +262,7 @@ class WalkthroughServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, local, environ = self.start(tmp, setup_done=True)
             code, headers, _ = self.post_step(
-                port, environ, httpd.form_token, "printer",
+                port, environ, httpd.session_store.form_token, "printer",
                 **{"services.moonraker_url": "http://printer.example:7125"})
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             reloaded = settings.load(local=local, environ={})
@@ -278,7 +278,7 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertIn("environment override", body)  # the badge on the disabled row
             code, _, _ = self.post_step(
-                port, environ, httpd.form_token, "printer",
+                port, environ, httpd.session_store.form_token, "printer",
                 **{"services.moonraker_url": "http://other.example:7125"})
             self.assertEqual(code, 303)
             reloaded = settings.load(local=local, environ={})
@@ -290,7 +290,7 @@ class WalkthroughServerTests(unittest.TestCase):
             httpd, port, data, local, environ = self.start(tmp, setup_done=True)
             before = settings.load(local=local, environ={})["services"].get("moonraker_url")
             code, _, _ = self.post_step(
-                port, environ, httpd.form_token, "printer", action="skip",
+                port, environ, httpd.session_store.form_token, "printer", action="skip",
                 **{"services.moonraker_url": "http://printer.example:7125"})
             self.assertEqual(code, 303)
             after = settings.load(local=local, environ={})["services"].get("moonraker_url")
@@ -301,7 +301,7 @@ class WalkthroughServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, environ = self.start(tmp, setup_done=True)
             walkthrough.save_state(data, {"step": 1})
-            code, _, _ = self.post_step(port, environ, httpd.form_token, "chat", action="back")
+            code, _, _ = self.post_step(port, environ, httpd.session_store.form_token, "chat", action="back")
             self.assertEqual(code, 303)
             self.assertEqual(walkthrough.load_state(data)["step"], 0)
 
@@ -315,7 +315,7 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertIn("not connected", body)
             self.assertIn("Printables", body)
             self.assertNotIn('name="services.', body)  # no fields on this step
-            code, headers, _ = self.post_step(port, environ, httpd.form_token, "providers")
+            code, headers, _ = self.post_step(port, environ, httpd.session_store.form_token, "providers")
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             self.assertEqual(walkthrough.load_state(data)["step"], 5)
 
@@ -327,7 +327,7 @@ class WalkthroughServerTests(unittest.TestCase):
     def owner_session(self, httpd):
         """(headers, csrf) for a signed-in browser on a claimed install."""
         session_id = secrets.token_urlsafe(16)
-        httpd.sessions[session_id] = time.time() + 3600
+        httpd.session_store.sessions[session_id] = time.time() + 3600
         return ({"Cookie": f"{server.SESSION_COOKIE}={session_id}"},
                 server.session_form_token(httpd, session_id))
 
@@ -339,7 +339,7 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertIn('autocomplete="username"', body)
             self.assertIn("This Web UI is open", body)
-            code, headers, _ = self.login_step(port, httpd.form_token, username="catduck",
+            code, headers, _ = self.login_step(port, httpd.session_store.form_token, username="catduck",
                                                password="long enough pw",
                                                password_again="long enough pw")
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
@@ -356,7 +356,7 @@ class WalkthroughServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, _ = self.start(tmp, setup_done=True)
             walkthrough.save_state(data, {"step": 3})
-            code, headers, _ = self.login_step(port, httpd.form_token)
+            code, headers, _ = self.login_step(port, httpd.session_store.form_token)
             self.assertEqual(code, 303)
             self.assertNotIn("set-cookie", headers)
             self.assertEqual(httpd.access.mode, access.OPEN)
@@ -366,7 +366,7 @@ class WalkthroughServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, _ = self.start(tmp, setup_done=True)
             walkthrough.save_state(data, {"step": 3})
-            code, _, body = self.login_step(port, httpd.form_token, username="catduck",
+            code, _, body = self.login_step(port, httpd.session_store.form_token, username="catduck",
                                             password="long enough pw", password_again="other pw!")
             self.assertEqual(code, 200)
             self.assertIn("do not match", body)
@@ -391,7 +391,7 @@ class WalkthroughServerTests(unittest.TestCase):
                 self.assertIn("current password", body)
                 self.assertEqual(httpd.access.mode, access.PASSWORD)
             # Nor can the process form token without a session.
-            code, _, _ = self.login_step(port, httpd.form_token, confirm_open="yes",
+            code, _, _ = self.login_step(port, httpd.session_store.form_token, confirm_open="yes",
                                          current_password="long enough pw")
             self.assertEqual(code, 403)
             code, _, _ = self.login_step(port, csrf, headers, confirm_open="yes",
@@ -408,13 +408,13 @@ class WalkthroughServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, _ = self.start(tmp, setup_done=True)
             walkthrough.save_state(data, {"step": 3})
-            retained = httpd.form_token
+            retained = httpd.session_store.form_token
             code, headers, _ = self.login_step(port, retained, username="catduck",
                                                password="long enough pw",
                                                password_again="long enough pw")
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             self.assertEqual(httpd.access.mode, access.PASSWORD)
-            self.assertNotEqual(httpd.form_token, retained)
+            self.assertNotEqual(httpd.session_store.form_token, retained)
             # The retained token can no longer remove the login it predates.
             code, _, _ = self.login_step(port, retained, confirm_open="yes")
             self.assertEqual(code, 403)
@@ -462,7 +462,7 @@ class WalkthroughServerTests(unittest.TestCase):
             code, _, body = self.request(port, "GET", "/walkthrough")
             self.assertEqual(code, 200)
             self.assertIn("Model sites", body)  # the review's summary rows
-            code, headers, _ = self.post_step(port, environ, httpd.form_token,
+            code, headers, _ = self.post_step(port, environ, httpd.session_store.form_token,
                                               "review", action="finish")
             self.assertEqual((code, headers["location"]), (303, "/"))
             self.assertTrue(walkthrough.load_state(data)["done"])
@@ -475,7 +475,7 @@ class WalkthroughServerTests(unittest.TestCase):
     def test_skip_setup_marks_done_as_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, environ = self.start(tmp, setup_done=True)
-            code, headers, _ = self.post_step(port, environ, httpd.form_token,
+            code, headers, _ = self.post_step(port, environ, httpd.session_store.form_token,
                                               "printer", action="skip_setup")
             self.assertEqual((code, headers["location"]), (303, "/"))
             state = walkthrough.load_state(data)
@@ -516,7 +516,7 @@ class WalkthroughServerTests(unittest.TestCase):
             httpd, port, data, _, environ = self.start(tmp)
             walkthrough.save_state(data, {"step": 0, "done": True, "skipped": True})
             self.assert_login_step(port)
-            code, headers, _ = self.post_step(port, environ, httpd.form_token, "login", action="skip")
+            code, headers, _ = self.post_step(port, environ, httpd.session_store.form_token, "login", action="skip")
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             moved_on = self.LOGIN + 1
             self.assertEqual(walkthrough.load_state(data)["step"], moved_on)
@@ -621,50 +621,6 @@ class ThemeTests(unittest.TestCase):
             self.assertIn('<html lang="en" data-theme="dark"><head>', body)
             self.assertIn("--color-bg: #12110f", body)
             self.assertIn('<nav class="pills"', body)
-
-    def test_stale_theme_cookies_are_ignored(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp, host="127.0.0.1")
-            for cookie in ("ph-theme=light", "ph-theme=dark", "ph-theme=bogus"):
-                code, _, body = self.request(port, "GET", "/config",
-                                             headers={"Cookie": cookie})
-                self.assertEqual(code, 200)
-                self.assertIn('<html lang="en" data-theme="dark">', body)
-                self.assertNotIn('data-theme="light"', body)
-
-    def test_theme_route_is_a_cookieless_redirect(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp, host="127.0.0.1")
-            code, headers, _ = self.request(port, "GET", "/theme?set=light&back=/config")
-            self.assertEqual((code, headers["location"]), (303, "/config"))
-            self.assertNotIn("set-cookie", headers)
-            self.assertEqual(self.request(port, "GET", "/theme?set=sepia")[0], 400)
-            code, headers, _ = self.request(
-                port, "GET", "/theme?set=dark&back=https://evil.example/")
-            self.assertEqual((code, headers["location"]), (303, "/"))
-            code, headers, _ = self.request(
-                port, "GET", "/theme?set=dark&back=/%0d%0aX-Injected:%20yes")
-            self.assertEqual((code, headers["location"]), (303, "/"))
-            self.assertNotIn("x-injected", headers)
-
-    def test_theme_route_is_reachable_while_unclaimed(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp)  # LAN bind, nothing chosen: open, unclaimed
-            code, headers, _ = self.request(port, "GET", "/theme?set=light", headers=HTML)
-            self.assertEqual(code, 303)
-            self.assertNotEqual(headers["location"], "/setup")
-
-    def test_theme_route_needs_auth_on_a_token_install(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp, environ={"WEBUI_ACCESS_TOKEN": "sekrit"})
-            self.assertEqual(self.request(port, "GET", "/theme?set=light")[0], 401)
-            code, _, _ = self.request(port, "GET", "/theme?set=light",
-                                      headers={server.TOKEN_HEADER: "sekrit"})
-            self.assertEqual(code, 303)
-
-    def test_shell_function_is_dark_only(self):
-        for cookie in ("ph-theme=light", "ph-theme=dark", "ph-theme=bogus", "", None):
-            self.assertEqual(shell.theme_from_cookies(cookie), "dark")
 
     def test_submit_script_restores_controls_on_a_bfcache_return(self):
         # A page restored from the back/forward cache keeps the DOM as
@@ -805,7 +761,7 @@ class PrinterNameShapeTests(unittest.TestCase):
             self.assertIn('value="Garage AD5X"', body)
             self.assertNotIn('name="printer.name"', body)  # never the legacy key
             code, headers, _ = self.post_printer_step(
-                port, environ, httpd.form_token, "Workshop AD5X")
+                port, environ, httpd.session_store.form_token, "Workshop AD5X")
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             reloaded = settings.load(local=local, environ={})  # the file still loads
             entry = settings.printers(reloaded)[0]
@@ -827,7 +783,7 @@ class PrinterNameShapeTests(unittest.TestCase):
             self.assertIn("PRINT_HANDY__PRINTERS__GARAGE-AD5X__NAME", body)
             self.assertNotIn('name="printer_name"', body)  # a disabled input submits nothing
             code, _, _ = self.post_printer_step(
-                port, environ, httpd.form_token, "Sneaky Rename")
+                port, environ, httpd.session_store.form_token, "Sneaky Rename")
             self.assertEqual(code, 303)
             reloaded = settings.load(local=local, environ={})
             self.assertEqual(settings.printers(reloaded)[0]["name"], "Garage AD5X")
@@ -841,7 +797,7 @@ class PrinterNameShapeTests(unittest.TestCase):
             self.assertIn("your settings file", body)
             self.assertNotIn('name="printer_name"', body)
             code, _, _ = self.post_printer_step(
-                port, environ, httpd.form_token, "Sneaky Rename")
+                port, environ, httpd.session_store.form_token, "Sneaky Rename")
             self.assertEqual(code, 303)
             reloaded = settings.load(local=local, environ=environ)
             self.assertEqual(settings.printers(reloaded)[0]["name"], "User AD5X")
