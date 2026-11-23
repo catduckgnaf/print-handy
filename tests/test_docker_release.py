@@ -1432,8 +1432,19 @@ class AcceptanceFixtureTests(unittest.TestCase):
         self.assertIn('-v "$data:/data"', args)
         self.assertIn('mkdir -p "$data"/{state,archive,records,cache,spoolman}', script)
         self.assertIn('probe readonly --read-only --tmpfs /tmp:size=64m -- "$check"', script)
-        self.assertIn('for check in payload closure slice egress ffmpeg openscad; do', script)
+        self.assertIn('for check in payload closure slice egress ffmpeg openscad model; do', script)
         self.assertNotIn('--entrypoint', args)
+
+    def test_bundled_model_directory_is_traversable_and_weights_read_only(self):
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        mkdir = "install -d -m 0755 -o root -g root /opt/print-handy/models"
+        copy = "COPY --from=vision-model --chmod=0444 /obico-failure-detector.onnx"
+        self.assertIn(mkdir, dockerfile)
+        self.assertIn(copy, dockerfile)
+        self.assertLess(dockerfile.index(mkdir), dockerfile.index(copy))
+        probe = (ROOT / "tests" / "docker" / "image_probe.py").read_text()
+        self.assertIn('"model": model', probe)
+        self.assertIn("os.getuid() == 0", probe)
 
     def test_harness_owns_its_names_and_publishes_no_port(self):
         script = (ROOT / "tests" / "docker" / "image_acceptance.sh").read_text()

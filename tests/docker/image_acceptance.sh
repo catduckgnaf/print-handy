@@ -100,7 +100,7 @@ probe() {  # probe LABEL [docker run options...] -- CHECK
     fi
 }
 
-for check in payload closure slice egress ffmpeg openscad; do
+for check in payload closure slice egress ffmpeg openscad model; do
     probe default -- "$check"
     probe readonly --read-only --tmpfs /tmp:size=64m -- "$check"
 done
