@@ -284,8 +284,8 @@ class BasePlatformAdapter:
         """The startup-log line for this adapter's access mode (#386)."""
         return describe_access(len(self.allowed), len(self.denied), self.channel_open)
 
-    def _is_allowed_user(self, uid, user=None, guild=None, channel_ids=None):
-        """The check the listener alert buttons call (same name as the Hermes adapter's)."""
+    def is_allowed_user(self, uid, user=None, guild=None, channel_ids=None):
+        """May this user use the bot at all? (The listener alert buttons ask this too.)"""
         if getattr(user, "bot", False):
             return False
         return self.is_allowed_id(uid)
@@ -301,7 +301,7 @@ class BasePlatformAdapter:
         cancel press, P1-93). A bot presser is always refused, and a
         checker that raises refuses instead of guessing, exactly as the
         two hand-rolled checks did. ``guild`` and ``channel_ids`` are
-        passed through to ``_is_allowed_user`` as the alert-button check
+        passed through to ``is_allowed_user`` as the alert-button check
         always passed them (the current implementation ignores them, so
         listener buttons have no channel binding yet).
         """
@@ -310,7 +310,7 @@ class BasePlatformAdapter:
             return False
         uid = str(getattr(user, "id", "") or "")
         try:
-            allowed = self._is_allowed_user(
+            allowed = self.is_allowed_user(
                 uid, user, guild=getattr(interaction, "guild", None),
                 channel_ids={str(getattr(interaction, "channel_id", ""))})
         except Exception:
@@ -454,7 +454,7 @@ class BasePlatformAdapter:
         lookup and registry resolution. A concrete platform wraps this with
         its own acknowledgement (an interaction reply, a callback answer).
         """
-        if user_id is not None and not self._is_allowed_user(str(user_id), user):
+        if user_id is not None and not self.is_allowed_user(str(user_id), user):
             return None
         if user_id is not None and prompts.is_approval(clarify_id) \
                 and not self.may_approve_id(user_id):

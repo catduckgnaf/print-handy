@@ -182,21 +182,17 @@ class DesignsRouteTests(unittest.TestCase):
         write_session(f"{tmp}/cache", edit, {"turn-1.scad": SCAD_TEXT})
         return create, edit
 
-    def test_listing_renders_session_fields_newest_first(self):
+    def test_the_old_listing_redirects_to_the_chat_design_view(self):
+        # #1817: GET /designs is a redirect; the design conversation is the
+        # Chat page's Design view, and /designs/state is gone.
         with tempfile.TemporaryDirectory() as tmp:
             self.seed(tmp)
             port = self.start(tmp)
-            code, _headers, body = self.request(port, "GET", "/designs")
-        text = body.decode()
-        self.assertEqual(code, 200)
-        self.assertIn("a 40x20x3 plate with two holes", text)
-        self.assertIn("Created from a description", text)
-        self.assertIn("Ready", text)
-        self.assertIn("make this twice as tall", text)
-        self.assertIn("Editing `gear.stl` as a mesh", text)
-        self.assertIn("Handed off", text)
-        self.assertIn('src="/designs/create111111/preview"', text)
-        self.assertLess(text.index("create111111"), text.index("edit22222222"))
+            code, headers, _body = self.request(port, "GET", "/designs")
+            self.assertEqual(code, 303)
+            self.assertEqual(headers["Location"], "/chat?view=design")
+            code, _headers, _body = self.request(port, "GET", "/designs/state")
+            self.assertEqual(code, 404)
 
     def test_mesh_edit_offers_the_base_mesh_download(self):
         # P2-165: without source.stl the downloaded .scad cannot render —
@@ -217,24 +213,6 @@ class DesignsRouteTests(unittest.TestCase):
             code, _headers, body = self.request(port, "GET", "/designs/edit33333333")
             self.assertEqual(code, 200)
             self.assertIn("/designs/edit33333333/base", body.decode())
-
-    def test_listing_works_with_design_disabled(self):
-        # The catalog lists what is on disk; [design] enabled=false (the
-        # default, spelled out here) hides nothing already made.
-        with tempfile.TemporaryDirectory() as tmp:
-            self.seed(tmp)
-            port = self.start(tmp, extra="design:\n  enabled: false\n")
-            code, _headers, body = self.request(port, "GET", "/designs")
-        self.assertEqual(code, 200)
-        self.assertIn("a 40x20x3 plate with two holes", body.decode())
-
-    def test_empty_state_explains_designs_come_from_chat(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp)
-            code, _headers, body = self.request(port, "GET", "/designs")
-        self.assertEqual(code, 200)
-        self.assertIn("No designs yet", body.decode())
-        self.assertIn("/print-design", body.decode())
 
     def test_detail_shows_escaped_scad_and_available_downloads(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -296,7 +274,7 @@ class DesignsRouteTests(unittest.TestCase):
             code, _h, _b = self.request(port, "GET", "/designs/create111111",
                                         headers={server.TOKEN_HEADER: "wrong"})
             self.assertEqual(code, 401)
-            code, _h, body = self.request(port, "GET", "/designs",
+            code, _h, body = self.request(port, "GET", "/designs/create111111",
                                           headers={server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200)
             self.assertNotIn(TOKEN, body.decode())

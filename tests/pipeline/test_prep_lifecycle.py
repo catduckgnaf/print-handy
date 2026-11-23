@@ -166,7 +166,7 @@ def test_duplicate_event_deduplication_and_no_duplicate_messages(env):
     # Send identical event with a new adapter
     adapter2 = Adapter([])
     event2 = S(
-        source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+        source=S(chat_id='c1', thread_id=None, user_id='u'),
         message_id='dedup-1',
         text='https://www.printables.com/model/1-ghost',
     )

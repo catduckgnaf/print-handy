@@ -409,7 +409,7 @@ class StandaloneAdapter(BasePlatformAdapter):
             await self.send(chat_id=str(room_id), content=text)
 
         posted_room = str(alert.get("matrix_room_id") or "")
-        if (not self._is_allowed_user(str(sender_id), S(bot=False))
+        if (not self.is_allowed_user(str(sender_id), S(bot=False))
                 or (posted_room and posted_room != str(room_id))):
             logger.info("refused %s reaction from %s in %s", action, sender_id, room_id)
             if self._refusal_due(str(sender_id)):

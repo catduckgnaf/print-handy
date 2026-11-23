@@ -293,7 +293,7 @@ def test_prepared_intake_myminifactory_offers_the_connect_flow(env, tmp_path, mo
     async def fake_preview(*args, **kw):
         pass
     monkeypatch.setattr(prepared_intake, 'send_preview', fake_preview)
-    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='mmf1', text=MMF_URL)
     adapter = Adapter([1])  # Cancel at the one connect question
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))

@@ -3917,6 +3917,7 @@ class Listener:
         self._capture_generation = 0  # bumped per capture begin/end; a stale begin installs nothing (#1020)
         self._capture_task = None  # in-flight scheduled capture fetch (P2-133)
         self.shutdown_alerted = None  # filename whose firmware-stop alert fired for THIS attempt (P2-57)
+        self._slot_check_task = None
         self.print_identity = None  # this print's identity, fixed at its fresh start
         # #1583: per-transition end-of-print cleanup bookkeeping. The body
         # arms _ended_cleanup_armed once a terminal transition's state is
@@ -4449,25 +4450,68 @@ class Listener:
             warn(f"slot self-check lane read failed: {exc!r}")
         return job_slot, ffm_channel, ifs_chan, helix_slot
 
-    def _slot_agreement(self):
+    def _slot_agreement(self, sources=None):
         """The slot self-check warning text, or None when the sources agree (#1020 D3)."""
         from . import lane_data_sync
 
-        job_slot, ffm_channel, ifs_chan, helix_slot = self._slot_sources()
+        job_slot, ffm_channel, ifs_chan, helix_slot = self._slot_sources() if sources is None else sources
         return lane_data_sync.slot_agreement_warning(
             job_slot=job_slot, ffm_channel=ffm_channel, ifs_chan=ifs_chan,
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
 
-    async def _slot_self_check(self):
-        """Post the slot mismatch warning once at print start (#1020 D3).
+    @staticmethod
+    def _post_inconclusive_slot_check(filename):
+        post(f"Slot verification for {clean(filename or 'this print')} is inconclusive: "
+             "the printer's slot readings could not be confirmed for this job and may be stale. "
+             "Check the selected filament slot on the printer.")
 
-        Best-effort and read-only: a failed read posts nothing, and the
-        warning fires only when the sources actually disagree.
+    async def _slot_self_check(self):
+        """Check for a slot mismatch after ZMod's active-tool channels settle.
+
+        Compare one snapshot once both channels equal the requested job
+        slot. A corroborated wrong slot counts only when both baseline
+        readings were known and the agreed slot differs from each of them.
+        An unavailable baseline, or an unchanged available channel, is
+        inconclusive: it can still describe the previous print.
         """
+        identity = self.print_identity
         try:
-            warning = await asyncio.to_thread(self._slot_agreement)
-            if warning:
-                await asyncio.to_thread(post, warning)
+            initial = await asyncio.to_thread(self._slot_sources)
+            job_slot, initial_ffm, initial_ifs, _ = initial
+            if job_slot is None:
+                return
+            baseline_missing = initial_ffm is None or initial_ifs is None
+            saw_agreed_wrong_reading = False
+            deadline = asyncio.get_running_loop().time() + 30
+            for _ in range(30):
+                if asyncio.get_running_loop().time() >= deadline:
+                    break
+                await asyncio.sleep(1)
+                if self.print_identity != identity:
+                    return
+                sources = await asyncio.to_thread(self._slot_sources)
+                if self.print_identity != identity or sources[0] != job_slot:
+                    return
+                ffm, ifs = sources[1:3]
+                if ffm is None or ffm != ifs:
+                    continue
+                if baseline_missing and ffm != job_slot:
+                    # A known channel may itself be stale. Agreement with its
+                    # baseline does not make an incomplete baseline conclusive.
+                    saw_agreed_wrong_reading = True
+                if ffm == job_slot or (
+                        initial_ffm is not None and initial_ifs is not None
+                        and ffm != initial_ffm and ffm != initial_ifs):
+                    warning = self._slot_agreement(sources)
+                    if warning:
+                        await asyncio.to_thread(post, warning)
+                    return
+            log(f"slot self-check inconclusive: no confirmed active channel for job slot {job_slot}")
+            # Untimestamped FFM/IFS snapshots cannot prove these readings
+            # belong to this job. Surface uncertainty without asserting a
+            # wrong slot or physical activation.
+            if baseline_missing and saw_agreed_wrong_reading and self.print_identity == identity:
+                await asyncio.to_thread(self._post_inconclusive_slot_check, self.filename)
         except Exception as exc:
             warn(f"slot self-check failed: {exc!r}")
 
@@ -5132,7 +5176,15 @@ class Listener:
         await self.light_print_started()
         # #1020 D3: the print-start slot self-check — one warning
         # post, only when the slot sources disagree after conversion.
-        await self._slot_self_check()
+        self._cancel_slot_check()
+        task = self._slot_check_task = asyncio.create_task(self._slot_self_check())
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
+
+    def _cancel_slot_check(self):
+        if self._slot_check_task is not None:
+            self._slot_check_task.cancel()
+            self._slot_check_task = None
 
     async def _apply_reconnect_effects(self, old, new_state, identity):
         """Transition side effect: the listener (re)connected mid-print or after its end."""
@@ -5695,6 +5747,7 @@ class Listener:
         logs.unbind_process("job_correlation_id")
         self.visual_frames.pop(self.filename, None)
         self._capture_end(new_state)
+        self._cancel_slot_check()
         self.print_identity = None
         self.runout_episode = None
         self.jam_episode = None
@@ -6454,6 +6507,7 @@ class Listener:
             finally:
                 capture_timer.cancel()
                 visual_timer.cancel()
+                self._cancel_slot_check()
 
     async def _handle_message(self, ws, raw):
         """Act on one websocket message. Raises only what the caller sorts:

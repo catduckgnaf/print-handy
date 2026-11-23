@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import urllib.request
 
+from ..bot import rest
 from ..core.exclude_object import exclude_plan
 
 PREFIX = "pbexclude"
@@ -176,7 +177,7 @@ def post_picker(token: str, channel_id: str, content: str, aid: str, names) -> b
         f"https://discord.com/api/v10/channels/{channel_id}/messages",
         data=body, method="POST",
         headers={"Authorization": f"Bot {token}", "Content-Type": "application/json",
-                 "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+                 "User-Agent": rest.USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return 200 <= resp.status < 300

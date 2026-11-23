@@ -91,22 +91,6 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("skip  moonraker", text)
         self.assertIn("ok    orca cli: flatpak run com.orcaslicer.OrcaSlicer", text)
 
-    def test_stray_state_files_warn_without_failing(self):
-        root = Path(self.tmp.name) / "hermes"
-        self.profile = root / "profiles" / "main"
-        (root / "state").mkdir(parents=True)
-        (root / "state" / "print_alert_buttons.json").write_text("{}")
-        with mock.patch.dict("os.environ", {"HOME": str(Path(self.tmp.name) / "home")}):
-            code, text = self.run_doctor()
-        self.assertEqual(code, 0, text)
-        self.assertIn("WARN  stray state files: 1 outside", text)
-        self.assertIn(str(root / "state" / "print_alert_buttons.json"), text)
-
-    def test_no_stray_state_files_is_ok(self):
-        with mock.patch.dict("os.environ", {"HOME": str(Path(self.tmp.name) / "home")}):
-            code, text = self.run_doctor()
-        self.assertIn("ok    stray state files: none", text)
-
     def test_bad_settings_fail_and_name_the_key(self):
         out = io.StringIO()
         with mock.patch.object(doctor.settings, "load", side_effect=settings.SettingsError("[printer] bed_mm bad")):

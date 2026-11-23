@@ -1,9 +1,8 @@
 """PBKDF2 cost and the login throttle behind a proxy (#1145).
 
 New passwords are hashed at the current PBKDF2-HMAC-SHA256 cost with the
-count stored beside the hash; a hash saved at the old 200,000 still
-verifies and is re-hashed on the next successful sign-in, without
-signing anyone out. The login throttle honors X-Forwarded-For only from
+count stored beside the hash; a hash saved at the old 200,000 resolves
+to BROKEN and must be reset (#1817). The login throttle honors X-Forwarded-For only from
 a configured trusted proxy (``[webui] trusted_proxies``, none by default).
 """
 import base64
@@ -18,7 +17,7 @@ from urllib.parse import urlencode
 import pytest
 
 from print_handy import settings
-from print_handy.webui import access, pages, server, upload
+from print_handy.webui import access, pages, server
 
 PASSWORD = "correct horse battery staple"
 OLD_ITERATIONS = 200_000
@@ -83,134 +82,59 @@ def test_new_hashes_record_the_current_count(tmp_path):
     data = load_settings(tmp_path)
     access.save_password(data, PASSWORD, PASSWORD, username="owner")
     assert saved(data)["iterations"] == access._ITERATIONS
+    assert saved(data)["username"] == "owner"
     resolved = access.resolve(data, "127.0.0.1", {})
-    assert resolved.matches(PASSWORD) and not resolved.needs_rehash
+    assert resolved.mode == access.PASSWORD and resolved.matches(PASSWORD)
 
 
-def test_an_old_hash_still_verifies_at_its_own_count(tmp_path):
+def test_an_old_hash_is_broken_and_asks_for_a_reset(tmp_path):
+    # #1817: a hash saved at fewer iterations is no longer verified at its
+    # own count and re-hashed; the login resolves to BROKEN, even beside the
+    # environment token, and the message says to reset it.
     data = load_settings(tmp_path)
     write_old_hash(data)
+    for environ in ({}, {"WEBUI_ACCESS_TOKEN": "env-token-xyz"}):
+        resolved = access.resolve(data, "127.0.0.1", environ)
+        assert resolved.mode == access.BROKEN
+        assert not resolved.matches_login("owner", PASSWORD)
+        assert "Reset the login" in resolved.problem
+        assert access.ACCESS_FILE in resolved.problem
+    assert not hasattr(access, "rehash_password")
+
+
+def test_a_login_without_a_username_is_broken_and_asks_for_a_reset(tmp_path):
+    data = load_settings(tmp_path)
+    path = write_old_hash(data)
+    record = saved(data)
+    salt = secrets.token_bytes(16)
+    record.pop("username")
+    record.update(iterations=access._ITERATIONS, salt=base64.b64encode(salt).decode(),
+                  hash=base64.b64encode(access._digest(PASSWORD, salt, access._ITERATIONS)).decode())
+    path.write_text(json.dumps(record))
     resolved = access.resolve(data, "127.0.0.1", {})
-    assert resolved.mode == access.PASSWORD
-    assert resolved.needs_rehash
-    assert resolved.matches_login("owner", PASSWORD)
-    assert not resolved.matches_login("owner", "not the password at all")
+    assert resolved.mode == access.BROKEN
+    assert "Reset the login" in resolved.problem
+    with pytest.raises(TypeError):
+        access.save_password(data, PASSWORD, PASSWORD)  # a username is required
 
 
-def test_the_environment_token_is_never_hashed_into_the_file(tmp_path):
+def test_the_server_refuses_an_old_login_until_it_is_reset(tmp_path):
     data = load_settings(tmp_path)
-    write_old_hash(data)
-    before = saved(data)
-    resolved = access.resolve(data, "127.0.0.1", {"WEBUI_ACCESS_TOKEN": "env-token-xyz"})
-    assert resolved.matches_login("anyone", "env-token-xyz")
-    assert access.rehash_password(data, resolved, "env-token-xyz") is False
-    assert saved(data) == before
-
-
-def test_a_login_changed_meanwhile_is_not_overwritten(tmp_path):
-    data = load_settings(tmp_path)
-    write_old_hash(data)
-    resolved = access.resolve(data, "127.0.0.1", {})
-    other = "a different passphrase entirely"
-    access.save_password(data, other, other, username="owner")
-    assert access.rehash_password(data, resolved, PASSWORD) is False
-    assert access.resolve(data, "127.0.0.1", {}).matches(other)
-
-
-def test_a_successful_sign_in_rehashes_and_signs_nobody_out(tmp_path):
-    data = load_settings(tmp_path)
-    write_old_hash(data)
+    path = write_old_hash(data)
     httpd, port = start(data)
     try:
-        # A browser signed in (and remembered) before the upgrade.
-        code, headers, _ = call(port, "POST", "/login", urlencode({
-            pages.LOGIN_USER_FIELD: "owner", pages.LOGIN_TOKEN_FIELD: PASSWORD,
-            pages.LOGIN_REMEMBER_FIELD: "on"}))
-        assert code == 303
-        first = {"Cookie": headers["Set-Cookie"].split(";")[0]}
-        after = saved(data)
-        assert after["iterations"] == access._ITERATIONS
-        assert after["username"] == "owner"
-        assert not httpd.access.needs_rehash
-        token = upload.create_link(data, httpd.access.credential_fingerprint())
-        # The same password still signs in, now at the new cost.
-        assert access.resolve(data, "127.0.0.1", {}).matches_login("owner", PASSWORD)
-        code, headers, _ = login(port)
-        assert code == 303
-        second = {"Cookie": headers["Set-Cookie"].split(";")[0]}
-        assert saved(data) == after  # no second rehash
-        # Nothing issued under the login was revoked by the rehash.
-        for cookie in (first, second):
-            assert call(port, "GET", "/api/status", headers=cookie)[0] == 200
-        assert call(port, "GET", f"/u/{token}")[0] == 200
-        stored = json.loads(server.sessions_path(data).read_text())
-        assert stored[server._FINGERPRINT_KEY] == httpd.access.credential_fingerprint()
+        code, _, body = call(port, "GET", "/api/status", headers={server.TOKEN_HEADER: PASSWORD})
+        assert code == 503
+        assert b"Reset the login" in body
+        assert login(port)[0] == 503
     finally:
         httpd.shutdown()
         httpd.server_close()
-    # The remembered session survives a restart under the new hash.
+    path.unlink()
+    access.save_password(data, PASSWORD, PASSWORD, username="owner")
     httpd, port = start(data)
     try:
-        assert call(port, "GET", "/api/status", headers=first)[0] == 200
-    finally:
-        httpd.shutdown()
-        httpd.server_close()
-
-
-def test_a_failed_sign_in_does_not_rehash(tmp_path):
-    data = load_settings(tmp_path)
-    write_old_hash(data)
-    before = saved(data)
-    httpd, port = start(data)
-    try:
-        assert login(port, password="wrong passphrase here")[0] == 401
-        assert saved(data) == before
-    finally:
-        httpd.shutdown()
-        httpd.server_close()
-
-
-
-def test_the_header_path_rehashes_once_and_keeps_upload_links(tmp_path):
-    # #1243: a client that only ever sends the saved password as the
-    # X-WebUI-Token header (the Home Assistant integration) upgrades an
-    # old hash the same way the login form does.
-    data = load_settings(tmp_path)
-    write_old_hash(data)
-    httpd, port = start(data)
-    try:
-        assert httpd.access.needs_rehash
-        # An upload link minted under the old hash keeps working after it.
-        token = upload.create_link(data, httpd.access.credential_fingerprint())
-        assert call(port, "GET", "/api/status", headers={server.TOKEN_HEADER: PASSWORD})[0] == 200
-        after = saved(data)
-        assert after["iterations"] == access._ITERATIONS
-        assert after["username"] == "owner"
-        assert not httpd.access.needs_rehash
-        assert call(port, "GET", "/api/status", headers={server.TOKEN_HEADER: PASSWORD})[0] == 200
-        assert saved(data) == after  # once only
-        assert call(port, "GET", f"/u/{token}")[0] == 200
-        # The form still signs in with the same password, with no second re-hash.
         assert login(port)[0] == 303
-        assert saved(data) == after
-    finally:
-        httpd.shutdown()
-        httpd.server_close()
-
-
-def test_a_wrong_header_or_the_environment_token_never_rehashes(tmp_path):
-    data = load_settings(tmp_path)
-    write_old_hash(data)
-    before = saved(data)
-    environ = {"WEBUI_ACCESS_TOKEN": "env-token-xyz"}
-    httpd, port = start(data, environ=environ)
-    try:
-        assert call(port, "GET", "/api/status",
-                    headers={server.TOKEN_HEADER: "wrong passphrase here"})[0] == 401
-        assert call(port, "GET", "/api/status",
-                    headers={server.TOKEN_HEADER: "env-token-xyz"})[0] == 200
-        assert saved(data) == before
-        assert httpd.access.needs_rehash
     finally:
         httpd.shutdown()
         httpd.server_close()

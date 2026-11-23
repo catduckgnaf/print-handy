@@ -64,7 +64,7 @@ class ChannelAdapter(Adapter):
 
 
 def run_flow(env, chat_id, printer_id, mid):
-    event = S(source=S(profile="3dprinting", chat_id=chat_id, thread_id=None, user_id="u"),
+    event = S(source=S(chat_id=chat_id, thread_id=None, user_id="u"),
               message_id=mid, text="https://www.printables.com/model/1-ghost")
     adapter = ChannelAdapter(list(PICKS))
     before = set(env.root.glob("*.json"))

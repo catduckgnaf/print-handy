@@ -15,7 +15,7 @@ import tempfile
 import urllib.request  # noqa: F401  (tests patch urllib.request.urlopen through this module)
 from pathlib import Path
 
-from . import diagnostics, moonraker, settings, state_files, state_layout, state_volume
+from . import diagnostics, moonraker, settings, state_layout, state_volume
 from .core import printer_state, resources, spoolman_client
 from .jobs import timing_report
 
@@ -128,15 +128,6 @@ def check_state_layout(data):
         notes.append("stale, safe to delete (the per-printer copy is the live one): "
                      + ", ".join(str(e.root) for e in stale))
     return "per-printer layout", " | ".join(notes) or None
-
-
-def check_strays(data):
-    """Print Handy state files outside the profile state folder. Returns a warning, or None."""
-    strays = state_files.find_strays(data)
-    if not strays:
-        return None
-    return (f"{len(strays)} outside {settings.state_dir(data)}: {state_files.describe(strays)} "
-            "(python3 -m print_handy.state_files --remove, or scripts/home-update.sh)")
 
 
 def check_core(data):
@@ -371,7 +362,7 @@ def check_logging(data):
 def check_listener_heartbeats(data):
     """Per-printer listener liveness as a warning (#390 stage 5).
 
-    Returns a warning string, or None. Follows check_strays' contract: a
+    Returns a warning string, or None: a
     dead listener is a named, actionable warning here — the container
     healthcheck owns failing on it, and a doctor run on a host where the
     listeners legitimately are not running must not fail the whole check.
@@ -524,11 +515,6 @@ def run(out=sys.stdout):
         pids = (f"could not check: {exc}", True)
     if pids is not None:
         print(f"{'WARN' if pids[1] else 'ok  '}  pid limit: {pids[0]}", file=out)
-    try:
-        warning = check_strays(data)
-    except Exception as exc:  # a scan problem is a warning, never a failed check
-        warning = f"could not scan: {exc}"
-    print(f"WARN  stray state files: {warning}" if warning else "ok    stray state files: none", file=out)
     try:
         heartbeat_warning = check_listener_heartbeats(data)
     except Exception as exc:  # an unresolvable roster is a warning here, never a failed check

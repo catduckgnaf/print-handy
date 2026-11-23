@@ -153,13 +153,11 @@ self.addEventListener('fetch', function(event) {{
   }}
 
   // Never cache API responses (/api/*), token upload links (/u/*),
-  // the login route, or the theme route: they carry live printer
-  // state, credentials, or per-visitor choices.
+  // or the login route: they carry live printer state or credentials.
   if (
     url.pathname.indexOf('/api/') === 0 ||
     url.pathname.indexOf('/u/') === 0 ||
-    url.pathname === '/login' ||
-    url.pathname === '/theme'
+    url.pathname === '/login'
   ) {{
     return;
   }}
