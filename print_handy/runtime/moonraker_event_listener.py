@@ -4486,7 +4486,10 @@ class Listener:
                 ffm, ifs = sources[1:3]
                 if ffm is None or ffm != ifs:
                     continue
-                if baseline_missing and ffm != job_slot:
+                baseline_values = [value for value in (initial_ffm, initial_ifs)
+                                   if value is not None]
+                if (baseline_missing and ffm != job_slot
+                        and (not baseline_values or ffm not in baseline_values)):
                     saw_agreed_wrong_reading = True
                 if ffm == job_slot or (
                         initial_ffm is not None and initial_ifs is not None
