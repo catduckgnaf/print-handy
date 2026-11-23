@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-22T19:53:03Z",
+ "generated_at": "2026-11-23T07:56:00Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -118,10 +118,10 @@
     "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.11"
    },
    "latest_prerelease": {
-    "version": "1.1.0-rc.5",
-    "tag": "v1.1.0-rc.5",
-    "published_at": "2026-11-21T19:22:28Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0-rc.5",
+    "version": "1.1.0-rc.6",
+    "tag": "v1.1.0-rc.6",
+    "published_at": "2026-11-23T02:18:56Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0-rc.6",
     "track": "rc"
    },
    "audited": null,
