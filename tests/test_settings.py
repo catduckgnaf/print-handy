@@ -54,21 +54,46 @@ class HomeSettingsTests(unittest.TestCase):
                 self.assertEqual(orca_adapter._orca_command(),
                                  ["flatpak", "run", "com.orcaslicer.OrcaSlicer"])
 
-    def test_legacy_flatpak_app_id_is_migrated(self):
-        # P1-4: io.github.softfever.OrcaSlicer is the legacy name of the same
-        # Flatpak app, and a previous release documented it as the [orca]
-        # command. A stale local override naming it must resolve to the
-        # current ID instead of becoming authoritative.
+    def test_retired_flatpak_app_id_is_refused(self):
+        legacy_id = "io.github.softfever.OrcaSlicer"
+        canonical_id = "com.orcaslicer.OrcaSlicer"
         legacy = settings.load(local=False, environ={})
-        legacy["orca"]["command"] = ["flatpak", "run", "io.github.softfever.OrcaSlicer"]
         with mock.patch.object(orca_adapter, "_S", legacy):
-            with mock.patch.dict(os.environ, {}, clear=True):
-                self.assertEqual(orca_adapter._orca_command(),
-                                 ["flatpak", "run", "com.orcaslicer.OrcaSlicer"])
-            with mock.patch.dict(os.environ,
-                                 {"ORCA_FLATPAK_APP_ID": "io.github.softfever.OrcaSlicer"}, clear=True):
-                self.assertEqual(orca_adapter._orca_command(),
-                                 ["flatpak", "run", "com.orcaslicer.OrcaSlicer"])
+            for command in (["flatpak", "run", legacy_id],
+                            ["flatpak", "run", "--commit=abc", legacy_id]):
+                legacy["orca"]["command"] = command
+                with mock.patch.dict(os.environ, {"ORCA_FLATPAK_APP_ID": canonical_id}, clear=True):
+                    with self.subTest(command=command):
+                        with self.assertRaisesRegex(ValueError, "retired OrcaSlicer Flatpak app ID"):
+                            orca_adapter._orca_command()
+
+        stable = settings.load(local=False, environ={})
+        with mock.patch.object(orca_adapter, "_S", stable):
+            with mock.patch.dict(os.environ, {"ORCA_FLATPAK_APP_ID": legacy_id}, clear=True):
+                with self.assertRaisesRegex(ValueError, "retired OrcaSlicer Flatpak app ID"):
+                    orca_adapter._orca_command()
+
+    def test_retired_id_is_refused_even_with_native_binary_override(self):
+        legacy_id = "io.github.softfever.OrcaSlicer"
+        stable = settings.load(local=False, environ={})
+        with mock.patch.object(orca_adapter, "_S", stable):
+            with mock.patch.dict(os.environ, {
+                    "PRINT_HANDY_ORCA_CMD": "/usr/bin/orca-slicer",
+                    "ORCA_FLATPAK_APP_ID": legacy_id}, clear=True):
+                with self.assertRaisesRegex(ValueError, "retired OrcaSlicer Flatpak"):
+                    orca_adapter._orca_command()
+            stable["orca"]["command"] = ["flatpak", "run", legacy_id]
+            with mock.patch.dict(os.environ, {
+                    "PRINT_HANDY_ORCA_CMD": "/usr/bin/orca-slicer"}, clear=True):
+                with self.assertRaisesRegex(ValueError, "retired OrcaSlicer Flatpak"):
+                    orca_adapter._orca_command()
+
+    def test_native_command_override_remains_supported(self):
+        stable = settings.load(local=False, environ={})
+        with mock.patch.object(orca_adapter, "_S", stable):
+            with mock.patch.dict(os.environ, {
+                    "PRINT_HANDY_ORCA_CMD": "/usr/bin/orca-slicer"}, clear=True):
+                self.assertEqual(orca_adapter._orca_command(), ["/usr/bin/orca-slicer"])
 
     def test_pinned_commit_keeps_stable_app_id(self):
         stable_settings = settings.load(local=False, environ={})
