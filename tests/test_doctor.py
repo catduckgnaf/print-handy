@@ -339,9 +339,28 @@ class LegacyStateFolderTests(unittest.TestCase):
 
     def test_an_unreadable_old_folder_fails_instead_of_passing_as_empty(self):
         self.legacy.mkdir(parents=True)
-        with mock.patch.object(Path, "rglob", side_effect=PermissionError("denied")):
+        real_walk = os.walk
+
+        def walk(top, onerror=None, **kwargs):
+            onerror(PermissionError(13, "Permission denied", str(Path(top) / "state")))
+            yield from real_walk(top, onerror=onerror, **kwargs)
+        with mock.patch.object(doctor.os, "walk", walk):
             with self.assertRaisesRegex(RuntimeError, "could not be inspected"):
                 doctor.check_legacy_state_folder(self.data(self.root / "new"))
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "needs POSIX permissions and a non-root user")
+    def test_an_unreadable_nested_subfolder_fails_instead_of_passing_as_empty(self):
+        """rglob skips an unreadable subfolder silently; the check must not (review of #1834)."""
+        hidden = self.legacy / "state" / "printers"
+        hidden.mkdir(parents=True)
+        (hidden / "printer_hardware.json").write_text("{}")
+        hidden.chmod(0)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "could not be inspected"):
+                doctor.check_legacy_state_folder(self.data(self.root / "new"))
+        finally:
+            hidden.chmod(0o755)
 
     def test_old_folder_with_data_and_an_empty_state_home_fails_with_the_move(self):
         self._legacy_install()

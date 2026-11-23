@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -383,12 +384,23 @@ def _has_files(folder):
     A first start creates empty ``state/`` and ``logs/`` folders, so an empty tree is
     structure, not data.
     """
-    try:
-        return any(not entry.is_dir() for entry in folder.rglob("*"))
-    except OSError as exc:
-        # An unreadable folder must not pass for an empty one: it may hold the data.
+    def unreadable(exc):
+        # An unreadable folder, at any depth, must not pass for an empty one: it may
+        # hold the data. Path.rglob skips such subfolders silently, so walk instead.
         raise RuntimeError(f"{folder} could not be inspected ({exc}); check it by hand before "
                            "starting on a new state folder") from exc
+
+    try:
+        for root, dirs, files in os.walk(folder, onerror=unreadable):
+            if files:
+                return True
+            # A symlink to a directory is not followed, but it is not structure either.
+            if any(not (Path(root) / name).is_dir() or (Path(root) / name).is_symlink()
+                   for name in dirs):
+                return True
+    except OSError as exc:
+        unreadable(exc)
+    return False
 
 
 def check_legacy_state_folder(data):
