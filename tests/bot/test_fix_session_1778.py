@@ -891,3 +891,20 @@ def test_a_failed_uploaded_slice_offers_the_session_through_the_real_intake(tmp_
     assert [(kind, labels[0]) for kind, _prompt, labels in offers] == [
         ('fix-problem-file', fix_session.WORK_WITH_AI_LABEL)]
     assert not fix_session._SESSIONS
+
+
+def test_each_turn_sends_the_users_message_to_the_model_once(tmp_path, monkeypatch):
+    from print_handy.bot.handlers import fix as handler
+    _folder, _job, _stl, session = _session(tmp_path)
+    sent = []
+
+    def call(tier, messages, **_kwargs):
+        sent.append([m for m in messages if m['role'] != 'system'])
+        return json.dumps({'content': 'Noted.', 'tool_calls': []}), 'heavy'
+
+    monkeypatch.setattr(handler.ai_routes, 'call', call)
+    fix_session.process_turn(session, 'sink it', ai_complete=handler._complete)
+    fix_session.process_turn(session, 'now trim it', ai_complete=handler._complete)
+    assert [m['content'] for m in sent[0]] == ['sink it']
+    assert [m['role'] for m in sent[1]] == ['user', 'assistant', 'user']
+    assert [m['content'] for m in sent[1] if m['role'] == 'user'] == ['sink it', 'now trim it']

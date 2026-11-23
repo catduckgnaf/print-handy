@@ -130,7 +130,12 @@ def _complete(session, message, tools):
               + 'Allowed tools: ' + json.dumps(tools) + '\n'
               + 'Current mesh path: ' + json.dumps(relative))
     messages = [{'role': 'system', 'content': prompt}]
-    for item in session.history[-12:]:
+    # process_turn has already recorded this message as the newest history
+    # item; it is sent once, as the final user message below.
+    past = list(session.history)
+    if past and past[-1].get('role') == 'user' and past[-1].get('content') == message:
+        past.pop()
+    for item in past[-12:]:
         if item.get('role') in ('user', 'assistant'):
             messages.append({'role': item['role'], 'content': str(item.get('content') or '')[:3000]})
     messages.append({'role': 'user', 'content': message})
