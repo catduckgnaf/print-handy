@@ -346,8 +346,20 @@ class LegacyStateFolderTests(unittest.TestCase):
     def test_old_folder_with_data_and_an_empty_state_home_fails_with_the_move(self):
         self._legacy_install()
         new = self.root / "new"
-        with self.assertRaisesRegex(RuntimeError, r"mv .*old.*\.env .*new.*\.env"):
+        with self.assertRaisesRegex(RuntimeError, r"mv .*old.*\.env'? .*new.*\.env"):
             doctor.check_legacy_state_folder(self.data(new))
+
+    def test_the_move_commands_quote_paths_with_spaces(self):
+        import shlex
+        self.legacy = self.root / "old home"
+        doctor.LEGACY_STATE_FOLDER = self.legacy
+        self._legacy_install()
+        new = self.root / "new state"
+        with self.assertRaises(RuntimeError) as failed:
+            doctor.check_legacy_state_folder(self.data(new))
+        detail = str(failed.exception)
+        self.assertIn(shlex.quote(str(self.legacy / ".env")), detail)
+        self.assertIn(shlex.quote(str(new / ".env")), detail)
 
     def test_a_first_start_skeleton_does_not_hide_stranded_data(self):
         """A fresh start creates empty state/ and logs/ folders; that is not the user's data."""

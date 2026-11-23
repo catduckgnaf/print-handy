@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -411,7 +412,8 @@ def check_legacy_state_folder(data):
                 if (legacy / item).exists() and not (state / item).exists()]
     if stranded:
         moves = "; ".join(
-            f"mkdir -p {(state / item).parent} && mv {legacy / item} {state / item}"
+            f"mkdir -p {shlex.quote(str((state / item).parent))} && "
+            f"mv {shlex.quote(str(legacy / item))} {shlex.quote(str(state / item))}"
             for item in stranded)
         raise RuntimeError(
             f"{legacy} holds Print Handy data that paths.state_home ({state}) does not: "
