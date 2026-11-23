@@ -71,6 +71,18 @@ def assert_refused(result):
     assert "rename the host folder hermes to state" in result.stderr
 
 
+@pytest.mark.parametrize("channel", ["stable", "preview", "alpha"])
+def test_existing_orca_channel_aliases_start_with_bundled_stable(tmp_path, channel):
+    result = run_entrypoint(tmp_path, PRINT_HANDY_ORCA_CHANNEL=channel)
+    assert result.returncode == 0, result.stderr
+
+
+def test_unknown_orca_channel_is_still_rejected(tmp_path):
+    result = run_entrypoint(tmp_path, PRINT_HANDY_ORCA_CHANNEL="nonexistent")
+    assert result.returncode == 2
+    assert "PRINT_HANDY_ORCA_CHANNEL must be 'stable'" in result.stderr
+
+
 def test_state_only_layout_starts_and_creates_no_legacy_link(tmp_path):
     seed(tmp_path / "state")
     result = run_entrypoint(tmp_path)
