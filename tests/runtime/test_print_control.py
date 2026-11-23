@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -168,7 +169,7 @@ def _printed(tmp_path, slug, title, age_s):
 @pytest.fixture(autouse=True)
 def _isolate_numbers_and_queue(tmp_path, monkeypatch):
     monkeypatch.setattr(print_control, "PRINT_NUMBERS", tmp_path / "print_numbers.json")
-    monkeypatch.setattr(print_control, "REPRINT_QUEUE", tmp_path / "reprint_queue.json")
+    monkeypatch.setenv("REPRINT_QUEUE_STATE", str(tmp_path / "reprint_queue.json"))
 
 
 def _three(tmp_path):
@@ -209,9 +210,9 @@ def test_relaunch_minted_at_start_gets_its_own_number(tmp_path):
     assert [r["index"] for r in rows] == [2, 1]
     assert print_control.resolve_print("1", tmp_path)["gcode"] == str(g.resolve())
     assert print_control.resolve_print("2", tmp_path)["gcode"] == str(g.resolve())
-    # The legacy per-job entry still names the FIRST print.
+    # The first print keeps number 1 as its earliest launch entry.
     registry = json.loads((tmp_path / "print_numbers.json").read_text())
-    assert registry["numbers"][str(job_json.resolve())] == 1
+    assert any(e["number"] == 1 and Path(e["job"]) == job_json.resolve() for e in registry["launches"])
 
 
 def test_unminted_relaunch_seen_by_record_time_gets_its_own_number(tmp_path):
@@ -273,8 +274,9 @@ def test_mint_launch_number_never_reuses_and_sets_first_number(tmp_path):
     assert print_control.mint_launch_number(job_b) == 2
     assert print_control.mint_launch_number(job_a) == 3
     registry = print_control._load_number_registry()
-    assert registry["numbers"] == {str(job_a): 1, str(job_b): 2}
     assert [e["number"] for e in registry["launches"]] == [1, 2, 3]
+    assert [e["number"] for e in registry["launches"] if Path(e["job"]) == job_a] == [1, 3]
+    assert [e["number"] for e in registry["launches"] if Path(e["job"]) == job_b] == [2]
 
 
 def test_resolve_by_number(tmp_path):
@@ -508,9 +510,9 @@ def test_reprint_queues_are_isolated_per_printer(tmp_path, monkeypatch):
     import hashlib
     from pathlib import Path
 
-    monkeypatch.setattr(print_control, "REPRINT_QUEUE", tmp_path / "reprint_queue.json")
+    monkeypatch.delenv("REPRINT_QUEUE_STATE", raising=False)
     monkeypatch.setattr(print_control, "ARCHIVE", tmp_path)
-    monkeypatch.setattr(print_control._config, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(print_control.settings, "state_dir", lambda data=None: tmp_path)
     monkeypatch.setattr(print_control._config, "cfg",
                         lambda: {"printers": [{"id": "printer-a"}, {"id": "printer-b"}]})
 

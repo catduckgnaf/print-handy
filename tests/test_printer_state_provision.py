@@ -23,14 +23,17 @@ VIEW = {"printer": {"name": "Bench P1", "bed_mm": [256, 256], "max_print_height_
 
 @pytest.fixture
 def fresh_state(tmp_path, monkeypatch):
-    state = tmp_path / "printer_hardware.json"
-    monkeypatch.setattr(printer_state, "STATE", str(state))
+    """A temp state root; returns the default printer's (not yet written) record path."""
+    monkeypatch.setattr(printer_state, "STATE_ROOT", str(tmp_path))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
     monkeypatch.setattr(settings, "default_printer_id", lambda data=None: "bench-p1")
-    return state
+    return tmp_path / "printers" / "bench-p1" / "printer_hardware.json"
 
 
-def test_provision_creates_the_default_record_at_the_legacy_path(fresh_state):
+def test_provision_creates_the_default_printers_own_record(fresh_state, tmp_path):
     assert printer_state.provision_default_record(VIEW) is True
+    assert fresh_state.is_file()
+    assert not (tmp_path / "printer_hardware.json").exists()  # never the pre-2.4 root path
     record = printer_state.load()
     assert record["printer"] == "Bench P1"
     assert record["nozzle"]["diameter_mm"] == 0.4
@@ -45,11 +48,11 @@ def test_provision_never_overwrites_an_existing_record(fresh_state):
     assert printer_state.load()["printer"] == "Bench P1"
 
 
-def test_provision_is_a_no_op_when_a_per_printer_record_exists(fresh_state, tmp_path, monkeypatch):
-    per_printer = tmp_path / "printers" / "bench-p1" / "printer_hardware.json"
-    per_printer.parent.mkdir(parents=True)
-    per_printer.write_text("{}\n")
-    assert printer_state.provision_default_record(VIEW) is False
+def test_provision_refuses_while_the_record_is_still_at_the_root(fresh_state, tmp_path):
+    # #1817: an empty seed would shadow the real record left at the root.
+    (tmp_path / "printer_hardware.json").write_text("{}\n")
+    with pytest.raises(RuntimeError, match="mv "):
+        printer_state.provision_default_record(VIEW)
     assert not fresh_state.exists()
 
 

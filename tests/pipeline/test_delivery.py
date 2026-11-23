@@ -207,7 +207,7 @@ def test_bambu_handoff_refuses_non_bambu_printers_and_foreign_start_code(tmp_pat
         delivery.bambu_handoff({**job, "printer_model": "klipper.generic"}, gcodes, config_for("klipper.generic"))
     cfg = config_for(BAMBU_KEY)
     with pytest.raises(delivery.DeliveryRefused, match="sliced for flashforge.ad5x"):
-        delivery.bambu_handoff(job, gcodes, cfg)  # no printer_model: an AD5X job
+        delivery.bambu_handoff({**job, "printer_model": "flashforge.ad5x"}, gcodes, cfg)
     packages = delivery.bambu_handoff({**job, "printer_model": BAMBU_KEY}, gcodes, cfg)
     assert [p.name for p in packages] == ["plate_1.gcode.3mf"] and packages[0].parent.name == "bambu"
     gcodes[0].write_text("START_PRINT EXTRUDER_TEMP=215 BED_TEMP=60 MESH=auto\nG1 X1\n")

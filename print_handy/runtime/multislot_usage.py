@@ -154,9 +154,9 @@ def ledger_path() -> Path:
 def ledger_path_for(printer_id: Any) -> Path:
     """The ledger the listener for roster printer ``printer_id`` charges through.
 
-    A non-default roster printer's listener keeps its own copy under
-    <state>/printers/<id>/ (per_instance); any other id, the default
-    printer, or an env override is this process's ledger_path().
+    Every roster printer's ledger lives under <state>/printers/<id>/
+    (per_instance); an unknown id, or an env override, is this process's
+    ledger_path().
     """
     if os.environ.get(LEDGER_ENV):
         return ledger_path()
@@ -165,7 +165,7 @@ def ledger_path_for(printer_id: Any) -> Path:
     data = _config.cfg()
     wanted = str(printer_id or "").strip()
     roster = {str(row.get("id")) for row in settings.printers(data) if isinstance(row, dict)}
-    if wanted and wanted in roster and wanted != settings.default_printer_id(data):
+    if wanted and wanted in roster:
         return settings.printer_state_dir(wanted, data) / LEDGER_NAME
     return ledger_path()
 
@@ -176,7 +176,7 @@ def all_ledger_paths() -> list[Path]:
     if os.environ.get(LEDGER_ENV):
         return [first]
     state = _config.state_dir()
-    paths = [first, state / LEDGER_NAME, *sorted((state / "printers").glob(f"*/{LEDGER_NAME}"))]
+    paths = [first, *sorted((state / "printers").glob(f"*/{LEDGER_NAME}"))]
     unique: list[Path] = []
     for path in paths:
         if path not in unique:

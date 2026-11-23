@@ -9,78 +9,38 @@ from print_handy.runtime.moonraker_event_listener import MidPrintSlotTracker, lo
 from print_handy.runtime.print_next import NextPlateError
 
 
-def test_load_state_adopts_the_pre_rename_slots_key(tmp_path):
-    # #672: a hardware record written before the rename names the slot map
-    # ifs_slots; the spool_sync loader adopts it, like printer_state.load.
-    path = tmp_path / "printer_hardware.json"
-    path.write_text(json.dumps({"spool": {}, "ifs_slots": {"1": {"spoolman_id": 7}}}))
-    state = spool_sync.load_state(path)
-    assert state["filament_slots"]["1"]["spoolman_id"] == 7
-    assert "ifs_slots" not in state
-
-
-def _elsewhere_layout(tmp_path, monkeypatch, default_id="ad5x"):
-    """A state root holding the default printer's legacy root record (its
-    pre-adoption spelling, retained as the rollback copy) plus per-printer
-    records. Returns the default printer's per-printer record path."""
-    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": default_id}]})
-    root_record = {"spool": {"spoolman_id": 7, "material": "PLA"},
-                   "filament_slots": {"1": {"spoolman_id": 7, "material": "PLA"}}}
-    (tmp_path / "printer_hardware.json").write_text(json.dumps(root_record))
+def _elsewhere_layout(tmp_path, default_id="ad5x"):
+    """A state root with the default printer's per-printer record. Returns its path."""
     mine = tmp_path / "printers" / default_id
     mine.mkdir(parents=True)
-    (mine / "printer_hardware.json").write_text(json.dumps({"spool": {}, "filament_slots": {}}))
+    (mine / "printer_hardware.json").write_text(json.dumps(
+        {"spool": {"spoolman_id": 7, "material": "PLA"},
+         "filament_slots": {"1": {"spoolman_id": 7, "material": "PLA"}}}))
     return mine / "printer_hardware.json"
 
 
-def test_loaded_elsewhere_ignores_the_root_record_for_the_default_printer(tmp_path, monkeypatch):
-    # P2-127: binding to the default printer's per-printer record must not
-    # treat that same printer's root-level record as another printer — a
-    # spool already loaded on the default printer can be rebound to it.
-    target = _elsewhere_layout(tmp_path, monkeypatch)
+def test_loaded_elsewhere_skips_the_target_printers_own_record(tmp_path):
+    target = _elsewhere_layout(tmp_path)
     assert spool_sync.spool_loaded_elsewhere(7, state_path=target, printer_id="ad5x") is None
 
 
-def test_loaded_elsewhere_still_reports_a_real_other_printer(tmp_path, monkeypatch):
-    # P2-127 guard: the root-record exclusion is only the default printer's
-    # own alias; a different printer loading the spool is still reported.
-    target = _elsewhere_layout(tmp_path, monkeypatch)
-    other = tmp_path / "printers" / "other"
-    other.mkdir(parents=True)
-    (other / "printer_hardware.json").write_text(json.dumps(
-        {"spool": {}, "filament_slots": {"2": {"spoolman_id": 7, "material": "PLA"}}}))
-    assert spool_sync.spool_loaded_elsewhere(7, state_path=target, printer_id="ad5x") == "other"
-
-
-def test_loaded_elsewhere_root_target_ignores_the_default_printers_copy(tmp_path, monkeypatch):
-    # The pre-existing direction of the alias exclusion stays: binding the
-    # root record does not see the default printer's per-printer copy.
-    _elsewhere_layout(tmp_path, monkeypatch)
-    per_printer = tmp_path / "printers" / "ad5x" / "printer_hardware.json"
-    per_printer.write_text(json.dumps(
-        {"spool": {}, "filament_slots": {"3": {"spoolman_id": 8, "material": "PLA"}}}))
-    assert spool_sync.spool_loaded_elsewhere(
-        8, state_path=tmp_path / "printer_hardware.json") is None
-
-
-def test_loaded_elsewhere_adopts_legacy_ifs_slots_of_other_printers(tmp_path, monkeypatch):
-    # P2-267: another printer's pre-#672 record names its slot map ifs_slots;
-    # the cross-printer scan must adopt that key or spools in its non-active
-    # slots are invisible and the same spool can be bound twice.
-    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": "ad5x"}]})
+def test_loaded_elsewhere_reports_another_printer(tmp_path):
+    target = _elsewhere_layout(tmp_path)
     other = tmp_path / "printers" / "other"
     other.mkdir(parents=True)
     (other / "printer_hardware.json").write_text(json.dumps(
         {"spool": {"spoolman_id": 3, "material": "PLA"},
-         "ifs_slots": {"2": {"spoolman_id": 9, "material": "PLA"}}}))
-    mine = tmp_path / "printers" / "ad5x"
-    mine.mkdir(parents=True)
-    (mine / "printer_hardware.json").write_text(json.dumps({"spool": {}, "filament_slots": {}}))
-    assert spool_sync.spool_loaded_elsewhere(
-        9, state_path=mine / "printer_hardware.json", printer_id="ad5x") == "other"
-    # The other printer's active spool was always visible; it still is.
-    assert spool_sync.spool_loaded_elsewhere(
-        3, state_path=mine / "printer_hardware.json", printer_id="ad5x") == "other"
+         "filament_slots": {"2": {"spoolman_id": 9, "material": "PLA"}}}))
+    assert spool_sync.spool_loaded_elsewhere(9, state_path=target, printer_id="ad5x") == "other"
+    assert spool_sync.spool_loaded_elsewhere(3, state_path=target, printer_id="ad5x") == "other"
+
+
+def test_loaded_elsewhere_never_reads_a_root_level_record(tmp_path):
+    # #1817: a pre-2.4 <state>/printer_hardware.json is no printer's record.
+    target = _elsewhere_layout(tmp_path)
+    (tmp_path / "printer_hardware.json").write_text(json.dumps(
+        {"spool": {}, "filament_slots": {"3": {"spoolman_id": 8, "material": "PLA"}}}))
+    assert spool_sync.spool_loaded_elsewhere(8, state_path=target, printer_id="ad5x") is None
 
 
 def test_slot_record_strips_repeated_trailing_material_case_insensitively():

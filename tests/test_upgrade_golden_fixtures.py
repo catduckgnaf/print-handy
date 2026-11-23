@@ -2,7 +2,7 @@
 
 The fixtures under ``tests/fixtures/legacy/`` freeze state as older
 releases wrote it — a pre-#1029 JOB.json (no ``started_by`` stamp), a
-pre-#672 hardware record (``ifs_slots``), a pre-#979/#988 print record
+pre-#979/#988 print record
 (no ``record_id``), a pre-#392 Markdown record note, and a settings file
 carrying every retired key at once. Provenance for each fixture —
 recorded vs inferred — lives in that directory's README.md; nothing
@@ -15,8 +15,8 @@ print-again planning (``print_control.printed_jobs`` /
 (``discord_print_summary.format_event``), Wrapped aggregates
 (``print_stats.load_records`` / ``aggregate``, as in
 ``tests/test_wrapped_records_from_writers.py``), settings loading with
-the retired keys, the per-printer state loader, and the doctor's
-hardware / settings checks over an old install layout.
+the retired keys, and the doctor's hardware / settings checks over a
+pre-2.4 install layout (the record still at the state root).
 """
 import json
 import shutil
@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from print_handy import doctor, settings
-from print_handy.core import printer_state, print_stats
+from print_handy.core import print_stats
 from print_handy.runtime import discord_print_summary as summary
 from print_handy.runtime import print_control as pc
 
@@ -128,34 +128,32 @@ def test_wrapped_aggregates_over_pre_record_id_records(tmp_path):
 
 # ------------------------------------------------------------- old hardware record
 
-def test_state_loader_adopts_the_ifs_slots_record(tmp_path, monkeypatch):
-    record = tmp_path / "printer_hardware.json"
-    record.write_text((LEGACY / "hardware_ifs_slots.json").read_text())
-    monkeypatch.setattr(printer_state, "STATE", str(record))
-    state = printer_state.load()
-    assert "ifs_slots" not in state
-    assert state["filament_slots"]["1"]["spoolman_id"] == 7
-    assert state["filament_slots"]["2"]["spoolman_id"] == 9
-    assert state["spool"]["spoolman_id"] == 7
-
-
-def test_doctor_reads_the_old_install_layout(tmp_path, monkeypatch):
-    """Doctor's own checks over an old layout: the ifs_slots hardware
-    record in the state folder of a data set loaded from defaults."""
+def test_doctor_refuses_the_old_install_layout_with_the_move(tmp_path):
+    """Doctor over a pre-2.4 layout (#1817): the hardware record still at the
+    state root is no longer read, so the hardware row fails and names the
+    exact move into the default printer's folder instead of reporting the
+    record missing or starting the printer empty."""
     local = tmp_path / "local.toml"
     local.write_text(f'[paths]\nstate_home = "{tmp_path}/hermes"\n')
     data = settings.load(local=local, environ={})
     state_dir = settings.state_dir(data)
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "printer_hardware.json").write_text(
-        (LEGACY / "hardware_ifs_slots.json").read_text())
-    # Settings row: the record's era does not disturb the settings facts.
-    assert "nozzle" in doctor.check_settings(data)
-    # Hardware row: doctor reads the raw file (it does not adopt the
-    # renamed key — it checks spool/temps/nozzle, which the old record
-    # carries under unchanged names) and names the nozzle it found.
     nozzle = data["printer"]["nozzle_diameter_mm"]
+    (state_dir / "printer_hardware.json").write_text(json.dumps({
+        "spool": {"material": "PLA", "density": 1.24}, "temps_c": {"nozzle": 220, "bed": 60},
+        "nozzle": {"diameter_mm": nozzle, "type": "stock"}}))
+    assert "nozzle" in doctor.check_settings(data)
+    target = state_dir / "printers" / settings.default_printer_id(data) / "printer_hardware.json"
+    with pytest.raises(RuntimeError) as refused:
+        doctor.check_hardware(data)
+    assert f"mv {state_dir / 'printer_hardware.json'} {target}" in str(refused.value)
+    with pytest.raises(RuntimeError, match="printer_hardware.json"):
+        doctor.check_state_layout(data)
+    # Moved as the message says, both rows pass and the root copy is gone.
+    target.parent.mkdir(parents=True)
+    (state_dir / "printer_hardware.json").rename(target)
     assert doctor.check_hardware(data) == f"printer_hardware.json, {nozzle:g} mm nozzle"
+    assert doctor.check_state_layout(data) == ("per-printer layout", None)
 
 
 # ------------------------------------------------------------- retired settings keys

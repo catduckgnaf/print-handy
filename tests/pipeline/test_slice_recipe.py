@@ -72,7 +72,7 @@ def test_binding_is_a_versioned_recipe_and_ignores_dict_order():
 
 
 def _hardware(**change):
-    st = json.loads(Path(printer_state.STATE).read_text())
+    st = json.loads(printer_state.state_path().read_text())
     for path, value in change.items():
         target = st
         *parents, leaf = path.split('.')
@@ -91,7 +91,7 @@ def _hardware(**change):
 def test_printer_material_and_nozzle_state_change_the_binding(monkeypatch, path, value):
     monkeypatch.setattr(printer_state, 'load', _hardware)
     before = slice_binding(_job(), 'source-a')
-    monkeypatch.setattr(printer_state, 'load', lambda: _hardware(**{path: value}))
+    monkeypatch.setattr(printer_state, 'load', lambda *_a, **_k: _hardware(**{path: value}))
     assert slice_binding(_job(), 'source-a') != before
 
 
@@ -137,7 +137,7 @@ def test_launch_refuses_when_the_nozzle_changes_after_slicing(tmp_path, monkeypa
     mj.require_current_artifact(persisted, gcode)  # unchanged inputs: still accepted
     changed = copy.deepcopy(st)
     changed['nozzle']['diameter_mm'] = 0.4  # the fixture slices with a 0.6 nozzle
-    monkeypatch.setattr(mj.printer_state, 'load', lambda: changed)
+    monkeypatch.setattr(mj.printer_state, 'load', lambda *_a, **_k: changed)
     with pytest.raises(RuntimeError, match='stale color artifact'):
         mj.require_current_artifact(persisted, gcode)
 
@@ -222,7 +222,7 @@ def test_worker_accepts_the_recipe_intake_bound_before_the_first_slice(tmp_path,
     jp.write_text(json.dumps({'downloaded_file': str(source(tmp_path)),
                               'audit': {'plates': 1, 'size_x': 40, 'size_y': 10, 'size_z': 1}}))
     mj.intake_color_choices(jp, st, 'single_color', [1])
-    monkeypatch.setattr(mj.printer_state, 'load', lambda: st)
+    monkeypatch.setattr(mj.printer_state, 'load', lambda *_a, **_k: st)
     job = json.loads(jp.read_text())
     job['copies'] = 2
     jp.write_text(json.dumps(job))

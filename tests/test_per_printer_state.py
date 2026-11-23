@@ -2,8 +2,9 @@
 
 The properties pinned here are the stage's acceptance criteria: two printers
 hold independent leases in independent databases; an approval consumed for
-one printer is invisible to the other; a pre-upgrade state directory is
-adopted with a held lease and the hardware record intact; a job record with
+one printer is invisible to the other; a pre-2.4 state directory (files
+still at the state root) is refused with the move that fixes it, never
+silently started empty (#1817); a job record with
 no printer_id still prints on the configured single printer (the existing
 launch-state suites cover that path unchanged); and one spool cannot be
 recorded as loaded on two printers.
@@ -122,9 +123,8 @@ def state_root(tmp_path, monkeypatch):
     """Launch databases under a temp state root, with no env override."""
     monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB", raising=False)
     monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
-    # STATE is computed at import; without this, hardware saves in these tests
-    # land in the real profile's state directory.
-    monkeypatch.setattr(printer_state, "STATE", str(tmp_path / "printer_hardware.json"))
+    monkeypatch.setattr(printer_state, "STATE_ROOT", str(tmp_path))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
     return tmp_path
 
 
@@ -152,21 +152,24 @@ def test_approval_consumption_is_invisible_across_printers(state_root):
         assert launch_state.consumed(con, "/jobs/a/JOB.json", sha) == []
 
 
-def test_legacy_launch_database_is_adopted_with_a_held_lease(state_root, monkeypatch):
+def test_a_root_launch_database_is_refused_with_the_move(state_root, monkeypatch):
     legacy = state_root / "print_handy_launches.sqlite3"
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
     launch_state.acquire(DEFAULT_ID, remote="held.gcode")  # held across the "upgrade"
     monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
-    path = launch_state.db_path(DEFAULT_ID)
-    assert path == state_root / "printers" / DEFAULT_ID / "jobs.db"
-    assert path.is_file() and legacy.is_file()  # adopted by copy; the legacy file stays
+    target = state_root / "printers" / DEFAULT_ID / "jobs.db"
+    with pytest.raises(RuntimeError, match=f"mv {legacy} {target}"):
+        launch_state.db_path(DEFAULT_ID)
+    assert not target.exists()  # nothing was created beside it
+    target.parent.mkdir(parents=True)
+    legacy.rename(target)
     [row] = launch_state.pending(DEFAULT_ID)
     assert row["remote"] == "held.gcode"
     with pytest.raises(SystemExit, match="in progress"):
         launch_state.acquire(DEFAULT_ID, remote="next.gcode")
 
 
-def test_legacy_launch_database_is_not_adopted_by_a_second_printer(state_root, monkeypatch):
+def test_a_root_launch_database_is_never_a_second_printers(state_root, monkeypatch):
     legacy = state_root / "print_handy_launches.sqlite3"
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
     launch_state.acquire(DEFAULT_ID, remote="held.gcode").release()
@@ -182,7 +185,8 @@ def _make_job(root, name, printer_id=None):
     (folder / "out").mkdir(parents=True)
     g = folder / "out" / "x.gcode"
     g.write_text("; same content on both printers\nSTART_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n")
-    job = {"title": name, "gcode": str(g)}
+    job = {"title": name, "gcode": str(g),
+           "printer_model": settings.current()["printer"]["model"]}
     if printer_id:
         job["printer_id"] = printer_id
     jp = folder / "JOB.json"
@@ -209,67 +213,59 @@ def test_approvals_are_consumed_per_printer_and_never_across(tmp_path, state_roo
 
 @pytest.fixture
 def hardware(tmp_path, monkeypatch):
-    legacy = tmp_path / "printer_hardware.json"
-    legacy.write_text(json.dumps({"marker": "legacy", "spool": {"spoolman_id": 3}}))
-    monkeypatch.setattr(printer_state, "STATE", str(legacy))
-    return legacy
+    """A temp state root; returns the default printer's (not yet written) record path."""
+    monkeypatch.setattr(printer_state, "STATE_ROOT", str(tmp_path))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    return tmp_path / "printers" / DEFAULT_ID / "printer_hardware.json"
 
 
-def test_hardware_record_adoption_and_isolation(hardware, tmp_path):
-    assert printer_state.load(DEFAULT_ID)["marker"] == "legacy"  # adopted read
+def test_hardware_records_are_per_printer_for_every_printer(hardware, tmp_path):
+    assert printer_state.state_path() == hardware  # no printer named: the default's own file
+    assert printer_state.state_path(DEFAULT_ID) == hardware
     with pytest.raises(FileNotFoundError):
-        printer_state.load("printer-b")  # a second printer never inherits the singleton record
+        printer_state.load("printer-b")
     printer_state.save({"marker": "b"}, "printer-b")
     assert (tmp_path / "printers" / "printer-b" / "printer_hardware.json").is_file()
     assert printer_state.load("printer-b")["marker"] == "b"
-    printer_state.save({"marker": "new"}, DEFAULT_ID)  # new writes go to the per-printer file
-    assert printer_state.load(DEFAULT_ID)["marker"] == "new"
-    assert json.loads(hardware.read_text())["marker"] == "legacy"  # legacy file left in place
-    # Once the default printer owns a record, the unnamed path follows it: a
-    # write that landed in the stale legacy copy would never be read back.
-    assert printer_state.load()["marker"] == "new"
     printer_state.save({"marker": "unnamed"})
+    assert json.loads(hardware.read_text())["marker"] == "unnamed"
     assert printer_state.load(DEFAULT_ID)["marker"] == "unnamed"
-    assert json.loads(hardware.read_text())["marker"] == "legacy"
+    assert not (tmp_path / "printer_hardware.json").exists()  # nothing at the state root
 
 
-def test_unnamed_path_is_the_legacy_file_until_the_default_printer_has_a_record(hardware):
-    assert printer_state.state_path() == hardware
+def test_a_root_hardware_record_is_refused_with_the_move(hardware, tmp_path):
+    # #1817: the pre-2.4 root record is no longer adopted. While it is the
+    # default printer's only record, a load refuses and names the move.
+    root = tmp_path / "printer_hardware.json"
+    root.write_text(json.dumps({"marker": "root", "spool": {"spoolman_id": 3}}))
+    with pytest.raises(RuntimeError, match=f"mv {root} {hardware}"):
+        printer_state.load()
+    with pytest.raises(RuntimeError, match="no longer read"):
+        printer_state.provision_default_record()  # never shadowed by an empty seed
+    with pytest.raises(FileNotFoundError):
+        printer_state.load("printer-b")  # a second printer never inherited the root record
+    hardware.parent.mkdir(parents=True)
+    root.rename(hardware)
+    assert printer_state.load()["marker"] == "root"
 
 
-def test_spool_bind_lands_where_the_slicer_reads(tmp_path, monkeypatch):
+def test_a_stale_root_record_beside_the_per_printer_one_is_ignored(hardware, tmp_path):
+    (tmp_path / "printer_hardware.json").write_text(json.dumps({"marker": "stale"}))
+    printer_state.save({"marker": "live"}, DEFAULT_ID)
+    assert printer_state.load()["marker"] == "live"
+    from print_handy import state_layout
+    [entry] = state_layout.root_files(tmp_path, DEFAULT_ID)
+    assert entry.stale and entry.required
+
+
+def test_spool_bind_lands_where_the_slicer_reads(hardware):
     # The 2026-11-04 refusals: a Discord /spool bind (unnamed spool_sync write)
-    # updated the legacy record to PLA+ while the slicer read the default
-    # printer's own record, still PLA, and refused "slot 3 material".
-    legacy = tmp_path / "printer_hardware.json"
-    legacy.write_text(json.dumps({"filament_slots": {"3": {"material": "PLA", "spoolman_id": 20}}}))
-    monkeypatch.setattr(printer_state, "STATE", str(legacy))
-    monkeypatch.setattr(spool_sync, "HARDWARE_STATE", legacy)
-    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
-    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": DEFAULT_ID}]})
-    printer_state.save(json.loads(legacy.read_text()), DEFAULT_ID)
+    # updated one record while the slicer read another. One resolver now.
+    printer_state.save({"filament_slots": {"3": {"material": "PLA", "spoolman_id": 20}}}, DEFAULT_ID)
     state = spool_sync.load_state()
     state["filament_slots"]["3"]["material"] = "PLA+"
     spool_sync.save_state(state)
     assert printer_state.load(DEFAULT_ID)["filament_slots"]["3"]["material"] == "PLA+"
-
-
-def test_hardware_record_written_with_the_old_slots_key_is_adopted(hardware):
-    # #672: a record written before the rename names the loaded-spool map
-    # ifs_slots; loading adopts it under filament_slots, contents intact.
-    hardware.write_text(json.dumps({"spool": {}, "ifs_slots": {"1": {"spoolman_id": 7}}}))
-    state = printer_state.load()
-    assert state["filament_slots"]["1"]["spoolman_id"] == 7
-    assert "ifs_slots" not in state
-
-
-def test_hardware_record_with_both_slots_keys_keeps_the_current_one(hardware):
-    hardware.write_text(json.dumps({"spool": {},
-                                    "ifs_slots": {"1": {"spoolman_id": 7}},
-                                    "filament_slots": {"2": {"spoolman_id": 9}}}))
-    state = printer_state.load()
-    assert set(state["filament_slots"]) == {"2"}
-    assert "ifs_slots" not in state
 
 
 def test_check_names_the_printer_in_its_facts():
@@ -282,15 +278,31 @@ def test_check_names_the_printer_in_its_facts():
 
 # ---------------------------------------------------------------- maintenance
 
-def test_maintenance_record_is_per_printer_with_legacy_adoption(tmp_path, monkeypatch):
-    monkeypatch.setattr(maintenance, "PROFILE_STATE", tmp_path / "maintenance.json")
-    monkeypatch.setattr(maintenance._config, "state_dir", lambda: tmp_path)
-    (tmp_path / "maintenance.json").write_text(json.dumps({"runs": [{"kind": "quick"}]}))
-    assert maintenance.load(printer_id=DEFAULT_ID)["runs"] == [{"kind": "quick"}]  # adopted
-    assert maintenance.load(printer_id="printer-b") == {"runs": []}
+def test_maintenance_record_is_per_printer_for_every_printer(tmp_path, monkeypatch):
+    monkeypatch.delenv("PRINTER_MAINTENANCE_STATE", raising=False)
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
     maintenance.save({"runs": [{"kind": "full"}]}, printer_id="printer-b")
     assert (tmp_path / "printers" / "printer-b" / "maintenance.json").is_file()
-    assert maintenance.load()["runs"] == [{"kind": "quick"}]  # the un-keyed path is unchanged
+    assert maintenance.load(printer_id=DEFAULT_ID) == {"runs": []}
+    maintenance.save({"runs": [{"kind": "quick"}]})  # unnamed: the default printer's own file
+    assert (tmp_path / "printers" / DEFAULT_ID / "maintenance.json").is_file()
+    assert maintenance.load(printer_id=DEFAULT_ID)["runs"] == [{"kind": "quick"}]
+
+
+def test_a_root_maintenance_record_is_refused_with_the_move(tmp_path, monkeypatch):
+    # #1817: reading the default printer's missing file as empty would reset
+    # its maintenance hours while the real record sits unread at the root.
+    monkeypatch.delenv("PRINTER_MAINTENANCE_STATE", raising=False)
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
+    root = tmp_path / "maintenance.json"
+    root.write_text(json.dumps({"runs": [{"kind": "quick"}]}))
+    target = tmp_path / "printers" / DEFAULT_ID / "maintenance.json"
+    with pytest.raises(RuntimeError, match=f"mv {root} {target}"):
+        maintenance.load()
+    assert maintenance.load(printer_id="printer-b") == {"runs": []}
+    target.parent.mkdir(parents=True)
+    root.rename(target)
+    assert maintenance.load()["runs"] == [{"kind": "quick"}]
 
 
 # ---------------------------------------------------------------- spool uniqueness
@@ -308,13 +320,14 @@ _MR = lambda method, path, body=None: {"result": "ok"}
 
 
 def test_the_same_spool_cannot_be_loaded_on_two_printers(tmp_path):
-    a_record = tmp_path / "printer_hardware.json"
+    a_record = tmp_path / "printers" / "printer-a" / "printer_hardware.json"
+    a_record.parent.mkdir(parents=True)
     a_record.write_text(json.dumps({"spool": {}, "filament_slots": {"1": {"spoolman_id": 7}}}))
     b_dir = tmp_path / "printers" / "printer-b"
     b_dir.mkdir(parents=True)
     b_record = b_dir / "printer_hardware.json"
     b_record.write_text(json.dumps({"spool": {}, "filament_slots": {}}))
-    with pytest.raises(spool_sync.SpoolError, match="already loaded on the default printer"):
+    with pytest.raises(spool_sync.SpoolError, match="already loaded on printer-a"):
         spool_sync.bind_slot(1, 7, client=_spool_client, mr=_MR, state_path=b_record,
                              push_screen_update=False)
     out = spool_sync.bind_slot(1, 9, client=_spool_client, mr=_MR, state_path=b_record,
@@ -402,39 +415,6 @@ def test_moonrakerctl_env_keeps_the_environment_without_a_printer_url(monkeypatc
 
 # ------------------------------------------- crash/concurrency integrity (audit P0)
 
-def test_legacy_adoption_is_consistent_while_a_writer_holds_the_wal(state_root, monkeypatch):
-    """Rows committed to the WAL (not yet checkpointed) must survive adoption."""
-    import sqlite3
-    legacy = state_root / "print_handy_launches.sqlite3"
-    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
-    launch_state.acquire(DEFAULT_ID, remote="wal-held.gcode")
-    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
-    holder = sqlite3.connect(legacy)  # keeps the WAL un-checkpointed on disk
-    try:
-        holder.execute("PRAGMA wal_autocheckpoint=0")
-        holder.execute("SELECT count(*) FROM leases").fetchall()
-        path = launch_state.db_path(DEFAULT_ID)
-    finally:
-        holder.close()
-    assert not list(path.parent.glob("jobs.db.adopting*"))
-    [row] = launch_state.pending(DEFAULT_ID)
-    assert row["remote"] == "wal-held.gcode"
-
-
-def test_interrupted_adoption_leftovers_do_not_poison_the_retry(state_root, monkeypatch):
-    legacy = state_root / "print_handy_launches.sqlite3"
-    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
-    launch_state.acquire(DEFAULT_ID, remote="held.gcode")
-    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
-    target = state_root / "printers" / DEFAULT_ID / "jobs.db"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    (target.parent / "jobs.db.adopting").write_bytes(b"garbage from a killed run")
-    (target.parent / "jobs.db.adopting-wal").write_bytes(b"junk")
-    assert launch_state.db_path(DEFAULT_ID) == target
-    [row] = launch_state.pending(DEFAULT_ID)
-    assert row["remote"] == "held.gcode"
-
-
 def test_hardware_save_uses_unique_temp_files_and_leaves_none_behind(state_root):
     import threading
     names = []
@@ -471,7 +451,7 @@ def _lock_worker(root, n):
     import json, sys
     from pathlib import Path
     from print_handy.core import printer_state as ps
-    ps.STATE = Path(root) / "printer_hardware.json"
+    ps.STATE_ROOT = root
     for _ in range(n):
         ps.update(lambda st: st.__setitem__("count", st.get("count", 0) + 1), "p1")
 
@@ -479,7 +459,8 @@ def _lock_worker(root, n):
 def test_concurrent_processes_do_not_lose_updates(tmp_path, monkeypatch):
     import multiprocessing as mp, json
     from print_handy.core import printer_state as ps
-    monkeypatch.setattr(ps, "STATE", tmp_path / "printer_hardware.json")
+    monkeypatch.setattr(ps, "STATE_ROOT", tmp_path)
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
     ps.save({"count": 0}, "p1")
     ctx = mp.get_context("fork")
     procs = [ctx.Process(target=_lock_worker, args=(str(tmp_path), 25)) for _ in range(4)]
@@ -492,7 +473,8 @@ def test_concurrent_processes_do_not_lose_updates(tmp_path, monkeypatch):
 def test_hardware_lock_is_reentrant_and_times_out(tmp_path, monkeypatch):
     import fcntl, os, pytest
     from print_handy.core import printer_state as ps
-    monkeypatch.setattr(ps, "STATE", tmp_path / "printer_hardware.json")
+    monkeypatch.setattr(ps, "STATE_ROOT", tmp_path)
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
     with ps.hardware_lock("p1"):
         with ps.hardware_lock("p1"):
             pass
@@ -507,47 +489,3 @@ def test_hardware_lock_is_reentrant_and_times_out(tmp_path, monkeypatch):
         os.close(fd)
 
 
-def _adopt_worker(root):
-    import os
-    from pathlib import Path
-    from print_handy import settings
-    from print_handy.core import launch_state
-    settings.state_dir = lambda data=None: Path(root)
-    return str(launch_state.db_path(DEFAULT_ID))
-
-
-def test_concurrent_legacy_adoption_is_serialized(tmp_path, monkeypatch):
-    import multiprocessing as mp
-    legacy = tmp_path / "print_handy_launches.sqlite3"
-    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
-    launch_state.acquire(DEFAULT_ID, remote="concurrent.gcode")
-    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
-    monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
-
-    ctx = mp.get_context("fork")
-    procs = [ctx.Process(target=_adopt_worker, args=(str(tmp_path),)) for _ in range(4)]
-    [p.start() for p in procs]
-    [p.join(30) for p in procs]
-    assert all(p.exitcode == 0 for p in procs)
-
-    path = launch_state.db_path(DEFAULT_ID)
-    assert path.exists()
-    assert not list(path.parent.glob("jobs.db.adopting*"))
-    [row] = launch_state.pending(DEFAULT_ID)
-    assert row["remote"] == "concurrent.gcode"
-
-
-def test_legacy_adoption_survives_uri_special_characters_in_path(tmp_path, monkeypatch):
-    special_dir = tmp_path / "home#printer?state"
-    special_dir.mkdir(parents=True)
-    legacy = special_dir / "print_handy_launches.sqlite3"
-    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
-    launch_state.acquire(DEFAULT_ID, remote="special-chars.gcode")
-    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
-    monkeypatch.setattr(settings, "state_dir", lambda data=None: special_dir)
-
-    path = launch_state.db_path(DEFAULT_ID)
-    assert path.exists()
-    assert not list(path.parent.glob("jobs.db.adopting*"))
-    [row] = launch_state.pending(DEFAULT_ID)
-    assert row["remote"] == "special-chars.gcode"

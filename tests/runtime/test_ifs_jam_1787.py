@@ -9,6 +9,7 @@ the paused state; both orders are pinned here, plus the "still jammed" case
 after a resume.
 """
 
+import os
 import json
 import tempfile
 import unittest
@@ -54,7 +55,7 @@ class JamListenerCase(unittest.IsolatedAsyncioTestCase):
         hardware.write_text(json.dumps({"active_slot": 3, "filament_slots": {
             "3": {"spoolman_id": 21, "material": "PLA+", "color": "black"}}}))
         patches = [
-            mock.patch.object(mel, "HARDWARE_STATE", hardware),
+            mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(hardware)}),
             mock.patch.object(mel.printers, "current", return_value=S(has_native_screen=True)),
             mock.patch.object(mel, "log"),
             mock.patch.object(mel, "run_announcer"),

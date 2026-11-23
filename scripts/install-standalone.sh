@@ -41,11 +41,11 @@ if [ ! -e "$DATA_HOME/.env" ]; then
 fi
 
 # Provision the default printer's hardware record when the install has none (P1-7):
-# every pipeline command reads state/printer_hardware.json, and a fresh install cannot
+# it lives at state/printers/<id>/printer_hardware.json. A fresh install cannot
 # create it by hand — `printer_state set` loads before it saves. Never overwrites an
 # existing record; record the real hardware afterwards with printer_state set.
 if [ "$DRY" = 1 ]; then
-    act "provision $DATA_HOME/state/printer_hardware.json if missing"
+    act "provision the default printer hardware record under $DATA_HOME/state/printers if missing"
 elif ! PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m print_handy.core.printer_state provision; then
     say "warning: could not provision the printer hardware record"
 fi

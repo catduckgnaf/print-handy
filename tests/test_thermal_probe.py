@@ -277,7 +277,7 @@ def test_proposals_drop_agreeing_facts_and_name_a_conflicting_model_value():
 
 
 def _seed(tmp_path, monkeypatch, printer_id="zero"):
-    monkeypatch.setattr(printer_state, "STATE", str(tmp_path / "printer_hardware.json"))
+    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(tmp_path / "printer_hardware.json"))
     record = {"printer": "Zero", "spool": {}, "filament_slots": {}}
     printer_state.save(record, printer_id)
     return printer_state.state_path(printer_id)

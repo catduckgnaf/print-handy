@@ -19,7 +19,7 @@ from unittest import mock
 import pytest
 
 from print_handy import printers, settings
-from print_handy.core import model_job
+from print_handy.core import model_job, start_truth
 from print_handy.runtime import family_control
 from print_handy.runtime import print_alert_buttons as pab
 
@@ -67,13 +67,13 @@ def _bambu(state, filename, target=0):
 
 
 # connection -> (a model of that family, its raw builder, the client read its status uses, the remote
-# name its print path uploads, the start matcher its print path polls with)
+# name its print path uploads, the start truth its print path polls with)
 FAMILIES = {
-    "octoprint": ("octoprint.ender3", _octoprint, "status", FILE, model_job._reports_started),
-    "prusalink": ("prusa.mk4s", _prusalink, "snapshot", FILE, model_job._reports_started),
-    "elegoo_sdcp": ("elegoo_sdcp.centauricarbon", _sdcp, "status", FILE, model_job._reports_started),
-    "flashforge_stock": ("flashforge_stock.ad5x", _flashforge_stock, "detail", FILE, model_job._reports_started),
-    "bambulab_lan": ("bambulab.a1", _bambu, "snapshot", BAMBU_PACKAGE, model_job._bambu_reports_file),
+    "octoprint": ("octoprint.ender3", _octoprint, "status", FILE, start_truth.octoprint),
+    "prusalink": ("prusa.mk4s", _prusalink, "snapshot", FILE, start_truth.polled),
+    "elegoo_sdcp": ("elegoo_sdcp.centauricarbon", _sdcp, "status", FILE, start_truth.polled),
+    "flashforge_stock": ("flashforge_stock.ad5x", _flashforge_stock, "detail", FILE, start_truth.polled),
+    "bambulab_lan": ("bambulab.a1", _bambu, "snapshot", BAMBU_PACKAGE, start_truth.bambu),
 }
 MOONRAKER_MODELS = ("klipper.generic", "flashforge.ad5x")  # stock Klipper and the AD5X on ZMod
 
@@ -97,10 +97,11 @@ class FakeLease:
 
 def _polled_verdict(connection, raw):
     """The outcome a polled family's print path reports for one status read."""
-    model, _build, _read, remote, reports = FAMILIES[connection]
+    model, _build, _read, remote, truth = FAMILIES[connection]
     adapter = _adapter(model)
+    # An empty (unreadable) baseline: only the read itself decides.
     poll = model_job._poll_start_confirmation(lambda: adapter.normalize_status(raw), remote, window_s=0,
-                                              reports=reports)
+                                              truth=lambda live, rem: truth(live, rem, {}))
     lease = FakeLease()
     with mock.patch.object(model_job, "release_start_announcement"):
         out = model_job._settle_polled_start(lease, poll, remote, method=connection)

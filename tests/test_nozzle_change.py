@@ -110,7 +110,7 @@ def test_finish_change_persists_via_printer_state(tmp_path, monkeypatch):
     state_file = tmp_path / "printer_hardware.json"
     import json
     state_file.write_text(json.dumps(_state()))
-    monkeypatch.setattr(printer_state, "STATE", str(state_file))
+    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(state_file))
     text = nc.finish_change({}, 0.8, "diamond", today="2026-10-28")
     saved = json.loads(state_file.read_text())
     assert saved["nozzle"] == {"diameter_mm": 0.8, "type": "diamond", "installed": "2026-10-28"}

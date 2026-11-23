@@ -110,3 +110,25 @@ def test_settings_refuses_the_old_spelling_with_the_new_name(tmp_path):
     path.write_text("printer:\n  ifs_slots: 2\n")
     with pytest.raises(settings.SettingsError, match=r"ifs_slots .*filament_slots"):
         settings.load(local=path, environ={})
+
+
+def test_load_adopts_a_pre_rename_slot_map_and_save_drops_the_old_key(tmp_path, monkeypatch):
+    """A record the doctor moved still names the map ifs_slots; load keeps the slots."""
+    import json
+
+    from print_handy.core import printer_state
+
+    monkeypatch.setattr(printer_state, "STATE_ROOT", str(tmp_path))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    record = tmp_path / "printers" / "bench" / "printer_hardware.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({
+        "ifs_slots": {"1": {"spoolman_id": 7, "material": "PLA", "hex": "161616"}},
+    }))
+    loaded = printer_state.load("bench")
+    assert "ifs_slots" not in loaded
+    assert loaded["filament_slots"]["1"]["spoolman_id"] == 7
+    printer_state.save(loaded, "bench")
+    saved = json.loads(record.read_text())
+    assert "ifs_slots" not in saved
+    assert saved["filament_slots"]["1"]["spoolman_id"] == 7

@@ -47,7 +47,7 @@ def _record(tmp_path, record):
         target = state.parent / "printers" / PRINTER / "printer_hardware.json"
         target.parent.mkdir(parents=True)
         target.write_text(json.dumps(record))
-    return mock.patch.object(printer_state, "STATE", str(state))
+    return mock.patch.object(printer_state, "STATE_ROOT", str(state.parent))
 
 
 @pytest.mark.parametrize("model", ["flashforge.ad5x", "flashforge_stock.ad5x"])

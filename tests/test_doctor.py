@@ -53,7 +53,7 @@ class CheckLoggingTests(unittest.TestCase):
 
 
 class DoctorTests(unittest.TestCase):
-    def run_doctor(self, local_toml="", hardware=None):
+    def run_doctor(self, local_toml="", hardware=None, root_files=None):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "local.toml"
             path.write_text('[discord]\nchat_id = "123"\n' + local_toml)
@@ -61,7 +61,13 @@ class DoctorTests(unittest.TestCase):
         state = settings.state_dir(data)
         state.mkdir(parents=True, exist_ok=True)
         if hardware is not False:
-            (state / "printer_hardware.json").write_text(json.dumps(hardware or HARDWARE))
+            record = state / "printers" / settings.default_printer_id(data) / "printer_hardware.json"
+            record.parent.mkdir(parents=True, exist_ok=True)
+            record.write_text(json.dumps(hardware or HARDWARE))
+        for name, text in (root_files or {}).items():
+            (state / name).write_text(text)
+        self.state = state
+        self.default_dir = state / "printers" / settings.default_printer_id(data)
         out = io.StringIO()
         with mock.patch.dict("os.environ", {"DISCORD_BOT_TOKEN": "token-present"}), \
                 mock.patch.object(doctor, "check_discord_login", return_value="logged in as test bot"), \
@@ -167,6 +173,29 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("FAIL  hardware record:", text)
         self.assertIn("printer_hardware.json is missing", text)
+
+    def test_a_root_maintenance_record_without_a_per_printer_copy_fails_with_the_move(self):
+        # #1817: the pre-2.4 root file is no longer read, so the default printer
+        # would start with no maintenance history; the doctor names the move.
+        code, text = self.run_doctor(root_files={"maintenance.json": '{"runs": []}'})
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL  state layout:", text)
+        self.assertIn(f"mv {self.state / 'maintenance.json'} {self.default_dir / 'maintenance.json'}", text)
+
+    def test_a_root_hardware_record_beside_the_per_printer_one_is_a_stale_warning(self):
+        code, text = self.run_doctor(root_files={"printer_hardware.json": "{}"})
+        self.assertIn("ok    state layout: per-printer layout", text)
+        self.assertIn("WARN  pre-2.4 state files: stale (the per-printer copy is the live one; compare, then remove)", text)
+        self.assertIn(str(self.state / "printer_hardware.json"), text)
+        self.assertNotIn("FAIL  state layout", text)
+
+    def test_a_root_hardware_record_alone_fails_both_rows_with_the_move(self):
+        code, text = self.run_doctor(hardware=False, root_files={"printer_hardware.json": json.dumps(HARDWARE)})
+        self.assertEqual(code, 1)
+        move = f"mv {self.state / 'printer_hardware.json'} {self.default_dir / 'printer_hardware.json'}"
+        self.assertIn("FAIL  state layout:", text)
+        self.assertIn("FAIL  hardware record:", text)
+        self.assertEqual(text.count(move), 2)
 
     def test_hardware_record_nozzle_must_match_settings(self):
         code, text = self.run_doctor(hardware={**HARDWARE, "nozzle": {"diameter_mm": 0.6}})

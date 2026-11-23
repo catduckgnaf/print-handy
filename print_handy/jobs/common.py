@@ -10,7 +10,6 @@ from .. import moonraker, settings
 
 
 PROFILE = settings.current()["paths"]["state_home"]
-STATE = settings.state_dir()/"printer_hardware.json"
 ARCHIVE = settings.current()["paths"]["archive"]
 MOONRAKERCTL = settings.ROOT/"bin"/"moonrakerctl"
 

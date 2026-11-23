@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Installed nozzle + loaded spool: single source of truth and live cross-check.
 
-State file: <state_dir>/printers/<printer_id>/printer_hardware.json (#334, design §2.4);
-with no printer named, the legacy root-level <state_dir>/printer_hardware.json, exactly as
-before. A printer whose per-printer file does not exist yet reads the legacy file (the
-default printer only — it was the singleton's record); new writes go to the per-printer
-location and the legacy file is left in place for one release.
+State file: <state_dir>/printers/<printer_id>/printer_hardware.json (#334, design §2.4) for
+every printer; with no printer named, the default printer's. The pre-2.4 root-level
+<state_dir>/printer_hardware.json is no longer read: a default printer whose record is still
+only there is refused with the move that fixes it (print_handy.state_layout, #1817).
 Live checks: Klipper (via Moonraker) nozzle_diameter + probe z_offset, Moonraker
 active Spoolman spool, Spoolman spool record.
 
@@ -31,7 +30,13 @@ from . import filament_color, spoolman_client
 from .gcode_lines import Anchor
 from ..gcode import tool_map
 
-STATE = str(settings.state_dir() / "printer_hardware.json")
+# The state folder hardware records live under. None (production) resolves
+# <state_home>/state through runtime._config, the same root every runtime
+# state file uses; tests point it at a temp folder.
+STATE_ROOT = None
+# An explicit hardware-record file that wins for every printer (an operator and
+# test seam, as it always was for the runtime readers).
+HARDWARE_ENV = "PRINTER_HARDWARE_STATE"
 
 
 _FAMILY_BASES = ("PETG", "PCTG", "PLA", "ABS", "ASA", "TPU", "PA", "PC")
@@ -368,35 +373,17 @@ def resolve_material_temperatures(material, filament, config=None):
     return family, result, sources
 
 
-def _is_seeded_default(material, stored):
-    """True when stored temps equal the unadjusted family default for material while its
-    variant adjustment would change them: a seeded value, not explicit legacy temperatures."""
-    try:
-        family, targets, _ = resolve_material_temperatures(material, {})
-        base = resolve_material_temperatures(family, {})[1]
-    except (ValueError, RuntimeError):
-        return False
-    same = all(int(stored.get(k) or -1) == int(base[k]) for k in ("nozzle", "bed"))
-    return same and (targets["nozzle"], targets["bed"]) != (base["nozzle"], base["bed"])
-
-
 def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True):
     """Nozzle/bed targets for slicing the job's selected spool, resolved from that spool.
 
     The stored temps_c is a printer-wide record: `set --spool` writes it, but slot
     selection, active-spool sync and Spoolman slot sync change the spool without it.
-    It is used when its temperature_resolution names this exact spool and material, or
-    when the record has no resolution at all (explicit legacy temperatures, kept as
-    _material_temperature_contract always has; the spool-sync paths mark the record
-    stale instead of leaving it bare), an exact-match resolution is honored whether
-    or not the caller prefetched the spool's filament (P2-273), or when the resolution is a legacy one that
-    names only this spool's material family: records written before resolutions
-    carried material/spoolman_id hold temperatures recorded for the spool (often its
-    Spoolman filament's explicit values), so they are preserved and the resolution is
-    migrated to the current shape (P2-276) instead of silently re-slicing at family
-    defaults. A resolution for another spool or another family is resolved again from
-    the material defaults, the variant adjustment (#512) and the spool's Spoolman
-    temperatures. ``filament`` is
+    It is used only when its temperature_resolution names this exact spool and
+    material, whether or not the caller prefetched the spool's filament (P2-273).
+    Every other record (a resolution for another spool or material, the
+    "resolved per slice" markers that seeding and spool sync write, or no
+    resolution at all) is resolved again from the material defaults, the
+    variant adjustment (#512) and the spool's Spoolman temperatures. ``filament`` is
     the spool's Spoolman filament when the caller already has it; ``fetch_filament`` is
     called for it only when needed (Spoolman is advisory: None means defaults).
     ``stored_ok=False`` always resolves (a slot spool other than the active one).
@@ -409,18 +396,6 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         if stored:
             return dict(stored), resolution  # _material_temperature_contract reports the missing material
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
-    # A legacy resolution (written before #697) names the material family and the
-    # per-key sources, never the material or spool: it attests the stored temps for
-    # any spool of that family, the compatibility _material_temperature_contract
-    # has always granted it. The spool-change markers name no family at all, so
-    # they are never legacy and still resolve afresh.
-    legacy = False
-    if isinstance(resolution, dict) and resolution.get("material_family") \
-            and "material" not in resolution and "spoolman_id" not in resolution:
-        try:
-            legacy = resolution.get("material_family") == material_family(material)
-        except Exception:
-            legacy = False
     if stored_ok and stored and isinstance(resolution, dict) \
             and resolution.get("material") == material \
             and resolution.get("spoolman_id") == spool.get("spoolman_id"):
@@ -431,20 +406,6 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         # filament=None and honors them; slicing used to bypass them
         # whenever orca_adapter prefetched the filament, and verification
         # then refused the G-code slicing had produced.
-        return dict(stored), resolution
-    if filament is None and stored_ok and stored and (not resolution or legacy) \
-            and _is_seeded_default(material, stored):
-        # A bare or legacy record holding exactly the family default (what seeding writes:
-        # 210/60 for every PLA) is not an operator choice; Silk PLA sliced at 210 °C on
-        # 2026-10-31 (#64).
-        stored_ok = False
-    if filament is None and stored_ok and stored and (not resolution or legacy or (
-            resolution.get("material") == material and resolution.get("spoolman_id") == spool.get("spoolman_id"))):
-        if legacy:
-            # Migrate in the returned resolution: the stored temperatures are now
-            # attested for this exact spool, so later reads take the exact-match path.
-            return dict(stored), {**resolution, "material": material,
-                                  "spoolman_id": spool.get("spoolman_id")}
         return dict(stored), resolution
     if filament is None and fetch_filament is not None and spool.get("spoolman_id") is not None:
         try:
@@ -763,7 +724,7 @@ def with_artifact_spool(state, text, lines=None, slot=None):
 
 
 def _material_temperature_contract(state):
-    """Validate selected material temperatures and retain compatibility with old state files."""
+    """Validate that the selected material is known and matches the temperatures' resolution."""
     material = (state.get("spool") or {}).get("material")
     if not material:
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
@@ -772,11 +733,11 @@ def _material_temperature_contract(state):
         if resolution["material_family"] != material_family(material):
             raise RuntimeError("stored temperature material does not match selected spool")
         return
-    # A resolution without material_family is the "resolved per slice" marker that slot sync
-    # and launch sync write; it names no material, so it cannot mismatch one. Fall through to
-    # the recognised-material check instead of refusing every slice (2.2.3, Discord 2026-10-31).
-    # Existing explicitly selected runtime temperatures remain valid for legacy state.
-    # This only validates material recognition; it never substitutes PLA for another family.
+    # A resolution without material_family is the "resolved per slice" marker that seeding,
+    # slot sync and launch sync write; it names no material, so it cannot mismatch one. Fall
+    # through to the recognised-material check instead of refusing every slice (2.2.3, Discord
+    # 2026-10-31). This only validates material recognition; it never substitutes PLA for
+    # another family.
     family = material_family(material)
     aliases = {"FLEXIBLE": "TPU", "NYLON": "PA", "POLYAMIDE": "PA"}
     family = aliases.get(family, family)
@@ -785,49 +746,59 @@ def _material_temperature_contract(state):
         raise RuntimeError(f"Unsupported filament material {material!r}; no PLA fallback is allowed")
 
 
-def state_path(printer_id=None):
+def _settings(data=None):
+    if data is not None:
+        return data
+    from ..runtime import _config
+    return _config.cfg()
+
+
+def state_root(data=None):
+    """The state folder: STATE_ROOT when set, else <state_home>/state (of ``data``, or this process)."""
+    if STATE_ROOT is not None:
+        return Path(STATE_ROOT)
+    return settings.state_dir(_settings(data))
+
+
+def default_printer_id(data=None):
+    """The roster's default printer, resolved through the same settings as state_root()."""
+    return settings.default_printer_id(_settings(data))
+
+
+def state_path(printer_id=None, *, data=None):
     """The hardware record for one printer: <state>/printers/<id>/printer_hardware.json.
 
-    Derived from STATE's folder (the module's one state seam, which tests
-    patch) rather than from settings, so the per-printer layout follows the
-    same root the legacy record lives in. No printer named: the legacy path.
+    The one resolver for every reader and writer (printer_state, spool_sync,
+    the listener, the doctor). No printer named: the default printer. The
+    $PRINTER_HARDWARE_STATE override, when set, wins for every printer.
+    ``data`` resolves against one settings dict (the doctor's) instead of
+    this process's.
     """
-    if printer_id is None:
-        # Once the default printer has its own record, the legacy file is a
-        # stale copy: an unnamed write landing there would never be read
-        # back (a /spool bind the slicer could not see).
-        try:
-            default_id = settings.default_printer_id()
-        except Exception:
-            default_id = None
-        if default_id:
-            own = Path(STATE).parent / "printers" / default_id / "printer_hardware.json"
-            if own.is_file():
-                return own
-        return Path(STATE)
-    return Path(STATE).parent / "printers" / printer_id / "printer_hardware.json"
+    override = os.environ.get(HARDWARE_ENV)
+    if override:
+        return Path(override)
+    return state_root(data) / "printers" / str(printer_id or default_printer_id(data)) / "printer_hardware.json"
 
 
-def _read_path(printer_id=None):
-    """Where a load reads: the per-printer file, or the legacy file it adopts.
+def refuse_stranded_record(path, *, data=None):
+    """Raise when ``path`` is missing because the record is still at the pre-2.4 root (#1817).
 
-    Adoption is read-only and belongs to the default printer alone: a second
-    printer must never inherit the singleton's loaded spool and nozzle.
+    Without this a load would fail as a plain missing file, or a caller that
+    seeds on a missing record would start the printer empty while the real
+    record (loaded spools, nozzle, z-offset) sits unread at the root.
     """
-    target = state_path(printer_id)
-    if printer_id is None or target.exists():
-        return target
-    try:
-        default_id = settings.default_printer_id()
-    except Exception:
-        default_id = None
-    if printer_id == default_id and Path(STATE).is_file():
-        return Path(STATE)
-    return target
+    from .. import state_layout
+    if os.environ.get(HARDWARE_ENV) or Path(path).exists() or Path(path) != state_path(data=data):
+        return
+    message = state_layout.stranded_error(state_root(data), default_printer_id(data), "printer_hardware.json")
+    if message:
+        raise state_layout.StrandedStateError(message)
 
 
 def load(printer_id=None):
-    with open(_read_path(printer_id)) as f:
+    path = state_path(printer_id)
+    refuse_stranded_record(path)
+    with open(path) as f:
         state = json.load(f)
     # A loaded slot with no color code gets one derived from its name (or a
     # neutral default it says out loud), never overwriting a valid hex. The
@@ -964,6 +935,7 @@ def seed_hardware_record(printer_id, view=None):
     """
     if state_path(printer_id).exists():
         return False
+    refuse_stranded_record(state_path(printer_id))
     view = view if view is not None else settings.view_for(printer_id)
     save(_seed_record(view, printer_id), printer_id)
     return True
@@ -981,6 +953,7 @@ def _seed_record(view, printer_id):
         "nozzle": {"diameter_mm": float(printer["nozzle_diameter_mm"]), "type": _seed_nozzle_type(printer, view),
                    "installed": datetime.date.today().isoformat()},
         "temps_c": {"nozzle": pla["nozzle"], "bed": pla["bed"]},
+        "temperature_resolution": {"source": "seed; resolved per slice"},
         "spool": {},
         "filament_slots": {},
     }
@@ -993,17 +966,14 @@ def provision_default_record(view=None):
     including ``printer_state set``, which loads before it saves — failed on
     the missing file, so the mandatory state could only appear by
     hand-writing JSON. The seed is the same minimal record guided onboarding
-    writes for a newly added printer (#537), placed at the legacy singleton
-    path the default printer's per-printer reads adopt. An existing record,
-    legacy or per-printer, is never overwritten. Returns True when a record
-    was created.
+    writes for a newly added printer (#537), written to the default printer's
+    own <state>/printers/<id>/printer_hardware.json. An existing record is
+    never overwritten, and a record still at the pre-2.4 root is refused with
+    the move that fixes it rather than shadowed by an empty seed. Returns
+    True when a record was created.
     """
-    default_id = settings.default_printer_id()
-    if state_path().exists() or state_path(default_id).exists():
-        return False
-    view = view if view is not None else settings.view_for(default_id)
-    save(_seed_record(view, default_id))
-    return True
+    default_id = default_printer_id()
+    return seed_hardware_record(default_id, view)
 
 
 def _get(url, data=None, method=None, timeout=6):
@@ -1146,17 +1116,15 @@ def offset_authority_problems(st, variables, native):
 
 
 def spoolman_url(st=None, printer_id=None):
-    """The Spoolman base URL to use: configured settings win over the hardware record.
+    """The Spoolman base URL settings name, or "" when they name none.
 
     `services.spoolman_url` in settings (which includes the
     PRINT_HANDY__SERVICES__SPOOLMAN_URL and legacy SPOOLMAN_URL environment
     variables) is the operator's current configuration. With a printer_id,
     that printer's roster view is read instead, so an entry's own
-    spoolman_url (an outside Spoolman, #1536) wins for that printer. The
-    copy cached in printer_hardware.json can go stale during migrations —
-    it kept pointing at a decommissioned host while the bundled Spoolman
-    lived on 127.0.0.1:8000 (#235) — so it is only a fallback for when
-    settings do not name a URL.
+    spoolman_url (an outside Spoolman, #1536) wins for that printer. A
+    ``spoolman_url`` left in an old hardware record is never read: it once
+    kept pointing at a decommissioned host (#235). ``st`` is not read.
     """
     try:
         data = settings.current()
@@ -1165,9 +1133,8 @@ def spoolman_url(st=None, printer_id=None):
         configured = (data.get("services") or {}).get("spoolman_url")
     except Exception:
         configured = None
-    for candidate in (configured, (st or {}).get("spoolman_url")):
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip().rstrip("/")
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip().rstrip("/")
     return ""
 
 
@@ -1463,7 +1430,7 @@ def summary(st, calibration_owner="unknown", calibration_valid=None):
     resolution = st.get("temperature_resolution") or {}
     spool = st.get("spool") or {}
     material = spool.get("material", "unknown")
-    source = resolution.get("source", "explicit/legacy state")
+    source = resolution.get("source", "resolved per slice")
     temp_summary = f"{material} nozzle {st['temps_c']['nozzle']}°C, bed {st['temps_c']['bed']}°C ({source})"
     # A freshly provisioned record names no spool yet (P1-7): the summary
     # says so instead of crashing on the absent spool fields.

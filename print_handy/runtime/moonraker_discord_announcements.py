@@ -469,7 +469,10 @@ def load_state():
 # printer (#536): one state root serves every roster printer's announcer,
 # and a single shared slot let one printer's completion overwrite — or be
 # cleared by — another's. The pre-#536 single slots are adopted on read as
-# the serving printer's: in a one-printer install they always were.
+# the serving printer's: in a one-printer install they always were. A value
+# already stored for this printer in the plural bucket wins over that
+# leftover. The next write moves the slot into the plural bucket and drops
+# the singular key.
 
 
 def _pending_printer_key():
@@ -490,45 +493,51 @@ def _pending_printer_key():
     return "default"
 
 
-def _pending_get(state, plural, singular):
+def _pending_singular(plural):
+    """The pre-#536 field: the plural name without its trailing s."""
+    return plural[:-1] if plural.endswith("s") else plural
+
+
+def _pending_get(state, plural):
     bucket = state.get(plural)
     if isinstance(bucket, dict):
         value = bucket.get(_pending_printer_key())
         if value:
             return value
-    return state.get(singular)
+    return state.get(_pending_singular(plural))
 
 
-def _pending_set(state, plural, singular, value):
+def _pending_set(state, plural, value):
     bucket = state.get(plural)
     if not isinstance(bucket, dict):
         bucket = {}
         state[plural] = bucket
     bucket[_pending_printer_key()] = value
-    state.pop(singular, None)
+    state.pop(_pending_singular(plural), None)
 
 
-def _pending_clear(state, plural, singular, value=None):
+def _pending_clear(state, plural, value=None):
     bucket = state.get(plural)
     if isinstance(bucket, dict):
         key = _pending_printer_key()
         if key in bucket and (value is None or bucket[key] == value):
             bucket.pop(key, None)
+    singular = _pending_singular(plural)
     if state.get(singular) is not None and (value is None or state.get(singular) == value):
         state.pop(singular, None)
 
 
 def pending_completion_message(state):
     """This printer's pending completion message, or None."""
-    return _pending_get(state, "pending_completion_messages", "pending_completion_message")
+    return _pending_get(state, "pending_completion_messages")
 
 
 def set_pending_completion_message(state, message):
-    _pending_set(state, "pending_completion_messages", "pending_completion_message", message)
+    _pending_set(state, "pending_completion_messages", message)
 
 
 def clear_pending_completion_message(state, message=None):
-    _pending_clear(state, "pending_completion_messages", "pending_completion_message", message)
+    _pending_clear(state, "pending_completion_messages", message)
 
 
 def pending_roast_subject(state, message=None):
@@ -540,7 +549,7 @@ def pending_roast_subject(state, message=None):
     timelapse; that older thread must get no roast rather than the newer
     print's.
     """
-    value = _pending_get(state, "pending_roast_subjects", "pending_roast_subject")
+    value = _pending_get(state, "pending_roast_subjects")
     if not isinstance(value, dict):
         return "", ""
     if message is not None and value.get("message") and value.get("message") != message:
@@ -549,7 +558,7 @@ def pending_roast_subject(state, message=None):
 
 
 def set_pending_roast_subject(state, title, summary="", message="", facts=None, key=""):
-    _pending_set(state, "pending_roast_subjects", "pending_roast_subject",
+    _pending_set(state, "pending_roast_subjects",
                  {"title": str(title or ""), "summary": str(summary or ""),
                   "message": str(message or ""),
                   "facts": dict(facts or {}), "key": str(key or "")})
@@ -561,7 +570,7 @@ def pending_roast_facts(state, message=None):
     Same exact-message guard as pending_roast_subject: an older delivery
     never gets the newer print's facts.
     """
-    value = _pending_get(state, "pending_roast_subjects", "pending_roast_subject")
+    value = _pending_get(state, "pending_roast_subjects")
     if not isinstance(value, dict):
         return {}, None
     if message is not None and value.get("message") and value.get("message") != message:
@@ -651,20 +660,20 @@ def roast_facts(job, plate, stats=None, now=None):
 
 
 def clear_pending_roast_subject(state):
-    _pending_clear(state, "pending_roast_subjects", "pending_roast_subject")
+    _pending_clear(state, "pending_roast_subjects")
 
 
 def pending_timelapse_job_key(state):
     """This printer's pending timelapse job key, or None."""
-    return _pending_get(state, "pending_timelapse_job_keys", "pending_timelapse_job_key")
+    return _pending_get(state, "pending_timelapse_job_keys")
 
 
 def set_pending_timelapse_job_key(state, job_key):
-    _pending_set(state, "pending_timelapse_job_keys", "pending_timelapse_job_key", job_key)
+    _pending_set(state, "pending_timelapse_job_keys", job_key)
 
 
 def clear_pending_timelapse_job_key(state, job_key=None):
-    _pending_clear(state, "pending_timelapse_job_keys", "pending_timelapse_job_key", job_key)
+    _pending_clear(state, "pending_timelapse_job_keys", job_key)
 
 
 def pending_timelapse_routing(state):
@@ -675,7 +684,7 @@ def pending_timelapse_routing(state):
     restart retry replays the original flow (P2-146). (None, None) when
     nothing was recorded — a plain single-plate completion.
     """
-    raw = _pending_get(state, "pending_timelapse_routings", "pending_timelapse_routing")
+    raw = _pending_get(state, "pending_timelapse_routings")
     if not isinstance(raw, dict):
         return None, None
     plan_id = raw.get("plan_id") or None
@@ -692,11 +701,11 @@ def pending_timelapse_routing(state):
 def set_pending_timelapse_routing(state, plan_id, tl_plan):
     value = {"plan_id": plan_id or None,
              "tl_plan": [tl_plan[0], tl_plan[1], tl_plan[2]] if tl_plan else None}
-    _pending_set(state, "pending_timelapse_routings", "pending_timelapse_routing", value)
+    _pending_set(state, "pending_timelapse_routings", value)
 
 
 def clear_pending_timelapse_routing(state):
-    _pending_clear(state, "pending_timelapse_routings", "pending_timelapse_routing")
+    _pending_clear(state, "pending_timelapse_routings")
 
 
 HISTORY_STATE = {"completed": "complete", "cancelled": "cancelled"}
@@ -1111,10 +1120,10 @@ def main():
         set_pending_completion_message(previous, message)
         # Bind the roast subject to this exact completion text, so an older
         # delivery thread cannot pick up a newer print's subject.
-        roast_value = _pending_get(previous, "pending_roast_subjects", "pending_roast_subject")
+        roast_value = _pending_get(previous, "pending_roast_subjects")
         if isinstance(roast_value, dict):
             roast_value["message"] = message
-            _pending_set(previous, "pending_roast_subjects", "pending_roast_subject", roast_value)
+            _pending_set(previous, "pending_roast_subjects", roast_value)
 
     # A cancel or error also finalizes the print record, without an announcement
     # or session cleanup, so every started print ends with a dated outcome.

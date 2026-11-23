@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from print_handy import settings
-from print_handy.core import model_job, printer_state
+from print_handy.core import model_job
 from print_handy.runtime import _config
 
 from .helpers import FIXTURES, MOONRAKER_TIMEOUT_S, SCALE, hardware_record, recorded, reported_name
@@ -254,7 +254,7 @@ def ad5x(moonraker, tmp_path, monkeypatch):
     """The recorded AD5X behind the fake Moonraker, with Print Handy configured to talk to it."""
     record = tmp_path / "printer_hardware.json"
     record.write_text(json.dumps(hardware_record(moonraker.url)))
-    monkeypatch.setattr(printer_state, "STATE", str(record))
+    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(record))
     moonraker.record_path = record
     data = copy.deepcopy(settings.current())
     # Whatever an earlier test left installed, nothing here may write the host's profile or records.

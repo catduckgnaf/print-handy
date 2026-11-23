@@ -533,7 +533,7 @@ def test_file_plus_question_answers_after_intake(edit_env, monkeypatch):
         return {"action": "skip", "reason": "intake done"}
 
     monkeypatch.setattr(pi, "prepare_link", fake_intake)
-    monkeypatch.setattr(pi, "model_file", lambda event: "/tmp/x.3mf" if getattr(event, "media_urls", None) else None)
+    monkeypatch.setattr(pi, "model_files", lambda event: ["/tmp/x.3mf"] if getattr(event, "media_urls", None) else [])
     monkeypatch.setattr(plugin, "_routed_printer_id", lambda s, g: None)
     monkeypatch.setattr(plugin, "_undecided_printer_ids", lambda s, g: [])
     from print_handy.core import printer_state
@@ -745,3 +745,16 @@ def test_the_geometry_turn_is_acknowledged_before_the_model_runs(geometry_env):
     ack = sent.index(plugin.DESIGN_WORKING_NOTE)
     turn = next(i for i, c in enumerate(sent) if "**Design turn 1**" in (c or ""))
     assert ack < turn
+
+
+def test_multiple_new_model_uploads_are_not_edits_of_previous_job(edit_env, monkeypatch):
+    """A multi-file drop belongs to collection/intake, even when it also says edit."""
+    from print_handy.core import prepared_intake
+    monkeypatch.setattr(prepared_intake, "model_files",
+                        lambda _event: [edit_env.folder / "part-a.stl",
+                                        edit_env.folder / "part-b.stl"])
+    before = edit_env.job_path.read_bytes()
+    outcome = run(plugin.edit_dispatch(_event("make it 5 mm taller"), edit_env.gateway))
+    assert outcome is None
+    assert edit_env.job_path.read_bytes() == before
+    assert not edit_env.probes and not edit_env.reentered

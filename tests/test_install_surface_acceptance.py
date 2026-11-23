@@ -198,7 +198,9 @@ class StandaloneSandboxRunTests(unittest.TestCase):
             env_file = data / ".env"
             self.assertIn("DISCORD_BOT_TOKEN=", env_file.read_text())
             self.assertEqual(stat.S_IMODE(env_file.stat().st_mode), 0o600)
-            self.assertTrue((data / "state" / "printer_hardware.json").is_file())
+            from print_handy import settings
+            record = data / "state" / "printers" / settings.default_printer_id() / "printer_hardware.json"
+            self.assertTrue(record.is_file())
             self.assertTrue((data / "logs").is_dir())
             # The last lines name the check entry the docs promise.
             self.assertIn("-m print_handy.bot check", result.stdout)

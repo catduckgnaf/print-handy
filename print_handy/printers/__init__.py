@@ -19,14 +19,6 @@ from dataclasses import replace
 
 from .base import MultiColorUnsupported, PrinterAdapter, PrinterModel, VendorProfile
 
-# Legacy-job provenance only — NOT an install default. Jobs written before the
-# model was recorded were sliced for the AD5X (the only printer supported then),
-# so a job that records no model reads as an AD5X job. The default model for an
-# install that names none lives in the shipped config trees (config/home.yaml,
-# config/docker.yaml); see #649.
-LEGACY_JOB_MODEL = "flashforge.ad5x"
-
-
 # Other spellings of a vendor key that config may use. "bambu" reads as "bambulab".
 VENDOR_ALIASES = {"bambu": "bambulab", "bambu_lab": "bambulab", "bambulabs": "bambulab"}
 
@@ -274,16 +266,20 @@ class JobModelMismatch(RuntimeError):
     """A job was prepared for a different printer model than the one configured."""
 
 
-# JOB.json written by 2.0.2 and 2.0.3 records printer_family instead of printer_model.
-LEGACY_FAMILY = {"flashforge_zmod": "flashforge.ad5x", "sovol_klipper": "sovol.sv06",
-                 "generic_klipper": "klipper.generic"}
+NO_JOB_MODEL = "this job records no printer model; prepare it again"
 
 
 def job_model(job):
-    """Model a JOB.json was prepared for. Jobs older than either field are flashforge.ad5x."""
-    if not isinstance(job, dict):
-        return LEGACY_JOB_MODEL
-    return job.get("printer_model") or LEGACY_FAMILY.get(job.get("printer_family")) or LEGACY_JOB_MODEL
+    """Model a JOB.json was prepared for: its ``printer_model``.
+
+    A job that records none (written before the model was recorded, or by
+    2.0.2/2.0.3, which wrote ``printer_family``) raises JobModelMismatch
+    with NO_JOB_MODEL: it is never read as some default model.
+    """
+    model = job.get("printer_model") if isinstance(job, dict) else None
+    if not isinstance(model, str) or not model.strip():
+        raise JobModelMismatch(NO_JOB_MODEL)
+    return model
 
 
 def check_job_model(job, config=None):

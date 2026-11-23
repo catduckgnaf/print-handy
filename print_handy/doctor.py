@@ -17,8 +17,8 @@ import tempfile
 import urllib.request  # noqa: F401  (tests patch urllib.request.urlopen through this module)
 from pathlib import Path
 
-from . import diagnostics, moonraker, settings
-from .core import resources, spoolman_client
+from . import diagnostics, moonraker, settings, state_layout
+from .core import printer_state, resources, spoolman_client
 from .jobs import timing_report
 
 # Moonraker and Spoolman endpoints that answer without auth when the service is up.
@@ -84,8 +84,9 @@ REQUIRED_HARDWARE = (("spool", "material", str), ("spool", "density", (int, floa
 
 
 def check_hardware(data):
-    """The printer hardware record the pipeline reads with no fallback. A fresh install has none."""
-    path = settings.state_dir(data) / "printer_hardware.json"
+    """The default printer's hardware record the pipeline reads with no fallback. A fresh install has none."""
+    path = printer_state.state_path(data=data)
+    printer_state.refuse_stranded_record(path, data=data)
     if not path.is_file():
         raise RuntimeError(f"{path} is missing; create it with "
                            "`python3 -m print_handy.core.printer_state provision`, then record the "
@@ -103,6 +104,30 @@ def check_hardware(data):
     if nozzle is None or float(nozzle) != data["printer"]["nozzle_diameter_mm"]:
         raise RuntimeError(f"recorded nozzle {nozzle} mm does not match settings {data['printer']['nozzle_diameter_mm']:g} mm")
     return f"{path.name}, {float(nozzle):g} mm nozzle"
+
+
+def check_state_layout(data):
+    """Pre-2.4 files at the state root (#1817): a stranded data file fails with the exact move.
+
+    Returns (detail, warning). A required file (hardware record, maintenance
+    record, launch database) still at the root with no per-printer copy
+    raises: nothing reads it, so the default printer would start empty. A
+    stranded queue or listener file is a warning with its move, and a root
+    file beside its per-printer copy is a stale leftover to compare, then remove.
+    """
+    entries = state_layout.for_settings(data)
+    stranded = [e for e in entries if e.required and not e.stale]
+    if stranded:
+        raise RuntimeError(state_layout.stranded_message(stranded))
+    notes = []
+    optional = [e for e in entries if not e.required and not e.stale]
+    if optional:
+        notes.append("not read since 2.4, move to keep: " + "; ".join(e.move_command() for e in optional))
+    stale = [e for e in entries if e.stale]
+    if stale:
+        notes.append("stale (the per-printer copy is the live one; compare, then remove): "
+                     + ", ".join(str(e.root) for e in stale))
+    return "per-printer layout", " | ".join(notes) or None
 
 
 def check_core(data):
@@ -499,6 +524,14 @@ def run(out=sys.stdout):
     report("printer model", check_model, data)
     report("orca templates", check_templates, data)
     report("core", check_core, data)
+    layout = report("state layout", lambda d: check_state_layout(d)[0], data)
+    if layout is not None:
+        try:
+            layout_warning = check_state_layout(data)[1]
+        except Exception as exc:  # the row above already reported a failure
+            layout_warning = f"could not check: {exc}"
+        if layout_warning:
+            print(f"WARN  pre-2.4 state files: {layout_warning}", file=out)
     report("hardware record", check_hardware, data)
     report("orca cli", check_orca, data)
     for key in SERVICE_PATHS:
