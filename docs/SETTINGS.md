@@ -629,7 +629,7 @@ The MakerWorld account token is not an environment variable. It is the file `~/.
 
 The Creality Cloud download token is likewise a file, not an environment variable: `~/.config/crealitycloud/token` (Docker: `/data/.config/crealitycloud/token`), needed only for Creality Cloud downloads; see [Creality Cloud login token](PROJECT-REFERENCE.md#creality-cloud-login-token). Thangs and Nexprint work the same way, with `~/.config/thangs/token` and `~/.config/nexprint/token` (Docker: under `/data/.config/`); see [Connecting a login-token site from chat](PROJECT-REFERENCE.md#connecting-a-login-token-site-from-chat).
 
-Direct file links (a public link straight at a `.stl` or `.3mf` file on any host, including a Dropbox share link) need no token and no setting; the fetch is guarded (public addresses only, the shared 200 MiB intake size limit) as described in [Direct file links](PROJECT-REFERENCE.md#direct-file-links).
+Direct file links (a public link straight at a `.stl` or `.3mf` file on any host, including a Dropbox share link) need no token and no setting; the fetch is guarded (public addresses only, no byte cap but the shared free-disk reserve) as described in [Direct file links](PROJECT-REFERENCE.md#direct-file-links).
 
 ## MQTT topics
 

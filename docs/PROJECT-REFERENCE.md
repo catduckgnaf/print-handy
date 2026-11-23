@@ -365,7 +365,7 @@ Because this is a fetch of an arbitrary URL from chat, it is guarded in ways the
 
 * `http`/`https` only, and links carrying a user name or password are refused.
 * The destination must be a public address. The host is resolved and checked before connecting, and every redirect target is checked again the same way before it is followed (at most 5 redirects); a link, or a redirect, to localhost, a private address or a link-local address is refused and nothing is downloaded.
-* The file name comes from the response's `Content-Disposition` header when it offers one, else from the final URL; the download streams under the same intake size limit as site downloads (200 MiB, see [intake resource limits](INTAKE-LIMITS.md)), counted as bytes arrive, and the partial file is removed when the limit trips.
+* The file name comes from the response's `Content-Disposition` header when it offers one, else from the final URL; the download streams with no byte cap, like site downloads, and stops (removing the partial file) only when the volume would drop below the 512 MiB free-disk reserve (see [intake resource limits](INTAKE-LIMITS.md)).
 * The saved bytes are checked before the normal source audit parses them: a response that is a web page (including HTML saved under a `.stl` name) and a non-archive file under a `.3mf` name are refused with that cause named, and the file is removed. From there the file follows the exact preparation path an upload follows.
 
 Failures are named in chat with the cause and the remedy: the host could not be reached or answered with an HTTP error, the link returned a web page instead of a file, the target was not a public address, the file was not a `.stl`/`.3mf`, or the download exceeded the intake size limit.

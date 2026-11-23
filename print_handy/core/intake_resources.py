@@ -4,23 +4,30 @@ These are refusal limits, not a promise that every accepted mesh fits in a
 particular RSS budget (component instancing and downstream slicers vary).
 """
 from pathlib import Path
+import shutil
 import struct
 import xml.parsers.expat
 import zipfile
 
 MIB = 1024 * 1024
-MAX_DOWNLOAD_BYTES = 200 * MIB
+# No byte-size download or per-STL cap. Geometry budgets (triangles, vertices,
+# estimated working storage) and zip-bomb / disk-space guards remain.
+# MAX_DOWNLOAD_BYTES and MAX_STL_BYTES removed: a model the slicer can handle
+# is never refused solely for its size in bytes. (#1824)
 MAX_MEMBERS = 4096
-MAX_EXPANDED_BYTES = 512 * MIB
+MAX_EXPANDED_BYTES = 512 * MIB  # total uncompressed size; guards disk use / zip bombs
 MAX_XML_BYTES = 400 * MIB  # expanded model XML is streamed, not retained as a DOM
-MAX_MEMBER_BYTES = 400 * MIB
-MAX_STL_BYTES = 32 * MIB
+MAX_MEMBER_BYTES = 400 * MIB  # single member uncompressed; guards expansion
 # Dense float32/int32 tables plus downstream topology/instance working storage.
 MAX_ESTIMATED_GEOMETRY_BYTES = 1536 * MIB
 MAX_TRIANGLES = 10_000_000
 MAX_VERTICES = 10_000_000
 MAX_XML_ELEMENTS = 40_000_000
 CHUNK = 64 * 1024
+# Not a model-size cap (#1824). A download of any size is kept when the
+# volume still has this much free afterwards. Crossing it refuses the
+# download and deletes the partial file, so one response cannot fill the disk.
+MIN_FREE_BYTES = 512 * MIB
 
 
 class IntakeLimitExceeded(ValueError):
@@ -33,16 +40,57 @@ def _refuse(detail):
         'files in your modeling app, then upload again. Nothing was sliced or started.')
 
 
+def _refuse_disk(detail):
+    # The operator's volume is short of space; the model is not at fault, so the
+    # mesh-editing advice in _refuse does not apply. (#1833)
+    raise IntakeLimitExceeded(
+        f'Model intake refused: the server is low on disk space ({detail}). '
+        'Nothing was kept, sliced or started.')
+
+
+_ASCII_FACET = b'endfacet'
+
+
+def _stl_triangle_count(source, size, header):
+    """Triangle count used by the STL geometry guard, read in bounded memory.
+
+    A binary STL whose length matches its header count is trusted. Otherwise an
+    ASCII STL is counted by its ``endfacet`` tokens, stopping as soon as the
+    count passes MAX_TRIANGLES. A file with neither is sized as a binary STL
+    would be, so a large malformed file cannot bypass the guard. (#1833)
+    """
+    if len(header) == 84:
+        declared = struct.unpack('<I', header[80:84])[0]
+        if 84 + 50 * declared == size:
+            return declared
+    count = header.count(_ASCII_FACET)
+    tail = header[-(len(_ASCII_FACET) - 1):]
+    while count <= MAX_TRIANGLES and (chunk := source.read(CHUNK * 16)):
+        window = tail + chunk
+        count += window.count(_ASCII_FACET)
+        tail = window[-(len(_ASCII_FACET) - 1):]
+    if count:
+        return count
+    return max(0, size - 84) // 50
+
+
 def save_download(response, target):
-    """Count actual bytes, not untrusted Content-Length; remove partial downloads."""
+    """Stream the response to disk with no byte-size cap; remove partial downloads.
+
+    Geometry and archive-expansion guards are applied later by check_source.
+    A model the slicer can handle is never refused solely for its size in bytes. (#1824)
+    The stream still stops when the volume would drop below MIN_FREE_BYTES.
+    """
     target = Path(target)
+    parent = target.parent if str(target.parent) else Path(".")
     try:
         with target.open('wb') as output:
-            total = 0
             while chunk := response.read(CHUNK):
-                total += len(chunk)
-                if total > MAX_DOWNLOAD_BYTES:
-                    _refuse(f'download exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit')
+                free = shutil.disk_usage(parent).free
+                if free < len(chunk) + MIN_FREE_BYTES:
+                    _refuse_disk(
+                        f'{MIN_FREE_BYTES // MIB} MiB of free disk space must remain and '
+                        'this download would use it')
                 output.write(chunk)
     except BaseException:
         target.unlink(missing_ok=True)
@@ -62,31 +110,28 @@ def check_source(path):
     """Check sizes first, then bounded streaming XML counts without building a tree."""
     path = Path(path)
     size = path.stat().st_size
-    if size > MAX_DOWNLOAD_BYTES:
-        _refuse(f'file exceeds {MAX_DOWNLOAD_BYTES // MIB} MiB limit')
+    # No overall file-size refusal. Geometry budgets and zip-bomb guards apply below.
     if path.suffix.lower() == '.stl':
-        if size > MAX_STL_BYTES:
-            _refuse(f'STL exceeds {MAX_STL_BYTES // MIB} MiB limit')
+        # Triangle count is the geometry guard for binary and ASCII STL alike.
+        # Byte size alone never refuses. (#1824, #1833)
         with path.open('rb') as source:
             header = source.read(84)
-            if len(header) == 84:
-                triangles = struct.unpack('<I', header[80:84])[0]
-                if 84 + 50 * triangles == size and triangles > MAX_TRIANGLES:
-                    _refuse(f'triangle count exceeds {MAX_TRIANGLES:,} limit')
+            if _stl_triangle_count(source, size, header) > MAX_TRIANGLES:
+                _refuse(f'triangle count exceeds {MAX_TRIANGLES:,} limit')
         return
     if path.suffix.lower() != '.3mf':
         return
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
         if len(members) > MAX_MEMBERS:
-            _refuse(f'archive exceeds {MAX_MEMBERS:,} members')
+            _refuse(f'archive exceeds {MAX_MEMBERS:,} members (zip-bomb / resource guard)')
         models = [i for i in members if i.filename.lower().endswith('.model')]
         if sum(i.file_size for i in models) > MAX_XML_BYTES:
             _refuse(f'model XML exceeds {MAX_XML_BYTES // MIB} MiB limit')
         if sum(i.file_size for i in members) > MAX_EXPANDED_BYTES:
-            _refuse(f'expanded archive exceeds {MAX_EXPANDED_BYTES // MIB} MiB limit')
+            _refuse(f'expanded archive exceeds {MAX_EXPANDED_BYTES // MIB} MiB (disk-space / zip-bomb guard)')
         if any(i.file_size > MAX_MEMBER_BYTES for i in members):
-            _refuse(f'archive member exceeds {MAX_MEMBER_BYTES // MIB} MiB limit')
+            _refuse(f'archive member exceeds {MAX_MEMBER_BYTES // MIB} MiB uncompressed (expansion guard)')
         recorded = _recorded_counts(path, [i.filename for i in models])
         if recorded is not None:
             return
