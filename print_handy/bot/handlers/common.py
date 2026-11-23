@@ -1349,15 +1349,28 @@ async def _offer_force_restart(adapter, source, metadata, pc, reason, printer_id
 async def _delete_secret_message(event, source, adapter, label='Token'):
     """Best effort: delete the operator's message that carried a pasted secret.
 
-    Uses the adapter's delete_message. Any failure is ignored and answered
-    with a plain note, so the operator knows to delete it.
+    Prefers the adapter's own delete_message (including one that lives only
+    on its ``_host``); otherwise falls back to its discord.py client. Any
+    failure is ignored and answered with a plain note, so the operator knows
+    to delete it. The secret itself is never logged.
     """
     message_id = getattr(event, 'message_id', None)
     deleted = False
     try:
-        if message_id:
-            deleted = bool(await adapter.delete_message(source.chat_id, message_id,
-                                                         {'thread_id': source.thread_id} if source.thread_id else None))
+        # A Hermes wrapper may not implement delete_message itself. Calling
+        # the wrapper and swallowing the error would leave the secret in chat.
+        host = getattr(adapter, '_host', None) or adapter
+        if message_id and hasattr(host, 'delete_message'):
+            deleted = bool(await host.delete_message(
+                source.chat_id, message_id,
+                {'thread_id': source.thread_id} if source.thread_id else None))
+        elif message_id and getattr(host, '_client', None) is not None:
+            client = host._client
+            channel_id = int(source.thread_id or source.chat_id)
+            channel = (client.get_channel(channel_id)
+                       or await client.fetch_channel(channel_id))
+            await channel.get_partial_message(int(message_id)).delete()
+            deleted = True
     except Exception:
         deleted = False
     note = (f'{label} saved. I deleted your message.' if deleted else

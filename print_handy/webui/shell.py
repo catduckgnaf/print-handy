@@ -538,6 +538,21 @@ def _at(path, target):
     return path == target or (target != "/" and path.startswith(target + "/"))
 
 
+def _nav_path(path):
+    """Path the header matches against.
+
+    ``GET /designs`` redirects to ``/chat?view=design`` (#1817). That page
+    is still the Designs destination, so the Designs page strip (sliced
+    files, workflow) stays on it. A plain ``/chat`` page is not that
+    destination and does not show the strip.
+    """
+    text = str(path or "")
+    bare, sep, query = text.partition("?")
+    if bare == "/chat" and sep and "view=design" in query.split("&"):
+        return "/designs"
+    return text
+
+
 def _tabs(entries):
     """The header tabs for ``entries``: [(target, label, members)] in order.
 
@@ -572,6 +587,7 @@ def _subnav(path, tab):
 
 
 def _header(path, theme, nav=None):
+    path = _nav_path(path)
     items = []
     if nav is None:
         nav = REQUEST_NAV.get()
