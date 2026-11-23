@@ -431,6 +431,18 @@ jobs:
             -c "from print_handy.core import _bounds_native as m; assert callable(m.paint_census); print('working copy imports, API_VERSION', m.API_VERSION, 'PAINT_CENSUS_VERSION', m.PAINT_CENSUS_VERSION)"
           docker run --rm --workdir / --entrypoint python3 print-handy-runtime:ci \
             -c "import print_handy.core._bounds_native as m; assert callable(m.paint_census); print('site-packages copy imports, API_VERSION', m.API_VERSION, 'PAINT_CENSUS_VERSION', m.PAINT_CENSUS_VERSION)"
+      - name: The detector model is bundled and used with no network (#1844)
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint python3 print-handy-runtime:ci -c "
+          import hashlib
+          from print_handy.runtime import local_vision as lv
+          p = lv.model_path({'paths': {'state_home': '/tmp/none'}, 'vision': {}})
+          assert str(p) == lv.DEFAULT_BUNDLED_MODEL_PATH, p
+          h = hashlib.sha256(p.read_bytes()).hexdigest()
+          assert h == lv.MODEL_SHA256, h
+          assert lv.prefetch_model({'paths': {'state_home': '/tmp/none'}, 'vision': {'local_detector_enabled': True}}) is False
+          print('bundled model', p, h)"
 
   native-bounds:
     needs: scope

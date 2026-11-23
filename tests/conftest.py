@@ -51,6 +51,10 @@ _tmp = Path(tempfile.mkdtemp(prefix="3dp-test-state-"))
 os.environ.setdefault("PRINT_BOT_CANCEL_MARKER", str(_tmp / "last_bot_cancel.json"))
 os.environ.setdefault("PRINT_ALERT_STATE", str(_tmp / "print_alert_buttons.json"))
 os.environ.setdefault("PRINT_WATCH_FRAME_DIR", str(_tmp / "print-watch"))
+# #1844: the image bundles the detector model at /opt/print-handy/models.
+# Tests run against the download path (with a faked fetch), never a copy
+# that happens to exist on the host or in the image.
+os.environ["PRINT_HANDY_BUNDLED_MODEL"] = str(_tmp / "no-bundled-model" / "obico-failure-detector.onnx")
 
 
 def _test_settings():
@@ -352,3 +356,133 @@ def _wrapped_season_is_open(monkeypatch):
 
     monkeypatch.setattr(data_module, "_now",
                         lambda tz: datetime.now(tz).replace(month=12, day=15))
+
+
+# #1844: a test that silently downloaded the 202 MB detector model from
+# obico.io on every CI run cost its maintainers about USD 500 a month.
+# No test may open a TCP connection to, or send a UDP datagram to, a
+# public internet address. The attempt is refused (as an unreachable
+# network would be) and the test then fails, even when the code under test
+# swallowed the error, so a background download or retry loop cannot hide.
+# Loopback, private, broadcast, documentation (TEST-NET) and Unix sockets
+# are untouched. A UDP "connect" sends nothing, so it is allowed; a later
+# send on that socket to a public peer is refused.
+def _public_target(family, address) -> str | None:
+    import ipaddress
+    import socket as _socket
+
+    if family not in (_socket.AF_INET, _socket.AF_INET6):
+        return None
+    host = address[0] if isinstance(address, tuple) and address else None
+    if not isinstance(host, str):
+        return None
+    try:
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return None
+    return f"{host}:{address[1]}" if ip.is_global else None
+
+
+@pytest.fixture(autouse=True)
+def _no_public_internet(monkeypatch):
+    """Yields the list of refused targets; a test of the guard itself may
+    inspect it and clear it."""
+    import errno
+    import socket as _socket
+
+    attempts: list[str] = []
+    real = {name: getattr(_socket.socket, name)
+            for name in ("connect", "connect_ex", "send", "sendall", "sendto", "sendmsg")}
+
+    def _refusal(target):
+        attempts.append(target)
+        return OSError(errno.ENETUNREACH, f"tests may not reach the public internet ({target}); see #1844")
+
+    def _stream_target(sock, address):
+        return _public_target(sock.family, address) if sock.type == _socket.SOCK_STREAM else None
+
+    def _peer_target(sock):
+        if sock.type != _socket.SOCK_DGRAM:
+            return None
+        try:
+            return _public_target(sock.family, sock.getpeername())
+        except OSError:
+            return None
+
+    def connect(self, address):
+        target = _stream_target(self, address)
+        if target:
+            raise _refusal(target)
+        return real["connect"](self, address)
+
+    def connect_ex(self, address):
+        target = _stream_target(self, address)
+        if target:
+            return _refusal(target).errno
+        return real["connect_ex"](self, address)
+
+    def send(self, data, *args):
+        target = _peer_target(self)
+        if target:
+            raise _refusal(target)
+        return real["send"](self, data, *args)
+
+    def sendall(self, data, *args):
+        target = _peer_target(self)
+        if target:
+            raise _refusal(target)
+        return real["sendall"](self, data, *args)
+
+    def sendto(self, data, *args):
+        target = _public_target(self.family, args[-1]) if args else None
+        if target:
+            raise _refusal(target)
+        return real["sendto"](self, data, *args)
+
+    def sendmsg(self, buffers, *args):
+        target = _public_target(self.family, args[2]) if len(args) >= 3 and args[2] else _peer_target(self)
+        if target:
+            raise _refusal(target)
+        return real["sendmsg"](self, buffers, *args)
+
+    for name, fn in (("connect", connect), ("connect_ex", connect_ex), ("send", send),
+                     ("sendall", sendall), ("sendto", sendto), ("sendmsg", sendmsg)):
+        monkeypatch.setattr(_socket.socket, name, fn)
+    yield attempts
+    if attempts:
+        pytest.fail(f"this test tried to reach the public internet: {', '.join(attempts)} (#1844). "
+                    "Fake the fetch at its urlopen or client seam instead.", pytrace=False)
+
+
+# #1844: the two fetches the guard above caught across the suite, stubbed
+# for every test by default. A background model download outlives the test
+# that started it, so a per-file fake is not enough: any test whose config
+# turns the local detector on would otherwise start the real 202 MB fetch.
+# tests/runtime/test_local_vision.py tests the download itself and fakes
+# urlopen instead; any test may still override either stub.
+
+
+@pytest.fixture(autouse=True)
+def _no_detector_model_download(request, monkeypatch):
+    from print_handy.runtime import local_vision
+
+    if request.module.__name__.rpartition(".")[2] != "test_local_vision":
+        def refuse(path):
+            raise local_vision.LocalVisionError("tests never download the detector model (#1844)")
+
+        monkeypatch.setattr(local_vision, "_download_model", refuse)
+    yield
+    # A background download this test started must finish while its fakes
+    # are still in place, not run on into the next test against the real
+    # network (this fixture tears down before monkeypatch undoes them).
+    for thread in list(local_vision._prefetching.values()):
+        thread.join(timeout=10)
+
+
+@pytest.fixture(autouse=True)
+def _no_firmware_feed_fetch(monkeypatch):
+    """The Web UI's Firmware page reads the published feed through the
+    process-wide cache; tests get an empty one (the "feed unknown" state)."""
+    from print_handy import firmware_feed
+
+    monkeypatch.setattr(firmware_feed, "_shared", firmware_feed.FeedCache(fetcher=lambda: None))

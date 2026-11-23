@@ -495,7 +495,10 @@ class RuntimeImageTests(unittest.TestCase):
         Renovate's dockerfile and github-actions managers make everywhere."""
         digests = set(re.findall(r"^FROM debian:13-slim@(sha256:[0-9a-f]{64})", DOCKERFILE, re.M))
         self.assertEqual(len(digests), 1, digests)
-        self.assertEqual(len(re.findall(r"^FROM ", DOCKERFILE, re.M)), 6)
+        # The one scratch stage holds the bundled detector model (#1844); it
+        # pulls no image, so it has no digest to pin.
+        self.assertEqual(len(re.findall(r"^FROM (?!scratch AS vision-model$)", DOCKERFILE, re.M)), 6)
+        self.assertEqual(re.findall(r"^FROM scratch.*$", DOCKERFILE, re.M), ["FROM scratch AS vision-model"])
         self.assertRegex(DOCKERFILE.splitlines()[0],
                          r"^# syntax=docker/dockerfile:1@sha256:[0-9a-f]{64}$")
         static = (ROOT / ".github" / "workflows" / "docker-static.yml").read_text()

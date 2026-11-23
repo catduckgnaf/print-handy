@@ -14,18 +14,26 @@ question — "does this frame show a print failure?" — so it can produce
 reads (those still need an endpoint). Because it cannot certify an empty
 plate, auto light-off (#516) still requires an endpoint.
 
-Model provenance (pinned; the weights are fetched, never vendored —
-the same posture as the AGPL slicers the image downloads at build time):
+Model provenance (pinned; the weights are bundled in the container image
+and hosted by this project, never fetched from obico.io, #1844):
 
 * Obico / The Spaghetti Detective failure-detection model, ONNX export
   (YOLOv2-style region detector, single ``failure`` class), from the
-  obico-server project's ``ml_api/model/model-weights.onnx.url``.
-* URL: https://www.obico.io/static_pub/ml-models/model-weights-5a6b1be1fa.onnx
+  obico-server project's ``ml_api/model/model-weights.onnx.url``
+  (upstream file ``model-weights-5a6b1be1fa.onnx``, :data:`MODEL_UPSTREAM_URL`,
+  recorded for provenance only).
+* Hosted copy: :data:`MODEL_URL`, a release asset of
+  https://github.com/catduckgnaf/print-handy-vision-model (AGPL-3.0
+  licence text and provenance there).
+  Obico asked us to stop pulling the file from obico.io (#1844: about
+  1,100 downloads a day at their cost) and permits a self-hosted copy
+  under the AGPL. The Docker image bundles the file at
+  :data:`DEFAULT_BUNDLED_MODEL_PATH`, verified by SHA-256 at build time,
+  so a container never downloads it. A source install without the
+  bundled file downloads it once from the hosted copy into the model
+  directory.
 * SHA-256: 0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa
-* Size: 202,223,918 bytes (~202 MB). The #455 Stage 0 report estimated
-  15–30 MB; the real export is much larger, which is why the weights are
-  downloaded once at runtime into the model directory instead of being
-  baked into the container image.
+* Size: 202,223,918 bytes (~202 MB).
 * Licence: AGPL-3.0 (the obico-server project's licence).
 
 Fail-soft discipline (#387): a missing runtime, a missing or corrupt
@@ -77,10 +85,19 @@ logger = logging.getLogger(__name__)
 
 # --- Pinned model provenance (see module docstring) --------------------------
 MODEL_NAME = "Obico failure-detection model"
-MODEL_URL = "https://www.obico.io/static_pub/ml-models/model-weights-5a6b1be1fa.onnx"
+# Never fetched: the upstream location, kept for provenance (#1844).
+MODEL_UPSTREAM_URL = "https://www.obico.io/static_pub/ml-models/model-weights-5a6b1be1fa.onnx"
+# The only URL Print Handy downloads the model from: the release asset of
+# catduckgnaf/print-handy-vision-model, this project's model repo (#1844). tests/runtime/test_no_third_party_model_fetch.py
+# pins it to that repository's releases.
+MODEL_URL = ("https://github.com/catduckgnaf/print-handy-vision-model/releases/download/"
+             "obico-5a6b1be1fa/obico-failure-detector.onnx")
 MODEL_SHA256 = "0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa"
 MODEL_SIZE_BYTES = 202_223_918
 MODEL_FILENAME = "obico-failure-detector.onnx"
+# Where the Docker image bundles the weights (Dockerfile, vision-model
+# stage). PRINT_HANDY_BUNDLED_MODEL overrides it (tests point it away).
+DEFAULT_BUNDLED_MODEL_PATH = "/opt/print-handy/models/" + MODEL_FILENAME
 
 # --- Verdict mapping (single still frame) ------------------------------------
 # Obico's own serving code treats a detection above 0.08 confidence as a
@@ -151,14 +168,23 @@ def watch_uses_detector(cfg=None) -> bool:
     return enabled(cfg) or watch_source(cfg) == "local"
 
 
+def bundled_model_path() -> Path:
+    """Where an install ships the weights (the Docker image does, #1844)."""
+    return Path(os.environ.get("PRINT_HANDY_BUNDLED_MODEL") or DEFAULT_BUNDLED_MODEL_PATH)
+
+
 def model_path(cfg=None) -> Path:
     """Where the ONNX weights live: the operator's
-    ``vision.local_model_path`` when set, else ``models/`` under the
-    data folder (persistent in the container's ``/data/state`` volume)."""
+    ``vision.local_model_path`` when set, else the copy bundled in the
+    image (#1844), else ``models/`` under the data folder (a source
+    install downloads it there once from :data:`MODEL_URL`)."""
     cfg = _config.cfg() if cfg is None else cfg
     raw = str((cfg.get("vision") or {}).get("local_model_path") or "").strip()
     if raw:
         return Path(os.path.expanduser(raw))
+    bundled = bundled_model_path()
+    if bundled.is_file():
+        return bundled
     home = Path(os.path.expanduser(str(cfg["paths"]["state_home"])))
     return home / "models" / MODEL_FILENAME
 

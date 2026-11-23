@@ -56,6 +56,15 @@ PART_BIG = scene(part=(110, 110, 210, 175, (200, 60, 40)))
 PART_SMALL_LIGHT = scene(part=(150, 120, 176, 142, (238, 236, 230)))
 
 
+def _fake_model_download(local_vision, monkeypatch):
+    """Stand in for the 202 MB model fetch (#1844: these tests once ran the
+    real download from obico.io on every CI run)."""
+    def fake(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"stub detector model")
+    monkeypatch.setattr(local_vision, "_download_model", fake)
+
+
 @pytest.fixture()
 def cfg(tmp_path, monkeypatch):
     data = {"paths": {"state_home": str(tmp_path)},
@@ -64,6 +73,11 @@ def cfg(tmp_path, monkeypatch):
     # the calibrated fixture config must be the global one too.
     from print_handy.runtime import _config as _hc
     monkeypatch.setattr(_hc, "cfg", lambda: data)
+    # watch_source "local" makes vision_ready start the model download in
+    # the background; fake it (#1844: this ran the real 202 MB fetch from
+    # obico.io on every CI run).
+    from print_handy.runtime import local_vision
+    _fake_model_download(local_vision, monkeypatch)
     return data
 
 
