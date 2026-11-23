@@ -599,20 +599,16 @@ bot posting progress notifications.
 
 2.4.0 removed the 2.3.x compatibility paths: the `print_handy.hermes` package name (use `print_handy.runtime`), the old module paths and assignment forwarding for code moved out of `core/model_job.py` and `core/prepared_intake.py` (import from the new module), and the `plugins/print-feedback` handler plugin (`print_handy.bot.handlers`). It also removed the settings aliases: `paths.hermes_home` (`PRINT_HANDY__PATHS__HERMES_HOME`) and the other renamed keys are refused at load with the current name in the message (`paths.state_home` here; see [SETTINGS.md](SETTINGS.md)), and the `hermes_home` helpers in `print_handy/runtime/_config.py` are gone.
 
-The legacy `/data/hermes` Docker volume is no longer read (a container whose state is only there refuses to start and names the rename), and a native install no longer falls back to `~/.hermes/profiles/3dprinting`: `python -m print_handy.doctor` names any data still only there and how to move it. Neither are the frozen names below, which are never removed.
+The legacy `/data/hermes` Docker volume is no longer read (a container whose state is only there refuses to start and names the rename), and a native install no longer falls back to `~/.hermes/profiles/3dprinting`: `python -m print_handy.doctor` names any data still only there and how to move it. Older wire formats now require a reslice or a consumer configuration update.
 
-## Frozen Hermes wire names
+<a id="frozen-hermes-wire-names"></a>
+## Print Handy 2.4.0 wire formats
 
-Print Handy was once installed through Hermes, and a few names from that time are written into G-code, printer state and data other programs read. They are frozen formats: they are permanent, and a rename sweep must never touch them. Changing one would break files and readers that Print Handy does not control: G-code already sliced and stored on printers and in archives, and the Home Assistant integration that reads the printer's Moonraker database. Old and new Print Handy versions also have to read each other's files during an update.
+A mapped G-code artifact now uses `; print_handy_tool_slots = ` for its tool-to-slot/spool mapping. `print_handy/gcode/tool_map.py` is the single reader/writer. A G-code file using the pre-2.4.0 `; hermes_tool_slots = ` line is refused with instructions to reslice; it is not silently upgraded.
 
-| Name | Where it lives | Who reads it |
-| --- | --- | --- |
-| `; hermes_tool_slots = ` | A header comment in every multi-tool G-code file Print Handy slices (the tool to slot or spool map) | Print Handy's launch, offline verification, spool lifecycle and the ZMod multicolor contract, including on files an earlier version sliced |
-| Moonraker database namespace `hermes`, key `current_job` | The printer's Moonraker database | The Home Assistant integration (job card) |
+The Moonraker job card is written under namespace `print_handy`, key `current_job`. Home Assistant users with a hand-written REST sensor must change the request to `/server/database/item?namespace=print_handy&key=current_job` (the separate `ha-print-handy` integration does not read this database key). This is an operator migration step, not an automatic rename.
 
-Each definition in the code carries a comment pointing here. A new wire name should not use "hermes"; these stay only because they are already in the field.
-
-Retired (#1816, a breaking change): the `Hermes slot <n> <material>` and `Hermes toolhead <n> <material>` filament profile names. A slice now names the Orca vendor profile its values came from (`Flashforge HS PETG @FF AD5X`), the printer's own template for its own family, or `Print Handy <material> (library generic)`, with ` [slot <n>]` per tool (`orca_profile_db.profile_name`). The slice guard accepts exactly the names the job generated; G-code sliced before #1816 with the old names is refused. The remaining names are #1817.
+The old `Hermes slot <n> <material>` and `Hermes toolhead <n> <material>` filament profile names were retired by #1816. Current slicing uses the selected Orca vendor profile, printer template or Print Handy library profile. G-code carrying the retired profiles must be resliced.
 
 ## Printer control service
 

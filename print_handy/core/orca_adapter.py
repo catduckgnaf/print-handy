@@ -38,26 +38,27 @@ NOZZLE_MM = _S['printer']['nozzle_diameter_mm']
 # PRINT_HANDY_ORCA_CMD selects a native OrcaSlicer binary without changing the home Flatpak default.
 # ORCA_FLATPAK_APP_ID selects a different installed Flatpak app while preserving that default.
 FLATPAK_APP_ID = 'com.orcaslicer.OrcaSlicer'
-LEGACY_FLATPAK_APP_ID = 'io.github.softfever.OrcaSlicer'  # the same app's pre-rename ID
+_RETIRED_FLATPAK_APP_ID = 'io.github.softfever.OrcaSlicer'  # refused rather than rewritten
 
 
 def _orca_command():
     """Return the effective command, honoring runtime overrides for test tracks."""
     override = os.environ.get('PRINT_HANDY_ORCA_CMD')
-    if override:
-        return [override]
     command = list(_S['orca']['command'])
     app_id = os.environ.get('ORCA_FLATPAK_APP_ID')
+    if app_id == _RETIRED_FLATPAK_APP_ID:
+        raise ValueError(f"retired OrcaSlicer Flatpak app ID {app_id} is not supported; "
+                         f"use {FLATPAK_APP_ID} in ORCA_FLATPAK_APP_ID")
     if command and Path(command[0]).name == 'flatpak' and len(command) > 2 and command[1] == 'run':
-        # A previous release documented the legacy app ID as the [orca]
-        # command, so an existing local config can still carry it; the local
-        # merge would preserve it over the corrected home default and every
-        # invocation would use a Flatpak ref that no longer exists (P1-4).
-        # Migrate the legacy ID to the current one wherever it is named.
-        if app_id == LEGACY_FLATPAK_APP_ID:
-            app_id = FLATPAK_APP_ID
-        if command[2] == LEGACY_FLATPAK_APP_ID:
-            command[2] = FLATPAK_APP_ID
+        # 2.4.0 hard cut (#1849): refuse the retired Flatpak ID explicitly.
+        # Quietly rewriting it hides stale machine settings and defeats the
+        # operator's ability to identify the missing Flatpak installation.
+        if _RETIRED_FLATPAK_APP_ID in command[2:]:
+            raise ValueError(
+                f"retired OrcaSlicer Flatpak app ID {_RETIRED_FLATPAK_APP_ID} is not supported; "
+                f"use {FLATPAK_APP_ID} in [orca].command or ORCA_FLATPAK_APP_ID")
+        if override:
+            return [override]
         if app_id:
             if command[2].startswith('--'):
                 return [command[0], 'run', command[2], app_id, *command[3:]]
@@ -66,7 +67,7 @@ def _orca_command():
             commit = os.environ.get('ORCA_FLATPAK_COMMIT')
             if commit:
                 return [command[0], 'run', f'--commit={commit}', *command[2:]]
-    return command
+    return [override] if override else command
 
 
 ORCA_COMMAND = _orca_command()

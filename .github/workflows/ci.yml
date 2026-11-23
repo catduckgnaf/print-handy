@@ -743,7 +743,6 @@ jobs:
         id: wheel-check
         continue-on-error: true
         env:
-          PRINT_HANDY__BOT__MODE: standalone
           PRINT_HANDY__DISCORD__CHAT_ID: "100000000000000001"
           PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
           DISCORD_BOT_TOKEN: not-a-real-token
@@ -767,7 +766,6 @@ jobs:
           "/tmp/clean/bin/python" -I -c "import print_handy, sys; assert print_handy.__file__.startswith('/tmp/clean/'), print_handy.__file__; assert not any(p.startswith('$GITHUB_WORKSPACE') for p in sys.path), sys.path"
       - name: Standalone bot setup check
         env:
-          PRINT_HANDY__BOT__MODE: standalone
           PRINT_HANDY__DISCORD__CHAT_ID: "100000000000000001"
           PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
           DISCORD_BOT_TOKEN: not-a-real-token
@@ -781,7 +779,6 @@ jobs:
       # of on a real standalone install.
       - name: Standalone bot setup check (Telegram)
         env:
-          PRINT_HANDY__BOT__MODE: standalone
           PRINT_HANDY__BOT__PLATFORM: telegram
           PRINT_HANDY__TELEGRAM__CHAT_ID: "-1001234567890"
           PRINT_HANDY__TELEGRAM__ALLOWED_USER_IDS: "424242"
@@ -792,7 +789,6 @@ jobs:
           "/tmp/clean/bin/python" -I -m print_handy.bot check
       - name: Standalone bot setup check (Matrix)
         env:
-          PRINT_HANDY__BOT__MODE: standalone
           PRINT_HANDY__BOT__PLATFORM: matrix
           PRINT_HANDY__MATRIX__HOMESERVER_URL: "https://matrix.example.org"
           PRINT_HANDY__MATRIX__ROOM_ID: "!prints:example.org"
