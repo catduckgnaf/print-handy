@@ -392,18 +392,18 @@ def _ai_settings(monkeypatch, **ai):
 
 
 def test_ai_allowlist_refuses_users_not_listed(monkeypatch):
-    _ai_settings(monkeypatch, allowed_users=["7"], edit_requests_per_hour=0)
+    _ai_settings(monkeypatch, allowed_users="7", edit_requests_per_hour=0)
     assert edit_chat._edit_ai_allowed(S(user_id="7"))[0] is True
     assert edit_chat._edit_ai_allowed(S(user_id="42")) == (False, "not on the AI allowlist")
 
 
 def test_empty_allowlist_keeps_the_lane_open(monkeypatch):
-    _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=0)
+    _ai_settings(monkeypatch, allowed_users="", edit_requests_per_hour=0)
     assert edit_chat._edit_ai_allowed(S(user_id="42"))[0] is True
 
 
 def test_ai_rate_limit_is_per_user_per_hour(monkeypatch):
-    _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=2)
+    _ai_settings(monkeypatch, allowed_users="", edit_requests_per_hour=2)
     assert edit_chat._edit_ai_allowed(S(user_id="1"), now=0)[0]
     assert edit_chat._edit_ai_allowed(S(user_id="1"), now=10)[0]
     assert edit_chat._edit_ai_allowed(S(user_id="1"), now=20) == (False, "AI edit rate limit reached")
@@ -413,7 +413,7 @@ def test_ai_rate_limit_is_per_user_per_hour(monkeypatch):
 
 def test_refused_user_never_reaches_the_endpoint(edit_env, monkeypatch):
     from print_handy.core import design
-    _ai_settings(monkeypatch, allowed_users=["7"], edit_requests_per_hour=0)
+    _ai_settings(monkeypatch, allowed_users="7", edit_requests_per_hour=0)
     monkeypatch.setattr(design, "resolve_http_config",
                         lambda cfg: {"chat_url": "http://ai.invalid/v1/chat", "model": "m"})
     monkeypatch.setattr(design, "http_complete",
@@ -430,7 +430,7 @@ def test_mentions_are_stripped_before_the_ai_prompt():
 
 def test_ai_lane_remembers_a_short_per_user_conversation(monkeypatch):
     from print_handy.core import design
-    _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=0)
+    _ai_settings(monkeypatch, allowed_users="", edit_requests_per_hour=0)
     seen = []
     monkeypatch.setattr(design, "resolve_http_config", lambda cfg: {"chat_url": "http://x", "model": "m"})
     monkeypatch.setattr(design, "http_complete",

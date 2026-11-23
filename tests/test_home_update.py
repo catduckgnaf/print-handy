@@ -261,5 +261,6 @@ class InstallDocModePinTests(unittest.TestCase):
         doc = (ROOT / "docs" / "INSTALL.md").read_text()
         self.assertIn("The Hermes install is removed", doc)
         self.assertIn("mode: hermes", doc)
-        self.assertIn("refused at load", doc)
+        self.assertNotIn("refused at load", doc)
+        self.assertIn("warn", doc.lower())
         self.assertIn("standalone", doc)

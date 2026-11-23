@@ -228,17 +228,14 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("AI is not configured", body)
         self.assertIn("/config?section=ai", body)
 
-    def test_a_migrated_retired_endpoint_is_an_ok_row(self):
-        """#1759: the same retired keys with a model migrate, so the row is ok."""
+    def test_retired_design_endpoint_requires_current_configuration(self):
+        # #1817 removes automatic migration of retired AI configuration keys.
         with tempfile.TemporaryDirectory() as tmp:
-            data = load_settings(tmp,
-                                 "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
-                                 "  api_key_env: DESIGN_KEY\n"
-                                 "vision:\n  model: luna\n")
-            rows = status.doctor_checks(data)
-        ai_row = next(row for row in rows if row["label"] == "AI endpoint")
-        self.assertEqual(ai_row["status"], "ok")
-        self.assertIn("migrated into [llm]", ai_row["detail"])
+            with self.assertRaisesRegex(settings.SettingsError, r"\[design\] api_key_env"):
+                load_settings(tmp,
+                              "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
+                              "  api_key_env: DESIGN_KEY\n"
+                              "vision:\n  model: luna\n")
 
     def test_no_secret_values_in_snapshot(self):
         environ = {"WEBUI_ACCESS_TOKEN": TOKEN, "DISCORD_BOT_TOKEN": OTHER_SECRET,

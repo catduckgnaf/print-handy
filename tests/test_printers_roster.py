@@ -381,8 +381,9 @@ services:
     def test_roster_plus_legacy_environment_refuses(self):
         with self.assertRaisesRegex(settings.SettingsError, r"\$PRINT_HANDY__PRINTER__MODEL"):
             load_local(TWO_PRINTERS, environ={"PRINT_HANDY__PRINTER__MODEL": "flashforge.ad5x"})
-        with self.assertRaisesRegex(settings.SettingsError, r"\$MOONRAKER_URL"):
-            load_local(TWO_PRINTERS, environ={"MOONRAKER_URL": "http://192.168.1.99:7125"})
+        # Short environment variables are ignored after the settings cleanup.
+        data = load_local(TWO_PRINTERS, environ={"MOONRAKER_URL": "http://192.168.1.99:7125"})
+        self.assertEqual(len(data["printers"]), 2)
 
     def test_roster_plus_empty_legacy_values_loads(self):
         # The shipped home file always carries legacy values (they are the defaults base this

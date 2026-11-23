@@ -98,7 +98,7 @@ def test_example_requires_explicit_standalone_inputs_and_included_spoolman_defau
     for key in ("DISCORD_BOT_TOKEN", "PRINT_HANDY_IMAGE", "PRINT_HANDY__DISCORD__CHAT_ID",
                 "PRINT_HANDY__DISCORD__ALLOWED_USER_IDS"):
         assert assignments[key] == ""
-    assert assignments["PRINT_HANDY__BOT__MODE"] == "standalone"
+    assert "PRINT_HANDY__BOT__MODE" not in assignments
     assert "192.168." not in text
 
 

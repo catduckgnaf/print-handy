@@ -143,7 +143,7 @@ class StandaloneUnitContractTests(unittest.TestCase):
                 # from the same {{DATA_HOME}} the installer provisions.
                 self.assertEqual(directives[("Service", "EnvironmentFile")],
                                  ["-{{DATA_HOME}}/.env"])
-                self.assertIn("PRINT_HANDY__BOT__MODE=standalone",
+                self.assertNotIn("PRINT_HANDY__BOT__MODE=standalone",
                               directives[("Service", "Environment")])
         # The installer substitutes exactly the placeholders the
         # templates carry -- no more, no fewer (drift either way breaks).

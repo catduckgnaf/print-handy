@@ -289,7 +289,7 @@ class SettingsSurfaceTests(unittest.TestCase):
             self.assertEqual(env["timelapse"]["wrapped_tts_engine"], "piper")
             self.assertEqual(str(env["paths"]["piper"]), "/opt/piper/piper")
             legacy = settings.load(local=False, environ={"PIPER_BIN": "/legacy/piper"})
-            self.assertEqual(str(legacy["paths"]["piper"]), "/legacy/piper")
+            self.assertEqual(str(legacy["paths"]["piper"]), "piper")  # removed short variable is ignored
             bad = Path(tmp) / "bad.yaml"
             bad.write_text("timelapse:\n  wrapped_tts_engine: loud\n")
             with self.assertRaises(settings.SettingsError):

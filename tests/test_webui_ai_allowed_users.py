@@ -79,24 +79,20 @@ class AllowedUsersSaveTests(unittest.TestCase):
                                        config_path=self.local, environ={}), [])
         self.assertEqual(self.local.read_bytes(), before)
 
-    def test_a_stored_list_of_ids_round_trips_as_no_change(self):
-        form, whole, _e, single, _se, _before = self.unchanged_submit(
-            "ai:\n  allowed_users: ['123', '@name:matrix.org']\n")
-        self.assertEqual(form[FIELD], ["123, @name:matrix.org"])
-        self.assertNotIn(FIELD, {field.id for field in whole})
-        self.assertEqual(single, {})
+    def test_stored_list_of_ids_is_rejected_as_the_wrong_type(self):
+        self.local.write_text("ai:\n  allowed_users: ['123', '@name:matrix.org']\n")
+        with self.assertRaisesRegex(settings.SettingsError, "allowed_users should be like"):
+            settings.load(local=self.local, environ={})
 
-    def test_an_earlier_printed_list_is_read_as_empty_and_never_nested_again(self):
-        for stored in ("['[]']", "[\"['[]']\"]", "'[]'"):
+    def test_earlier_printed_lists_are_rejected_instead_of_migrated(self):
+        for stored in ("['[]']", "[\"['[]']\"]"):
             with self.subTest(stored=stored):
-                form, whole, _e, single, _se, _before = self.unchanged_submit(
-                    f"ai:\n  allowed_users: {stored}\n")
-                data = settings.load(local=self.local, environ={})
-                self.assertEqual(data["ai"]["allowed_users"], "")
-                self.assertEqual(form[FIELD], [""])
-                self.assertEqual(single, {})
-                # The lane is open again, not locked to a user named "[]".
-                self.assertEqual(edit_plan.ai_lane_allowed("42", data["ai"], {}, 0)[0], True)
+                self.local.write_text(f"ai:\n  allowed_users: {stored}\n")
+                with self.assertRaisesRegex(settings.SettingsError, "allowed_users should be like"):
+                    settings.load(local=self.local, environ={})
+        # Quoted text is a string, not an old list to normalize.
+        self.local.write_text("ai:\n  allowed_users: '[]'\n")
+        self.assertEqual(settings.load(local=self.local, environ={})["ai"]["allowed_users"], "[]")
 
     def test_a_typed_id_list_saves_and_gates_the_lane(self):
         self.local.write_text("printer:\n  model: klipper.generic\n")

@@ -299,23 +299,16 @@ def test_mention_setting_defaults_on_and_validates(tmp_path):
     assert data["discord"]["mention_starter"] is False
 
 
-def test_old_setting_spelling_migrates(tmp_path):
-    """The pre-#1095 key (mention_starter_on_complete) is a loader alias:
-    an install that set it false stays silent under the new name, in a
-    file and from the environment; the new name wins when both are set."""
+def test_old_setting_spelling_is_refused_with_replacement(tmp_path):
     path = tmp_path / "local.yaml"
     path.write_text("discord:\n  mention_starter_on_complete: false\n")
-    data = settings.load(local=path, environ={})
-    assert data["discord"]["mention_starter"] is False
-    assert "mention_starter_on_complete" not in data["discord"]
-    data = settings.load(
-        local=False,
-        environ={"PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
-    assert data["discord"]["mention_starter"] is False
-    path.write_text("discord:\n  mention_starter_on_complete: false\n"
-                    "  mention_starter: true\n")
-    data = settings.load(local=path, environ={})
-    assert data["discord"]["mention_starter"] is True
+    with pytest.raises(settings.SettingsError, match=r"mention_starter_on_complete .*mention_starter"):
+        settings.load(local=path, environ={})
+    with pytest.raises(settings.SettingsError, match="PRINT_HANDY__DISCORD__MENTION_STARTER"):
+        settings.load(local=False, environ={
+            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
+    path.write_text("discord:\n  mention_starter: false\n")
+    assert settings.load(local=path, environ={})["discord"]["mention_starter"] is False
 
 
 # ------------------------------------------------- button posts (alerts)

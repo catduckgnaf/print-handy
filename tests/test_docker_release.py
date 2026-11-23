@@ -119,7 +119,7 @@ mv dot-config .config
         self.rows = dict(re.findall(r"^\| `([a-z_]+\.(?:[a-z_]+|<[a-zA-Z]+>))` \| ([^|]+) \|", DOCS, re.M))
 
     def test_schema_includes_the_standalone_and_vendor_settings(self):
-        for setting in [("bot", "mode"), ("bot", "health_port"), ("llm", "chat_url"), ("discord", "token_env"),
+        for setting in [("bot", "health_port"), ("llm", "chat_url"), ("discord", "token_env"),
                         ("discord", "allowed_user_ids"), ("printer", "vendor"), ("printer", "slicer"),
                         ("delivery", "methods")]:
             self.assertIn(setting, self.inventory)
@@ -185,16 +185,9 @@ mv dot-config .config
         for name in sorted(names):
             section, key = name[len("PRINT_HANDY__"):].lower().split("__")
             with self.subTest(env=name):
-                if (section, key) in settings.KEY_ALIASES:
-                    # A deprecated spelling documented beside its new name (#1323: paths.hermes_home):
-                    # the loader must still read it, into the current key.
-                    new_section, new_key = settings.KEY_ALIASES[(section, key)]
-                    self.assertIn((new_section, new_key), self.inventory, name)
-                    if section == "paths":
-                        value = "/tmp/alias-check"
-                        loaded = settings.load(local=False, environ={name: value})[new_section][new_key]
-                        self.assertEqual(loaded, settings.load(
-                            local=False, environ={f"PRINT_HANDY__{new_section.upper()}__{new_key.upper()}": value})[new_section][new_key], name)
+                # Retired names remain documented as migration guidance, not valid settings.
+                if (section, key) in settings.RENAMED_KEYS or (section, key) == ("bot", "mode"):
+                    self.assertNotIn((section, key), self.inventory)
                     continue
                 self.assertTrue((section, key) in self.inventory or section in settings.OPEN_SECTIONS, name)
 
@@ -212,7 +205,7 @@ mv dot-config .config
                 environ[match.group(1)] = match.group(2)
         self.assertGreater(len(environ), 40)
         data = settings.load(local=ROOT / "config" / "docker.yaml", environ=environ)
-        self.assertEqual(data["bot"]["mode"], "standalone")
+        self.assertNotIn("mode", data["bot"])
 
     def test_compose_build_and_secret_variables_are_documented(self):
         self.assertEqual(set(table("Compose variables")), COMPOSE_VARS)

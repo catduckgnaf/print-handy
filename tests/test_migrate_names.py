@@ -48,7 +48,7 @@ class MigrateNamesTests(unittest.TestCase):
              "--config", str(self.config)],
             capture_output=True, text=True, cwd=self.tmp,
             env=dict(os.environ, HERMES_HOME=str(self.tmp / "gateway-root"),
-                     PRINT_HANDY__PATHS__HERMES_HOME=str(self.home)))
+                     PRINT_HANDY__PATHS__STATE_HOME=str(self.home)))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn(f"profile:  {self.home}", result.stdout)
         self.assertTrue((self.home / "state" / "print_handy_context.json").exists())
