@@ -72,11 +72,9 @@ def _parse_plan(answer):
 
 
 def _source_file(event):
+    """The one STL or 3MF the message carries, or None for none or several."""
     from print_handy.core import prepared_intake
     choices = []
-    explicit = prepared_intake.model_file(event)
-    if explicit is not None:
-        choices.append(Path(explicit))
     for path in prepared_intake.model_files(event):
         candidate = Path(path)
         if candidate not in choices:
