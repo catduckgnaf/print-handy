@@ -162,7 +162,7 @@ def test_print_start_with_spoolman_down_proceeds_and_records_pending(monkeypatch
     saved = {}
     with patch_bound(jobs_common, "_mr", side_effect=reply), \
          mock.patch.object(model_job.printer_state, "load", return_value=_sync_state()), \
-         mock.patch.object(model_job.printer_state, "save", side_effect=lambda fresh: saved.update(fresh)):
+         mock.patch.object(model_job.printer_state, "save", side_effect=lambda fresh, printer_id=None: saved.update(fresh)):
         result = launch_print_now._sync_active_spool(st, 2)  # must not raise
     assert result["spoolman_pending"] is True
     assert active[0] == 11  # the Moonraker accounting pointer still moved
