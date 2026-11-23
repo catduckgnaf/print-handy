@@ -22,7 +22,9 @@ and hosted by this project, never fetched from obico.io, #1844):
   obico-server project's ``ml_api/model/model-weights.onnx.url``
   (upstream file ``model-weights-5a6b1be1fa.onnx``, :data:`MODEL_UPSTREAM_URL`,
   recorded for provenance only).
-* Hosted copy: :data:`MODEL_URL`, a GitHub release asset of this project.
+* Hosted copy: :data:`MODEL_URL`, a release asset of
+  https://github.com/catduckgnaf/print-handy-vision-model (AGPL-3.0
+  licence text and provenance there).
   Obico asked us to stop pulling the file from obico.io (#1844: about
   1,100 downloads a day at their cost) and permits a self-hosted copy
   under the AGPL. The Docker image bundles the file at
@@ -85,11 +87,11 @@ logger = logging.getLogger(__name__)
 MODEL_NAME = "Obico failure-detection model"
 # Never fetched: the upstream location, kept for provenance (#1844).
 MODEL_UPSTREAM_URL = "https://www.obico.io/static_pub/ml-models/model-weights-5a6b1be1fa.onnx"
-# The only URL Print Handy downloads the model from: this project's own
-# release asset (#1844). tests/runtime/test_no_third_party_model_fetch.py
-# pins it to the catduckgnaf/print-handy release host.
-MODEL_URL = ("https://github.com/catduckgnaf/print-handy/releases/download/"
-             "vision-model-obico-5a6b1be1fa/obico-failure-detector.onnx")
+# The only URL Print Handy downloads the model from: the release asset of
+# catduckgnaf/print-handy-vision-model, this project's model repo (#1844). tests/runtime/test_no_third_party_model_fetch.py
+# pins it to that repository's releases.
+MODEL_URL = ("https://github.com/catduckgnaf/print-handy-vision-model/releases/download/"
+             "obico-5a6b1be1fa/obico-failure-detector.onnx")
 MODEL_SHA256 = "0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa"
 MODEL_SIZE_BYTES = 202_223_918
 MODEL_FILENAME = "obico-failure-detector.onnx"

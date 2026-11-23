@@ -3,7 +3,7 @@
 Obico paid for about 1,100 downloads a day of its 202 MB model from
 obico.io, driven by Print Handy. The fix bundles the weights in the
 Docker image and hosts the one download source (for source installs) on
-this project's own GitHub release. These checks pin that:
+the project's model repository, catduckgnaf/print-handy-vision-model. These checks pin that:
 
 * the only fetch URL is this project's release asset, and the Dockerfile
   bundles exactly that file with the pinned SHA-256;
@@ -22,10 +22,10 @@ from pathlib import Path
 from print_handy.runtime import local_vision as lv
 
 ROOT = Path(__file__).resolve().parents[2]
-RELEASE_PREFIX = "/catduckgnaf/print-handy/releases/download/"
+RELEASE_PREFIX = "/catduckgnaf/print-handy-vision-model/releases/download/"
 
 
-def test_model_url_is_this_projects_release_asset():
+def test_model_url_is_the_model_repos_release_asset():
     url = urllib.parse.urlsplit(lv.MODEL_URL)
     assert url.scheme == "https" and url.hostname == "github.com", lv.MODEL_URL
     assert url.path.startswith(RELEASE_PREFIX), lv.MODEL_URL

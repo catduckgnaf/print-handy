@@ -162,12 +162,13 @@ RUN mkdir -p /out && cd native/bounds && \
 
 # The local failure detector's model (#1844) is bundled, not downloaded at
 # run time: obico.io asked us to stop pulling it from them, and the weights
-# are AGPL-3.0, so this project hosts its own copy as a GitHub release asset.
+# are AGPL-3.0, so Print Handy hosts its own copy as a release asset of
+# catduckgnaf/print-handy-vision-model (license and provenance there).
 # ADD --checksum verifies the pinned SHA-256 (the same pin as
 # print_handy/runtime/local_vision.py) and BuildKit caches the layer.
 FROM scratch AS vision-model
 ADD --checksum=sha256:0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa \
-    https://github.com/catduckgnaf/print-handy/releases/download/vision-model-obico-5a6b1be1fa/obico-failure-detector.onnx \
+    https://github.com/catduckgnaf/print-handy-vision-model/releases/download/obico-5a6b1be1fa/obico-failure-detector.onnx \
     /obico-failure-detector.onnx
 
 FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runtime

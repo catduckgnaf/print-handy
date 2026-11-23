@@ -58,8 +58,6 @@ permissions:
 
 jobs:
   surfaces:
-    # vision-model-* releases only host model assets (#1844), not Print Handy versions.
-    if: ${{ github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'vision-model-') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

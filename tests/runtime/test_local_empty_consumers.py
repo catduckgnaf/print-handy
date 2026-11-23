@@ -11,11 +11,13 @@ import asyncio
 import io
 import time
 
+import pytest
 from PIL import Image, ImageDraw
 
 from print_handy.runtime import family_control as fc
 from print_handy.runtime import light_control
 from print_handy.runtime import local_empty as le
+from print_handy.runtime import local_vision
 from print_handy.runtime import moonraker_event_listener as mel
 from print_handy.runtime import visual_watch as vw
 
@@ -35,6 +37,16 @@ def _jpeg(part=None):
 
 EMPTY = _jpeg()
 PART = _jpeg(part=(110, 110, 210, 175))
+
+
+@pytest.fixture(autouse=True)
+def _no_model_download(monkeypatch):
+    """The calibrated configs pick the local source, so vision_ready starts
+    the detector model download; fake it (#1844)."""
+    def fake(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"stub detector model")
+    monkeypatch.setattr(local_vision, "_download_model", fake)
 
 
 def _calibrated_cfg(tmp_path):
