@@ -456,6 +456,14 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
 
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
+    # Every corpus journey gets its own printer-specific record. Copying the
+    # supplied fixture prevents one test's write from corrupting another test's
+    # seed and lets state_path(printer_id) exercise real roster routing.
+    hardware_root = work / "hardware-state"
+    routed_state = hardware_root / "printers" / settings.default_printer_id() / "printer_hardware.json"
+    routed_state.parent.mkdir(parents=True, exist_ok=True)
+    routed_state.write_bytes(Path(state_file).read_bytes())
+    state_file = routed_state
     stub = _stub_print_now(work)
     model_copy = None
     if case.model is not None:
@@ -513,7 +521,8 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         enter = stack.enter_context
         patch = lambda *a, **k: enter(mock.patch.object(*a, **k))  # noqa: E731
         enter(printer_overrides.patched(overrides))
-        enter(mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(state_file)}))
+        enter(mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": ""}))
+        patch(printer_state, "STATE_ROOT", str(hardware_root))
         patch(_config, "state_dir", lambda: work / "state")
         # The remembered color mappings (#1473) live in the app state dir; a
         # run is one drop's alternate history, so its memory starts empty and
