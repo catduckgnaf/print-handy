@@ -55,8 +55,7 @@ def _orca_command():
         # 2.4.0 hard cut (#1849): refuse the retired Flatpak ID explicitly.
         # Quietly rewriting it hides stale machine settings and defeats the
         # operator's ability to identify the missing Flatpak installation.
-        if (app_id == _RETIRED_FLATPAK_APP_ID
-                or _RETIRED_FLATPAK_APP_ID in command[2:]):
+        if _RETIRED_FLATPAK_APP_ID in command[2:]:
             raise ValueError(
                 f"retired OrcaSlicer Flatpak app ID {_RETIRED_FLATPAK_APP_ID} is not supported; "
                 f"use {FLATPAK_APP_ID} in [orca].command or ORCA_FLATPAK_APP_ID")
