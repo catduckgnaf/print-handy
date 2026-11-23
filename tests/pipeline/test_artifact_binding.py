@@ -42,7 +42,7 @@ def setup_job(tmp_path, monkeypatch):
 
 def test_unbound_job_refused_even_without_color_decisions(tmp_path):
     gcode = tmp_path / 'plain.gcode'
-    gcode.write_text('G1 X1\\n')
+    gcode.write_text('G1 X1\n')
     job = {'gcode': str(gcode), 'gcode_verified': True}
     with pytest.raises(RuntimeError, match='stale color artifact: reslice current JOB'):
         launch_gates.require_current_artifact(job, gcode)
