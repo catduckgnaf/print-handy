@@ -87,7 +87,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
     def test_bot_check_runs_for_discord(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-wheel"])[
             "Standalone bot setup check"]
-        self.assertEqual(step["env"]["PRINT_HANDY__BOT__MODE"], "standalone")
+        self.assertNotIn("PRINT_HANDY__BOT__MODE", step["env"])
         self.assertNotIn("PRINT_HANDY__BOT__PLATFORM", step["env"])
         self.assertIn("DISCORD_BOT_TOKEN", step["env"])
         self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
@@ -95,7 +95,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
     def test_bot_check_runs_for_telegram(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-wheel"])[
             "Standalone bot setup check (Telegram)"]
-        self.assertEqual(step["env"]["PRINT_HANDY__BOT__MODE"], "standalone")
+        self.assertNotIn("PRINT_HANDY__BOT__MODE", step["env"])
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__PLATFORM"], "telegram")
         # [telegram] token_env defaults to TELEGRAM_BOT_TOKEN, the chat ID is
         # a signed group ID and allowed users are numeric Telegram IDs.
@@ -107,7 +107,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
     def test_bot_check_runs_for_matrix(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-wheel"])[
             "Standalone bot setup check (Matrix)"]
-        self.assertEqual(step["env"]["PRINT_HANDY__BOT__MODE"], "standalone")
+        self.assertNotIn("PRINT_HANDY__BOT__MODE", step["env"])
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__PLATFORM"], "matrix")
         # [matrix] access_token_env defaults to MATRIX_ACCESS_TOKEN, the
         # room ID starts with "!" and allowed users are full @user:server IDs.
