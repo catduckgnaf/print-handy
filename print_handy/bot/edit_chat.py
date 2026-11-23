@@ -710,8 +710,8 @@ async def _dispatch(event, gateway, **kwargs):
     from print_handy.core.link_intake import model_link
     from print_handy.core.prepared_intake import model_files
     text = str(getattr(event, 'text', '') or '')
-    if model_link(text) or len(model_files(event)) == 1:
-        return None  # a fresh intake owns links and files
+    if model_link(text) or model_files(event):
+        return None  # any fresh uploaded model(s) belong to intake, not old-job edits
     undo = bool(_EDIT_UNDO_RE.match(text.strip()))
     if not undo:
         # Routing precedence (#1524): an unambiguous deterministic
