@@ -115,6 +115,24 @@ def test_3mf_zip_bomb_ratio_guard(tmp_path):
     assert 'bomb.3mf' in str(caught.value)
 
 
+def test_3mf_zip_bomb_split_across_small_members(tmp_path):
+    """Aggregate ratio must catch many sub-1 MiB compressed members (#1852)."""
+    source = tmp_path / 'split-bomb.3mf'
+    with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('3D/3dmodel.model', '<model/>')
+        for index in range(32):
+            archive.writestr(f'payload/{index:02}.bin', b'\\0' * (64 * 1024))
+    with zipfile.ZipFile(source) as archive:
+        members = archive.infolist()
+        assert all(info.file_size <= limits.ZIP_RATIO_FLOOR_BYTES for info in members)
+        assert sum(info.file_size for info in members) > limits.ZIP_RATIO_FLOOR_BYTES
+        assert sum(info.file_size for info in members) > (
+            limits.MAX_ZIP_RATIO * sum(info.compress_size for info in members))
+    with pytest.raises(limits.IntakeLimitExceeded, match='aggregate 100:1 compression ratio') as caught:
+        limits.check_source(source)
+    assert 'split-bomb.3mf' in str(caught.value)
+
+
 @pytest.mark.slow
 def test_five_million_triangles_exceeding_old_expanded_and_xml_caps(tmp_path):
     """A real 3MF >512 MiB expanded and >400 MiB XML passes geometry intake (#1846).
