@@ -370,7 +370,7 @@ def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warn
 def test_slot_self_check_warns_when_initial_channels_are_unavailable(monkeypatch):
     listener = mel.Listener()
     samples = iter([(3, None, None, None), (3, 4, 4, None)])
-    monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
+    monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples, (3, 4, 4, None)))
     async def no_wait(delay):
         pass
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
