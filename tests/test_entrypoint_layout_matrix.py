@@ -71,10 +71,17 @@ def assert_refused(result):
     assert "rename the host folder hermes to state" in result.stderr
 
 
-@pytest.mark.parametrize("channel", ["stable", "preview", "alpha"])
-def test_existing_orca_channel_aliases_start_with_bundled_stable(tmp_path, channel):
-    result = run_entrypoint(tmp_path, PRINT_HANDY_ORCA_CHANNEL=channel)
+def test_stable_orca_channel_starts(tmp_path):
+    result = run_entrypoint(tmp_path, PRINT_HANDY_ORCA_CHANNEL="stable")
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("channel", ["preview", "alpha"])
+def test_removed_orca_channel_names_are_refused(tmp_path, channel):
+    """#1817 M15: the removed channel names stop startup with the fix named."""
+    result = run_entrypoint(tmp_path, PRINT_HANDY_ORCA_CHANNEL=channel)
+    assert result.returncode == 2
+    assert f"must be 'stable'; got '{channel}'" in result.stderr
 
 
 def test_unknown_orca_channel_is_still_rejected(tmp_path):
@@ -429,20 +436,36 @@ def test_init_service_stops_at_a_folder_it_cannot_create(tmp_path):
     assert f"{INIT_FAILED} {data}/archive or make it owned" in result.stderr
 
 
-# #1817: Compose's main container mounts no hermes folder, so the init service
-# is where an install whose state is still only in ./data/hermes is refused.
-INIT_OLD_FOLDER = "Print Handy init: cannot start: your state is still in the old folder ./data/hermes"
+# #1817: Compose mounts the whole data folder read-only at /host-data into the
+# main container, so the entrypoint (which knows the configured state path)
+# refuses an install whose state is still only in ./data/hermes. The init
+# service only creates and chowns folders.
+def test_compose_entrypoint_refuses_state_left_only_in_the_old_hermes_folder(tmp_path):
+    home = tmp_path / "home"
+    (home / "state" / "state").mkdir(parents=True)          # empty skeleton
+    host = tmp_path / "host-data"
+    seed(host / "hermes" / "state", "printer_hardware.json")
+    before = snapshot(host)
+    result = run_entrypoint(home, PRINT_HANDY_HOST_DATA=str(host))
+    assert_refused(result)
+    assert snapshot(host) == before                          # nothing changed
 
 
-def test_init_service_refuses_state_left_only_in_the_old_hermes_folder(tmp_path):
-    seed(tmp_path / "data" / "hermes" / "state", "printer_hardware.json")
-    (tmp_path / "data" / "state" / "state").mkdir(parents=True)   # empty skeleton
-    result = run_init(tmp_path, 0)
-    assert result.returncode != 0
-    assert result.stderr.count(INIT_OLD_FOLDER) == 1, result.stderr
-    assert "rename ./data/hermes to ./data/state" in result.stderr
-    assert not (tmp_path / "data" / "archive").exists()             # stopped first
-    assert (tmp_path / "data" / "hermes" / "state" / "printer_hardware.json").is_file()
+def test_compose_entrypoint_starts_when_state_holds_data_beside_the_old_folder(tmp_path):
+    home = tmp_path / "home"
+    seed(home / "state")
+    host = tmp_path / "host-data"
+    seed(host / "hermes", "old.txt")
+    result = run_entrypoint(home, PRINT_HANDY_HOST_DATA=str(host))
+    assert result.returncode == 0, result.stderr
+    assert OLD_FOLDER not in result.stderr
+
+
+def test_compose_mounts_the_data_folder_read_only_into_the_main_container():
+    import yaml
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    assert "${PRINT_HANDY_DATA:-./data}:/host-data:ro" in compose["services"]["combined"]["volumes"]
+    assert not any("/host-data" in v for v in compose["services"]["print-handy-init"]["volumes"])
 
 
 def test_init_service_starts_when_state_holds_data_beside_an_old_hermes_folder(tmp_path):
@@ -450,7 +473,7 @@ def test_init_service_starts_when_state_holds_data_beside_an_old_hermes_folder(t
     seed(tmp_path / "data" / "state", "new.txt")
     result = run_init(tmp_path, 0)
     assert result.returncode == 0, result.stderr
-    assert INIT_OLD_FOLDER not in result.stderr
+    assert "old folder" not in result.stderr
     assert (tmp_path / "data" / "archive").is_dir()
 
 
@@ -458,4 +481,4 @@ def test_init_service_ignores_an_empty_old_hermes_folder(tmp_path):
     (tmp_path / "data" / "hermes" / "state").mkdir(parents=True)
     result = run_init(tmp_path, 0)
     assert result.returncode == 0, result.stderr
-    assert INIT_OLD_FOLDER not in result.stderr
+    assert "old folder" not in result.stderr

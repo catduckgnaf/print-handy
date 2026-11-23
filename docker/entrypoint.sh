@@ -7,7 +7,16 @@ set -euo pipefail
 # state, and that start is not refused.
 data_root="${HOME:-/data}"
 state_home="$data_root/state"
-legacy_home="$data_root/hermes"
+# Compose mounts the whole host data folder read-only at /host-data so the
+# old host folder ./data/hermes is visible here even though only its
+# subfolders are mounted read-write; Unraid maps all of /data, so there the
+# old folder is /data/hermes itself (#1817).
+host_data="${PRINT_HANDY_HOST_DATA:-/host-data}"  # test hook: the read-only mount point
+if [ -d "$host_data" ]; then
+    legacy_home="$host_data/hermes"
+else
+    legacy_home="$data_root/hermes"
+fi
 # A folder "has files" when it holds anything that is not a directory: a
 # regular file, a symlink (dangling or not), a socket. Empty directories are
 # structure, not data, so a tree of only empty directories reads as empty.
@@ -116,13 +125,13 @@ if [[ "$tz" == *[!A-Za-z0-9._+/-]* || "$tz" == */../* || "$tz" == ../* || ! -f "
     tz="America/New_York"
 fi
 export TZ="$tz"
-# The image ships one stable OrcaSlicer. Older installs could select
-# preview/alpha as aliases; retain their stable fallback for upgrades.
+# The image ships one stable OrcaSlicer. 'preview' and 'alpha' named the
+# removed second channel; 2.4.0 refuses them like any other value (#1817 M15)
+# so an install is told to drop the setting instead of silently remapped.
 channel="${PRINT_HANDY_ORCA_CHANNEL:-stable}"
 case "$channel" in
-    stable|preview|alpha)
+    stable)
         selected=/usr/local/bin/orca-slicer-stable
-        channel=stable
         ;;
     *)
         echo "PRINT_HANDY_ORCA_CHANNEL must be 'stable'; got '$channel' (Print Handy ships one bundled OrcaSlicer; drop the setting or set it to stable)" >&2

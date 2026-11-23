@@ -52,7 +52,7 @@ test ! -e "$work/data/hermes"
 printf '%s\n' 'clean-directory startup and writable bind persistence: PASS'
 
 # Existing install whose state is still only in the pre-2.2.5 hermes folder
-# (#1817): that folder is no longer read, so the init service must refuse the
+# (#1817): that folder is no longer read, so the main container must refuse the
 # start and change nothing; the documented rename then starts it on its data.
 legacy="$work/legacy-install"
 mkdir -p "$legacy/data/hermes/state"
@@ -65,8 +65,8 @@ if (cd "$legacy" && "${legacy_compose[@]}" up -d --wait --wait-timeout 180); the
   echo "an install whose state is only in data/hermes started; it must be refused" >&2
   exit 1
 fi
-(cd "$legacy" && "${legacy_compose[@]}" logs print-handy-init) \
-  | grep -F "your state is still in the old folder ./data/hermes"
+(cd "$legacy" && "${legacy_compose[@]}" logs combined) \
+  | grep -F "your state is still in the old folder /data/hermes"
 test -z "$(sudo find "$legacy/data/state" -mindepth 1 ! -type d -print -quit)"
 test "$(cat "$legacy/data/hermes/state/legacy-probe")" = "from legacy"
 (cd "$legacy" && "${legacy_compose[@]}" down)

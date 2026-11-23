@@ -164,15 +164,16 @@ class DockerReleaseContract(unittest.TestCase):
 
     def test_new_installs_neither_create_nor_mount_the_legacy_hermes_folder(self):
         """#1144, #1817: no service binds or creates a hermes folder, so a
-        first `up` creates none; the init service only looks for one, through
+        first `up` creates none; the main container only looks for one, through
         a read-only mount of the data folder, to refuse an unmigrated install."""
         compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
         for name, service in compose["services"].items():
             for volume in service.get("volumes", []):
                 with self.subTest(service=name, volume=volume):
                     self.assertNotIn("hermes", volume)
+        self.assertIn("${PRINT_HANDY_DATA:-./data}:/host-data:ro",
+                      compose["services"]["combined"]["volumes"])
         init = compose["services"]["print-handy-init"]
-        self.assertIn("${PRINT_HANDY_DATA:-./data}:/host-data:ro", init["volumes"])
         init_command = " ".join(init["command"])
         loop = init_command[init_command.index("for path in"):]
         self.assertNotIn("hermes", loop)

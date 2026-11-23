@@ -152,6 +152,10 @@ services:
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records
       - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
       - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
+      # Read-only view of the whole data folder, so the entrypoint can see a
+      # pre-2.2.5 ./data/hermes and refuse to start on an empty ./data/state
+      # instead of starting as a fresh install (#1817). Nothing is written here.
+      - ${PRINT_HANDY_DATA:-./data}:/host-data:ro
     # The Web UI port is published by default (host port 8088 to the Web
     # UI port), so a first boot is reachable from the host right away.
     # Delete these two lines to keep the Web UI inside the container.
