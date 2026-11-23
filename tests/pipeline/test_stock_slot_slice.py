@@ -61,7 +61,7 @@ def test_a_slot_bound_slice_on_the_stock_ad5x_is_not_refused_as_multicolor(tmp_p
                                                     adapter=stock())
     raw = output.read_bytes()
     assert not raw.startswith(b'; MD5:')  # no ZMod checksum or slot map on stock firmware
-    assert b'; hermes_tool_slots =' not in raw
+    assert b'; print_handy_tool_slots =' not in raw
 
 
 def test_the_zmod_ad5x_still_gets_its_slot_map_and_checksum(tmp_path):
@@ -71,4 +71,4 @@ def test_the_zmod_ad5x_still_gets_its_slot_map_and_checksum(tmp_path):
         output, _, _ = adapter.slice_model(source, tmp_path / 'out', state(), filament_slot=2)
     raw = output.read_bytes()
     assert raw.startswith(b'; MD5:') and job.zmod_md5_valid(output)
-    assert b'; hermes_tool_slots =' in raw
+    assert b'; print_handy_tool_slots =' in raw

@@ -1,12 +1,11 @@
 """Checksum-bound per-tool material contract, shared by finalization and launch."""
 import hashlib
-import json
 import os
 from pathlib import Path
 import re
 
-# The G-code tool map anchor. Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
-MAP_PREFIX = '; hermes_tool_slots = '
+from ....gcode import tool_map
+
 # Matched against every line of the plate, so compiled once.
 TOOL_LINE = re.compile(r'T(\d+)(?:\s*;.*)?')
 HEATER_TOOL_LINE = re.compile(r'M10[49].*\bT(\d+)\b.*')
@@ -125,15 +124,13 @@ def describe_mapping(mapping, state):
 
 
 def embedded_mapping(text, state):
-    lines = [line[len(MAP_PREFIX):] for line in text.splitlines() if line.startswith(MAP_PREFIX)]
-    if not lines:
+    """The file's own tool map, validated against ``state``; None when it has none.
+
+    A file sliced before 2.4.0 carries only the old map line and is refused
+    (tool_map.StaleToolMap): reslice it."""
+    raw_mapping = tool_map.parse(text)
+    if raw_mapping is None:
         return None
-    if len(lines) != 1:
-        raise RuntimeError('duplicate tool mapping metadata')
-    try:
-        raw_mapping = json.loads(lines[0])
-    except (ValueError, TypeError) as exc:
-        raise RuntimeError('malformed tool mapping metadata') from exc
     return normalize_mapping(raw_mapping, state)
 
 
@@ -211,8 +208,8 @@ def _mapped_metadata(mapping, state):
     recorded = {}
     for tool, slot in mapping.items():
         spool_id = state['filament_slots'][str(slot)].get('spoolman_id')
-        recorded[tool] = {'physical_slot': slot, 'spoolman_id': spool_id} if spool_id is not None else slot
-    metadata = [MAP_PREFIX + json.dumps(recorded, sort_keys=True, separators=(',', ':')) + '\n']
+        recorded[tool] = tool_map.entry(slot, spool_id)
+    metadata = [tool_map.format_line(recorded) + '\n']
     from print_handy.core.filament_color import slot_hex
     for tool in sorted(map(int, mapping)):
         slot = state['filament_slots'][str(mapping[str(tool)])]
@@ -277,7 +274,7 @@ def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     # strip/lower test runs only on those instead of on every line (#1392).
     lines = [line for line in text.splitlines(keepends=True)
              if '_' not in line
-             or not (line.strip().lower().startswith('; zmod_color_data =') or line.startswith(MAP_PREFIX))]
+             or not (line.strip().lower().startswith('; zmod_color_data =') or tool_map.is_map_line(line))]
     if mapping is not None:
         if state is None:
             raise RuntimeError('mapped finalization requires hardware state')

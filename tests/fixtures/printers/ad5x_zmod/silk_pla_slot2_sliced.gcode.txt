@@ -5,7 +5,7 @@
 ; filament_diameter: 1.75
 ; max_z_height: 139.92
 ; filament: 1
-; hermes_tool_slots = {"0":{"physical_slot":2,"spoolman_id":17}}
+; print_handy_tool_slots = {"0":{"physical_slot":2,"spoolman_id":17}}
 ; zmod_color_data = 0|#0C6283|Silk PLA
 ; HEADER_BLOCK_END
 

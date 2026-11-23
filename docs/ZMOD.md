@@ -664,7 +664,7 @@ silently overrides another's explicit selection.
   physical slot (a downloaded project's "filament 3" is a color, not IFS
   slot 3). Print Handy renumbers the picked colors to contiguous logical
   tools in pick order, slices, and embeds the resulting tool-to-slot map
-  in the G-code (`; hermes_tool_slots`), checksum-bound, with one
+  in the G-code (`; print_handy_tool_slots`), checksum-bound, with one
   `zmod_color_data` line per tool. Launch re-reads that embedded map and
   sends exactly one `SET_ZCOLOR` carrying its pairs with `AUTO_ASSIGN=0`:
   ZMod neither auto-assigns nor asks again.

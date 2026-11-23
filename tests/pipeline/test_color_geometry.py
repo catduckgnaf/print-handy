@@ -303,7 +303,7 @@ def test_slice_job_emits_both_slots_without_calling_the_printer(tmp_path, monkey
     assert '067749' in Path(paths[1]).read_text()
     # Guard against a regression that binds every derived plate to the same IFS slot.
     def physical_slots(path):
-        line = Path(path).read_text().split('; hermes_tool_slots = ', 1)[1].split('\n', 1)[0]
+        line = Path(path).read_text().split('; print_handy_tool_slots = ', 1)[1].split('\n', 1)[0]
         return {tool: row['physical_slot'] for tool, row in json.loads(line).items()}
     assert physical_slots(paths[0]) == {'0': 1}
     assert physical_slots(paths[1]) == {'0': 4}
