@@ -165,6 +165,7 @@ def _mesh_differs(src: Path, dest: Path) -> bool:
         before = np.asarray(mesh_repair.load_triangles(src), dtype=float)
         after = np.asarray(mesh_repair.load_triangles(dest), dtype=float)
     except Exception:
+        logger.exception('could not compare repair meshes geometrically; falling back to byte comparison')
         try:
             return src.read_bytes() != dest.read_bytes()
         except OSError:
