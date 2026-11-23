@@ -345,6 +345,22 @@ def _brands(record: Mapping[str, Any]) -> set[str]:
     return {str(b).strip().casefold() for b in record["values"].get("filament_vendor") or [] if str(b).strip()}
 
 
+def brand_name(brand: Any) -> str | None:
+    """The spool brand as a name, whatever shape the caller had it in (#1832).
+
+    Spoolman's filament ``vendor`` is an object (``{"id": 1, "name": "SUNLU"}``), while
+    ``spool.brand`` is a string; callers pass either. Anything else (missing, blank, a vendor
+    object without a name) is no brand, never an error: an unknown brand only means the
+    folder's generic and own-line profiles are the candidates.
+    """
+    if isinstance(brand, Mapping):
+        brand = brand.get("name")
+    if not isinstance(brand, str):
+        return None
+    brand = brand.strip()
+    return brand or None
+
+
 def candidates(preset: str, family: str, brand: str | None = None, folder: Path = DATA_DIR) -> list[dict[str, Any]]:
     """The vendor folder's filament presets for ``preset`` and ``family`` that may serve a spool.
 
@@ -353,6 +369,7 @@ def candidates(preset: str, family: str, brand: str | None = None, folder: Path 
     Another brand's profile in the folder (Flashforge's folder has SUNLU's) is never used for a spool of
     a different brand.
     """
+    brand = brand_name(brand)
     data = index(folder)
     printer = data["printers"].get(preset)
     if printer is None:
@@ -383,7 +400,8 @@ def resolve(preset: str, spool: filament_type.FilamentType, brand: str | None = 
     """
     if spool.family is None:
         return None
-    spool_brand = brand.strip().casefold() if brand and brand.strip() else None
+    brand = brand_name(brand)
+    spool_brand = brand.casefold() if brand else None
     ranked = []
     for record in candidates(preset, spool.family, brand, folder):
         ptype = _profile_type(record)
