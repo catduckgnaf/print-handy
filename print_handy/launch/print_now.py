@@ -29,7 +29,7 @@ from ..jobs.filament import (
 )
 from ..jobs.store import (
     CONTEXT, RECORD_KEYS, _detail_tail, _job_adapter, _job_for_gcode, _job_record_for_gcode,
-    _printer_key, _recorded_printer_id, _timing, decisions_digest, effective_color_decisions,
+    _job_printer_id, _recorded_printer_id, _timing, decisions_digest, effective_color_decisions,
     gcode_estimate_s, human_dur, remote_name, resolve_print_target, write_job,
 )
 from .gates import (
@@ -1240,7 +1240,7 @@ def _moonraker_started_files(st):
         return []
 
 
-def _read_start_readback(st, remote, *, native=True, baseline=None):
+def _read_start_readback(st, remote, *, native=True, baseline):
     """(readable, readback): one status read after a start request that did not answer cleanly.
 
     The readback is classified only when print_stats names this exact upload (never another job's);
@@ -1254,7 +1254,7 @@ def _read_start_readback(st, remote, *, native=True, baseline=None):
         return False, None
 
 
-def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True, baseline=None):
+def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True, baseline):
     """What the printer says about one start request whose response was lost or rejected.
 
     Shared by the mapped native path (#688) and the generic Moonraker path. Evidence, in order: the printer
@@ -1296,7 +1296,7 @@ def _start_rejection(exc):
 
 
 def _settle_lost_start(lease, st, remote, exc, *, base, heaters_were_off, first_command=True, native=True,
-                       baseline=None):
+                       baseline):
     """Settle a start request that raised `exc`: returns (out, rejection).
 
     Anything but a clean 4xx on the first command leaves the lease uncertain (never released by guessing)
@@ -1510,12 +1510,12 @@ class StartPoll(NamedTuple):
 
 
 def _poll_start_confirmation(read_status, remote, *, window_s=None, poll_s=START_CONFIRM_POLL_S,
-                             reports=None, job_path=None, stage="start_confirm",
-                             evidence_of=None, on_snapshot=None, truth=None):
+                             job_path=None, stage="start_confirm",
+                             evidence_of=None, on_snapshot=None, truth):
     """Poll `read_status()` (a normalized status dict) until the start truth confirms or `window_s` ends.
 
-    `truth(live, remote)` is the transport's start-truth function (start_truth.polled by default, with
-    the caller's baseline bound in); a legacy yes/no `reports(live, remote)` matcher is still accepted.
+    `truth(live, remote)` is the transport's start-truth function (start_truth.polled, say, with the
+    caller's baseline bound in).
 
     Never raises for a bad read: an exception counts as a snapshot, the window keeps running and the last
     readable status is what is reported. Every snapshot is written to the job's TIMING.jsonl so an
@@ -1523,7 +1523,7 @@ def _poll_start_confirmation(read_status, remote, *, window_s=None, poll_s=START
     tests drive the window without sleeping.
     """
     window_s = _start_confirm_window_s() if window_s is None else float(window_s)
-    judge = truth or (start_truth.from_reports(reports) if reports is not None else start_truth.polled)
+    judge = truth
     started = _confirm_clock()
     deadline = started + window_s
     last_good, snapshots = {}, 0
@@ -1802,7 +1802,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     _gate("filament amount", check_filament_amount, st, filament_need_by_slot(text, mapped))
     remote = remote_name(g, sha, job)
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote, mapped)
-    lease = launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote,
+    lease = launch_state.acquire(_job_printer_id(job), job_json=job_path, gcode_sha256=sha, remote=remote,
                                  observed_file=(status.get('print_stats') or {}).get('filename'),
                                  started_files=lambda: _moonraker_started_files(st))
     checkpoint, checkpoint_data = g.with_suffix('.launch.json'), None
@@ -1832,7 +1832,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # The audit trail names BOTH artifacts (#838): `file` is the uploaded remote (the
         # .gcode.3mf package when ZMod delivery packages it), so gcode_sha256 is the inner
         # G-code's hash and upload_sha256 the bytes Moonraker actually received. `sha256`
-        # stays as the G-code hash for existing readers (resolve_print_target, /print-again).
+        # stays the inner G-code hash so a reader written before the two-hash record still works.
         checkpoint_data = {'phase': 'submission_pending', 'command': command, 'sha256': sha,
                            'gcode_sha256': sha, 'upload_sha256': upload_sha,
                            'file': remote, 'artifact': str(g), 'submission_count': 1,
@@ -2023,7 +2023,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
 
 
 def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
-                          recorder=start_recorder.NULL, baseline=None, held_open=False,
+                          recorder=start_recorder.NULL, *, baseline, held_open=False,
                           heating_counts=True):
     """Everything after the one SET_ZCOLOR request was accepted: number, record, wait, classify, settle.
 
@@ -2481,7 +2481,7 @@ def _run_transport_launch(spec, *, state, gcode, job, job_path, reprint):
     the command being accepted.
     """
     ctx = spec.preflight()
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path,
+    lease = launch_state.acquire(_job_printer_id(job), job_json=job_path,
                                  gcode_sha256=ctx["sha"], remote=ctx["remote"],
                                  observed_file=ctx.get("observed_file"))
     ctx["lease"] = lease
@@ -2582,12 +2582,12 @@ def _bambu_start_confirm_window():
     return float(value)
 
 
-def _confirm_bambu_start(client, adapter, remote, job_path, window_s, poll_s=BAMBU_START_POLL_S, baseline=None):
+def _confirm_bambu_start(client, adapter, remote, job_path, window_s, poll_s=BAMBU_START_POLL_S, *, baseline):
     """Poll status snapshots until the printer reports `remote` running or preparing, or `window_s` ends.
 
     Returns (confirmed, last normalized status, snapshots taken). The shared poll
     (_poll_start_confirmation) does the work; Bambu adds its own evidence fields (gcode_state, print_stage)
-    and matcher (_bambu_reports_file). Every snapshot is logged at INFO and written to the job's
+    and start truth (start_truth.bambu). Every snapshot is logged at INFO and written to the job's
     TIMING.jsonl so an unconfirmed start leaves evidence of what the printer said, not just that it said
     nothing (#271). A read error counts as a snapshot and the window keeps running. `baseline` is the
     idle snapshot read inside the lease: only a subtask transition from it counts (start_truth.bambu).
@@ -2989,7 +2989,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     return _run_transport_launch(spec, state=state, gcode=gcode, job=job, job_path=job_path, reprint=reprint)
 
 
-def _confirm_generic_start(st, remote, wait_s, lease, baseline=None):
+def _confirm_generic_start(st, remote, wait_s, lease, *, baseline):
     """Wait for the one accepted start to show as printing: (out, readback, state).
 
     Only a readback naming THIS file counts (launch_state.same_remote): printing, or preparing (lease
@@ -3140,7 +3140,7 @@ def _print_now_control_lock(target):
     resolved once for this launch — from a JOB.json target, or from the
     ancestor JOB.json of a G-code target (the chat flow's
     print_next.start passes the G-code path, not JOB.json) — else the
-    default printer: the same identity _printer_key leases by. A job
+    default printer: the same identity _job_printer_id leases by. A job
     that exists but cannot be read refuses (#1587): keying the default
     printer's lock and launching on the job's printer anyway would take
     the wrong lock.
@@ -3467,7 +3467,10 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             entry = _pb_settings.by_id(printer_id)
         except _pb_settings.SettingsError as exc:
             raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.")
-        have = printers.job_model(job)
+        try:
+            have = printers.job_model(job)
+        except printers.JobModelMismatch as exc:
+            _refuse("printer model", f"REFUSED: {exc}. Nothing uploaded or started.")
         if have != entry["model"]:
             _refuse("printer model", f"REFUSED: this job was prepared for {have}, but printer {printer_id!r} is an "
                                      f"{entry['model']}. Nothing uploaded or started.")
@@ -3481,7 +3484,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     _timing(job_path, 'print_now_start')
     # accept_default_z_offset is kept for CLI compatibility only. With display_off=0 ZMod applies the
     # native screen zProbeOffset, which is the correct calibrated value; no Z_OFFSET in START_PRINT is fine.
-    st=printer_state.load(printer_id) if printer_id else printer_state.load()
+    st=printer_state.load(_job_printer_id(job))
     # Transport dispatch (#1590 item 1): direct launchers run at once;
     # delivery-gated launchers run only when 'printer' delivery is enabled,
     # and otherwise share the one "delivery not enabled" refusal.
@@ -3568,7 +3571,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         except Exception as exc:
             _refuse("native preflight", f'REFUSED: native preflight: {exc}. Nothing uploaded or started.')
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
-    lease=launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote, observed_file=fn,
+    lease=launch_state.acquire(_job_printer_id(job), job_json=job_path, gcode_sha256=sha, remote=remote, observed_file=fn,
                                started_files=lambda: _moonraker_started_files(st))
     try:
         _require_idle(st)  # again inside the lease: the first read may predate another job's start

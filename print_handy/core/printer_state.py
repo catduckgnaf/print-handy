@@ -368,35 +368,17 @@ def resolve_material_temperatures(material, filament, config=None):
     return family, result, sources
 
 
-def _is_seeded_default(material, stored):
-    """True when stored temps equal the unadjusted family default for material while its
-    variant adjustment would change them: a seeded value, not explicit legacy temperatures."""
-    try:
-        family, targets, _ = resolve_material_temperatures(material, {})
-        base = resolve_material_temperatures(family, {})[1]
-    except (ValueError, RuntimeError):
-        return False
-    same = all(int(stored.get(k) or -1) == int(base[k]) for k in ("nozzle", "bed"))
-    return same and (targets["nozzle"], targets["bed"]) != (base["nozzle"], base["bed"])
-
-
 def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True):
     """Nozzle/bed targets for slicing the job's selected spool, resolved from that spool.
 
     The stored temps_c is a printer-wide record: `set --spool` writes it, but slot
     selection, active-spool sync and Spoolman slot sync change the spool without it.
-    It is used when its temperature_resolution names this exact spool and material, or
-    when the record has no resolution at all (explicit legacy temperatures, kept as
-    _material_temperature_contract always has; the spool-sync paths mark the record
-    stale instead of leaving it bare), an exact-match resolution is honored whether
-    or not the caller prefetched the spool's filament (P2-273), or when the resolution is a legacy one that
-    names only this spool's material family: records written before resolutions
-    carried material/spoolman_id hold temperatures recorded for the spool (often its
-    Spoolman filament's explicit values), so they are preserved and the resolution is
-    migrated to the current shape (P2-276) instead of silently re-slicing at family
-    defaults. A resolution for another spool or another family is resolved again from
-    the material defaults, the variant adjustment (#512) and the spool's Spoolman
-    temperatures. ``filament`` is
+    It is used only when its temperature_resolution names this exact spool and
+    material, whether or not the caller prefetched the spool's filament (P2-273).
+    Every other record (a resolution for another spool or material, the
+    "resolved per slice" markers that seeding and spool sync write, or no
+    resolution at all) is resolved again from the material defaults, the
+    variant adjustment (#512) and the spool's Spoolman temperatures. ``filament`` is
     the spool's Spoolman filament when the caller already has it; ``fetch_filament`` is
     called for it only when needed (Spoolman is advisory: None means defaults).
     ``stored_ok=False`` always resolves (a slot spool other than the active one).
@@ -409,18 +391,6 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         if stored:
             return dict(stored), resolution  # _material_temperature_contract reports the missing material
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
-    # A legacy resolution (written before #697) names the material family and the
-    # per-key sources, never the material or spool: it attests the stored temps for
-    # any spool of that family, the compatibility _material_temperature_contract
-    # has always granted it. The spool-change markers name no family at all, so
-    # they are never legacy and still resolve afresh.
-    legacy = False
-    if isinstance(resolution, dict) and resolution.get("material_family") \
-            and "material" not in resolution and "spoolman_id" not in resolution:
-        try:
-            legacy = resolution.get("material_family") == material_family(material)
-        except Exception:
-            legacy = False
     if stored_ok and stored and isinstance(resolution, dict) \
             and resolution.get("material") == material \
             and resolution.get("spoolman_id") == spool.get("spoolman_id"):
@@ -431,20 +401,6 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         # filament=None and honors them; slicing used to bypass them
         # whenever orca_adapter prefetched the filament, and verification
         # then refused the G-code slicing had produced.
-        return dict(stored), resolution
-    if filament is None and stored_ok and stored and (not resolution or legacy) \
-            and _is_seeded_default(material, stored):
-        # A bare or legacy record holding exactly the family default (what seeding writes:
-        # 210/60 for every PLA) is not an operator choice; Silk PLA sliced at 210 °C on
-        # 2026-10-31 (#64).
-        stored_ok = False
-    if filament is None and stored_ok and stored and (not resolution or legacy or (
-            resolution.get("material") == material and resolution.get("spoolman_id") == spool.get("spoolman_id"))):
-        if legacy:
-            # Migrate in the returned resolution: the stored temperatures are now
-            # attested for this exact spool, so later reads take the exact-match path.
-            return dict(stored), {**resolution, "material": material,
-                                  "spoolman_id": spool.get("spoolman_id")}
         return dict(stored), resolution
     if filament is None and fetch_filament is not None and spool.get("spoolman_id") is not None:
         try:
@@ -763,7 +719,7 @@ def with_artifact_spool(state, text, lines=None, slot=None):
 
 
 def _material_temperature_contract(state):
-    """Validate selected material temperatures and retain compatibility with old state files."""
+    """Validate that the selected material is known and matches the temperatures' resolution."""
     material = (state.get("spool") or {}).get("material")
     if not material:
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
@@ -772,11 +728,11 @@ def _material_temperature_contract(state):
         if resolution["material_family"] != material_family(material):
             raise RuntimeError("stored temperature material does not match selected spool")
         return
-    # A resolution without material_family is the "resolved per slice" marker that slot sync
-    # and launch sync write; it names no material, so it cannot mismatch one. Fall through to
-    # the recognised-material check instead of refusing every slice (2.2.3, Discord 2026-10-31).
-    # Existing explicitly selected runtime temperatures remain valid for legacy state.
-    # This only validates material recognition; it never substitutes PLA for another family.
+    # A resolution without material_family is the "resolved per slice" marker that seeding,
+    # slot sync and launch sync write; it names no material, so it cannot mismatch one. Fall
+    # through to the recognised-material check instead of refusing every slice (2.2.3, Discord
+    # 2026-10-31). This only validates material recognition; it never substitutes PLA for
+    # another family.
     family = material_family(material)
     aliases = {"FLEXIBLE": "TPU", "NYLON": "PA", "POLYAMIDE": "PA"}
     family = aliases.get(family, family)
@@ -981,6 +937,7 @@ def _seed_record(view, printer_id):
         "nozzle": {"diameter_mm": float(printer["nozzle_diameter_mm"]), "type": _seed_nozzle_type(printer, view),
                    "installed": datetime.date.today().isoformat()},
         "temps_c": {"nozzle": pla["nozzle"], "bed": pla["bed"]},
+        "temperature_resolution": {"source": "seed; resolved per slice"},
         "spool": {},
         "filament_slots": {},
     }
@@ -1146,17 +1103,15 @@ def offset_authority_problems(st, variables, native):
 
 
 def spoolman_url(st=None, printer_id=None):
-    """The Spoolman base URL to use: configured settings win over the hardware record.
+    """The Spoolman base URL settings name, or "" when they name none.
 
     `services.spoolman_url` in settings (which includes the
     PRINT_HANDY__SERVICES__SPOOLMAN_URL and legacy SPOOLMAN_URL environment
     variables) is the operator's current configuration. With a printer_id,
     that printer's roster view is read instead, so an entry's own
-    spoolman_url (an outside Spoolman, #1536) wins for that printer. The
-    copy cached in printer_hardware.json can go stale during migrations —
-    it kept pointing at a decommissioned host while the bundled Spoolman
-    lived on 127.0.0.1:8000 (#235) — so it is only a fallback for when
-    settings do not name a URL.
+    spoolman_url (an outside Spoolman, #1536) wins for that printer. A
+    ``spoolman_url`` left in an old hardware record is never read: it once
+    kept pointing at a decommissioned host (#235). ``st`` is not read.
     """
     try:
         data = settings.current()
@@ -1165,9 +1120,8 @@ def spoolman_url(st=None, printer_id=None):
         configured = (data.get("services") or {}).get("spoolman_url")
     except Exception:
         configured = None
-    for candidate in (configured, (st or {}).get("spoolman_url")):
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip().rstrip("/")
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip().rstrip("/")
     return ""
 
 
@@ -1463,7 +1417,7 @@ def summary(st, calibration_owner="unknown", calibration_valid=None):
     resolution = st.get("temperature_resolution") or {}
     spool = st.get("spool") or {}
     material = spool.get("material", "unknown")
-    source = resolution.get("source", "explicit/legacy state")
+    source = resolution.get("source", "resolved per slice")
     temp_summary = f"{material} nozzle {st['temps_c']['nozzle']}°C, bed {st['temps_c']['bed']}°C ({source})"
     # A freshly provisioned record names no spool yet (P1-7): the summary
     # says so instead of crashing on the absent spool fields.

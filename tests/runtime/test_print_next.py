@@ -671,7 +671,7 @@ def _adapter_with(monkeypatch, transport, check):
     from print_handy.core import printer_state
     from print_handy.launch import gates as launch_gates
     monkeypatch.setattr(printers, 'current', lambda: S(transport=transport))
-    monkeypatch.setattr(printer_state, 'load', lambda: {'printer': 'fake'})
+    monkeypatch.setattr(printer_state, 'load', lambda *_a, **_k: {'printer': 'fake'})
     monkeypatch.setattr(printer_state, 'check', lambda st: check)
     setattr_bound(monkeypatch, launch_gates, '_printer_phase',
                         lambda st: pytest.fail('Moonraker queried for a non-Moonraker printer'))
@@ -705,7 +705,7 @@ def test_live_idle_check_still_queries_moonraker_for_moonraker_printers(monkeypa
     from print_handy.core import printer_state
     from print_handy.launch import gates as launch_gates
     monkeypatch.setattr(printers, 'current', lambda: S(transport='moonraker'))
-    monkeypatch.setattr(printer_state, 'load', lambda: {})
+    monkeypatch.setattr(printer_state, 'load', lambda *_a, **_k: {})
     monkeypatch.setattr(printer_state, 'check', lambda st: pytest.fail('adapter status used for a Moonraker printer'))
     setattr_bound(monkeypatch, launch_gates, '_printer_phase', lambda st: ('standby', '', 'Ready'))
     print_next.live_idle_check()

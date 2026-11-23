@@ -153,20 +153,6 @@ def _reconcile_native_submission(st, remote):
 START_TRANSITIONAL_STATES = start_truth.START_TRANSITIONAL_STATES
 
 
-def _reports_started(live, remote):
-    """Printing or a transitional state, naming this upload (launch_state.same_remote): start_truth.polled."""
-    return start_truth.polled(live, remote).confirmed
-
-
-def _bambu_reports_file(live, remote):
-    """True when a normalized Bambu status shows `remote` running or preparing.
-
-    `printing` covers gcode_state RUNNING, PREPARE and SLICING: an A1 unpacking a package sits
-    in PREPARE before RUNNING, and both prove the start reached it. The file name is the
-    `subtask_name` the start command set, so exact; the bare project name (the printer's
-    display spelling of the same package) is accepted too. The rule is start_truth.bambu's.
-    """
-    return start_truth.bambu(live, remote).confirmed
 
 
 # The argument names are heater_ceiling's, shared with the macro run guard (#1147).

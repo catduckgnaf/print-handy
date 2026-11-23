@@ -4,9 +4,24 @@ from print_handy.core.model_job import classify_start_readback, StartReadback
 from tests.bound_names import setattr_bound
 
 
+# A readable pre-start baseline: heaters off, nothing loaded. A snapshot's
+# evidence counts only where it differs from this. An empty baseline proves
+# no change (a missing one is not "count the live signals").
+COLD = {
+    "print_stats": {"state": "standby", "filename": ""},
+    "extruder": {"target": 0.0},
+    "heater_bed": {"target": 0.0},
+    "toolhead": {"homed_axes": ""},
+    "virtual_sdcard": {"is_active": False, "file_path": None},
+    "idle_timeout": {"state": "Ready"},
+    "zmod_ifs": {},
+    "webhooks": {"state": "ready"},
+}
+
+
 def test_classify_failed_error():
-    snap = {"print_stats": {"state": "error"}}
-    rb = classify_start_readback(snap)
+    snap = {"print_stats": {"state": "error", "filename": "x.gcode"}}
+    rb = classify_start_readback(snap, COLD)
     assert isinstance(rb, StartReadback)
     assert rb.outcome == "failed"
     assert "state" in rb.evidence
@@ -14,15 +29,15 @@ def test_classify_failed_error():
 
 
 def test_classify_failed_cancelled():
-    snap = {"result": {"status": {"print_stats": {"state": "cancelled"}}}}
-    rb = classify_start_readback(snap)
+    snap = {"result": {"status": {"print_stats": {"state": "cancelled", "filename": "x.gcode"}}}}
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "failed"
     assert rb.evidence["state"] == "cancelled"
 
 
 def test_classify_failed_webhooks_shutdown():
     snap = {"webhooks": {"state": "shutdown"}}
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "failed"
     assert rb.evidence["state"] == "shutdown"
 
@@ -35,7 +50,7 @@ def test_classify_printing_with_filament_used():
             "info": {"current_layer": 2, "total_layer": 100},
         }
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "printing"
     assert rb.message == "printing"
     assert rb.evidence["filament_used"] == 12.5
@@ -47,7 +62,7 @@ def test_classify_printing_with_extruder_delta():
         "print_stats": {"state": "printing", "filament_used": 0.0},
         "extruder_position_delta": 1.5,
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "printing"
     assert rb.message == "printing"
     assert rb.evidence["extrusion_confirmed"] is True
@@ -63,7 +78,7 @@ def test_classify_printing_zero_extrusion_layer_1():
             "info": {"current_layer": 1, "total_layer": 141},
         }
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "printing"
     assert rb.message == "printing (extrusion not yet confirmed)"
     assert rb.evidence["extrusion_confirmed"] is False
@@ -76,7 +91,7 @@ def test_classify_printing_no_extrusion_keys():
             "state": "printing",
         }
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "printing"
     assert rb.message == "printing (extrusion not yet confirmed)"
     assert rb.evidence["extrusion_confirmed"] is False
@@ -87,7 +102,7 @@ def test_classify_preparing_heating_extruder():
         "extruder": {"target": 210.0},
         "heater_bed": {"target": 0.0},
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "preparing"
     assert "heating" in rb.evidence
     assert rb.evidence["heating"]["extruder"] == 210.0
@@ -99,7 +114,7 @@ def test_classify_preparing_heating_bed():
         "extruder": {"target": 0.0},
         "heater_bed": {"target": 60.0},
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "preparing"
     assert "heating" in rb.evidence
     assert rb.evidence["heating"]["heater_bed"] == 60.0
@@ -107,8 +122,8 @@ def test_classify_preparing_heating_bed():
 
 def test_classify_homed_axes_alone_are_not_preparing():
     """Klipper keeps the axes homed between prints (the recorded idle AD5X reports homed_axes xyz),
-    so homed axes alone say nothing about a new start."""
-    rb = classify_start_readback({"toolhead": {"homed_axes": "xyz"}})
+    so homed axes alone say nothing about a new start. An empty baseline proves no change."""
+    rb = classify_start_readback({"toolhead": {"homed_axes": "xyz"}}, {})
     assert rb.outcome == "unconfirmed"
 
 
@@ -125,9 +140,10 @@ LEFTOVER = {"print_stats": {"state": "complete", "filename": "X.gcode", "total_d
 
 
 def test_a_reprints_leftover_complete_state_is_not_preparing():
-    """REPRODUCED before the fix: a leftover state=complete with the same filename read as preparing."""
-    assert classify_start_readback({"print_stats": {"state": "complete", "filename": "X.gcode"}}).outcome == "unconfirmed"
-    assert classify_start_readback(LEFTOVER).outcome == "unconfirmed"
+    """A leftover state=complete is not this start. An empty baseline proves no change;
+    the same snapshot as the baseline is the previous run still sitting there."""
+    assert classify_start_readback({"print_stats": {"state": "complete", "filename": "X.gcode"}}, {}).outcome == "unconfirmed"
+    assert classify_start_readback(LEFTOVER, {}).outcome == "unconfirmed"
     assert classify_start_readback(LEFTOVER, baseline=LEFTOVER).outcome == "unconfirmed"
 
 
@@ -162,7 +178,7 @@ def test_classify_preparing_virtual_sdcard():
     snap = {
         "virtual_sdcard": {"is_active": True, "file_path": "test.gcode"},
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "preparing"
     assert "virtual_sdcard" in rb.evidence
 
@@ -171,7 +187,7 @@ def test_classify_preparing_idle_printing():
     snap = {
         "idle_timeout": {"state": "Printing"},
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "preparing"
     assert rb.evidence["idle_timeout"] == "Printing"
 
@@ -180,14 +196,14 @@ def test_classify_preparing_ifs_loading():
     snap = {
         "zmod_ifs": {"state": "loading"},
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, COLD)
     assert rb.outcome == "preparing"
     assert "zmod_ifs" in rb.evidence
 
 
 def test_classify_unconfirmed_empty():
     snap = {}
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, {})
     assert rb.outcome == "unconfirmed"
     assert rb.evidence is None
     assert rb.message == "submitted, awaiting confirmation"
@@ -200,7 +216,7 @@ def test_classify_unconfirmed_idle_ready():
         "extruder": {"target": 0},
         "heater_bed": {"target": 0},
     }
-    rb = classify_start_readback(snap)
+    rb = classify_start_readback(snap, {})
     assert rb.outcome == "unconfirmed"
     assert rb.evidence is None
     assert rb.message == "submitted, awaiting confirmation"

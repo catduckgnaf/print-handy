@@ -379,6 +379,11 @@ def test_printer_state_check_uses_telemetry_and_spoolman_but_never_moonraker(mon
         contacted.append(f"{base_url}{path}")
         return {"id": 10, "archived": False, "filament": {"name": "white", "material": "PLA"}, "remaining_weight": 900}
     monkeypatch.setattr(spoolman_client, "request", spoolman_request)
+    configured = settings.current()
+    monkeypatch.setattr(settings, "current", lambda: {
+        **configured,
+        "services": {**(configured.get("services") or {}), "spoolman_url": "http://spoolman.test:7912"},
+    })
     record = {"bed_mm": [256, 256], "max_print_height_mm": 256,
               "nozzle": {"diameter_mm": 0.4, "type": "stainless_steel"},
               "spool": {"spoolman_id": 10, "name": "white"}, "spoolman_url": "http://spoolman.test:7912"}

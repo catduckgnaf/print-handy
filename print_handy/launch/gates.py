@@ -365,11 +365,10 @@ def require_current_artifact(job, gcode):
         # and deliberately fails this guard, because supports cannot fit
         # into a sub-1.0 mm gap. An explicit print-anyway choice, a
         # verified geometry repair, or the operator's explicit
-        # without-supports (as-authored) decision does satisfy it.
-        # Acknowledgements recorded before `via` existed keep their
-        # original print-anyway meaning.
+        # without-supports (as-authored) decision does satisfy it. An
+        # acknowledgement that records no `via` does not, and asks again.
         if not (ack.get('acknowledged')
-                and ack.get('via', 'print_anyway') in ('print_anyway', 'geometry_repair', 'without_supports')
+                and ack.get('via') in ('print_anyway', 'geometry_repair', 'without_supports')
                 and (src_sha is None or ack.get('source_sha256') == src_sha)
                 and (rec_sha is None or ack.get('recipe_sha256') == rec_sha)
                 and (gc_sha is None or ack.get('gcode_sha256') == gc_sha)):

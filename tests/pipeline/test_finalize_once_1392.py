@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
+from print_handy import printers
 from print_handy.core import model_job as job
 from print_handy.gcode import verify as gcode_verify
 from print_handy.core import orca_adapter as adapter
@@ -193,6 +194,6 @@ def test_a_single_color_slice_and_its_caller_never_list_every_command(tmp_path):
         out, provenance, _ = adapter.slice_model(source, tmp_path / "out", st, filament_slot=1)
         finalized = out.read_bytes()
         with patch.object(Path, "write_bytes", side_effect=AssertionError("rewritten")):
-            jobs_slice.finalize_multicolor(out, None, st, {"0": 1})
+            jobs_slice.finalize_multicolor(out, None, st, {"0": 1}, adapter=printers.current())
     assert out.read_bytes() == finalized
     assert provenance["gcode_sha256"] == hashlib.sha256(finalized).hexdigest()

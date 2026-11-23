@@ -337,12 +337,28 @@ def test_bare_seeded_pla_default_does_not_hold_for_the_active_silk_spool():
     assert resolution["material"] == "Silk PLA"
 
 
-def test_bare_explicit_legacy_temperatures_still_hold():
+def test_bare_stored_temperatures_resolve_afresh():
+    # A record with no temperature_resolution at all (pre-#697) no longer
+    # attests its stored temperatures (#1817): the spool resolves again.
     from print_handy.core import printer_state
     state = operator_record()
     state["spool"] = {**state["spool"], "spoolman_id": 17}
     state["temps_c"] = {"nozzle": 225, "bed": 55}
-    assert printer_state.slice_temperatures(state)[0] == {"nozzle": 225, "bed": 55}
+    temps, resolution = printer_state.slice_temperatures(state)
+    assert temps == {"nozzle": 220, "bed": 60}
+    assert resolution["material"] == "Silk PLA" and resolution["spoolman_id"] == 17
+
+
+def test_a_seeded_record_resolves_per_slice():
+    from print_handy.core import printer_state
+    seeded = printer_state._seed_record({"printer": {"name": "P", "bed_mm": [220, 220], "max_print_height_mm": 220,
+                                                     "nozzle_diameter_mm": 0.4, "nozzle_type": "hardened_steel"}},
+                                        "p1")
+    assert seeded["temperature_resolution"] == {"source": "seed; resolved per slice"}
+    state = {**seeded, "spool": {"spoolman_id": 17, "material": "Silk PLA"}}
+    temps, resolution = printer_state.slice_temperatures(state, fetch_filament=lambda spool_id: None)
+    assert temps == {"nozzle": 220, "bed": 60}
+    assert resolution["material"] == "Silk PLA"
 
 
 def _legacy_resolution_state(material="PLA", family="PLA", temps=(225, 65), spoolman_id=7):
@@ -357,15 +373,14 @@ def _legacy_resolution_state(material="PLA", family="PLA", temps=(225, 65), spoo
                                        "source": "Spoolman filament"}}
 
 
-def test_legacy_family_only_resolution_preserves_recorded_temperatures():
-    """P2-276: upgrading an old record must not discard its recorded temperatures.
-    With Spoolman unavailable the record used to fall back to the 210/60 defaults,
-    silently changing slices and making verification reject previously valid files."""
+def test_legacy_family_only_resolution_resolves_afresh():
+    """A pre-#697 family-only resolution no longer attests the stored
+    temperatures (#1817): the spool resolves again, here at the PLA defaults
+    with Spoolman unavailable. `set --spool` records an exact resolution."""
     from print_handy.core import printer_state
     temps, resolution = printer_state.slice_temperatures(
         _legacy_resolution_state(), fetch_filament=lambda spool_id: None)
-    assert temps == {"nozzle": 225, "bed": 65}
-    # The record migrates to the current shape, attested for this spool.
+    assert temps == {"nozzle": 210, "bed": 60}
     assert resolution["material"] == "PLA"
     assert resolution["spoolman_id"] == 7
 

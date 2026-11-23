@@ -26,7 +26,7 @@ def setup_job(tmp_path, monkeypatch):
     p=source(tmp_path); jp=tmp_path/'JOB.json'
     jp.write_text(json.dumps({'downloaded_file':str(p),'audit':{'plates':1,'size_x':40,'size_y':10,'size_z':1}}))
     jobs_prompts.intake_color_choices(jp,st,'single_color',[1])
-    monkeypatch.setattr(mj.printer_state,'load',lambda:st)
+    monkeypatch.setattr(mj.printer_state,'load',lambda *_a, **_k: st)
     monkeypatch.setattr(mj.printer_state,'check',lambda _: (True,[],{}))
     def slice_fake(src,folder,st,brim,color_decisions,filament_slot=None, copies=1):
         folder.mkdir(parents=True); out=folder/'plate_1.gcode'
@@ -72,7 +72,7 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
     from print_handy.core import color_geometry, source_colors
     from .test_multicolor_contract import artifact, detail, transport
     st = copy.deepcopy(mj.printer_state.load())
-    monkeypatch.setattr(mj.printer_state, 'load', lambda: st)
+    monkeypatch.setattr(mj.printer_state, 'load', lambda *_a, **_k: st)
     monkeypatch.setattr(mj.printer_state, 'check', lambda _: (True, [], {}))
     p = source(tmp_path)
     jp = tmp_path / 'JOB.json'

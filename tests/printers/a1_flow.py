@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "tests" / "pipeline" / "fixtures" / "printer_hardware.json"
 
 
-def a1_state():
+def a1_state(*_args, **_kwargs):
     st = copy.deepcopy(json.loads(STATE.read_text()))
     st.update(printer="Bambu Lab A1", moonraker_url="", filament_slots={}, bed_mm=[256, 256], max_print_height_mm=256,
               axis_limits_mm={"x": [0, 256], "y": [0, 256], "z": [0, 256]})

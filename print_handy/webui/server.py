@@ -909,7 +909,7 @@ class _Handler(BaseHTTPRequestHandler):
             content_type = self.headers.get("Content-Type") or ""
             if route.multipart and content_type.startswith("multipart/form-data"):
                 # Gate before the body is read: an upload body can run to
-                # the shared download budget (~200 MiB), so an
+                # the upload ceiling (MAX_UPLOAD_BYTES, gigabytes), so an
                 # unauthenticated client must not be able to make the
                 # server receive and parse one. The gate is the read rule
                 # (session first, so a browser request does not trip the

@@ -444,7 +444,7 @@ def _box_stl(path, width, depth, height):
         + 'endloop\nendfacet\n' for face in faces) + 'endsolid box\n')
 
 
-def _slice_state():
+def _slice_state(*_args, **_kwargs):
     return {'bed_mm': [220, 220], 'max_print_height_mm': 250,
             'nozzle': {'diameter_mm': 0.4},
             'spool': {'name': 'PLA', 'material': 'PLA', 'density': 1.24},
@@ -845,7 +845,7 @@ class MeshTopologyAuditTests(unittest.TestCase):
         # A child timeout makes quadratic regressions fail, rather than hang
         # the entire test runner. 20k faces would create ~400M pair links.
         code = (
-            "import json; from print_handy.core.model_job import mesh_topology; "
+            "import json; from print_handy.jobs.audit import mesh_topology; "
             "print(json.dumps(mesh_topology([[(0,0,0),(1,0,0),(0,i+1,1)] "
             "for i in range(20000)])))"
         )
@@ -1861,7 +1861,9 @@ class TaskT0b676477Tests(unittest.TestCase):
         folder = Path(d) / "job"; (folder / "out").mkdir(parents=True)
         g = folder / "out" / "x.gcode"
         g.write_text("START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60" + (" Z_OFFSET=-0.2" if z else "") + "\n")
-        (folder / "JOB.json").write_text(json.dumps({"title": "X", "gcode": str(g)}))
+        (folder / "JOB.json").write_text(json.dumps({
+            "title": "X", "gcode": str(g),
+            "printer_model": settings.current()["printer"]["model"]}))
         return folder / "JOB.json"
 
     def test_missing_z_offset_no_longer_refuses_and_details_show_screen_offset_and_mesh(self):
@@ -2333,8 +2335,11 @@ def test_assign_print_number_mints_per_launch_and_ignores_scratch_jobs(tmp_path,
     assert launch_print_now._assign_print_number(job) == 5
     assert launch_print_now._assign_print_number(job) == 6
     registry = json.loads(numbers.read_text())
-    assert registry['numbers'][str(job.resolve())] == 5
-    assert [entry['number'] for entry in registry['launches']] == [5, 6]
+    # The old per-job map is adopted into launches and not written back.
+    assert "numbers" not in registry
+    assert [entry["number"] for entry in registry["launches"]] == [4, 5, 6]
+    assert min(entry["number"] for entry in registry["launches"]
+               if Path(entry["job"]) == job.resolve()) == 5
     scratch = tmp_path / 'scratch' / 'JOB.json'
     scratch.parent.mkdir()
     scratch.write_text('{}')

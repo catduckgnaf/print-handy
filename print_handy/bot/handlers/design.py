@@ -252,7 +252,7 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     is_command = command_args is not None
     from print_handy.core import design
     from print_handy.core.link_intake import model_link
-    from print_handy.core.prepared_intake import model_file
+    from print_handy.core.prepared_intake import model_files
     cfg = _config.cfg()
     root = _design_root(cfg)
     owner = _design_owner(source)
@@ -275,7 +275,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         if parsed is None:
             return None
         kind, rest = parsed
-        attached = model_file(event) or _design_file(event)
+        dropped = model_files(event)
+        attached = (dropped[0] if len(dropped) == 1 else None) or _design_file(event)
         linked = model_link(text)
         if attached or linked:
             intent = ("edit", rest, attached, linked)
@@ -364,7 +365,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
             return {'action': 'skip', 'reason': 'design needs a model or a description'}
         else:
             if kind == "command":
-                attached = model_file(event) or _design_file(event)
+                dropped = model_files(event)
+                attached = (dropped[0] if len(dropped) == 1 else None) or _design_file(event)
                 linked = model_link(instruction)
                 if attached or linked:
                     kind, file_path, link_url = "edit", attached, linked

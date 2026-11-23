@@ -9,6 +9,7 @@ from unittest import mock
 from unittest.mock import patch
 
 import pytest
+from print_handy import settings
 from print_handy.core import orca_adapter as adapter
 from print_handy.core import model_job as job
 from tests.bound_names import patch_bound
@@ -39,6 +40,10 @@ def test_offline_verification_requires_effective_nozzle_temperature(tmp_path, mo
     state_data = state()
     state_data["nozzle"]["type"] = "hardened_steel"
     state_data["temps_c"]["nozzle"] = 220
+    state_data["temperature_resolution"] = {
+        "material": state_data["spool"]["material"],
+        "spoolman_id": state_data["spool"].get("spoolman_id"),
+    }
     base_config = settings.current()
     monkeypatch.setattr(settings, "current", lambda: {**base_config, "nozzle_temp_offsets": {"hardened_steel": 5}})
     content = (
@@ -254,7 +259,9 @@ def test_print_now_native_busy_cannot_consume_or_upload(tmp_path):
     gcode = tmp_path / 'coupon.gcode'
     gcode.write_text('START_PRINT MESH=MESH_DATA\n')
     manifest = tmp_path / 'JOB.json'
-    manifest.write_text(json.dumps({'gcode': str(gcode), 'filament_selection': {'slot': 4}}))
+    manifest.write_text(json.dumps({
+        'gcode': str(gcode), 'filament_selection': {'slot': 4},
+        'printer_model': settings.current()['printer']['model']}))
     with mock.patch.object(job.printer_state, 'load', return_value={'display_off': 0}), \
          patch_bound(launch_gates, '_printer_phase', return_value=('standby', '', 'Ready')), \
          patch_bound(launch_gates, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \

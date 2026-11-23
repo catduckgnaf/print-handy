@@ -9,12 +9,12 @@ Safety limits in this revision:
 
 | Resource | Limit |
 | --- | --- |
-| Download or local source | 200 MiB |
+| Download or local source | No byte cap; refused only when the volume would drop below 512 MiB free |
 | ZIP members | 4,096 |
 | Total expanded ZIP content | 512 MiB |
 | Any expanded ZIP member | 400 MiB |
 | Aggregate `.model` XML | 400 MiB |
-| STL file | 32 MiB |
+| STL file | No byte cap; triangle count (binary header, ASCII facets) under the triangle budget |
 | XML triangles / vertices | 10,000,000 each |
 | XML elements across models | 40,000,000 |
 | Estimated geometry working storage | 1,536 MiB |
@@ -22,9 +22,12 @@ Safety limits in this revision:
 ZIP sizes are checked before opening any member. Model XML is then counted
 with a streaming parser. XML document type declarations are refused. Binary
 STL triangle counts are checked from the header when its length matches the
-file. The STL byte limit also applies to ASCII STL. Site downloads count actual
-streamed bytes even if Content-Length is missing or incorrect; failed partial
-downloads are removed.
+file. ASCII STL is counted by its facets with a streaming read, and a file that
+is neither is sized as a binary STL would be, so no STL skips the triangle
+budget. There is no download or STL byte cap (#1824): a download, upload or
+archive extraction is stopped only when it would leave less than 512 MiB free on
+the volume, and the partial file is removed. A ZIP member compressed more than
+100:1 is refused as a zip bomb on every path, including site downloads.
 
 Discord upload, link and reprint intake check before title extraction, audit and
 color prompts. Direct audit, color inventory and geometry loading apply the same

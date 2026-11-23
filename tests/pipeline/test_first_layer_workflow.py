@@ -49,7 +49,7 @@ def offline_hardware(monkeypatch):
         'axis_limits_mm': {'x': [0, 223], 'y': [0, 223], 'z': [0, 250]},
         'calibration_baseline': {'native_mesh': 'auto'},
     }
-    monkeypatch.setattr(job.printer_state, 'load', lambda: copy.deepcopy(state))
+    monkeypatch.setattr(job.printer_state, 'load', lambda *_a, **_k: copy.deepcopy(state))
     monkeypatch.setattr(job.printer_state, 'check', lambda st: (True, [], {}))
 
     def offline_query(st, path, data=None, timeout=30):

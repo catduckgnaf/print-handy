@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from print_handy import settings
+from print_handy import printers, settings
 from print_handy.core import color_geometry, orca_adapter, source_colors
 from print_handy.gcode import verify as gcode_verify
 from print_handy.jobs import filament as jobs_filament
@@ -84,7 +84,7 @@ def _single(tmp, shapes, brim):
         item_shifts={str(p["object_id"]): [0.0, 0.0, 0.0] for p in manifest["parts"]})
     out, _prov, _cfg = orca_adapter.slice_model(plate, tmp / "out", state, brim, preserve_layout=True,
                                                 filament_slot=1)
-    jobs_slice.finalize_multicolor(out, None, state, {"0": 1})
+    jobs_slice.finalize_multicolor(out, None, state, {"0": 1}, adapter=printers.current())
     gcode_verify.verify_gcode_offline(out, state)
     return _extents(out)
 

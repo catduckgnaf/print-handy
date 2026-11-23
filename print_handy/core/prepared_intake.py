@@ -869,12 +869,6 @@ def archive_files(event):
             if (path := Path(str(p))).suffix.lower() in ARCHIVE_EXTS and path.is_file()]
 
 
-def model_file(event):
-    """Single-file compatibility selector for existing design/edit callers."""
-    hits = model_files(event)
-    return hits[0] if len(hits) == 1 else None
-
-
 def upload_job(path):
     """Local job for a file the operator downloaded themselves; same shape as a one-profile site inventory."""
     name = re.sub(r'^doc_[0-9a-f]{12}_', '', Path(path).name)

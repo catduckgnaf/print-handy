@@ -142,6 +142,7 @@ def test_two_printers_binding_against_one_spoolman_lose_nothing(tmp_path):
 # ------------------------------------------------- (b) start while printing
 
 def test_start_while_printing_is_refused_and_touches_nothing(tmp_path, monkeypatch):
+    from print_handy import settings
     from print_handy.core import model_job as job
     from print_handy.gcode import verify as gcode_verify
     from print_handy.jobs import common as jobs_common
@@ -152,7 +153,8 @@ def test_start_while_printing_is_refused_and_touches_nothing(tmp_path, monkeypat
     (folder / "out").mkdir(parents=True)
     gcode = folder / "out" / "x.gcode"
     gcode.write_text("G1 X0\n")
-    job_doc = {"title": "Race Widget", "gcode": str(gcode)}
+    job_doc = {"title": "Race Widget", "gcode": str(gcode),
+               "printer_model": settings.current()["printer"]["model"]}
     (folder / "JOB.json").write_text(json.dumps(job_doc))
 
     uploads, starts = [], []

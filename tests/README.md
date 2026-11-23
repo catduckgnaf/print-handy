@@ -38,7 +38,7 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Support coverage golden pack (truth-labeled adversarial geometry) | `tests/pipeline/test_support_coverage_golden_pack.py` (extends the per-fix files `test_support_coverage_963.py`, `test_support_coverage_969.py`) |
 | Event starvation (fake clock, zero status events) | `tests/test_event_starvation.py` |
 | Renamed-key reader completeness (#672 renames) | `tests/test_renamed_key_readers.py` |
-| Entrypoint × state-volume layout matrix (#914); unwritable data folder message and the Compose init service failure (#1144) | `tests/test_entrypoint_layout_matrix.py` |
+| Entrypoint × state-volume layout matrix and the refusal of state left only in the old `hermes` folder (#914, #1817); unwritable data folder message and the Compose init service failure and refusal (#1144, #1817) | `tests/test_entrypoint_layout_matrix.py` |
 | Wrapped aggregates from real record writers; ffmpeg pacing | `tests/test_wrapped_records_from_writers.py` |
 | Bambu HMS table content integrity across regenerations | `tests/printers/test_bambu_hms.py`, `tests/printers/test_bambu_hms_generator.py` |
 | Docker image, release contracts, supervisor, healthcheck | `tests/test_docker_release*.py`, `tests/docker/`, `tests/test_combined_supervisor.py`, `tests/test_go2rtc_container.py`, `tests/test_native_release_acceptance.py` |
@@ -388,22 +388,21 @@ common text by majority and by odd-one-out, not only the 093/094 tie-breaks.
 - Round-2 homes (2026-11-07 cleanup follow-up): the Cloudflare Worker
   example tests (`tests/test_cloudflare_examples.py`) run in the offline
   legs, which now install Node.js the same way they install OpenSCAD and
-  tesseract; the real bind-mount state-volume test
-  (`tests/test_state_volume.py::TestEntrypointMigration::test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied`)
-  runs in the dedicated `State volume (real bind mount)` CI job on the
-  runner VM, because `unshare -rm` is refused inside the offline job's
-  container — that job probes namespaces first and fails loudly rather
-  than skipping; and the complex-corpus fetched-files contract
+  tesseract; the real bind-mount state-volume cell (below) runs in the
+  dedicated `State volume (real bind mount)` CI job on the runner VM,
+  because `unshare -rm` is refused inside the offline job's container —
+  that job probes namespaces first and fails loudly rather than
+  skipping; and the complex-corpus fetched-files contract
   (`tests/corpus/test_complex_corpus.py::test_fetched_files_match_the_manifest`)
   runs in the weekly `model-corpus.yml` workflow (shard 0) against the
   corpus it fetches, under `PRINT_HANDY_PRIVATE_CORPUS`.
 - One real-mountpoint cell is gated by name and runs in CI:
-  `test_mounted_state_volume_copies_instead_of_symlinking` in
+  `test_an_empty_mounted_state_volume_with_legacy_data_refuses` in
   `tests/test_entrypoint_layout_matrix.py` (`container`-marked) runs only
   with `PRINT_HANDY_LAYOUT_TEST_MOUNT=1`, which the `State volume (real bind
   mount)` job in `ci.yml` sets in its own step. The test makes the real
   mountpoint itself (a bind mount inside `unshare -rm`, the Compose shape)
-  next to a populated legacy volume, and fails rather than skips when the
+  next to a populated old `hermes` folder, and fails rather than skips when the
   namespaces are unavailable. Elsewhere it stays skipped. It is also listed
   in the live-proof roster below.
 - Synthetic geometry fixtures are labeled synthetic in the file that
@@ -449,7 +448,7 @@ runs them; no offline suite substitutes for them:
 | Multi-platform live bot pass (Discord / Telegram / Matrix) | #812 |
 | Watchdog camera accuracy on a real camera | #455 |
 | GPU-host vision provider run | #455 |
-| Entrypoint mounted-volume copy cell (`PRINT_HANDY_LAYOUT_TEST_MOUNT=1`, runs in the `State volume (real bind mount)` CI job) | `tests/test_entrypoint_layout_matrix.py` (`container`-marked) |
+| Entrypoint mounted-volume refusal cell (`PRINT_HANDY_LAYOUT_TEST_MOUNT=1`, runs in the `State volume (real bind mount)` CI job) | `tests/test_entrypoint_layout_matrix.py` (`container`-marked) |
 
 ## Slicing-speed gate (#734)
 

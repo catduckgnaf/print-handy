@@ -18,7 +18,7 @@ from .prompts import (
 from .slice import plate_manifest, prepare_first_layer, slice_job
 from .sources import download_for_site, inventory_for_url
 from .store import (
-    _printer_key, intake_folder, save_filament_selection, set_color_decisions, stamp_job_printer,
+    _job_printer_id, intake_folder, save_filament_selection, set_color_decisions, stamp_job_printer,
     write_job,
 )
 from ..launch.print_now import ToolRemapRefused, print_now, record_start, remap_slot
@@ -276,7 +276,7 @@ def _main():
         print(json.dumps(read_filament_telemetry(st), indent=2))
         return
     if a.cmd=="reconcile-launch":
-        key=_printer_key(printer_state.load())
+        key=_job_printer_id(None)
         if a.started or a.not_started:
             launch_state.resolve(key, "started" if a.started else "not_started")
         else:

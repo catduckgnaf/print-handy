@@ -8,8 +8,9 @@ discarded. These tests pin the replacement behaviour:
 
 - check() reports every Spoolman outcome (unreachable, archived, renamed,
   missing) as a warning in facts, never as a problem; ok is unaffected.
-- The Spoolman URL comes from settings (services.spoolman_url) when set, and
-  only falls back to the hardware record's cached URL otherwise.
+- The Spoolman URL comes from settings (services.spoolman_url, or that
+  printer's own roster entry). A spoolman_url left in the hardware record
+  is never read (#235).
 - verify_gcode() proceeds on the recorded state and prints the warning.
 - orca_adapter's derived-plate slot check warns on any Spoolman outcome and
   slices on the slot's operator-verified record.
@@ -34,6 +35,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "printer_hardware.json"
 
 GENERIC_STATE = {"moonraker_url": "http://printer.test:7125", "printer": "Test Klipper",
                  "nozzle": {"diameter_mm": 0.4, "type": "brass"}, "temps_c": {"nozzle": 215, "bed": 60},
+                 "temperature_resolution": {"material": "PLA", "spoolman_id": 7},
                  "spool": {"spoolman_id": 7, "name": "Black PLA", "material": "PLA"},
                  "spoolman_url": "http://stale.test:7912"}
 
@@ -57,7 +59,17 @@ def use_generic(monkeypatch):
     data = settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": "klipper.generic"})
     adapter = printers.get("klipper.generic", data)
     monkeypatch.setattr(printers, "current", lambda config=None: adapter)
+    # Spoolman is no longer read from the hardware record (#235). These
+    # checks still need a configured URL so the lookup runs and stays a warning.
+    configure_spoolman(monkeypatch)
     return adapter
+
+
+def configure_spoolman(monkeypatch, url="http://spoolman.test:7912"):
+    base = settings.current()
+    data = {**base, "services": {**(base.get("services") or {}), "spoolman_url": url}}
+    monkeypatch.setattr(settings, "current", lambda: data)
+    return data
 
 
 def moonraker_get(spool_reply):
@@ -133,6 +145,7 @@ def test_offline_check_spoolman_down_still_ok(monkeypatch):
     stub = mock.Mock(connection="offline", transport=None, has_native_screen=False)
     stub.readiness_problems = lambda st, snapshot: []
     monkeypatch.setattr(printers, "current", lambda config=None: stub)
+    configure_spoolman(monkeypatch)
     with mock.patch.object(printer_state, "_get", side_effect=urllib.error.URLError("Connection refused")), \
          mock.patch.object(spoolman_client, "request",
                            spoolman_request(urllib.error.URLError("Connection refused"))):
@@ -165,13 +178,13 @@ def test_real_hardware_problem_still_blocks_despite_spoolman_warning(monkeypatch
 # --------------------------------------------------------------------- URL resolution
 
 def test_spoolman_url_prefers_settings_over_stale_record(monkeypatch):
+    use_generic(monkeypatch)
     monkeypatch.setattr(printer_state.settings, "current",
                         lambda: {"services": {"spoolman_url": "http://configured.test:8000/"}})
     assert printer_state.spoolman_url(dict(GENERIC_STATE)) == "http://configured.test:8000"
     contacted = []
     reply = {"id": 7, "filament": {"name": "Black PLA", "material": "PLA"}}
 
-    use_generic(monkeypatch)
     with mock.patch.object(printer_state, "_get", moonraker_get(reply)), \
          mock.patch.object(spoolman_client, "request", spoolman_request(reply, contacted)):
         ok, probs, facts = printer_state.check(dict(GENERIC_STATE))
@@ -181,26 +194,26 @@ def test_spoolman_url_prefers_settings_over_stale_record(monkeypatch):
     assert not any("stale.test" in str(base) for _m, _p, base in contacted)
 
 
-def test_spoolman_url_falls_back_to_record_when_settings_empty(monkeypatch):
+def test_spoolman_url_ignores_a_stale_record_when_settings_are_empty(monkeypatch):
     monkeypatch.setattr(printer_state.settings, "current", lambda: {"services": {"spoolman_url": ""}})
-    assert printer_state.spoolman_url(dict(GENERIC_STATE)) == "http://stale.test:7912"
+    assert printer_state.spoolman_url(dict(GENERIC_STATE)) == ""
     assert printer_state.spoolman_url({}) == ""
     assert printer_state.spoolman_url(None) == ""
 
 
-def test_spoolman_url_survives_broken_settings(monkeypatch):
+def test_spoolman_url_ignores_a_stale_record_when_settings_are_broken(monkeypatch):
     def broken():
         raise RuntimeError("settings unavailable")
 
     monkeypatch.setattr(printer_state.settings, "current", broken)
-    assert printer_state.spoolman_url(dict(GENERIC_STATE)) == "http://stale.test:7912"
+    assert printer_state.spoolman_url(dict(GENERIC_STATE)) == ""
 
 
 # --------------------------------------------------------------------- verify_gcode
 
 def test_verify_gcode_proceeds_and_warns_when_spoolman_down(monkeypatch, tmp_path, capsys):
     use_generic(monkeypatch)
-    monkeypatch.setattr(printer_state, "load", lambda: dict(GENERIC_STATE))
+    monkeypatch.setattr(printer_state, "load", lambda *_a, **_k: dict(GENERIC_STATE))
     down = urllib.error.URLError("Connection refused")
     with mock.patch.object(printer_state, "_get", moonraker_get(down)), \
          mock.patch.object(spoolman_client, "request", spoolman_request(down)):
@@ -217,7 +230,7 @@ def test_verify_gcode_proceeds_and_warns_when_spoolman_down(monkeypatch, tmp_pat
 # --------------------------------------------------------------------- orca slot check
 
 def _derived_state():
-    st = copy.deepcopy(model_job.printer_state.load())
+    st = json.loads(FIXTURE.read_text())
     st["spool"] = {"spoolman_id": 12, "name": "Dark Green PLA", "material": "PLA",
                    "diameter_mm": 1.75, "density": 1.24}
     return st
@@ -239,7 +252,9 @@ def _derived_source(tmp_path):
     return source
 
 
-def test_derived_plate_slices_when_spoolman_unreachable(tmp_path, capsys):
+def test_derived_plate_slices_when_spoolman_unreachable(tmp_path, capsys, monkeypatch):
+    configure_spoolman(monkeypatch)
+    spoolman_client.reset_notice()
     st = _derived_state()
     with patch.object(orca_adapter.subprocess, "run", side_effect=_fake_slice), \
          patch.object(urllib.request, "urlopen", side_effect=urllib.error.URLError("Connection refused")):
@@ -252,7 +267,8 @@ def test_derived_plate_slices_when_spoolman_unreachable(tmp_path, capsys):
     assert capsys.readouterr().out.count(spoolman_client.UNAVAILABLE_NOTICE) == 1
 
 
-def test_derived_plate_slices_when_spoolman_says_archived(tmp_path, capsys):
+def test_derived_plate_slices_when_spoolman_says_archived(tmp_path, capsys, monkeypatch):
+    configure_spoolman(monkeypatch)
     st = _derived_state()
     spool = io.BytesIO(json.dumps({"archived": True, "filament": {"material": "PLA"}}).encode())
     with patch.object(orca_adapter.subprocess, "run", side_effect=_fake_slice), \

@@ -608,7 +608,9 @@ def test_ad5x_pin_pause_sends_one_moonraker_pause_and_reads_back():
                 {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
     with mock.patch("print_handy.runtime.print_control.status", side_effect=lambda: next(seq)), \
             mock.patch("print_handy.runtime.print_control._call") as call:
-        out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode"}, pause_wait_s=2, pause_poll_s=0.01)
+        out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode",
+                                         "printer_id": settings.default_printer_id()},
+                               pause_wait_s=2, pause_poll_s=0.01)
     assert out == "Paused. Printer now reports paused."
     _assert_one_pause(call)
 

@@ -62,7 +62,7 @@ def template(key, name="machine"):
     return json.loads((adapter_for(key).templates_dir() / f"{name}.json").read_text())
 
 
-def state():
+def state(*_args, **_kwargs):
     st = copy.deepcopy(json.loads(STATE.read_text()))
     st.update(printer="Bambu Lab A1", moonraker_url="", filament_slots={}, bed_mm=[256, 256], max_print_height_mm=256)
     st["nozzle"]["type"] = "stainless_steel"
@@ -568,6 +568,8 @@ def test_abrasive_filament_on_hardened_steel_passes():
 def test_gcode_must_match_the_hardware_record():
     st = state()
     st["spool"]["material"], st["temps_c"]["bed"] = "PETG", 80
+    # Stored temps are used only when the resolution names this spool (#1817).
+    st["temperature_resolution"] = {"material": "PETG", "spoolman_id": st["spool"]["spoolman_id"]}
     found = " ".join(problems(a1_gcode(), st))
     assert "filament_type 'PLA' != loaded 'PETG'" in found and "recorded bed temperature 80" in found
 
@@ -578,6 +580,7 @@ def petg_state():
     st = state()
     st["spool"].update(material="PETG", density=1.27)
     st["temps_c"].update(nozzle=240, bed=80)
+    st["temperature_resolution"] = {"material": "PETG", "spoolman_id": st["spool"]["spoolman_id"]}
     return st
 
 
@@ -830,6 +833,9 @@ def run_a1_flow(tmp_path, gcode_text):
            "PRINT_HANDY__PATHS__STATE_HOME": str(tmp_path / "hermes")}
     for key in [k for k in env if k.startswith("PRINT_HANDY__SERVICES__")]:
         env.pop(key)
+    # The hardware record's spoolman_url is never read (#235). The flow's
+    # spool lookup uses the configured services URL.
+    env["PRINT_HANDY__SERVICES__SPOOLMAN_URL"] = "http://spoolman.test:7912"
     out = subprocess.run([sys.executable, "-m", "tests.printers.a1_flow", str(tmp_path / "work"), "--fake-gcode", str(fake),
                           "--fixture-resources", str(a1_fixture.RESOURCES)],
                          cwd=ROOT, capture_output=True, text=True, env=env, timeout=600)
@@ -895,7 +901,12 @@ def a1_current(monkeypatch):
     return contacted
 
 
-def test_hardware_check_reads_only_spoolman(a1_current):
+def test_hardware_check_reads_only_spoolman(a1_current, monkeypatch):
+    configured = settings.current()
+    monkeypatch.setattr(settings, "current", lambda: {
+        **configured,
+        "services": {**(configured.get("services") or {}), "spoolman_url": "http://spoolman.test:7912"},
+    })
     ok, found, record = printer_state.check(state())
     assert (ok, found, record["connection"]) == (True, [], "bambulab_lan")
     assert record["lan_configured"] is False

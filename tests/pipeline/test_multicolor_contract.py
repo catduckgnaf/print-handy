@@ -7,6 +7,7 @@ import sys
 from unittest.mock import patch
 
 import pytest
+from print_handy import settings
 from print_handy.core import model_job as job
 from print_handy.gcode import artifact as gcode_artifact
 from print_handy.gcode import verify as gcode_verify
@@ -215,7 +216,9 @@ def test_idle_guard_refusal_happens_before_approval_upload_and_start(tmp_path):
     native['platTemp'] = 55.62
     mesh = {'display_off':0, 'profile':'MESH_DATA', 'problem':None}
     job_path = tmp_path/'JOB.json'
-    job_path.write_text(json.dumps({'gcode': str(path), 'approvals': []}))
+    job_path.write_text(json.dumps({
+        'gcode': str(path), 'approvals': [],
+        'printer_model': settings.current()['printer']['model']}))
     def transport(_st, route, data=None, **kwargs):
         if data is not None:
             submissions.append((route, data))

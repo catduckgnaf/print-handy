@@ -44,6 +44,7 @@ SPOOLMAN = {19: {"id": 19, "remaining_weight": 0}, 21: {"id": 21, "remaining_wei
 @pytest.fixture
 def two_slot(tmp_path):
     """The mapped AD5X launch with T0 -> slot 2 (0 g in Spoolman) and T1 -> slot 3 (787.1 g)."""
+    from print_handy import settings
     from print_handy.printers import flashforge
     from print_handy.printers.flashforge.zmod import screen as zmod_screen
     native = mock.Mock(spec=flashforge.zmod)
@@ -51,6 +52,9 @@ def two_slot(tmp_path):
     native.require_idle_settled.return_value = True
     native.screen_label_matches.side_effect = zmod_screen.label_matches
     adapter = mock.Mock(native=native)
+    # The job records the configured model. The adapter's key has to be that
+    # model or the launch builds the real printer instead of this fake.
+    adapter.key = settings.current()["printer"]["model"]
     scripts = []
 
     def fake_mr(st, path, data=None, timeout=30):
@@ -69,19 +73,8 @@ def two_slot(tmp_path):
     st = {"moonraker_url": PRINTER, "spoolman_url": "http://spoolman.invalid",
           "filament_slots": json.loads(json.dumps(SLOTS))}
     with mock.patch.object(model_job.printers, "current", return_value=adapter), \
-         mock.patch.object(print_now, "START_CLAIMS", tmp_path / "claims.json"), \
-         patch_bound(launch_gates, "validate_saved_mesh_start"), \
-         patch_bound(jobs_common, "_mr", side_effect=fake_mr), \
-         patch_bound(jobs_filament, "read_stock_detail", return_value={}), \
-         patch_bound(jobs_filament, "read_stock_filament_slots_from_detail", return_value={2: True, 3: True}), \
-         patch_bound(print_now, "_sync_active_spool"), \
-         mock.patch.object(print_now, "_announce_print_name"), \
-         mock.patch.object(print_now, "_publish_job_card"), \
-         mock.patch.object(print_now, "_assign_print_number", return_value=None), \
-         patch_bound(print_now, "record_start", return_value="/vault/x.md"), \
-         mock.patch.object(print_now, "_wait_printing", return_value="standby"), \
-         mock.patch.object(print_now, "_preparation_evidence", return_value=False), \
-         mock.patch.object(spoolman_client, "get_spool", side_effect=lambda sid, **k: SPOOLMAN.get(sid)), \
+         mock.patch.object(print_now, "START_CLAIMS", tmp_path / "claims.json"),          patch_bound(launch_gates, "validate_saved_mesh_start"),          patch_bound(jobs_common, "_mr", side_effect=fake_mr),          patch_bound(jobs_filament, "read_stock_detail", return_value={}),          patch_bound(jobs_filament, "read_stock_filament_slots_from_detail", return_value={2: True, 3: True}),          patch_bound(print_now, "_sync_active_spool"),          mock.patch.object(print_now, "_announce_print_name"),          mock.patch.object(print_now, "_publish_job_card"),          mock.patch.object(print_now, "_assign_print_number", return_value=None),          patch_bound(print_now, "record_start", return_value="/vault/x.md"),          mock.patch.object(print_now, "_wait_printing", return_value="standby"),          mock.patch.object(print_now, "_preparation_evidence", return_value=False),          mock.patch.object(print_now.printer_state, "spoolman_url",
+                           return_value="http://spoolman.invalid"),          mock.patch.object(spoolman_client, "get_spool", side_effect=lambda sid, **k: SPOOLMAN.get(sid)), \
          mock.patch.object(model_job.subprocess, "run", side_effect=upload_ok) as run:
         yield mock.Mock(scripts=scripts, run=run, st=st, root=tmp_path)
 

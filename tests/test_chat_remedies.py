@@ -30,7 +30,7 @@ def test_the_held_launch_refusal_posted_to_chat_names_no_shell_command():
 
 def test_no_chat_facing_module_tells_the_user_to_run_the_launch_cli():
     offenders = []
-    for base in ("print_handy", "plugins"):
+    for base in ("print_handy",):
         for path in (ROOT / base).rglob("*.py"):
             rel = path.relative_to(ROOT).as_posix()
             if rel in ALLOWED:

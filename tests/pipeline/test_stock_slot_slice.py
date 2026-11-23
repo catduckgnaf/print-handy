@@ -51,7 +51,7 @@ def test_finalize_inserts_nothing_for_a_printer_without_the_zmod_contract(tmp_pa
     gcode = tmp_path / 'plate_1.gcode'
     gcode.write_text('T0\nG90\n')
     with patch.object(printers, 'current', stock):
-        assert jobs_slice.finalize_multicolor(gcode, None, state(), {'0': 2}) is None
+        assert jobs_slice.finalize_multicolor(gcode, None, state(), {'0': 2}, adapter=printers.current()) is None
     assert gcode.read_text() == 'T0\nG90\n'
 
 

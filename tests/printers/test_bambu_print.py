@@ -13,7 +13,7 @@ import zipfile
 import pytest
 
 from print_handy import printers, settings
-from print_handy.core import delivery, launch_state, model_job
+from print_handy.core import delivery, launch_state, start_truth
 from print_handy.gcode import verify as gcode_verify
 from print_handy.jobs import store as jobs_store
 from print_handy.launch import gates as launch_gates
@@ -300,7 +300,7 @@ def test_print_bambu_window_ending_in_standby_keeps_the_lease_uncertain_with_the
                for l in polls)
     # And a later start on this printer is refused until the operator reconciles: never resubmitted.
     with pytest.raises(SystemExit, match="REFUSED: an earlier start on this printer is uncertain"):
-        REAL_ACQUIRE(jobs_store._printer_key(RECORD), remote=remote)
+        REAL_ACQUIRE(jobs_store._job_printer_id(None), remote=remote)
 
 
 def test_print_bambu_confirmation_keeps_polling_through_a_failed_snapshot(monkeypatch, rig):
@@ -322,9 +322,11 @@ def test_print_bambu_uncertain_detail_reports_the_last_readable_state(monkeypatc
     assert "state standby (IDLE)" in row["detail"] and "last of 4 snapshot(s)" in row["detail"]
 
 
-def test_bambu_reports_file_accepts_preparing_and_running_with_the_submitted_name():
+def test_bambu_start_truth_accepts_preparing_and_running_with_the_submitted_name():
     remote = "plate_1.gcode.3mf"
-    reports = model_job._bambu_reports_file
+
+    def reports(live, rem):
+        return start_truth.bambu(live, rem, {}).confirmed
     assert reports({"state": "printing", "gcode_state": "PREPARE", "filename": remote}, remote)
     assert reports({"state": "printing", "gcode_state": "RUNNING", "filename": remote}, remote)
     assert reports({"state": "printing", "gcode_state": "RUNNING", "filename": "plate_1"}, remote)  # display spelling
