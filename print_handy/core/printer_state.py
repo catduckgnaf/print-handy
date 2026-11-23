@@ -466,8 +466,14 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         nozzle_dia = (state.get("nozzle") or {}).get("diameter_mm")
         if model and nozzle_dia and sources.get("nozzle") != "Spoolman filament":
             ftype = _ftype.from_text(material)
-            brand = (filament or {}).get("vendor") or (spool.get("brand"))
-            preset = orca_profile_db.printer_preset(model, float(nozzle_dia))
+            # Keep the brand and machine preset identical to orca_adapter's
+            # family_profile/vendor_resolution, or verification can disagree with
+            # the slicer about both bed and nozzle targets.
+            brand = spool.get("brand") or (filament or {}).get("vendor")
+            template = printers.get(model, settings.current()).templates_dir() / "machine.json"
+            machine = json.loads(template.read_text(encoding="utf-8"))
+            preset = orca_profile_db.printer_preset(
+                model, float(nozzle_dia), preferred=machine.get("name"))
             resolution = orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
             if resolution is not None:
                 v_nozzle = resolution.get("nozzle_temperature")
