@@ -14,6 +14,8 @@ from tests.core.test_layer_scan import box
 
 DIAGNOSIS = {'island_scan', 'overhang_scan', 'bodies', 'watertight', 'nonmanifold_edges',
              'underside_profile', 'clearance_report'}
+REPAIR = {'trim_below_plane', 'gusset_45', 'fill_under_lip', 'straight_base',
+          'extend_underside', 'sink', 'repair_mesh'}
 
 
 @pytest.fixture
@@ -57,7 +59,7 @@ def test_schemas_are_openai_function_tools():
     schemas = tools.openai_tools()
     assert print_repair.load().tools == schemas
     names = [s['function']['name'] for s in schemas]
-    assert set(names) == DIAGNOSIS and len(names) == len(set(names))
+    assert set(names) == DIAGNOSIS | REPAIR and len(names) == len(set(names))
     for schema in schemas:
         assert schema['type'] == 'function'
         function = schema['function']

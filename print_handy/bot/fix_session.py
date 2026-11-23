@@ -18,7 +18,9 @@ overwritten.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -123,27 +125,223 @@ def is_fix_instruction(text: str) -> bool:
     return is_repair or any(w in text.lower() for w in ('fix this', 'repair this', 'make it print'))
 
 
+_ACCEPT = frozenset(('accept', 'do it', 'yes', 'looks good'))
+_CANCEL = frozenset(('cancel', 'abort', 'stop', 'nevermind'))
+
+
+def _same_path(left, right) -> bool:
+    try:
+        return Path(left).resolve() == Path(right).resolve()
+    except OSError:
+        return str(left) == str(right)
+
+
+def _file_bytes(path) -> bytes | None:
+    try:
+        return Path(path).read_bytes()
+    except OSError:
+        return None
+
+
+def _tool_schemas(session: FixSession) -> list:
+    """OpenAI function schemas for the bound print-repair session (``TOOLS``)."""
+    if session.skill_session is None:
+        return []
+    from print_handy.skills.print_repair.tools import openai_tools
+    return openai_tools()
+
+
+def _tool_failure(outcome) -> str | None:
+    """The error string when a ``Session.run`` result is not a real success."""
+    if not isinstance(outcome, dict) or not outcome.get('ok'):
+        if isinstance(outcome, dict):
+            return str(outcome.get('error') or 'the tool failed')
+        return 'the tool failed'
+    result = outcome.get('result')
+    if isinstance(result, dict) and result.get('ok') is False:
+        return str(result.get('error') or 'the tool failed')
+    return None
+
+
+def _remember(session: FixSession, reply: str, *, accepted: bool = False,
+              cancelled: bool = False) -> dict[str, Any]:
+    session.history.append({'role': 'assistant', 'content': reply, 'ts': time.time()})
+    return {'reply': reply, 'accepted': accepted, 'cancelled': cancelled}
+
+
+def _run_tool_calls(session: FixSession, calls) -> tuple[str | None, list[str]]:
+    """Execute tool calls. Returns the last new mesh (workspace-relative) and errors.
+
+    ``current_file`` moves only to a workspace file whose bytes differ from
+    the file the session is already holding. The original is never overwritten.
+    """
+    changed = None
+    errors = []
+    for call in calls:
+        if not isinstance(call, dict) or not isinstance(call.get('name'), str) or not call['name']:
+            errors.append('a tool call had no name')
+            continue
+        name = call['name']
+        try:
+            outcome = session.skill_session.run(name, call.get('arguments'))
+        except Exception as exc:
+            logger.exception('repair tool %s failed', name)
+            errors.append(f'{name} failed: {exc}')
+            continue
+        failure = _tool_failure(outcome)
+        if failure:
+            errors.append(failure)
+            continue
+        result = outcome.get('result') if isinstance(outcome, dict) else None
+        new_mesh = result.get('new_mesh') if isinstance(result, dict) else None
+        if not new_mesh:
+            continue
+        try:
+            path = session.skill_session.path(str(new_mesh))
+        except Exception as exc:
+            errors.append(str(exc))
+            continue
+        if _same_path(path, session.original_file):
+            errors.append(f'{name} targeted the original file, which was left unchanged')
+            continue
+        new_bytes = _file_bytes(path)
+        if new_bytes is None or new_bytes == _file_bytes(session.current_file):
+            if not _same_path(path, session.current_file):
+                path.unlink(missing_ok=True)
+            errors.append(f'{name} did not change the mesh')
+            continue
+        session.current_file = path
+        changed = str(new_mesh)
+    return changed, errors
+
+
+def _atomic_json(path: Path, job: dict) -> None:
+    """Write JSON via a temp file in the same directory, then ``os.replace``."""
+    payload = json.dumps(job, indent=2) + '\n'
+    tmp = path.with_name(f'.{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp')
+    try:
+        tmp.write_text(payload, encoding='utf-8')
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _repoint_job(session: FixSession) -> None:
+    """Point JOB.json's model file at the fixed copy. The original bytes stay put.
+
+    The intake field is ``downloaded_file`` (see ``jobs.store.write_job`` and
+    the intake that records the downloaded model). A matching row in
+    ``selected_sources`` is updated the same way. The write is atomic.
+    """
+    from print_handy.jobs.store import write_job
+
+    path = Path(session.job_path)
+    job = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(job, dict):
+        raise ValueError('the job record is not an object')
+    new_file = Path(session.current_file).resolve()
+    original = Path(session.original_file).resolve()
+    if new_file == original or not new_file.is_file():
+        raise ValueError('there is no fixed file to point the job at')
+    job['downloaded_file'] = str(new_file)
+    rows = job.get('selected_sources')
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict) or not row.get('downloaded_file'):
+                continue
+            try:
+                same = Path(row['downloaded_file']).resolve() == original
+            except OSError:
+                same = False
+            if same:
+                row['downloaded_file'] = str(new_file)
+    if path.name == 'JOB.json':
+        write_job(path.parent, job)
+    else:
+        _atomic_json(path, job)
+    written = json.loads(path.read_text(encoding='utf-8'))
+    got = written.get('downloaded_file') if isinstance(written, dict) else None
+    if not got or Path(got).resolve() != new_file:
+        raise ValueError('the job file was not updated')
+
+
+def _accept(session: FixSession) -> dict[str, Any]:
+    """Accept only after the job record points at a file that is not the original."""
+    if _same_path(session.current_file, session.original_file) or not Path(session.current_file).is_file():
+        reply = 'There is no fixed file to accept and the original is unchanged.'
+        return _remember(session, reply)
+    try:
+        _repoint_job(session)
+    except Exception:
+        logger.exception('could not update the job for an AI fix session')
+        reply = 'The job was not changed. The fixed file was not accepted.'
+        return _remember(session, reply)
+    msg = end_session(session, 'accept')
+    return _remember(session, msg, accepted=True, cancelled=False)
+
+
+def _completion(completion) -> tuple[str, list]:
+    """``ai_complete`` returns ``content`` and ``tool_calls`` of ``{name, arguments}``."""
+    if not isinstance(completion, dict):
+        raise ValueError('ai_complete did not return an object')
+    calls = completion.get('tool_calls') or []
+    if not isinstance(calls, list):
+        raise ValueError('tool_calls must be a list')
+    return str(completion.get('content') or ''), calls
+
+
 def process_turn(session: FixSession, user_message: str, *, ai_complete) -> dict[str, Any]:
-    """One turn: AI proposes tool calls, we execute via the skill Session, re-slice, report."""
+    """Run one fix-session turn.
+
+    Contract for the model call::
+
+        ai_complete(session, user_message, tools) -> dict
+
+    ``tools`` is the print-repair function schemas (``TOOLS`` / ``openai_tools``).
+    The dict has ``content`` (str) and ``tool_calls`` (a list of
+    ``{"name", "arguments"}``). Each call is ``session.skill_session.run``.
+    A tool result that is not ok is reported as a repair that did not change
+    the file. A result that is ok and carries ``new_mesh`` becomes
+    ``current_file`` (resolved inside the skill workspace) and is named in
+    the reply. If ``ai_complete`` raises, the reply says the repair step
+    failed and the original file is unchanged.
+
+    Accept (``accept`` / ``do it`` / ``yes`` / ``looks good``) repoints the
+    job only when ``current_file`` is a different file and the job record
+    was written. Otherwise the session stays open and nothing is called accepted.
+    """
     session.history.append({'role': 'user', 'content': user_message, 'ts': time.time()})
     low = user_message.lower().strip()
-    if low in ('accept', 'do it', 'yes', 'looks good'):
-        msg = end_session(session, 'accept')
-        # TODO: repoint job at current_file and re-enter intake
-        return {'reply': msg, 'accepted': True, 'cancelled': False}
-    if low in ('cancel', 'abort', 'stop', 'nevermind'):
+    if low in _ACCEPT:
+        return _accept(session)
+    if low in _CANCEL:
         msg = end_session(session, 'cancel')
-        return {'reply': msg, 'accepted': False, 'cancelled': True}
+        return _remember(session, msg, accepted=False, cancelled=True)
 
     if session.skill_session is None:
         reply = 'Skill tools unavailable. Session can only accept or cancel.'
+        return _remember(session, reply)
+
+    try:
+        schemas = _tool_schemas(session)
+        completion = ai_complete(session, user_message, schemas)
+        content, calls = _completion(completion)
+    except Exception:
+        logger.exception('AI fix step failed')
+        reply = 'The repair step failed and the original file is unchanged.'
+        return _remember(session, reply)
+
+    changed, errors = _run_tool_calls(session, calls)
+    if errors and _same_path(session.current_file, session.original_file):
+        reply = 'The repair did not change the file. ' + ' '.join(errors)
+    elif errors and changed:
+        reply = f'The repaired file is {changed}. ' + ' '.join(errors)
+    elif changed:
+        lead = f'{content.strip()} ' if content.strip() else ''
+        reply = f'{lead}The repaired file is {changed}.'
+    elif content.strip():
+        reply = f'{content.strip()} The original file is unchanged.'
     else:
-        # Placeholder: in full impl call ai_complete with tools, parse function calls,
-        # run them, re-slice, summarize before/after.
-        reply = (
-            f"Received: {user_message!r}. "
-            f"Skill session ready over {session.skill_session.workspace}. "
-            "Full AI tool-calling loop is next. Say 'accept' or 'cancel'."
-        )
-    session.history.append({'role': 'assistant', 'content': reply, 'ts': time.time()})
-    return {'reply': reply, 'accepted': False, 'cancelled': False}
+        reply = 'No repair was applied. The original file is unchanged.'
+    return _remember(session, reply)
