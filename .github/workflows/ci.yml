@@ -237,6 +237,18 @@ jobs:
         run: |
           command -v node || { apt-get update -q && apt-get install -y -q nodejs; }
           node --version
+      - name: Cache the pinned Rust toolchain and crates
+        # sh.rustup.rs and crates.io were downloaded fresh on every run; on
+        # a cache hit scripts/ci_install_rust.sh downloads nothing.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.rust-pinned
+          key: rust-1.99.1-debian13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/bounds/Cargo.lock', 'scripts/ci_install_rust.sh') }}
+          restore-keys: rust-1.99.1-debian13-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install the pinned Rust toolchain for the offline legs
+        run: |
+          command -v gcc >/dev/null && command -v curl >/dev/null || { apt-get update -q && apt-get install -y -q curl gcc; }
+          sh scripts/ci_install_rust.sh
       - name: Build the native bounds extension for the offline legs
         # The dedicated native-bounds job builds the Rust/PyO3 extension
         # (#952) and runs tests/pipeline/test_native_bounds.py against it.
@@ -245,8 +257,6 @@ jobs:
         # below sets PRINT_HANDY_BOUNDS_REQUIRE_NATIVE=1 so a missing
         # extension is a hard failure here, never a silent skip.
         run: |
-          command -v cargo || { apt-get update -q && apt-get install -y -q curl gcc; curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1; }
-          export PATH="$HOME/.cargo/bin:$PATH"
           python -m pip install "maturin==1.16.0"
           mkdir -p native/bounds/print_handy/core
           cp print_handy/__init__.py native/bounds/print_handy/__init__.py
@@ -468,10 +478,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Cache the pinned Rust toolchain and crates
+        # sh.rustup.rs and crates.io were downloaded fresh on every run; on
+        # a cache hit scripts/ci_install_rust.sh downloads nothing.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.rust-pinned
+          key: rust-1.99.1-hosted-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/bounds/Cargo.lock', 'scripts/ci_install_rust.sh') }}
+          restore-keys: rust-1.99.1-hosted-${{ runner.os }}-${{ runner.arch }}-
       - name: Install the pinned Rust toolchain
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        run: sh scripts/ci_install_rust.sh
       - run: python -m pip install -c constraints.txt ".[test]" "maturin==1.16.0"
       - name: Stage the package skeleton beside the crate
         # maturin places the extension at the module path only when the
@@ -931,13 +947,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: python -m pip install -c constraints.txt ".[test]"
+      - name: Cache the pinned Spoolman release
+        # Downloaded from Spoolman's GitHub release on every CI run before
+        # (#1844 follow-up); the SHA-256 below still checks a cached copy.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/spoolman-release
+          key: spoolman-v0.27.1-77ba10fa505a42cef606eabec1a7c9a5b93c51dc40067456a29a7d9480ef27d6
       - name: Install Debian tools and pinned Spoolman server
         run: |
           set -euo pipefail
           apt-get update -q
           apt-get install -y -q curl unzip
-          archive="$RUNNER_TEMP/spoolman.zip"
-          curl -fL --retry 3 https://github.com/Donkie/Spoolman/releases/download/v0.27.1/spoolman.zip -o "$archive"
+          mkdir -p "$HOME/.cache/spoolman-release"
+          archive="$HOME/.cache/spoolman-release/spoolman-v0.27.1.zip"
+          [ -s "$archive" ] || curl -fL --retry 3 https://github.com/Donkie/Spoolman/releases/download/v0.27.1/spoolman.zip -o "$archive"
           echo '77ba10fa505a42cef606eabec1a7c9a5b93c51dc40067456a29a7d9480ef27d6  '"$archive" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/spoolman-src"
           unzip -q "$archive" -d "$RUNNER_TEMP/spoolman-src"

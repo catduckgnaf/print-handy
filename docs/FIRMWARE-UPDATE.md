@@ -321,7 +321,7 @@ not assumed to be bundled just because another family bundles them.
 
 Print Handy follows the releases of the firmware its printers run through
 the [firmware feed](FIRMWARE-FEED.md): one public file, rebuilt by GitHub
-Actions every six hours, with the newest release of each firmware and the
+Actions once a day, with the newest release of each firmware and the
 printer models it belongs to. For each printer on the roster whose model
 the feed covers, Print Handy posts one notice in that printer's chat when
 a newer release appears:
