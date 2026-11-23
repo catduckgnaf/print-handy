@@ -78,7 +78,7 @@ discord:
 ```
 
 These IDs are placeholders, not usable setup values. `paths.state_home` is the data directory;
-its name is historical and does not require Hermes. Keep the printer-specific configuration
+its name is historical. Keep the printer-specific configuration
 created by the installer. This example only shows the Discord fields.
 
 Store the real token in that data directory's `.env` using a local editor, not a shell command

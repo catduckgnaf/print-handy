@@ -387,7 +387,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     if adapter is None:
         adapter = printers.current()
     if state is None:
-        state = printer_state.load(printer_id) if printer_id else printer_state.load()
+        state = printer_state.load(printer_id or settings.default_printer_id())
     st = state
     # The offline/LAN families verify without a live session, so their
     # write-readiness state (busy, Developer Mode, a live fault) must not
@@ -656,7 +656,7 @@ def _verify_state(state, printer_id):
     try:
         if printer_id:
             return state if state is not None else printer_state.load(printer_id)
-        return printer_state.load()
+        return printer_state.load(settings.default_printer_id())
     except Exception:
         return None
 
@@ -720,7 +720,7 @@ def _run_live_printer_check(adapter, state, printer_id):
         use_state = state if state is not None else printer_state.load(printer_id)
     else:
         use_adapter = printers.current()
-        use_state = printer_state.load()
+        use_state = printer_state.load(settings.default_printer_id())
     offline = use_adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock')
     live_kw = {'live': False} if offline else {}
     if printer_id:

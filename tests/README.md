@@ -705,7 +705,7 @@ the honest limits:
   for the Moonraker families (all `sovol.*` resolve to the Klipper adapter) and the OctoPrint families
   (`sovol_marlin.*`, `octoprint.marlin`). Not covered, for lack of any in-repo recorded shape: Moonraker
   WebSocket event frames and vendor-specific Moonraker dialects.
-- **Real-slicer timing leg** — the hermes leg is unchanged and still reporting-only: the promotion criteria
+- **Real-slicer timing leg** — the real Orca timing leg remains reporting-only: the promotion criteria
   above (a refreshed variance record showing zero failing pairings) are not yet met for the real-Orca leg,
   and `stl-large-plate` variance is explicitly unmeasured, so this PR does not promote it. What landed
   instead: the standalone Discord transport now times `single-part` on the real leg (3 repeats, recorded

@@ -2,7 +2,7 @@
 
 [Documentation home](README.md) · [Docker](DOCKER.md) · [Bambu Lab printers](BAMBU-LAB.md)
 
-Every step from a published image to a print running on a Bambu Lab A1 over the LAN, with nothing else on the path (no Hermes, no Moonraker, no Spoolman record, no Bambu Studio). Every step below was run on 26 Oct 2026 with the 2.1.3 image, an A1 in Developer Mode and OrcaSlicer 2.4.2 from the image. The commands and keys match the code on `main` at the time of writing. Read [Bambu Lab printers](BAMBU-LAB.md) first for what the Bambu path is and what it guards; this page only tells you what to type, in order.
+Every step from a published image to a print running on a Bambu Lab A1 over the LAN, with nothing else on the path (no Moonraker, no Spoolman record, no Bambu Studio). Every step below was run on 26 Oct 2026 with the 2.1.3 image, an A1 in Developer Mode and OrcaSlicer 2.4.2 from the image. The commands and keys match the code on `main` at the time of writing. Read [Bambu Lab printers](BAMBU-LAB.md) first for what the Bambu path is and what it guards; this page only tells you what to type, in order.
 
 The 26 Oct run found eleven problems on this path. Most were fixed in the code in 2.1.4, the next day, and the steps below now use the simpler setup those fixes allow. The walkthrough has not been run again on an A1 since 2.1.3, so the fixed rows are fixed in the code and its tests, not re-proven on the printer.
 

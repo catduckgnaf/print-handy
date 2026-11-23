@@ -265,7 +265,7 @@ completions** endpoint (`POST .../v1/chat/completions`) configured in
 camera and image checks, spool label and purchase reads, and model-file
 edits, so any provider or local server that speaks that API works:
 OpenAI, OpenRouter, Cloudflare Workers AI, or a local server such as
-Ollama, LM Studio, llama.cpp or vLLM. Nothing requires Hermes; the
+Ollama, LM Studio, llama.cpp or vLLM. The
 standalone bot (Discord, Telegram or Matrix) reads these settings
 directly. Discord, Telegram and Matrix are pure bots: no message on
 those platforms ever reaches a model call. The one conversational lane
