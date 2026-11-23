@@ -16,13 +16,18 @@ intake reaches its sliced/verified result; refusal or cancellation leaves the
 original job unaccepted. The ordinary intake still owns its printer selection,
 slicer, verification and start confirmation.
 
-## Still outside this incremental change
+## Failed-intake offer and limits
 
-A context-specific "Work on this with AI" button on a *failed intake* needs to
-be attached to the persisted failed intake/job and its original authenticated
-uploader, then routed back into this same handler. The explicit upload-based
-`/fix` path works without that automatic button. This draft does not claim
-the automatic offer is already wired.
+For a rejected uploaded STL/3MF slice, the existing intake dispatcher now offers
+"Work on this with AI" using the same cross-platform confirmation component.
+Only the file attached to that requester is eligible. A confirmed choice starts
+this same user/chat/thread-scoped session. The explicit upload-based `/fix`
+path also works without a preceding failed slice.
+
+A URL-only failed download cannot yet offer repair automatically, because it
+may not have a trustworthy, locally retained original file after the refusal.
+The user can upload the model with `/fix`. The handler deliberately refuses
+to guess the newest archived file from another user's work.
 
 Gusset, under-lip fill and straight-base geometry edits are not implemented.
 They remain explicit unavailable dispatcher calls but are excluded from model
