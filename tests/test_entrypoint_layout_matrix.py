@@ -54,7 +54,7 @@ def test_compose_init_leaves_legacy_refusal_to_config_aware_entrypoint():
     # The init image cannot resolve the application's configured paths.state_home;
     # refusing on an empty /data/state alone would reject a populated custom folder.
     compose = (ROOT / "docker-compose.yml").read_text()
-    init = compose.split("  print-handy-init:\\n", 1)[1].split("  cloudflared:\\n", 1)[0]
+    init = compose.split("  print-handy-init:", 1)[1].split("  cloudflared:", 1)[0]
     assert "/host-data/hermes" not in init
     assert "for path in /data/state" in init
     assert "_has_files \"$legacy_home\"" in ENTRYPOINT.read_text()
