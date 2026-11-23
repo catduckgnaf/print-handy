@@ -141,6 +141,17 @@ def check_source(path):
                     or member.file_size > MAX_ZIP_RATIO * member.compress_size):
                 _refuse(f'archive member {member.filename} exceeds {MAX_ZIP_RATIO}:1 '
                         'compression ratio (zip-bomb guard)', path=path)
+        # Members at or below the 1 MiB per-member floor are exempt from the
+        # individual ratio check. Their *combined* expansion must still be
+        # backed by compressed bytes, otherwise thousands of small members
+        # could declare gigabytes of decompressed data. This ratio budget
+        # does not reintroduce a fixed expanded-byte limit for large meshes.
+        expanded = sum(member.file_size for member in members)
+        compressed = sum(member.compress_size for member in members)
+        if expanded > ZIP_RATIO_FLOOR_BYTES and (
+                compressed <= 0 or expanded > MAX_ZIP_RATIO * compressed):
+            _refuse(f'archive exceeds aggregate {MAX_ZIP_RATIO}:1 '
+                    'compression ratio (zip-bomb guard)', path=path)
         models = [i for i in members if i.filename.lower().endswith('.model')]
         recorded = _recorded_counts(path, [i.filename for i in models])
         if recorded is not None:
