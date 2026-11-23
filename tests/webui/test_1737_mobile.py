@@ -158,7 +158,7 @@ def test_a_forged_or_expired_session_cookie_does_not_pass_on_a_phone():
     with tempfile.TemporaryDirectory() as tmp:
         httpd = _serve(tmp, {"WEBUI_ACCESS_TOKEN": TOKEN})
         try:
-            for cookie in ("webui_session=" + "a" * 43, "webui_session=", "ph-theme=light"):
+            for cookie in ("webui_session=" + "a" * 43, "webui_session="):
                 code, _h, _b = _call(httpd, "GET", "/printers", PHONE, {"Cookie": cookie})
                 assert code in (303, 401), cookie
         finally:

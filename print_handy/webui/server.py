@@ -60,25 +60,21 @@ step) serving:
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
   (:mod:`print_handy.webui.pages`), where settings are edited.
-- ``GET /designs`` and ``GET /designs/<id>`` — the design workshop over
-  the catalog of AI design sessions (#388, stage 3; #1449;
-  :mod:`print_handy.webui.designs`), with per-session file downloads
-  under ``GET /designs/<id>/<scad|stl|preview>`` (``preview?turn=N``
-  for one turn's). The workshop is a conversation (#1636): ``POST
-  /designs`` (its message box) and ``POST /designs/choice`` (a
-  question's button) submit through this browser's design-thread view
-  of web chat, so a design started here runs the chat design dispatch
-  itself, not a page-side pipeline; ``GET /designs/state`` is its poll,
+- ``GET /designs`` redirects to ``/chat?view=design``, where the design
+  workshop lives (#1817). ``GET /designs/<id>`` is one AI design session (#388,
+  stage 3; #1449; :mod:`print_handy.webui.designs`), with per-session
+  file downloads under ``GET /designs/<id>/<scad|stl|preview>``
+  (``preview?turn=N`` for one turn's). The workshop is a conversation
+  (#1636): ``POST /designs`` (its message box) and ``POST
+  /designs/choice`` (a question's button) submit through this
+  browser's design-thread view of web chat, so a design started here
+  runs the chat design dispatch itself, not a page-side pipeline;
   ``POST /designs/new`` starts a fresh thread and ``POST
   /designs/<id>/continue`` reopens one of this browser's own.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
   walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
   every install that has not finished it; its steps write through the
   config path above, and its Login step is where a password is set.
-- ``GET /theme?set=dark|light&back=<path>`` — a compatibility redirect
-  only (#1750; :mod:`print_handy.webui.shell`): the Web UI is dark only
-  with no theme toggle, so it sets no cookie and changes no page. It
-  stays behind the same authorization as every other page.
 - ``GET /manifest.webmanifest``, ``GET /sw.js``, ``GET /offline``
   and ``GET /static/<file>`` — the PWA install plumbing (#450
   Phase 1; :mod:`print_handy.webui.pwa`), declared ``public`` in the
@@ -132,15 +128,12 @@ credential: a POST needs the header, or a live session plus the
 Browser login: a browser cannot send the ``X-WebUI-Token`` header, so
 ``GET /login`` (reachable without auth — it is the entry point) renders
 the sign-in form whenever a credential is required: a username and
-password for a login saved in the walkthrough (a single password field
-for one saved before usernames existed), or a single field for an
+password for a login saved in the walkthrough, or a single field for an
 access token from the environment, which is also accepted with any
 username as the way back in after a forgotten password. ``POST /login``
 checks the pair (``Access.matches_login``) under the per-address
 failed-attempt throttle and trades a correct one for a session cookie
-(``SESSION_COOKIE``, HttpOnly, SameSite=Strict). A password saved at an
-older PBKDF2 cost is re-hashed at the current one after a successful
-sign-in, on the form or with the header, signing nobody out. An
+(``SESSION_COOKIE``, HttpOnly, SameSite=Strict). An
 unauthenticated browser navigation (a GET for a
 non-API page with ``Accept: text/html``) redirects to ``/login``
 instead of returning the JSON 401 (#440); API requests keep the JSON
@@ -429,10 +422,7 @@ class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
         super().__init__(*args, **kwargs)
         self._slots = threading.BoundedSemaphore(self.max_threads)
 
-    # Session state lives in one SessionStore (#1588 item 4); the names
-    # the state used to be stored under directly on the server object
-    # delegate to it, so existing readers (and tests that seed a session
-    # by writing ``server.sessions[id]``) keep working on the same data.
+    # Session state lives in one SessionStore (#1588 item 4).
     @property
     def session_store(self):
         store = self.__dict__.get("_session_store")
@@ -444,52 +434,6 @@ class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
     @session_store.setter
     def session_store(self, store):
         self.__dict__["_session_store"] = store
-
-    @property
-    def sessions(self):
-        return self.session_store.sessions
-
-    @sessions.setter
-    def sessions(self, value):
-        store = self.session_store
-        with store.lock:
-            store.sessions.clear()
-            store.sessions.update(value or {})
-
-    @property
-    def remembered_sessions(self):
-        return self.session_store.remembered_sessions
-
-    @remembered_sessions.setter
-    def remembered_sessions(self, value):
-        store = self.session_store
-        with store.lock:
-            store.remembered_sessions.clear()
-            store.remembered_sessions.update(value or {})
-
-    @property
-    def remembered_lock(self):
-        return self.session_store.lock
-
-    @remembered_lock.setter
-    def remembered_lock(self, lock):
-        self.session_store.lock = lock
-
-    @property
-    def form_token(self):
-        return self.session_store.form_token
-
-    @form_token.setter
-    def form_token(self, value):
-        self.session_store.form_token = value
-
-    @property
-    def csrf_secret(self):
-        return self.session_store.csrf_secret
-
-    @csrf_secret.setter
-    def csrf_secret(self, value):
-        self.session_store.csrf_secret = value
 
     def process_request(self, request, client_address):
         self._slots.acquire()
@@ -752,10 +696,6 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         if access.matches(provided):
             throttle.record_success(address)
-            # A client that only ever sends the saved password as the
-            # header (the Home Assistant integration) upgrades an old
-            # hash the same way a form sign-in does (#1243).
-            self._rehash_after_login(provided)
             return True
         throttle.record_failure(address)
         return False
@@ -786,8 +726,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
 
     def _theme(self):
-        """The theme for this request: always dark; a stale ph-theme cookie is ignored."""
-        return shell.theme_from_cookies(self.headers.get("Cookie"))
+        """The theme for this request: the Web UI is dark only (#1750)."""
+        return shell.DEFAULT_THEME
 
     def _session_id(self):
         return sessions_module.session_id(self)
@@ -1088,7 +1028,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _chat_state(self):
         if self._chat_design_mode():
-            return self._designs_state()
+            return design_handlers_module.design_chat_state(self)
         return chat_handlers_module.chat_state(self)
 
     def _upload_page(self):
@@ -1100,17 +1040,14 @@ class _Handler(BaseHTTPRequestHandler):
     def _designs_page(self, notice=None, error=None):
         return design_handlers_module.designs_page(self, notice, error)
 
-    def _designs_post(self, form, route="/designs"):
+    def _designs_post(self, form, route=design_handlers_module.DESIGN_HOME):
         return design_handlers_module.designs_post(self, form, route=route)
 
-    def _designs_upload_post(self, form, route="/designs"):
+    def _designs_upload_post(self, form, route=design_handlers_module.DESIGN_HOME):
         return design_handlers_module.designs_upload_post(self, form, route=route)
 
-    def _designs_choice_post(self, form, route="/designs"):
+    def _designs_choice_post(self, form, route=design_handlers_module.DESIGN_HOME):
         return design_handlers_module.designs_choice_post(self, form, route=route)
-
-    def _designs_state(self):
-        return design_handlers_module.designs_state(self)
 
     def _designs_new_post(self, form):
         return design_handlers_module.designs_new_post(self, form)
@@ -1289,9 +1226,6 @@ class _Handler(BaseHTTPRequestHandler):
         return design_handlers_module.design_route(self, rest)
 
     # -- theme toggle (#813) --------------------------------------------------
-    def _theme_route(self):
-        return status_handlers_module.theme_route(self)
-
     def _sync_access(self):
         return walkthrough_handlers_module.sync_access(self)
 
@@ -1339,9 +1273,6 @@ class _Handler(BaseHTTPRequestHandler):
     def _login_submit(self):
         return sessions_module.login_submit(self)
 
-    def _rehash_after_login(self, password):
-        return sessions_module.rehash_after_login(self, password)
-
     def _logout(self):
         return sessions_module.logout(self)
 
@@ -1370,7 +1301,7 @@ class _Handler(BaseHTTPRequestHandler):
         process-token acceptance the Wrapped routes used to carry)."""
         provided = (form.get(pages.CSRF_FIELD) or [""])[0]
         if not self.server.access.required:
-            return bool(provided) and hmac.compare_digest(provided, self.server.form_token)
+            return bool(provided) and hmac.compare_digest(provided, self.server.session_store.form_token)
         if self._header_authorized():
             return True
         session_id = self._valid_session_id()
@@ -1557,8 +1488,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # fingerprint it was minted under no longer matches — and re-saved
     # on every change, so a browser that ticked "Keep me signed in"
     # survives a restart; the raw id is never written to disk).
-    # Mutations and persistence are serialized with the store's lock
-    # (server.remembered_lock delegates to it).
+    # Mutations and persistence are serialized with the store's lock.
     server.session_store = SessionStore(_load_remembered_sessions(
         data, server.access.credential_fingerprint()))
     server.login_throttle = access_module.LoginThrottle()

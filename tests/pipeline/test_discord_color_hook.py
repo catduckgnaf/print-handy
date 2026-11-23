@@ -24,11 +24,11 @@ def load_plugin(name):
 @pytest.mark.asyncio
 async def test_profile_hook_uses_real_discord_and_persists(tmp_path):
     mod=load_plugin('candidate_feedback')
-    p=source(tmp_path);jp=tmp_path/'JOB.json'
+    p=source(tmp_path);jp=tmp_path/'job-a'/'JOB.json';jp.parent.mkdir()
     jp.write_text(json.dumps({'downloaded_file':str(p),'color_manifest':source_colors.inventory(p)}))
     adapter=Transport([0,0,0,1,0,1])  # first pick answers the new color mode question: preserve per stencil
-    src=S(platform=S(value='discord'),profile='3dprinting',user_id='42',chat_id='offline',thread_id=None)
-    event=S(source=src,text='/print-colors '+str(jp),internal=False)
+    src=S(platform=S(value='discord'),user_id='42',chat_id='offline',thread_id=None)
+    event=S(source=src,text='/print-colors job-a',internal=False)
     gateway=S(_is_user_authorized_for_source=lambda s:True,_delivery_adapter_for=lambda s:adapter)
     runtime_job = model_job
     with patch.object(runtime_job,'ARCHIVE',tmp_path),patch.object(runtime_job.printer_state,'load',return_value=state()):
@@ -42,7 +42,7 @@ async def test_profile_hook_uses_real_discord_and_persists(tmp_path):
 async def test_hook_unauthorized_has_zero_transport(tmp_path):
     mod=load_plugin('candidate_feedback_denied')
     adapter=S(send=AsyncMock(),send_clarify=AsyncMock())
-    src=S(platform=S(value='discord'),profile='3dprinting',user_id='intruder',chat_id='offline',thread_id=None)
+    src=S(platform=S(value='discord'),user_id='intruder',chat_id='offline',thread_id=None)
     gateway=S(_is_user_authorized_for_source=lambda s:False,_delivery_adapter_for=lambda s:adapter)
     assert await mod.color_selection_dispatch(S(source=src,text='/print-colors /etc/JOB.json'),gateway) is None
     adapter.send.assert_not_called();adapter.send_clarify.assert_not_called()

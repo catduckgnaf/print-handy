@@ -344,8 +344,8 @@ class FakeAdapter:
 
 
 def _event(text, media_urls=None):
-    src = S(platform=S(value="discord"), profile="3dprinting", is_bot=False,
-            profile_route_rejected=False, user_id="u", chat_id="c", thread_id=None)
+    src = S(platform=S(value="discord"), is_bot=False,
+            user_id="u", chat_id="c", thread_id=None)
     return S(source=src, text=text, internal=False, media_urls=media_urls or [])
 
 

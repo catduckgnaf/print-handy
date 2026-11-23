@@ -1186,7 +1186,7 @@ def test_model_link_receipt_is_sent_before_slow_intake(monkeypatch):
     monkeypatch.setitem(sys.modules, "print_handy.core.prepared_intake", fake)
     monkeypatch.setattr(core_pkg, "prepared_intake", fake, raising=False)
     monkeypatch.setattr(core_pkg, "printer_state", types.SimpleNamespace(load=lambda: {}), raising=False)
-    src = S(platform=S(value="discord"), profile="3dprinting", user_id="42", chat_id="c", thread_id=None)
+    src = S(platform=S(value="discord"), user_id="42", chat_id="c", thread_id=None)
     gateway = S(_is_user_authorized_for_source=lambda s: True, _delivery_adapter_for=lambda s: adapter,
                 _session_key_for_source=lambda s: "k")
     event = S(source=src, text="https://makerworld.com/en/models/123", message_id="m9", internal=False, metadata={})

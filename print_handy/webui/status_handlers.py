@@ -14,7 +14,6 @@ import html
 import logging
 import time
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
 from .. import settings
 from ..bot import health as bot_health
@@ -384,29 +383,6 @@ def not_found(handler, path):
                                "/api/printers/<id>/spools, "
                                "/healthz, /readyz, /config, /designs, /spools, "
                                "/walkthrough or /login"})
-
-def theme_route(handler):
-    """GET /theme?set=dark|light&back=<path>: a compatibility redirect only.
-
-    The Web UI is dark only (#1750), so this changes nothing about how any
-    page looks and sets no cookie. It stays behind the same authorization
-    as every other page so older bookmarks and cached links keep working.
-    The ``back`` target must be a local path; anything else lands on the
-    status page, so the route is never an open redirect."""
-    query = parse_qs(urlparse(handler.path).query)
-    theme = (query.get("set") or [""])[0]
-    if theme not in shell.THEMES:
-        handler._json(400, {"ok": False, "reason": "set must be dark or light"})
-        return
-    back = (query.get("back") or ["/"])[0]
-    if not back.startswith("/") or back.startswith("//") \
-            or any(ord(char) < 0x20 or ord(char) == 0x7F for char in back):
-        # Not a local path, or it carries control characters: a decoded
-        # CR/LF would otherwise land in the Location header verbatim
-        # and inject response headers of the caller's choosing.
-        back = "/"
-    handler._redirect(back)
-
 
 def _is_loopback(host):
     from .server import is_loopback

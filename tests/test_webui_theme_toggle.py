@@ -1,5 +1,5 @@
-"""The Web UI is dark only (#1750): no toggle, no light palette, and a stale
-``ph-theme`` cookie or the legacy ``/theme`` route cannot change the look."""
+"""The Web UI is dark only (#1750): no toggle and no light palette. The old
+``/theme`` redirect is gone (#1817)."""
 import http.client
 import tempfile
 import threading
@@ -9,13 +9,12 @@ from print_handy import settings
 from print_handy.webui import shell, server
 
 TOKEN = "dark-only-1750"
-STALE = ("ph-theme=light", "ph-theme=dark", "ph-theme=bogus")
 
 
-def test_shell_is_dark_whatever_the_cookie_or_argument():
+def test_shell_is_dark_whatever_the_argument():
     assert shell.DEFAULT_THEME == "dark"
-    for cookie in (None, "", *STALE, "ph-theme=light; other=1", "\x00garbage"):
-        assert shell.theme_from_cookies(cookie) == "dark", cookie
+    assert not hasattr(shell, "theme_from_cookies")
+    assert not hasattr(shell, "THEME_COOKIE")
     for theme in ("dark", "light", "bogus"):
         out = shell.page("Status", "<p>body</p>", path="/", theme=theme)
         assert '<html lang="en" data-theme="dark">' in out
@@ -74,41 +73,28 @@ def _get(httpd, path, cookie=None):
         conn.close()
 
 
-def test_served_pages_are_dark_with_no_cookie_and_with_a_stale_cookie():
+def test_served_pages_are_dark():
     with tempfile.TemporaryDirectory() as tmp:
         httpd = _serve(tmp)
         try:
             for path in ("/config", "/printers", "/cost"):
-                for cookie in (None, *STALE):
-                    code, _h, body = _get(httpd, path, cookie)
-                    assert code == 200, (path, cookie, code)
-                    assert 'data-theme="dark"' in body, (path, cookie)
-                    assert 'data-theme="light"' not in body, (path, cookie)
-                    assert "theme-toggle" not in body, (path, cookie)
+                code, _h, body = _get(httpd, path)
+                assert code == 200, (path, code)
+                assert 'data-theme="dark"' in body, path
+                assert 'data-theme="light"' not in body, path
+                assert "theme-toggle" not in body, path
         finally:
             httpd.shutdown()
             httpd.server_close()
 
 
-def test_legacy_theme_route_redirects_without_setting_a_cookie_or_changing_the_page():
+def test_the_old_theme_route_is_gone():
     with tempfile.TemporaryDirectory() as tmp:
         httpd = _serve(tmp)
         try:
-            for name in ("light", "dark"):
-                code, headers, _b = _get(httpd, f"/theme?set={name}&back=/config")
-                assert code == 303
-                assert headers["Location"] == "/config"
-                assert "Set-Cookie" not in headers
-            # Open redirects and header injection still fall back to the status page.
-            for back in ("//evil.example", "https://evil.example", "/x%0d%0aSet-Cookie:a=b"):
-                code, headers, _b = _get(httpd, f"/theme?set=light&back={back}")
-                assert code == 303 and headers["Location"] == "/", back
-                assert "Set-Cookie" not in headers
-            code, _h, _b = _get(httpd, "/theme?set=sepia")
-            assert code == 400
-            # Following the legacy redirect with a light cookie in hand still renders dark.
-            code, _h, body = _get(httpd, "/config", "ph-theme=light")
-            assert code == 200 and 'data-theme="dark"' in body
+            code, headers, _b = _get(httpd, "/theme?set=light&back=/config")
+            assert code == 404
+            assert "Set-Cookie" not in headers
         finally:
             httpd.shutdown()
             httpd.server_close()

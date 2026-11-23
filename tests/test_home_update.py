@@ -135,22 +135,6 @@ class HomeUpdateTests(unittest.TestCase):
         self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
         self.assertIn("Home AD5X", (self.home / "config" / "local.toml").read_text())
 
-    def test_good_update_removes_strays_but_a_rollback_does_not(self):
-        fake_home = Path(self.tmp.name) / "fakehome"
-        fake_home.mkdir()
-        legacy = fake_home / ".print_bitch_context.json"
-        legacy.write_text('{"ctx": 1}')
-        profile = Path(self.tmp.name) / "profile"
-        (profile / "state" / "print_handy_context.json").write_text('{"ctx": 1}')
-        self.break_package()
-        self.assertEqual(self.update(home=fake_home).returncode, 1)
-        self.assertTrue(legacy.exists())
-        self.commit_upstream("print_handy/__init__.py", (ROOT / "print_handy" / "__init__.py").read_text())
-        result = self.update(home=fake_home)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(f"removed {legacy}", result.stdout)
-        self.assertFalse(legacy.exists())
-
     def test_breaking_update_rolls_back(self):
         before = git(self.home, "rev-parse", "HEAD")
         self.break_package()

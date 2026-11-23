@@ -315,8 +315,8 @@ def _slice_it(text, reply):
         handed.append(event)
         return {"action": "skip", "reason": "intake handled"}
 
-    source = S(platform=S(value="discord"), profile="3dprinting", is_bot=False,
-               profile_route_rejected=False, user_id="42", chat_id="c", thread_id=None)
+    source = S(platform=S(value="discord"), is_bot=False,
+               user_id="42", chat_id="c", thread_id=None)
     event = S(source=source, text=text, internal=False, message_id="m1", metadata={})
     gateway = S(_is_user_authorized_for_source=lambda s: True,
                 _delivery_adapter_for=lambda s: adapter,

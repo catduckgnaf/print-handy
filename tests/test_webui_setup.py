@@ -71,7 +71,6 @@ class ResolveOrderTests(unittest.TestCase):
         self.assertEqual(resolved.mode, access.OPEN)
         self.assertTrue(resolved.unclaimed)
         self.assertFalse(resolved.required)
-        self.assertFalse(resolved.setup_pending)
 
     def test_loopback_with_nothing_chosen_is_open_and_unclaimed(self):
         resolved = access.resolve(self.data, "127.0.0.1", {})
@@ -112,11 +111,16 @@ class ResolveOrderTests(unittest.TestCase):
             with self.subTest(username=bad), self.assertRaises(access.AccessError):
                 access.save_password(self.data, PASSWORD, PASSWORD, username=bad)
 
-    def test_a_password_saved_before_usernames_accepts_any_name(self):
-        access.save_password(self.data, PASSWORD, PASSWORD)
+    def test_a_password_saved_without_a_username_must_be_reset(self):
+        access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
+        path = access.access_path(self.data)
+        record = json.loads(path.read_text())
+        del record["username"]
+        path.write_text(json.dumps(record))
         resolved = access.resolve(self.data, "0.0.0.0", {})
-        self.assertTrue(resolved.matches_login("", PASSWORD))
-        self.assertTrue(resolved.matches_login("anything", PASSWORD))
+        self.assertEqual(resolved.mode, access.BROKEN)
+        self.assertIn("Reset the login", resolved.problem)
+        self.assertFalse(resolved.matches_login("", PASSWORD))
 
     def test_a_saved_login_wins_and_the_env_token_still_works(self):
         access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
@@ -142,7 +146,7 @@ class ResolveOrderTests(unittest.TestCase):
         self.assertFalse(resolved.required)
 
     def test_saved_password_is_required_and_hashed(self):
-        access.save_password(self.data, PASSWORD, PASSWORD)
+        access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
         path = access.access_path(self.data)
         self.assertNotIn(PASSWORD, path.read_text())
         if sys.platform != "win32":
@@ -160,9 +164,9 @@ class ResolveOrderTests(unittest.TestCase):
 
     def test_refused_choices(self):
         with self.assertRaises(access.AccessError):
-            access.save_password(self.data, "short", "short")
+            access.save_password(self.data, "short", "short", username=USERNAME)
         with self.assertRaises(access.AccessError):
-            access.save_password(self.data, PASSWORD, PASSWORD + "!")
+            access.save_password(self.data, PASSWORD, PASSWORD + "!", username=USERNAME)
         with self.assertRaises(access.AccessError):
             access.save_open(self.data, False)
         self.assertFalse(access.access_path(self.data).exists())
@@ -261,7 +265,7 @@ class UnclaimedFlowTests(unittest.TestCase):
         walkthrough.save_state(data, {"step": 3})
         self.assertEqual(self.request(port, "GET", "/walkthrough")[0], 200)
         code, headers, _ = self.login_step(
-            port, httpd.form_token, username=USERNAME, password=PASSWORD,
+            port, httpd.session_store.form_token, username=USERNAME, password=PASSWORD,
             password_again=PASSWORD)
         self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
         cookie = headers["set-cookie"].split(";", 1)[0]
@@ -293,7 +297,7 @@ class UnclaimedFlowTests(unittest.TestCase):
     def test_leaving_it_open_in_the_walkthrough_dismisses_the_nudge(self):
         httpd, port, data = self.start()
         walkthrough.save_state(data, {"step": 3})
-        code, _, _ = self.login_step(port, httpd.form_token, confirm_open="yes")
+        code, _, _ = self.login_step(port, httpd.session_store.form_token, confirm_open="yes")
         self.assertEqual(code, 303)
         self.assertEqual(httpd.access.mode, access.OPEN)
         self.assertFalse(httpd.access.unclaimed)
@@ -376,7 +380,7 @@ class UnclaimedFlowTests(unittest.TestCase):
     def test_two_simultaneous_first_claims_cannot_both_succeed(self):
         httpd, port, data = self.start()
         walkthrough.save_state(data, {"step": 3})
-        token = httpd.form_token
+        token = httpd.session_store.form_token
         real_save = access.save_password
         barrier = threading.Barrier(2, timeout=5)
 
@@ -483,7 +487,7 @@ class UnclaimedFlowTests(unittest.TestCase):
             with mock.patch.object(server._Handler, "_debug_post", broken):
                 code, _, body = self.request(
                     port, "POST", "/debug",
-                    body=urlencode({pages.CSRF_FIELD: httpd.form_token}), headers=FORM)
+                    body=urlencode({pages.CSRF_FIELD: httpd.session_store.form_token}), headers=FORM)
             self.assertEqual(code, 500)
             ids.append(json.loads(body)["request_id"])
         self.assertEqual(len(set(ids)), len(ids))  # one id per failed request
@@ -548,7 +552,7 @@ class UnclaimedFlowTests(unittest.TestCase):
         code, _, body = self.request(port, "GET", "/walkthrough")
         self.assertIn("Saving a password here turns that setting back on", body)
         code, headers, _ = self.login_step(
-            port, httpd.form_token, username=USERNAME, password=PASSWORD,
+            port, httpd.session_store.form_token, username=USERNAME, password=PASSWORD,
             password_again=PASSWORD)
         self.assertEqual(code, 303)
         reloaded = settings.load(local=Path(httpd.webui_environ["PRINT_HANDY_CONFIG"]),
@@ -567,7 +571,7 @@ class UnclaimedFlowTests(unittest.TestCase):
             environ={"PRINT_HANDY__WEBUI__REQUIRE_AUTH": "false"})
         walkthrough.save_state(data, {"step": 3})
         code, _, body = self.login_step(
-            port, httpd.form_token, username=USERNAME, password=PASSWORD,
+            port, httpd.session_store.form_token, username=USERNAME, password=PASSWORD,
             password_again=PASSWORD)
         self.assertEqual(code, 200)
         self.assertIn("The password was not saved", body)

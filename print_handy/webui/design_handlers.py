@@ -72,35 +72,22 @@ def _design_cookie_headers(handler):
     return headers
 
 
-def _page_for(handler, route):
-    """The page a refusal renders on: the unified /chat route keeps its own
-    page (Design view included) instead of falling back to legacy /designs."""
-    return handler._chat_page if route.startswith("/chat") else handler._designs_page
+# Where the design conversation lives (#1817): the Chat page's Design view.
+DESIGN_HOME = "/chat?view=design"
 
 
 def designs_page(handler, notice=None, error=None):
-    """Render the legacy /designs route; navigation directs users to /chat."""
-    data = handler.server.settings_data
-    rows = designs_module.catalog_rows(data)
-    # The workshop submits through this browser's design-thread view, so
-    # it exists only while web chat is on; with it off the page renders
-    # the reason instead of a message box (designs_module).
-    view = handler._design_view() if handler._web_chat_enabled() else None
-    workshop = designs_module.workshop_model(data, view)
-    handler._send(200, designs_module.render_designs_page(
-        rows, theme=handler._theme(), nav=data_module.nav_for(data),
-        workshop=workshop, form_token=handler._form_token(),
-        notice=notice, error=error),
-        "text/html; charset=utf-8", headers=_design_cookie_headers(handler))
+    """GET /designs: a redirect to the Chat page's Design view (#1817)."""
+    handler._redirect(DESIGN_HOME)
 
 
-def designs_state(handler):
-    """Backward-compatible state endpoint, using the shared conversation."""
+def design_chat_state(handler):
+    """GET /chat/state?view=design: this browser's design-thread view."""
     handler._json(200, chat_module.chat_state(
         handler._design_view(issue=False) if handler._web_chat_enabled() else None))
 
 
-def designs_post(handler, form, route="/designs"):
+def designs_post(handler, form, route=DESIGN_HOME):
     """POST /designs: the message box, and Try again (#1636).
 
     One message to this browser's design thread. The first message of
@@ -112,7 +99,7 @@ def designs_post(handler, form, route="/designs"):
     description again. The page itself designs, slices and prints nothing.
     """
     if not handler._web_chat_enabled():
-        _page_for(handler, route)()
+        handler._chat_page()
         return
     data = handler.server.settings_data
     view = handler._design_view()
@@ -132,8 +119,8 @@ def designs_post(handler, form, route="/designs"):
         designs_module.resume_lost(data, model)
     # The thread shows what was typed; the command wrapper is the page's.
     if not view.submit(message, shown=text):
-        _page_for(handler, route)(error="Too many messages in the last minute; "
-                                     "give the bot a moment to catch up.")
+        handler._chat_page(error="Too many messages in the last minute; "
+                                 "give the bot a moment to catch up.")
         return
     handler._redirect(route, headers=_design_cookie_headers(handler))
 
@@ -171,7 +158,7 @@ def part_upload_refused(handler, refused, back):
     return True
 
 
-def designs_upload_post(handler, form, route="/designs"):
+def designs_upload_post(handler, form, route=DESIGN_HOME):
     """POST /designs/upload: receive a part and start editing it here (#1721).
 
     The receive is the Upload page's own (_receive_upload: streamed to
@@ -182,12 +169,12 @@ def designs_upload_post(handler, form, route="/designs"):
     message box starts from a description.
     """
     if not handler._web_chat_enabled():
-        _page_for(handler, route)()
+        handler._chat_page()
         return
     data = handler.server.settings_data
     ready, reason = designs_module.design_availability(data)
     if not ready:
-        _page_for(handler, route)(error=reason)
+        handler._chat_page(error=reason)
         return
     view = handler._design_view()
 
@@ -204,16 +191,16 @@ def designs_upload_post(handler, form, route="/designs"):
                                   else 400, reason, route)
             return
         if not submit_uploaded_part(view, saved, change):
-            _page_for(handler, route)(error=f"{saved.name} is in the inbox, but the "
-                                   "edit could not be started (too many messages "
-                                   "in the last minute). Try again in a moment.")
+            handler._chat_page(error=f"{saved.name} is in the inbox, but the "
+                                     "edit could not be started (too many messages "
+                                     "in the last minute). Try again in a moment.")
             return
         handler._redirect(route, headers=_design_cookie_headers(handler))
 
     part_upload_refused(handler, handler._receive_upload(handle), route)
 
 
-def designs_new_post(handler, form, route="/designs"):
+def designs_new_post(handler, form, route=DESIGN_HOME):
     """POST /designs/new: a fresh design thread; the old session is left as it is.
 
     Only the browser's thread changes (a new suffix in its design
@@ -225,7 +212,7 @@ def designs_new_post(handler, form, route="/designs"):
     handler._redirect(route, headers=_design_cookie_headers(handler))
 
 
-def designs_continue_post(handler, rest, form, route="/designs"):
+def designs_continue_post(handler, rest, form, route=DESIGN_HOME):
     """POST /designs/<id>/continue: make that session this browser's open thread.
 
     Only a live session one of this browser's own design threads started
@@ -238,22 +225,22 @@ def designs_continue_post(handler, rest, form, route="/designs"):
         return
     session = detail[0]
     if not handler._web_chat_enabled():
-        _page_for(handler, route)(error="Web chat is turned off, so a design cannot be "
+        handler._chat_page(error="Web chat is turned off, so a design cannot be "
                                  "continued here.")
         return
     scope = handler._chat_view(issue=False).scope
     if designs_module.continue_state(session, scope) != "continue":
-        _page_for(handler, route)(error="That design cannot be continued from this browser: "
+        handler._chat_page(error="That design cannot be continued from this browser: "
                                  "it is finished, or another chat started it.")
         return
     handler._new_design_thread = designs_module.thread_of(session)[1]
     handler._redirect(route, headers=_design_cookie_headers(handler))
 
 
-def designs_choice_post(handler, form, route="/designs"):
+def designs_choice_post(handler, form, route=DESIGN_HOME):
     """Answer one open design question from the unified composer route."""
     if not handler._web_chat_enabled():
-        _page_for(handler, route)()
+        handler._chat_page()
         return
     clarify_id = (form.get("clarify_id") or [""])[0]
     try:
@@ -266,11 +253,11 @@ def designs_choice_post(handler, form, route="/designs"):
         except Exception:
             log.warning("design page answer for %s did not reach the bot",
                         clarify_id, exc_info=True)
-            page = _page_for(handler, route)
+            page = handler._chat_page
             page(error="That answer didn't reach the bot in time. The question is still open, so try again.")
             return
         if label is None:
-            page = _page_for(handler, route)
+            page = handler._chat_page
             page(error="That answer wasn't accepted: the question may have closed, or the answer belongs to another step.")
             return
     handler._redirect(route)

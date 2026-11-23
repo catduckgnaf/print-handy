@@ -446,6 +446,3 @@ def _print_payload(raw):
 def _number(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
-
-# Backwards-compatible name: the A1/P1S modules and older tests import the offline-era class name.
-BambuOfflineAdapter = BambuAdapter

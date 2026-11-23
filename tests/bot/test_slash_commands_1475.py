@@ -265,7 +265,7 @@ def test_print_colors_resolves_a_job_reference_not_a_path(tmp_path):
     job_file.write_text(json.dumps({"title": "Benchy"}))
     assert color_selection.resolve_job_ref("benchy-job", tmp_path) == job_file.resolve()
     assert color_selection.resolve_job_ref("Benchy", tmp_path) == job_file.resolve()
-    assert color_selection.resolve_job_ref(str(job_file), tmp_path) == job_file.resolve()
+    assert color_selection.resolve_job_ref(str(job_file), tmp_path) is None  # no path form (#1817)
     assert color_selection.resolve_job_ref("no-such-job", tmp_path) is None
     assert color_selection.resolve_job_ref("", tmp_path) is None
 
@@ -320,7 +320,7 @@ def test_a_zero_option_value_is_kept_in_the_typed_form():
     assert commands.as_text("spool", {"subcommand": "weight", "spool": 19, "grams": 0}) == "/spool weight 19 0"
 
 
-def test_print_colors_does_not_resolve_a_job_file_outside_the_archive(tmp_path):
+def test_print_colors_does_not_resolve_a_job_file_path(tmp_path):
     archive = tmp_path / "archive"
     inside = archive / "job-a" / "JOB.json"
     inside.parent.mkdir(parents=True)
@@ -328,7 +328,8 @@ def test_print_colors_does_not_resolve_a_job_file_outside_the_archive(tmp_path):
     outside = tmp_path / "elsewhere" / "JOB.json"
     outside.parent.mkdir()
     outside.write_text(json.dumps({"title": "B"}))
-    assert color_selection.resolve_job_ref(str(inside), archive) == inside.resolve()
+    assert color_selection.resolve_job_ref("job-a", archive) == inside.resolve()
+    assert color_selection.resolve_job_ref(str(inside), archive) is None
     assert color_selection.resolve_job_ref(str(outside), archive) is None
 
 

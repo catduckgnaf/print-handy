@@ -65,7 +65,7 @@ def test_message_round_trip_through_the_page(running):
     status, page = call(port, "GET", "/chat")
     assert status == 200 and "Message" in page
     browser = chat_cookie(port)
-    body = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "help"})
+    body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token, "text": "help"})
     status, _page = call(port, "POST", "/chat", body=body, headers=browser)
     assert status == 303
     deadline = time.time() + 10
@@ -87,7 +87,7 @@ def test_post_without_form_token_is_refused(running):
 
 def test_choice_post_without_open_prompt_redirects(running):
     srv, port = running
-    body = urllib.parse.urlencode({"_csrf": srv.form_token,
+    body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token,
                                    "clarify_id": "", "index": "0"})
     status, _page = call(port, "POST", "/chat/choice", body=body)
     assert status == 303
@@ -101,7 +101,7 @@ def test_choice_post_on_a_closed_prompt_gives_feedback(running):
     redirect that looks like success.
     """
     srv, port = running
-    body = urllib.parse.urlencode({"_csrf": srv.form_token,
+    body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token,
                                    "clarify_id": "nope", "index": "0"})
     status, page = call(port, "POST", "/chat/choice", body=body)
     assert status == 200
@@ -185,10 +185,10 @@ def test_chat_posts_disabled_refuse_with_the_explanation(tmp_path):
     thread.start()
     try:
         port = srv.server_address[1]
-        body = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "help"})
+        body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token, "text": "help"})
         status, page = call(port, "POST", "/chat", body=body)
         assert status == 200 and "Web chat is turned off" in page
-        body = urllib.parse.urlencode({"_csrf": srv.form_token,
+        body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token,
                                        "clarify_id": "x", "index": "0"})
         status, page = call(port, "POST", "/chat/choice", body=body)
         assert status == 200 and "Web chat is turned off" in page
@@ -228,7 +228,7 @@ def test_chat_state_reports_the_newest_entry_and_needs_auth(tmp_path):
         auth = {"X-WebUI-Token": "sekrit"}
         status, body = call(port, "GET", "/chat/state", headers=auth)
         assert status == 200 and json.loads(body) == {"seq": 0, "pending": False}
-        form = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "help"})
+        form = urllib.parse.urlencode({"_csrf": srv.session_store.form_token, "text": "help"})
         assert call(port, "POST", "/chat", body=form, headers=auth)[0] == 303
         deadline = time.time() + 10
         state = {}
@@ -290,7 +290,7 @@ def test_two_browsers_get_separate_transcripts(running):
     srv, port = running
     alice, bob = chat_cookie(port), chat_cookie(port)
     assert alice != bob
-    body = urllib.parse.urlencode({"_csrf": srv.form_token,
+    body = urllib.parse.urlencode({"_csrf": srv.session_store.form_token,
                                    "text": "help from alice"})
     assert call(port, "POST", "/chat", body=body, headers=alice)[0] == 303
     deadline = time.time() + 10
