@@ -1026,6 +1026,141 @@ def gcode_model_height(gcode_text):
     return top
 
 
+class _GcodeScan:
+    """One pass over a G-code text for everything the coverage check reads.
+
+    ``gcode_model_bounds``, ``gcode_object_bounds``, ``gcode_model_height``
+    and the support-segment extraction in ``verify_support_coverage`` each
+    walk every line of the (up to ~100 MB) text. This walks it once, keeping
+    one state machine per legacy function, so each result is identical to
+    the legacy function's by construction: the same line tests in the same
+    order, the same per-function position tracking (they differ on which
+    lines update X/Y/Z), the same float parsing. The legacy functions stay
+    as the reference and the fallback (``coverage_scan``).
+    """
+
+    __slots__ = ('model_bounds', 'object_bounds', 'model_height', 'segments')
+
+    def __init__(self, text):
+        has_objects = bool(_OBJ_START.search(text))
+        obj_start, obj_end, move_re, word_findall = (
+            _OBJ_START.search, _OBJ_END.search, _MOVE_RE.match, _WORD_RE.findall)
+        current_type = ''
+        support = False
+        # gcode_model_bounds / gcode_model_height: gated by in_object
+        in_object = not has_objects
+        mb_x = mb_y = None
+        mb_lo = [None, None]
+        mb_hi = [None, None]
+        h_z = 0.0
+        h_top = None
+        # gcode_object_bounds: gated by the current instance block
+        order, by_key, current = [], {}, None
+        ob_x = ob_y = None
+        # verify_support_coverage: every move, support extrusion only
+        v_x = v_y = None
+        v_z = 0.0
+        segments = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if line.startswith(';TYPE:'):
+                current_type = line.split(':', 1)[1].strip().casefold()
+                support = 'support' in current_type
+                continue
+            is_start = obj_start(line)
+            is_end = None if is_start else obj_end(line)
+            if is_start:
+                name, key = _instance_key(line)
+                current = by_key.get(key)
+                if current is None:
+                    current = {'name': name, 'lo': [None, None], 'hi': [None, None]}
+                    by_key[key] = current
+                    order.append(current)
+                elif current['name'] is None:
+                    current['name'] = name
+                if has_objects:
+                    in_object = True
+            elif is_end:
+                current = None
+                if has_objects:
+                    in_object = False
+            move = move_re(line)
+            if not move:
+                continue
+            extrudes = False
+            wx = wy = wz = None
+            for axis, number in word_findall(move.group(1)):
+                axis = axis.upper()
+                if axis == 'E':
+                    extrudes = True
+                elif axis == 'X':
+                    wx = float(number)
+                elif axis == 'Y':
+                    wy = float(number)
+                elif axis == 'Z':
+                    wz = float(number)
+            # support segments: every move, markers or not
+            start_x, start_y, start_z = v_x, v_y, v_z
+            if wx is not None:
+                v_x = wx
+            if wy is not None:
+                v_y = wy
+            if wz is not None:
+                v_z = wz
+            if extrudes and support and v_x is not None and v_y is not None:
+                segments.append((start_x if start_x is not None else v_x,
+                                 start_y if start_y is not None else v_y,
+                                 start_z, v_x, v_y, v_z, 'interface' in current_type))
+            if is_start or is_end:
+                # The legacy scans treat a marker line as a marker, never a
+                # move; gcode_model_bounds/height only look for markers when
+                # the text has any start marker.
+                if has_objects:
+                    continue
+            # model bounds and height
+            if wx is not None:
+                mb_x = wx
+            if wy is not None:
+                mb_y = wy
+            if wz is not None:
+                h_z = wz
+            if extrudes and in_object and not support:
+                if mb_x is not None and mb_y is not None:
+                    for k, v in enumerate((mb_x, mb_y)):
+                        mb_lo[k] = v if mb_lo[k] is None else min(mb_lo[k], v)
+                        mb_hi[k] = v if mb_hi[k] is None else max(mb_hi[k], v)
+                h_top = h_z if h_top is None else max(h_top, h_z)
+            if is_start or is_end:
+                continue  # object bounds never treat a marker line as a move
+            # object bounds: only inside an instance block
+            if current is not None:
+                if wx is not None:
+                    ob_x = wx
+                if wy is not None:
+                    ob_y = wy
+                if extrudes and not support and ob_x is not None and ob_y is not None:
+                    for k, v in enumerate((ob_x, ob_y)):
+                        current['lo'][k] = v if current['lo'][k] is None else min(current['lo'][k], v)
+                        current['hi'][k] = v if current['hi'][k] is None else max(current['hi'][k], v)
+        self.model_bounds = None if mb_lo[0] is None else (mb_lo[0], mb_lo[1], mb_hi[0], mb_hi[1])
+        self.object_bounds = [{'name': e['name'], 'bounds': (e['lo'][0], e['lo'][1], e['hi'][0], e['hi'][1])}
+                              for e in order if e['lo'][0] is not None]
+        self.model_height = h_top
+        self.segments = segments
+
+
+def coverage_scan(text):
+    """A ``_GcodeScan`` of ``text``, or None to make callers use the legacy
+    per-function scans (set ``PRINT_HANDY_COVERAGE_SCAN=legacy``, or any scan error)."""
+    if os.environ.get('PRINT_HANDY_COVERAGE_SCAN', '').strip().casefold() == 'legacy':
+        return None
+    try:
+        return _GcodeScan(text)
+    except Exception:  # noqa: BLE001 - the legacy scans are the reference
+        return None
+
+
+
 def _clip_segment_to_box(ax, ay, az, bx, by, bz, x0, y0, x1, y1, zlo, zhi):
     """The part of a support segment inside a target box and Z window.
 
@@ -1069,7 +1204,8 @@ _SUPPORT_TYPE_RE = re.compile(r';\s*support_type\s*=\s*([^\n;]+)', re.I)
 
 def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None,
                             z_scale=None, object_bounds=None, matched_only=False,
-                            recorded_scale=None, placement_mm=None, support_style=None):
+                            recorded_scale=None, placement_mm=None, support_style=None,
+                            _scan=None):
     """Post-slice toolpath coverage for support target regions (#922 gaps 2 and 4).
 
     ``regions`` is a report's region list (or a whole report). Targets are
@@ -1136,32 +1272,35 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
                 'scale_source': scale_source}
     if not isinstance(gcode, str):
         gcode = Path(gcode).read_text(errors='replace')
-    segments = []          # (ax, ay, az, bx, by, bz, is_interface)
-    current_type = ''
-    pos = {'X': None, 'Y': None, 'Z': 0.0}
-    for raw in gcode.splitlines():
-        line = raw.strip()
-        if line.startswith(';TYPE:'):
-            current_type = line.split(':', 1)[1].strip().casefold()
-            continue
-        move = _MOVE_RE.match(line)
-        if not move:
-            continue
-        start = (pos['X'], pos['Y'], pos['Z'])
-        # An E word on the move is an extrusion, in absolute or relative E
-        # mode alike; a bare G1 travel carries no E.
-        extrudes = False
-        for axis, number in _WORD_RE.findall(move.group(1)):
-            axis = axis.upper()
-            if axis == 'E':
-                extrudes = True
-            elif axis in pos:
-                pos[axis] = float(number)
-        if extrudes and 'support' in current_type and pos['X'] is not None and pos['Y'] is not None:
-            seg = (start[0] if start[0] is not None else pos['X'],
-                   start[1] if start[1] is not None else pos['Y'],
-                   start[2], pos['X'], pos['Y'], pos['Z'])
-            segments.append(seg + ('interface' in current_type,))
+    if _scan is not None:
+        segments = _scan.segments
+    else:
+        segments = []          # (ax, ay, az, bx, by, bz, is_interface)
+        current_type = ''
+        pos = {'X': None, 'Y': None, 'Z': 0.0}
+        for raw in gcode.splitlines():
+            line = raw.strip()
+            if line.startswith(';TYPE:'):
+                current_type = line.split(':', 1)[1].strip().casefold()
+                continue
+            move = _MOVE_RE.match(line)
+            if not move:
+                continue
+            start = (pos['X'], pos['Y'], pos['Z'])
+            # An E word on the move is an extrusion, in absolute or relative E
+            # mode alike; a bare G1 travel carries no E.
+            extrudes = False
+            for axis, number in _WORD_RE.findall(move.group(1)):
+                axis = axis.upper()
+                if axis == 'E':
+                    extrudes = True
+                elif axis in pos:
+                    pos[axis] = float(number)
+            if extrudes and 'support' in current_type and pos['X'] is not None and pos['Y'] is not None:
+                seg = (start[0] if start[0] is not None else pos['X'],
+                       start[1] if start[1] is not None else pos['Y'],
+                       start[2], pos['X'], pos['Y'], pos['Z'])
+                segments.append(seg + ('interface' in current_type,))
     if support_style:
         style = str(support_style).casefold()
     else:
@@ -1346,6 +1485,16 @@ def verify_coverage_by_plate(regions, plates):
     keys = ('source_bounds', 'gcode_bounds', 'z_scale', 'recorded_scale',
             'placement_mm', 'support_style', 'cell_mm')
     read, unverified = [], []
+    scans = {}
+
+    def _scan_of(text):
+        # One walk of each plate's text serves the height, object-bounds,
+        # model-bounds and support-segment reads below.
+        key = id(text)
+        if key not in scans:
+            scans[key] = (text, coverage_scan(text))
+        return scans[key][1]
+
     for i, plate in enumerate(plates):
         kw = {k: plate[k] for k in keys if plate.get(k) is not None}
         g = plate.get('gcode')
@@ -1361,7 +1510,8 @@ def verify_coverage_by_plate(regions, plates):
                                'reason': f'plate {i + 1} G-code unreadable ({label or g}): {exc}'})
             continue
         if plate.get('source_height'):
-            height = gcode_model_height(text)
+            scan = _scan_of(text)
+            height = scan.model_height if scan else gcode_model_height(text)
             if height:
                 kw.setdefault('z_scale', height / float(plate['source_height']))
         read.append((i + 1, text, kw, plate))
@@ -1373,9 +1523,10 @@ def verify_coverage_by_plate(regions, plates):
 
     def _run(i, text, kw, matched_only):
         try:
+            scan = _scan_of(text)
             result = verify_support_coverage(
-                regions, text, object_bounds=gcode_object_bounds(text) or None,
-                matched_only=matched_only, **kw)
+                regions, text, object_bounds=(scan.object_bounds if scan else gcode_object_bounds(text)) or None,
+                matched_only=matched_only, _scan=scan, **kw)
         except Exception as exc:  # noqa: BLE001 - a failed check is named, never a silent pass
             unverified.append({'plate': i, 'reason': f'plate {i} coverage check failed: {exc}'})
             return None
@@ -1411,18 +1562,21 @@ def verify_coverage_by_plate(regions, plates):
     results = []
     if len(read) == 1:
         i, text, kw, _plate = read[0]
-        if multi_part and not gcode_object_bounds(text):
+        scan = _scan_of(text)
+        if multi_part and not (scan.object_bounds if scan else gcode_object_bounds(text)):
             return _unattributed(i, 'single')
-        kw.setdefault('gcode_bounds', gcode_model_bounds(text))
+        kw.setdefault('gcode_bounds', scan.model_bounds if scan else gcode_model_bounds(text))
         result = _run(i, text, kw, matched_only=False)
         if result is not None:
             results.append(result)
         mode = 'single'
-    elif all(gcode_object_bounds(text) for _i, text, _kw, _p in read):
+    elif all((_scan_of(text).object_bounds if _scan_of(text) else gcode_object_bounds(text))
+             for _i, text, _kw, _p in read):
         mode = 'per_plate'
         graded_parts = set()
         for i, text, kw, _plate in read:
-            kw.setdefault('gcode_bounds', gcode_model_bounds(text))
+            scan = _scan_of(text)
+            kw.setdefault('gcode_bounds', scan.model_bounds if scan else gcode_model_bounds(text))
             result = _run(i, text, kw, matched_only=True)
             if result is None:
                 continue
@@ -1445,10 +1599,11 @@ def verify_coverage_by_plate(regions, plates):
         graded_parts = set()
         unlabeled = []
         for i, text, kw, _plate in read:
-            if not gcode_object_bounds(text):
+            scan = _scan_of(text)
+            if not (scan.object_bounds if scan else gcode_object_bounds(text)):
                 unlabeled.append(i)
                 continue
-            kw.setdefault('gcode_bounds', gcode_model_bounds(text))
+            kw.setdefault('gcode_bounds', scan.model_bounds if scan else gcode_model_bounds(text))
             result = _run(i, text, kw, matched_only=True)
             if result is None:
                 continue
