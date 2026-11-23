@@ -301,6 +301,15 @@ async def model_link_dispatch(event, gateway, **kwargs):
         except Exception:
             logger.exception('New model intake failure delivery also failed')
         return {'action': 'skip', 'reason': _INTAKE_UNAVAILABLE_REASON}
+    # A failed uploaded-model slice can offer the same repair session from
+    # this requester's own file. The confirmation is handled by the shared
+    # cross-platform adapter; unrelated archived jobs are never guessed.
+    reason = result.get('reason', '') if isinstance(result, dict) else ''
+    if str(reason).startswith(('slice refused:', 'slice failed:', 'slice retry failed')):
+        from .fix import offer_failed_intake
+        repair = await offer_failed_intake(event, gateway, adapter)
+        if repair is not None:
+            return repair
     # A question beside the model is answered from the job the intake just
     # prepared; edits were applied inside the intake (edit_hook above).
     if instruction and edit_hook is None:
