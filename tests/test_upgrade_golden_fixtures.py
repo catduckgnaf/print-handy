@@ -158,21 +158,21 @@ def test_doctor_refuses_the_old_install_layout_with_the_move(tmp_path):
 
 # ------------------------------------------------------------- retired settings keys
 
-def test_settings_load_with_every_retired_key_at_once():
-    data = settings.load(local=LEGACY / "settings_all_retired_keys.toml", environ={})
-    # Both aliases fold onto their current names; the old spellings are gone.
-    assert data["printer"]["filament_slots"] == 3
-    assert "ifs_slots" not in data["printer"]
-    assert data["webui"]["cookie_secure"] is True
-    assert "secure_cookie" not in data["webui"]
-    # The retired service key is dropped, not carried and not an error.
-    assert "openviking_url" not in data["services"]
+def test_retired_settings_fixture_names_the_required_migration():
+    with pytest.raises(settings.SettingsError, match="renamed to"):
+        settings.load(local=LEGACY / "settings_all_retired_keys.toml", environ={})
 
 
-def test_settings_retired_keys_in_the_environment_fold_the_same_way():
+def test_old_environment_keys_are_refused_and_current_keys_load():
+    for old_name, value, new_name in (
+        ("PRINT_HANDY__PRINTER__IFS_SLOTS", "3", "PRINT_HANDY__PRINTER__FILAMENT_SLOTS"),
+        ("PRINT_HANDY__WEBUI__SECURE_COOKIE", "true", "PRINT_HANDY__WEBUI__COOKIE_SECURE"),
+    ):
+        with pytest.raises(settings.SettingsError, match=new_name):
+            settings.load(local=False, environ={old_name: value})
     data = settings.load(local=False, environ={
-        "PRINT_HANDY__PRINTER__IFS_SLOTS": "3",
-        "PRINT_HANDY__WEBUI__SECURE_COOKIE": "true",
+        "PRINT_HANDY__PRINTER__FILAMENT_SLOTS": "3",
+        "PRINT_HANDY__WEBUI__COOKIE_SECURE": "true",
         "PRINT_HANDY__SERVICES__OPENVIKING_URL": "http://old.invalid",
     })
     assert data["printer"]["filament_slots"] == 3

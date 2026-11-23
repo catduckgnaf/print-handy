@@ -298,7 +298,7 @@ RUN python -m compileall -q -j 0 /app/print_handy
 ENV PYTHONPATH=/app
 ENV TZ=America/New_York
 ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable
-ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE=standalone \
+ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data \
     PRINT_HANDY_ORCA_CHANNEL=stable PRINT_HANDY__SERVICES__SPOOLMAN_URL=http://127.0.0.1:8000 \
     SPOOLMAN_DIR_DATA=/data/spoolman SPOOLMAN_DIR_CONFIG=/data/spoolman/config \
     SPOOLMAN_DIR_LOGS=/data/spoolman/logs SPOOLMAN_DIR_BACKUPS=/data/spoolman/backups \

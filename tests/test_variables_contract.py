@@ -6,7 +6,7 @@ config/home.yaml, plus settings.OPTIONAL_KEYS) must be present on three
 surfaces, or carry an exemption in EXEMPTIONS below:
 
   env      a scalar variable has its PRINT_HANDY__SECTION__KEY line in
-           .env.example, or a LEGACY_ENV name. Lists and tables are
+           .env.example. Lists and tables are
            file-only by loader design and count as covered.
   webui    the (section, key) pair has a field in print_handy/webui/catalog.py.
   consumer code outside the definition files reads the variable: its quoted
@@ -69,9 +69,8 @@ EXEMPTIONS = {
     ("bambu", "command"): (frozenset({"webui"}), "#657"),
     ("bambu", "lan_access_code_env"): (frozenset({"webui"}), "#286"),
     ("bambu", "start_confirm_s"): (frozenset({"webui"}), "#657"),
-    # bot.mode has one legal value since the Hermes runtime was removed
-    # (settings.BOT_MODES), so a one-option picker field was dropped.
-    ("bot", "mode"): (frozenset({"webui"}), "#657"),
+    # [bot] mode was removed (#1817). An old mode line is an unknown
+    # setting, not a variable that needs an exemption.
     ("bot", "health_port"): (frozenset({"webui"}), "#657"),
     ("bot", "health_stale_s"): (frozenset({"webui"}), "#657"),
     ("bot", "sync_commands"): (frozenset({"webui"}), "#657"),
@@ -242,7 +241,7 @@ class VariablesContractTests(unittest.TestCase):
         inv = inventory()
         gaps = surface_gaps(inv, {(f.section, f.key) for f in CATALOG},
                             (ROOT / ".env.example").read_text(),
-                            set(settings.LEGACY_ENV.values()), corpus_text())
+                            set(), corpus_text())
         self.assertEqual([], problems(gaps, EXEMPTIONS, set(inv)))
 
 

@@ -25,7 +25,7 @@ def test_payload_setup_outside_checkout_without_source_masking(tmp_path):
            if not k.startswith(("PRINT_HANDY", "HERMES", "PYTHONPATH", "ORCA_"))}
     env.update(PYTHONPATH=str(payload), PYTHONDONTWRITEBYTECODE="1",
                PRINT_HANDY_CONFIG=str(payload / "config/docker.yaml"),
-               PRINT_HANDY__BOT__MODE="standalone", DISCORD_BOT_TOKEN="offline-dummy",
+               DISCORD_BOT_TOKEN="offline-dummy",
                PRINT_HANDY__DISCORD__CHAT_ID="100000000000000001",
                PRINT_HANDY__DISCORD__ALLOWED_USER_IDS="200000000000000002",
                PRINT_HANDY__PATHS__STATE_HOME=str(tmp_path / "state"))
@@ -98,7 +98,7 @@ def test_example_requires_explicit_standalone_inputs_and_included_spoolman_defau
     for key in ("DISCORD_BOT_TOKEN", "PRINT_HANDY_IMAGE", "PRINT_HANDY__DISCORD__CHAT_ID",
                 "PRINT_HANDY__DISCORD__ALLOWED_USER_IDS"):
         assert assignments[key] == ""
-    assert assignments["PRINT_HANDY__BOT__MODE"] == "standalone"
+    assert "PRINT_HANDY__BOT__MODE" not in assignments
     assert "192.168." not in text
 
 

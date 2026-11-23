@@ -1,6 +1,6 @@
 """python3 -m print_handy.bot [run | check | health]
 
-run     start the standalone bot on the [bot] platform (the default). Refuses unless [bot] mode is standalone.
+run     start the standalone bot on the [bot] platform (the default).
 check   validate settings, token, channel, users and handlers offline. Exit 1 on a problem.
 health  exit 0 only while a running bot reports a fresh heartbeat.
 """
@@ -22,9 +22,6 @@ def checks(cfg):
     def add(label, ok, detail):
         rows.append((label, ok, detail))
 
-    mode = cfg["bot"]["mode"]
-    add("mode", mode == "standalone", mode if mode == "standalone" else
-        f"{mode}; the Hermes mode was removed — set [bot] mode to 'standalone'")
     name = str(cfg["bot"].get("platform") or "discord")
     implemented = platform.platform_module(name) is not None
     add("platform", implemented, name if implemented else

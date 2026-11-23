@@ -110,7 +110,7 @@ def run(coro):
 @pytest.fixture
 def cfg(tmp_path):
     data = copy.deepcopy(_config.cfg())
-    data["bot"].update(mode="standalone", platform="matrix")
+    data["bot"].update(platform="matrix")
     data["matrix"].update(homeserver_url=HOMESERVER, room_id=ROOM, allowed_user_ids=USER,
                           approval_user_id="", bot_user_id=BOT)
     data["paths"]["cache"] = tmp_path / "cache"

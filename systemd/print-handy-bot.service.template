@@ -6,7 +6,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=PYTHONUNBUFFERED=1
-Environment=PRINT_HANDY__BOT__MODE=standalone
 # DISCORD_BOT_TOKEN (and LLM_API_KEY, if [llm] is set) live here, never in the config files.
 EnvironmentFile=-{{DATA_HOME}}/.env
 WorkingDirectory={{REPO}}

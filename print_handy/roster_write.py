@@ -63,7 +63,7 @@ _ENTRY_ORDER = ("id", "model", "name", "chat_id", "moonraker_url", "moonraker_ws
 # declared roster. Everything else in those sections (Spoolman, the slicer
 # command, …) is global and stays.
 _LEGACY_KEYS = {
-    "printer": ("model", "name", "vendor", "nozzle_type", "tool_count"),
+    "printer": ("model", "name", "vendor", "nozzle_type", "tool_count", "build_plate"),
     "services": ("moonraker_url", "moonraker_ws_url", "octoprint_url", "camera_snapshot_url"),
     "bambu": ("lan_host", "lan_serial", "lan_access_code_env", "start_confirm_s"),
     "prusa": ("link_host", "api_key_env"),
@@ -128,7 +128,7 @@ def _converted_entry(resolved):
     if resolved.get("api_key_env") not in (None, "", "PRUSA_LINK_API_KEY"):
         entry["api_key_env"] = resolved["api_key_env"]
     model_printer = printer_registry.MODELS[entry["model"]].defaults().get("printer") or {}
-    for key in ("nozzle_type", "tool_count", *settings.PRINTER_ENTRY_GEOMETRY_KEYS):
+    for key in ("nozzle_type", "tool_count", "build_plate", *settings.PRINTER_ENTRY_GEOMETRY_KEYS):
         if key not in resolved:
             continue
         default = model_printer.get(key)

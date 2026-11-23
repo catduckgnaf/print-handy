@@ -34,14 +34,12 @@ def test_absent_record_is_not_complete(tmp_path):
     assert not setup_state.is_complete(_data(tmp_path))
 
 
-def test_walkthrough_done_migrates_on_read(tmp_path):
+def test_legacy_walkthrough_does_not_fake_shared_completion(tmp_path):
     state = tmp_path / "state"
     state.mkdir(parents=True)
     (state / "webui_walkthrough.json").write_text(json.dumps({"done": True, "step": 5}))
-    record = setup_state.load_completion(_data(tmp_path))
-    assert record["done"] is True and record["surface"] == "webui"
-    assert record["when"] is None and record["migrated"] is True
-    assert setup_state.is_complete(_data(tmp_path))
+    assert setup_state.load_completion(_data(tmp_path)) == {}
+    assert not setup_state.is_complete(_data(tmp_path))
 
 
 def test_walkthrough_not_done_does_not_migrate(tmp_path):

@@ -119,7 +119,7 @@ mv dot-config .config
         self.rows = dict(re.findall(r"^\| `([a-z_]+\.(?:[a-z_]+|<[a-zA-Z]+>))` \| ([^|]+) \|", DOCS, re.M))
 
     def test_schema_includes_the_standalone_and_vendor_settings(self):
-        for setting in [("bot", "mode"), ("bot", "health_port"), ("llm", "chat_url"), ("discord", "token_env"),
+        for setting in [("bot", "health_port"), ("llm", "chat_url"), ("discord", "token_env"),
                         ("discord", "allowed_user_ids"), ("printer", "vendor"), ("printer", "slicer"),
                         ("delivery", "methods")]:
             self.assertIn(setting, self.inventory)
@@ -176,7 +176,7 @@ mv dot-config .config
                 with self.subTest(setting=f"{section}.{key}"):
                     self.assertRegex(ENV_EXAMPLE, rf"(?m)^#? ?{env_name(section, key)}=")
 
-    def test_every_documented_env_name_is_accepted_by_the_loader(self):
+    def test_every_documented_env_name_is_valid_or_explicitly_retired(self):
         names = set()
         for path in DEPLOYMENT_FILES:
             names |= set(re.findall(r"PRINT_HANDY__[A-Z0-9_]+__[A-Z0-9_]+", (ROOT / path).read_text()))
@@ -185,16 +185,9 @@ mv dot-config .config
         for name in sorted(names):
             section, key = name[len("PRINT_HANDY__"):].lower().split("__")
             with self.subTest(env=name):
-                if (section, key) in settings.KEY_ALIASES:
-                    # A deprecated spelling documented beside its new name (#1323: paths.hermes_home):
-                    # the loader must still read it, into the current key.
-                    new_section, new_key = settings.KEY_ALIASES[(section, key)]
-                    self.assertIn((new_section, new_key), self.inventory, name)
-                    if section == "paths":
-                        value = "/tmp/alias-check"
-                        loaded = settings.load(local=False, environ={name: value})[new_section][new_key]
-                        self.assertEqual(loaded, settings.load(
-                            local=False, environ={f"PRINT_HANDY__{new_section.upper()}__{new_key.upper()}": value})[new_section][new_key], name)
+                # Retired names remain documented as migration guidance, not valid settings.
+                if (section, key) in settings.RENAMED_KEYS or (section, key) == ("bot", "mode"):
+                    self.assertNotIn((section, key), self.inventory)
                     continue
                 self.assertTrue((section, key) in self.inventory or section in settings.OPEN_SECTIONS, name)
 
@@ -212,7 +205,7 @@ mv dot-config .config
                 environ[match.group(1)] = match.group(2)
         self.assertGreater(len(environ), 40)
         data = settings.load(local=ROOT / "config" / "docker.yaml", environ=environ)
-        self.assertEqual(data["bot"]["mode"], "standalone")
+        self.assertNotIn("mode", data["bot"])
 
     def test_compose_build_and_secret_variables_are_documented(self):
         self.assertEqual(set(table("Compose variables")), COMPOSE_VARS)
@@ -1281,20 +1274,18 @@ class CameraWatchVisibilityTests(unittest.TestCase):
         self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER", compose_env)
         self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE", compose_env)
         # The env_file state an existing install produces: only the old
-        # spelling, set false. The alias folds it onto the renamed key.
-        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
-            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
-        self.assertIs(loaded["discord"]["mention_starter"], False)
+        # spelling. 2.4.0 refuses it by name and points at the current key
+        # instead of folding it silently (#1817 E).
+        with self.assertRaisesRegex(
+                settings.SettingsError,
+                r"mention_starter_on_complete.*renamed to \[discord\] mention_starter"):
+            settings.load(local=ROOT / "config" / "docker.yaml", environ={
+                "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
         # Neither spelling set: the documented default stands.
         loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
         self.assertIs(loaded["discord"]["mention_starter"], True)
-        # Both spellings set: the current name wins, in either direction.
+        # The current spelling is honoured.
         loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
-            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false",
-            "PRINT_HANDY__DISCORD__MENTION_STARTER": "true"})
-        self.assertIs(loaded["discord"]["mention_starter"], True)
-        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
-            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "true",
             "PRINT_HANDY__DISCORD__MENTION_STARTER": "false"})
         self.assertIs(loaded["discord"]["mention_starter"], False)
         # The in-repo Unraid template no longer injects the variable at

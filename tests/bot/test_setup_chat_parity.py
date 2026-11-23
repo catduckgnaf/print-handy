@@ -72,7 +72,7 @@ def test_discord_flow_writes_the_canonical_keys(tmp_path):
     reply, target = _apply(store, "k", tmp_path)
     assert reply.startswith("**Setup complete.**")
     written = yaml.safe_load(target.read_text())
-    assert written["bot"] == {"mode": "standalone", "platform": "discord"}
+    assert written["bot"] == {"platform": "discord"}
     assert written["discord"]["chat_id"] == "100000000000000001"
     assert written["services"]["camera_snapshot_url"] == "http://camera.test/snapshot.jpg"
     assert written["services"]["camera_source"] == "auto"

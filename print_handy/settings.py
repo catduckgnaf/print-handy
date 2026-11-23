@@ -6,11 +6,11 @@ Load order, later wins key by key:
   2. config/home.yaml (a TOML home is still read when home.yaml is absent; the shipped home.toml
      twin was retired in #1322, so no shipped tree takes that path)
   3. $PRINT_HANDY_CONFIG, else config/local.yaml, falling back to config/local.toml
-  4. Environment: PRINT_HANDY__SECTION__KEY, or a legacy name from LEGACY_ENV. Lists stay file-only
-     except ENV_LISTS, which take a comma- or space-separated value (#270).
+  4. Environment: PRINT_HANDY__SECTION__KEY. Lists stay file-only except ENV_LISTS, which take a
+     comma- or space-separated value (#270).
 
-Renamed keys (KEY_ALIASES, #672) accept their old spelling in every layer — file and
-environment — and are stored under the current name; the old spelling is deprecated.
+Keys renamed before 2.4.0 (RENAMED_KEYS) are refused by name in every layer, file and
+environment, with the current name in the message (#1817): their old spelling is no longer read.
 
 The model comes from environment, selected local configuration, then home configuration. [printer] model
 is the full "vendor.printer" key, as every existing config has it, or the printer part with [printer]
@@ -23,7 +23,6 @@ newer release must never stop an older one from starting, or rollback breaks.
 from __future__ import annotations
 
 import copy
-import json
 import math
 import os
 import re
@@ -31,25 +30,18 @@ import time
 import tomllib
 from urllib.parse import urlsplit
 
-try:  # PyYAML preferred; the Hermes plugin runtime ships ruamel.yaml instead (#170)
-    import yaml
-    # The libyaml-backed safe loader builds the same data about 12x faster (home.yaml: 40 ms -> 3 ms),
-    # and every process start pays one full load; the pure-Python one stays the fallback.
-    _yaml_safe_loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+import yaml
 
-    def _yaml_load(stream):
-        return yaml.load(stream, Loader=_yaml_safe_loader)
-    _YAML_ERRORS = (yaml.YAMLError,)
-except ImportError:  # pragma: no cover
-    yaml = None
-    try:
-        from ruamel.yaml import YAML as _RuamelYAML
-        from ruamel.yaml.error import YAMLError as _RuamelYAMLError
-        _yaml_load = _RuamelYAML(typ="safe", pure=True).load
-        _YAML_ERRORS = (_RuamelYAMLError,)
-    except ImportError:
-        _yaml_load = None
-        _YAML_ERRORS = ()
+# The libyaml-backed safe loader builds the same data about 12x faster (home.yaml: 40 ms -> 3 ms),
+# and every process start pays one full load; the pure-Python one stays the fallback.
+_yaml_safe_loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def _yaml_load(stream):
+    return yaml.load(stream, Loader=_yaml_safe_loader)
+
+
+_YAML_ERRORS = (yaml.YAMLError,)
 from functools import lru_cache
 from pathlib import Path
 
@@ -67,141 +59,17 @@ class SettingsError(ValueError):
     pass
 
 
-# Environment names the running home services already set. They keep working unchanged.
-LEGACY_ENV = {
-    "MOONRAKER_URL": ("services", "moonraker_url"),
-    "MOONRAKER_WS_URL": ("services", "moonraker_ws_url"),
-    "SPOOLMAN_URL": ("services", "spoolman_url"),
-    "PRINT_DISCORD_CHAT_ID": ("discord", "chat_id"),
-    "DISCORD_UPLOAD_MAX_BYTES": ("discord", "upload_max_bytes"),
-    "MOONRAKER_LISTENER_TICK_SECONDS": ("listener", "tick_s"),
-    "IFS_PRESENCE_POLL_SECONDS": ("listener", "ifs_presence_poll_s"),
-    "SPOOL_NAG_SECONDS": ("listener", "spool_nag_s"),
-    "PRINT_TIMELAPSE_ARCHIVE_HOST": ("timelapse", "archive_host"),
-    "PRINT_TIMELAPSE_ARCHIVE_DIR": ("timelapse", "archive_dir"),
-    "PRINT_TIMELAPSE_SSH_KEY": ("timelapse", "ssh_key"),
-    "PRINT_TIMELAPSE_RENDER_WAIT_SECONDS": ("timelapse", "render_wait_s"),
-    "PRINT_TIMELAPSE_RENDER_POLL_SECONDS": ("timelapse", "render_poll_s"),
-    "PRINT_TIMELAPSE_MAX_BYTES": ("timelapse", "max_bytes"),
-    "PRINT_TIMELAPSE_LOCAL_RETENTION_DAYS": ("timelapse", "local_retention_days"),
-    "PRINT_TIMELAPSE_PLAN_CLIP_RETENTION_DAYS": ("timelapse", "plan_clip_retention_days"),
-    "PRINT_TIMELAPSE_WRAPPED_ENABLED": ("timelapse", "wrapped_enabled"),
-    "PRINT_TIMELAPSE_WRAPPED_VIDEO": ("timelapse", "wrapped_video"),
-    "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": ("timelapse", "wrapped_video"),
-    "PRINT_TIMELAPSE_WRAPPED_TTS_ENGINE": ("timelapse", "wrapped_tts_engine"),
-    "PRINT_TIMELAPSE_WRAPPED_MUSIC_FILE": ("timelapse", "wrapped_music_file"),
-    "PRINT_TIMELAPSE_VERTICAL_SHORT": ("timelapse", "vertical_short"),
-    "PRINT_TIMELAPSE_VERTICAL_SHORT_MODE": ("timelapse", "vertical_short_mode"),
-    "PRINT_TIMELAPSE_VERTICAL_SHORT_OVERLAY": ("timelapse", "vertical_short_overlay"),
-    "MAINTENANCE_QUICK_HOURS": ("maintenance", "quick_hours"),
-    "MAINTENANCE_FULL_HOURS": ("maintenance", "full_hours"),
-    "MAINTENANCE_FULL_DAYS": ("maintenance", "full_days"),
-    "MAINTENANCE_BED_SEPARATE_MM": ("maintenance", "bed_separate_mm"),
-    "FFMPEG_BIN": ("paths", "ffmpeg"),
-    "PIPER_BIN": ("paths", "piper"),
-    "PIPER_MODEL": ("paths", "piper_model"),
-    "PRINT_HANDY_ARCHIVE": ("paths", "archive"),
-    "PRINT_RECORDS_VAULT": ("paths", "records_vault"),
-}
-# Setting keys renamed since installs in the wild were written (#672). The loader
-# accepts the old spelling — in a config file and as PRINT_HANDY__SECTION__KEY —
-# and stores the value under the current name; within one layer the current name
-# wins when both are set. The old spelling is a deprecated alias, not a second
-# variable: it never enters the defaults tree or OPTIONAL_KEYS. ifs_slots became
-# filament_slots once color_system (#656) carried the meaning the IFS name
-# implied; the printer registry had always called the same fact filament_slots.
-KEY_ALIASES = {
+# Setting keys renamed before 2.4.0 (#672, #1095, #1157, #1323). The old spelling is no
+# longer read (#1817): it is refused by name in a config file and as PRINT_HANDY__SECTION__KEY,
+# because each one would otherwise fall back to a default silently (hermes_home to an empty
+# state folder, secure_cookie to a cookie without its Secure flag).
+RENAMED_KEYS = {
     ("printer", "ifs_slots"): ("printer", "filament_slots"),
     ("webui", "secure_cookie"): ("webui", "cookie_secure"),
-    # #1095: the starter-mention setting outgrew its completion-only name
-    # when alert posts started pinging the starter too.
     ("discord", "mention_starter_on_complete"): ("discord", "mention_starter"),
-    # #1157: the Wrapped video compile is local and deterministic (the
-    # AI commentary was removed with #1003), so the key drops the "ai"
-    # it never should have promised; the old spelling stays readable.
     ("timelapse", "wrapped_ai_video"): ("timelapse", "wrapped_video"),
-    # #1323 (from #1157): the state directory was named after the Hermes install
-    # method, which no longer exists. The old spelling is read, with a warning,
-    # through 2.3.x and removed in 2.4.0 (docs/PROJECT-REFERENCE.md, Scheduled removals in 2.4.0).
     ("paths", "hermes_home"): ("paths", "state_home"),
 }
-# Aliases that log a deprecation warning when an install still uses the old spelling.
-WARNED_KEY_ALIASES = {("paths", "hermes_home")}
-_warned_aliases = set()
-
-
-def _warn_key_alias(old, new):
-    """Log once per process that a deprecated key spelling was read."""
-    if old in WARNED_KEY_ALIASES and old not in _warned_aliases:
-        _warned_aliases.add(old)
-        import logging
-        logging.getLogger(__name__).warning(
-            "[%s] %s is deprecated and stops working in 2.4.0; rename it to [%s] %s "
-            "(environment: PRINT_HANDY__%s__%s)", old[0], old[1], new[0], new[1],
-            new[0].upper(), new[1].upper())
-
-
-def _apply_key_aliases(layer):
-    """Fold deprecated key spellings in one parsed config layer into their current names."""
-    for (old_section, old_key), (new_section, new_key) in KEY_ALIASES.items():
-        values = layer.get(old_section)
-        if not isinstance(values, dict) or old_key not in values:
-            continue
-        _warn_key_alias((old_section, old_key), (new_section, new_key))
-        target = layer.setdefault(new_section, {})
-        if new_key in target:
-            del values[old_key]  # both spellings in one layer: the current name wins
-        else:
-            target[new_key] = values.pop(old_key)
-    discord = layer.get("discord")
-    if isinstance(discord, dict):
-        discord.pop("chat_llm_enabled", None)  # Removed in #1721; keep old configs readable.
-    services = layer.get("services")
-    if isinstance(services, dict):
-        services.pop("openviking_url", None)  # Drop retired configuration without disrupting upgrades.
-        vision_url = services.pop("vision_chat_url", None)
-        _note_retired_endpoint("[services] vision_chat_url", vision_url)  # Removed in #1731: vision uses the one [llm] endpoint.
-        _note_retired_ai("url", "[services] vision_chat_url", vision_url)
-    # The legacy LLM cleanup (#1731): the [agent] lane, the per-lane and
-    # per-tier endpoint keys and the vision model are retired. A config
-    # carrying any of them still loads — the keys are dropped here, before
-    # the unknown-key check, so they are inert rather than refused (some
-    # are credential-shaped and would otherwise refuse the whole load).
-    # Their values are kept as migration candidates (#1759): _migrate_retired_ai_endpoint
-    # decides after the layers merge whether they restore [llm], and only then are the
-    # dropped keys reported as unknown (see _note_retired_ai).
-    agent = layer.pop("agent", None)
-    if isinstance(agent, dict):
-        for key in ("chat_url", "fallback_url"):
-            _note_retired_endpoint(f"[agent] {key}", agent.get(key))
-            _note_retired_ai("url", f"[agent] {key}", agent.get(key))
-        _note_retired_ai("model", "[agent] model", agent.get("model"))
-    design = layer.get("design")
-    if isinstance(design, dict):
-        for key, kind in (("chat_url", "url"), ("api_key_env", "key")):
-            if key in design:
-                _note_retired_ai(kind, f"[design] {key}", design.pop(key),
-                                 unknown_note=(f"[design] {key} is retired; configure the matching "
-                                               "endpoint and key variable together in [llm]"))
-    vision = layer.get("vision")
-    if isinstance(vision, dict):
-        _note_retired_ai("model", "[vision] model", vision.pop("model", None))
-    ai = layer.get("ai")
-    if isinstance(ai, dict):
-        for tier in ("small", "chat", "heavy"):
-            table = ai.get(tier)
-            if isinstance(table, dict):
-                for key in ("chat_url", "fallback_model", "fallback_url", "api_key_env",
-                            "fallback_api_key_env", "timeout_s"):
-                    value = table.pop(key, None)
-                    if key in ("chat_url", "fallback_url"):
-                        _note_retired_endpoint(f"[ai.{tier}] {key}", value)
-                        _note_retired_ai("url", f"[ai.{tier}] {key}", value)
-                    elif key in ("api_key_env", "fallback_api_key_env"):
-                        _note_retired_ai("key", f"[ai.{tier}] {key}", value)
-                    elif key == "fallback_model":
-                        _note_retired_ai("model", f"[ai.{tier}] {key}", value)
-    return layer
 
 
 # Sections whose keys are names you choose, not a fixed set.
@@ -292,8 +160,7 @@ ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "deny
              ("firmware", "notice_firmwares")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
 # is the word, so the type check accepts either shape; _validate_purge checks the content.
-# [ai] allowed_users is one ID string; a list (its older shape) still loads.
-MIXED_KEYS = {("zmod", "plugins"), ("ai", "allowed_users")}
+MIXED_KEYS = {("zmod", "plugins")}
 PURGE_MODES = ("auto", "printer_chute", "prime_tower", "slicer_chute")
 PURGE_TOWER_CHOICES = ("auto", "on", "off")
 # [[printers]] entry keys (#257 Stage 2a, #333; design docs/MULTI-PRINTER-DESIGN.md §2.1). The
@@ -368,8 +235,7 @@ def _read_identity(path):
         st = os.stat(path)
     except OSError:
         return None
-    return (os.path.abspath(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns,
-            id(_yaml_load))
+    return (os.path.abspath(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
 
 def _read(path):
@@ -394,8 +260,6 @@ def _read_uncached(path):
         if path.suffix.lower() == ".toml":
             with open(path, "rb") as f:
                 return tomllib.load(f)
-        if _yaml_load is None:
-            raise SettingsError(f"{path}: PyYAML is required to read YAML config; install pyyaml or use a .toml file")
         with open(path, encoding="utf-8") as f:
             data = _yaml_load(f)
         if data is None:
@@ -419,6 +283,10 @@ def _unknown_message(source, section, key):
     hint = ""
     if (section, key) == ("printer", "family"):
         hint = ' ([printer] family was replaced by model, e.g. model = "klipper.generic"; see README "Printer models")'
+    elif (section, key) in RENAMED_KEYS:
+        new_section, new_key = RENAMED_KEYS[(section, key)]
+        hint = (f" (renamed to [{new_section}] {new_key}, environment "
+                f"PRINT_HANDY__{new_section.upper()}__{new_key.upper()})")
     return f"{source}: unknown setting [{section}] {key}{hint}"
 
 
@@ -443,204 +311,6 @@ def _credential_shaped(key):
     """
     lowered = str(key).lower()
     return any(word in lowered for word in _CREDENTIAL_WORDS)
-
-
-# Retired endpoint settings seen by the current load (#1749): (name, URL).
-# The URL is kept only to compare against the effective [llm] endpoint and is
-# never written into a warning.
-_retired_endpoints = []
-
-
-# Retired AI endpoint settings seen by the current load (#1759):
-# (kind, name, value, unknown_note). kind is "url", "key" or "model"; name is
-# the file key ("[design] chat_url") or the environment name
-# ("$PRINT_HANDY__AGENT__CHAT_URL"); value is the raw setting, kept only to
-# decide the migration and never written into a warning or a Doctor row;
-# unknown_note is the unknown-settings entry to report when the value is
-# dropped without migrating, or None when the key was never reported that
-# way. load() resets the list; the migration outcome is in _retired_ai_state
-# (see retired_ai_state()).
-_retired_ai_candidates = []
-_retired_ai_state = {}
-
-
-def _note_retired_ai(kind, name, value, unknown_note=None):
-    if value is not None and str(value).strip():
-        _retired_ai_candidates.append((kind, name, str(value).strip(), unknown_note))
-
-
-# Retired AI endpoint keys addressable from the environment (#1759), by
-# (section, key) to candidate kind. Two-part PRINT_HANDY__ names only; a
-# three-part tier name (PRINT_HANDY__AI__SMALL__CHAT_URL) was never a valid
-# override shape and still refuses loudly in _from_env, as before.
-# PRINT_VISION_URL and PRINT_FUZZY_URL are deliberately absent: they named
-# Cloudflare Worker URLs, not OpenAI-compatible endpoints, so they can never
-# migrate into [llm] and stay ignored-with-a-warning.
-_RETIRED_AI_ENV = {
-    ("agent", "chat_url"): "url",
-    ("agent", "fallback_url"): "url",
-    ("services", "vision_chat_url"): "url",
-    ("design", "chat_url"): "url",
-    ("design", "api_key_env"): "key",
-    ("vision", "model"): "model",
-}
-
-
-def _note_retired_endpoint(name, value):
-    url = str(value or "").strip()
-    if url:
-        _retired_endpoints.append((name, url))
-
-
-def _warn_retired_endpoints(data):
-    """Warn by name when a retired endpoint differs from the [llm] endpoint now in use (#1749).
-
-    Camera frames and label photos go to [llm] since #1731. A retired key
-    that pointed somewhere else means those images now reach a different
-    provider than the operator configured. When [llm] is not configured the
-    tier is simply off (nothing is sent), so there is nothing to warn about.
-    """
-    llm_url = str((data.get("llm") or {}).get("chat_url") or "").strip()
-    if not llm_url:
-        return
-    for name, url in _retired_endpoints:
-        if url.rstrip("/") != llm_url.rstrip("/"):
-            _note_unknown(f"{name} is retired and differs from [llm] chat_url; camera and label "
-                          "images, and every other AI request, are now sent to the [llm] "
-                          "endpoint (see Retired settings in the settings guide)")
-
-
-def _retired_ai_key_name(name):
-    if name.startswith("$"):
-        parts = name[1:].removeprefix("PRINT_HANDY__").lower().split("__")
-        if len(parts) == 2:
-            return f"[{parts[0]}] {parts[1]}"
-    return name
-
-
-def _migrate_retired_ai_endpoint(data):
-    """Migrate an unambiguous retired AI endpoint into [llm] (#1759), or record why not.
-
-    The one-AI-endpoint change (#1731) retired the per-lane and per-tier endpoint keys; a
-    config carrying only those keys loads with AI silently off. When the retired keys name
-    exactly one endpoint URL, at most one key variable, and exactly one model — or [llm]
-    already names its model — the endpoint is restored in memory: [llm] chat_url, api_key_env
-    and model are filled from the retired values. The operator file is untouched, so the
-    migration re-derives on every load and stays reversible; the migrated keys are not
-    reported as unknown. Anything ambiguous, or a config with no single model to use, is
-    not guessed: the retired keys stay dropped, they are reported as unknown as before,
-    and retired_ai_state() reports the ambiguity for the Doctor and the Status page.
-    [llm] model is required whenever chat_url is set (validate() refuses the pair
-    otherwise), so a migration that cannot name a model must decline — filling the URL
-    alone would leave every tier unresolvable and silence the warning that names it.
-    """
-    _retired_ai_state.clear()
-    llm = data.setdefault("llm", {})
-    # Each cleaned file layer records retired values before normal dictionary
-    # merging. Keep only the last candidate for the same retired setting so
-    # higher-priority user-file values replace docker/local values just as
-    # they do in the merged settings. Environment values are applied last.
-    effective = {}
-    for candidate in _retired_ai_candidates:
-        kind, name, value, note = candidate
-        key_name = _retired_ai_key_name(name)
-        effective[(kind, key_name)] = candidate
-    candidates = list(effective.values())
-    env_candidates = [candidate for candidate in candidates
-                      if candidate[1].startswith("$PRINT_HANDY__")]
-    env_file_names = {_retired_ai_key_name(candidate[1]) for candidate in env_candidates}
-    candidates = [candidate for candidate in candidates
-                  if not (candidate[1].startswith("[")
-                          and _retired_ai_key_name(candidate[1]) in env_file_names)]
-    candidates.extend(env_candidates)
-    names = sorted({name for _, name, _, _ in candidates})
-    if not names:
-        return
-    if str(llm.get("chat_url") or "").strip():
-        # An endpoint is configured; the retired keys are ignored as before (#1731).
-        for _, _, _, note in candidates:
-            if note:
-                _note_unknown(note)
-        return
-    urls = {}
-    for kind, _, value, _ in candidates:
-        if kind == "url" and value.startswith(("http://", "https://")):
-            urls.setdefault(value.rstrip("/"), value)
-    keys = {value for kind, _, value, _ in candidates
-            if kind == "key" and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value)}
-    models = {}
-    for kind, name, value, _ in candidates:
-        if kind == "model" and value:
-            models.setdefault(value, []).append(name)
-    live = {}
-    design_model = str((data.get("design") or {}).get("model") or "").strip()
-    if design_model:
-        live.setdefault(design_model, []).append("[design] model")
-    for tier in ("small", "chat", "heavy"):
-        tier_model = str(((data.get("ai") or {}).get(tier) or {}).get("model") or "").strip()
-        if tier_model:
-            live.setdefault(tier_model, []).append(f"[ai.{tier}] model")
-    llm_model = str(llm.get("model") or "").strip()
-    all_models = set(models) | set(live)
-    if llm_model:
-        model, model_source = llm_model, "[llm] model"
-    elif len(all_models) == 1:
-        model = next(iter(all_models))
-        model_source = (models.get(model) or live.get(model))[0]
-    else:
-        model, model_source = None, None
-    if len(urls) != 1:
-        reason = (f"name {len(urls)} different endpoints" if urls
-                  else "name no usable endpoint URL")
-    elif len(keys) > 1:
-        reason = f"name {len(keys)} different key variables"
-    elif model is None:
-        reason = ("name an endpoint but no model to use" if not all_models
-                  else f"name {len(all_models)} different models")
-    else:
-        reason = None
-    if reason is None:
-        url = urls[next(iter(urls))]
-        llm["chat_url"] = url
-        if len(keys) == 1:
-            llm["api_key_env"] = next(iter(keys))
-        if not llm_model:
-            llm["model"] = model
-        import logging
-        logging.getLogger(__name__).info(
-            "Migrated retired AI endpoint into [llm] from %s (model from %s); "
-            "the old keys are ignored — remove them from the config",
-            ", ".join(names), model_source)
-        _retired_ai_state.update({
-            "outcome": "migrated",
-            "keys": names,
-            "detail": (f"Retired AI settings migrated into [llm] (from {', '.join(names)}). "
-                       "The old keys are ignored; remove them from the config."),
-        })
-        return
-    # Declined: report the dropped keys as unknown, as before (#1731), so the
-    # startup warning still names them; the Doctor names them too, via the state.
-    for _, _, _, note in candidates:
-        if note:
-            _note_unknown(note)
-    _retired_ai_state.update({
-        "outcome": "ambiguous",
-        "keys": names,
-        "detail": (f"AI is not configured: retired AI settings ({', '.join(names)}) {reason}; "
-                   "set [llm] chat_url, model and api_key_env in Settings → AI, "
-                   "or remove the old keys."),
-    })
-
-
-def retired_ai_state():
-    """The retired-AI-endpoint outcome of the most recent load(), or None.
-
-    None when the load saw no retired AI keys, or [llm] was already configured. Otherwise
-    {"outcome": "migrated" | "ambiguous", "keys": [retired key names], "detail": ...} — the
-    detail names the keys, never their values. The Doctor and the Status page read this;
-    the keys themselves are gone from the loaded data by then.
-    """
-    return dict(_retired_ai_state) if _retired_ai_state else None
 
 
 def _note_unknown(entry):
@@ -724,11 +394,12 @@ def _check_keys(home, extra, source):
                 if _credential_shaped(key):
                     # Refused, not warned-and-dropped (see _credential_shaped).
                     raise SettingsError(_unknown_message(source, section, key))
-                if (section, key) == ("printer", "family"):
-                    # The one deliberate exception: family is a RETIRED key
-                    # with a migration path, not an unknown one. Silently
-                    # ignoring it would run the printer on the wrong profile,
-                    # so it keeps failing by name (test_adapters pins this).
+                if (section, key) == ("printer", "family") or (section, key) in RENAMED_KEYS:
+                    # The deliberate exceptions: family and the renamed keys are
+                    # RETIRED keys with a known replacement, not unknown ones.
+                    # Silently ignoring one would run the printer on the wrong
+                    # profile, or fall back to a default the operator had
+                    # changed, so they keep failing by name (test_adapters pins this).
                     raise SettingsError(_unknown_message(source, section, key))
                 _note_unknown(_unknown_message(source, section, key))
                 continue
@@ -771,18 +442,6 @@ def _split_list(raw):
 
 def _from_env(home, environ, declared=None):
     out = {}
-    # Ignore the retired Discord AI override on upgrade.
-    environ = {name: raw for name, raw in environ.items()
-               if name != "PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED"}
-    # Deprecated environment spellings (#672, KEY_ALIASES): when both spellings of
-    # a renamed key are set, the current name wins, so the old one is dropped
-    # before anything reads it. The surviving old spelling is folded onto the
-    # current key where PRINT_HANDY__ names are parsed below.
-    for (old_section, old_key), (new_section, new_key) in KEY_ALIASES.items():
-        old_name = f"PRINT_HANDY__{old_section.upper()}__{old_key.upper()}"
-        new_name = f"PRINT_HANDY__{new_section.upper()}__{new_key.upper()}"
-        if old_name in environ and new_name in environ:
-            environ = {name: raw for name, raw in environ.items() if name != old_name}
     # Indexed [[printers]] overrides (#333): `declared` is the roster the config files declare.
     # The environment may retarget scalar keys of a declared entry, never create one — the same
     # refusal _from_env gives an unknown section/key, applied to entry ids.
@@ -791,10 +450,6 @@ def _from_env(home, environ, declared=None):
         if isinstance(declared, list) else set()
     roster = None
     for name, raw in environ.items():
-        if name in {"PRINT_VISION_URL", "PRINT_FUZZY_URL"}:
-            if raw.strip():
-                _note_unknown(f"${name} is retired and ignored; see Retired settings in the settings guide")
-            continue
         if name.startswith("PRINT_HANDY__"):
             parts = name[len("PRINT_HANDY__"):].lower().split("__")
             if len(parts) == 3 and parts[0] == "printers":
@@ -822,27 +477,14 @@ def _from_env(home, environ, declared=None):
             if len(parts) != 2:
                 raise SettingsError(f"${name} must look like PRINT_HANDY__SECTION__KEY")
             section, key = parts
-            if (section, key) in KEY_ALIASES:
-                _warn_key_alias((section, key), KEY_ALIASES[(section, key)])
-            section, key = KEY_ALIASES.get((section, key), (section, key))
+            if (section, key) in RENAMED_KEYS:
+                raise SettingsError(_unknown_message(f"${name}", section, key))
             if section == "printers":
                 # The roster is reached only through the indexed
                 # PRINT_HANDY__PRINTERS__<ID>__<KEY> form above; a two-part
                 # printers name is a malformed override, not a setting.
                 raise SettingsError(_unknown_message(f"${name}", section, key))
-        elif name in LEGACY_ENV:
-            section, key = LEGACY_ENV[name]
         else:
-            continue
-        if (section, key) == ("services", "openviking_url"):
-            continue  # Ignore old Docker template overrides on upgrade.
-        if (section, key) in _RETIRED_AI_ENV:
-            # A retired AI endpoint key from the environment (#1759): it
-            # still loads — the value is a migration candidate for [llm],
-            # exactly like the same key in a config file — and is reported
-            # as unknown only when the migration declines.
-            _note_retired_ai(_RETIRED_AI_ENV[(section, key)], f"${name}", raw,
-                             unknown_note=_unknown_message(f"${name}", section, key))
             continue
         if (section, key) in ENV_LISTS:
             # An empty value changes nothing, like every other Docker feature variable left blank;
@@ -919,23 +561,6 @@ SPACING_PRESETS = {
     "high": dict(zip(SPACING_KEYS, (_half_mm(b * 1.5) for b in _SPACING_STANDARD))),
 }
 SPACING_LABELS = {"minimum": "Minimum", "low": "Low", "medium": "Medium (Standard)", "high": "High"}
-
-
-# The shipped defaults for these [paths] keys used to live under ~/.hermes. If an install has data
-# in the old directory and never explicitly set a path, keep using that directory after upgrade.
-LEGACY_PATH_DEFAULTS = {
-    "state_home": ("~/.local/share/print-handy", "~/.hermes/profiles/3dprinting"),
-    "cache": ("~/.cache/print-handy", "~/.hermes/cache"),
-}
-
-
-def _keep_legacy_path_defaults(data, explicit):
-    paths = data.get("paths", {})
-    for key, (shipped, legacy) in LEGACY_PATH_DEFAULTS.items():
-        if ("paths", key) in explicit or paths.get(key) != shipped:
-            continue
-        if Path(legacy).expanduser().is_dir():
-            paths[key] = legacy
 
 
 def _explicit_keys(*layers):
@@ -1502,7 +1127,7 @@ _MIXED_ENV_NAMES = ("PRINT_HANDY__PRINTER__MODEL", "PRINT_HANDY__PRINTER__NAME",
                     "PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL", "PRINT_HANDY__BAMBU__LAN_HOST",
                     "PRINT_HANDY__BAMBU__LAN_SERIAL", "PRINT_HANDY__BAMBU__START_CONFIRM_S",
                     "PRINT_HANDY__PRUSA__LINK_HOST", "PRINT_HANDY__ELEGOO_SDCP__HOST",
-                    "PRINT_HANDY__FLASHFORGE_STOCK__HOST", "MOONRAKER_URL", "MOONRAKER_WS_URL")
+                    "PRINT_HANDY__FLASHFORGE_STOCK__HOST")
 _MIXED_ENV_DEFAULTED = (("PRINT_HANDY__BAMBU__LAN_ACCESS_CODE_ENV", "BAMBU_LAN_PASSWORD"),
                         ("PRINT_HANDY__PRUSA__API_KEY_ENV", "PRUSA_LINK_API_KEY"))
 
@@ -1569,11 +1194,6 @@ def _check_mixed_shape(extra, environ):
 # and never calls an endpoint. Label reads and roasts are not verdicts and
 # never follow this setting.
 WATCH_SOURCES = ("auto", "endpoint", "local")
-# [bot] mode: "standalone" is the only runtime left. The Hermes install
-# method and the "hermes" runtime mode were removed (nobody runs that
-# topology anymore); _validate_bot refuses "hermes" by name below, with the
-# remedy, instead of letting it fall out of this tuple as a bare bad value.
-BOT_MODES = ("standalone",)
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 LOG_FORMATS = ("text", "json")
 # [timelapse] mode (#246/#295): "rendered" keeps the printer-rendered
@@ -2322,22 +1942,11 @@ def _validate_design(data):
 
 
 def ai_allowed_users(value) -> list[str]:
-    """The [ai] allowed_users IDs as a list, from the stored string or a list.
-
-    Entries split on commas and whitespace. Square brackets and quotes
-    around an entry are dropped: they are never part of a Discord,
-    Telegram or Matrix ID, and an earlier Web UI save could write the
-    list's printed form (``['[]']``) back into the file, which must read
-    as empty rather than as a user named "[]"."""
-    items = value if isinstance(value, (list, tuple)) else [value]
+    """The [ai] allowed_users IDs as a list, from the stored comma- or space-separated string."""
     out = []
-    for item in items:
-        if item is None or isinstance(item, bool):
-            continue
-        for part in re.split(r"[\s,]+", str(item)):
-            part = part.strip("[]'\"")
-            if part and part not in out:
-                out.append(part)
+    for part in re.split(r"[\s,]+", str(value or "")):
+        if part and part not in out:
+            out.append(part)
     return out
 
 
@@ -2346,25 +1955,19 @@ def _validate_ai(data):
 
     A tier table holds a model name only (#1731): every tier posts to the
     one endpoint in [llm], and a tier's ``model`` overrides the model name
-    for that tier's calls. The endpoint keys a tier table used to carry
-    are dropped on load by _apply_key_aliases, so an old config still
-    loads with them inert; any other unknown key stays refused here, so a
-    typo fails at load, not on the first print.
+    for that tier's calls. Any other key in a tier table is refused here,
+    so a typo (or an endpoint key retired in #1731) fails at load, not on
+    the first print.
     """
     ai = data.setdefault("ai", {})
     # Who may use the AI edit lane (#902), and how often. Empty allowed_users keeps the
     # lane open to every user the gateway already authorizes; 0 requests per hour disables
     # the limit.
-    # The value is one comma- or space-separated string, like the other
-    # user ID settings; a list (the older shape) still loads. Either way
-    # it is stored back in the one canonical string form, so the Web UI
-    # text field shows and submits it unchanged.
+    # The value is one comma- or space-separated string, like the other user ID settings,
+    # stored back in its canonical form so the Web UI text field shows it unchanged.
     allowed = ai.setdefault("allowed_users", "")
-    if isinstance(allowed, list):
-        if any(isinstance(v, bool) or not isinstance(v, (str, int)) for v in allowed):
-            raise SettingsError(f"[ai] allowed_users must be user IDs, got {allowed!r}")
-    elif isinstance(allowed, bool) or not isinstance(allowed, (str, int)):
-        raise SettingsError(f"[ai] allowed_users must be user IDs, got {allowed!r}")
+    if isinstance(allowed, bool) or not isinstance(allowed, (str, int)):
+        raise SettingsError(f"[ai] allowed_users must be one string of user IDs, got {allowed!r}")
     ai["allowed_users"] = ", ".join(ai_allowed_users(allowed))
     per_hour = ai.setdefault("edit_requests_per_hour", 20)
     if isinstance(per_hour, bool) or not isinstance(per_hour, int) or per_hour < 0:
@@ -2447,20 +2050,6 @@ def public_text_denylist(data=None):
 def _validate_bot(data):
     """The standalone bot sections (#73). Absent sections in a hand-made home file get the defaults."""
     bot = data.setdefault("bot", {})
-    bot.setdefault("mode", "standalone")
-    if str(bot["mode"]).strip().lower() == "hermes":
-        # A retired value with a migration path, refused by name (the
-        # [printer] family pattern): the Hermes install method and the
-        # hermes runtime mode were removed, so an old config must hear
-        # that — and what to do instead — not a bare unknown-value error
-        # and never a silent fallback to standalone.
-        raise SettingsError(
-            "[bot] mode 'hermes' was removed: the Hermes install method and the Hermes "
-            "runtime mode are gone. Print Handy now runs only as its own bot — set "
-            "[bot] mode to 'standalone' (or remove the setting) and start it with "
-            "python3 -m print_handy.bot, or use the Docker image.")
-    if bot["mode"] not in BOT_MODES:
-        raise SettingsError(f"[bot] mode must be one of {', '.join(BOT_MODES)}, got {bot['mode']!r}")
     # The chat platform the standalone bot talks to (#164). The known set is
     # owned by print_handy.bot.platform; a config without the key (every
     # config written before #164) keeps the Discord default.
@@ -2494,8 +2083,7 @@ def _validate_bot(data):
     # only the user who started that print — the one person who needs the
     # notification. False restores the previous behavior: no post mentions
     # anyone. Prints with no recorded starter never mention anyone either
-    # way. The pre-#1095 spelling mention_starter_on_complete is a
-    # KEY_ALIASES alias and lands here under the current name.
+    # way. The pre-#1095 spelling mention_starter_on_complete is refused (RENAMED_KEYS).
     mention_starter = discord.setdefault("mention_starter", True)
     if not isinstance(mention_starter, bool):
         raise SettingsError(f"[discord] mention_starter must be true or false, got {mention_starter!r}")
@@ -2517,9 +2105,6 @@ def _validate_bot(data):
         raise SettingsError("[llm] model is required when chat_url is set")
     llm.setdefault("timeout_s", 20)
     llm["timeout_s"] = _positive(data, "llm", "timeout_s")
-    # The [agent] lane is removed (#1731): _apply_key_aliases drops the
-    # whole section from every config layer, so an old config loads with
-    # the lane inert and no [agent] defaults are seeded here.
 
 
 def _validate_purge(data):
@@ -2676,11 +2261,7 @@ def validate(data):
         # several IFS bays), so no per-model exception is needed here. Stock
         # Flashforge keeps one tool and still has four physical IFS bays;
         # occupancy is checked at print start; this is not a multicolor profile.
-        hint = ""
-        if key == "klipper.generic":
-            hint = ("; if this is a Flashforge AD5X, set PRINT_HANDY__PRINTER__MODEL=flashforge.ad5x "
-                    "(the Docker default changed to klipper.generic in 2.2.2)")
-        raise SettingsError(f"[printer] filament_slots must be 1 for model {key!r} (single extruder){hint}")
+        raise SettingsError(f"[printer] filament_slots must be 1 for model {key!r} (single extruder)")
     if "tool_count" in data["printer"]:
         # Independent toolheads (a tool changer) are tools, not IFS slots: the count
         # is only meaningful on a multi-tool model, where filament_slots still stays 1.
@@ -2805,12 +2386,9 @@ def load(home=None, local=None, environ=None, user=None):
     """
     environ = os.environ if environ is None else environ
     _unknown_settings.clear()
-    _retired_endpoints.clear()
-    _retired_ai_candidates.clear()
-    _retired_ai_state.clear()
     if home is None:
         home = HOME if HOME.is_file() else LEGACY_HOME
-    home_data = _apply_key_aliases(_read(home))
+    home_data = _read(home)
     if local is None:
         env = environ.get("PRINT_HANDY_CONFIG")
         if env:
@@ -2821,7 +2399,7 @@ def load(home=None, local=None, environ=None, user=None):
             local = LOCAL
         elif LEGACY_LOCAL.is_file():
             local = LEGACY_LOCAL
-    local_layer = _apply_key_aliases(_read(local)) if local else {}
+    local_layer = _read(local) if local else {}
     extra = local_layer
     if user is None:
         user = user_config_path(environ)
@@ -2833,7 +2411,7 @@ def load(home=None, local=None, environ=None, user=None):
             user = None
     elif user and not Path(user).is_file():
         raise SettingsError(f"user settings file is missing: {user}")
-    user_extra = _apply_key_aliases(_read(user)) if user else {}
+    user_extra = _read(user) if user else {}
     shipped = bool(local) and Path(local).resolve() in SHIPPED_DOCKER_CONFIGS
     operator = _merge({} if shipped else extra, user_extra)
     extra = _merge(extra, user_extra)
@@ -2855,10 +2433,6 @@ def load(home=None, local=None, environ=None, user=None):
         key = _model_key(pick("model"), pick("vendor"))
     data = _merge(printer_registry.MODELS[key].defaults(), home_data)
     base = copy.deepcopy(data)
-    global _model_defaulted
-    _model_defaulted = bool(shipped and first is None and not environ.get("PRINT_HANDY__PRINTER__MODEL")
-                            and not environ.get("PRINT_HANDY__PRINTER__VENDOR")
-                            and not user_extra.get("printer", {}).get("model"))
     if user:
         user_extra = _check_keys(base, user_extra, user)
     if local:
@@ -2870,20 +2444,12 @@ def load(home=None, local=None, environ=None, user=None):
     data = _merge(data, extra)
     env_layer = _from_env(base, environ, declared)
     data = _merge(data, env_layer)
-    _warn_retired_endpoints(data)
-    _migrate_retired_ai_endpoint(data)
-    _keep_legacy_path_defaults(data, _explicit_keys(extra, env_layer))
     # layout.spacing fills the gap/margin keys; a key the operator set anywhere wins.
     apply_spacing_preset(data, _explicit_keys(home_data, extra, env_layer))
     return validate(data)
 
 
 _override = None
-
-
-# Set by load(): the model came only from the image's own config/docker.* (no
-# environment variable, no operator file, no roster). See defaulted_model_warning.
-_model_defaulted = False
 
 
 def unknown_settings():
@@ -2909,33 +2475,6 @@ def unknown_settings_warning():
     return ("unknown setting(s) ignored — this version of Print Handy does not know them, "
             "so they were not applied (a configuration written for a newer release, or a "
             "typo?): " + "; ".join(_unknown_settings))
-
-
-def defaulted_model_warning(data=None):
-    """A startup warning when a Docker install may have been moved to Generic Klipper by 2.2.2.
-
-    The image default changed from flashforge.ad5x to klipper.generic. An AD5X
-    owner who never set PRINT_HANDY__PRINTER__MODEL is now on the generic model
-    silently; the tell is a hardware record from the old model (several loaded
-    slots or a zmod_* entry). Returns the message, or None when nothing looks wrong.
-    """
-    data = data or current()
-    if not _model_defaulted or data["printer"]["model"] != "klipper.generic":
-        return None
-    try:
-        record = json.loads((state_dir(data) / "printer_hardware.json").read_text())
-    except (OSError, ValueError):
-        return None
-    if not isinstance(record, dict):
-        return None
-    slots = record.get("filament_slots", record.get("ifs_slots"))
-    multi_slot = isinstance(slots, dict) and len(slots) > 1
-    zmod = any(key.startswith("zmod_") and value not in (None, "", False, 0) for key, value in record.items())
-    if not (multi_slot or zmod):
-        return None
-    return ("[printer] model was not set, so this install uses the Docker default klipper.generic (changed from "
-            "flashforge.ad5x in 2.2.2), but its hardware record carries AD5X multi-slot or ZMod data. If this is a "
-            "Flashforge AD5X, set PRINT_HANDY__PRINTER__MODEL=flashforge.ad5x")
 
 
 def set_override(data):

@@ -627,7 +627,6 @@ def build_plan(w):
             "printer": printer,
             "services": services,
             "discord": {k: v for k, v in discord.items() if v},
-            "bot": {"mode": "standalone"},
             "paths": {"state_home": data_home},
         }
         if bambu_lan:
@@ -684,7 +683,6 @@ def build_plan(w):
             "printers": entries,
             "services": {k: v for k, v in services.items() if k == "spoolman_url"},
             "discord": {k: v for k, v in discord.items() if v},
-            "bot": {"mode": "standalone"},
             "paths": {"state_home": data_home},
         }
         notes.append("Multi-printer: the roster lives in the config file (it cannot come from the "

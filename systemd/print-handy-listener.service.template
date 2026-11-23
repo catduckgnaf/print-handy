@@ -6,7 +6,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=PYTHONUNBUFFERED=1
-Environment=PRINT_HANDY__BOT__MODE=standalone
 EnvironmentFile=-{{DATA_HOME}}/.env
 WorkingDirectory={{REPO}}
 ExecStart={{PYTHON}} -m print_handy.runtime.moonraker_event_listener

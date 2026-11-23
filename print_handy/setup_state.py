@@ -15,14 +15,8 @@ The shared record is one small JSON file in the state folder,
 ``surface`` names the surface that finished setup (``webui``, ``chat``
 or ``wizard``) so another surface can say "set up via chat on <date>"
 instead of presenting a fresh walkthrough. ``when`` is an ISO-8601 UTC
-timestamp, or ``None`` for a record migrated from an older state file
-that carried no timestamp.
-
-Read-both migration: an existing ``webui_walkthrough.json`` with
-``done`` true counts as completion on first read, so no install loses
-its done state when this record is introduced. Writes go through the
-setup wizard's atomic writer at mode 0600, the same helper the
-walkthrough state file already uses.
+timestamp. Writes go through the setup wizard's atomic writer at mode
+0600, the same helper the walkthrough state file already uses.
 """
 from __future__ import annotations
 
@@ -78,12 +72,7 @@ def _read_json(path):
 
 
 def load_completion_in_state_dir(state_dir):
-    """The completion record found in ``state_dir``, or ``{}``.
-
-    The shared record wins when present; otherwise an existing
-    walkthrough state file with ``done`` true migrates in as a
-    ``webui`` completion with no timestamp.
-    """
+    """The completion record found in ``state_dir``, or ``{}``."""
     state_dir = Path(state_dir)
     record = _read_json(state_dir / "setup_completion.json")
     if record.get("done"):
@@ -93,13 +82,6 @@ def load_completion_in_state_dir(state_dir):
         if record.get("skipped"):
             loaded["skipped"] = True
         return loaded
-    legacy = _read_json(state_dir / "webui_walkthrough.json")
-    if legacy.get("done"):
-        migrated = {"done": True, "surface": "webui", "when": None,
-                    "migrated": True}
-        if legacy.get("skipped"):
-            migrated["skipped"] = True
-        return migrated
     return {}
 
 

@@ -169,8 +169,7 @@ def _catalog_row(field_value, view):
     lock_note = ""
     if locked:
         lock_note = (f"Overridden by the environment "
-                     f"(PRINT_HANDY__{field.section.upper()}__{field.key.upper()} or a "
-                     "legacy name) or set in your own settings file: change it there "
+                     f"(PRINT_HANDY__{field.section.upper()}__{field.key.upper()}) or set in your own settings file: change it there "
                      "instead; this field is not written to the settings file."
                      if field_value.provenance == config_api.ENVIRONMENT else
                      "Set in your own settings file, which overrides the settings "

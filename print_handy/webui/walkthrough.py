@@ -143,9 +143,6 @@ STEP_FIELDS = {
                 "services.octoprint_url", "bambu.lan_host", "bambu.lan_serial",
                 "prusa.link_host", "flashforge_stock.host", "elegoo_sdcp.host",
                 "printer.zmod_delivery_format", "services.spoolman_url"),
-    # No bot.mode field: since the Hermes removal the only legal value
-    # is "standalone", which chat setup and the wizard hard-code — a
-    # one-answer question is not a question.
     "chat": ("bot.platform", "discord.chat_id", "discord.allowed_user_ids",
              "telegram.chat_id", "telegram.allowed_user_ids", "matrix.homeserver_url",
              "matrix.room_id", "matrix.allowed_user_ids"),

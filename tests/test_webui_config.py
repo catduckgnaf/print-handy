@@ -397,8 +397,8 @@ class CatalogTests(unittest.TestCase):
             tuple(sorted(printers.MODELS, key=lambda key: (printers.MODELS[key].label.casefold(), key))),
         )
         self.assertEqual(choices_for(field_by_id("bot.platform")), tuple(KNOWN_PLATFORMS))
-        # bot.mode has one legal value (standalone), so it is no field.
-        self.assertEqual(settings.BOT_MODES, ("standalone",))
+        # #1817: [bot] mode is gone, so it is not a field.
+        self.assertFalse(hasattr(settings, "BOT_MODES"))
         self.assertIsNone(field_by_id("bot.mode"))
         self.assertEqual(choices_for(field_by_id("printer.slicer"), model_key="bambulab.a1"),
                          printers.MODELS["bambulab.a1"].vendor.slicers)
@@ -626,10 +626,9 @@ class WriteAPITests(unittest.TestCase):
                     write_changes(changes, config_path=self.local, environ={})
                 self.assertEqual(self.local.read_bytes(), before)
                 self.assertFalse(list(Path(self.tmp.name).glob("*.bak-*")))
-        # A legacy environment name overrides a timelapse field too.
-        with self.assertRaisesRegex(WebUIConfigError, "overridden by the environment"):
-            write_changes({"timelapse.render_wait_s": 60}, config_path=self.local,
-                          environ={"PRINT_TIMELAPSE_RENDER_WAIT_SECONDS": "60"})
+        # Removed short environment variables do not override settings.
+        ignored = settings.load(local=False, environ={"PRINT_TIMELAPSE_RENDER_WAIT_SECONDS": "60"})
+        self.assertNotEqual(ignored["timelapse"]["render_wait_s"], 60)
         self.assertEqual(self.local.read_bytes(), before)
 
     def test_env_overridden_field_write_is_refused(self):
@@ -638,11 +637,11 @@ class WriteAPITests(unittest.TestCase):
         with self.assertRaisesRegex(WebUIConfigError, "overridden by the environment"):
             write_changes({"visual_watch.sensitivity": 2}, config_path=self.local, environ=env)
         self.assertEqual(self.local.read_bytes(), before)
-        # A legacy environment name overrides too.
-        with self.assertRaisesRegex(WebUIConfigError, "overridden by the environment"):
-            write_changes({"services.moonraker_url": "http://printer.test:7125"},
-                          config_path=self.local, environ={"MOONRAKER_URL": "http://printer.test:7125"})
-        self.assertEqual(self.local.read_bytes(), before)
+        # Short names no longer lock the Web UI's editing field.
+        self.assertEqual(write_changes({"services.moonraker_url": "http://printer.test:7125"},
+                                       config_path=self.local,
+                                       environ={"MOONRAKER_URL": "http://printer.test:7125"}),
+                         [("services", "moonraker_url")])
 
     def test_field_instances_resolve_through_the_catalog_allowlist(self):
         # P2-95: a Field instance naming an uncatalogued setting is refused
@@ -703,7 +702,7 @@ class WriteAPITests(unittest.TestCase):
                          [("visual_watch", "sensitivity")])
 
     def test_layers_fold_deprecated_keys_in_every_file_layer(self):
-        # 2.2.5 review of #783: load() applies the alias step to home, settings and user files alike.
+        # No renamed-key adoption remains in the raw settings layers.
         from print_handy.webui import config as webui_config
         self.write_file("printer:\n  ifs_slots: 2\n")
         home = Path(self.tmp.name) / "home"
@@ -712,8 +711,10 @@ class WriteAPITests(unittest.TestCase):
         user.write_text("printer:\n  ifs_slots: 4\n")
         _defaults, _home, file_data, user_data, _env = webui_config._layers(
             None, self.local, {"HOME": str(home)})
-        self.assertEqual(user_data["printer"], {"filament_slots": 4})
-        self.assertEqual(file_data["printer"], {"filament_slots": 2})
+        self.assertEqual(user_data["printer"], {"ifs_slots": 4})
+        self.assertEqual(file_data["printer"], {"ifs_slots": 2})
+        with self.assertRaisesRegex(settings.SettingsError, "ifs_slots"):
+            settings.load(local=self.local, environ={"HOME": str(home)})
 
     def test_noop_change_writes_nothing_and_makes_no_backup(self):
         before = self.write_file("visual_watch:\n  sensitivity: 3\n")

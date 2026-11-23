@@ -366,7 +366,7 @@ def test_a_telegram_callback_from_another_chat_never_resolves_the_prompt():
 
 def matrix_cfg(tmp_path):
     data = copy.deepcopy(_config.cfg())
-    data["bot"].update(mode="standalone", platform="matrix")
+    data["bot"].update(platform="matrix")
     data["matrix"].update(room_id="!garage:example.org", allowed_user_ids="@catduck:example.org",
                           approval_user_id="")
     base = copy.deepcopy(data["printers"][0])

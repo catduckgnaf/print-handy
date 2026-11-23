@@ -510,9 +510,7 @@ CATALOG = (
            "everyone else in the channel can use mention-only notifications and stay "
            "unpinged by other people's prints. Off: no post mentions anyone, as before. "
            "A print started outside the bot (at the printer, from another app) has no "
-           "recorded starter and never mentions anyone. (Earlier this was "
-           "mention_starter_on_complete and covered only the end-of-print post; the "
-           "old name still works and is read as this setting.)",
+           "recorded starter and never mentions anyone.",
            validator="settings discord check"),
     _field("discord", "ask_which_parts", "Ask which parts to print", "toggle",
            "Off by default: when a model's files are all different parts (a shell, a "
@@ -1034,9 +1032,7 @@ CATALOG = (
     _field("timelapse", "wrapped_video", "Wrapped video", "toggle",
            "The on-demand Wrapped video compile: a local video of the "
            "year's slides, the local commentary and the year's timelapses. No "
-           "AI model is used; the setting was renamed from wrapped_ai_video "
-           "and the old spelling is still accepted in config files "
-           "and the environment. On by "
+           "AI model is used. On by "
            "default, and it needs the Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),

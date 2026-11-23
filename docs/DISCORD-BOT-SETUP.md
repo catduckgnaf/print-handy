@@ -67,7 +67,6 @@ The installer creates the configuration. For a manual install, edit `config/loca
 
 ```yaml
 bot:
-  mode: standalone
   sync_commands: true
   health_port: 0
 paths:
@@ -96,13 +95,11 @@ Developer Portal and replace it locally. Never commit `.env` or `config/local.ya
 | `discord.approval_all_users` | `true` lets anyone allowed to use the bot approve prints (the Web UI checkbox "Anyone in the channel can approve"). A denied user is still refused. Default `false` |
 | `discord.token_env` | Environment variable name holding the secret, not the token itself |
 | `discord.bot_name` | Name in replies, and a name the bot answers to when mentioned; left at the default, the Discord account's name is used instead. Does not change the Discord account name |
-| `bot.mode` | `standalone`; the only mode |
 | `bot.sync_commands` | Register slash commands at startup; default `true` |
 | `bot.health_port` | Default `0`: no HTTP listener; leave disabled for this setup |
 | `bot.health_stale_s` | Heartbeat freshness limit; default 120 seconds |
 
 All settings support `PRINT_HANDY__SECTION__KEY` process-environment overrides, for example
-`PRINT_HANDY__BOT__MODE=standalone` and
 `PRINT_HANDY__DISCORD__ALLOWED_USER_IDS="234567890123456789 345678901234567890"`.
 The actual token still comes from the variable named by `token_env` (default `DISCORD_BOT_TOKEN`),
 not a `discord.token` field. `PRINT_HANDY_CONFIG` selects an explicit configuration file.

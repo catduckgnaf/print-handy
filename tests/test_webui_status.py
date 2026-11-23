@@ -200,22 +200,17 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(hardware["status"], "fail")
         self.assertFalse(snap["ok"])  # a doctor fail turns the overall flag off
 
-    def test_ambiguous_retired_ai_keys_warn_and_turn_the_headline(self):
-        """#1759: the issue's repro — retired AI keys with no model — warns
-        in the doctor rows, turns the snapshot not-ok, and the Status page
-        says "Attention needed" with a banner to Settings → AI."""
+    def test_ai_feature_without_endpoint_warns_and_turns_the_headline(self):
+        """#1759: an AI feature switched on with no [llm] endpoint warns in
+        the doctor rows, turns the snapshot not-ok, and the Status page says
+        "Attention needed" with a banner to Settings → AI. (The retired-key
+        spelling of the repro is now refused at load, #1817; see
+        test_retired_design_endpoint_requires_current_configuration.)"""
         with tempfile.TemporaryDirectory() as tmp:
-            data = load_settings(tmp,
-                                 "ai:\n  chat:\n    chat_url: https://ai.example.com/v1/chat/completions\n"
-                                 "    api_key_env: DESIGN_KEY\n"
-                                 "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
-                                 "  api_key_env: DESIGN_KEY\n")
+            data = load_settings(tmp, "design:\n  enabled: true\n")
             rows = status.doctor_checks(data)
         ai_row = next(row for row in rows if row["label"] == "AI endpoint")
         self.assertEqual(ai_row["status"], "warn")
-        self.assertIn("[design] chat_url", ai_row["detail"])
-        self.assertNotIn("ai.example.com", ai_row["detail"])
-        self.assertNotIn("DESIGN_KEY", ai_row["detail"])
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp)
             healthcheck.beat(data=data)
@@ -228,17 +223,14 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("AI is not configured", body)
         self.assertIn("/config?section=ai", body)
 
-    def test_a_migrated_retired_endpoint_is_an_ok_row(self):
-        """#1759: the same retired keys with a model migrate, so the row is ok."""
+    def test_retired_design_endpoint_requires_current_configuration(self):
+        # #1817 removes automatic migration of retired AI configuration keys.
         with tempfile.TemporaryDirectory() as tmp:
-            data = load_settings(tmp,
-                                 "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
-                                 "  api_key_env: DESIGN_KEY\n"
-                                 "vision:\n  model: luna\n")
-            rows = status.doctor_checks(data)
-        ai_row = next(row for row in rows if row["label"] == "AI endpoint")
-        self.assertEqual(ai_row["status"], "ok")
-        self.assertIn("migrated into [llm]", ai_row["detail"])
+            with self.assertRaisesRegex(settings.SettingsError, r"\[design\] api_key_env"):
+                load_settings(tmp,
+                              "design:\n  chat_url: https://ai.example.com/v1/chat/completions\n"
+                              "  api_key_env: DESIGN_KEY\n"
+                              "vision:\n  model: luna\n")
 
     def test_no_secret_values_in_snapshot(self):
         environ = {"WEBUI_ACCESS_TOKEN": TOKEN, "DISCORD_BOT_TOKEN": OTHER_SECRET,

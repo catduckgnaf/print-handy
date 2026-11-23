@@ -17,6 +17,8 @@ are excluded from the scan (a comment never reaches the AST at all).
 import ast
 from pathlib import Path
 
+import pytest
+
 from print_handy import settings
 from print_handy.core import filament_color
 
@@ -26,24 +28,24 @@ ROOT = Path(__file__).parents[1]
 SANCTIONED = {
     "ifs_slots": {
         "print_handy/settings.py":
-            "KEY_ALIASES table + the one sanctioned fallback reader in "
+            "RENAMED_KEYS table + the one sanctioned fallback reader in "
             "the model-default warning (record.get(new, record.get(old)))",
         "print_handy/core/filament_color.py":
             "adopt_renamed_slots_key(): the single adoption function both "
             "state loaders call right after parsing",
     },
     "secure_cookie": {
-        "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
+        "print_handy/settings.py": "RENAMED_KEYS table (config-layer alias only)",
     },
     "mention_starter_on_complete": {
-        "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
+        "print_handy/settings.py": "RENAMED_KEYS table (config-layer alias only)",
     },
     "hermes_home": {
-        "print_handy/settings.py": "KEY_ALIASES table and WARNED_KEY_ALIASES (config and environment "
+        "print_handy/settings.py": "RENAMED_KEYS table and WARNED_RENAMED_KEYS (config and environment "
                                    "alias, warned once; #1323)",
     },
     "wrapped_ai_video": {
-        "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
+        "print_handy/settings.py": "RENAMED_KEYS table (config-layer alias only)",
     },
 }
 
@@ -64,9 +66,9 @@ def _string_constants(tree):
 
 
 def test_every_renamed_key_touch_is_registered():
-    old_keys = {old for (_sec, old) in settings.KEY_ALIASES}
+    old_keys = {old for (_sec, old) in settings.RENAMED_KEYS}
     assert old_keys == set(SANCTIONED), (
-        "settings.KEY_ALIASES and this registry disagree on the renamed "
+        "settings.RENAMED_KEYS and this registry disagree on the renamed "
         "keys — register the new rename here before touching its key")
     offenders = []
     for path in sorted((ROOT / "print_handy").rglob("*.py")):
@@ -103,6 +105,13 @@ def test_adoption_prefers_the_current_name_and_keeps_legacy_records():
     assert current_only == {"filament_slots": {"1": {"spoolman_id": 9}}}
 
 
+def test_settings_refuses_the_old_spelling_with_the_new_name(tmp_path):
+    path = tmp_path / "local.yaml"
+    path.write_text("printer:\n  ifs_slots: 2\n")
+    with pytest.raises(settings.SettingsError, match=r"ifs_slots .*filament_slots"):
+        settings.load(local=path, environ={})
+
+
 def test_load_adopts_a_pre_rename_slot_map_and_save_drops_the_old_key(tmp_path, monkeypatch):
     """A record the doctor moved still names the map ifs_slots; load keeps the slots."""
     import json
@@ -123,12 +132,3 @@ def test_load_adopts_a_pre_rename_slot_map_and_save_drops_the_old_key(tmp_path, 
     saved = json.loads(record.read_text())
     assert "ifs_slots" not in saved
     assert saved["filament_slots"]["1"]["spoolman_id"] == 7
-
-
-def test_settings_aliases_fold_the_old_spelling_into_the_current_name():
-    layer = {"printer": {"ifs_slots": {"0": {}}}}
-    settings._apply_key_aliases(layer)
-    assert layer == {"printer": {"filament_slots": {"0": {}}}}
-    both = {"printer": {"ifs_slots": {"old": {}}, "filament_slots": {"new": {}}}}
-    settings._apply_key_aliases(both)
-    assert both == {"printer": {"filament_slots": {"new": {}}}}

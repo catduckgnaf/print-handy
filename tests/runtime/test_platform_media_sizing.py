@@ -75,7 +75,6 @@ def _matrix_helpers(monkeypatch, server_limit):
 
 
 MATRIX_ENV = {
-    "PRINT_HANDY__BOT__MODE": "standalone",
     "PRINT_HANDY__BOT__PLATFORM": "matrix",
     "PRINT_HANDY__MATRIX__HOMESERVER_URL": "https://matrix.example.org",
     "PRINT_HANDY__MATRIX__ROOM_ID": "!prints:example.org",
@@ -134,14 +133,14 @@ def test_limit_resolution_matrix_clamp_failure_degrades_to_configured(monkeypatc
 
 
 def test_telegram_sizing_passes_a_discord_oversized_video_through(monkeypatch, tmp_path):
-    _use_settings(monkeypatch, PRINT_HANDY__BOT__MODE="standalone", PRINT_HANDY__BOT__PLATFORM="telegram")
+    _use_settings(monkeypatch, PRINT_HANDY__BOT__PLATFORM="telegram")
     _no_ffmpeg(monkeypatch)
     source = _video(tmp_path, 20_000_000)  # over Discord's cap, under Telegram's 50 MB
     assert mel.platform_sized_video(source) == source
 
 
 def test_telegram_sizing_uses_the_configured_telegram_value(monkeypatch, tmp_path):
-    _use_settings(monkeypatch, PRINT_HANDY__BOT__MODE="standalone", PRINT_HANDY__BOT__PLATFORM="telegram",
+    _use_settings(monkeypatch, PRINT_HANDY__BOT__PLATFORM="telegram",
                   PRINT_HANDY__TELEGRAM__UPLOAD_MAX_BYTES="5000000")
     calls = _fake_ffmpeg(monkeypatch, 4_000_000)
     result = mel.platform_sized_video(_video(tmp_path, 20_000_000))
@@ -244,7 +243,7 @@ def test_settings_reject_an_unknown_timelapse_encoder():
 
 
 def test_too_big_wording_discord_is_byte_for_byte_the_old_text(monkeypatch):
-    _use_settings(monkeypatch, PRINT_HANDY__BOT__MODE="standalone", PRINT_HANDY__BOT__PLATFORM="discord")
+    _use_settings(monkeypatch, PRINT_HANDY__BOT__PLATFORM="discord")
     assert mel._timelapse_too_big_text("stand.mp4") == "Timelapse archived but too big for Discord: stand.mp4"
     assert mel._timelapse_too_big_text(combined=True) == "Combined timelapse too big for Discord."
 
@@ -258,7 +257,7 @@ def test_too_big_wording_matrix_names_the_server_limit(monkeypatch):
 
 
 def test_too_big_wording_telegram(monkeypatch):
-    _use_settings(monkeypatch, PRINT_HANDY__BOT__MODE="standalone", PRINT_HANDY__BOT__PLATFORM="telegram")
+    _use_settings(monkeypatch, PRINT_HANDY__BOT__PLATFORM="telegram")
     assert mel._timelapse_too_big_text("stand.mp4") == \
         "Timelapse was recorded but is too large for Telegram's upload limit."
     assert mel._timelapse_too_big_text(combined=True) == \
@@ -266,7 +265,7 @@ def test_too_big_wording_telegram(monkeypatch):
 
 
 def test_discord_fallback_post_is_byte_for_byte_unchanged(monkeypatch, tmp_path):
-    _use_settings(monkeypatch, PRINT_HANDY__BOT__MODE="standalone", PRINT_HANDY__BOT__PLATFORM="discord",
+    _use_settings(monkeypatch, PRINT_HANDY__BOT__PLATFORM="discord",
                   PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES="1000")
     video = _video(tmp_path, 2000)  # genuinely over the configured 1000-byte limit
     posted, results = [], [False, True]
@@ -299,7 +298,7 @@ def test_fallback_text_claims_too_big_only_when_a_media_file_exceeds_the_limit(m
 
 
 def test_discord_fallback_post_names_no_cause_when_the_video_fits(monkeypatch, tmp_path):
-    _use_settings(monkeypatch, PRINT_HANDY__BOT__MODE="standalone", PRINT_HANDY__BOT__PLATFORM="discord",
+    _use_settings(monkeypatch, PRINT_HANDY__BOT__PLATFORM="discord",
                   PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES="1000")
     video = _video(tmp_path, 500)  # under the limit: the failure was something else
     posted, results = [], [False, True]
@@ -450,7 +449,7 @@ class FakeTelegram:
 
 
 def test_telegram_completion_delivers_the_full_size_timelapse(monkeypatch, tmp_path):
-    _use_settings(monkeypatch, PRINT_HANDY__BOT__MODE="standalone", PRINT_HANDY__BOT__PLATFORM="telegram",
+    _use_settings(monkeypatch, PRINT_HANDY__BOT__PLATFORM="telegram",
                   PRINT_HANDY__TELEGRAM__CHAT_ID="-100123")
     monkeypatch.setattr(mel, "_telegram_token", lambda: "123456:TEST")
     api = FakeTelegram()

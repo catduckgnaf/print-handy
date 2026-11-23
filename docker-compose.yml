@@ -8,7 +8,6 @@ services:
       # To use legacy TOML, select /app/config/docker.toml in .env.
       # Mount a custom config at the selected path with a local Compose override.
       PRINT_HANDY_CONFIG: ${PRINT_HANDY_CONFIG:-/app/config/docker.yaml}
-      PRINT_HANDY__BOT__MODE: standalone
       # Bundled OrcaSlicer selection at startup (docs/SETTINGS.md "Runtime
       # environment"); Print Handy ships one bundled OrcaSlicer, and stable is
       # the only accepted value.

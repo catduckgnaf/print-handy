@@ -70,7 +70,7 @@ done
 if [ "${NO_SYSTEMCTL:-0}" != 1 ] && [ "$DRY" = 0 ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload || say "systemctl --user daemon-reload failed; run it yourself"
 fi
-say "Next: set DISCORD_BOT_TOKEN in $DATA_HOME/.env, set bot.mode: standalone and discord.chat_id"
+say "Next: set DISCORD_BOT_TOKEN in $DATA_HOME/.env and set discord.chat_id"
 say "in config/local.yaml (discord.allowed_user_ids is optional; empty lets everyone in the channel in), then:"
 say "  $PYTHON -m print_handy.bot check"
 say "  systemctl --user enable --now print-handy-bot.service print-handy-listener.service"

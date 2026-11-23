@@ -17,7 +17,7 @@ class DockerReleaseContract(unittest.TestCase):
     def test_standalone_is_default_runtime(self):
         """One supervised container: tini, then the supervisor that starts every required process."""
         dockerfile = (ROOT / "Dockerfile").read_text()
-        self.assertIn("PRINT_HANDY__BOT__MODE=standalone", dockerfile)
+        self.assertNotIn("PRINT_HANDY__BOT__MODE=standalone", dockerfile)
         self.assertIn('ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/app/docker/entrypoint.sh", '
                       '"/usr/local/bin/print-handy-supervise"]', dockerfile)
         self.assertIn('CMD ["python3", "/usr/local/bin/print-handy-healthcheck"]', dockerfile)

@@ -519,7 +519,7 @@ class SettingsTests(unittest.TestCase):
             self.assertIs(data["timelapse"]["wrapped_video"], True)
             env_data = load_settings(
                 tmp, environ={"PRINT_HANDY__TIMELAPSE__WRAPPED_ENABLED": "true",
-                              "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": "true"})
+                              "PRINT_HANDY__TIMELAPSE__WRAPPED_VIDEO": "true"})
             self.assertIs(env_data["timelapse"]["wrapped_enabled"], True)
             # The legacy env name still lands, under the canonical key
             # (#1157 rename with backward-compatible alias).
@@ -533,14 +533,14 @@ class SettingsTests(unittest.TestCase):
     def test_wrapped_video_catalog_field_uses_the_canonical_name(self):
         """#1157 regression: the settings catalog exposes only the
         renamed key — the old spelling survives solely as a settings
-        KEY_ALIASES entry, never as a second catalog field."""
+        RENAMED_KEYS entry, never as a second catalog field."""
         field = catalog.field_by_id("timelapse.wrapped_video")
         self.assertIsNotNone(field)
         self.assertEqual(field.kind, "toggle")
         self.assertEqual(field.group, "wrapped")
         self.assertIsNone(catalog.field_by_id("timelapse.wrapped_ai_video"))
         self.assertEqual(
-            settings.KEY_ALIASES[("timelapse", "wrapped_ai_video")],
+            settings.RENAMED_KEYS[("timelapse", "wrapped_ai_video")],
             ("timelapse", "wrapped_video"))
 
     def test_data_enabled_follows_wrapped_until_set(self):
@@ -884,7 +884,7 @@ class RouteTests(unittest.TestCase):
             # Deliberately the pre-rename spelling (#1157): an existing
             # install's config file must keep working through the alias.
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
-                                    "  wrapped_ai_video: true\n")
+                                    "  wrapped_video: true\n")
             port = httpd.server_address[1]
             code, raw = self.request(port, "GET", "/api/data?year=2025")
             self.assertEqual(code, 200)

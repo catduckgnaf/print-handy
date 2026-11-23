@@ -82,7 +82,7 @@ image_id=$(docker image inspect --format '{{.Id}}' "$image")
 record identity ok "$image_id $(docker image inspect --format '{{.Os}}/{{.Architecture}} app-channel={{index .Config.Labels "org.print-handy.app-channel"}}' "$image")"
 
 probe_args=(--rm --network none --cap-drop ALL --security-opt no-new-privileges:true
-    -e "DISCORD_BOT_TOKEN=$dummy_token" -e PRINT_HANDY__BOT__MODE=standalone
+    -e "DISCORD_BOT_TOKEN=$dummy_token"
     -e PRINT_HANDY__DISCORD__CHAT_ID=100000000000000001 -e PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=200000000000000002
     -v "$data:/data" -v "$work/fixture:/probe:ro")
 probe() {  # probe LABEL [docker run options...] -- CHECK

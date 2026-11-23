@@ -119,25 +119,13 @@ class OverrideTests(unittest.TestCase):
         with self.assertRaisesRegex(settings.SettingsError, "broken.yaml"):
             settings.load(local=path, environ={})
 
-    def test_hermes_mode_gets_the_named_refusal(self):
-        # The Hermes install method and runtime mode are removed: a config
-        # still stating the mode fails closed with a message naming the
-        # removal and the way out — never a silent fallback to standalone
-        # and never a bare unknown-value error.
-        path = self.toml("bot:\n  mode: hermes\n", "local.yaml")
-        with self.assertRaisesRegex(
-                settings.SettingsError,
-                r"mode 'hermes' was removed.*set \[bot\] mode to 'standalone'"):
-            settings.load(local=path, environ={})
-
-    def test_hermes_mode_refusal_is_case_insensitive_and_covers_env(self):
-        with self.assertRaisesRegex(settings.SettingsError, "was removed"):
-            settings.load(local=None, environ={"PRINT_HANDY__BOT__MODE": "Hermes"})
-
-    def test_standalone_mode_still_loads(self):
-        path = self.toml("bot:\n  mode: standalone\n", "local.yaml")
-        data = settings.load(local=path, environ={})
-        self.assertEqual(data["bot"]["mode"], "standalone")
+    def test_an_old_bot_mode_line_is_an_unknown_setting(self):
+        # #1817: [bot] mode is gone (the bot always runs itself); an old line warns by name.
+        for value in ("standalone", "hermes"):
+            path = self.toml(f"bot:\n  mode: {value}\n", "local.yaml")
+            data = settings.load(local=path, environ={})
+            self.assertNotIn("mode", data["bot"])
+            self.assertIn("[bot] mode", settings.unknown_settings_warning())
 
     def test_yaml_and_legacy_toml_local_precedence_is_yaml_first(self):
         toml_path = self.toml("[layout]\nmulti_copy_edge_mm = 4\n", "local.toml")
@@ -186,13 +174,6 @@ class OverrideTests(unittest.TestCase):
         data = settings.load(local=path, environ={"PRINT_HANDY__VISION__LOCAL_MODEL_PATH": ""})
         self.assertEqual(data["vision"]["local_model_path"], "/models/custom.onnx")
 
-    def test_blank_legacy_environment_value_preserves_file_configuration(self):
-        # Legacy variable names resolve to the same settings, so the same
-        # blank-is-unset rule applies to them.
-        path = self.toml("services:\n  spoolman_url: http://spoolman.invalid:7912\n", "local.yaml")
-        data = settings.load(local=path, environ={"SPOOLMAN_URL": ""})
-        self.assertEqual(data["services"]["spoolman_url"], "http://spoolman.invalid:7912")
-
     def test_blank_environment_value_for_a_number_still_errors(self):
         # The blank-is-unset rule is for strings only: a blank number or
         # boolean is a typo, not an unset variable, and still fails loudly.
@@ -213,24 +194,6 @@ class OverrideTests(unittest.TestCase):
         path = self.toml("visual_watch:\n  enabled: true\n", "local.yaml")
         data = settings.load(local=path, environ={})
         self.assertIs(data["visual_watch"]["enabled"], True)
-
-    def test_bot_mode_defaults_to_standalone_when_unset(self):
-        # The shipped home template minus its [bot] mode line: the settings
-        # default itself must resolve to standalone (#524 stage 5). Configs
-        # that state a mode explicitly never see this default.
-        text = Path(settings.HOME).read_text().replace("  mode: standalone\n", "", 1)
-        self.assertNotIn("mode: standalone", text)
-        home = self.toml(text, "home.yaml")
-        data = settings.load(home=home, local=False, environ={})
-        self.assertEqual(data["bot"]["mode"], "standalone")
-
-    def test_bot_mode_explicit_hermes_is_refused(self):
-        # The hermes mode is removed: an explicit hermes choice gets the
-        # named refusal, not preservation (see also the refusal tests in
-        # the YAML loading tests above).
-        path = self.toml("bot:\n  mode: hermes\n", "local.yaml")
-        with self.assertRaisesRegex(settings.SettingsError, "mode 'hermes' was removed"):
-            settings.load(local=path, environ={})
 
     def legacy_home(self, name="legacy-home.toml", data=None):
         """A TOML home with home.yaml's values (config/home.toml was retired in #1322)."""
@@ -303,7 +266,7 @@ class OverrideTests(unittest.TestCase):
             "telegram": {"token_env", "chat_id", "allowed_user_ids", "approval_user_id", "upload_max_bytes"},
             "matrix": {"homeserver_url", "access_token_env", "room_id", "allowed_user_ids",
                        "approval_user_id", "bot_user_id", "upload_max_bytes"},
-            "bot": {"mode", "platform", "health_port", "health_stale_s", "sync_commands"},
+            "bot": {"platform", "health_port", "health_stale_s", "sync_commands"},
             "llm": {"chat_url", "model", "api_key_env", "timeout_s"},
             "design": {"enabled", "model", "timeout_s", "repair_attempts"},
             "listener": {"tick_s", "ifs_presence_poll_s", "spool_nag_s", "start_claim_ttl_s"},
@@ -467,99 +430,33 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(data["printer"]["filament_slots"], 1)
         self.assertEqual(data["printer"]["bed_mm"], [220.0, 220.0])
 
-    def test_ifs_slots_alias_in_local_file_loads_as_filament_slots(self):
-        # #672: the pre-rename key is a deprecated alias, not an unknown setting,
-        # and the loaded value is the one the old name produced before the rename.
-        data = settings.load(local=self.toml("[printer]\nifs_slots = 3\n"), environ={})
-        self.assertEqual(data["printer"]["filament_slots"], 3)
-        self.assertNotIn("ifs_slots", data["printer"])
+    RENAMED = (("printer", "ifs_slots", "3", "filament_slots"),
+               ("timelapse", "wrapped_ai_video", "true", "wrapped_video"),
+               ("webui", "secure_cookie", "true", "cookie_secure"),
+               ("discord", "mention_starter_on_complete", "false", "mention_starter"),
+               ("paths", "hermes_home", "/tmp/old-state", "state_home"))
 
-    def test_filament_slots_wins_when_both_spellings_are_in_one_file(self):
-        data = settings.load(local=self.toml("[printer]\nifs_slots = 3\nfilament_slots = 2\n"), environ={})
-        self.assertEqual(data["printer"]["filament_slots"], 2)
+    def test_a_renamed_key_in_a_file_is_refused_with_its_current_name(self):
+        # #1817: the pre-rename spellings are no longer read; each would otherwise fall
+        # back to a default silently, so the load fails and names the current key.
+        for section, old, value, new in self.RENAMED:
+            with self.subTest(old=old):
+                path = self.toml(f"{section}:\n  {old}: {value}\n", "local.yaml")
+                with self.assertRaisesRegex(settings.SettingsError,
+                                            rf"\[{section}\] {old} \(renamed to \[{section}\] {new}"):
+                    settings.load(local=path, environ={})
 
-    def test_ifs_slots_alias_in_environment(self):
-        data = settings.load(local=False, environ={"PRINT_HANDY__PRINTER__IFS_SLOTS": "3"})
-        self.assertEqual(data["printer"]["filament_slots"], 3)
-        self.assertNotIn("ifs_slots", data["printer"])
-
-    def test_filament_slots_environment_wins_over_ifs_slots(self):
-        environ = {"PRINT_HANDY__PRINTER__IFS_SLOTS": "3",
-                   "PRINT_HANDY__PRINTER__FILAMENT_SLOTS": "2"}
-        data = settings.load(local=False, environ=environ)
-        self.assertEqual(data["printer"]["filament_slots"], 2)
-
-    def test_ifs_slots_alias_value_is_validated_under_the_new_name(self):
-        with self.assertRaisesRegex(settings.SettingsError, "filament_slots must be 1"):
-            settings.load(local=self.toml('[printer]\nmodel = "klipper.generic"\nifs_slots = 2\n'),
-                          environ={})
-
-    def test_wrapped_ai_video_alias_in_local_file_loads_as_wrapped_video(self):
-        # #1157: the pre-rename key is a deprecated alias, not an unknown
-        # setting; the compile is local and never used an AI model.
-        data = settings.load(local=self.toml("[timelapse]\nwrapped_ai_video = true\n"), environ={})
-        self.assertIs(data["timelapse"]["wrapped_video"], True)
-        self.assertNotIn("wrapped_ai_video", data["timelapse"])
-
-    def test_wrapped_video_wins_when_both_spellings_are_in_one_file(self):
-        data = settings.load(
-            local=self.toml("[timelapse]\nwrapped_ai_video = true\nwrapped_video = false\n"),
-            environ={})
-        self.assertIs(data["timelapse"]["wrapped_video"], False)
-
-    def test_wrapped_ai_video_alias_in_environment(self):
-        data = settings.load(local=False,
-                             environ={"PRINT_HANDY__TIMELAPSE__WRAPPED_AI_VIDEO": "true"})
-        self.assertIs(data["timelapse"]["wrapped_video"], True)
-        self.assertNotIn("wrapped_ai_video", data["timelapse"])
-
-    def test_wrapped_video_environment_wins_over_wrapped_ai_video(self):
-        environ = {"PRINT_HANDY__TIMELAPSE__WRAPPED_AI_VIDEO": "true",
-                   "PRINT_HANDY__TIMELAPSE__WRAPPED_VIDEO": "false"}
-        data = settings.load(local=False, environ=environ)
-        self.assertIs(data["timelapse"]["wrapped_video"], False)
-
-    def test_wrapped_ai_video_legacy_env_name_still_loads(self):
-        data = settings.load(local=False,
-                             environ={"PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": "true"})
-        self.assertIs(data["timelapse"]["wrapped_video"], True)
-
-    def test_wrapped_ai_video_alias_value_is_validated_under_the_new_name(self):
-        with self.assertRaisesRegex(settings.SettingsError, "wrapped_video should be like"):
-            settings.load(local=self.toml("[timelapse]\nwrapped_ai_video = \"sometimes\"\n"),
-                          environ={})
-
-    def test_secure_cookie_alias_in_local_file_loads_as_cookie_secure(self):
-        data = settings.load(local=self.toml("[webui]\nsecure_cookie = true\n"), environ={})
-        self.assertEqual(data["webui"]["cookie_secure"], True)
-        self.assertNotIn("secure_cookie", data["webui"])
-
-    def test_cookie_secure_wins_when_both_spellings_are_in_one_file(self):
-        data = settings.load(local=self.toml("[webui]\nsecure_cookie = false\ncookie_secure = true\n"), environ={})
-        self.assertEqual(data["webui"]["cookie_secure"], True)
-
-    def test_secure_cookie_alias_in_environment(self):
-        data = settings.load(local=False, environ={"PRINT_HANDY__WEBUI__SECURE_COOKIE": "true"})
-        self.assertEqual(data["webui"]["cookie_secure"], True)
-        self.assertNotIn("secure_cookie", data["webui"])
-
-    def test_cookie_secure_environment_wins_over_secure_cookie(self):
-        environ = {"PRINT_HANDY__WEBUI__SECURE_COOKIE": "false",
-                   "PRINT_HANDY__WEBUI__COOKIE_SECURE": "true"}
-        data = settings.load(local=False, environ=environ)
-        self.assertEqual(data["webui"]["cookie_secure"], True)
+    def test_a_renamed_key_in_the_environment_is_refused_with_its_current_name(self):
+        for section, old, value, new in self.RENAMED:
+            with self.subTest(old=old):
+                name = f"PRINT_HANDY__{section.upper()}__{old.upper()}"
+                with self.assertRaisesRegex(settings.SettingsError,
+                                            rf"PRINT_HANDY__{section.upper()}__{new.upper()}"):
+                    settings.load(local=False, environ={name: value})
 
     def test_cookie_secure_defaults_false(self):
         data = settings.load(local=False, environ={})
         self.assertIs(data["webui"]["cookie_secure"], False)
-
-    def test_generic_klipper_slot_error_hints_at_the_ad5x_model(self):
-        """#678: an AD5X owner moved to the new Docker default gets the fix in the error."""
-        with self.assertRaisesRegex(settings.SettingsError,
-                                    r"filament_slots must be 1 for model 'klipper\.generic' \(single extruder\); "
-                                    r"if this is a Flashforge AD5X, set PRINT_HANDY__PRINTER__MODEL=flashforge\.ad5x"):
-            settings.load(local=settings.ROOT / "config" / "docker.yaml",
-                          environ={"PRINT_HANDY__PRINTER__IFS_SLOTS": "4"})
 
     def test_other_single_extruder_models_get_no_ad5x_hint(self):
         with self.assertRaises(settings.SettingsError) as raised:
@@ -664,12 +561,12 @@ class OverrideTests(unittest.TestCase):
 
 
 class RuntimeSettingsTests(unittest.TestCase):
-    def test_legacy_env_names_still_work(self):
+    def test_pre_print_handy_environment_names_are_not_read(self):
+        # #1817: the LEGACY_ENV names are gone; only PRINT_HANDY__SECTION__KEY is a setting.
         data = settings.load(local=False, environ={"MOONRAKER_URL": "http://ad5x.lan:7125", "SPOOL_NAG_SECONDS": "300",
                                                    "PRINT_DISCORD_CHAT_ID": "123"})
-        self.assertEqual(data["services"]["moonraker_url"], "http://ad5x.lan:7125")
-        self.assertEqual(data["listener"]["spool_nag_s"], 300)
-        self.assertEqual(data["discord"]["chat_id"], "123")
+        self.assertEqual(data["services"]["moonraker_url"], "")
+        self.assertEqual(data["discord"]["chat_id"], "")
 
     def test_state_home_env_does_not_move_state(self):
         # The multiplexed gateway runs with HERMES_HOME=~/.hermes for every profile. Reading it
@@ -743,7 +640,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         # An unknown env key (PRINT_HANDY__LISTENER__TICKS) warns and is
         # ignored since #1058 — see UnknownSettingsTests. Bad values for
         # KNOWN settings still fail, as here.
-        for env, message in [({"SPOOL_NAG_SECONDS": "ten"}, "should be a number"),
+        for env, message in [({"PRINT_HANDY__LISTENER__SPOOL_NAG_S": "ten"}, "should be a number"),
                              ({"PRINT_HANDY__COLD_PULL__PETG": "1"}, "list")]:
             with self.subTest(env=env), self.assertRaisesRegex(settings.SettingsError, message):
                 settings.load(local=False, environ=env)
@@ -796,7 +693,7 @@ class RuntimeSettingsTests(unittest.TestCase):
                 settings.load(local=False, environ=env)
 
     def test_moonraker_url_derives_websocket_and_camera(self):
-        data = settings.load(local=False, environ={"MOONRAKER_URL": "http://ad5x.lan:7125/"})
+        data = settings.load(local=False, environ={"PRINT_HANDY__SERVICES__MOONRAKER_URL": "http://ad5x.lan:7125/"})
         self.assertEqual(data["services"]["moonraker_ws_url"], "ws://ad5x.lan:7125/websocket")
         self.assertEqual(data["services"]["camera_snapshot_url"], "http://ad5x.lan/webcam/?action=snapshot")
 
@@ -844,27 +741,16 @@ class UnknownSettingsTests(unittest.TestCase):
         self.assertIn("$PRINT_HANDY__LISTENER__TICKS", entries[0])
         self.assertIn("[listener] ticks", entries[0])
 
-    def test_retired_design_endpoint_warns_without_exposing_values(self):
-        settings.load(local=self.local(
-            "design:\n  chat_url: https://legacy.example/v1\n"
-            "  api_key_env: LEGACY_DESIGN_KEY\n"), environ={})
+    def test_retired_design_endpoint_keys_are_not_dropped_anymore(self):
+        # #1817: the #1731 cleanup no longer drops retired keys on load. design.chat_url is
+        # an unknown key (warned, value never shown); design.api_key_env is credential-shaped
+        # and refuses the load.
+        settings.load(local=self.local("design:\n  chat_url: https://legacy.example/v1\n"), environ={})
         warning = settings.unknown_settings_warning()
-        self.assertIsNotNone(warning)
-        assert warning is not None
         self.assertIn("[design] chat_url", warning)
-        self.assertIn("[design] api_key_env", warning)
         self.assertNotIn("https://legacy.example/v1", warning)
-        self.assertNotIn("LEGACY_DESIGN_KEY", warning)
-
-    def test_retired_worker_overrides_warn_without_exposing_values(self):
-        settings.load(local=False, environ={"PRINT_VISION_URL": "https://vision.example/v1",
-                                            "PRINT_FUZZY_URL": "https://lookup.example/v1"})
-        warning = settings.unknown_settings_warning()
-        self.assertIsNotNone(warning)
-        assert warning is not None
-        self.assertIn("$PRINT_VISION_URL", warning)
-        self.assertIn("$PRINT_FUZZY_URL", warning)
-        self.assertNotIn("https://", warning)
+        with self.assertRaisesRegex(settings.SettingsError, r"\[design\] api_key_env"):
+            settings.load(local=self.local("design:\n  api_key_env: LEGACY_DESIGN_KEY\n"), environ={})
 
     def test_env_unknown_section_warns_and_is_ignored(self):
         settings.load(local=False, environ={"PRINT_HANDY__BRAND_NEW__KEY": "1"})
@@ -954,7 +840,7 @@ class SettingsCliTests(unittest.TestCase):
                               capture_output=True, text=True, env={**os.environ, **(env or {})})
 
     def test_get_prints_the_value(self):
-        out = self.run_cli("get", "services.moonraker_ws_url", env={"MOONRAKER_URL": "http://ad5x.lan:7125"})
+        out = self.run_cli("get", "services.moonraker_ws_url", env={"PRINT_HANDY__SERVICES__MOONRAKER_URL": "http://ad5x.lan:7125"})
         self.assertEqual(out.stdout.strip(), "ws://ad5x.lan:7125/websocket")
 
     def test_unknown_key_fails(self):
@@ -1146,57 +1032,6 @@ class LiveStreamSettingsTests(unittest.TestCase):
             settings.load(local=False, environ={"PRINT_HANDY__LIVE_STREAM__ENCODER": "vp9"})
 
 
-class DefaultedModelWarningTests(unittest.TestCase):
-    """#678: warn when a Docker install got Generic Klipper only from the shipped default."""
-
-    DOCKER = settings.ROOT / "config" / "docker.yaml"
-    AD5X_RECORD = {"active_slot": 1, "ifs_slots": {str(n): {"spoolman_id": n} for n in (1, 2, 3, 4)}}
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.dir = Path(self.tmp.name)
-
-    def load(self, record=AD5X_RECORD, local=DOCKER, **env):
-        environ = {"PRINT_HANDY__PATHS__STATE_HOME": str(self.dir), **env}
-        data = settings.load(local=local, environ=environ)
-        if record is not None:
-            state = settings.state_dir(data)
-            state.mkdir(parents=True, exist_ok=True)
-            (state / "printer_hardware.json").write_text(json.dumps(record))
-        return data
-
-    def test_default_model_with_a_multi_slot_record_warns(self):
-        warning = settings.defaulted_model_warning(self.load())
-        self.assertIn("PRINT_HANDY__PRINTER__MODEL=flashforge.ad5x", warning)
-
-    def test_current_key_record_warns_too(self):
-        data = self.load(record={"filament_slots": {"1": {}, "2": {}}})
-        self.assertIsNotNone(settings.defaulted_model_warning(data))
-
-    def test_zmod_entry_in_the_record_warns(self):
-        data = self.load(record={"zmod_color": {"active": 1}})
-        self.assertIsNotNone(settings.defaulted_model_warning(data))
-
-    def test_single_slot_or_missing_record_is_quiet(self):
-        self.assertIsNone(settings.defaulted_model_warning(self.load(record={"filament_slots": {"1": {}}})))
-        data = self.load(record=None)
-        self.assertIsNone(settings.defaulted_model_warning(data))
-
-    def test_explicit_model_is_quiet(self):
-        data = self.load(PRINT_HANDY__PRINTER__MODEL="klipper.generic")
-        self.assertIsNone(settings.defaulted_model_warning(data))
-
-    def test_operator_file_setting_the_model_is_quiet(self):
-        mine = self.dir / "mine.yaml"
-        mine.write_text("printer:\n  model: klipper.generic\n")
-        self.assertIsNone(settings.defaulted_model_warning(self.load(local=mine)))
-
-    def test_another_default_model_is_quiet(self):
-        data = self.load(PRINT_HANDY__PRINTER__MODEL="flashforge.ad5x")
-        self.assertIsNone(settings.defaulted_model_warning(data))
-
-
 class YamlLoaderTests(unittest.TestCase):
     """Settings parse YAML with libyaml when PyYAML has it; the data must not change."""
 
@@ -1328,18 +1163,15 @@ def test_fresh_install_defaults_to_the_neutral_data_and_cache_folders(tmp_path, 
     assert settings.state_dir(data) == tmp_path / ".local" / "share" / "print-handy" / "state"
 
 
-def test_install_with_data_in_the_old_default_folders_keeps_using_them(tmp_path, monkeypatch):
+def test_the_old_hermes_default_folders_are_not_adopted(tmp_path, monkeypatch):
+    # #1817: an unset state_home is the shipped default even when ~/.hermes holds data;
+    # the doctor names the move instead (doctor.check_legacy_state_folder).
     _home_at(monkeypatch, tmp_path)
     (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
     (tmp_path / ".hermes" / "cache").mkdir()
     data = settings.load(local=False, environ={}, user=False)
-    assert data["paths"]["state_home"] == tmp_path / ".hermes" / "profiles" / "3dprinting"
-    assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
-    # Only the folder that exists is kept: the cache alone does not drag the state folder back.
-    (tmp_path / ".hermes" / "profiles" / "3dprinting").rmdir()
-    data = settings.load(local=False, environ={}, user=False)
     assert data["paths"]["state_home"] == tmp_path / ".local" / "share" / "print-handy"
-    assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
+    assert data["paths"]["cache"] == tmp_path / ".cache" / "print-handy"
 
 
 def test_an_explicit_path_beats_the_old_folder_even_when_it_matches_the_new_default(tmp_path, monkeypatch):

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -391,27 +393,110 @@ def check_debug_mode(data):
 AI_ENDPOINT_LABEL = "AI endpoint"
 
 
-def check_retired_ai(data):
-    """The retired-AI-endpoint state (#1759) as (status, detail), or None.
+# Where a native install kept its data before 2.4.0 (the Hermes profile layout).
+LEGACY_STATE_FOLDER = Path("~/.hermes/profiles/3dprinting")
 
-    ``data`` is the loaded settings dict; the state itself comes from the
-    most recent settings.load() (see settings.retired_ai_state()), which is
-    the load that produced ``data`` in every caller. None when the load saw
-    no retired AI keys, or [llm] was already configured. "ok" when the
-    retired endpoint migrated into [llm]; "warn" when retired AI keys are
-    present but no endpoint could be determined — the detail names the
-    keys, never their values. A warning here is never a failed check: the
-    machine still runs, but the AI the operator configured is off.
+
+# What a pre-2.4.0 native install keeps that a fresh start does not recreate:
+# the bot token, the hardware record, the per-printer state and the launch database.
+LEGACY_KEY_ITEMS = (".env", "state/printer_hardware.json", "state/printers",
+                    "state/print_handy_launches.sqlite3", "state/maintenance.json")
+
+
+def _has_files(folder):
+    """True when ``folder`` holds anything that is not a directory (the entrypoint's rule).
+
+    A first start creates empty ``state/`` and ``logs/`` folders, so an empty tree is
+    structure, not data.
     """
-    state = settings.retired_ai_state()
-    if state is not None:
-        if state["outcome"] == "migrated":
-            return "ok", state["detail"]
-        # A known-good configured endpoint means the retired alternatives are
-        # inert; don't warn about features that are already operational.
-        if str((data.get("llm") or {}).get("chat_url") or "").strip():
-            return None
-        return "warn", state["detail"]
+    def unreadable(exc):
+        # An unreadable folder, at any depth, must not pass for an empty one: it may
+        # hold the data. Path.rglob skips such subfolders silently, so walk instead.
+        raise RuntimeError(f"{folder} could not be inspected ({exc}); check it by hand before "
+                           "starting on a new state folder") from exc
+
+    try:
+        for root, dirs, files in os.walk(folder, onerror=unreadable):
+            if files:
+                return True
+            # A symlink to a directory is not followed, but it is not structure either.
+            if any(not (Path(root) / name).is_dir() or (Path(root) / name).is_symlink()
+                   for name in dirs):
+                return True
+    except OSError as exc:
+        unreadable(exc)
+    return False
+
+
+def check_legacy_state_folder(data):
+    """FAIL while the pre-2.4.0 Hermes folder holds data the state folder lacks (#1817).
+
+    Before 2.4.0 an unset paths.state_home fell back to ~/.hermes/profiles/3dprinting when that
+    folder existed. That fallback is gone, so such an install starts on a fresh state folder
+    (no hardware record, launch database or bot token). The data is still on disk; this row
+    names each key item that exists only in the old folder and how to move it. A state folder
+    that merely exists (a first start creates empty folders) is not treated as holding the data,
+    and the row never tells the operator to delete anything. None (skip) when there is no old
+    folder with files in it.
+    """
+    legacy = LEGACY_STATE_FOLDER.expanduser()
+    if not legacy.is_dir() or not _has_files(legacy):
+        return None
+    state = Path(data["paths"]["state_home"]).expanduser()
+    if state.resolve() == legacy.resolve():
+        return f"paths.state_home is set to {legacy}"
+    stranded = [item for item in LEGACY_KEY_ITEMS
+                if (legacy / item).exists() and not (state / item).exists()]
+    if stranded:
+        moves = "; ".join(
+            f"mkdir -p {shlex.quote(str((state / item).parent))} && "
+            f"mv {shlex.quote(str(legacy / item))} {shlex.quote(str(state / item))}"
+            for item in stranded)
+        raise RuntimeError(
+            f"{legacy} holds Print Handy data that paths.state_home ({state}) does not: "
+            f"{', '.join(stranded)}. 2.4.0 no longer reads the old folder. Either set "
+            f"paths.state_home to {legacy}, or stop Print Handy and move each item: {moves}")
+    return (f"{legacy} still exists; every key item is also in paths.state_home ({state}). "
+            "Compare the two folders, then remove the old one once nothing in it is needed")
+
+
+def legacy_state_folder_leftovers(data, limit=5):
+    """A warning naming files that exist only in the pre-2.4.0 folder, else None (#1817).
+
+    check_legacy_state_folder fails while a key item (bot token, hardware record,
+    printers/, launch database, maintenance record) is only in the old folder. Anything
+    else there is not read either, so it is named here for the operator to review before
+    removing the folder, instead of the row reading as "nothing left". Logs are skipped.
+    """
+    legacy = LEGACY_STATE_FOLDER.expanduser()
+    if not legacy.is_dir():
+        return None
+    state = Path(data["paths"]["state_home"]).expanduser()
+    if state.resolve() == legacy.resolve():
+        return None
+    only_old = []
+    for root, _dirs, files in os.walk(legacy):
+        rel_root = Path(root).relative_to(legacy)
+        if rel_root.parts[:1] == ("logs",):
+            continue
+        for name in files:
+            rel = rel_root / name
+            if not (state / rel).exists():
+                only_old.append(rel.as_posix())
+    if not only_old:
+        return None
+    only_old.sort()
+    shown = ", ".join(only_old[:limit]) + (f" and {len(only_old) - limit} more" if len(only_old) > limit else "")
+    return (f"{len(only_old)} file(s) exist only in {legacy} and are not read since 2.4.0: {shown}. "
+            "Review them (move anything still needed into paths.state_home) before removing the old folder")
+
+
+def check_ai_endpoint(data):
+    """("warn", detail) when an AI feature is switched on but [llm] names no endpoint, else None.
+
+    A warning here is never a failed check: the machine still runs, but the AI the
+    operator switched on is off.
+    """
     # A model can be auto-enabled when an endpoint exists, but is auto-off
     # without one. Only an explicit design switch or the explicit vision
     # switch represents an enabled feature that needs an endpoint here.
@@ -486,14 +571,15 @@ def run(out=sys.stdout):
     report("creator firmware", check_firmware_identity, data)
     report("zmod purge", check_purge, data)
     report("bot mode", check_bot, data)
+    if report("legacy state folder", check_legacy_state_folder, data) is not None:
+        try:
+            leftovers = legacy_state_folder_leftovers(data)
+        except Exception as exc:  # the row above already passed; never hide its result
+            leftovers = f"the old folder could not be compared ({exc})"
+        if leftovers:
+            print(f"WARN  legacy state folder: {leftovers}", file=out)
     report("logging", check_logging, data)
     report("discord login", check_discord_login, data)
-    try:
-        model_warning = settings.defaulted_model_warning(data)
-    except Exception as exc:  # a state problem is a warning here, never a failed check
-        model_warning = f"could not check: {exc}"
-    if model_warning:
-        print(f"WARN  default model: {model_warning}", file=out)
     try:
         unknown_warning = settings.unknown_settings_warning()
     except Exception as exc:  # a state problem is a warning here, never a failed check
@@ -501,7 +587,7 @@ def run(out=sys.stdout):
     if unknown_warning:
         print(f"WARN  unknown settings: {unknown_warning}", file=out)
     try:
-        ai_state = check_retired_ai(data)
+        ai_state = check_ai_endpoint(data)
     except Exception as exc:  # a state problem is a warning here, never a failed check
         ai_state = ("warn", f"could not check: {exc}")
     if ai_state is not None:

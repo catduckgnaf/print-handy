@@ -329,7 +329,6 @@ def _wait_for(predicate, what, timeout=15.0):
 @pytest.fixture()
 def flow_cfg(tmp_path, monkeypatch):
     cfg = copy.deepcopy(_config.cfg())
-    cfg["bot"]["mode"] = "standalone"
     cfg["paths"]["cache"] = tmp_path / "cache"
     cfg["paths"]["state_home"] = tmp_path
     cfg["printer"] = dict(cfg.get("printer") or {},

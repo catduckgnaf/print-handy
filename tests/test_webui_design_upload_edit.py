@@ -92,7 +92,6 @@ def test_designs_page_renders_the_upload_form_when_ready(tmp_path):
 @pytest.fixture()
 def flow_cfg(tmp_path, monkeypatch):
     cfg = copy.deepcopy(_config.cfg())
-    cfg["bot"]["mode"] = "standalone"
     cfg["paths"]["cache"] = tmp_path / "cache"
     cfg["paths"]["state_home"] = tmp_path
     cfg["printer"] = dict(cfg.get("printer") or {},

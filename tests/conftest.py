@@ -210,6 +210,13 @@ def _isolated_launch_state(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_legacy_state_folder(tmp_path, monkeypatch):
+    """The doctor's pre-2.4.0 folder check (#1817) never reads the runner's real home."""
+    from print_handy import doctor
+    monkeypatch.setattr(doctor, "LEGACY_STATE_FOLDER", tmp_path / "no-legacy-hermes-profile")
+
+
+@pytest.fixture(autouse=True)
 def _isolated_spool_weight_marks(tmp_path, monkeypatch):
     """/spool weight and the Web UI edit record a per-spool mark (#1374); each test gets its own file."""
     monkeypatch.setenv("PRINT_HANDY_SPOOL_WEIGHT_SET_STATE", str(tmp_path / "spool_weight_set.json"))

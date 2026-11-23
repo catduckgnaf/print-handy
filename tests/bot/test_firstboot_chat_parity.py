@@ -259,7 +259,7 @@ def test_s1_bot_with_credential_but_no_config_starts_setup_only(tmp_path, platfo
     fatal, configuration-tier failures mean setup-only."""
     from print_handy.bot import __main__ as bot_main
     assert hasattr(bot_main, "setup_only_mode")
-    cfg = {"bot": {"platform": platform, "mode": "standalone"}}
+    cfg = {"bot": {"platform": platform}}
     chat_row = {"discord": "print channel", "telegram": "print channel",
                 "matrix": "print room"}[platform]
     rows = [("token", True, "set"), (chat_row, False, "empty")]

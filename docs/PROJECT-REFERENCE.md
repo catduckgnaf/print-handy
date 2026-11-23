@@ -394,7 +394,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | `orca` | `templates` | the model's folder under `print_handy/templates/orca` | Orca machine, process, and filament JSON |
 | | `command` | Flathub OrcaSlicer | How to start the Orca CLI |
 | `bambu` | `command` | Flathub Bambu Studio, no network | Fallback slicer |
-| `paths` | `state_home` | `~/.local/share/print-handy` | The bot's state folder; any folder works. Called `paths.hermes_home` before 2.3.0 (still read through 2.3.x, removed in 2.4.0); an existing `~/.hermes/profiles/3dprinting` is used as a legacy fallback |
+| `paths` | `state_home` | `~/.local/share/print-handy` | The bot's state folder; any folder works. |
 | | `archive`, `records_vault`, `cache` | `~/3d-prints`, `~/Documents/3D Printing Records`, `~/.cache/print-handy` | Job archive, print records, cache |
 | | `ffmpeg` | | Tool locations |
 | `services` | `moonraker_url`, `moonraker_ws_url`, `camera_snapshot_url` | empty | Printer and camera; websocket is derived when empty |
@@ -597,13 +597,9 @@ bot posting progress notifications.
 
 ## Scheduled removals in 2.4.0
 
-2.4.0 removed the 2.3.x compatibility paths: the `print_handy.hermes` package name (use `print_handy.runtime`), the old module paths and assignment forwarding for code moved out of `core/model_job.py` and `core/prepared_intake.py` (import from the new module), and the `plugins/print-feedback` handler plugin (`print_handy.bot.handlers`). One item is still open:
+2.4.0 removed the 2.3.x compatibility paths: the `print_handy.hermes` package name (use `print_handy.runtime`), the old module paths and assignment forwarding for code moved out of `core/model_job.py` and `core/prepared_intake.py` (import from the new module), and the `plugins/print-feedback` handler plugin (`print_handy.bot.handlers`). It also removed the settings aliases: `paths.hermes_home` (`PRINT_HANDY__PATHS__HERMES_HOME`) and the other renamed keys are refused at load with the current name in the message (`paths.state_home` here; see [SETTINGS.md](SETTINGS.md)), and the `hermes_home` helpers in `print_handy/runtime/_config.py` are gone.
 
-| What | Where | Replacement |
-| --- | --- | --- |
-| The `paths.hermes_home` setting (`PRINT_HANDY__PATHS__HERMES_HOME`) and the `hermes_home` helpers in `print_handy/runtime/_config.py` | `KEY_ALIASES` in `print_handy/settings.py` | `paths.state_home` |
-
-The legacy `/data/hermes` Docker volume and the `~/.hermes/profiles/3dprinting` fallback follow their own deprecation notes and are not on this list. Neither are the frozen names below, which are never removed.
+The legacy `/data/hermes` Docker volume is no longer read (a container whose state is only there refuses to start and names the rename), and a native install no longer falls back to `~/.hermes/profiles/3dprinting`: `python -m print_handy.doctor` names any data still only there and how to move it. Neither are the frozen names below, which are never removed.
 
 ## Frozen Hermes wire names
 

@@ -100,7 +100,7 @@ def test_summary_never_carries_mentions_or_links():
 
 def test_lane_allowed_follows_the_ai_allowlist_and_rate_limit(monkeypatch):
     monkeypatch.setattr(ai_fix, "AI_CALLS", {})
-    cfg = {"ai": {"allowed_users": ["7"], "edit_requests_per_hour": 2}}
+    cfg = {"ai": {"allowed_users": "7", "edit_requests_per_hour": 2}}
     assert ai_fix.lane_allowed("8", cfg, now=0)[0] is False
     assert ai_fix.lane_allowed("7", cfg, now=0) == (True, "")
     assert ai_fix.lane_allowed("7", cfg, now=1) == (True, "")

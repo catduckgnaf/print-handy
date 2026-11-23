@@ -95,10 +95,8 @@ def _platform(cfg=None):
 def mentions_on():
     """Whether starter pings are on (settings + platform gate).
 
-    On unless ``discord.mention_starter`` is set false (the old
-    ``mention_starter_on_complete`` spelling is folded onto it by the
-    settings loader's KEY_ALIASES, so an install that set the old key
-    false stays silent). Every chat platform since #1332 (it was Discord
+    On unless ``discord.mention_starter`` is set false (the pre-#1095
+    ``mention_starter_on_complete`` spelling is refused at load). Every chat platform since #1332 (it was Discord
     only); the key keeps its historical section. Any settings failure means off — a ping is a
     notification, never something to guess at.
     """
