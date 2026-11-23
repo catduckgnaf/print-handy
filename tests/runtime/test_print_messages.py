@@ -346,12 +346,29 @@ def test_external_start_post_without_a_record_names_no_loaded_channel(job, tmp_p
     assert "maps this job" not in posted[0]
 
 
+def _sticky_slot_samples(samples):
+    """Return each sample in order, then repeat the last one.
+
+    ``_slot_self_check`` reads ``_slot_sources`` via ``asyncio.to_thread``.
+    A finite iterator raises ``StopIteration`` in that worker, and asyncio
+    will not propagate ``StopIteration`` into the waiting future.
+    """
+    queued = list(samples)
+
+    def _next():
+        if len(queued) > 1:
+            return queued.pop(0)
+        return queued[0]
+
+    return _next
+
+
 @pytest.mark.parametrize("active_slot, warned", [(3, False), (4, True)])
 def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warned):
     listener = mel.Listener()
-    samples = iter([(3, 2, 2, None), (3, active_slot, 2, None),
-                    (3, active_slot, active_slot, None)])
-    monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        (3, 2, 2, None), (3, active_slot, 2, None),
+        (3, active_slot, active_slot, None)]))
     waits = []
 
     async def no_wait(delay):
@@ -367,36 +384,41 @@ def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warn
         assert len(posts) == 1 and "zmod_ifs Chan reports slot 4" in posts[0]
 
 
-def test_slot_self_check_warns_when_initial_channels_are_unavailable(monkeypatch):
+def test_slot_self_check_does_not_warn_when_baseline_channels_were_unavailable(monkeypatch):
+    """Both channels later agreeing on a wrong slot is not activation when
+    the start snapshot had no channel readings. A wrong-slot warning needs
+    both baseline readings known and then changed; otherwise the check
+    waits out the window."""
     listener = mel.Listener()
-    samples = iter([(3, None, None, None), (3, 4, 4, None)])
-    monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples, (3, 4, 4, None)))
-    async def no_wait(delay):
-        pass
-    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
-    posts = []
-    monkeypatch.setattr(mel, "post", posts.append)
-    asyncio.run(listener._slot_self_check())
-    assert len(posts) == 1
-    assert "zmod_ifs Chan reports slot 4" in posts[0]
-
-
-def test_slot_self_check_does_not_treat_unchanged_available_channel_as_activation(monkeypatch):
-    listener = mel.Listener()
-    samples = iter([(3, 2, None, None), (3, 2, 2, None)])
-    monkeypatch.setattr(listener, "_slot_sources", lambda: next(samples))
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        (3, None, None, None), (3, 4, 4, None)]))
     waits = []
 
     async def no_wait(delay):
         waits.append(delay)
-        if len(waits) == 2:
-            return
+
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(mel, "post", lambda _: pytest.fail(
+        "must not report an unconfirmed channel"))
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1] * 30
+
+
+def test_slot_self_check_does_not_treat_unchanged_available_channel_as_activation(monkeypatch):
+    """(3, 2, None) then (3, 2, 2): the channel that was already 2 did not
+    move, so the pair agreeing on 2 is still the previous print."""
+    listener = mel.Listener()
+    monkeypatch.setattr(listener, "_slot_sources", _sticky_slot_samples([
+        (3, 2, None, None), (3, 2, 2, None)]))
+    waits = []
+
+    async def no_wait(delay):
+        waits.append(delay)
 
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
     monkeypatch.setattr(mel, "post", lambda _: pytest.fail("must not report stale channel"))
-    with pytest.raises(StopIteration):
-        asyncio.run(listener._slot_self_check())
-    assert waits == [1, 1]
+    asyncio.run(listener._slot_self_check())
+    assert waits == [1] * 30
 
 
 def test_slot_self_check_does_not_warn_if_activation_is_unobserved(monkeypatch):

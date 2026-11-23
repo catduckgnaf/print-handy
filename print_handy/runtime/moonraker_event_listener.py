@@ -4453,9 +4453,11 @@ class Listener:
     async def _slot_self_check(self):
         """Check for a slot mismatch after ZMod's active-tool channels settle.
 
-        Compare one snapshot once both channels agree on the requested slot,
-        or both have changed to the same other slot. An unchanged wrong slot
-        is inconclusive: it can still describe the previous print.
+        Compare one snapshot once both channels equal the requested job
+        slot. A corroborated wrong slot counts only when both baseline
+        readings were known and the agreed slot differs from each of them.
+        An unavailable baseline, or an unchanged available channel, is
+        inconclusive: it can still describe the previous print.
         """
         identity = self.print_identity
         try:
