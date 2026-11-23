@@ -435,6 +435,23 @@ class LegacyStateFolderTests(unittest.TestCase):
         self.assertIn("Compare the two folders", note)
         self.assertNotIn("delete", note)
 
+    def test_files_only_in_the_old_folder_are_named_for_review(self):
+        """Review of #1834: data outside the key items is reported, not read as nothing left."""
+        self._legacy_install()
+        (self.legacy / "state" / "reprint_queue.json").write_text("[]")
+        (self.legacy / "logs").mkdir()
+        (self.legacy / "logs" / "bot.log").write_text("x")
+        new = self.root / "new"
+        (new / "state").mkdir(parents=True)
+        (new / ".env").write_text("DISCORD_TOKEN=x\n")
+        (new / "state" / "printer_hardware.json").write_text("{}")
+        self.assertIn("Compare the two folders", doctor.check_legacy_state_folder(self.data(new)))
+        warning = doctor.legacy_state_folder_leftovers(self.data(new))
+        self.assertIn("state/reprint_queue.json", warning)
+        self.assertNotIn("bot.log", warning)
+        (new / "state" / "reprint_queue.json").write_text("[]")
+        self.assertIsNone(doctor.legacy_state_folder_leftovers(self.data(new)))
+
     def test_state_home_pointing_at_the_old_folder_is_fine(self):
         self._legacy_install()
         self.assertIn("set to", doctor.check_legacy_state_folder(self.data(self.legacy)))
