@@ -220,6 +220,11 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
 # raw-binary checks (tests/docker/image_probe.py, docker/slicer-smoke.py)
 # set it per invocation.
 COPY --from=bambu-build /out/ /
+# Create the models directory explicitly traversable (0755) before the copy: with --chmod on COPY alone,
+# BuildKit creates the missing parent directories with that mode too, so 0444 made the directory
+# untraversable for the unprivileged runtime user and `bot check` died with PermissionError on stat.
+# The weights themselves stay read-only (0444).
+RUN install -d -m 0755 -o root -g root /opt/print-handy/models
 COPY --from=vision-model --chmod=0444 /obico-failure-detector.onnx /opt/print-handy/models/obico-failure-detector.onnx
 RUN if [ -x /usr/local/bin/orca-slicer-stable ]; then \
       ln -s /opt/orca-stable/bin/orca-slicer /usr/bin/orca-slicer && \

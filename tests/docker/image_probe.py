@@ -1,6 +1,6 @@
 """Checks run INSIDE a Print Handy image by tests/docker/image_acceptance.sh. Standard library only.
 
-    python3 /probe/image_probe.py payload | closure | slice | egress | ffmpeg | openscad
+    python3 /probe/image_probe.py payload | closure | slice | egress | ffmpeg | openscad | model
 
 Each prints one `PROBE {json}` line and exits non-zero on failure. Mounted read-only as data; the
 image's own /app is what is tested. It never contacts a printer, Discord or any other service.
@@ -200,9 +200,36 @@ def egress():
     return report("egress", all(v != "connected" for v in attempts.values()), attempts=attempts)
 
 
+def model():
+    """The bundled vision weights are reachable by the unprivileged runtime user, and stay read-only."""
+    path = Path("/opt/print-handy/models/obico-failure-detector.onnx")
+    problems = []
+    if os.getuid() == 0:
+        problems.append("probe runs as root; it must run as the image's unprivileged user")
+    try:
+        parent_mode = path.parent.stat().st_mode & 0o777
+        st = path.stat()
+        size = st.st_size
+        mode = st.st_mode & 0o777
+        with path.open("rb") as fh:
+            header = fh.read(16)
+    except OSError as exc:
+        return report("model", False, uid=os.getuid(), error=f"{type(exc).__name__}: {exc}")
+    if not parent_mode & 0o001:
+        problems.append(f"models directory mode {parent_mode:o} is not traversable by other users")
+    if size <= 0 or not header:
+        problems.append("weights are empty")
+    if mode & 0o222:
+        problems.append(f"weights mode {mode:o} is writable")
+    if os.access(path, os.W_OK):
+        problems.append("weights are writable by the runtime user")
+    return report("model", not problems, uid=os.getuid(), dir_mode=oct(parent_mode), file_mode=oct(mode),
+                  size=size, problems=problems)
+
+
 if __name__ == "__main__":
     checks = {"payload": payload, "closure": closure, "slice": slice_check, "egress": egress,
-              "ffmpeg": ffmpeg, "openscad": openscad}
+              "ffmpeg": ffmpeg, "openscad": openscad, "model": model}
     if len(sys.argv) != 2 or sys.argv[1] not in checks:
         raise SystemExit(f"usage: image_probe.py {' | '.join(checks)}")
     sys.exit(checks[sys.argv[1]]())
