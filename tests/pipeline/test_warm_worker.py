@@ -181,7 +181,7 @@ def test_the_warm_worker_imports_every_step_module_before_reading_its_request(mo
 def test_preload_imports_the_allowed_modules():
     heavy_worker.preload()
     for module in {m for m, _f in heavy_worker.ALLOWED}:
-        assert f'print_handy.core.{module}' in sys.modules
+        assert heavy_worker.module_path(module) in sys.modules
 
 
 def test_only_run_bot_turns_the_spare_on():

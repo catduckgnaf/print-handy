@@ -30,14 +30,13 @@ import pytest
 
 from print_handy import settings
 from print_handy.bot import recent_links, runtime
-from print_handy.bot.router import load_plugin
 from print_handy.core import prepared_intake, printer_state
 from print_handy.jobs import common as jobs_common
 from print_handy.runtime import _config
 from print_handy.runtime import print_control as pc
 from tests.bound_names import setattr_bound
 
-plugin = load_plugin()
+from tests.handler_namespace import plugin  # noqa: E402
 
 SHIELD_URL = "https://www.printables.com/model/999-nvidia-shield-remote-holder"
 PANEL = {"title": "Panel A Lower V21", "intake_id": "panel-intake"}

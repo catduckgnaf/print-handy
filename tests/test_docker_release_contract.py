@@ -606,7 +606,7 @@ class DockerReleaseContract(unittest.TestCase):
         ignore = (ROOT / ".dockerignore").read_text()
         self.assertIn("**/__pycache__", ignore)
         runtime = (ROOT / "Dockerfile").read_text().split("AS runtime", 1)[1]
-        step = "RUN python -m compileall -q -j 0 /app/print_handy /app/plugins"
+        step = "RUN python -m compileall -q -j 0 /app/print_handy"
         self.assertIn(step, runtime)
         compiled = runtime.index(step)
         self.assertLess(runtime.index("COPY . ."), compiled)

@@ -12,6 +12,7 @@ from unittest import mock
 import pytest
 
 from corpus import fake_discord
+from tests.handler_namespace import plugin as handler_plugin
 from print_handy.bot import adapter as discord_adapter, llm, mention, runtime
 from print_handy.bot.adapter import parse_custom_id
 from print_handy.core import prompts
@@ -406,7 +407,7 @@ def test_llm_named_print_again_runs_through_the_normal_handler_with_its_confirma
         return True, "started"
 
     confirm = mock.AsyncMock(return_value=print_control.AGAIN_LABEL)
-    with mock.patch.object(core.router.plugin, "_confirm", confirm), \
+    with mock.patch.object(handler_plugin, "_confirm", confirm), \
             mock.patch.object(print_control, "split_count", return_value=("57", 1)), \
             mock.patch.object(print_control, "resolve_print", return_value=target.copy()) as resolve, \
             mock.patch.object(print_control, "queue_copies"), \

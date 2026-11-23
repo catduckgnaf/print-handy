@@ -31,7 +31,7 @@ def _decisions(path):
 
 
 def test_painted_fit_is_an_offloaded_step():
-    entry = ("model_job", "painted_fit_for_job")
+    entry = ("jobs.slice", "painted_fit_for_job")
     assert entry in heavy_worker.ALLOWED
     assert entry in intake_worker._OFFLOAD
     assert entry not in intake_worker._SLICER_STEPS  # geometry only: the general lane, never the slicer's
@@ -53,7 +53,7 @@ def test_heavy_sends_the_painted_fit_to_the_worker_not_a_thread(monkeypatch):
     decisions = _decisions(PAINTED)
     result = asyncio.run(intake_worker._heavy(jobs_slice.painted_fit_for_job, PAINTED, decisions, None))
     assert result == {"scale": 1.0}
-    assert seen["request"]["module"] == "model_job" and seen["request"]["func"] == "painted_fit_for_job"
+    assert seen["request"]["module"] == "jobs.slice" and seen["request"]["func"] == "painted_fit_for_job"
     assert seen["request"]["args"] == [str(PAINTED), decisions, None]
     assert seen["lane"] is owned_worker.GENERAL
 
@@ -61,7 +61,7 @@ def test_heavy_sends_the_painted_fit_to_the_worker_not_a_thread(monkeypatch):
 def test_the_worker_answers_exactly_what_the_in_process_fit_does():
     decisions = _decisions(PAINTED)
     expected = jobs_slice.painted_fit_for_job(PAINTED, decisions, None)
-    payload = json.dumps({"module": "model_job", "func": "painted_fit_for_job",
+    payload = json.dumps({"module": "jobs.slice", "func": "painted_fit_for_job",
                           "args": [str(PAINTED), decisions, None], "kwargs": {}})
     done = subprocess.run([sys.executable, "-m", "print_handy.core.heavy_worker"], input=payload.encode(),
                           capture_output=True, cwd=ROOT, timeout=120, check=True)

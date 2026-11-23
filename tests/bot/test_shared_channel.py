@@ -51,8 +51,8 @@ def plugin_cfg(monkeypatch):
 
 
 def _plugin():
-    from print_handy.bot.router import load_plugin
-    return load_plugin()
+    from tests.handler_namespace import plugin
+    return plugin
 
 
 class SharedGateway:

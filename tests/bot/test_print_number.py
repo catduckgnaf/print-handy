@@ -16,6 +16,7 @@ import pytest
 from corpus import fake_discord
 from print_handy.bot import runtime
 from print_handy.bot.router import Router
+from tests.handler_namespace import plugin as handler_plugin
 from print_handy.runtime import discord_print_summary as summary
 from print_handy.runtime import print_control as pc
 from print_handy.runtime import print_next
@@ -72,7 +73,7 @@ def drive(cfg, text, confirm_label):
 
     confirm = mock.AsyncMock(return_value=confirm_label)
     ask = mock.Mock(side_effect=AssertionError("the LLM was called for a deterministic form"))
-    with mock.patch.object(router.plugin, "_confirm", confirm), \
+    with mock.patch.object(handler_plugin, "_confirm", confirm), \
             mock.patch.object(print_next, "start", side_effect=fake_start) as start, \
             mock.patch.object(summary, "gcode_metadata", return_value=(60, 1.0)), \
             mock.patch.object(summary, "_print_number", return_value=2), \
@@ -135,7 +136,7 @@ def test_a_bare_number_alone_is_not_a_print_request(cfg, archive):
     ("/print-again 57", None), ("print 57 copies", None), ("please print 57", None), ("", None),
 ])
 def test_plain_print_number_matching_is_exact(text, expected):
-    assert Router().plugin._plain_print_number(text) == expected
+    assert handler_plugin._plain_print_number(text) == expected
 
 
 def test_print_again_x3_question_and_start_post_quote_all_copies(cfg, archive):

@@ -324,8 +324,8 @@ def test_the_intake_checks_slots_after_the_colors_are_chosen_and_never_before():
     import inspect
     body = inspect.getsource(prepared_intake._prepare_link)
     hook = body.index("await _verify_slots(")
-    assert body.index("selections = [mj.resolve_filament_selection(") < hook
-    assert body.index("validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection") < hook
+    assert body.index("selections = [jobs_filament.resolve_filament_selection(") < hook
+    assert body.index("validated = validate_decisions(manifest, decisions, state, jobs_filament.resolve_filament_selection") < hook
     assert body.count("await _verify_slots(") == 1
     assert "CANCELLED_SLOT_UNVERIFIED" not in body
     assert "used_slots=used" in body  # only slots the print selected

@@ -100,7 +100,7 @@ def test_slot_labels_show_normalised_material():
 def test_timing_goes_to_debug_logging_not_stdout(tmp_path, caplog):
     job = tmp_path / 'job.json'
     out = io.StringIO()
-    with caplog.at_level(logging.DEBUG, logger=model_job.logger.name), redirect_stdout(out):
+    with caplog.at_level(logging.DEBUG, logger=jobs_store.logger.name), redirect_stdout(out):
         jobs_store._timing(job, 'print_now', extra=1)
     assert out.getvalue() == ''
     assert any(r.levelno == logging.DEBUG and r.getMessage().startswith('TIMING {') for r in caplog.records)

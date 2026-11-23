@@ -29,6 +29,7 @@ from unittest import mock
 import pytest
 
 from corpus import fake_discord
+from tests.handler_namespace import plugin as handler_plugin
 from print_handy import settings
 from print_handy.bot import __main__ as bot_main
 from print_handy.bot import runtime
@@ -241,7 +242,7 @@ def test_discord_print_number_still_works_with_chat_llm_off(no_llm_cfg, tmp_path
 
     calls = []
     confirm = mock.AsyncMock(return_value=pc.AGAIN_LABEL)
-    with mock.patch.object(router.plugin, "_confirm", confirm), \
+    with mock.patch.object(handler_plugin, "_confirm", confirm), \
             mock.patch.object(print_next, "start", side_effect=fake_start), \
             mock.patch.object(summary, "gcode_metadata", return_value=(60, 1.0)), \
             mock.patch.object(summary, "_print_number", return_value=2), \
