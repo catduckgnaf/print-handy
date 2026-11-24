@@ -414,7 +414,7 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
             filament = None
         if filament is not None and not same_material(filament.get("material"), material):
             filament = None  # a different material on file: the slot record decides, at its defaults
-    if filament and not same_material(filament.get("material"), material):
+    if filament and filament.get("material") and not same_material(filament["material"], material):
         filament = None
     try:
         family, targets, sources = resolve_material_temperatures(material, filament or {})
