@@ -2611,7 +2611,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                             if details else
                             f'Orca slicing failed ({result.returncode}) or no G-code output')
         bambu_role = 'Bambu Studio fallback' if orca_failed else 'Bambu Studio'
-        geometry_conflict = orca_failed and _orca_conflict(folder)
+        geometry_conflict = orca_failed and bool(
+            re.search(r'G-code conflicts detected', log_text, re.I) or _orca_conflict(folder))
 
         def _no_fallback(why):
             # A geometry conflict is the real failure (#912): name it and its
