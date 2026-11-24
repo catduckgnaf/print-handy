@@ -454,6 +454,7 @@ def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback
     assert caught.value.kind == 'conflict'
     assert 'geometry conflict' in str(caught.value)
     assert 'conflicting objects: BRONZE DETAILS and BLACK BODY' in str(caught.value)
+    assert caught.value.conflict_objects == ('BRONZE DETAILS', 'BLACK BODY')
     assert 'not installed' not in str(caught.value)
 
 

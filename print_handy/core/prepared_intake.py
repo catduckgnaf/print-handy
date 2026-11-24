@@ -198,12 +198,19 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
                 logger.debug("start progress note failed", exc_info=True)
 
 
-async def _deliver_start_result(adapter, source, metadata, message, progress_message_id):
+async def _deliver_start_result(adapter, source, metadata, message, progress_message_id, *,
+                                stop_message=None):
     """The start's final word: edit its progress message in place when there is one
     (#1471), so upload, start sent and start confirmed are one message updated in
     place. Falls back to a fresh post when there is no progress message or the edit
     does not succeed. Returns the send result, whose message_id names the message
     carrying the final text either way."""
+    if stop_message is not None:
+        try:
+            await stop_message.edit(content=message, view=None)
+            return SimpleNamespace(success=True, message_id=str(getattr(stop_message, 'id', '') or ''))
+        except Exception:
+            logger.debug("could not finalize the Discord Stop message", exc_info=True)
     edit = getattr(adapter, 'edit_message', None)
     if progress_message_id and callable(edit):
         try:
@@ -225,7 +232,8 @@ async def _with_start_progress(adapter, source, metadata, job_path, work, clock=
     without this wrapper; the watcher only posts notes and is stopped when work ends.
     """
     adapter_state = getattr(adapter, '__dict__', {})
-    if 'picks' in adapter_state or 'clicks' in adapter_state or job_path is None:
+    if (progress is not None and progress.get('stop_message') is not None
+            or 'picks' in adapter_state or 'clicks' in adapter_state or job_path is None):
         return await work  # scripted test adapters record questions only, as _with_stop does
     timing_path = Path(job_path).parent / 'TIMING.jsonl'
     try:
@@ -356,7 +364,7 @@ def _step_prompt_editor(adapter, stop_msg, sent, cid):
     return None
 
 
-async def _tick_step_prompt(edit, text, started, clock=time.monotonic, tick_s=None):
+async def _tick_step_prompt(edit, text, started, clock=time.monotonic, tick_s=None, *, stage_text=None):
     """Edit a step's prompt to show its elapsed time every ``tick_s`` seconds.
 
     Runs until cancelled (the step finished) or an edit fails; a failed edit
@@ -366,7 +374,8 @@ async def _tick_step_prompt(edit, text, started, clock=time.monotonic, tick_s=No
     while True:
         await asyncio.sleep(tick)
         try:
-            ok = await edit(_step_progress_text(text, clock() - started))
+            current = stage_text() if stage_text is not None else text
+            ok = await edit(_step_progress_text(current, clock() - started))
         except Exception:
             logger.info("step progress edit failed; the prompt keeps its last text", exc_info=True)
             return
@@ -375,7 +384,7 @@ async def _tick_step_prompt(edit, text, started, clock=time.monotonic, tick_s=No
 
 
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None,
-                     quiet_s=None):
+                     quiet_s=None, start_progress=None):
     """Run work with plain progress by default; opt in to Stop only when cancellation is safe.
 
     ``quiet_s`` (with ``allow_stop``) holds the Stop prompt back: the step
@@ -464,7 +473,13 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     if job is not None and job.cancellable:
         cancel_waiter = asyncio.ensure_future(job.cancel_event.wait())
     prompt_edit = _step_prompt_editor(adapter, stop_msg, sent, cid)
-    ticker = (asyncio.ensure_future(_tick_step_prompt(prompt_edit, text, started))
+    stage_text = None
+    if start_progress is not None and stop_msg is not None and prompt_edit is not None:
+        # The Discord Stop message is the progress message. Its ticker is the only
+        # writer until it is awaited during teardown, before the terminal edit.
+        start_progress['stop_message'] = stop_msg
+        stage_text = start_progress['stage_text']
+    ticker = (asyncio.ensure_future(_tick_step_prompt(prompt_edit, text, started, stage_text=stage_text))
               if prompt_edit is not None else None)
     finished = False  # the work returned on its own (no Stop, no cancel)
     result = None
@@ -555,6 +570,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 try:
                     if done_text:
                         await stop_msg.edit(content=done_text, view=None)
+                    elif start_progress is not None:
+                        # An intervening approval (color, material, etc.) can
+                        # follow this attempt. Never leave it labeled in progress.
+                        await stop_msg.edit(content='Printer start check ended.', view=None)
                     else:
                         await stop_msg.edit(view=None)
                 except Exception:
@@ -686,6 +705,33 @@ START_PROGRESS = (
 # carries a print_start line, never an upload one; the second note carries
 # none (one quip per start).
 START_PROGRESS_VOICE = {'upload_verified': 'print_start'}
+
+_START_STEP_SUFFIX = ' Press Stop to request cancellation.'
+_START_STEP = 'Preparing to start.' + _START_STEP_SUFFIX
+_START_STEP_STAGES = (
+    ('preparation_seen', 'Printer is preparing the print'),
+    ('start_submitted', 'Waiting for the printer to confirm the start'),
+    ('upload_verified', 'Upload verified; waiting for the printer to respond'),
+    ('upload_begin', 'Uploading to the printer'),
+)
+
+
+def _start_step_text(job_path, initial):
+    """Read only this launch attempt's stages; keep the Stop prompt live."""
+    timing = Path(job_path).parent / 'TIMING.jsonl'
+    try:
+        offset = timing.stat().st_size
+    except OSError:
+        offset = 0
+
+    def current():
+        stages = _new_stages(timing, offset)
+        for stage, label in _START_STEP_STAGES:
+            if stage in stages:
+                return label + '.' + _START_STEP_SUFFIX
+        return initial
+
+    return current
 
 
 def _preview_description(text):
@@ -1842,6 +1888,10 @@ def _safe_preupload_refusal(tail):
 def _refusal_text(tail):
     """Return plain user-facing guidance; raw internals remain in the receipt and job log."""
     raw = _raw_preupload_refusal(tail)
+    if raw.startswith(('REFUSED: printer is offline/unreachable.',
+                       'REFUSED: fresh printer check failed: printer is offline/unreachable.')):
+        return ("Didn't start: the printer is unreachable. Nothing was uploaded or started. "
+                "Check that the printer is on and connected, then press Retry.")
     slot = re.match(r'REFUSED: (printer slot \d+ .+?) \(T\d+\)\.', raw)
     if slot:
         return (f"Didn't start: {slot.group(1)}. Fix the slot on the printer or the spool in Spoolman, "
@@ -2859,6 +2909,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         thread_id=getattr(source, 'thread_id', None),
         owner_user_id=str(getattr(source, 'user_id', '') or ''), intake_id=iid))
     jp = None
+    start_progress = {}
     try:
         if reuse:
             if reuse.get('resumed_from'):
@@ -5082,7 +5133,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 return ''
 
 
-        prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
         try:
             if supports_choice is True:
                 out = await early.take_supports()
@@ -5215,7 +5265,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # today's behavior stands, plus the one-line note where a fix
             # would have been offered.
             from . import ai_fix as _ai_fix
-            heavy = _ai_fix.intake_fix_offered()
+            conflict = isinstance(slice_error, slice_failure.SliceFailure) and slice_error.kind == 'conflict'
+            if conflict:
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=slice_failure.post(slice_error))
+                return {'action': 'skip', 'reason': 'slice toolpath conflict'}
+            heavy = _ai_fix.intake_fix_offered() and not (refusal is not None and refusal.fix)
             multi_note = _multi_file_fix_note()
             fix_ready = heavy and _fix_budget_left() > 0 and not multi_note
             # No AI-fix note at all when the intake does not offer one (#1373).
@@ -5342,6 +5397,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # an applied fix -- gets the same fix offer (#985), under
                     # the same per-question cap and the job's fix budget,
                     # instead of a dead end.
+                    conflict = (isinstance(retry_error, slice_failure.SliceFailure)
+                                and retry_error.kind == 'conflict')
+                    if conflict:
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content=slice_failure.post(retry_error, retry_failed=True))
+                        return {'action': 'skip', 'reason': 'slice retry hit a toolpath conflict'}
                     if (_ai_fix.intake_fix_offered() and fix_attempts < _ai_fix.MAX_FIX_ATTEMPTS
                             and _fix_budget_left() > 0 and not _multi_file_fix_note()):
                         picked = await _ask(adapter, source, key, failure_post,
@@ -5469,7 +5530,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             from . import ai_fix as _ai_fix
             heavy = _ai_fix.intake_fix_offered()
             multi_note = _multi_file_fix_note()
-            fix_ready = heavy and _fix_budget_left() > 0 and not multi_note
             fix_attempts = 0
             while True:
                 unverified = (unverified_result or {}).get('unverified') or []
@@ -5494,6 +5554,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         sliced.get('support_clearance') or clearance,
                         turned_job=bool((gate_job.get('orientation') or {}).get('rotation')))
                     repairs = gap_repairs(repairs) if not multi_note else []
+                # Lead with a precise repair or an honest verification decision,
+                # not a speculative AI change to a slice we could not measure.
+                allow_ai = heavy and not repairs and not unverified
+                fix_ready = allow_ai and _fix_budget_left() > 0 and not multi_note
                 if repairs:
                     lines.append(low_gap_text(repairs))
                     lines.extend(f"- {a['label']}: re-slices a repaired copy of the model (the original "
@@ -5505,9 +5569,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                              + (' To fix the low gap, post the model again and choose Extend '
                                 'underside to plate or Flatten (sink) to plate.'
                                 if low_clearance and not repairs else ''))
-                if heavy and not fix_ready and multi_note:
+                if allow_ai and not fix_ready and multi_note:
                     lines.append(multi_note)
-                elif heavy and not fix_ready and _fix_budget_left() <= 0:
+                elif allow_ai and _fix_budget_left() <= 0:
                     lines.append(_no_fix_left_note())
                 choices = [a['label'] for a in repairs] + [PRINT_ANYWAY_LABEL]
                 if fix_ready:
@@ -5998,22 +6062,21 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         receipt['retry_target'] = target
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         start_context = {'target': target, 'receipt': receipt}
-        # The start progress notes' one status message (#1471): the watcher records its
-        # id here, and the start's final word below updates that same message in place.
-        start_progress = {}
-        # Upload starts here: typed text no longer cancels the job (#1789).
-        # The start gates and the printer's own cancel apply from here.
+        # Typed text no longer cancels after launch approval (#1789). The
+        # launch gates and the existing Stop path apply from here.
         _running_job.mark_past_cancel_point()
-        uploading = ((prep_msg + "\n") if not prep_sent else "") + "Uploading to the printer. Press Stop to request cancellation."
+        start_status = prep_msg + '.' + _START_STEP_SUFFIX
         try:
             for attempt in range(COLOR_CONFIRM_ROUNDS):
                 # Hold the Retry refusal text back only while a question will follow it (#795).
                 start_context['color_prompt'] = attempt < COLOR_CONFIRM_ROUNDS - 1
-                ok, tail = await _with_stop(adapter, source, key, metadata, uploading,
+                start_progress = {'stage_text': _start_step_text(jp, start_status)}
+                ok, tail = await _with_stop(adapter, source, key, metadata, start_status,
                                             _with_start_progress(adapter, source, metadata, jp,
                                                                  print_next.start(target),
                                                                  progress=start_progress),
-                                            allow_stop=True, refusal_context=start_context)
+                                            allow_stop=True, refusal_context=start_context,
+                                            start_progress=start_progress)
                 confirms = [] if ok or not start_context['color_prompt'] else color_confirm(tail)
                 label_confirms = [] if ok or not start_context['color_prompt'] else label_confirm(tail)
                 from . import material_accept
@@ -6038,7 +6101,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         return {'action': 'skip', 'reason': 'operator did not print as sliced on a material warning'}
                     target['accept_material'] = sorted(set(target.get('accept_material') or ())
                                                        | {w['key'] for w in material_warnings})
-                    uploading = "Uploading to the printer. Press Stop to request cancellation."
+                    start_status = _START_STEP
                     continue
                 if (not ok and start_context['color_prompt'] and SPOOL_CHANGED in str(tail)
                         and not target.get('accept_spool_change')):
@@ -6056,7 +6119,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                            content='Cancelled. Nothing uploaded or started.')
                         return {'action': 'skip', 'reason': 'operator cancelled on a swapped spool'}
                     target['accept_spool_change'] = True
-                    uploading = "Uploading to the printer. Press Stop to request cancellation."
+                    start_status = _START_STEP
                     continue
                 if not confirms and not label_confirms:
                     await _post_yolo_waivers(adapter, source, metadata, tail, receipt, receipt_path)
@@ -6077,7 +6140,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                            content='Cancelled. Nothing uploaded or started.')
                         return {'action': 'skip', 'reason': 'operator cancelled on a slot material label difference'}
-                    uploading = "Uploading to the printer. Press Stop to request cancellation."
+                    start_status = _START_STEP
                     continue
                 # A slot color difference never blocks on its own (#795): the operator decides,
                 # once for every mismatched slot; a later round only asks about what is new.
@@ -6113,7 +6176,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content='Cancelled. Nothing uploaded or started.')
                     return {'action': 'skip', 'reason': 'operator cancelled on a slot color difference'}
-                uploading = "Uploading to the printer. Press Stop to request cancellation."
+                start_status = _START_STEP
         finally:
             try:
                 clear_color_acceptance(jp)
@@ -6169,7 +6232,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             elif start_context.get('prompt_handled'):
                 return {'action': 'skip', 'reason': 'start refused; prompt shows the reason and Retry'}
         sent = await _deliver_start_result(adapter, source, metadata, message,
-                                           start_progress.get('message_id'))
+                                           start_progress.get('message_id'),
+                                           stop_message=start_progress.get('stop_message'))
         message_id = getattr(sent, 'message_id', None)
         if remote and message_id:
             try:
@@ -6198,11 +6262,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             message = 'Cancelled. Nothing was downloaded.'
             reason = 'cancelled by operator at the connect prompt'
         else:
-            receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False)
-            message = 'Cancelled. Nothing sliced, uploaded or started.'
+            sliced_before_stop = bool(receipt.get('sliced'))
+            receipt.update(status='CANCELLED', uploaded=False, started=False)
+            message = ('Cancelled after slicing. Nothing was uploaded or started.' if sliced_before_stop else
+                       'Cancelled. Nothing was sliced, uploaded or started.')
             reason = 'cancelled by operator'
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-        await adapter.send(chat_id=source.chat_id, content=message, metadata=metadata)
+        if isinstance(exc, Stopped) and start_progress:
+            await _deliver_start_result(adapter, source, metadata, message, start_progress.get('message_id'),
+                                       stop_message=start_progress.get('stop_message'))
+        else:
+            await adapter.send(chat_id=source.chat_id, content=message, metadata=metadata)
         return {'action': 'skip', 'reason': reason}
     except IntakeExpired:
         logger.warning('intake question expired')

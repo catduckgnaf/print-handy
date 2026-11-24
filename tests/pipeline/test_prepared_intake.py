@@ -836,6 +836,121 @@ def test_unconfirmed_start_post_names_the_launch_stage(env, monkeypatch):
     assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'unknown'
 
 
+@pytest.mark.parametrize('outcome', ['confirmed', 'unreachable', 'stop'])
+def test_discord_launch_edits_one_stop_message_through_terminal_result(env, monkeypatch, outcome):
+    from print_handy.core import prompts
+
+    class FakeDiscord(Adapter):
+        def __init__(self):
+            self.answers = iter([2, 0, 0])
+            self.sent, self.log, self.questions = [], [], []
+
+        async def send_clarify(self, **kw):
+            self.questions.append(kw)
+            prompts.resolve_gateway_clarify(kw['clarify_id'], kw['choices'][next(self.answers)])
+            return S(success=True)
+
+    launch_messages = []
+    phase_seen = asyncio.Event()
+
+    class Message:
+        def __init__(self, text, cid):
+            self.id = '42'
+            self.cid = cid
+            self.edits = [text]
+            self.changed = asyncio.Event()
+
+        async def edit(self, *, content=None, **kw):
+            if content is not None:
+                self.edits.append(content)
+                self.changed.set()
+                if 'Printer is preparing the print…' in content:
+                    phase_seen.set()
+
+    async def stop_sender(_source, text, cid):
+        msg = Message(text, cid)
+        if text.startswith('Preparing to start'):
+            launch_messages.append(msg)
+        return msg
+
+    async def start(target):
+        env.starts.append(target)
+        if outcome == 'unreachable':
+            return False, 'REFUSED: printer is offline/unreachable. Nothing uploaded or started.'
+        msg, = launch_messages
+        path = Path(target['gcode']).parents[1] / 'JOB.json'
+        for stage, label in [('upload_begin', 'Uploading to the printer…'),
+                             ('upload_verified', 'Upload verified; waiting for the printer to respond…'),
+                             ('start_submitted', 'Waiting for the printer to confirm the start…'),
+                             ('preparation_seen', 'Printer is preparing the print…')]:
+            jobs_store._timing(path, stage)
+            while not msg.edits[-1].startswith(label):
+                msg.changed.clear()
+                await asyncio.wait_for(msg.changed.wait(), 3)
+        if outcome == 'stop':
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                return False, 'UNCERTAIN: Stop was requested after launch. Check the printer before retrying.'
+        return True, 'START READBACK {"phase":"executing","outcome":"printing","started":true}'
+
+    monkeypatch.setattr(print_next, 'start', start)
+    monkeypatch.setattr(prepared_intake, 'STOP_SENDER', stop_sender)
+    monkeypatch.setattr(prepared_intake, 'STEP_PROGRESS_TICK_S', 0.01)
+    adapter = FakeDiscord()
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='dis-stage',
+              text='https://www.printables.com/model/1-ghost')
+
+    async def run():
+        flow = asyncio.create_task(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=3))
+        if outcome == 'stop':
+            await asyncio.wait_for(phase_seen.wait(), 5)
+            prompts.resolve_gateway_clarify(launch_messages[0].cid, prepared_intake.STOP_LABEL)
+        await asyncio.wait_for(flow, 6)
+        msg, = launch_messages
+        count = len(msg.edits)
+        await asyncio.sleep(0.05)
+        assert len(msg.edits) == count
+
+    asyncio.run(run())
+    msg, = launch_messages
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert len(env.starts) == 1
+    assert not any(text.startswith('Print started') for text in adapter.sent)
+    if outcome == 'confirmed':
+        assert receipt['status'] == 'STARTED'
+        assert msg.edits[-1].startswith('Print started')
+        assert sum(text.startswith('Print started') for text in msg.edits) == 1
+    elif outcome == 'unreachable':
+        assert receipt['status'] == 'START_REFUSED'
+        assert 'printer is unreachable' in msg.edits[-1] and 'press Retry' in msg.edits[-1]
+        assert not any('Uploading to' in text for text in msg.edits)
+    else:
+        assert receipt['status'] == 'START_UNCERTAIN' and receipt['started'] is None
+        assert msg.edits[-1].startswith('UNCERTAIN:')
+
+
+def test_named_conflict_reports_exact_next_action_without_ai(env, monkeypatch):
+    from print_handy.core import ai_fix, slice_failure, worker_errors
+
+    def conflict(*args, **kwargs):
+        error = slice_failure.SliceFailure('private engine log', kind='conflict', slicer='OrcaSlicer',
+                                           conflict_objects=('BLACK BODY', 'BRONZE DETAILS', '<@123>', '/tmp/private'))
+        raise worker_errors.decode(json.loads(json.dumps(worker_errors.encode(error))))
+
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', conflict)
+    monkeypatch.setattr(ai_fix, 'intake_fix_offered', lambda: True)
+    adapter, _, receipt = run_flow(env, [2, 0, 0])
+    assert receipt['status'] == 'SLICE_FAILED' and not env.starts
+    cause, action = receipt['failure']['cause'], receipt['failure']['recovery']
+    assert cause == 'OrcaSlicer detected conflicting toolpaths on the plate: “BLACK BODY”, “BRONZE DETAILS”.'
+    assert action == 'Separate or reposition the overlapping parts, then slice again.'
+    post, = [text for text in adapter.sent if cause in text]
+    assert action in post and 'nothing was uploaded or started' in post
+    assert '<@123>' not in post and '/tmp/private' not in post and 'private engine log' not in post
+    assert not any(ai_fix.FIX_LABEL in q['choices'] for q in adapter.questions)
+
+
 def test_confirmed_refusal_post_names_the_launch_stage_in_the_flow(env, monkeypatch):
     async def start(target):
         env.starts.append(target)
