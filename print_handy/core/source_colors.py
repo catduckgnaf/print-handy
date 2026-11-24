@@ -2090,7 +2090,7 @@ def _prompt_name(part):
 
 def short_part_name(part):
     """The part's display name without size, plate or author colour (for summaries)."""
-    return _prompt_parts(part)[0]
+    return part.get('display_label') or _part_label(part) or 'Part'
 
 
 def _family_question(fam, chunk):
@@ -2235,7 +2235,7 @@ def canonical_prompts(manifest, selected_plate_ids=None):
         rows.append({'key': 'part:' + p['key'],
                      'question': f"Choose the color/material for {_prompt_name(p)}{stat_suffix}",
                      'source_extruder': p['source_extruder'],
-                     'label': short_part_name(p), 'author_label': part_author_color(p)})
+                     'label': p.get('display_label') or short_part_name(p), 'author_label': part_author_color(p)})
     # Height-based color changes (#870): an extruder the per-layer tool
     # changes switch to is a color question in its own right, alongside the
     # part colors. An extruder a part already asks about needs no second row.
@@ -2468,7 +2468,7 @@ def part_families(manifest):
         groupable = len(members) > 1 and ('#' in key or len({p['name'] for p in members}) == 1)
         chunks = [members] if groupable else [[p] for p in members]
         for chunk in chunks:
-            names = [_prompt_name(p) for p in chunk]
+            names = [_prompt_name(p).removesuffix(', No designer color specified') for p in chunk]
             ext_suffix = ""  # 'extruder 2' means nothing to the person choosing; author color says it
             noun = _family_noun(key, len(chunk))
             if re.match(r'(?i)(cylinder|cube|box|sphere|cone|body|object|part|mesh|solid|extrude|torus)', noun):
@@ -2572,7 +2572,7 @@ def _part_display_name(part):
     while words and (words[0].isdigit() or re.fullmatch(r'\\d+[.)]', words[0])):
         words.pop(0)
     if part.get('display_label'):
-        return ' '.join(words).strip() or base
+        return part['display_label']
     colors = set()
     from . import filament_color
     guess = filament_color.derive(part.get('name'))
