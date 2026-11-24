@@ -2704,7 +2704,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 kind='conflict' if geometry_conflict else 'engine',
                 slicer='OrcaSlicer' if geometry_conflict else 'OrcaSlicer and Bambu Studio',
                 returncode=result.returncode if geometry_conflict else bambu_result.returncode,
-                **_failure_evidence(folder, 'orca.log')
+                **_failure_evidence(folder, 'orca.log', conflict=geometry_conflict)
             )
         if primary == 'bambu_studio':
             configs.extend([bambu_machine, bambu_process, *bambu_filaments])

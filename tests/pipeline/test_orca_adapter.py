@@ -239,6 +239,31 @@ def test_bambu_fallback_runs_after_orca_gcode_conflict(tmp_path, monkeypatch):
     assert 'G-code conflict' in provenance['fallback']['reason']
 
 
+def test_cli_conflict_keeps_names_when_the_bambu_fallback_fails(tmp_path, monkeypatch):
+    # Orca names the conflict only on its CLI (no result.json), Bambu is tried and fails:
+    # the conflict still reaches the worker payload with Orca's object names (#1865).
+    _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            return type('R', (), {'returncode': 1, 'stdout': (
+                'G-code conflicts detected after slicing.\n'
+                'gcode path conflicts found between BRONZE DETAILS and BLACK BODY.\n'), 'stderr': ''})()
+        return type('R', (), {'returncode': 1, 'stdout': '', 'stderr': ''})()
+
+    monkeypatch.setattr(adapter.subprocess, 'run', run)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert len(calls) == 2
+    assert caught.value.kind == 'conflict'
+    assert caught.value.as_dict()['conflict_objects'] == ['BRONZE DETAILS', 'BLACK BODY']
+
+
 def test_bambu_fallback_converts_percent_line_widths(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
     monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
