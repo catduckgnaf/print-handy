@@ -2,8 +2,8 @@
  "meta": {
   "filament_presets": 7637,
   "format": 1,
-  "orca_revision": "eef7710cb102fdb51a9bcdbd9efd61047f44774a",
-  "orca_version": "2.5.1",
+  "orca_revision": "f92a7c065c5718b8ef1baac1cd704df2911238f4",
+  "orca_version": "2.5.2",
   "own_brands": {
    "Afinia": "Afinia",
    "Anker": "AnkerMake",
@@ -38,7 +38,7 @@
    "re3D": "re3D"
   },
   "printer_presets": 1194,
-  "source_digest": "496ebaa8e3c424f8c62be38291e18c73740f29ed65c78ad538147c52a0d366b9",
+  "source_digest": "7959e26a7861375125d22deebbcf70dd4af072e99d2320316ff47e0b4ef5e431",
   "vendors": [
    "Afinia",
    "Anker",
