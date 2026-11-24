@@ -18,10 +18,20 @@ def test_large_mesh_streams_successfully(tmp_path):
     count = 900_000
     with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
         with archive.open('3D/Objects/object_1.model', 'w') as member:
-            member.write(b'<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/></vertices><triangles>')
-            batch = b'<triangle v1="0" v2="1" v3="2"/>' * 1000
-            for _ in range(count // 1000):
-                member.write(batch)
+            member.write(b'<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1"><mesh><vertices>')
+            vertex_count = 4096
+            for index in range(vertex_count):
+                member.write(f'<vertex x="{index}" y="0" z="0"/>'.encode())
+            member.write(b'</vertices><triangles>')
+            # Different vertex indices make this a realistic mesh rather than
+            # an artificial >100:1 repetitive ZIP-bomb fixture.
+            for start in range(0, count, 1000):
+                batch = ''.join(
+                    f'<triangle v1="{index % vertex_count}" '
+                    f'v2="{(index + 1) % vertex_count}" '
+                    f'v3="{(index + 2) % vertex_count}"/>'
+                    for index in range(start, start + 1000))
+                member.write(batch.encode())
             member.write(b'</triangles></mesh></object></resources></model>')
     limits.check_source(source)
     mesh_fast._TABLE_CACHE.clear()
@@ -83,9 +93,6 @@ def test_small_model_allowed(tmp_path):
 
 @pytest.mark.parametrize(('setting', 'value', 'members', 'message'), [
     ('MAX_MEMBERS', 1, [('a', b''), ('b', b'')], 'members'),
-    ('MAX_EXPANDED_BYTES', 3, [('asset', b'1234')], 'expanded archive'),
-    ('MAX_MEMBER_BYTES', 3, [('asset', b'1234')], 'archive member'),
-    ('MAX_XML_BYTES', 3, [('a.model', b'12'), ('b.model', b'34')], 'model XML'),
     ('MAX_VERTICES', 1, [('a.model', b'<m><vertex/><vertex/></m>')], 'vertex'),
     ('MAX_XML_ELEMENTS', 1, [('a.model', b'<m><x/></m>')], 'element'),
 ])
@@ -97,6 +104,135 @@ def test_archive_budgets(tmp_path, setting, value, members, message):
     with patch.object(limits, setting, value):
         with pytest.raises(limits.IntakeLimitExceeded, match=message):
             limits.check_source(source)
+
+
+def test_3mf_zip_bomb_ratio_guard(tmp_path):
+    source = tmp_path / 'bomb.3mf'
+    with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('payload.bin', b'\x00' * (2 * limits.MIB))
+    with pytest.raises(limits.IntakeLimitExceeded, match='100:1 compression ratio') as caught:
+        limits.check_source(source)
+    assert 'bomb.3mf' in str(caught.value)
+
+
+def test_3mf_zip_bomb_split_across_small_members(tmp_path):
+    """Aggregate ratio must catch many sub-1 MiB compressed members (#1852)."""
+    source = tmp_path / 'split-bomb.3mf'
+    with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('3D/3dmodel.model', '<model/>')
+        for index in range(32):
+            archive.writestr(f'payload/{index:02}.bin', b'\x00' * (64 * 1024))
+    with zipfile.ZipFile(source) as archive:
+        members = archive.infolist()
+        assert all(info.file_size <= limits.ZIP_RATIO_FLOOR_BYTES for info in members)
+        assert sum(info.file_size for info in members) > limits.ZIP_RATIO_FLOOR_BYTES
+        assert sum(info.file_size for info in members) > (
+            limits.MAX_ZIP_RATIO * sum(info.compress_size for info in members))
+    with pytest.raises(limits.IntakeLimitExceeded, match='aggregate 100:1 compression ratio') as caught:
+        limits.check_source(source)
+    assert 'split-bomb.3mf' in str(caught.value)
+
+
+@pytest.mark.slow
+def test_five_million_triangles_exceeding_old_expanded_and_xml_caps(tmp_path):
+    """A real 3MF >512 MiB expanded and >400 MiB XML passes geometry intake (#1846).
+
+    Generate directly into the compressed member: no 500+ MiB Python buffer
+    or checked-in fixture. The values cycle through valid vertex indices, so
+    this is not an artificially high-ratio ZIP-bomb payload. Padding is inside
+    the start tag, not DOM-retained character data.
+    """
+    source = tmp_path / 'five-million.3mf'
+    triangles, vertices = 5_000_000, 100_000
+    with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
+        with archive.open('3D/3dmodel.model', 'w', force_zip64=True) as member:
+            member.write(b'<model><resources><object id="1"><mesh><vertices>')
+            for i in range(vertices):
+                member.write(f'<vertex x="{i}" y="0" z="0"/>'.encode())
+            member.write(b'</vertices><triangles>')
+            for start in range(0, triangles, 1000):
+                batch = ''.join(
+                    f'<triangle v1="{i % vertices}" '
+                    f'v2="{(i + 1) % vertices}" v3="{(i + 2) % vertices}"'
+                    + ' ' * 70 + '/>\n'
+                    for i in range(start, start + 1000))
+                member.write(batch.encode())
+            member.write(b'</triangles></mesh></object></resources></model>')
+    with zipfile.ZipFile(source) as archive:
+        info = archive.getinfo('3D/3dmodel.model')
+        assert info.file_size > 512 * limits.MIB
+        assert info.file_size <= limits.MAX_ESTIMATED_GEOMETRY_BYTES
+        assert info.file_size <= limits.MAX_ZIP_RATIO * info.compress_size
+    limits.check_source(source)
+
+
+def _model_3mf(tmp_path, name, body):
+    source = tmp_path / name
+    with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('3D/3dmodel.model', b'<model><resources>' + body + b'</resources></model>')
+    return source
+
+
+def test_whitespace_only_text_refused_for_fallback_bound(tmp_path):
+    """Whitespace is retained by the DOM fallback and must share its payload cap."""
+    source = _model_3mf(tmp_path, 'whitespace.3mf', b'<note>' + b' ' * 8192 + b'</note>')
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 4096):
+        with pytest.raises(limits.IntakeLimitExceeded, match=r'whitespace\.3mf: .*non-geometry'):
+            limits.check_source(source)
+
+
+def test_large_text_payload_refused_for_fallback_bound(tmp_path):
+    """Non-geometry text is bounded because the DOM fallback would hold it (#1846)."""
+    source = _model_3mf(tmp_path, 'text.3mf', b'<note>' + b'abcdefgh' * 2048 + b'</note>')
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 4096):
+        with pytest.raises(limits.IntakeLimitExceeded, match=r'text\.3mf: .*non-geometry'):
+            limits.check_source(source)
+
+
+def test_large_attribute_refused_for_fallback_bound(tmp_path):
+    body = b'<object id="1" name="' + b'abcdefgh' * 512 + b'"/>'
+    with patch.object(limits, 'MAX_XML_ATTRIBUTE_BYTES', 1024):
+        with pytest.raises(limits.IntakeLimitExceeded, match='attribute value'):
+            limits.check_source(_model_3mf(tmp_path, 'attr.3mf', body))
+
+
+def test_geometry_attributes_count_toward_fallback_payload_bound(tmp_path):
+    body = (b'<object id="1"><mesh><vertices>'
+            + b'<vertex x="0" y="0" z="0"/>' * 30
+            + b'</vertices><triangles/></mesh></object>')
+    with patch.object(limits, 'MAX_XML_GEOMETRY_ATTRIBUTE_BYTES', 100):
+        with pytest.raises(limits.IntakeLimitExceeded, match=r'geometry attribute limit'):
+            limits.check_source(_model_3mf(tmp_path, 'geometry-attrs.3mf', body))
+
+
+def test_geometry_attributes_have_separate_aggregate_budget(tmp_path):
+    body = b'<vertex x="1234567890" y="0" z="0"/>' * 30
+    source = _model_3mf(tmp_path, 'coordinates.3mf', body)
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 100):
+        limits.check_source(source)
+    with patch.object(limits, 'MAX_XML_GEOMETRY_ATTRIBUTE_BYTES', 100):
+        with pytest.raises(limits.IntakeLimitExceeded, match='geometry attribute limit'):
+            limits.check_source(source)
+
+
+def test_element_names_count_toward_payload(tmp_path):
+    source = _model_3mf(tmp_path, 'name.3mf', b'<' + b'a' * 200 + b'/>')
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 100):
+        with pytest.raises(limits.IntakeLimitExceeded, match='non-geometry limit'):
+            limits.check_source(source)
+
+
+def test_unfinished_xml_token_bounded_before_callback(tmp_path):
+    source = _model_3mf(tmp_path, 'token.3mf', b'<' + b'a' * (limits.CHUNK * 4) + b'/>')
+    with patch.object(limits, 'MAX_XML_TOKEN_BYTES', limits.CHUNK):
+        with pytest.raises(limits.IntakeLimitExceeded, match='XML token exceeds'):
+            limits.check_source(source)
+
+
+def test_normal_metadata_and_indentation_allowed(tmp_path):
+    body = (b'<metadata name="Title">Benchy</metadata>\n    <object id="1"><mesh><vertices>'
+            b'<vertex x="0" y="0" z="0"/></vertices><triangles/></mesh></object>')
+    limits.check_source(_model_3mf(tmp_path, 'ok.3mf', body))
 
 
 def test_dtd_refused(tmp_path):

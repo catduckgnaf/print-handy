@@ -194,7 +194,7 @@ def test_limits_still_refuse_with_the_streaming_message(tmp_path, monkeypatch):
     model_parts.combine(target, [str(s) for s in _stl_sources(tmp_path)], [220.0, 220.0, 250.0])
     counts = mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL])
     monkeypatch.setattr(intake_resources, 'MAX_TRIANGLES', counts['triangle'] - 1)
-    with pytest.raises(intake_resources.IntakeLimitExceeded, match='triangle count exceeds'):
+    with pytest.raises(intake_resources.IntakeLimitExceeded, match='triangle count at least'):
         intake_resources.check_source(target)
 
 
@@ -266,7 +266,7 @@ def test_a_sidecar_this_install_did_not_sign_is_ignored(tmp_path, monkeypatch, f
     _forge(target, zero, key=None if forgery == 'unsigned' else b'x' * 32)
     assert mesh_sidecar.xml_counts(target, [mesh_sidecar.MODEL]) is None
     monkeypatch.setattr(intake_resources, 'MAX_TRIANGLES', real['triangle'] - 1)
-    with pytest.raises(intake_resources.IntakeLimitExceeded, match='triangle count exceeds'):
+    with pytest.raises(intake_resources.IntakeLimitExceeded, match='triangle count at least'):
         intake_resources.check_source(target)
 
 
