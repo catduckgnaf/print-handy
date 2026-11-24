@@ -2032,6 +2032,26 @@ def _part_label(part):
     return ''
 
 
+_CAD_PRIMITIVE = re.compile(r'(?i)(cylinder|cube|box|sphere|cone|extrude|torus)(\s*[a-z0-9]{0,3})?(\s*\d+)?')
+
+
+def _base_label(part):
+    """The one part label for questions and summaries.
+
+    A CAD primitive name ('Cylinder', 'Cube 2') says nothing about the part, so
+    its plain shape from the bounding box leads and the source name follows as
+    provenance: 'Tall post ("Cylinder")'. A label made unique at intake
+    (``display_label``) is used as is.
+    """
+    if part.get('display_label'):
+        return part['display_label']
+    label = _part_label(part)
+    if not label:
+        return 'Part'
+    shape = _shape_word(part.get('bounds_mm')) if _CAD_PRIMITIVE.fullmatch(label) else ''
+    return f'{shape} ("{label}")' if shape else label
+
+
 def author_color_label(value):
     """Textual alternative to the swatch; never a filament selection."""
     from .filament_color import parse_hex
@@ -2063,7 +2083,7 @@ def _prompt_parts(part, plural=False):
     plural words the author colour for a group of identical parts ('author made them Pink').
     """
     from .part_translator import size_hint
-    base = part.get('display_label') or _part_label(part) or 'Part'
+    base = _base_label(part)
     try:
         hint = size_hint(part)
     except (ValueError, TypeError):
@@ -2090,7 +2110,7 @@ def _prompt_name(part):
 
 def short_part_name(part):
     """The part's display name without size, plate or author colour (for summaries)."""
-    return part.get('display_label') or _part_label(part) or 'Part'
+    return _base_label(part)
 
 
 def _family_question(fam, chunk):
