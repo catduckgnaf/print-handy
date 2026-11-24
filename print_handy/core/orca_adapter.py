@@ -2589,12 +2589,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # The fallback was never started (#1869), so the reason is Orca's own failure. A conflict
         # reported only on the CLI is still a conflict, as on the attempted-fallback path below.
         details = _orca_failure_details(folder)
-        cli_conflict = re.search(r'G-code conflicts detected', result.stdout + '\n' + result.stderr, re.I)
+        cli_conflict = bool(re.search(r'G-code conflicts detected', result.stdout + '\n' + result.stderr, re.I))
         raise SliceFailure(
             f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
             f'{_BAMBU_NOT_INSTALLED}; see {_keep_failure_logs(folder) / "orca.log"}',
             kind='conflict' if (cli_conflict or _orca_conflict(folder)) else 'launch', slicer='OrcaSlicer',
-            returncode=result.returncode, **_failure_evidence(folder))
+            returncode=result.returncode, **_failure_evidence(folder, conflict=cli_conflict))
     if primary == 'bambu_studio' or orca_failed:
         # Only an actual Orca execution failure (or the opt-in Bambu Studio primary) reaches this
         # branch. All Print Handy validation and placement refusals above remain fail-closed and
@@ -2625,7 +2625,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     f'Orca found a geometry conflict between parts{details}; the parts overlap or interlock. '
                     f'Group them into one object or separate them, then retry; fallback failed: {why}',
                     kind='conflict', slicer='OrcaSlicer', returncode=why,
-                    **_failure_evidence(folder, 'orca.log'))
+                    **_failure_evidence(folder, 'orca.log', conflict=True))
             return SliceFailure(f'{orca_failure}; {why}; {_BAMBU_NOT_INSTALLED}', kind='launch',
                                 slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
                                 returncode=127, **_failure_evidence(folder, 'orca.log'))
@@ -2956,13 +2956,16 @@ def _orca_conflict(folder: Path) -> bool:
     return 'G-code conflicts detected' in str(payload.get('error_string', ''))
 
 
-def _failure_evidence(folder: Path, only: str | None = None) -> dict:
+def _failure_evidence(folder: Path, only: str | None = None, *, conflict: bool = False) -> dict:
     """The known-signature id and one safe sentence from a failed slice's logs (#817).
 
     Returned as SliceFailure keyword arguments. ``only`` limits the read to one
     log (the Orca log when Bambu Studio failed as the fallback, so a missing
-    Bambu binary cannot hide why Orca failed). Never raises: evidence is a
-    courtesy and must not mask the slicer error.
+    Bambu binary cannot hide why Orca failed). ``conflict`` is the caller's
+    classification (a conflict Orca reported only on its CLI output): the
+    object names are kept then too, not only when result.json names the
+    conflict. Never raises: evidence is a courtesy and must not mask the
+    slicer error.
     """
     folder = Path(folder)
     text, error, code = '', '', None
@@ -2978,7 +2981,7 @@ def _failure_evidence(folder: Path, only: str | None = None) -> dict:
     except OSError:
         logger.debug("Best-effort recovery from OSError", exc_info=True)
     evidence = slicer_evidence(text, error, code if type(code) is int else None)
-    if _orca_conflict(folder):
+    if conflict or _orca_conflict(folder):
         evidence['conflict_objects'] = _orca_conflict_objects(folder)
     return evidence
 

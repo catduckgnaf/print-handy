@@ -202,13 +202,17 @@ def test_cli_reported_conflict_with_unavailable_fallback_is_a_conflict(tmp_path,
 
     def run(command, **_kwargs):
         calls.append(command)
-        return type('R', (), {'returncode': 1, 'stdout': 'G-code conflicts detected after slicing.', 'stderr': ''})()
+        return type('R', (), {'returncode': 1, 'stdout': (
+            'G-code conflicts detected after slicing.\n'
+            'gcode path conflicts found between BRONZE DETAILS and BLACK BODY.\n'), 'stderr': ''})()
 
     monkeypatch.setattr(adapter, '_spawn_slicer', run)
     with pytest.raises(adapter.SliceFailure) as caught:
         adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
     assert len(calls) == 1
     assert caught.value.kind == 'conflict'
+    # The names Orca printed on the CLI reach the worker payload, not only the kind.
+    assert caught.value.as_dict()['conflict_objects'] == ['BRONZE DETAILS', 'BLACK BODY']
     assert 'Bambu Studio fallback slicer is not installed' in str(caught.value)
     assert 'Separate or reposition' in slice_failure.explain(caught.value).next_step
 
