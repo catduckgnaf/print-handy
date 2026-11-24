@@ -53,6 +53,37 @@ def make_job(root, name):
     return folder / "JOB.json", g
 
 
+def make_bound_job(root, name):
+    """Synthetic launch fixture with the same identity fields as a current slice.
+
+    Keep make_job for tests deliberately exercising an unbound record. This
+    helper is test-only: it must never retroactively bless a production job.
+    """
+    from print_handy.core import slice_recipe
+    from .test_model_job import _box_stl
+
+    jp, g = make_job(root, name)
+    source = jp.parent / "source.stl"
+    _box_stl(source, 20, 30, 40)
+    job = json.loads(jp.read_text())
+    job["downloaded_file"] = str(source)
+    job["gcode_verified"] = True
+    source_sha = gcode_artifact.file_sha256(source)
+    state = model_job.printer_state.load(jobs_store._job_printer_id(job))
+    job["slice_recipe"] = slice_recipe.record(slice_recipe.slice_recipe(job, source_sha, state))
+    job["artifact_binding"] = {
+        "source_sha256": source_sha,
+        "decisions_sha256": jobs_store.decisions_digest(job.get("color_decisions")),
+        "gcode_sha256": gcode_artifact.file_sha256(g),
+        **jobs_store._recipe_binding(job),
+    }
+    jp.write_text(json.dumps(job))
+    # Assert the fixture really passes the production gate; the subsequent
+    # lease/transport assertions must not depend on the legacy escape hatch.
+    launch_gates.require_current_artifact(job, g)
+    return jp, g
+
+
 def dead_pid():
     proc = subprocess.Popen([sys.executable, "-c", "pass"])
     proc.wait()
@@ -183,8 +214,8 @@ def test_consumption_still_runs_the_artifact_guard_on_current_state(tmp_path):
 # 2. Two different jobs, one printer.
 
 def test_second_job_is_refused_while_the_first_launch_is_in_flight(printer):
-    a, _ = make_job(printer.root, "a")
-    b, _ = make_job(printer.root, "b")
+    a, _ = make_bound_job(printer.root, "a")
+    b, _ = make_bound_job(printer.root, "b")
     seen = {}
 
     def upload_a_then_race_b(cmd, *args, **kwargs):
@@ -204,8 +235,8 @@ def test_second_job_is_refused_while_the_first_launch_is_in_flight(printer):
 
 
 def test_stale_idle_check_cannot_start_a_second_job_after_the_first_started(printer):
-    a, _ = make_job(printer.root, "a")
-    b, _ = make_job(printer.root, "b")
+    a, _ = make_bound_job(printer.root, "a")
+    b, _ = make_bound_job(printer.root, "b")
     launch_print_now.print_now(a)
     remote = uploads(printer.run)[0]
     calls = []
@@ -229,7 +260,7 @@ def test_stale_idle_check_cannot_start_a_second_job_after_the_first_started(prin
     ConnectionResetError(104, "Connection reset by peer"),
 ])
 def test_unreachable_moonraker_at_the_start_guard_is_a_named_refusal(printer, transport_error):
-    jp, g = make_job(printer.root, "a")
+    jp, g = make_bound_job(printer.root, "a")
     printer.phase.side_effect = transport_error  # _printer_phase's Moonraker read fails in transport
     with pytest.raises(SystemExit) as excinfo:
         launch_print_now.print_now(jp)
@@ -242,7 +273,7 @@ def test_unreachable_moonraker_at_the_start_guard_is_a_named_refusal(printer, tr
 
 def test_a_state_read_error_at_the_start_guard_is_not_relabelled_offline(printer):
     """Only transport failures convert: a state the guard cannot interpret keeps its own error."""
-    jp, g = make_job(printer.root, "a")
+    jp, g = make_bound_job(printer.root, "a")
     printer.phase.side_effect = RuntimeError("Moonraker print state unknown: 'weird'")
     with pytest.raises(RuntimeError, match="print state unknown"):
         launch_print_now.print_now(jp)
@@ -262,8 +293,8 @@ def crash_on_start(mr):
 
 
 def test_crash_after_submission_leaves_the_printer_uncertain(printer):
-    a, _ = make_job(printer.root, "a")
-    b, _ = make_job(printer.root, "b")
+    a, _ = make_bound_job(printer.root, "a")
+    b, _ = make_bound_job(printer.root, "b")
     crash_on_start(printer.mr)
     with pytest.raises(Crash):
         launch_print_now.print_now(a)
@@ -279,8 +310,8 @@ def test_crash_after_submission_leaves_the_printer_uncertain(printer):
 
 
 def test_uncertain_submission_reconciles_from_printer_evidence_not_replay(printer):
-    a, _ = make_job(printer.root, "a")
-    b, _ = make_job(printer.root, "b")
+    a, _ = make_bound_job(printer.root, "a")
+    b, _ = make_bound_job(printer.root, "b")
     crash_on_start(printer.mr)
     with pytest.raises(Crash):
         launch_print_now.print_now(a)
@@ -297,7 +328,7 @@ def test_uncertain_submission_reconciles_from_printer_evidence_not_replay(printe
 
 def test_operator_reconciles_an_uncertain_submission_without_replaying_it(printer):
     from print_handy.core import launch_state
-    a, _ = make_job(printer.root, "a")
+    a, _ = make_bound_job(printer.root, "a")
     crash_on_start(printer.mr)
     with pytest.raises(Crash):
         launch_print_now.print_now(a)
@@ -316,7 +347,7 @@ def test_crash_during_upload_is_released_after_restart_and_the_approval_stays_un
     # #1586: the upload runs before the bed-clear approval is consumed, so a crash
     # during it burns nothing: after the restart the retry starts on the same
     # approval, with no reprint flag.
-    a, _ = make_job(printer.root, "a")
+    a, _ = make_bound_job(printer.root, "a")
 
     def crash_during_upload(cmd, *args, **kwargs):
         raise Crash("process died while uploading")
@@ -331,7 +362,7 @@ def test_crash_during_upload_is_released_after_restart_and_the_approval_stays_un
 
 
 def test_upload_failure_releases_the_lease(printer):
-    a, _ = make_job(printer.root, "a")
+    a, _ = make_bound_job(printer.root, "a")
     printer.run.side_effect = lambda cmd, *a_, **k: mock.Mock(returncode=1, stdout="", stderr="boom")
     with pytest.raises(SystemExit, match="could not be uploaded to the printer"):
         launch_print_now.print_now(a)
