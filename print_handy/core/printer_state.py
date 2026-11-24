@@ -448,7 +448,10 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
                     # the normal-layer vendor target, not its first-layer boost.
                     for key, raw in (("nozzle", vendor.get("nozzle_temperature")),
                                      ("bed", vendor.get("hot_plate_temp") or vendor.get("textured_plate_temp"))):
-                        if sources[key] == "Spoolman filament" or raw is None:
+                        # Replace only a material default (with or without a variant
+                        # adjustment). Any other source (a Spoolman filament value, an
+                        # attested operator target, or a label added later) wins.
+                        if not str(sources.get(key, "")).startswith("material default") or raw is None:
                             continue
                         try:
                             value = float(raw)

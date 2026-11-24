@@ -10,6 +10,7 @@ from print_handy.core import filament_type
 from print_handy.core import nozzle as nozzle_mod
 from print_handy.core import orca_adapter
 from print_handy.core import orca_profile_db
+from print_handy.core import printer_state
 from print_handy.gcode import verify as gcode_verify
 
 from .test_slice_temperatures import slice_inputs, stale_state  # noqa: F401
@@ -142,6 +143,26 @@ def test_ad5x_hs_petg_slice_and_verification_share_temperatures(slice_inputs, ex
     text += f"; nozzle_temperature_initial_layer = {nozzle}\n; hot_plate_temp_initial_layer = {bed}\n"
     verified = gcode_verify._with_gcode_temperatures(state, text)
     assert verified["temps_c"] == {"nozzle": expected[0], "bed": expected[1]}
+
+
+@pytest.mark.parametrize("label", ["operator setting", "Spoolman filament"])
+def test_ad5x_hs_petg_vendor_never_replaces_a_non_default_source(slice_inputs, monkeypatch, label):
+    # Only a material default may be raised to the vendor target; any other
+    # resolved source (an attested operator value under any label) stands.
+    real = printer_state.resolve_material_temperatures
+
+    def resolved(material, filament):
+        family, targets, sources = real(material, filament)
+        return family, {"nozzle": 244, "bed": 81}, {"nozzle": label, "bed": label}
+
+    monkeypatch.setattr(printer_state, "resolve_material_temperatures", resolved)
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    state["nozzle"]["type"] = "brass"
+    hs_petg = {"material": "PETG", "name": "High Speed Matte Black PETG"}
+    temps, resolution = printer_state.slice_temperatures(state, filament=hs_petg, stored_ok=False)
+    assert temps == {"nozzle": 244, "bed": 81}
+    assert resolution["sources"] == {"nozzle": label, "bed": label}
 
 
 def test_hs_petg_flow_is_reconstructable_from_slice_provenance(slice_inputs, monkeypatch):
