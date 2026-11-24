@@ -39,7 +39,7 @@ button = "Slice and print"
 [expect]
 status = "STARTED"
 parts = ["Banner"]
-prompts = ["Red regions (#E74C3C", "Blue regions (#2980B9"]
+prompts = ["designer color: Red (`#E74C3C`)", "designer color: Blue (`#2980B9`)"]
 gcodes = 1
 supports = false
 # The painted half used to reach the G-code on the base slot only; since

@@ -2044,7 +2044,9 @@ def author_color_label(value):
         transparency = '' if alpha in (None, 255) else (', transparent' if alpha == 0 else f', {alpha / 255:.0%} opacity')
         return f'{named_color(raw).title()}{transparency} (`{raw}`)'
     if re.fullmatch(r'[A-Za-z][A-Za-z -]*', raw):
-        return raw
+        from .filament_color import derive
+        if derive(raw):
+            return raw
     return f'Unreadable designer color (`{raw}`)'
 
 

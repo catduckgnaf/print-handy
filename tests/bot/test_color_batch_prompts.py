@@ -138,7 +138,7 @@ def test_batch_preserves_designer_hex_in_numbered_legend_without_extra_prompts()
             {'source_extruder': 1, 'color': '#F9E2B7FF', 'material': 'PLA'},
             {'source_extruder': 2, 'color': '#FF000080', 'material': 'PLA'},
         ]}
-        for group, row in zip(groups, canonical_prompts(manifest)):
+        for group, row in zip(groups, canonical_prompts(manifest), strict=True):
             group.update(label=row['label'], question=row['question'])
         result = await adapter.send_clarify_batch(CHAT, 'Choose colors:', groups, 'batch-test')
         assert result.success and len(channel.sent) == 1
