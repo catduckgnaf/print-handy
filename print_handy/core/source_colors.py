@@ -2569,7 +2569,7 @@ def _part_display_name(part):
     '01_PLAQUE_BLACK' -> 'Plaque'; '02_LETTERS_AND_TRIM_BRONZE' -> 'Letters and trim'."""
     base = short_part_name(part)
     words = base.split()
-    while words and (words[0].isdigit() or re.fullmatch(r'\\d+[.)]', words[0])):
+    while words and (words[0].isdigit() or re.fullmatch(r'\d+[.)]', words[0])):
         words.pop(0)
     if part.get('display_label'):
         return part['display_label']
