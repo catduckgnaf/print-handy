@@ -377,8 +377,9 @@ def test_a_declined_geometry_fix_leaves_no_copy_in_the_job_folder(env, monkeypat
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05}))
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Cancel the fix (1),
-    # then Cancel (2) on the fix offer
-    adapter, result, receipt = run_flow(env, [2, 0, 3, 0, 1, 2])
+    # then Cancel (2) on the fix offer. The initial fallback color prompt is not
+    # shown when coverage already selects the only compatible spool.
+    adapter, result, receipt = run_flow(env, [0, 1, 2])
     assert any(ai_fix.APPLY_LABEL in (q.get('choices') or []) for q in adapter.questions)
     folder = Path(receipt['job_json']).parent
     assert not list(folder.glob(ai_fix.STAGING_PREFIX + '*'))
