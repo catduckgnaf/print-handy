@@ -261,7 +261,7 @@ def test_slice_only_then_start_button_lifecycle(env, monkeypatch):
     assert not any(m.startswith('Sliced:') for m in adapter.log)
     # 'Preparing to start' rides on the single Stop/Uploading prompt, not a separate post.
     assert sum(PREP_TEXT in m for m in adapter.log) == 1
-    assert not any(m.startswith(PREP_TEXT) and 'Uploading' not in m for m in adapter.log)
+    assert not any(m.startswith(PREP_TEXT) and 'Press Stop' not in m for m in adapter.log)
     assert any(m.startswith('Print started:') for m in adapter.log)
 
 
