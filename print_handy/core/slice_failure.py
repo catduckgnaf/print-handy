@@ -1,10 +1,12 @@
 """Safe slice explanations, including failures returned by a worker process.
 
 Technical messages belong in receipts and logs. Chat uses this finite vocabulary,
-never stderr, exception text, paths or model names supplied by a slicer.
+never raw stderr, exception text or paths. Named conflict objects are bounded and sanitized.
 """
 from dataclasses import dataclass
+import re
 import subprocess
+import unicodedata
 
 from .. import diagnostics, logs
 from . import failure_report
@@ -18,7 +20,7 @@ class SliceFailure(RuntimeError):
                   'guard': 'configuration', 'output': 'programming',
                   'recipe': 'configuration'}
 
-    def __init__(self, message, *, kind, slicer=None, returncode=None, signature=None, detail=''):
+    def __init__(self, message, *, kind, slicer=None, returncode=None, signature=None, detail='', conflict_objects=()):
         super().__init__(message)
         self.kind = kind if kind in self.CATEGORIES else 'unknown'
         self.slicer = slicer if slicer in ('OrcaSlicer', 'Bambu Studio', 'Flash Studio',
@@ -29,16 +31,37 @@ class SliceFailure(RuntimeError):
         # a known signature id, and at most one short safe sentence of the slicer's words (#817).
         self.signature = signature if signature in failure_report.SIGNATURE_IDS else None
         self.detail = failure_report.safe_detail(detail)
+        self.conflict_objects = _conflict_labels(conflict_objects) if self.kind == 'conflict' else ()
 
     def as_dict(self):
         return {'message': str(self), 'kind': self.kind, 'slicer': self.slicer, 'returncode': self.returncode,
-                'signature': self.signature, 'detail': self.detail}
+                'signature': self.signature, 'detail': self.detail,
+                'conflict_objects': list(self.conflict_objects)}
 
     @classmethod
     def from_dict(cls, data):
         return cls(str(data.get('message') or 'slice failed'),
                    kind=data.get('kind'), slicer=data.get('slicer'), returncode=data.get('returncode'),
-                   signature=data.get('signature'), detail=data.get('detail') or '')
+                   signature=data.get('signature'), detail=data.get('detail') or '',
+                   conflict_objects=data.get('conflict_objects'))
+
+
+def _conflict_labels(values):
+    """Keep short name-like labels; never surface paths, mentions, or markdown."""
+    if not isinstance(values, (list, tuple)):
+        return ()
+    labels = []
+    for value in values[:16]:
+        if (not isinstance(value, str) or len(value) > 80 or
+                not all(ch.isalnum() or unicodedata.category(ch).startswith('M') or ch in ' ._()-'
+                        for ch in value)):
+            continue
+        label = re.sub(r'(?i)[0-9a-f]{32,}', '', value).strip(' ._-').replace('_', ' ')
+        if label and label not in labels:
+            labels.append(label)
+        if len(labels) == 4:
+            break
+    return tuple(labels)
 
 
 @dataclass(frozen=True)
@@ -74,6 +97,14 @@ def explain(exc):
     Unknown failures stay honestly unknown, but tell the operator how to collect
     evidence. The existing single, slice-only retry remains available for them.
     """
+    if isinstance(exc, SliceFailure) and exc.kind == 'conflict':
+        names = ', '.join(f'“{name}”' for name in exc.conflict_objects)
+        objects = f': {names}' if names else ''
+        tower = any(label.casefold().replace(' ', '').replace('-', '') in ('wipetower', 'primetower')
+                    for label in exc.conflict_objects)
+        recovery = ('Move the wipe tower clear of the named part, then slice again.' if tower else
+                    'Separate or reposition the overlapping parts, then slice again.')
+        return Explanation(f'{exc.slicer} detected conflicting toolpaths on the plate{objects}.', recovery)
     known = diagnostics.known_cause(exc)
     if known is not None:
         return Explanation(known.cause, known.remedy,
@@ -94,9 +125,6 @@ def explain(exc):
         said = f' {name} said: "{exc.detail}"' if getattr(exc, 'detail', '') else ''
         return Explanation(f'{name} failed or produced no usable G-code{detail}.{said}',
                            BUNDLE + ' The saved slicer logs contain its detailed result.')
-    if kind == 'conflict':
-        return Explanation(f'{name} detected conflicting toolpaths on the plate.',
-                           'Separate overlapping parts or prepare fewer copies, then try again. ' + BUNDLE)
     if kind == 'launch' or isinstance(exc, FileNotFoundError):
         return Explanation('The slicer or a required job file could not be opened.',
                            'Run `/print-handy debugging` to check the slicer installation and saved files. ' + BUNDLE)

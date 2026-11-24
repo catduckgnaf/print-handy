@@ -2687,8 +2687,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 )
             raise SliceFailure(
                 f'{orca_failure}; {bambu_role} failed ({bambu_result.returncode}) or produced no G-code; '
-                + f'see {_keep_failure_logs(folder) / "bambu.log"}', kind='engine',
-                slicer='OrcaSlicer and Bambu Studio', returncode=bambu_result.returncode,
+                + f'see {_keep_failure_logs(folder) / "bambu.log"}',
+                kind='conflict' if geometry_conflict else 'engine',
+                slicer='OrcaSlicer' if geometry_conflict else 'OrcaSlicer and Bambu Studio',
+                returncode=result.returncode if geometry_conflict else bambu_result.returncode,
                 **_failure_evidence(folder, 'orca.log')
             )
         if primary == 'bambu_studio':
@@ -2962,7 +2964,10 @@ def _failure_evidence(folder: Path, only: str | None = None) -> dict:
             text += log.read_text(errors='replace')[-20000:] + '\n'
     except OSError:
         logger.debug("Best-effort recovery from OSError", exc_info=True)
-    return slicer_evidence(text, error, code if type(code) is int else None)
+    evidence = slicer_evidence(text, error, code if type(code) is int else None)
+    if _orca_conflict(folder):
+        evidence['conflict_objects'] = _orca_conflict_objects(folder)
+    return evidence
 
 
 def _orca_failure_details(folder: Path) -> str:
@@ -2979,22 +2984,28 @@ def _orca_failure_details(folder: Path) -> str:
             details = f"; Orca return_code {code}: {error}"
 
     if _orca_conflict(folder):
-        # Orca writes its debug log as 00000.log; orca.log is our CLI capture.
-        log_text = ''
-        for log in sorted(folder.glob('*.log')):
-            try:
-                log_text += log.read_text(errors='replace') + '\n'
-            except OSError:
-                logger.debug("Best-effort recovery from OSError", exc_info=True)
-        names = []
-        for line in log_text.splitlines():
-            match = re.search(r'conflicts? found between\s+(.+?)\s+and\s+(.+?)(?:[.\r\t]|$)', line, re.I)
-            if match:
-                names.extend((match.group(1).strip(), match.group(2).strip()))
+        names = _orca_conflict_objects(folder)
         if names:
-            unique_names = list(dict.fromkeys(names))
-            details += '; conflicting objects: ' + ' and '.join(unique_names)
+            details += '; conflicting objects: ' + ' and '.join(names)
     return details
+
+
+def _orca_conflict_objects(folder: Path) -> tuple[str, ...]:
+    """Extract names from Orca's debug log or our CLI capture, not arbitrary stderr."""
+    names = {}
+    for name in ('00000.log', 'orca.log'):
+        try:
+            with (folder / name).open(errors='replace') as log:
+                for line in log:
+                    match = re.search(r'conflicts? found between\s+(.+?)\s+and\s+(.+?)\s*\.?$', line, re.I)
+                    if match:
+                        for label in match.groups():
+                            names.setdefault(label.strip(), None)
+                    if len(names) >= 8:
+                        return tuple(names)
+        except OSError:
+            logger.debug("Could not read Orca conflict names from %s", name, exc_info=True)
+    return tuple(names)
 
 
 def quantity_buttons(max_copies: int) -> list[int]:
