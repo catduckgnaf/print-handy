@@ -406,6 +406,47 @@ def test_an_undelivered_slot_warning_is_retried_by_the_next_check(tmp_path, monk
     assert attempts == ["slot mismatch", "slot mismatch"]
 
 
+def test_a_release_that_cannot_lock_still_lets_the_next_check_retry(tmp_path, monkeypatch):
+    state = tmp_path / "notifications.json"
+    monkeypatch.setattr(mel, "NOTIFICATION_STATE", state)
+    monkeypatch.setattr(mel, "_UNRELEASED_CLAIMS", set(), raising=False)
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 3, 3, None))
+    monkeypatch.setattr(mel.Listener, "_slot_agreement", lambda self, sources=None: "slot mismatch")
+    async def no_wait(delay):
+        return None
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    real_locked = mel.state_file.locked
+    lock_busy = {"on": False}
+
+    def locked(path, **kwargs):
+        if lock_busy["on"]:
+            raise TimeoutError("state lock busy")
+        return real_locked(path, **kwargs)
+
+    monkeypatch.setattr(mel.state_file, "locked", locked)
+    attempts = []
+
+    def flaky_post(message):
+        attempts.append(message)
+        if len(attempts) == 1:
+            lock_busy["on"] = True  # the release after this failed post times out
+            return False
+        return True
+
+    monkeypatch.setattr(mel, "post", flaky_post)
+
+    async def check(listener):
+        listener.filename = "job.gcode"
+        listener.print_identity = "job:142"
+        await listener._slot_self_check()
+
+    asyncio.run(check(mel.Listener()))
+    lock_busy["on"] = False
+    asyncio.run(check(mel.Listener()))
+    asyncio.run(check(mel.Listener()))
+    assert attempts == ["slot mismatch", "slot mismatch"]
+
+
 @pytest.mark.parametrize("active_slot, warned", [(3, False), (4, True)])
 def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warned):
     listener = mel.Listener()

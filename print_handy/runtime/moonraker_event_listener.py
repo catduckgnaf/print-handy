@@ -2460,6 +2460,11 @@ def platform_sized_video(path, max_bytes=None):
 
 NOTIFICATION_STATE = _config.state_file("PRINT_HANDY_NOTIFICATION_STATE", "lifecycle_notifications.json", per_instance=True)
 
+# Claims whose notice was not delivered and whose release could not get the
+# state lock: the next claim of the same key in this process takes it again
+# instead of treating it as already sent.
+_UNRELEASED_CLAIMS: set[str] = set()
+
 
 def _notification_identity(stats):
     """Stable per-job identity; prefer Moonraker history id, then filename plus start time."""
@@ -2489,6 +2494,10 @@ def _claim_notification(identity, phase, path=None):
             state = read_json_object(target)
             key = f"{identity}|{phase}"
             if key in state.get("sent", []):
+                if key in _UNRELEASED_CLAIMS:
+                    # Recorded, but its notice never went out (_release_notification).
+                    _UNRELEASED_CLAIMS.discard(key)
+                    return True
                 return False
             sent = list(state.get("sent", []))
             sent.append(key)
@@ -2501,23 +2510,33 @@ def _claim_notification(identity, phase, path=None):
         return False
 
 
-def _release_notification(identity, phase, path=None):
-    """Drop a claim whose notice was not delivered, so a later check can send it."""
+def _release_notification(identity, phase, path=None, attempts=3):
+    """Drop a claim whose notice was not delivered, so a later check can send it.
+
+    The release takes the state lock like the claim. When the lock cannot
+    be had after ``attempts`` tries, the key is remembered in
+    ``_UNRELEASED_CLAIMS``: the next claim of it in this process (which
+    takes the lock itself) counts the recorded claim as not sent.
+    """
     if not identity:
         return
     target = Path(path or NOTIFICATION_STATE)
     key = f"{identity}|{phase}"
-    try:
-        with state_file.locked(target, raise_on_timeout=True):
-            state = read_json_object(target)
-            sent = list(state.get("sent", []))
-            if key not in sent:
-                return
-            state["sent"] = [item for item in sent if item != key]
-            atomic_write_json(target, state)
-    except TimeoutError:
-        warn(f"notification claim {key} could not get the state lock to release it; "
-             "a later check for this job will not resend the notice")
+    for _ in range(max(1, attempts)):
+        try:
+            with state_file.locked(target, raise_on_timeout=True):
+                state = read_json_object(target)
+                sent = list(state.get("sent", []))
+                if key in sent:
+                    state["sent"] = [item for item in sent if item != key]
+                    atomic_write_json(target, state)
+            _UNRELEASED_CLAIMS.discard(key)
+            return
+        except TimeoutError:
+            continue
+    _UNRELEASED_CLAIMS.add(key)
+    warn(f"notification claim {key} could not get the state lock to release it; "
+         "the next check for this job will take the claim again")
 
 def classify_transition(old, new_state):
     """Classify one print state transition. Pure: no I/O, no listener state.
