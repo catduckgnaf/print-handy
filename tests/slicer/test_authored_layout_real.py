@@ -15,7 +15,6 @@ with synthetic boxes generated here (CC0, no third-party geometry):
 
 Skipped unless PRINT_HANDY_REAL_SLICER=1, like every slicer-tier test.
 """
-import json
 import os
 import tempfile
 import zipfile
