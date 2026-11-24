@@ -3065,3 +3065,30 @@ def test_collected_uploads_are_marked_as_one_collection_project(env, monkeypatch
     assert job['source_kind'] == 'upload_collection' and job['upload_collection'] == collected
     assert job['project']['source_kind'] == 'uploaded_collection'
     assert [c['name'] for c in job['project']['components']] == ['arm.stl', 'arm.stl', 'base.stl']
+
+
+def test_stop_progress_reserves_before_quiet_work_starts(tmp_path, monkeypatch):
+    watchers = []
+
+    async def independent_watcher(*args, **kwargs):
+        watchers.append(True)
+
+    async def launch():
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        return True, 'confirmed'
+
+    monkeypatch.setattr(prepared_intake, '_watch_start_progress', independent_watcher)
+    adapter = S()
+    source = S(chat_id='c1')
+
+    async def run():
+        progress = {}
+        return await prepared_intake._with_stop(
+            adapter, source, 'quiet-launch-test', {}, 'Preparing to start',
+            prepared_intake._with_start_progress(adapter, source, {}, tmp_path / 'JOB.json',
+                                                  launch(), progress=progress),
+            allow_stop=True, quiet_s=5, start_progress=progress)
+
+    assert asyncio.run(run()) == (True, 'confirmed')
+    assert watchers == []
