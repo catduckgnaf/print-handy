@@ -566,7 +566,16 @@ place:
   as needing attention, never converged: on 2026-11-14 a Web UI
   swap on an AD5X left the old records in place, the screen
   recolored them on the next push, and the watcher moved the
-  swapped spool back.
+  swapped spool back. That notice keeps Print Handy's record and
+  says so (#1886): `/spool sync` rewrites the screen lane to the
+  recorded spool, and on Discord the notice carries three buttons,
+  **Keep spool N** (the same lane rewrite, for that slot),
+  **Move spool M here** (asks once, then empties the other slot and
+  binds the spool into this one, the replaced spool to the shelf;
+  inventory only) and **Pick another** (the shelf picker). It is
+  posted once per slot, spool, other slot and recorded spool, so
+  HelixScreen writing the record back after a restart does not
+  post it again.
 - Double counting: there is exactly one charger (above). Two
   writers can move its pointer; Print Handy at a launch, AFC as
   lanes load. For a Print Handy print, the operator-confirmed
