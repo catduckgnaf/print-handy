@@ -14,13 +14,16 @@ def test_failed_two_copy_slice_keeps_both_engine_logs_and_structured_cause(tmp_p
     from print_handy.runtime import _config
     _allow_post(monkeypatch)
     _fallback_available(monkeypatch)
-    monkeypatch.setattr(adapter, 'shutil', type('S', (), {'which': lambda *_: '/mock/bambu-studio'})())
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
     monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
     monkeypatch.setattr(_config, 'state_home', lambda: str(tmp_path / 'profile'))
     calls = []
 
     def fail(command, **kwargs):
         calls.append(command)
+        output = Path(kwargs['cwd'])
+        (output / 'orca.log').write_text('SECRET engine output')
         return type('R', (), {'returncode': 18, 'stdout': '', 'stderr': 'SECRET engine output'})()
 
     monkeypatch.setattr(adapter.subprocess, 'run', fail)
