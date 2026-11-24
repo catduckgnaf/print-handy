@@ -1986,6 +1986,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     def _fetch_filament(spool_id):
         record = _spoolman.get_spool(spool_id, base_url=_spoolman_url(state))
         return None if not record or record.get('archived') else record.get('filament')
+    # Explicit adapters can target a different model from the process-wide
+    # default. Carry the actual model through the shared temperature resolver.
+    state = {**state, 'printer_model': printer.model.key}
     temps_c, resolution = slice_temperatures(state, spool_filament, _fetch_filament)
     state = {**state, 'temps_c': temps_c, 'temperature_resolution': resolution}
     from .printer_state import _material_temperature_contract
@@ -2128,6 +2131,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             'nozzle_type': nozzle_type,
             'flow_multiplier': adj.get('flow_multiplier'),
             'base_flow_ratio': base_flow,
+            'material_tuning_flow_ratio': tuning.get("flow_ratio"),
+            'profile_name': data.get('name'),
             'emitted_flow_ratio': emitted_flow,
         }
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
