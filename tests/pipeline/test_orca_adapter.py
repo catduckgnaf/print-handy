@@ -517,9 +517,9 @@ def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback
     with pytest.raises(adapter.SliceFailure) as caught:
         adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
     assert caught.value.kind == 'conflict'
-    assert 'geometry conflict' in str(caught.value)
+    assert caught.value.slicer == 'OrcaSlicer'
+    assert caught.value.signature == 'geometry_conflict'
     assert 'conflicting objects: BRONZE DETAILS and BLACK BODY' in str(caught.value)
-    assert 'not installed' not in str(caught.value)
 
 
 def test_unmapped_spool_warns_without_guessing_a_slot(tmp_path, monkeypatch, capsys):
