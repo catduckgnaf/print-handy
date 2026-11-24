@@ -4,10 +4,14 @@ The 2026-11-21 PETG spool on the AD5X was sliced with the PLA template's values 
 Generic PLA" (#123). These slices go through slice_model with the real AD5X templates and the committed Orca
 profile database; only Orca itself is stubbed (the slice_inputs fixture captures the filament JSON it receives).
 """
+import pytest
+
 from print_handy.core import filament_type
 from print_handy.core import nozzle as nozzle_mod
 from print_handy.core import orca_adapter
 from print_handy.core import orca_profile_db
+from print_handy.core import printer_state
+from print_handy.gcode import verify as gcode_verify
 
 from .test_slice_temperatures import slice_inputs, stale_state  # noqa: F401
 
@@ -76,6 +80,7 @@ def test_a_pla_spool_keeps_the_tuned_pla_template_and_its_name(slice_inputs, mon
     # Provenance is the flow Orca actually receives, after the tuning override (#1832).
     # slice_model copies state before job_filament, so the record is on the slice result.
     assert captured["meta"]["flow_provenance"]["PLA"]["emitted_flow_ratio"] == 0.98
+    assert captured["meta"]["flow_provenance"]["PLA"]["material_tuning_flow_ratio"] == 0.98
 
 
 def test_nonnumeric_vendor_flow_does_not_abort_the_slice(slice_inputs, monkeypatch):
@@ -112,3 +117,98 @@ def test_a_material_orca_has_no_vendor_profile_for_names_the_library_generic(sli
                                 filament_type.from_text("PC")), "PC")
     assert filament["filament_settings_id"] == [expected]
     assert "Flashforge Generic PLA" not in expected
+
+
+
+@pytest.mark.parametrize("explicit, expected", [
+    ({}, (235, 75)),
+    ({"settings_extruder_temp": 250}, (250, 75)),
+    ({"settings_bed_temp": 80}, (235, 80)),
+    ({"settings_extruder_temp": 250, "settings_bed_temp": 80}, (250, 80)),
+])
+def test_ad5x_hs_petg_slice_and_verification_share_temperatures(slice_inputs, explicit, expected):
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    state["nozzle"]["type"] = "brass"
+    slice_inputs.spools[17] = {
+        "id": 17,
+        "filament": {"material": "PETG", "name": "High Speed Matte Black PETG", **explicit},
+    }
+    nozzle, bed, filament = slice_inputs.slice(AD5X, state)
+    assert (nozzle, bed) == expected
+    assert filament["filament_settings_id"] == ["Flashforge HS PETG @FF AD5X"]
+    # Re-resolve independently through the verification entry point, with no
+    # recorded-temperature shortcut, so a mismatch cannot pass this test.
+    text = '; filament_type = "PETG"\n'
+    text += f"; nozzle_temperature_initial_layer = {nozzle}\n; hot_plate_temp_initial_layer = {bed}\n"
+    verified = gcode_verify._with_gcode_temperatures(state, text)
+    assert verified["temps_c"] == {"nozzle": expected[0], "bed": expected[1]}
+
+
+@pytest.mark.parametrize("label", ["operator setting", "Spoolman filament"])
+def test_ad5x_hs_petg_vendor_never_replaces_a_non_default_source(slice_inputs, monkeypatch, label):
+    # Only a material default may be raised to the vendor target; any other
+    # resolved source (an attested operator value under any label) stands.
+    real = printer_state.resolve_material_temperatures
+
+    def resolved(material, filament):
+        family, targets, sources = real(material, filament)
+        return family, {"nozzle": 244, "bed": 81}, {"nozzle": label, "bed": label}
+
+    monkeypatch.setattr(printer_state, "resolve_material_temperatures", resolved)
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    state["nozzle"]["type"] = "brass"
+    hs_petg = {"material": "PETG", "name": "High Speed Matte Black PETG"}
+    temps, resolution = printer_state.slice_temperatures(state, filament=hs_petg, stored_ok=False)
+    assert temps == {"nozzle": 244, "bed": 81}
+    assert resolution["sources"] == {"nozzle": label, "bed": label}
+
+
+def test_hs_petg_flow_is_reconstructable_from_slice_provenance(slice_inputs, monkeypatch):
+    state = stale_state("PETG")
+    state["nozzle"]["type"] = "brass"
+    slice_inputs.spools[17] = {
+        "id": 17, "filament": {"material": "PETG", "name": "High Speed Black PETG"},
+    }
+    captured = _capture_slice(monkeypatch)
+    _, _, filament = slice_inputs.slice(AD5X, state)
+    record = captured["meta"]["flow_provenance"]["PETG"]
+    assert record["profile_name"] == "Flashforge HS PETG @FF AD5X"
+    assert record["nozzle_type"] == "brass"
+    assert record["base_flow_ratio"] == 0.98
+    assert record["flow_multiplier"] == nozzle_mod.get_nozzle_type_adjustments("brass")["flow_multiplier"]
+    assert record["material_tuning_flow_ratio"] is None
+    rebuilt = round(record["base_flow_ratio"] * record["flow_multiplier"], 4)
+    assert rebuilt == record["emitted_flow_ratio"] == float(filament["filament_flow_ratio"][0])
+
+
+@pytest.mark.parametrize("vendor, expected", [
+    ({"id": 1, "name": "SUNLU"}, "SUNLU PETG @FF AD5M"),
+    ({"id": 2, "name": "Polymaker"}, "Generic PETG @Flashforge"),
+    ({"id": 3}, "Generic PETG @Flashforge"),
+    (None, "Generic PETG @Flashforge"),
+])
+def test_spoolman_vendor_selects_the_sliced_profile_or_falls_back(slice_inputs, vendor, expected):
+    state = stale_state("PETG")
+    slice_inputs.spools[17] = {
+        "id": 17, "filament": {"material": "PETG", "name": "Black PETG", "vendor": vendor},
+    }
+    _, _, filament = slice_inputs.slice(AD5X, state)
+    assert filament["filament_settings_id"] == [expected]
+
+
+@pytest.mark.parametrize("material, expected", [
+    ("Silk PLA", 220),
+    ("PLA+", 215),
+    ("Matte PLA", 215),
+])
+def test_pla_subtypes_keep_the_tuned_template_and_variant_temperature(slice_inputs, material, expected):
+    state = stale_state(material)
+    state["nozzle"]["type"] = "brass"
+    slice_inputs.spools[17] = {"id": 17, "filament": {"material": material, "name": material}}
+    nozzle, bed, filament = slice_inputs.slice(AD5X, state)
+    assert (nozzle, bed) == (expected, 60)
+    assert filament["filament_settings_id"] == ["Flashforge Generic PLA"]
+    assert filament["filament_flow_ratio"] == ["0.98"]
+    assert filament["enable_pressure_advance"] == ["0"]

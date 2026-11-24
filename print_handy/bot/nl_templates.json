@@ -31,7 +31,15 @@
   },
   {
    "intent": "loaded_spools",
-   "pattern": "^what('s| is| are)? (in|on) (the )?(ifs |ams |slot )?(?P<slot>\\d+)\\b.*$"
+   "pattern": "^(?:what|which)(?: number spool| spool(?: number| id)?| filament| roll) (?:is )?(?:in|on) (?:the )?(?:(?:ifs|ams) )?(?:slot )?(?P<slot>\\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen)(?: (?:on|for) (?:printer )?(?P<printer_name>[^?!]+))?\\??$"
+  },
+  {
+   "intent": "loaded_spools",
+   "pattern": "^what(?:'s| is)? (?:the )?(?:spoolman|spool) (?:id|number) (?:for|in|on) (?:the )?(?:(?:ifs|ams) )?(?:slot )?(?P<slot>\\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen)(?: (?:on|for) (?:printer )?(?P<printer_name>[^?!]+))?\\??$"
+  },
+  {
+   "intent": "loaded_spools",
+   "pattern": "^what(?:'s| is| are)? (?:loaded )?(?:in|on) (?:the )?(?:(?:ifs|ams) )?(?:slot )?(?P<slot>\\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen)(?: (?:on|for) (?:printer )?(?P<printer_name>[^?!]+))?\\??$"
   },
   {
    "intent": "loaded_spools",

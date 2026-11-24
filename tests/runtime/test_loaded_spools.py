@@ -239,3 +239,69 @@ def test_print_spools_is_registered_and_the_llm_may_name_it():
     assert "/print-spools" in commands.help_text()
     assert len(commands.help_text()) <= 2000
     assert llm.allowed_command("/print-spools") == "/print-spools"
+
+
+# #1857: one physical slot, never a spool ID or a cross-printer claim.
+@pytest.mark.parametrize("record,expected", [
+    ({"spoolman_id": 12}, ("#12", "640 g left")),
+    ({}, ("empty",)),
+    ({"name": "Galaxy PLA"}, ("Galaxy PLA", "no spool ID is bound")),
+    ({"spoolman_id": 99}, ("#99", "not verified")),
+])
+def test_single_slot_reports_recorded_state(monkeypatch, record, expected):
+    monkeypatch.setattr(spool_sync, "load_state",
+                        lambda **kw: {"filament_slots": {"3": record}})
+    text = spool_sync.loaded_slot_text(3, printer_id="garage", client=_client())
+    assert "Slot 3" in text and all(word in text for word in expected)
+    assert "#7" not in text
+
+
+def test_single_slot_outage_retains_only_cached_binding(monkeypatch):
+    monkeypatch.setattr(spool_sync, "load_state",
+                        lambda **kw: {"filament_slots": {"3": {"spoolman_id": 12, "name": "Red PETG"}}})
+
+    def down(*args):
+        raise spool_sync.SpoolError("unavailable")
+
+    text = spool_sync.loaded_slot_text(3, printer_id="garage", client=down)
+    assert "#12" in text and "cached binding" in text and "unavailable" in text
+    assert "640" not in text
+
+
+def test_single_slot_conflicting_claims_not_presented_as_verified(monkeypatch):
+    monkeypatch.setattr(spool_sync, "load_state",
+                        lambda **kw: {"filament_slots": {"3": {"spoolman_id": 12}}})
+    rows = [{**SPOOLS[0], "extra": {"ph_slot": "workshop:3"}},
+            {**SPOOLS[1], "extra": {"ph_slot": "garage:3"}}]
+    text = spool_sync.loaded_slot_text(3, printer_id="garage", client=_client(rows))
+    assert "disagree" in text and "#12" in text and "#7" in text and "not verified" in text
+    assert "640 g" not in text
+
+
+def test_single_slot_shared_channel_clarifies_and_named_query_resolves(monkeypatch):
+    from print_handy import settings
+    from print_handy.bot import natural_language as nl
+    from print_handy.bot.handlers.loaded_spools import slot_answer
+
+    roster = [{"id": "garage", "name": "Garage"}, {"id": "workshop", "name": "Workshop"}]
+    monkeypatch.setattr(settings, "printers", lambda *a: roster)
+    calls = []
+
+    def load_state(*, printer_id):
+        calls.append(printer_id)
+        return {"filament_slots": {"3": {"spoolman_id": 12 if printer_id == "garage" else 7}}}
+
+    monkeypatch.setattr(spool_sync, "load_state", load_state)
+    monkeypatch.setattr(spool_sync, "spoolman", _client())
+    source = _event("Which spool is on 3?", shared_printer_ids=["garage", "workshop"]).source
+    gateway = _gateway(FakeAdapter())
+    answer = slot_answer(nl.slot_query("Which spool is on 3?"), source, gateway)
+    assert "Which printer" in answer and "Garage" in answer and "Workshop" in answer
+    assert not calls
+    answer = slot_answer(nl.slot_query("Which spool is on 3 on Workshop?"), source, gateway)
+    assert "Workshop" in answer and "#7" in answer and "#12" not in answer
+    assert calls == ["workshop"]
+    source = _event("Which spool is on 3?", printer_id="garage").source
+    answer = slot_answer(nl.slot_query("Which spool is on 3?"), source, gateway)
+    assert "#12" in answer and "#7" not in answer
+    assert calls == ["workshop", "garage"]

@@ -2409,6 +2409,58 @@ def _names_filament(rec: dict[str, Any]) -> bool:
     return bool(rec.get("name") or rec.get("material") or rec.get("color"))
 
 
+def loaded_slot_text(slot: int, *, printer_id: str, client: Client | None = None) -> str:
+    """One physical slot, using the same hardware record and formatter as loaded_text.
+
+    Read only: disagreeing Spoolman claims are reported, not reconciled here.
+    A cached binding is useful during an outage, but is not a live verification.
+    """
+    label = f"Slot {slot}"
+    if slot < 1:
+        return f"{label}: slot numbers start at 1."
+    state = load_state(printer_id=printer_id)
+    slots = state.get("filament_slots") or {}
+    rec = slots.get(str(slot)) or {}
+    sid = rec.get("spoolman_id")
+    if isinstance(sid, bool) or not isinstance(sid, int) or sid < 1:
+        sid = None
+    try:
+        spools = (client or spoolman)("GET", "/api/v1/spool?allow_archived=false", None) or []
+    except Exception:
+        # Fail-soft per #387, but never silent (#1467): the cause is logged.
+        logging.getLogger(__name__).warning(
+            "Spoolman lookup for %s on printer %s failed; answering from the cached record",
+            label, printer_id, exc_info=True)
+        if sid is not None:
+            return _loaded_line(label, rec, {}, False) + " (cached binding, not verified live)"
+        if _names_filament(rec):
+            return f"{label}: filament recorded, but no spool ID is bound; Spoolman unavailable."
+        return f"{label}: no cached spool binding; Spoolman unavailable."
+    by_id = {s.get("id"): s for s in spools if isinstance(s, dict)}
+    claims = {s["id"] for s in by_id.values()
+              if isinstance(s.get("id"), int) and not isinstance(s["id"], bool)
+              and spool_ph_slot(s) == (printer_id, slot)}
+    if sid is not None:
+        live = by_id.get(sid)
+        other_claim = spool_ph_slot(live)
+        if claims - {sid} or (other_claim and other_claim != (printer_id, slot)):
+            ids = ", ".join(f"#{n}" for n in sorted(claims)) or "none"
+            return (f"{label}: records disagree. Cached binding #{sid}; "
+                    f"Spoolman slot claims: {ids}. Current spool not verified.")
+        if live is None:
+            return f"{label}: cached spool #{sid} is not in active Spoolman records; current spool not verified."
+        return _loaded_line(label, rec, live, True)
+    if claims:
+        ids = ", ".join(f"#{n}" for n in sorted(claims))
+        return (f"{label}: Spoolman claims {ids}, but the printer record has no matching binding. "
+                "Current spool not verified.")
+    if _names_filament(rec):
+        return f"{label}: {rec.get('name') or rec.get('color') or rec.get('material')} is recorded, but no spool ID is bound."
+    if str(slot) in slots or (slots and slot in SLOTS):
+        return f"{label}: empty (no spool recorded)."
+    return f"{label}: no slot record available; no spool ID verified."
+
+
 def loaded_text(*, client: Client = spoolman, state_path: Path | None = None,
                 printer_id: str | None = None) -> str:
     """What is loaded on one printer, where, and how much is left (#744).
