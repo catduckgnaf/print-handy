@@ -71,6 +71,7 @@ the baseline silently.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -101,6 +102,8 @@ LANE_COALESCE_S = 90.0
 _CHANGE_KINDS = frozenset({"loaded", "unloaded", "unresolved", "runout_load"})
 
 Client = Callable[..., Any]
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- state file
@@ -542,7 +545,33 @@ def apply_screen_assignment(printer_id: str, slot: int, spool_id: int | None, *,
         raise spool_sync.SpoolError(
             f"spool reconcile settled {_slot(slot)} on {settled!r}, not the screen's "
             f"{spool_id!r}; the change was not adopted")
+    _settle_slot_locations(printer_id, int(slot), spool_id, result, client=client,
+                           state_path=state_path)
     return result
+
+
+def _settle_slot_locations(printer_id: str, slot: int, spool_id: int | None,
+                           result: dict[str, Any], *, client: Client,
+                           state_path: Path | None) -> None:
+    """Make Spoolman's locations say what the converged slot holds (#1888).
+
+    The loaded spool is at "IFS Slot N", as a bind writes it, and every
+    other spool whose location still names the slot goes back on the
+    shelf, with or without a ``ph_slot`` claim (the replaced spool 22 kept
+    IFS Slot 3 for days). Best effort: the assignment already converged,
+    and a location that cannot be written is named by ``/spool sync``.
+    """
+    if spool_id is not None:
+        try:
+            spool_sync._call_client(client, "PATCH", f"/api/v1/spool/{int(spool_id)}",
+                                    {"location": f"IFS Slot {int(slot)}"})
+        except Exception as exc:
+            _log.warning("Could not set spool #%s's location to IFS Slot %s: %s",
+                         spool_id, slot, exc)
+    held = {int(sid) for other, sid in (result.get("assignments") or {}).items()
+            if sid is not None and int(other) != int(slot)}
+    spool_sync.shelve_slot_leftovers(client, printer_id, int(slot), holder=spool_id, held=held,
+                                     state_path=state_path)
 
 
 # ---------------------------------------------------------------- watcher
