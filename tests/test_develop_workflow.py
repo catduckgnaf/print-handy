@@ -10,7 +10,10 @@ quietly start publishing unverified code, moving refs outside the two
 jobs scoped for it, or overwriting release tags.
 """
 
+import os
 import pathlib
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -25,12 +28,17 @@ def load_workflow():
 
 
 class DevelopWorkflowContract(unittest.TestCase):
-    def test_triggers_are_schedule_and_dispatch_with_both_inputs(self):
+    def test_triggers_are_schedule_and_dispatch_with_optional_sha(self):
         workflow = load_workflow()
         self.assertEqual(sorted(workflow["on"]), ["schedule", "workflow_dispatch"])
         self.assertEqual(workflow["on"]["schedule"], [{"cron": "47 6 * * *"}])
         inputs = workflow["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(sorted(inputs), ["promote", "publish"])
+        self.assertEqual(sorted(inputs), ["promote", "publish", "sha"])
+        self.assertEqual(inputs["sha"]["type"], "string")
+        self.assertEqual(inputs["sha"]["required"], "false")
+        self.assertEqual(inputs["sha"]["default"], "")
+        self.assertEqual(workflow["jobs"]["promote"]["env"]["REQUESTED_SHA"],
+                         "${{ inputs.sha }}")
         for name in ("promote", "publish"):
             self.assertEqual(inputs[name]["type"], "boolean")
             self.assertEqual(inputs[name]["default"], "true")
@@ -59,6 +67,108 @@ class DevelopWorkflowContract(unittest.TestCase):
         self.assertIn("git/refs/heads/develop", run)
         self.assertIn("-F force=false", run)
         self.assertNotIn("force=true", text)
+
+
+    def run_promotion(self, requested, *, main_status="ahead", ci_green=True,
+                      develop_status="ahead", promote="true", missing_develop=False,
+                      event="workflow_dispatch"):
+        """Execute the actual workflow shell step with a fake, non-writing gh."""
+        old = "a" * 40
+        pinned = "b" * 40
+        newest = "c" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            temp = pathlib.Path(directory)
+            gh = temp / "gh"
+            gh.write_text("""#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$CALLS"
+case "$*" in
+  *"git/ref/heads/develop-published"*) echo "$OLD" ;;
+  *"git/ref/heads/develop"*) [[ "$MISSING_DEVELOP" != true ]] || exit 1; echo "$OLD" ;;
+  *"git/ref/heads/main"*) echo "$NEWEST" ;;
+  *"compare/$PINNED...$NEWEST"*) echo "$MAIN_STATUS" ;;
+  *"compare/$OLD..."*) echo "$DEVELOP_STATUS" ;;
+  *"head_sha=$PINNED"*)
+    [[ "$*" == *'select(.event == "push" or .event == "workflow_dispatch")'* ]]
+    [[ "$*" == *'select(.conclusion == "success")'* ]]
+    if [[ "$CI_GREEN" == true ]]; then echo "$PINNED"; fi ;;
+  *"branch=main&event=push&status=success"*) echo "$NEWEST" ;;
+  *"-X PATCH"*) echo "$PINNED" ;;
+  *"-X POST"*) echo "$PINNED" ;;
+  *) exit 99 ;;
+esac
+""")
+            gh.chmod(0o755)
+            output = temp / "output"
+            calls = temp / "calls"
+            env = dict(os.environ, PATH=str(temp) + os.pathsep + os.environ["PATH"],
+                       GITHUB_REPOSITORY="owner/repo", GITHUB_EVENT_NAME=event,
+                       GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(temp / "summary"),
+                       PROMOTE=promote, PUBLISH_INPUT="false", REQUESTED_SHA=requested,
+                       OLD=old, PINNED=pinned, NEWEST=newest, CALLS=str(calls),
+                       MAIN_STATUS=main_status, DEVELOP_STATUS=develop_status,
+                       CI_GREEN=str(ci_green).lower(),
+                       MISSING_DEVELOP=str(missing_develop).lower())
+            run = load_workflow()["jobs"]["promote"]["steps"][0]["run"]
+            proc = subprocess.run(["bash", "-c", run], env=env,
+                                  capture_output=True, text=True, timeout=10)
+            return (proc, calls.read_text() if calls.exists() else "",
+                    output.read_text() if output.exists() else "")
+
+    def test_exact_sha_behind_main_is_promoted_not_latest_green(self):
+        pinned = "b" * 40
+        proc, calls, output = self.run_promotion(pinned)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(f"-X PATCH repos/owner/repo/git/refs/heads/develop -f sha={pinned} -F force=false", calls)
+        self.assertNotIn("branch=main&event=push", calls)
+        self.assertIn(f"sha={pinned}\n", output)
+        self.assertIn("changed=true\n", output)
+
+    def test_exact_sha_off_main_is_refused_without_writes(self):
+        for status in ("diverged", "behind"):
+            with self.subTest(status=status):
+                proc, calls, output = self.run_promotion("b" * 40, main_status=status)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertNotIn("-X PATCH", calls)
+                self.assertNotIn("-X POST", calls)
+                self.assertEqual(output, "")
+
+    def test_exact_sha_requires_success_and_fast_forward(self):
+        for kwargs in ({"ci_green": False}, {"develop_status": "behind"},
+                       {"develop_status": "diverged"}, {"promote": "false"}):
+            with self.subTest(kwargs=kwargs):
+                proc, calls, output = self.run_promotion("b" * 40, **kwargs)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertNotIn("-X PATCH", calls)
+                self.assertNotIn("-X POST", calls)
+                self.assertEqual(output, "")
+
+    def test_exact_sha_rejects_invalid_input(self):
+        for requested in ("b" * 39, "main", "$(echo injected)"):
+            with self.subTest(requested=requested):
+                proc, calls, output = self.run_promotion(requested)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertEqual(calls, "")
+                self.assertEqual(output, "")
+
+    def test_exact_sha_can_create_missing_develop(self):
+        pinned = "b" * 40
+        proc, calls, output = self.run_promotion(pinned, missing_develop=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(f"-X POST repos/owner/repo/git/refs -f ref=refs/heads/develop -f sha={pinned}", calls)
+        self.assertIn(f"sha={pinned}\n", output)
+
+    def test_no_sha_preserves_floating_and_no_promote_modes(self):
+        proc, calls, output = self.run_promotion("", event="schedule")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("branch=main&event=push&status=success", calls)
+        self.assertIn("sha=" + "c" * 40 + "\n", output)
+        self.assertIn("publish=true\n", output)
+        proc, calls, output = self.run_promotion("", promote="false")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("-X PATCH", calls)
+        self.assertNotIn("-X POST", calls)
+        self.assertIn("sha=" + "a" * 40 + "\n", output)
 
     def test_unpublished_commits_stay_eligible_for_publication(self):
         # P2-97: the gate is successful publication of the target commit,
