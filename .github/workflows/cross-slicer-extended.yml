@@ -46,8 +46,8 @@ jobs:
           cat tests/corpus/producer-fixtures/PROVENANCE.json
       - name: Download pinned OrcaSlicer AppImage (genuine producer)
         env:
-          ORCA_URL: https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.1/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage
-          ORCA_SHA256: 073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb
+          ORCA_URL: https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.2.AppImage
+          ORCA_SHA256: 22fa88884dec3fdbd29e90cba9912fcff6fb57a60b1bdc1a6c189c61a6b0a870
         run: |
           curl -L -o orca.AppImage "$ORCA_URL"
           echo "$ORCA_SHA256  orca.AppImage" | sha256sum -c -

@@ -362,11 +362,11 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertIn("openscad", runtime)
         self.assertIn("--no-install-recommends", runtime)
         prebuilt = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
-        for pin in ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage",
-                    "073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb",
-                    "eef7710cb102fdb51a9bcdbd9efd61047f44774a",
-                    "OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.1.AppImage",
-                    "1336bbae0359466632066697780f314a8564542f8278e9ea4cdf18ec61383fc0"):
+        for pin in ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.2.AppImage",
+                    "22fa88884dec3fdbd29e90cba9912fcff6fb57a60b1bdc1a6c189c61a6b0a870",
+                    "f92a7c065c5718b8ef1baac1cd704df2911238f4",
+                    "OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.2.AppImage",
+                    "297aa2d8a83e8ea0a26b39e383a00f992bc0e3c1076368cad79b35704502a254"):
             with self.subTest(pin=pin):
                 self.assertIn(pin, prebuilt)
         self.assertIn("sha256sum --check --strict -", prebuilt)

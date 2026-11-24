@@ -16,22 +16,23 @@ case "$arch" in
 esac
 case "$channel" in
     stable)
-        # Print Handy ships ONE bundled OrcaSlicer: v2.5.1 (catduck's
+        # Print Handy ships ONE bundled OrcaSlicer: v2.5.2 (catduck's
         # direction, 2026-11-05: one Orca only, the preview channel and
         # the beta pin are removed; there is no second channel). The
         # channel pinned the release candidate until the final shipped;
         # upstream published v2.5.0-rc on 2026-11-01, the v2.5.0 final
-        # on 2026-11-07 and v2.5.1 on 2026-11-14. The 2.5 line is the first whose BBL vendor
+        # on 2026-11-07, v2.5.1 on 2026-11-14 and v2.5.2 on 2026-11-21.
+        # The 2.5 line is the first whose BBL vendor
         # profiles cover the H2C and A2L (#356), and the profiles pipeline
         # reads its packed preset caches (profiles/<Vendor>.opc) directly.
         # The exact build this one channel pins is recorded in this file
         # and in the build-info file only.
-        version=2.5.1
-        revision=eef7710cb102fdb51a9bcdbd9efd61047f44774a
-        sha256_amd64=073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb
-        sha256_arm64=1336bbae0359466632066697780f314a8564542f8278e9ea4cdf18ec61383fc0
-        asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage
-        asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.1.AppImage
+        version=2.5.2
+        revision=f92a7c065c5718b8ef1baac1cd704df2911238f4
+        sha256_amd64=22fa88884dec3fdbd29e90cba9912fcff6fb57a60b1bdc1a6c189c61a6b0a870
+        sha256_arm64=297aa2d8a83e8ea0a26b39e383a00f992bc0e3c1076368cad79b35704502a254
+        asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.2.AppImage
+        asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.2.AppImage
         ;;
     *) echo 'usage: orca-prebuilt.sh stable amd64|arm64' >&2; exit 2 ;;
 esac

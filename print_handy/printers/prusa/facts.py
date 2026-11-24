@@ -4,7 +4,7 @@ Connection, start code, slicers, delivery, defaults and registration are decided
 (prusa/__init__.py) and each MODEL; nothing here overrides them. Values follow the bambulab/facts.py
 conventions: ORCA values were read directly from the Prusa vendor profiles of OrcaSlicer v2.4.2
 (vendor profiles 02.04.00.03), v2.5.0-alpha / v2.5.0-beta (02.04.00.17 in both), the v2.5.0 final
-(02.04.00.18) and v2.5.1 (02.04.00.19), as the JSON tree and as the packed
+(02.04.00.18), v2.5.1 (02.04.00.19) and v2.5.2 (02.04.00.20), as the JSON tree and as the packed
 preset cache an installed 2.5 serves, flattened with the shared profile pipeline (identities
 reproduce the same way the Bambu ones do), PRUSA values come from Prusa's published product
 specifications and were not reached from the sandbox that wrote these files, DERIVED values are
@@ -12,7 +12,7 @@ computed from the ORCA templates. verified=True means the value was read from it
 
 Upstream renamed the whole "Prusa Generic …" filament family in 2.5.0-alpha ("Generic PLA
 @Prusa MK4S" and kin), so the checked `orca_profiles` names below are the 2.5 ones and
-generating templates takes a 2.5 install (2.5.0-alpha, 2.5.0-beta, 2.5.0 or 2.5.1); the recorded 2.4.2 identities remain so
+generating templates takes a 2.5 install (2.5.0-alpha, 2.5.0-beta, 2.5.0, 2.5.1 or 2.5.2); the recorded 2.4.2 identities remain so
 folders already generated from 2.4.2 keep verifying (problems() hashes the stored copies, it
 does not re-resolve profile names). The machine profiles store start/end G-code as a list of
 lines; profiles.py joins them into the string form every other vendor's templates use when it
@@ -41,6 +41,8 @@ _IDENTITY_LABEL_250 = "OrcaSlicer 2.5.0 (Prusa vendor profiles 02.04.00.18)"
 _IDENTITY_LABEL_250_PACKED = "OrcaSlicer 2.5.0 (Prusa vendor profiles 02.04.00.18, packed cache)"
 _IDENTITY_LABEL_251 = "OrcaSlicer 2.5.1 (Prusa vendor profiles 02.04.00.19)"
 _IDENTITY_LABEL_251_PACKED = "OrcaSlicer 2.5.1 (Prusa vendor profiles 02.04.00.19, packed cache)"
+_IDENTITY_LABEL_252 = "OrcaSlicer 2.5.2 (Prusa vendor profiles 02.04.00.20)"
+_IDENTITY_LABEL_252_PACKED = "OrcaSlicer 2.5.2 (Prusa vendor profiles 02.04.00.20, packed cache)"
 
 
 def _entry(label, vendor_version, machine, process, filament):
@@ -49,14 +51,18 @@ def _entry(label, vendor_version, machine, process, filament):
 
 
 def _identities(release_242, alpha_tree, alpha_packed, beta_tree, beta_packed,
-                final_tree, final_packed, release_251_tree, release_251_packed):
+                final_tree, final_packed, release_251_tree, release_251_packed,
+                release_252_tree, release_252_packed):
     """The checked identities for a model, oldest first: OrcaSlicer 2.4.2's JSON tree, then
     OrcaSlicer 2.5.0-alpha's tree and its packed preset cache, then OrcaSlicer 2.5.0-beta in
     the same two packagings, then the 2.5.0 final in the same two packagings (the release
     candidate kept the beta's vendor version and hashes, so it records no entries of its
     own; the final moved the vendor profiles to 02.04.00.18), then OrcaSlicer 2.5.1 in the
     same two packagings (vendor profiles 02.04.00.19; its checked profiles flatten to the
-    2.5.0 final's hashes, so only the vendor version moved). The two 2.5 packagings flatten
+    2.5.0 final's hashes, so only the vendor version moved), then OrcaSlicer 2.5.2 in the same
+    two packagings (vendor profiles 02.04.00.20; upstream moved the CORE One process overhang
+    speeds down one tier, so the CORE One process hashes changed while the MK4S, XL and MINI
+    profiles kept 2.5.1's hashes). The two 2.5 packagings flatten
     differently (the cache applies Orca's option renames and drops unknown options), so each
     carries its own hashes; templates generated from any of them stay valid."""
     return Fact((_entry(_IDENTITY_LABEL, "02.04.00.03", *release_242),
@@ -67,7 +73,9 @@ def _identities(release_242, alpha_tree, alpha_packed, beta_tree, beta_packed,
                  _entry(_IDENTITY_LABEL_250, "02.04.00.18", *final_tree),
                  _entry(_IDENTITY_LABEL_250_PACKED, "02.04.00.18", *final_packed),
                  _entry(_IDENTITY_LABEL_251, "02.04.00.19", *release_251_tree),
-                 _entry(_IDENTITY_LABEL_251_PACKED, "02.04.00.19", *release_251_packed)), "ORCA", True)
+                 _entry(_IDENTITY_LABEL_251_PACKED, "02.04.00.19", *release_251_packed),
+                 _entry(_IDENTITY_LABEL_252, "02.04.00.20", *release_252_tree),
+                 _entry(_IDENTITY_LABEL_252_PACKED, "02.04.00.20", *release_252_packed)), "ORCA", True)
 
 
 MK4S = {
@@ -78,6 +86,8 @@ MK4S = {
                                  ("0c2c0f4c61c45f2500e1e603640855d37adbe694f8622fcaaf361bd900f5811a", "769e3270294f065223e7f2bd13623d55747e96862901c066148e061c6529703a", "08b4bf0a1767c05792b3174d49ac11c2bf124edda824859765868b3feb725821"),
                                  ("af3e3e48d0de061f5e211c6390b4a0b7a49e2f17cbc3e99e7500a4c777c7f232", "af4f58ce5c04e18b9a0358c1196592eefe14ad1c7f1ffd837735b6821115e915", "20e338fd51c44e33f0faf289c1ab3cb575a136e53311ad79ba07265a5110508e"),
                                  ("0c2c0f4c61c45f2500e1e603640855d37adbe694f8622fcaaf361bd900f5811a", "769e3270294f065223e7f2bd13623d55747e96862901c066148e061c6529703a", "08b4bf0a1767c05792b3174d49ac11c2bf124edda824859765868b3feb725821"),
+                                 ("af3e3e48d0de061f5e211c6390b4a0b7a49e2f17cbc3e99e7500a4c777c7f232", "f3af3f44637a96eda39029575b12ea7fa1e73c4ab6bc46f61cd2607a3c4aee21", "20e338fd51c44e33f0faf289c1ab3cb575a136e53311ad79ba07265a5110508e"),
+                                 ("0c2c0f4c61c45f2500e1e603640855d37adbe694f8622fcaaf361bd900f5811a", "4e31a3a109be8e6dae736c9c295ad4c7bf4904ad1c72005ca8247addee83d0bb", "08b4bf0a1767c05792b3174d49ac11c2bf124edda824859765868b3feb725821"),
                                  ("af3e3e48d0de061f5e211c6390b4a0b7a49e2f17cbc3e99e7500a4c777c7f232", "f3af3f44637a96eda39029575b12ea7fa1e73c4ab6bc46f61cd2607a3c4aee21", "20e338fd51c44e33f0faf289c1ab3cb575a136e53311ad79ba07265a5110508e"),
                                  ("0c2c0f4c61c45f2500e1e603640855d37adbe694f8622fcaaf361bd900f5811a", "4e31a3a109be8e6dae736c9c295ad4c7bf4904ad1c72005ca8247addee83d0bb", "08b4bf0a1767c05792b3174d49ac11c2bf124edda824859765868b3feb725821"),
                                  ("af3e3e48d0de061f5e211c6390b4a0b7a49e2f17cbc3e99e7500a4c777c7f232", "f3af3f44637a96eda39029575b12ea7fa1e73c4ab6bc46f61cd2607a3c4aee21", "20e338fd51c44e33f0faf289c1ab3cb575a136e53311ad79ba07265a5110508e"),
@@ -109,7 +119,9 @@ COREONE = {
                                  ("0f459a1a7c43c5686c14b52052c29ac75cdd4891c9250094885a16d3370db361", "7f569b377d94911f2be33320620299e36ba34f2b6fee369a11f2a94fce31586b", "d9973c25e506b667ac1baf5d1f158ffc55c1a707f49e75590d0124847e81f8c5"),
                                  ("0af2518046d7449bcf4f3bee609d17170a05339a17a55b8ae7a91aa9fe6bfbd9", "ac71a59c00efd42915125d74e09c26092ffb1235ac928b2736d0ac29e6cb5f17", "85e7d36c29e792a654da87e974dd19d18f59daa80fc1be721723e0e481891785"),
                                  ("0f459a1a7c43c5686c14b52052c29ac75cdd4891c9250094885a16d3370db361", "7f569b377d94911f2be33320620299e36ba34f2b6fee369a11f2a94fce31586b", "d9973c25e506b667ac1baf5d1f158ffc55c1a707f49e75590d0124847e81f8c5"),
-                                 ("0af2518046d7449bcf4f3bee609d17170a05339a17a55b8ae7a91aa9fe6bfbd9", "ac71a59c00efd42915125d74e09c26092ffb1235ac928b2736d0ac29e6cb5f17", "85e7d36c29e792a654da87e974dd19d18f59daa80fc1be721723e0e481891785")),
+                                 ("0af2518046d7449bcf4f3bee609d17170a05339a17a55b8ae7a91aa9fe6bfbd9", "ac71a59c00efd42915125d74e09c26092ffb1235ac928b2736d0ac29e6cb5f17", "85e7d36c29e792a654da87e974dd19d18f59daa80fc1be721723e0e481891785"),
+                                 ("0f459a1a7c43c5686c14b52052c29ac75cdd4891c9250094885a16d3370db361", "b3712d74ae9315e5c872db03abb1c4249bddb47e328198fb4fd5e85b481d97d3", "d9973c25e506b667ac1baf5d1f158ffc55c1a707f49e75590d0124847e81f8c5"),
+                                 ("0af2518046d7449bcf4f3bee609d17170a05339a17a55b8ae7a91aa9fe6bfbd9", "b60b0582c9ec49ae6822a6e5bccc5e24ac3f430886ed73eeee521129299b2803", "85e7d36c29e792a654da87e974dd19d18f59daa80fc1be721723e0e481891785")),
     "bed_mm": Fact((250.0, 220.0), "ORCA", True),
     "max_print_height_mm": Fact(270.0, "ORCA", True),
     "bed_exclude_area": Fact((), "ORCA", True),
@@ -138,6 +150,8 @@ XL = {
                                  ("f9de3c90ae08a2d7a29e21c636fc8dd857b364891d3c9efad63e5a0d5ba85d28", "2a8f42b976e14387784801fc84e20761b30975c1430d92da9c3bbaf119473067", "5ce6b86be7cab63cedc14f74938cc32a6e83a564cfe7c1aa5cd4d27081ede231"),
                                  ("055bfce16a8b49848793b89f3b5949115d629390dceaaac4ccec63935a9e582e", "3948e24078aaa6cc05e31b2a453334ba638c1138cc919ae3151b6e3f48dff9e3", "a90103513033b8f2e62363497e2682f869ea8e344024f9fcbe7c8b533ac80878"),
                                  ("f9de3c90ae08a2d7a29e21c636fc8dd857b364891d3c9efad63e5a0d5ba85d28", "2a8f42b976e14387784801fc84e20761b30975c1430d92da9c3bbaf119473067", "5ce6b86be7cab63cedc14f74938cc32a6e83a564cfe7c1aa5cd4d27081ede231"),
+                                 ("055bfce16a8b49848793b89f3b5949115d629390dceaaac4ccec63935a9e582e", "3948e24078aaa6cc05e31b2a453334ba638c1138cc919ae3151b6e3f48dff9e3", "a90103513033b8f2e62363497e2682f869ea8e344024f9fcbe7c8b533ac80878"),
+                                 ("f9de3c90ae08a2d7a29e21c636fc8dd857b364891d3c9efad63e5a0d5ba85d28", "2a8f42b976e14387784801fc84e20761b30975c1430d92da9c3bbaf119473067", "5ce6b86be7cab63cedc14f74938cc32a6e83a564cfe7c1aa5cd4d27081ede231"),
                                  ("055bfce16a8b49848793b89f3b5949115d629390dceaaac4ccec63935a9e582e", "3948e24078aaa6cc05e31b2a453334ba638c1138cc919ae3151b6e3f48dff9e3", "a90103513033b8f2e62363497e2682f869ea8e344024f9fcbe7c8b533ac80878")),
     "bed_mm": Fact((360.0, 360.0), "ORCA", True),
     "max_print_height_mm": Fact(360.0, "ORCA", True),
@@ -162,6 +176,8 @@ MINIPLUS = {
     "orca_identity": _identities(("b4bb5458837a5c118cb60d158010b7a1bb265696671ad32f1acdd207297f7d6d", "fc4f42973415e07680e30915a1884ce02d1ea1284c1b599e3d2a0a772d70a8d8", "cff434489029840d6f489e41f87aa46b422e8f9d4c7927dc0ed224e941780a97"),
                                  ("64fa6ca9481fc996fd54eca55f28b435dd60f347861d30c1f583b80fbfaf47e0", "3b52a62c5db3b028971ba3057466361b8dcaf094e166b28afbb599d8ec59ff62", "17a569ac838bc39b65dd0f4b6d8d72b4cf9cfee9558fcbaea117c32ed45ed5d4"),
                                  ("688dfb6d3bb3645657089d3e7e50a355b951131f36204b16b50eb8d14c473946", "095b1ec3d043c51a50e9863214edaf7b3d642080d345056eebfc164edb00f4b5", "124f61b7f8c61d3945f2d04d65fa57a63e6e9cef4da0fb940cd570dc195c9b34"),
+                                 ("64fa6ca9481fc996fd54eca55f28b435dd60f347861d30c1f583b80fbfaf47e0", "3b52a62c5db3b028971ba3057466361b8dcaf094e166b28afbb599d8ec59ff62", "17a569ac838bc39b65dd0f4b6d8d72b4cf9cfee9558fcbaea117c32ed45ed5d4"),
+                                 ("688dfb6d3bb3645657089d3e7e50a355b951131f36204b16b50eb8d14c473946", "9adc63bd06f1cdf35fac69634c933ca74761c73f994b0ca9327235367d796a07", "124f61b7f8c61d3945f2d04d65fa57a63e6e9cef4da0fb940cd570dc195c9b34"),
                                  ("64fa6ca9481fc996fd54eca55f28b435dd60f347861d30c1f583b80fbfaf47e0", "3b52a62c5db3b028971ba3057466361b8dcaf094e166b28afbb599d8ec59ff62", "17a569ac838bc39b65dd0f4b6d8d72b4cf9cfee9558fcbaea117c32ed45ed5d4"),
                                  ("688dfb6d3bb3645657089d3e7e50a355b951131f36204b16b50eb8d14c473946", "9adc63bd06f1cdf35fac69634c933ca74761c73f994b0ca9327235367d796a07", "124f61b7f8c61d3945f2d04d65fa57a63e6e9cef4da0fb940cd570dc195c9b34"),
                                  ("64fa6ca9481fc996fd54eca55f28b435dd60f347861d30c1f583b80fbfaf47e0", "3b52a62c5db3b028971ba3057466361b8dcaf094e166b28afbb599d8ec59ff62", "17a569ac838bc39b65dd0f4b6d8d72b4cf9cfee9558fcbaea117c32ed45ed5d4"),
