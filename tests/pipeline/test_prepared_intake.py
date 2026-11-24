@@ -198,7 +198,7 @@ def final_choices(adapter):
 
 def test_resource_refusal_precedes_audit_and_color_prompts(env, monkeypatch):
     from print_handy.core import intake_resources
-    monkeypatch.setattr(intake_resources, 'MAX_XML_BYTES', 1)
+    monkeypatch.setattr(intake_resources, 'MAX_TRIANGLES', 0)
 
     def unexpected_audit(path):
         pytest.fail('oversized source reached audit')
@@ -207,8 +207,12 @@ def test_resource_refusal_precedes_audit_and_color_prompts(env, monkeypatch):
     adapter, result, receipt = run_flow(env, [])
     assert result['action'] == 'skip'
     assert receipt['status'] == 'FAILED'
-    assert 'model XML exceeds' in receipt['error']
-    assert any('Simplify the mesh or split' in text for text in adapter.sent)
+    assert 'ghost.3mf' in receipt['error']
+    assert 'triangle count at least 1' in receipt['error']
+    assert any('ghost.3mf' in text and 'triangle count at least 1' in text
+               for text in adapter.sent)
+    assert not any('modeling app' in text or 'Simplify the mesh' in text
+                   for text in adapter.sent)
     assert adapter.questions == []
     assert not env.sliced and not env.starts
     assert not receipt['sliced'] and not receipt['uploaded'] and not receipt['started']

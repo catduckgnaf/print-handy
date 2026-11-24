@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 from . import printer_overrides
 
@@ -53,7 +54,8 @@ def merges(source, colors, printer=None):
 
     `colors` is how many distinct filament slots the parts use; one color needs no prime tower. Only
     plain rectangle packing counts: a fit that needs the polygon or turned fallbacks is a layout the
-    corpus would not want to sit on the edge of.
+    corpus would not want to sit on the edge of. The authored-layout path is switched off, so the
+    answer is the packer's limit and not the source layout's.
     """
     from print_handy.core import plate_merge, source_colors
     from print_handy.jobs import slice as jobs_slice
@@ -64,7 +66,9 @@ def merges(source, colors, printer=None):
     parts = manifest["parts"]
     slots = {part["key"]: index % colors + 1 for index, part in enumerate(parts)}
     capacity = max(int((printer or {}).get("slots", printer_overrides.MAX_SLOTS)), colors)
-    with printer_overrides.patched(printer):
+    # The authored-layout path (#1862) keeps a source layout that already clears the constraints, so it
+    # would report a fit for models the packer cannot place. These sizes measure the packer's limit.
+    with printer_overrides.patched(printer), mock.patch.object(plate_merge, "_authored_layout", return_value=None):
         verdict = plate_merge.plan(source, manifest, plates, slots, state, capacity=capacity)
     return verdict["mode"] == "merge" and verdict.get("packing") == "rectangle"
 

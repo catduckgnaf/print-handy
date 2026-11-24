@@ -15,14 +15,27 @@ MIB = 1024 * 1024
 # MAX_DOWNLOAD_BYTES and MAX_STL_BYTES removed: a model the slicer can handle
 # is never refused solely for its size in bytes. (#1824)
 MAX_MEMBERS = 4096
-MAX_EXPANDED_BYTES = 512 * MIB  # total uncompressed size; guards disk use / zip bombs
-MAX_XML_BYTES = 400 * MIB  # expanded model XML is streamed, not retained as a DOM
-MAX_MEMBER_BYTES = 400 * MIB  # single member uncompressed; guards expansion
+# No fixed expanded, member or model-XML byte ceilings for a 3MF (#1846).
+# Geometry is counted by streaming Expat; members that expand suspiciously
+# far beyond their compressed sizes still fail the ZIP-bomb check.
+MAX_ZIP_RATIO = 100
+ZIP_RATIO_FLOOR_BYTES = MIB
 # Dense float32/int32 tables plus downstream topology/instance working storage.
 MAX_ESTIMATED_GEOMETRY_BYTES = 1536 * MIB
 MAX_TRIANGLES = 10_000_000
 MAX_VERTICES = 10_000_000
 MAX_XML_ELEMENTS = 40_000_000
+# Bound retained XML separately from the compact geometry arrays. Ordinary
+# numeric mesh attributes have their own aggregate budget, so millions of
+# valid indices do not consume the much smaller metadata allowance.
+MAX_XML_ATTRIBUTE_BYTES = MIB
+MAX_XML_PAYLOAD_BYTES = 64 * MIB
+MAX_XML_GEOMETRY_ATTRIBUTE_BYTES = 512 * MIB
+MAX_XML_TOKEN_BYTES = 4 * MIB
+_GEOMETRY_FIELDS = {'vertex': frozenset(('x', 'y', 'z')),
+                    'triangle': frozenset(('v1', 'v2', 'v3'))}
+_CORE_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02}'
+
 CHUNK = 64 * 1024
 # Not a model-size cap (#1824). A download of any size is kept when the
 # volume still has this much free afterwards. Crossing it refuses the
@@ -34,10 +47,12 @@ class IntakeLimitExceeded(ValueError):
     """Safe, user-facing refusal; no slicing or printer operation is permitted."""
 
 
-def _refuse(detail):
+def _refuse(detail, *, path=None):
+    # Links and uploads use the same refusal: name the source and what was
+    # measured; a linked model need not exist in the user's modeling app.
+    label = f'{Path(path).name}: ' if path is not None else ''
     raise IntakeLimitExceeded(
-        f'Model intake refused: {detail}. Simplify the mesh or split it into smaller '
-        'files in your modeling app, then upload again. Nothing was sliced or started.')
+        f'Model intake refused: {label}{detail}. Nothing was sliced or started.')
 
 
 def _refuse_disk(detail):
@@ -107,7 +122,7 @@ def _parse_chunk(parser, data, final):
 
 
 def check_source(path):
-    """Check sizes first, then bounded streaming XML counts without building a tree."""
+    """Guard ZIP ratios, then stream geometry counts without building an XML DOM."""
     path = Path(path)
     size = path.stat().st_size
     # No overall file-size refusal. Geometry budgets and zip-bomb guards apply below.
@@ -116,26 +131,43 @@ def check_source(path):
         # Byte size alone never refuses. (#1824, #1833)
         with path.open('rb') as source:
             header = source.read(84)
-            if _stl_triangle_count(source, size, header) > MAX_TRIANGLES:
-                _refuse(f'triangle count exceeds {MAX_TRIANGLES:,} limit')
+            triangles = _stl_triangle_count(source, size, header)
+            if triangles > MAX_TRIANGLES:
+                _refuse(f'triangle count at least {triangles:,} exceeds {MAX_TRIANGLES:,} limit',
+                        path=path)
         return
     if path.suffix.lower() != '.3mf':
         return
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
         if len(members) > MAX_MEMBERS:
-            _refuse(f'archive exceeds {MAX_MEMBERS:,} members (zip-bomb / resource guard)')
+            _refuse(f'archive exceeds {MAX_MEMBERS:,} members (zip-bomb / resource guard)',
+                    path=path)
+        for member in members:
+            # No inflated-size ceiling: geometry has its own count and
+            # allocation budgets. Check every member's ratio, including
+            # non-model payloads, before trusting a signed mesh sidecar.
+            if member.file_size > ZIP_RATIO_FLOOR_BYTES and (
+                    member.compress_size <= 0
+                    or member.file_size > MAX_ZIP_RATIO * member.compress_size):
+                _refuse(f'archive member {member.filename} exceeds {MAX_ZIP_RATIO}:1 '
+                        'compression ratio (zip-bomb guard)', path=path)
+        # Members at or below the 1 MiB per-member floor are exempt from the
+        # individual ratio check. Their *combined* expansion must still be
+        # backed by compressed bytes, otherwise thousands of small members
+        # could declare gigabytes of decompressed data. This ratio budget
+        # does not reintroduce a fixed expanded-byte limit for large meshes.
+        expanded = sum(member.file_size for member in members)
+        compressed = sum(member.compress_size for member in members)
+        if expanded > ZIP_RATIO_FLOOR_BYTES and (
+                compressed <= 0 or expanded > MAX_ZIP_RATIO * compressed):
+            _refuse(f'archive exceeds aggregate {MAX_ZIP_RATIO}:1 '
+                    'compression ratio (zip-bomb guard)', path=path)
         models = [i for i in members if i.filename.lower().endswith('.model')]
-        if sum(i.file_size for i in models) > MAX_XML_BYTES:
-            _refuse(f'model XML exceeds {MAX_XML_BYTES // MIB} MiB limit')
-        if sum(i.file_size for i in members) > MAX_EXPANDED_BYTES:
-            _refuse(f'expanded archive exceeds {MAX_EXPANDED_BYTES // MIB} MiB (disk-space / zip-bomb guard)')
-        if any(i.file_size > MAX_MEMBER_BYTES for i in members):
-            _refuse(f'archive member exceeds {MAX_MEMBER_BYTES // MIB} MiB uncompressed (expansion guard)')
         recorded = _recorded_counts(path, [i.filename for i in models])
         if recorded is not None:
             return
-        _stream_counts(archive, models)
+        _stream_counts(archive, models, path=path)
 
 
 def _within_limits(counts):
@@ -158,40 +190,86 @@ def _recorded_counts(path, model_members):
     return counts
 
 
-def _stream_counts(archive, models):
+def _stream_counts(archive, models, *, path=None):
     """Stream every model member's XML, refusing at the first limit crossed; returns the totals."""
-    counts = {'triangle': 0, 'vertex': 0, 'elements': 0, 'estimated_bytes': 0}
+    counts = {'triangle': 0, 'vertex': 0, 'elements': 0, 'estimated_bytes': 0,
+              'payload_bytes': 0, 'geometry_attribute_bytes': 0}
+
+    def add_payload(size):
+        counts['payload_bytes'] += size
+        if counts['payload_bytes'] > MAX_XML_PAYLOAD_BYTES:
+            _refuse(f'XML text and attribute content at least {counts["payload_bytes"]:,} '
+                    f'bytes exceeds {MAX_XML_PAYLOAD_BYTES // MIB} MiB non-geometry limit',
+                    path=path)
+
+    def byte_length(value):
+        return len(value) if value.isascii() else len(value.encode('utf-8'))
+
+    def text(data):
+        # Count whitespace too: ElementTree retains it in the DOM fallback.
+        add_payload(byte_length(data))
 
     def start(name, attrs):
         local = name.rsplit('}', 1)[-1]
         counts['elements'] += 1
+        geometry_fields = _GEOMETRY_FIELDS.get(local, ())
+        # Only the fixed core geometry names are covered by the primitive
+        # budget. Arbitrary names (including namespace URIs) are retained XML.
+        payload = 0 if geometry_fields and name in (local, _CORE_NS + local) else byte_length(name)
+        geometry_payload = 0
+        for key, value in attrs.items():
+            value_bytes = byte_length(value)
+            if value_bytes > MAX_XML_ATTRIBUTE_BYTES:
+                _refuse(f'an XML attribute value exceeds {MAX_XML_ATTRIBUTE_BYTES // MIB} MiB '
+                        'limit', path=path)
+            size = byte_length(key) + value_bytes
+            if key in geometry_fields:
+                geometry_payload += size
+            else:
+                payload += size
+        if payload:
+            add_payload(payload)
+        counts['geometry_attribute_bytes'] += geometry_payload
+        if counts['geometry_attribute_bytes'] > MAX_XML_GEOMETRY_ATTRIBUTE_BYTES:
+            _refuse(f'XML geometry attributes at least {counts["geometry_attribute_bytes"]:,} '
+                    f'bytes exceeds {MAX_XML_GEOMETRY_ATTRIBUTE_BYTES // MIB} MiB geometry attribute limit',
+                    path=path)
         if counts['elements'] > MAX_XML_ELEMENTS:
-            _refuse(f'XML element count exceeds {MAX_XML_ELEMENTS:,} limit')
+            _refuse(f'XML element count at least {counts["elements"]:,} exceeds '
+                    f'{MAX_XML_ELEMENTS:,} limit', path=path)
         if local in ('triangle', 'vertex'):
             counts[local] += 1
             maximum = MAX_TRIANGLES if local == 'triangle' else MAX_VERTICES
             if counts[local] > maximum:
-                _refuse(f'{local} count exceeds {maximum:,} limit')
+                _refuse(f'{local} count at least {counts[local]:,} exceeds {maximum:,} limit',
+                        path=path)
             # Vertex/triangle arrays, streaming parser's temporary tuple lists,
             # and one transformed copy per active instance are conservatively
             # budgeted at 160 bytes per primitive. This intentionally errs high.
             counts['estimated_bytes'] += 160
             if counts['estimated_bytes'] > MAX_ESTIMATED_GEOMETRY_BYTES:
-                _refuse(f'estimated geometry allocation exceeds {MAX_ESTIMATED_GEOMETRY_BYTES // MIB} MiB safety ceiling')
+                _refuse(f'estimated geometry allocation exceeds '
+                        f'{MAX_ESTIMATED_GEOMETRY_BYTES // MIB} MiB safety ceiling '
+                        f'after {counts["triangle"]:,} triangles and '
+                        f'{counts["vertex"]:,} vertices', path=path)
 
     def doctype(*args):
-        _refuse('XML document type declarations are not supported')
+        _refuse('XML document type declarations are not supported', path=path)
 
     for member in models:
         parser = xml.parsers.expat.ParserCreate(namespace_separator='}')
         parser.StartElementHandler = start
+        parser.CharacterDataHandler = text
         parser.StartDoctypeDeclHandler = doctype
         with archive.open(member) as source:
-            total = 0
+            fed = 0
             while chunk := source.read(CHUNK):
-                total += len(chunk)
-                if total > MAX_XML_BYTES:
-                    _refuse(f'model XML exceeds {MAX_XML_BYTES // MIB} MiB limit')
+                fed += len(chunk)
                 _parse_chunk(parser, chunk, False)
+                # Expat reports the byte offset of an unfinished token. Stop
+                # feeding before a long name/attribute can grow without bound.
+                if fed - parser.CurrentByteIndex > MAX_XML_TOKEN_BYTES:
+                    _refuse(f'XML token exceeds {MAX_XML_TOKEN_BYTES // MIB} MiB limit',
+                            path=path)
             _parse_chunk(parser, b'', True)
     return counts

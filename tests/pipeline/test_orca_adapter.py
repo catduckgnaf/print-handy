@@ -13,11 +13,17 @@ def test_failed_two_copy_slice_keeps_both_engine_logs_and_structured_cause(tmp_p
     from print_handy.core import slice_failure, worker_errors
     from print_handy.runtime import _config
     _allow_post(monkeypatch)
+    _fallback_available(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
     monkeypatch.setattr(_config, 'state_home', lambda: str(tmp_path / 'profile'))
     calls = []
 
     def fail(command, **kwargs):
         calls.append(command)
+        output = Path(kwargs['cwd'])
+        (output / 'orca.log').write_text('SECRET engine output')
         return type('R', (), {'returncode': 18, 'stdout': '', 'stderr': 'SECRET engine output'})()
 
     monkeypatch.setattr(adapter.subprocess, 'run', fail)
@@ -58,6 +64,13 @@ def _source(tmp_path):
     source = tmp_path / 'part.stl'
     source.write_text('solid x\nfacet normal 0 0 0\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid x\n')
     return source
+
+
+def _fallback_available(monkeypatch, available=True):
+    executable = '/mock/bambu-studio' if available else None
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: executable)
+    if available:
+        monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
 
 
 def _allow_post(monkeypatch):
@@ -103,6 +116,10 @@ def test_auto_scaled_stl_with_copies_exports_distinct_geometry(tmp_path, monkeyp
 
 def test_bambu_runs_only_after_orca_execution_failure(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['flatpak', 'run', '--unshare=network',
+                                                  '--command=bambu-studio', 'com.bambulab.BambuStudio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/flatpak')
+    monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
     calls = []
 
     def run(command, **_kwargs):
@@ -126,8 +143,60 @@ def test_bambu_runs_only_after_orca_execution_failure(tmp_path, monkeypatch):
     assert any(path.name == 'machine.json' and path.parent.name == 'bambu' for path in configs)
 
 
+def test_bambu_fallback_available_by_command_name_uses_path_executable(tmp_path, monkeypatch):
+    _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['flatpak', 'run', '--unshare=network',
+                                                  '--command=bambu-studio',
+                                                  'com.bambulab.BambuStudio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/opt/bin/flatpak')
+    real_access = adapter.os.access
+    monkeypatch.setattr(adapter.os, 'access', lambda path, mode: (
+        True if path == '/opt/bin/flatpak' else real_access(path, mode)))
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            return type('R', (), {'returncode': 18, 'stdout': '', 'stderr': 'Orca exploded'})()
+        output = Path(command[command.index('--outputdir') + 1]) / 'plate_1.gcode'
+        output.write_text('; HEADER_BLOCK_START\n; BambuStudio 2.8.2\n'
+                          '; model printing time: 1m 0s; total estimated time: 2m 0s\nG90\nG1 X1 Y1 Z0.2\nEND_PRINT\n')
+        return type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    output, _provenance, _configs = adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert output.is_file()
+    assert len(calls) == 2
+
+
+
+def test_bambu_fallback_unavailable_is_not_spawned_and_preserves_conflict(tmp_path, monkeypatch):
+    _allow_post(monkeypatch)
+    _fallback_available(monkeypatch, available=False)
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            out = Path(command[command.index('--outputdir') + 1])
+            (out / 'result.json').write_text(json.dumps({
+                'return_code': -101, 'error_string': 'G-code conflicts detected after slicing.'}))
+        return type('R', (), {'returncode': 1, 'stdout': 'G-code conflicts detected', 'stderr': ''})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert len(calls) == 1
+    assert 'G-code conflicts detected' in str(caught.value)
+    assert 'Bambu Studio fallback slicer is not installed' in str(caught.value)
+    assert caught.value.kind == 'conflict'
+
+
 def test_bambu_fallback_runs_after_orca_gcode_conflict(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
     calls = []
 
     def run(command, **_kwargs):
@@ -148,6 +217,9 @@ def test_bambu_fallback_runs_after_orca_gcode_conflict(tmp_path, monkeypatch):
 
 def test_bambu_fallback_converts_percent_line_widths(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -174,6 +246,9 @@ def test_bambu_fallback_converts_percent_line_widths(tmp_path, monkeypatch):
 def test_bambu_output_still_fails_the_same_post_slice_gate(tmp_path, monkeypatch):
     from print_handy.core import slice_guard
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
     monkeypatch.setattr(adapter, 'post_slice', lambda *_args, **_kwargs: slice_guard.Result(status='blocked', blocked=['unsafe toolchange']))
     calls = []
 
@@ -320,6 +395,7 @@ def test_designer_support_placement_keys_carry_over_the_template(tmp_path, monke
 def test_bambu_fallback_timeout_keeps_the_orca_context_and_stays_retryable(tmp_path, monkeypatch):
     from print_handy.core import slice_failure
     _allow_post(monkeypatch)
+    _fallback_available(monkeypatch)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -401,6 +477,7 @@ def test_flex_retry_without_explicit_settings_keeps_the_plain_flex_profile(tmp_p
 def test_missing_bambu_fallback_binary_says_it_is_not_installed(tmp_path, monkeypatch):
     # taskset exits 127 with "failed to execute <binary>" when the fallback slicer is absent (#814).
     _allow_post(monkeypatch)
+    _fallback_available(monkeypatch)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -437,6 +514,7 @@ def test_missing_bambu_fallback_keeps_why_orca_failed(tmp_path, monkeypatch):
 def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback(tmp_path, monkeypatch):
     # #912: an -101 with named objects must not read as "Bambu Studio not installed".
     _allow_post(monkeypatch)
+    _fallback_available(monkeypatch, available=False)
 
     def run(command, **kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -452,9 +530,9 @@ def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback
     with pytest.raises(adapter.SliceFailure) as caught:
         adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
     assert caught.value.kind == 'conflict'
-    assert 'geometry conflict' in str(caught.value)
+    assert caught.value.slicer == 'OrcaSlicer'
+    assert caught.value.signature is None
     assert 'conflicting objects: BRONZE DETAILS and BLACK BODY' in str(caught.value)
-    assert 'not installed' not in str(caught.value)
 
 
 def test_unmapped_spool_warns_without_guessing_a_slot(tmp_path, monkeypatch, capsys):
