@@ -3,12 +3,13 @@
 `print-handy-ca.xml` is a byte-exact snapshot of the Community
 Applications (CA) template `templates/print-handy.xml` in the
 `catduckgnaf/catduck-unraid-templates` repository, refreshed on
-2026-11-22 for issue #1817 from `8a30d15e41ab`, the head of
+2026-11-24 for the 2.3.7 release checklist (#1870) from that repository's
+main at `3edcf44fc0a9` (catduckgnaf/catduck-unraid-templates#50: the
+`Requires` text names 2.3.7, not 2.4.0, as the first release that no
+longer reads the `hermes` folder). Earlier refreshes: `8a30d15e41ab` on
+2026-11-22 for issue #1817, the head of
 catduckgnaf/catduck-unraid-templates#48 (drops the `/data/hermes` path and
-adds the rename sentence to `Requires`). That pull request must merge
-before the print-handy change that removes the `/data/hermes` migration;
-after it merges, the snapshot equals that repository's main. Earlier
-refreshes: main head `d448e92bfb7b` on 2026-11-19 (#1143), and the
+adds the rename sentence to `Requires`), main head `d448e92bfb7b` on 2026-11-19 (#1143), and the
 original snapshot for catduckgnaf/catduck-unraid-templates#38 (the
 `:latest` change) on 2026-11-11.
 
