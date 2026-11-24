@@ -48,10 +48,47 @@ def test_unmentioned_inventory_question_gets_the_verified_aggregate(core):
     assert any("1250 g" in text and "incomplete" in text for text in discord.sent), discord.sent
 
 
-def test_slot_question_resolves_the_loaded_spool(core):
+@pytest.mark.parametrize("phrase", [
+    "What number spool is on 3",
+    "What spool number is in slot 3?",
+    "Which spool is on 3?",
+    "What's loaded in slot three?",
+    "What is the Spoolman ID for slot 3?",
+    "Which filament is in IFS slot 3?",
+    "WHICH SPOOL IS ON AMS SLOT 3!",
+    "What's in slot 3?",
+])
+def test_slot_question_resolves_the_loaded_spool(core, monkeypatch, phrase):
+    from print_handy import settings
+    from print_handy.runtime import spool_sync
+
     discord, bot = core
-    run(bot.handle_message(discord.message("What's in slot 2?")))
-    assert any("#7" in text and "620 g" in text for text in discord.sent), discord.sent
+    pid = settings.default_printer_id(bot.cfg)
+    spool = {**RAW[-1], "extra": {"ph_slot": f"{pid}:3"}}
+    monkeypatch.setattr(spool_sync, "load_state",
+                        lambda *a, **k: {"filament_slots": {"3": {"spoolman_id": 7}}})
+
+    def read_only(method, path, body=None):
+        assert method == "GET"
+        return [spool]
+
+    monkeypatch.setattr(spool_sync, "spoolman", read_only)
+    parsed = nl.parse(phrase)
+    assert parsed.capability_id == "loaded_spools"
+    assert parsed.slots["slot"] == 3 and "spool_id" not in parsed.slots
+    run(bot.handle_message(discord.message(phrase)))
+    assert any("Slot 3" in text and "#7" in text and "620 g" in text
+               for text in discord.sent), discord.sent
+    assert not any("/print-help" in text or "Did you mean" in text for text in discord.sent)
+
+
+@pytest.mark.parametrize("phrase", ["print 3 copies", "show spool 3", "hello there",
+                                    "https://example.org/model.stl", "load spool 3 into slot 2"])
+def test_non_slot_requests_are_not_captured(phrase):
+    assert nl.slot_query(phrase) is None
+    if phrase == "show spool 3":
+        parsed = nl.parse(phrase)
+        assert parsed.capability_id == "spool_detail" and parsed.slots["spool_id"] == 3
 
 
 def test_spool_detail_has_only_real_fields(core):
