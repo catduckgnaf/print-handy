@@ -13,6 +13,8 @@ def test_failed_two_copy_slice_keeps_both_engine_logs_and_structured_cause(tmp_p
     from print_handy.core import slice_failure, worker_errors
     from print_handy.runtime import _config
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'shutil', type('S', (), {'which': lambda *_: '/mock/bambu-studio'})())
+    monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
     monkeypatch.setattr(_config, 'state_home', lambda: str(tmp_path / 'profile'))
     calls = []
 
