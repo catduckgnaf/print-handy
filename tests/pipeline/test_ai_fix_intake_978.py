@@ -8,8 +8,10 @@ the gates run again on the new slice; a passing fix records NO support
 waiver (a fix is not a waiver, and never a yolo waiver); the fix confirmation
 is not an approval question, while the gate and the start keep theirs.
 """
+import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace as S
 
 import pytest
 
@@ -294,6 +296,25 @@ def _v12(monkeypatch):
     return V12_FIXTURE
 
 
+def _run_v12_ai_fallback(env, monkeypatch, *answers):
+    """Exercise the AI fallback only when a deterministic gap repair is unavailable."""
+    monkeypatch.setattr(prepared_intake, 'gap_repairs', lambda actions: [])
+    adapter = Adapter([])
+
+    def picks():
+        yield 2
+        yield 0
+        for label in ('Slice and print with supports (not recommended)', *answers):
+            yield adapter.questions[-1]['choices'].index(label)
+
+    adapter.picks = picks()
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+              text='https://www.printables.com/model/1-ghost')
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    return adapter, result, receipt
+
+
 def test_fix_that_clears_low_clearance_records_no_acknowledgement(env, monkeypatch):
     """A fix that makes every gate pass waived nothing: no support_override
     and no clearance acknowledgement -- in particular never a print_anyway
@@ -306,7 +327,7 @@ def test_fix_that_clears_low_clearance_records_no_acknowledgement(env, monkeypat
     monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix, **_kw: clean)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'lay_flat'}], summary='lay it flat'))
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0)
-    adapter, result, receipt = run_flow(env, [2, 0, 3, 0, 0])
+    adapter, result, receipt = _run_v12_ai_fallback(env, monkeypatch, ai_fix.FIX_LABEL, ai_fix.APPLY_LABEL)
     assert receipt['status'] == 'STARTED'
     assert 'support_override' not in receipt
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -329,7 +350,9 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
                                            summary='sink a little'))
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0), then on the
     # re-graded gate: Decide without a fix (1), Print anyway (0)
-    adapter, result, receipt = run_flow(env, [2, 0, 3, 0, 0, 1, 0])
+    adapter, result, receipt = _run_v12_ai_fallback(
+        env, monkeypatch, ai_fix.FIX_LABEL, ai_fix.APPLY_LABEL, ai_fix.DECIDE_LABEL,
+        intake_questions.PRINT_ANYWAY_LABEL)
     gate = [q for q in adapter.questions if intake_questions.PRINT_ANYWAY_LABEL in (q.get('choices') or [])]
     assert len(gate) == 1 and 'under 1.0 mm' in gate[0]['question']
     assert receipt['status'] == 'STARTED'
@@ -379,7 +402,8 @@ def test_a_declined_geometry_fix_leaves_no_copy_in_the_job_folder(env, monkeypat
     # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Cancel the fix (1),
     # then Cancel (2) on the fix offer. The initial fallback color prompt is not
     # shown when coverage already selects the only compatible spool.
-    adapter, result, receipt = run_flow(env, [0, 1, 2])
+    adapter, result, receipt = _run_v12_ai_fallback(
+        env, monkeypatch, ai_fix.FIX_LABEL, print_next.CANCEL_LABEL, print_next.CANCEL_LABEL)
     assert any(ai_fix.APPLY_LABEL in (q.get('choices') or []) for q in adapter.questions)
     folder = Path(receipt['job_json']).parent
     assert not list(folder.glob(ai_fix.STAGING_PREFIX + '*'))
@@ -470,3 +494,16 @@ def test_intake_never_offers_the_ai_fix_even_with_ai_ready_1373(env, monkeypatch
     assert not any('AI fix' in (q.get('question') or '') for q in adapter.questions)
     assert adapter.questions[-1]['choices'] == [intake_questions.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'ai_fix_attempts' not in json.loads(Path(receipt['job_json']).read_text())
+
+
+def test_deterministic_gap_repairs_take_priority_over_ai(env, monkeypatch):
+    _v12(monkeypatch)
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05}))
+    adapter, _, receipt = run_flow(env, [2, 0, 3, 3])
+    gate = next(q for q in adapter.questions if intake_questions.PRINT_ANYWAY_LABEL in q['choices'])
+    assert gate['choices'][:2] == ['Extend underside to plate', 'Flatten (sink) to plate']
+    assert ai_fix.FIX_LABEL not in gate['choices']
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+    assert 'support_override' not in receipt
+    assert env.starts == []
