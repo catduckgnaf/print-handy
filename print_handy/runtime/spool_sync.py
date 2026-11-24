@@ -2427,6 +2427,10 @@ def loaded_slot_text(slot: int, *, printer_id: str, client: Client | None = None
     try:
         spools = (client or spoolman)("GET", "/api/v1/spool?allow_archived=false", None) or []
     except Exception:
+        # Fail-soft per #387, but never silent (#1467): the cause is logged.
+        logging.getLogger(__name__).warning(
+            "Spoolman lookup for %s on printer %s failed; answering from the cached record",
+            label, printer_id, exc_info=True)
         if sid is not None:
             return _loaded_line(label, rec, {}, False) + " (cached binding, not verified live)"
         if _names_filament(rec):

@@ -123,6 +123,14 @@ def slot_answer(parsed, source, gateway, *, cfg=None):
         pid = _channel_printer_id(source, gateway)
         entries = settings.printers(cfg)
         names = {str(entry["id"]): str(entry.get("name") or entry["id"]) for entry in entries}
+        stamped = getattr(source, "printer_id", None)
+        if (candidates and isinstance(stamped, str) and stamped in names
+                and not getattr(source, "shared_printer_ids", None)
+                and getattr(gateway, "shared_printer_ids_for", None) is None):
+            # A source stamped with its printer has decided it, even when that
+            # printer is the default one _routed_printer_id normalizes away;
+            # only a truly shared channel is undecided.
+            candidates, pid = None, stamped
         if candidates:
             allowed = [str(candidate) for candidate in candidates]
         elif pid:
