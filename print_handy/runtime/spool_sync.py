@@ -904,6 +904,82 @@ def _clear_ph_slot_claims(client: Client, printer_id: str, slot: int, *, keep_sp
     return cleared
 
 
+_SLOT_LOCATION = re.compile(r"IFS Slot ([1-4])")
+
+
+def slot_location(spool: dict[str, Any] | None) -> int | None:
+    """The IFS slot a spool's Spoolman ``location`` names ("IFS Slot 3" -> 3), or None (#1888).
+
+    The location is what the bind writes for a loaded spool. It names a
+    slot, not a printer, and it is not the assignment (``ph_slot`` is): a
+    location can outlive the load it described.
+    """
+    match = _SLOT_LOCATION.fullmatch(str((spool or {}).get("location") or "").strip())
+    return int(match.group(1)) if match else None
+
+
+def _location_names_slot_it_left(row: dict[str, Any], printer_id: str | None, slot: int, *,
+                                 holder: int | None, held: set[int],
+                                 state_path: Path | None) -> bool:
+    """True when a live spool's location names ``slot`` but nothing says it is still loaded (#1888).
+
+    Not stray: the slot's own spool (``holder``), a spool this printer's
+    record holds in any slot (``held``), a spool that claims any slot
+    through ``ph_slot`` other than (this printer, ``slot``) — another
+    printer's "IFS Slot 3" reads the same — and a spool another printer's
+    record loads.
+    """
+    if not isinstance(row, dict) or row.get("id") is None or row.get("archived"):
+        return False
+    sid = int(row["id"])
+    if sid == holder or sid in held or slot_location(row) != int(slot):
+        return False
+    claim = spool_ph_slot(row)
+    if claim is not None and claim != (printer_id, int(slot)):
+        return False
+    return spool_loaded_elsewhere(sid, state_path=state_path, printer_id=printer_id) is None
+
+
+def shelve_slot_leftovers(client: Client, printer_id: str | None, slot: int, *,
+                          holder: int | None, held: set[int] | frozenset[int] = frozenset(),
+                          state_path: Path | None = None) -> list[int]:
+    """Put back on the shelf every spool whose location still names a slot it left (#1888).
+
+    A spool replaced in a slot kept its "IFS Slot N" location whenever the
+    write that replaced it only knew the slot's recorded spool or its
+    ``ph_slot`` claim (2026-11-21: spool 22 stayed at IFS Slot 3 beside
+    spool 24 after a screen-side change). This moves every such spool to
+    the shelf, with or without a claim, and clears a claim it still holds
+    on this slot. Best effort: a Spoolman that does not answer leaves the
+    locations alone (``/spool sync`` names them). Returns the spool ids
+    shelved.
+    """
+    shelved: list[int] = []
+    try:
+        rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Could not read Spoolman to shelve spools left at IFS Slot %s: %s", slot, exc)
+        return shelved
+    if not isinstance(rows, list):
+        return shelved
+    for row in rows:
+        if not _location_names_slot_it_left(row, printer_id, slot, holder=holder, held=set(held),
+                                            state_path=state_path):
+            continue
+        body: dict[str, Any] = {"location": SHELF}
+        if printer_id and spool_ph_slot(row) == (printer_id, int(slot)):
+            body["extra"] = {PH_SLOT_FIELD: None}
+        try:
+            _call_client(client, "PATCH", f"/api/v1/spool/{int(row['id'])}", body)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Could not shelve spool #%s left at IFS Slot %s: %s", row["id"], slot, exc)
+            continue
+        shelved.append(int(row["id"]))
+    return shelved
+
+
 def forget_cached_slot(slot: int, *, state_path: Path | None = None,
                        printer_id: str | None = None) -> None:
     """Drop one slot from the local cache so a no-claim seed cannot write it back.
@@ -1102,6 +1178,14 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
         # claim on this slot is still Print Handy's to clear (#798).
         if prior_claims_slot():
             _set_ph_slot(client, int(prior), None)
+    # Any other spool whose location still names this slot goes back on the
+    # shelf (#1888): the prior spool above is only the one the record knew.
+    held = {int(rec["spoolman_id"]) for key, rec in slots.items()
+            if str(key) != str(slot) and isinstance(rec, dict) and rec.get("spoolman_id") is not None}
+    if prior:
+        held.add(int(prior))  # the replaced spool's fate is the disposition's, above
+    shelve_slot_leftovers(client, effective_printer, slot, holder=int(spool_id), held=held,
+                          state_path=state_path)
     record = _slot_record(slot, spool, old, note)
     slots[str(slot)] = record
     if (state.get("spool") or {}).get("spoolman_id") == prior and prior is not None:
@@ -2258,9 +2342,53 @@ def sync_external_spoolman(printer_id: str | None = None, *, client: Client = sp
     result["reconcile"] = reconcile(pid, client=client, mr=mr,
                                      state_path=state_path, pending_path=pending_path)
     result["ok"] = bool((result["reconcile"] or {}).get("ok"))
+    if result["ok"]:
+        result["stray_locations"] = stray_slot_locations(
+            rows, pid, (result["reconcile"] or {}).get("assignments") or {}, state_path=state_path)
     if not result["ok"] and result["reconcile"] and result["reconcile"].get("error"):
         result["error"] = str(result["reconcile"]["error"])
     return result
+
+
+def stray_slot_locations(rows: list[Any], printer_id: str, assignments: dict[Any, Any], *,
+                         state_path: Path | None = None) -> list[dict[str, Any]]:
+    """Spools whose Spoolman location names an IFS slot they do not hold on this printer (#1888).
+
+    ``assignments`` is the reconciled {slot: spool id}. A spool held in any
+    slot here is named with the slot it holds; one held nowhere is a
+    leftover location. Spools that claim another printer's slot, or that
+    another printer's record loads, are not this printer's to report.
+    """
+    by_slot = {int(k): int(v) for k, v in (assignments or {}).items()
+               if str(k).isdigit() and v is not None}
+    held_in = {sid: slot for slot, sid in by_slot.items()}
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        named = slot_location(row) if isinstance(row, dict) else None
+        if named is None or row.get("id") is None or row.get("archived"):
+            continue
+        sid = int(row["id"])
+        holder = by_slot.get(named)
+        if sid == holder:
+            continue
+        held_slot = held_in.get(sid)
+        if held_slot is None and not _location_names_slot_it_left(
+                row, printer_id, named, holder=holder, held=set(), state_path=state_path):
+            continue
+        out.append({"spool_id": sid, "slot": named, "holder": holder, "held_slot": held_slot})
+    return sorted(out, key=lambda item: (item["slot"], item["spool_id"]))
+
+
+def _stray_location_text(item: dict[str, Any]) -> str:
+    sid, slot = item["spool_id"], item["slot"]
+    if item.get("held_slot") is not None:
+        where = f"it is loaded in slot {item['held_slot']}"
+    elif item.get("holder") is not None:
+        where = f"slot {slot} holds spool #{item['holder']}"
+    else:
+        where = f"slot {slot} is empty in Print Handy's record"
+    return (f"Location: spool #{sid} is at IFS Slot {slot} in Spoolman, but {where}. Nothing was "
+            f"changed; set its location in Spoolman, or load it with `/spool change <slot> {sid}`.")
 
 
 def sync_external_text(result: dict[str, Any]) -> str:
@@ -2278,6 +2406,7 @@ def sync_external_text(result: dict[str, Any]) -> str:
         lines.append(f"Conflict: {conflict['reason']}. Print Handy did not write its own claim, so "
                      "the slot follows Spoolman; rebind the slot if that is wrong.")
     lines.append(reconcile_text(result["reconcile"]))
+    lines.extend(_stray_location_text(item) for item in result.get("stray_locations") or [])
     return "\n".join(lines)
 
 
