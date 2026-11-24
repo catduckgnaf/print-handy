@@ -103,7 +103,7 @@ Rollback: use the previous image digest with the same data paths ([Rollback](DOC
 
 - 2.4.0 hard-cut work shipped here (#1817, #1849): settings shims and renamed-key aliases removed (#1834), module shims removed (#1835), Docker `hermes` volume handling (#1836), one state layout (#1837), record shapes (#1838), code cleanups (#1839), the G-code tool map and job card namespace renamed into one `tool_map` module (#1830), the retired Flatpak ID (#1851), explicit printer-state routing and a documentation sweep (#1853), YAML-only settings (#1854), test hardware records under printer state roots (#1855), bound launch replay fixtures (#1876), and the docs and messages naming 2.3.7 (#1879, #1881).
 - Docker: the bundled vision model directory is traversable for the runtime user (#1856); OrcaSlicer 2.5.2 pins for both architectures and the regenerated profile database (#1875).
-- Release and CI: five discord-timing repeats (#1735), faster releases with notes coverage fill, light CI for bump PRs and one image build per release (#1736), untagged candidate digests documented (#1748), seeded Web UI layout audits in Chromium (#1783, #1786), daily firmware feed and a cached Rust toolchain (#1850), and the 2.3.7 timing baselines (#1880).
+- Release and CI: five discord-timing repeats (#1735), faster releases with notes coverage fill, light CI for bump PRs and one image build per release (#1736), untagged candidate digests documented (#1748), seeded Web UI layout audits in Chromium (#1783, #1786), daily firmware feed and a cached Rust toolchain (#1850), the 2.3.7 timing baselines (#1880), and the 2.3.7 release notes page (#1882).
 - Unraid: the Community Applications template's upgrade text names 2.3.7 (catduckgnaf/catduck-unraid-templates#50).
 
 ## Verification and known limitations
@@ -113,7 +113,7 @@ Rollback: use the previous image digest with the same data paths ([Rollback](DOC
 - The AI fix session (#1840) is an early preview; #1778 stays open.
 - The real-OrcaSlicer timing leg reports one unexplained rise (witch-ghost, +0.33 s on one runner class since 2.3.4); it is reporting-only and recorded in [Performance regressions](history/PERFORMANCE-REGRESSIONS.md).
 
-Merged PRs covered by this release range: #1735, #1736, #1738, #1739, #1740, #1741, #1743, #1744, #1746, #1748, #1753, #1754, #1772, #1773, #1774, #1775, #1780, #1781, #1783, #1784, #1785, #1786, #1791, #1792, #1793, #1794, #1795, #1796, #1797, #1798, #1799, #1800, #1801, #1802, #1803, #1804, #1805, #1806, #1807, #1808, #1809, #1810, #1811, #1812, #1813, #1814, #1815, #1818, #1819, #1820, #1821, #1823, #1827, #1828, #1829, #1830, #1831, #1833, #1834, #1835, #1836, #1837, #1838, #1839, #1840, #1841, #1842, #1843, #1845, #1848, #1850, #1851, #1852, #1853, #1854, #1855, #1856, #1869, #1872, #1873, #1874, #1875, #1876, #1877, #1878, #1879, #1880, #1881.
+Merged PRs covered by this release range: #1735, #1736, #1738, #1739, #1740, #1741, #1743, #1744, #1746, #1748, #1753, #1754, #1772, #1773, #1774, #1775, #1780, #1781, #1783, #1784, #1785, #1786, #1791, #1792, #1793, #1794, #1795, #1796, #1797, #1798, #1799, #1800, #1801, #1802, #1803, #1804, #1805, #1806, #1807, #1808, #1809, #1810, #1811, #1812, #1813, #1814, #1815, #1818, #1819, #1820, #1821, #1823, #1827, #1828, #1829, #1830, #1831, #1833, #1834, #1835, #1836, #1837, #1838, #1839, #1840, #1841, #1842, #1843, #1845, #1848, #1850, #1851, #1852, #1853, #1854, #1855, #1856, #1869, #1872, #1873, #1874, #1875, #1876, #1877, #1878, #1879, #1880, #1881, #1882.
 
 ## References
 
