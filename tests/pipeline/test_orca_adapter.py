@@ -103,6 +103,9 @@ def test_auto_scaled_stl_with_copies_exports_distinct_geometry(tmp_path, monkeyp
 
 def test_bambu_runs_only_after_orca_execution_failure(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
     calls = []
 
     def run(command, **_kwargs):
@@ -174,6 +177,9 @@ def test_bambu_fallback_unavailable_is_not_spawned_and_preserves_conflict(tmp_pa
 
 def test_bambu_fallback_runs_after_orca_gcode_conflict(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
     calls = []
 
     def run(command, **_kwargs):
@@ -194,6 +200,9 @@ def test_bambu_fallback_runs_after_orca_gcode_conflict(tmp_path, monkeypatch):
 
 def test_bambu_fallback_converts_percent_line_widths(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -220,6 +229,9 @@ def test_bambu_fallback_converts_percent_line_widths(tmp_path, monkeypatch):
 def test_bambu_output_still_fails_the_same_post_slice_gate(tmp_path, monkeypatch):
     from print_handy.core import slice_guard
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
     monkeypatch.setattr(adapter, 'post_slice', lambda *_args, **_kwargs: slice_guard.Result(status='blocked', blocked=['unsafe toolchange']))
     calls = []
 
