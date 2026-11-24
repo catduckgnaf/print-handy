@@ -179,6 +179,8 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
 
     while last not in posted:
         await asyncio.sleep(START_PROGRESS_POLL_S)
+        if progress is not None and (progress.get('stop_managed') or progress.get('stop_message') is not None):
+            return
         stages = _new_stages(timing_path, offset)
         now = clock()
         for stage, _grace, _text in START_PROGRESS:
@@ -232,7 +234,7 @@ async def _with_start_progress(adapter, source, metadata, job_path, work, clock=
     without this wrapper; the watcher only posts notes and is stopped when work ends.
     """
     adapter_state = getattr(adapter, '__dict__', {})
-    if (progress is not None and progress.get('stop_message') is not None
+    if (progress is not None and (progress.get('stop_managed') or progress.get('stop_message') is not None)
             or 'picks' in adapter_state or 'clicks' in adapter_state or job_path is None):
         return await work  # scripted test adapters record questions only, as _with_stop does
     timing_path = Path(job_path).parent / 'TIMING.jsonl'
@@ -425,6 +427,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         if job is not None and job.cancellable:
             return await _race_job_cancel(work, job, text)
         return await work
+    # Reserve ownership before starting work, including the quiet window.
+    # A Stop-enabled launch must never start an independent status watcher.
+    if start_progress is not None:
+        start_progress['stop_managed'] = True
     task = None
     if quiet_s:
         # Quiet window (#1793 review): run the step first and post its Stop
