@@ -638,19 +638,30 @@ def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
 
 
 def test_expired_question_offers_one_resume_and_keeps_the_saved_intake(env):
-    # Expire the first question, then continue: mode, two part colors, cancel.
+    # A's held question expires while B is printing in this channel. The
+    # recovery prompt must identify only A and leave B's active stage alone.
+    from print_handy.core import running_jobs
+    job_b = {'title': 'Active Job B', 'stage': 'uploading', 'timer': 'B-stage-timer'}
     adapter = Adapter([0, 1, 0, 0, 3])
     adapter.expire_once = True
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
-    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    original_lookup = running_jobs.lookup_for_source
+    try:
+        running_jobs.lookup_for_source = lambda source: job_b
+        result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    finally:
+        running_jobs.lookup_for_source = original_lookup
     questions = adapter.questions
     resume = next(q for q in questions if 'expired' in q['question'].lower())
     assert resume['choices'] == ['Resume', 'Cancel']
+    assert 'Ghost' in resume['question']
     assert any('color' in q['question'].lower() for q in questions)
     assert result['action'] == 'skip'
     assert env.sliced == [] and env.starts == []
     assert any('Nothing was sliced' in line for line in adapter.sent)
+    assert job_b == {'title': 'Active Job B', 'stage': 'uploading', 'timer': 'B-stage-timer'}
+    assert not any('Active Job B' in q['question'] for q in questions)
 
 
 @pytest.mark.parametrize('resume_outcome', ['expired', 'cancelled'])

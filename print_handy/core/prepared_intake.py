@@ -6287,11 +6287,21 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # The receipt and JOB.json written before this question stay on disk. Resume
         # re-reads them instead of asking for the link again.
         receipt.update(status='EXPIRED', sliced=False, uploaded=False, started=False)
+        title = receipt.get('title')
+        saved = receipt.get('job_json')
+        if not title and saved:
+            try:
+                saved_job = json.loads(Path(saved).read_text())
+                if isinstance(saved_job, dict):
+                    title = saved_job.get('title')
+            except (OSError, ValueError, TypeError):
+                logger.debug("could not read the expired intake's saved title", exc_info=True)
+        title = title or 'the saved model'
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         try:
             resumed = await _ask(adapter, source, key,
-                                 'This question expired. Nothing was sliced, uploaded or started.',
-                                 ['Resume'], timeout)
+                                 f'{title}: this question expired. Nothing was sliced, uploaded or started.',
+                                 ['Resume', 'Cancel'], timeout)
         except (IntakeExpired, IntakeCancelled) as exc:
             # Exceptions raised inside this handler do not reach the sibling
             # cancellation/failure handlers. Close the unanswered recovery prompt
@@ -6299,7 +6309,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt.update(status='CANCELLED' if isinstance(exc, IntakeCancelled) else 'FAILED')
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             await adapter.send(chat_id=source.chat_id,
-                               content='Intake closed. Nothing was sliced, uploaded or started.',
+                               content=f'{title}: intake closed. Nothing was sliced, uploaded or started.',
                                metadata=metadata)
             return {'action': 'skip', 'reason': 'resume cancelled or expired'}
         saved = receipt.get('job_json')
