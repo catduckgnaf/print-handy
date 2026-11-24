@@ -1347,7 +1347,8 @@ def unbind_text(result: dict[str, Any]) -> str:
 def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Client = moonraker,
                state_path: Path | None = None, pending_path: Path | None = None,
                printer_id: str | None = None,
-               note: str = "Swapped from the Web UI spools page") -> dict[str, Any]:
+               note: str = "Swapped from the Web UI spools page",
+               expected_spools: tuple[int, int] | None = None) -> dict[str, Any]:
     """Swap the spools in two slots, everywhere, with Spoolman winning (#789).
 
     Two bind_slot calls cannot do this (each refuses a spool that is
@@ -1414,6 +1415,8 @@ def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Clien
                                  f"slot {slot_b} in Spoolman, so nothing was changed. "
                                  "Run the spool sync to name the conflict, fix it, "
                                  "and try again")
+    if expected_spools is not None and (id_a, id_b) != expected_spools:
+        raise SpoolError("The two slot assignments changed. Run /spool sync and try again.")
     if id_a is None and id_b is None:
         raise SpoolError(f"slots {slot_a} and {slot_b} are both empty. Nothing changed")
     spools: dict[int, dict[str, Any]] = {}
@@ -1483,6 +1486,65 @@ def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Clien
             "spool_in_a": int(id_b) if id_b is not None else None,
             "spool_in_b": int(id_a) if id_a is not None else None,
             "records": records, "screens": screens, "lane_data": lane_data}
+
+
+def repair_claimed_lane(alert: dict[str, Any], action: str, *, chosen_id: int | None = None,
+                        client: Client = spoolman, mr: Client = moonraker,
+                        state_path: Path | None = None, printer_id: str | None = None) -> str:
+    """Re-check a claimed-elsewhere notice before acting on the operator's choice."""
+    from . import lane_data_sync
+
+    slot, other = int(alert["slot"]), int(alert["other_slot"])
+    recorded, claimed = int(alert["recorded_spool_id"]), int(alert["spool_id"])
+    if slot not in SLOTS or other not in SLOTS or slot == other or recorded == claimed:
+        raise SpoolError("Invalid conflict notice. Run /spool sync.")
+    pid = printer_id or _default_printer_id()
+    if not pid or _toolhead_lane_namespace(pid) or _lane_data_write_refusal(pid):
+        raise SpoolError("Screen lane repair is not supported here. Run /spool sync.")
+    if printer_state(mr) not in ("standby", "complete", "cancelled", "error", "ready", "idle"):
+        raise SpoolError("Wait until the printer is idle before repairing the slot assignments.")
+    state = load_state(state_path, printer_id=printer_id)
+    slots = state.get("filament_slots") or {}
+    if ((slots.get(str(slot)) or {}).get("spoolman_id"),
+            (slots.get(str(other)) or {}).get("spoolman_id")) != (recorded, claimed):
+        raise SpoolError("The slot assignments changed. Run /spool sync and try again.")
+    rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
+    if not isinstance(rows, list):
+        raise SpoolError("Spoolman assignments could not be checked. Run /spool sync.")
+    for where, want in ((slot, recorded), (other, claimed)):
+        ids = {row["id"] for row in rows if isinstance(row, dict) and not row.get("archived")
+               and spool_ph_slot(row) == (pid, where) and row.get("id") is not None}
+        if ids != {want}:
+            raise SpoolError("Spoolman assignments changed or are ambiguous. Run /spool sync.")
+    lanes = lane_data_sync.parse_lane_data(read_lane_data(mr)) or {}
+    lane = lanes.get(slot) or {}
+    source = lanes.get(other) or {}
+    if (lane.get("spool_id") != claimed or source.get("spool_id") not in (None, claimed)
+            or not source or not (source.get("spool_id") or source.get("material") or source.get("color"))
+            or lane.get("slot_issue") or source.get("slot_issue")
+            or lane.get("locked_color") or lane.get("locked_material")):
+        raise SpoolError("The screen conflict changed or is locked. Run /spool sync and review it.")
+    if action == "keep":
+        row = next(row for row in rows if isinstance(row, dict) and row.get("id") == recorded)
+        result = verify_lane_link(slot, row, mr=mr)
+        if result.get("status") not in ("verified", "repaired"):
+            raise SpoolError("The screen link could not be verified. Run /spool sync to retry.")
+        return f"Slot {slot}: kept spool #{recorded}; screen link verified. Inventory unchanged."
+    if action == "move":
+        if source.get("locked_color") or source.get("locked_material"):
+            raise SpoolError("The other screen lane is locked. Run /spool sync and review it.")
+        result = swap_slots(slot, other, client=client, mr=mr, state_path=state_path,
+                            printer_id=printer_id, expected_spools=(recorded, claimed),
+                            note="Swapped from claimed-lane conflict")
+        return swap_text(result) + " Run /spool sync if the screen still disagrees."
+    if action == "pick" and chosen_id is not None:
+        if int(chosen_id) in (recorded, claimed):
+            raise SpoolError("Use the Keep or Move button for those spools.")
+        result = bind_slot(slot, int(chosen_id), client=client, mr=mr, state_path=state_path,
+                           printer_id=printer_id, expected_prior_spool_id=recorded,
+                           note="Bound from claimed-lane conflict")
+        return bind_text(result)
+    raise SpoolError("Unknown conflict repair choice.")
 
 
 def swap_text(result: dict[str, Any]) -> str:
