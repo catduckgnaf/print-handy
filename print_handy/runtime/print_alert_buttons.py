@@ -539,6 +539,40 @@ def rearm_alert(token: str, channel_id: str, message_id: str, content: str, kind
     return False
 
 
+def claimed_lane_components(aid: str, recorded: int, claimed: int) -> list[dict[str, Any]]:
+    """Explicit choices for two slots claiming one spool (#1886)."""
+    return [{"type": 1, "components": [
+        {"type": 2, "style": 2, "label": f"Keep #{recorded}", "custom_id": f"{INSERTION_PREFIX}:keep:{aid}"},
+        {"type": 2, "style": 1, "label": f"Move #{claimed} here (swap)", "custom_id": f"{INSERTION_PREFIX}:move:{aid}"},
+        {"type": 2, "style": 1, "label": "Pick another spool", "custom_id": f"{INSERTION_PREFIX}:pick:{aid}"},
+    ]}]
+
+
+def post_claimed_lane(token: str, channel_id: str, content: str, event: dict[str, Any]) -> bool:
+    slot, other = event.get("slot"), event.get("other_slot")
+    recorded, claimed = event.get("recorded_spool_id"), event.get("spool_id")
+    if (not token or not channel_id or slot not in (1, 2, 3, 4)
+            or other not in (1, 2, 3, 4) or slot == other
+            or not recorded or not claimed or recorded == claimed):
+        return False
+    aid = record("claimed-lane", "", slot=slot, other_slot=other,
+                 recorded_spool_id=recorded, spool_id=claimed)
+    body = json.dumps({"content": content[:1990], "components": claimed_lane_components(aid, recorded, claimed),
+                       "allowed_mentions": {"parse": []}}).encode()
+    req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
+                                 method="POST", headers={"Authorization": f"Bot {token}",
+                                                         "Content-Type": "application/json",
+                                                         "User-Agent": rest.USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if 200 <= resp.status < 300:
+                return True
+    except Exception:
+        pass
+    take(aid)
+    return False
+
+
 def post_insertion_confirmation(token: str, channel_id: str, content: str, slot: int) -> bool:
     """Post an answer-only IFS insertion UI. It has no printer or inventory side effect."""
     if not token or not channel_id or slot not in (1, 2, 3, 4):
@@ -1696,7 +1730,7 @@ def parse_retry_custom_id(custom_id: str) -> str | None:
 def parse_insertion_custom_id(custom_id: str) -> tuple[str, str] | None:
     """Return the inventory-only insertion choice and alert id, or None for unrelated controls."""
     parts = str(custom_id or "").split(":")
-    if len(parts) == 3 and parts[0] == INSERTION_PREFIX and parts[1] in ("same", "existing", "new") and parts[2]:
+    if len(parts) == 3 and parts[0] == INSERTION_PREFIX and parts[1] in ("same", "existing", "new", "keep", "move", "pick") and parts[2]:
         return parts[1], parts[2]
     return None
 
