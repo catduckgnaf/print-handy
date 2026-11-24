@@ -406,15 +406,16 @@ def test_an_undelivered_slot_warning_is_retried_by_the_next_check(tmp_path, monk
     assert attempts == ["slot mismatch", "slot mismatch"]
 
 
-def test_a_release_that_cannot_lock_still_lets_the_next_check_retry(tmp_path, monkeypatch):
+def test_a_release_that_cannot_lock_is_retried_after_a_listener_restart(tmp_path, monkeypatch):
     state = tmp_path / "notifications.json"
     monkeypatch.setattr(mel, "NOTIFICATION_STATE", state)
-    monkeypatch.setattr(mel, "_UNRELEASED_CLAIMS", set(), raising=False)
     monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 3, 3, None))
     monkeypatch.setattr(mel.Listener, "_slot_agreement", lambda self, sources=None: "slot mismatch")
     async def no_wait(delay):
         return None
     monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(mel.time, "time", lambda: clock["now"])
     real_locked = mel.state_file.locked
     lock_busy = {"on": False}
 
@@ -442,9 +443,28 @@ def test_a_release_that_cannot_lock_still_lets_the_next_check_retry(tmp_path, mo
 
     asyncio.run(check(mel.Listener()))
     lock_busy["on"] = False
+    # The undelivered claim is on disk, so a restarted listener (nothing
+    # carried over in memory) sees it once it has expired.
+    getattr(mel, "_UNRELEASED_CLAIMS", set()).clear()
+    ttl = getattr(mel, "DELIVERY_CLAIM_TTL_S", 60.0)
+    clock["now"] += ttl + 1
     asyncio.run(check(mel.Listener()))
+    clock["now"] += ttl + 1
     asyncio.run(check(mel.Listener()))
     assert attempts == ["slot mismatch", "slot mismatch"]
+
+
+def test_a_pending_delivery_claim_blocks_until_it_expires_or_is_confirmed(tmp_path):
+    state = tmp_path / "notifications.json"
+    assert mel._claim_delivery("job:7", "slot_warning", path=state, now=100.0)
+    # Another live attempt is still posting: no duplicate.
+    assert not mel._claim_delivery("job:7", "slot_warning", path=state, now=130.0)
+    # That attempt never finished: the claim is taken again.
+    assert mel._claim_delivery("job:7", "slot_warning", path=state, now=100.0 + mel.DELIVERY_CLAIM_TTL_S + 1)
+    mel._confirm_delivery("job:7", "slot_warning", path=state)
+    assert not mel._claim_delivery("job:7", "slot_warning", path=state, now=10_000.0)
+    mel._release_delivery("job:8", "slot_warning", path=state)
+    assert mel._claim_delivery("job:8", "slot_warning", path=state, now=10_000.0)
 
 
 @pytest.mark.parametrize("active_slot, warned", [(3, False), (4, True)])
