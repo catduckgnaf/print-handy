@@ -1166,12 +1166,13 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
         if prior_claims_slot():
             body["extra"] = {PH_SLOT_FIELD: None}
         client("PATCH", f"/api/v1/spool/{int(prior)}", body)
-    if prior and int(prior) != int(spool_id) and prior_disposition == "delete":
-        # The operator explicitly picked Delete for the replaced spool
-        # (#512): its Spoolman record is removed, not archived. This is the
-        # one destructive disposition, so no flow passes it by default.
-        # The record going away takes any ph_slot claim with it (#798).
-        client("DELETE", f"/api/v1/spool/{int(prior)}", None)
+    # The operator explicitly picked Delete for the replaced spool (#512):
+    # its Spoolman record is removed, not archived. This is the one
+    # destructive disposition, so no flow passes it by default. It runs
+    # after the screen lane step below (#1885): a lane still naming the
+    # spool must be relinked first, or the spool is archived instead.
+    delete_prior = bool(prior) and int(prior) != int(spool_id) and prior_disposition == "delete"
+    delete_prior_claims = delete_prior and prior_claims_slot()
     if prior and int(prior) != int(spool_id) and prior_disposition == "keep":
         # The caller already handled the replaced spool's fate; its ph_slot
         # claim on this slot is still Print Handy's to clear (#798).
@@ -1235,10 +1236,67 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
         screen = "not requested"
     screen_note = (screen_fallback_note(record["material"], _printer_adapter(printer_id))
                    if screen in ("pushed", "deferred") else None)
+    disposition, disposition_note = prior_disposition, None
+    if delete_prior:
+        disposition, disposition_note = _delete_replaced_spool(
+            slot, int(prior), spool, client=client, mr=mr, printer_id=printer_id,
+            name=record["name"], clear_claim=delete_prior_claims)
     return {"slot": slot, "spool_id": int(spool_id), "prior_spool_id": prior, "record": record,
             "screen": screen, "screen_note": screen_note, "usage": usage,
             "lane_data": lane_data, "lane_link": lane_link, "lane_note": lane_note,
-            "prior_disposition": prior_disposition}
+            "prior_disposition": disposition, "prior_disposition_note": disposition_note}
+
+
+def _lane_keys_naming(mr: Client, spool_id: int) -> list[str] | None:
+    """The ``lane_data`` keys whose record names ``spool_id``; None when the namespace is unreadable."""
+    raw = read_lane_data(mr)
+    if raw is None:
+        return None
+    return sorted(str(key) for key, rec in raw.items()
+                  if isinstance(rec, dict) and str(rec.get("spool_id")) == str(int(spool_id)))
+
+
+def _delete_replaced_spool(slot: int, prior: int, spool: dict[str, Any], *, client: Client,
+                           mr: Client, printer_id: str | None, name: str | None,
+                           clear_claim: bool) -> tuple[str, str | None]:
+    """Delete the spool a bind replaced, never while a screen lane still names it (#1885).
+
+    HelixScreen keeps its own copy of each lane and writes it back on the
+    next screen command, so a lane naming a deleted spool points at nothing
+    and every later poll asks about it (2026-11-21: lane 3 kept naming the
+    deleted spool for 44 hours). Before the DELETE, this slot's lane is
+    rewritten to the new spool when it still names the old one, and the
+    namespace is read again. When any lane still names it, the spool is
+    archived instead (its record kept, the slot claim cleared) and the
+    returned note says why. A printer whose ``lane_data`` Print Handy does
+    not write, or an unreadable namespace (no screen publishes one), keeps
+    the plain delete. Returns (the disposition that happened, a note or None).
+    """
+    if _lane_data_write_refusal(printer_id) is None and not _toolhead_lane_namespace(printer_id):
+        keys = _lane_keys_naming(mr, prior)
+        if keys and f"lane{int(slot)}" in keys:
+            try:
+                write_lane_record(slot, spool, mr=mr, name=name)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Could not relink screen lane %s before deleting spool #%s", slot, prior,
+                    exc_info=True)
+            reread = _lane_keys_naming(mr, prior)
+            # A lane was seen naming the spool: a reread that cannot be read
+            # proves nothing, so it is treated as still naming it (archive).
+            keys = [f"lane{int(slot)}"] if reread is None else reread
+        if keys:
+            body: dict[str, Any] = {"archived": True}
+            if clear_claim:
+                body["extra"] = {PH_SLOT_FIELD: None}
+            client("PATCH", f"/api/v1/spool/{int(prior)}", body)
+            where = ", ".join(f"`{key}`" for key in keys)
+            return "archive", (f"Spool #{prior} was archived instead of deleted: the screen's "
+                               f"lane record {where} still names it, and deleting it would leave "
+                               "that lane linked to nothing. Run `/spool sync` to relink the "
+                               "lane, then delete the spool in Spoolman if you still want it gone.")
+    client("DELETE", f"/api/v1/spool/{int(prior)}", None)
+    return "delete", None
 
 
 @_hw_locked
@@ -1723,6 +1781,8 @@ def bind_text(result: dict[str, Any]) -> str:
             moved = f" Spool #{prior} was deleted from Spoolman."
         elif disposition == "shelf":
             moved = f" Spool #{prior} went back to the shelf."
+        if result.get("prior_disposition_note"):
+            moved = f" {result['prior_disposition_note']}"
     screen = {"pushed": "Printer screen color and label command accepted.",
               "deferred": "Printer screen will update when this print ends."}.get(result["screen"],
                                                                                    f"Printer screen {result['screen']}.")

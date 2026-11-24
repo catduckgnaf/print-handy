@@ -4317,6 +4317,10 @@ class Listener:
             self.failover_retry(change)
             return
         target = failover_usage_target(old, new, charged, _mapped_spool)
+        if charged is None:
+            logger.debug("failover: IFS channel %s->%s has no single active spool; skipping usage watch",
+                         old, new)
+            return
         log(f"failover: IFS channel {old}->{new} charged={charged} target={target}")
         if target is None:
             return
