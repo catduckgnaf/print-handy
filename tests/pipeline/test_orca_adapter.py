@@ -103,9 +103,9 @@ def test_auto_scaled_stl_with_copies_exports_distinct_geometry(tmp_path, monkeyp
 
 def test_bambu_runs_only_after_orca_execution_failure(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
-    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/mock/bambu-studio'])
-    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
-    monkeypatch.setattr(adapter.os, 'access', lambda _path, _mode: True)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['flatpak', 'run', '--unshare=network',
+                                                  '--command=bambu-studio', 'com.bambulab.BambuStudio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/flatpak')
     calls = []
 
     def run(command, **_kwargs):
