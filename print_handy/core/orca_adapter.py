@@ -2586,11 +2586,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                            kind='engine', slicer='Flash Studio', returncode=result.returncode,
                            **_failure_evidence(folder))
     if orca_failed and bambu_allowed and not bambu_available:
+        # The fallback was never started (#1869), so the reason is Orca's own failure. A conflict
+        # reported only on the CLI is still a conflict, as on the attempted-fallback path below.
         details = _orca_failure_details(folder)
+        cli_conflict = re.search(r'G-code conflicts detected', result.stdout + '\n' + result.stderr, re.I)
         raise SliceFailure(
             f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
             f'{_BAMBU_NOT_INSTALLED}; see {_keep_failure_logs(folder) / "orca.log"}',
-            kind='conflict' if _orca_conflict(folder) else 'launch', slicer='OrcaSlicer',
+            kind='conflict' if (cli_conflict or _orca_conflict(folder)) else 'launch', slicer='OrcaSlicer',
             returncode=result.returncode, **_failure_evidence(folder))
     if primary == 'bambu_studio' or orca_failed:
         # Only an actual Orca execution failure (or the opt-in Bambu Studio primary) reaches this

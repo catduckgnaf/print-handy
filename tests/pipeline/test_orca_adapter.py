@@ -7,6 +7,7 @@ import pytest
 
 from print_handy.core import orca_adapter as adapter
 from print_handy.core import model_job as job
+from print_handy.core import slice_failure
 
 
 def test_failed_two_copy_slice_keeps_both_engine_logs_and_structured_cause(tmp_path, monkeypatch):
@@ -191,6 +192,25 @@ def test_bambu_fallback_unavailable_is_not_spawned_and_preserves_conflict(tmp_pa
     assert 'Bambu Studio fallback slicer is not installed' in str(caught.value)
     assert caught.value.kind == 'conflict'
 
+
+def test_cli_reported_conflict_with_unavailable_fallback_is_a_conflict(tmp_path, monkeypatch):
+    # No result.json and no debug log: the CLI line alone must classify the conflict even when the
+    # fallback is unavailable, matching the attempted-fallback path (#1865 + #1869).
+    _allow_post(monkeypatch)
+    _fallback_available(monkeypatch, available=False)
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        return type('R', (), {'returncode': 1, 'stdout': 'G-code conflicts detected after slicing.', 'stderr': ''})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert len(calls) == 1
+    assert caught.value.kind == 'conflict'
+    assert 'Bambu Studio fallback slicer is not installed' in str(caught.value)
+    assert 'Separate or reposition' in slice_failure.explain(caught.value).next_step
 
 def test_bambu_fallback_runs_after_orca_gcode_conflict(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
@@ -512,7 +532,8 @@ def test_missing_bambu_fallback_keeps_why_orca_failed(tmp_path, monkeypatch):
 
 
 def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback(tmp_path, monkeypatch):
-    # #912: an -101 with named objects must not read as "Bambu Studio not installed".
+    # #912: an -101 with named objects is classified by the conflict, not by the missing fallback.
+    # #1869: the receipt says the fallback is not installed, and must not report it as attempted.
     _allow_post(monkeypatch)
     _fallback_available(monkeypatch, available=False)
 
@@ -534,7 +555,11 @@ def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback
     assert caught.value.signature is None
     assert 'conflicting objects: BRONZE DETAILS and BLACK BODY' in str(caught.value)
     assert caught.value.conflict_objects == ('BRONZE DETAILS', 'BLACK BODY')
-    assert 'not installed' not in str(caught.value)
+    assert 'fallback failed' not in str(caught.value)
+    explained = slice_failure.explain(caught.value)
+    assert 'BRONZE DETAILS' in explained.plain and 'BLACK BODY' in explained.plain
+    assert 'Separate or reposition the overlapping parts' in explained.next_step
+    assert 'not installed' not in explained.plain + explained.next_step
 
 
 def test_unmapped_spool_warns_without_guessing_a_slot(tmp_path, monkeypatch, capsys):
