@@ -21,11 +21,19 @@ question = "Keep distinct source regions or explicitly"
 button = "Keep distinct source regions"
 
 [[click]]
-question = "for Red regions"
+question = "designer color: Red"
 button = "White"
 
 [[click]]
-question = "for Blue regions"
+question = "designer color: Blue"
+button = "Black"
+
+[[click]]
+question = "Painted region 1"
+button = "White"
+
+[[click]]
+question = "Painted region 2"
 button = "Black"
 
 [[click]]
