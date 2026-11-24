@@ -33,8 +33,8 @@ The chat-facing bot name defaults to `Print Handy` now. To keep a different name
 
 Two names still pointed at the retired Hermes install method. Unlike the earlier renames, both kept their old spelling through 2.3.6, and both old spellings were removed in 2.3.7, the release that shipped the cut first planned for 2.4.0 (see [Removals in 2.3.7](../PROJECT-REFERENCE.md#removals-in-237)). The Hermes names written into G-code and printer state were left alone by this rename; 2.3.7 replaced those too (see [Print Handy 2.3.7 wire formats](../PROJECT-REFERENCE.md#frozen-hermes-wire-names)):
 
-- **Python package:** `print_handy.hermes` is now `print_handy.runtime`. Importing the old name logs a `DeprecationWarning` and gives the same modules, so scripts and patches that use it keep working until the old name is removed.
-- **State folder setting:** `paths.hermes_home` is now `paths.state_home` (`PRINT_HANDY__PATHS__HERMES_HOME` is now `PRINT_HANDY__PATHS__STATE_HOME`). The old spelling, in a config file or the environment, is still read and logs a warning once; when both are set, the new one wins. Rename it in `config/local.yaml`, your compose file or `.env`, and the Unraid template. The folder itself does not move.
+- **Python package:** `print_handy.hermes` is now `print_handy.runtime`. Through 2.3.6, importing the old name logged a `DeprecationWarning` and gave the same modules. Since 2.3.7 the old name is gone: import `print_handy.runtime`, and re-run `scripts/install-standalone.sh` if a systemd unit still runs `python -m print_handy.hermes.<name>`.
+- **State folder setting:** `paths.hermes_home` is now `paths.state_home` (`PRINT_HANDY__PATHS__HERMES_HOME` is now `PRINT_HANDY__PATHS__STATE_HOME`). Through 2.3.6 the old spelling, in a config file or the environment, was still read with a warning. Since 2.3.7 it is refused at load, with the current key named in the message, so rename it in `config/local.yaml`, your compose file or `.env`, and the Unraid template. The folder itself does not move.
 
 ## Later leftovers renamed (#590)
 
