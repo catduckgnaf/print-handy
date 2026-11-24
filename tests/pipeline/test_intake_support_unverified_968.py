@@ -58,6 +58,8 @@ def test_unverified_with_no_clearance_finding_asks(env, monkeypatch, pick, statu
     Print anyway proceeds and records the waiver; Cancel starts nothing."""
     _coverage_only_flow(env, monkeypatch)
     _stub_unverified(monkeypatch)
+    from print_handy.core import ai_fix
+    monkeypatch.setattr(ai_fix, 'intake_fix_offered', lambda: True)
     # one color (2 on the #1473 offer), slot 1 (0), with supports (0), then the override question
     adapter, result, receipt = run_flow(env, [2, 0, 0, pick])
     q = adapter.questions[-1]

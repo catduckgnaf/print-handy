@@ -417,7 +417,7 @@ def test_owner_cancel_during_audit_ends_the_intake_cleanly(tmp_path, monkeypatch
     assert receipt["status"] == "CANCELLED"
     assert not receipt["sliced"] and not receipt["uploaded"] and not receipt["started"]
     assert "Cancelling the Snacking Tongs job. Nothing was uploaded or started." in adapter.sent
-    assert "Cancelled. Nothing sliced, uploaded or started." in adapter.sent
+    assert "Cancelled. Nothing was sliced, uploaded or started." in adapter.sent
     assert "Traceback" not in "\n".join(adapter.sent)
     assert running_jobs.lookup_for_source(event.source) is None
 
@@ -473,7 +473,7 @@ def test_owner_cancel_during_combine_ends_the_intake_cleanly(tmp_path, monkeypat
     assert receipt["status"] == "CANCELLED"
     assert not receipt["sliced"] and not receipt["uploaded"] and not receipt["started"]
     assert "Cancelling the Snacking Tongs job. Nothing was uploaded or started." in adapter.sent
-    assert "Cancelled. Nothing sliced, uploaded or started." in adapter.sent
+    assert "Cancelled. Nothing was sliced, uploaded or started." in adapter.sent
     assert "Traceback" not in "\n".join(adapter.sent)
     assert not list((tmp_path / "archive").rglob("*-parts.3mf"))
     assert running_jobs.lookup_for_source(event.source) is None
@@ -572,6 +572,6 @@ def test_owner_cancel_during_download_waits_for_the_download_thread(tmp_path, mo
     assert receipt["status"] == "CANCELLED"
     assert not receipt["sliced"] and not receipt["uploaded"] and not receipt["started"]
     assert "Cancelling the Snacking Tongs job. Nothing was uploaded or started." in adapter.sent
-    assert "Cancelled. Nothing sliced, uploaded or started." in adapter.sent
+    assert "Cancelled. Nothing was sliced, uploaded or started." in adapter.sent
     assert "Traceback" not in "\n".join(adapter.sent)
     assert running_jobs.lookup_for_source(event.source) is None

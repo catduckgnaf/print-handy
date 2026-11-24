@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
+from urllib.error import URLError
 
 from .. import settings
 from . import _config
@@ -551,6 +552,8 @@ async def start(target: Mapping[str, Any], model_job: Path | None = None,
         check = (lambda: live_idle_check(target_printer)) if target_printer else live_idle_check
     try:
         await asyncio.to_thread(check)
+    except (ConnectionError, TimeoutError, URLError):
+        return False, 'REFUSED: printer is offline/unreachable. Nothing uploaded or started.'
     except Exception as exc:  # fail closed on any read error
         return False, f"REFUSED: fresh printer check failed: {exc}. Nothing uploaded or started."
     claim = claim_path(target, claims_dir)

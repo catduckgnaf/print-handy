@@ -316,13 +316,24 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
             return S(success=True)
 
     class StopMessage:
+        id = '42'
+
+        def __init__(self):
+            self.edits = []
+
         async def edit(self, **kwargs):
-            return None
+            if kwargs.get('content'):
+                self.edits.append(kwargs['content'])
 
     press_tasks = []
+    launch_messages = []
 
-    async def stop_sender(_source, _text, clarify_id):
+    async def stop_sender(_source, text, clarify_id):
         import tools.clarify_gateway as cm
+
+        msg = StopMessage()
+        if text.startswith('Preparing to start'):
+            launch_messages.append(msg)
 
         async def press_after_spawn():
             for _ in range(500):
@@ -333,7 +344,7 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
             raise AssertionError('print-now subprocess did not start')
 
         press_tasks.append(asyncio.create_task(press_after_spawn()))
-        return StopMessage()
+        return msg
 
     monkeypatch.setattr(prepared_intake, 'STOP_SENDER', stop_sender)
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
@@ -356,7 +367,8 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
     assert len(list((env.tmp / 'claims').glob('*.json'))) == 1
     claim = json.loads(next((env.tmp / 'claims').glob('*.json')).read_text())
     assert claim['outcome'] == 'uncertain_cancelled'
-    assert any('UNCERTAIN:' in line and 'Not retrying' in line for line in adapter.sent)
+    launch, = launch_messages
+    assert 'UNCERTAIN:' in launch.edits[-1] and 'Not retrying' in launch.edits[-1]
     assert not any('Nothing sliced, uploaded or started.' in line for line in adapter.sent)
 
 
@@ -630,19 +642,30 @@ def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
 
 
 def test_expired_question_offers_one_resume_and_keeps_the_saved_intake(env):
-    # Expire the first question, then continue: mode, two part colors, cancel.
+    # A's held question expires while B is printing in this channel. The
+    # recovery prompt must identify only A and leave B's active stage alone.
+    from print_handy.core import running_jobs
+    job_b = {'title': 'Active Job B', 'stage': 'uploading', 'timer': 'B-stage-timer'}
     adapter = Adapter([0, 1, 0, 0, 3])
     adapter.expire_once = True
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
-    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    original_lookup = running_jobs.lookup_for_source
+    try:
+        running_jobs.lookup_for_source = lambda source: job_b
+        result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    finally:
+        running_jobs.lookup_for_source = original_lookup
     questions = adapter.questions
     resume = next(q for q in questions if 'expired' in q['question'].lower())
     assert resume['choices'] == ['Resume', 'Cancel']
+    assert 'Ghost' in resume['question']
     assert any('color' in q['question'].lower() for q in questions)
     assert result['action'] == 'skip'
     assert env.sliced == [] and env.starts == []
     assert any('Nothing was sliced' in line for line in adapter.sent)
+    assert job_b == {'title': 'Active Job B', 'stage': 'uploading', 'timer': 'B-stage-timer'}
+    assert not any('Active Job B' in q['question'] for q in questions)
 
 
 @pytest.mark.parametrize('resume_outcome', ['expired', 'cancelled'])
@@ -662,7 +685,7 @@ def test_unanswered_or_cancelled_resume_closes_the_intake(env, monkeypatch, resu
     assert receipt['sliced'] is False and receipt['uploaded'] is False and receipt['started'] is False
     assert env.sliced == [] and env.starts == []
     assert result == {'action': 'skip', 'reason': 'resume cancelled or expired'}
-    assert adapter.sent[-1] == 'Intake closed. Nothing was sliced, uploaded or started.'
+    assert adapter.sent[-1] == 'Ghost Stand: intake closed. Nothing was sliced, uploaded or started.'
 
 
 def test_resume_continues_the_saved_intake_instead_of_stopping_at_the_marker(env):
@@ -840,6 +863,121 @@ def test_unconfirmed_start_post_names_the_launch_stage(env, monkeypatch):
     assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'unknown'
 
 
+@pytest.mark.parametrize('outcome', ['confirmed', 'unreachable', 'stop'])
+def test_discord_launch_edits_one_stop_message_through_terminal_result(env, monkeypatch, outcome):
+    from print_handy.core import prompts
+
+    class FakeDiscord(Adapter):
+        def __init__(self):
+            self.answers = iter([2, 0, 0])
+            self.sent, self.log, self.questions = [], [], []
+
+        async def send_clarify(self, **kw):
+            self.questions.append(kw)
+            prompts.resolve_gateway_clarify(kw['clarify_id'], kw['choices'][next(self.answers)])
+            return S(success=True)
+
+    launch_messages = []
+    phase_seen = asyncio.Event()
+
+    class Message:
+        def __init__(self, text, cid):
+            self.id = '42'
+            self.cid = cid
+            self.edits = [text]
+            self.changed = asyncio.Event()
+
+        async def edit(self, *, content=None, **kw):
+            if content is not None:
+                self.edits.append(content)
+                self.changed.set()
+                if 'Printer is preparing the print…' in content:
+                    phase_seen.set()
+
+    async def stop_sender(_source, text, cid):
+        msg = Message(text, cid)
+        if text.startswith('Preparing to start'):
+            launch_messages.append(msg)
+        return msg
+
+    async def start(target):
+        env.starts.append(target)
+        if outcome == 'unreachable':
+            return False, 'REFUSED: printer is offline/unreachable. Nothing uploaded or started.'
+        msg, = launch_messages
+        path = Path(target['gcode']).parents[1] / 'JOB.json'
+        for stage, label in [('upload_begin', 'Uploading to the printer…'),
+                             ('upload_verified', 'Upload verified; waiting for the printer to respond…'),
+                             ('start_submitted', 'Waiting for the printer to confirm the start…'),
+                             ('preparation_seen', 'Printer is preparing the print…')]:
+            jobs_store._timing(path, stage)
+            while not msg.edits[-1].startswith(label):
+                msg.changed.clear()
+                await asyncio.wait_for(msg.changed.wait(), 3)
+        if outcome == 'stop':
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                return False, 'UNCERTAIN: Stop was requested after launch. Check the printer before retrying.'
+        return True, 'START READBACK {"phase":"executing","outcome":"printing","started":true}'
+
+    monkeypatch.setattr(print_next, 'start', start)
+    monkeypatch.setattr(prepared_intake, 'STOP_SENDER', stop_sender)
+    monkeypatch.setattr(prepared_intake, 'STEP_PROGRESS_TICK_S', 0.01)
+    adapter = FakeDiscord()
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'), message_id='dis-stage',
+              text='https://www.printables.com/model/1-ghost')
+
+    async def run():
+        flow = asyncio.create_task(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=3))
+        if outcome == 'stop':
+            await asyncio.wait_for(phase_seen.wait(), 5)
+            prompts.resolve_gateway_clarify(launch_messages[0].cid, prepared_intake.STOP_LABEL)
+        await asyncio.wait_for(flow, 6)
+        msg, = launch_messages
+        count = len(msg.edits)
+        await asyncio.sleep(0.05)
+        assert len(msg.edits) == count
+
+    asyncio.run(run())
+    msg, = launch_messages
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert len(env.starts) == 1
+    assert not any(text.startswith('Print started') for text in adapter.sent)
+    if outcome == 'confirmed':
+        assert receipt['status'] == 'STARTED'
+        assert msg.edits[-1].startswith('Print started')
+        assert sum(text.startswith('Print started') for text in msg.edits) == 1
+    elif outcome == 'unreachable':
+        assert receipt['status'] == 'START_REFUSED'
+        assert 'printer is unreachable' in msg.edits[-1] and 'press Retry' in msg.edits[-1]
+        assert not any('Uploading to' in text for text in msg.edits)
+    else:
+        assert receipt['status'] == 'START_UNCERTAIN' and receipt['started'] is None
+        assert msg.edits[-1].startswith('UNCERTAIN:')
+
+
+def test_named_conflict_reports_exact_next_action_without_ai(env, monkeypatch):
+    from print_handy.core import ai_fix, slice_failure, worker_errors
+
+    def conflict(*args, **kwargs):
+        error = slice_failure.SliceFailure('private engine log', kind='conflict', slicer='OrcaSlicer',
+                                           conflict_objects=('BLACK BODY', 'BRONZE DETAILS', '<@123>', '/tmp/private'))
+        raise worker_errors.decode(json.loads(json.dumps(worker_errors.encode(error))))
+
+    setattr_bound(monkeypatch, jobs_slice, 'slice_job', conflict)
+    monkeypatch.setattr(ai_fix, 'intake_fix_offered', lambda: True)
+    adapter, _, receipt = run_flow(env, [2, 0, 0])
+    assert receipt['status'] == 'SLICE_FAILED' and not env.starts
+    cause, action = receipt['failure']['cause'], receipt['failure']['recovery']
+    assert cause == 'OrcaSlicer detected conflicting toolpaths on the plate: “BLACK BODY”, “BRONZE DETAILS”.'
+    assert action == 'Separate or reposition the overlapping parts, then slice again.'
+    post, = [text for text in adapter.sent if cause in text]
+    assert action in post and 'nothing was uploaded or started' in post
+    assert '<@123>' not in post and '/tmp/private' not in post and 'private engine log' not in post
+    assert not any(ai_fix.FIX_LABEL in q['choices'] for q in adapter.questions)
+
+
 def test_confirmed_refusal_post_names_the_launch_stage_in_the_flow(env, monkeypatch):
     async def start(target):
         env.starts.append(target)
@@ -858,11 +996,9 @@ def test_intake_recognizes_real_print_now_output():
     assert print_next.started_file(REAL_AWAITING) == 'ghost_plate_1_abc.gcode'
 
 
-def test_start_still_preparing_posts_one_start_without_roast_and_records_its_id(env, monkeypatch, tmp_path):
-    """#374: a warming start posts its canonical start message with NO roast and
-    does not invoke the roast generator at all. Its message id is recorded for
-    the claimed file, so the listener can edit that one post — adding the
-    warmup-complete line and exactly one roast — when printing begins."""
+def test_start_still_preparing_posts_one_waiting_status_without_roast_and_records_its_id(env, monkeypatch, tmp_path):
+    """A warming start reports waiting, not printing. The listener edits that
+    same message once the print starts; no roast is generated during warmup."""
     monkeypatch.setattr(print_next, 'START_MESSAGES', tmp_path / 'start_messages.json')
     mel = external('moonraker_event_listener')
     roast_calls = []
@@ -883,8 +1019,8 @@ def test_start_still_preparing_posts_one_start_without_roast_and_records_its_id(
     monkeypatch.setattr(Adapter, 'send', send)
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
-    starts = [m for m in adapter.sent if m.startswith('Print started')]
-    assert len(starts) == 1 and 'Warming up' not in starts[0]
+    starts = [m for m in adapter.sent if m.startswith('Start accepted, waiting for the printer:')]
+    assert len(starts) == 1 and not any(m.startswith('Print started') for m in adapter.sent)
     assert 'Roast that must not appear yet' not in starts[0] and roast_calls == []
     assert print_next.take_start_message('ghost_plate_1_abc.gcode') == f'm{len(adapter.sent)}'
 
@@ -2929,3 +3065,30 @@ def test_collected_uploads_are_marked_as_one_collection_project(env, monkeypatch
     assert job['source_kind'] == 'upload_collection' and job['upload_collection'] == collected
     assert job['project']['source_kind'] == 'uploaded_collection'
     assert [c['name'] for c in job['project']['components']] == ['arm.stl', 'arm.stl', 'base.stl']
+
+
+def test_stop_progress_reserves_before_quiet_work_starts(tmp_path, monkeypatch):
+    watchers = []
+
+    async def independent_watcher(*args, **kwargs):
+        watchers.append(True)
+
+    async def launch():
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        return True, 'confirmed'
+
+    monkeypatch.setattr(prepared_intake, '_watch_start_progress', independent_watcher)
+    adapter = S()
+    source = S(chat_id='c1')
+
+    async def run():
+        progress = {}
+        return await prepared_intake._with_stop(
+            adapter, source, 'quiet-launch-test', {}, 'Preparing to start',
+            prepared_intake._with_start_progress(adapter, source, {}, tmp_path / 'JOB.json',
+                                                  launch(), progress=progress),
+            allow_stop=True, quiet_s=5, start_progress=progress)
+
+    assert asyncio.run(run()) == (True, 'confirmed')
+    assert watchers == []

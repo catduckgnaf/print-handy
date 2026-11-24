@@ -43,7 +43,7 @@ One container runs locally; the chat provider you choose still carries messages 
 
 <img src="assets/screenshots/discord-02-copies-and-confirm.png" alt="Discord copy-count selection and slice or print choices" width="720">
 
-**3. Watch it start, or watch it get roasted.** Sometimes both.
+**3. Follow the print in Discord.** The start message updates in place with elapsed time as the printer receives and prepares the job. A confirmed start replaces that status. If OrcaSlicer detects a toolpath conflict, Print Handy shows the objects when Orca reports their names and suggests what to move before slicing again.
 
 <img src="assets/screenshots/discord-03-print-start.png" alt="Discord print-start status with a one-line roast" width="720">
 
