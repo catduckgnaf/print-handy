@@ -1206,10 +1206,15 @@ def create_and_bind_insertion(slot: int, values: dict[str, Any], spool_sync,
     prior = result.get("prior_spool_id")
     moved = ""
     if prior and int(prior) != int(made["spool_id"]):
+        # What happened, not what was asked: a Delete the screen lane blocks
+        # becomes an archive and says so (#1885).
+        happened = result.get("prior_disposition") or prior_disposition
         moved = {"archive": f" Spool #{prior} was archived.",
                  "depleted": f" Spool #{prior} was archived as depleted (0 g left).",
                  "delete": f" Spool #{prior} was deleted from Spoolman.",
-                 }.get(prior_disposition, f" Spool #{prior} went back on the shelf.")
+                 }.get(happened, f" Spool #{prior} went back on the shelf.")
+        if result.get("prior_disposition_note"):
+            moved = f" {result['prior_disposition_note']}"
     return (f"Created spool #{made['spool_id']}; slot {slot} → #{made['spool_id']} "
             f"({record['name']}).{moved} Inventory updated; printer untouched.")
 

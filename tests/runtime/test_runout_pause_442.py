@@ -549,11 +549,15 @@ class InfinityFailoverMovesUsage(ListenerRunoutCase):
         from print_handy.runtime import spool_sync
         lis = self.listener({}, head=None)
         with mock.patch.object(spool_sync, "active_usage_spool", return_value=None), \
+             mock.patch.object(mel, "log") as info_log, \
+             mock.patch.object(mel.logger, "debug") as debug_log, \
              mock.patch.object(spool_sync, "resume_usage") as resume, \
              mock.patch.object(mel, "post") as post:
             await lis.follow_failover((1, 2))
         resume.assert_not_called()
         post.assert_not_called()
+        info_log.assert_not_called()
+        debug_log.assert_called_once()
 
 
 class RunoutRepauseTests(ListenerRunoutCase):

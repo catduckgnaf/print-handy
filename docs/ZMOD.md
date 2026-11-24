@@ -529,6 +529,17 @@ place:
   record, a lane linked to an archived or deleted spool, and a
   material identity mismatch are named prompts. Nothing is
   silently overwritten in either direction.
+- One exception (#1885): an unlocked lane linked to an archived or
+  deleted spool, in a slot where exactly one live spool claims the
+  slot through `ph_slot`, is relinked to that spool by the watcher
+  and nothing is posted. HelixScreen keeps its own copy of each lane
+  and writes it back on a later screen command (`CHANGE_ZCOLOR`, or
+  the `SET_ZCOLOR` a print starts with), after Print Handy's bind
+  already read the link back, so a relink did not stick. A stale
+  link the watcher cannot relink is posted once per slot, spool and
+  recorded spool, not on every rewrite. A Delete picked for a
+  replaced spool runs after the lane is relinked; when a lane still
+  names that spool, it is archived instead and the reply says why.
 - A lane the screen exposes only by material and color (no
   Spoolman id) is named as unresolved. No spool is guessed or
   bound.

@@ -35,6 +35,15 @@ Hardening (the drift classes from #791):
   vanished spool-bearing lane converges to "unloaded" only when the
   printer's own presence read agrees the slot is empty; see
   ``LaneDataWatcher._vanished_unload_blocked``.
+- A lane linked to an archived or deleted spool while Print Handy's
+  record binds a live spool to the slot (its one ``ph_slot`` claimant) is
+  the screen putting an old link back: HelixScreen rewrites its record
+  from its own cache when the next ``CHANGE_ZCOLOR`` or ``SET_ZCOLOR``
+  arrives, after Print Handy's bind already read the link back (#1885).
+  The watcher relinks that lane to the recorded spool again, through
+  ``spool_sync.verify_lane_link``, and posts nothing when that works.
+  A stale link it cannot repair is named once per slot, spool and
+  record, not on every rewrite.
 - Mid-print changes are noted once and applied only when the print ends,
   through the same deferral posture as ``push_screen``; the one exception
   is a load into a slot with an open runout/swap spool question on a
@@ -71,6 +80,7 @@ the baseline silently.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -101,6 +111,8 @@ LANE_COALESCE_S = 90.0
 _CHANGE_KINDS = frozenset({"loaded", "unloaded", "unresolved", "runout_load"})
 
 Client = Callable[..., Any]
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- state file
@@ -542,7 +554,33 @@ def apply_screen_assignment(printer_id: str, slot: int, spool_id: int | None, *,
         raise spool_sync.SpoolError(
             f"spool reconcile settled {_slot(slot)} on {settled!r}, not the screen's "
             f"{spool_id!r}; the change was not adopted")
+    _settle_slot_locations(printer_id, int(slot), spool_id, result, client=client,
+                           state_path=state_path)
     return result
+
+
+def _settle_slot_locations(printer_id: str, slot: int, spool_id: int | None,
+                           result: dict[str, Any], *, client: Client,
+                           state_path: Path | None) -> None:
+    """Make Spoolman's locations say what the converged slot holds (#1888).
+
+    The loaded spool is at "IFS Slot N", as a bind writes it, and every
+    other spool whose location still names the slot goes back on the
+    shelf, with or without a ``ph_slot`` claim (the replaced spool 22 kept
+    IFS Slot 3 for days). Best effort: the assignment already converged,
+    and a location that cannot be written is named by ``/spool sync``.
+    """
+    if spool_id is not None:
+        try:
+            spool_sync._call_client(client, "PATCH", f"/api/v1/spool/{int(spool_id)}",
+                                    {"location": f"IFS Slot {int(slot)}"})
+        except Exception as exc:
+            _log.warning("Could not set spool #%s's location to IFS Slot %s: %s",
+                         spool_id, slot, exc)
+    held = {int(sid) for other, sid in (result.get("assignments") or {}).items()
+            if sid is not None and int(other) != int(slot)}
+    spool_sync.shelve_slot_leftovers(client, printer_id, int(slot), holder=spool_id, held=held,
+                                     state_path=state_path)
 
 
 # ---------------------------------------------------------------- watcher
@@ -591,6 +629,9 @@ class LaneDataWatcher:
         self._presence: dict[int, bool | None] | None = None
         self._colliding = False
         self._lanes: dict[int, dict[str, Any]] | None = None
+        # The needs-attention notices already posted, per slot (#1885):
+        # {slot: token}. A notice whose token matches is not posted again.
+        self._said: dict[str, str] = {}
 
     # -- injected helpers ------------------------------------------------
 
@@ -756,6 +797,45 @@ class LaneDataWatcher:
             return None
         return other_slot
 
+    def _say_once(self, slot: int, token: str) -> bool:
+        """True the first time a needs-attention notice with this token is due for the slot (#1885).
+
+        The screen rewrites a lane record on every screen command, and each
+        rewrite can change what the record says without changing what is
+        wrong with it (a fresh material string, a link put back after a
+        repair). The token names the problem itself, so the same problem is
+        posted once; a different problem for the slot replaces it.
+        """
+        if self._said.get(str(slot)) == token:
+            return False
+        self._said[str(slot)] = token
+        return True
+
+    def _repair_stale_link(self, slot: int, lane: dict[str, Any],
+                           claimants: list[dict[str, Any]] | None) -> int | None:
+        """Relink a lane naming a dead spool to the slot's recorded spool; its id, or None (#1885).
+
+        Only when Print Handy's record is unambiguous: exactly one live
+        spool claims (this printer, slot) through ``ph_slot``. A lane locked
+        on the screen is the operator's declaration and is left to the
+        notice, and so is a printer whose ``lane_data`` Print Handy does not
+        write (#1304, #1490). Software only: one lane key is rewritten and
+        read back, and no printer command is sent.
+        """
+        if lane.get("locked_color") or lane.get("locked_material"):
+            return None
+        if not claimants or len(claimants) != 1:
+            return None
+        pid = self.printer_id or spool_sync._default_printer_id()
+        if spool_sync._lane_data_write_refusal(pid) is not None \
+                or spool_sync._toolhead_lane_namespace(pid):
+            return None
+        recorded = claimants[0]
+        out = spool_sync.verify_lane_link(slot, recorded, mr=self.mr)
+        if out.get("status") not in ("verified", "repaired"):
+            return None
+        return int(recorded["id"])
+
     def _apply(self, slot: int, spool_id: int | None) -> None:
         if self.apply_fn is not None:
             self.apply_fn(slot, spool_id)
@@ -841,6 +921,8 @@ class LaneDataWatcher:
         # What the channel last heard per slot, for the #1474 coalescing in
         # _queue: {slot: {"at": clock time, "action": action key}}.
         self._announced = state.get("announced") if isinstance(state.get("announced"), dict) else {}
+        said = state.get("said_once")
+        self._said = {str(k): str(v) for k, v in said.items()} if isinstance(said, dict) else {}
         seen: dict[int, dict[str, Any]] = {}
         for key, value in state["lanes"].items():
             if str(key).isdigit() and isinstance(value, dict):
@@ -905,6 +987,8 @@ class LaneDataWatcher:
                    "lanes": {str(slot): fp for slot, fp in sorted(seen.items())},
                    "pending": pending, "noted": noted, "colliding_author": self._colliding,
                    "announced": self._announced}
+        if self._said or "said_once" in state:
+            updated["said_once"] = self._said
         if dirty or updated != state:
             _write_json(self.state_path, updated)
         return due
@@ -1025,15 +1109,30 @@ class LaneDataWatcher:
         if status == "unknown":
             return False  # Spoolman silent: change nothing, retry on a later poll
         if status in ("archived", "missing"):
-            fate = "is archived in Spoolman" if status == "archived" \
-                else "no longer exists in Spoolman"
-            self._queue(pending, noted, slot, "stale_spool",
-                        f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen is "
-                        f"linked to spool #{spool_id}, which {fate}. Nothing was overwritten. "
-                        f"Relink the slot from chat with `/spool change {slot} <spool#>`; "
-                        "if Print Handy already has a live spool bound there, `/spool sync` "
-                        "relinks the screen lane to it. Nothing needs doing at the printer.",
-                        action, spool_id=spool_id)
+            claimants = self._slot_claimants(slot)
+            relinked = self._repair_stale_link(slot, lane, claimants)
+            if relinked is not None:
+                # The screen put back a link Print Handy had already replaced
+                # (#1885). Relinked again: the record was right all along, so
+                # there is nothing to ask. The stale record is not adopted:
+                # the screen writes the very same record back on its next
+                # command, and a baseline holding it would read that as no
+                # change. The next poll reads the repaired record as Print
+                # Handy's own bind and adopts it silently.
+                _log.info("lane_data watcher: %s named spool #%s (%s); relinked it to spool #%s",
+                          _slot(slot), spool_id, status, relinked)
+                return True
+            recorded = claimants[0].get("id") if claimants and len(claimants) == 1 else None
+            if self._say_once(slot, f"stale_spool:{spool_id}:{recorded}"):
+                fate = "is archived in Spoolman" if status == "archived" \
+                    else "no longer exists in Spoolman"
+                self._queue(pending, noted, slot, "stale_spool",
+                            f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen is "
+                            f"linked to spool #{spool_id}, which {fate}. Nothing was overwritten. "
+                            f"Relink the slot from chat with `/spool change {slot} <spool#>`; "
+                            "if Print Handy already has a live spool bound there, `/spool sync` "
+                            "relinks the screen lane to it. Nothing needs doing at the printer.",
+                            action, spool_id=spool_id)
             adopt()
             return True
         assert spool is not None
