@@ -19,15 +19,15 @@ question = "Choose colors for these parts"
 button = "Choose colors"
 
 [[click]]
-question = "for Base,"
+question = "Base"
 button = "White"
 
 [[click]]
-question = "for Ring,"
+question = "Ring"
 button = "Black"
 
 [[click]]
-question = "for Eye,"
+question = "Eye"
 button = "Pink"
 
 [[click]]
