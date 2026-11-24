@@ -19,19 +19,19 @@ question = "Choose colors for these parts"
 button = "Choose colors"
 
 [[click]]
-question = "for Base,"
+question = "Base"
 button = "White"
 
 [[click]]
-question = "for Badge B"
+question = "Badge B"
 button = "Black"
 
 [[click]]
-question = "for Badge C"
+question = "Badge C"
 button = "Pink"
 
 [[click]]
-question = "for Badge D"
+question = "Badge D"
 button = "Dark green"
 
 [[click]]
