@@ -721,18 +721,27 @@ _QUESTION_PREFIX = re.compile(r'^Choose (?:the |one )?(?:loaded )?(?:slot/)?colo
 def _choice_summary(questions, choices, color_of):
     """Pre-slice summary of per-part choices, identical parts grouped.
 
-    '2× frameLeg: Matte white PLA · seat-brick: Pink PLA'. A size is added only where two groups
-    would otherwise show the same part name.
+    '2× frameLeg, seat-brick: designer color: … → final print color: Matte white PLA'. Parts that
+    share a designer color and a final color form one entry; identical names are counted and a
+    long list is cut after three names ('… and 125 more'), so a 512-part plate still gives one
+    short line per color instead of a message long enough to split away from its buttons.
     """
     rows = {row['key']: row for row in questions}
     groups = {}
     for key, selection in choices.items():
         row = rows.get(key, {})
         name = row.get('label') or _QUESTION_PREFIX.sub('', row.get('question', '')).split(' (')[0] or key
-        groups.setdefault((row.get('author_label'), color_of(selection)), []).append(name)
+        names = groups.setdefault((row.get('author_label'), color_of(selection)), {})
+        names[name] = names.get(name, 0) + 1
+
+    def _names(counts):
+        shown = [f'{n}× {name}' if n > 1 else name for name, n in list(counts.items())[:3]]
+        rest = sum(list(counts.values())[3:])
+        return ', '.join(shown) + (f' and {rest} more' if rest else '')
+
     return ' · '.join(
-        f"{', '.join(names)}: " + (f"designer color: {author} → " if author else '') + f"final print color: {color}"
-        for (author, color), names in groups.items())
+        f"{_names(counts)}: " + (f"designer color: {author} → " if author else '') + f"final print color: {color}"
+        for (author, color), counts in groups.items())
 
 
 def _preview_estimate(row):

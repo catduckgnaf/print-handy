@@ -71,9 +71,21 @@ def test_pre_slice_summary_groups_identical_parts_and_normalises_material():
         return f"{color[:1].upper() + color[1:]} {printer_state.display_material(sel['material'])}"
 
     text = prepared_intake._choice_summary(questions, choices, color_of)
-    assert text == ('chain, chain, chain, chain: designer color: Pink (`#FFC0CB`) → final print color: Pink Silk PLA'
-                    ' · frameLeg, frameLeg, seat-brick, double-frame: designer color: Pink (`#FFC0CB`)'
+    assert text == ('4× chain: designer color: Pink (`#FFC0CB`) → final print color: Pink Silk PLA'
+                    ' · 2× frameLeg, seat-brick, double-frame: designer color: Pink (`#FFC0CB`)'
                     ' → final print color: Matte white PLA')
+
+
+def test_pre_slice_summary_stays_short_for_hundreds_of_parts():
+    """512 uniquely named tiles in one color give one short entry, not 512 names: a summary
+    long enough to split across chat messages leaves its buttons under a fragment (#1858)."""
+    parts = [_part(f'{i}:1', f'Tile {i:03}', (4.6, 4.6, 1.8)) for i in range(1, 513)]
+    manifest = {**SWING, 'parts': parts}
+    choices = {f'part:{p["key"]}': 'White PLA' for p in parts}
+    text = prepared_intake._choice_summary(source_colors.canonical_prompts(manifest), choices, str)
+    assert text.startswith('Tile 001, Tile 002, Tile 003 and 509 more: designer color: ')
+    assert text.endswith('final print color: White PLA')
+    assert len(text) < 200
 
 
 def test_same_name_parts_keep_their_distinct_labels():
