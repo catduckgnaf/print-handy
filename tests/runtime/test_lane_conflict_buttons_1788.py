@@ -56,3 +56,31 @@ def test_other_lane_notices_stay_plain_text():
 def test_the_buttons_are_the_insertion_prompts():
     labels = [b["label"] for b in pab.insertion_components("a1")[0]["components"]]
     assert labels == ["Same spool", "Existing spool", "New spool"]
+
+
+def test_claimed_elsewhere_posts_distinct_repair_buttons_1886():
+    event = dict(CONFLICT, kind="claimed_elsewhere", slot=1, other_slot=2,
+                 recorded_spool_id=16, spool_id=19, text="Conflict. Run /spool sync.")
+    with mock.patch.object(listener, "_buttonless_standalone", return_value=None), \
+            mock.patch.object(listener, "_bot_token", return_value="token"), \
+            mock.patch.object(pab, "post_claimed_lane", return_value=True) as buttons, \
+            mock.patch.object(listener, "post") as text:
+        assert listener.post_lane_event(event)
+    text.assert_not_called()
+    assert buttons.call_args.args[-1] == event
+    assert "/spool sync" in buttons.call_args.args[-2]
+    components = pab.claimed_lane_components("a1", 16, 19)[0]["components"]
+    assert [b["label"] for b in components] == [
+        "Keep #16", "Move #19 here (swap)", "Pick another spool"]
+    assert [pab.parse_insertion_custom_id(b["custom_id"]) for b in components] == [
+        ("keep", "a1"), ("move", "a1"), ("pick", "a1")]
+
+
+def test_claimed_elsewhere_button_failure_preserves_text_repair_1886():
+    event = dict(CONFLICT, kind="claimed_elsewhere", text="Conflict. Run /spool sync.")
+    with mock.patch.object(listener, "_buttonless_standalone", return_value=None), \
+            mock.patch.object(listener, "_bot_token", return_value="token"), \
+            mock.patch.object(pab, "post_claimed_lane", return_value=False), \
+            mock.patch.object(listener, "post", return_value=True) as text:
+        assert listener.post_lane_event(event)
+    text.assert_called_once_with(event["text"])
