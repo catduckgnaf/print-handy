@@ -10,7 +10,7 @@ This file deliberately does not duplicate that file's size-budget cases.
 Documented behavior under test (docs/INTAKE-LIMITS.md and the code):
 - XML document type declarations are refused, so XXE and entity-expansion
   payloads never reach a parser that could resolve them.
-- ZIP expanded sizes are checked from the directory before any member opens.
+- ZIP member compression ratios are checked from the directory before opening members.
 - A nested 3MF is not opened: intake reads the outer archive only.
 - Part names are sanitized by geometry_layout._safe_name before any file is
   written, so an arranged export stays inside its job folder.
@@ -114,7 +114,7 @@ def test_undefined_entity_without_a_doctype_is_a_parse_refusal_not_a_crash(tmp_p
 
 # --------------------------------------------------------------------- (b) zip bombs / nesting
 
-def test_high_ratio_deflate_bomb_trips_the_expanded_size_refusal(tmp_path):
+def test_high_ratio_deflate_bomb_trips_the_ratio_refusal(tmp_path):
     source = tmp_path / "bomb.3mf"
     with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("3D/3dmodel.model", model_xml([("1", "part", TRIANGLE)]))
@@ -122,11 +122,10 @@ def test_high_ratio_deflate_bomb_trips_the_expanded_size_refusal(tmp_path):
     real = source.stat().st_size
     assert real < 16 * 1024, f"bomb must stay small on disk, got {real}"
     started = time.monotonic()
-    with patch.object(limits, "MAX_EXPANDED_BYTES", 1_000_000):
-        with pytest.raises(limits.IntakeLimitExceeded, match="expanded archive"):
-            limits.check_source(source)
-        with pytest.raises(limits.IntakeLimitExceeded, match="expanded archive"):
-            geometry_layout.load_parts(source)
+    with pytest.raises(limits.IntakeLimitExceeded, match="100:1 compression ratio"):
+        limits.check_source(source)
+    with pytest.raises(limits.IntakeLimitExceeded, match="100:1 compression ratio"):
+        geometry_layout.load_parts(source)
     assert time.monotonic() - started < 10
 
 
@@ -138,9 +137,10 @@ def test_nested_3mf_is_never_opened_and_the_outer_limits_still_apply(tmp_path):
     # archive's model is not read, merged, or counted as a part.
     parts, _, _, _ = geometry_layout.load_parts(outer)
     assert [p["node"] for p in parts] == ["outer_part"]
-    # The nested member still counts toward the outer expanded total.
-    with patch.object(limits, "MAX_EXPANDED_BYTES", 10):
-        with pytest.raises(limits.IntakeLimitExceeded, match="expanded archive"):
+    # The nested file is not parsed, but still counts toward the outer
+    # archive's member-count resource guard.
+    with patch.object(limits, "MAX_MEMBERS", 1):
+        with pytest.raises(limits.IntakeLimitExceeded, match="members"):
             limits.check_source(outer)
 
 

@@ -653,6 +653,77 @@ def _turned_attempt(hulls, bed, spacing, reserve, edge=None, tower_mm=None):
     return None
 
 
+def _authored_layout(boxes, plates, bed, spacing, edge, tower_mm, towers, state, job):
+    """Rigid placement that keeps the author's relative layout, or None (#1862).
+
+    The packers re-place every object, which moved parts the author had
+    already seated with room to spare and produced per-object translations
+    that Orca then refused (a G-code path conflict, -101) where the same
+    objects translated together slice cleanly. When the authored relative
+    placement already satisfies every constraint the packers enforce, it is
+    the plan: one common translation puts the whole layout on the bed, so
+    every object keeps its offset to every other.
+
+    Preserved only when all of these hold; any failure returns None and the
+    packers run exactly as before:
+
+    * the source is one plate (several authored plates were laid out apart,
+      so their relative offsets mean nothing on a merged bed) and the caller
+      did not ask for a 100% rearrangement;
+    * every pair of footprints is separated by at least ``spacing`` along an
+      axis (bounding boxes, a superset of any hull, so never optimistic);
+    * the whole layout fits inside the bed-edge clearance ``edge`` (the job's
+      brim is already part of it);
+    * no footprint touches a bed exclusion the printer model declares;
+    * a multi-slot job still has a prime tower lane (``towers``), proved with
+      the same ``prime_tower_xy`` check the loose rectangle path uses.
+
+    Returns ({object_id: (x, y) lower-left corner}, tower_xy) or None.
+    """
+    if len(plates) > 1 or rearrange_requested(job) or not boxes:
+        return None
+    ids = list(boxes)
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            ba, bb = boxes[a], boxes[b]
+            gap_x = max(ba[0][0] - bb[0][1], bb[0][0] - ba[0][1])
+            gap_y = max(ba[1][0] - bb[1][1], bb[1][0] - ba[1][1])
+            if max(gap_x, gap_y) < spacing - 1e-9:
+                return None
+    lo = min(boxes[o][0][0] for o in ids), min(boxes[o][1][0] for o in ids)
+    hi = max(boxes[o][0][1] for o in ids), max(boxes[o][1][1] for o in ids)
+    width, depth = hi[0] - lo[0], hi[1] - lo[1]
+    if width > bed - 2 * edge + 1e-9 or depth > bed - 2 * edge + 1e-9:
+        return None
+    from . import color_geometry, split_fit
+    exclusions = split_fit._declared_exclusions(state)
+    top = bed - edge
+    centre = ((bed - width) / 2, (bed - depth) / 2)
+    # Centred first (what an unshifted export does), then each edge and corner
+    # of the usable area, which frees a tower lane on a crowded bed.
+    origins = [centre, (centre[0], edge), (centre[0], top - depth), (edge, centre[1]),
+               (top - width, centre[1]), (edge, edge), (top - width, edge), (edge, top - depth),
+               (top - width, top - depth)]
+    for ox, oy in origins:
+        if ox < edge - 1e-9 or oy < edge - 1e-9 or ox + width > top + 1e-9 or oy + depth > top + 1e-9:
+            continue
+        placed = {o: (boxes[o][0][0] - lo[0] + ox, boxes[o][1][0] - lo[1] + oy) for o in ids}
+        if any(px < x1 - 1e-9 and px + (boxes[o][0][1] - boxes[o][0][0]) > x0 + 1e-9
+               and py < y1 - 1e-9 and py + (boxes[o][1][1] - boxes[o][1][0]) > y0 + 1e-9
+               for o, (px, py) in placed.items() for x0, y0, x1, y1 in exclusions):
+            continue
+        tower_xy = None
+        if towers:
+            rects = [((px, px + boxes[o][0][1] - boxes[o][0][0]), (py, py + boxes[o][1][1] - boxes[o][1][0]), (0.0, 0.0))
+                     for o, (px, py) in placed.items()]
+            try:
+                tower_xy = color_geometry.prime_tower_xy(rects, bed=bed, tower=tower_mm)
+            except RuntimeError:
+                continue
+        return placed, tower_xy
+    return None
+
+
 def _shifts(placed, boxes, extents, yaw_by_object, yaw_hulls):
     """Per-object shifts and placed bounds from packed lower-left corners."""
     shifts, bounds = {}, {}
@@ -833,9 +904,15 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         out['reason'] = f'object(s) {",".join(tall)} exceed the printer height'
         return out
     reserve = (tower_mm + TOWER_CLEARANCE_MM + TOWER_SLACK_MM + edge) if len(used) > 1 and tower_mm else 0.0
-    placed = pack(extents, bed, spacing, edge=edge, reserve_y=reserve)
-    tower_xy = None
-    packing = 'rectangle'
+    placed, tower_xy, packing = None, None, 'rectangle'
+    authored = _authored_layout(boxes, plates, bed, spacing, edge, tower_mm, bool(reserve), state, job)
+    if authored is not None:
+        # The author's own layout already meets every constraint (#1862): keep
+        # it, moved as one rigid body, instead of re-packing the parts.
+        placed, tower_xy = authored
+        packing = 'authored'
+    if placed is None:
+        placed = pack(extents, bed, spacing, edge=edge, reserve_y=reserve)
     if placed is None and reserve:
         # The reserved strip is a fast path, not the rule. Pack without it and
         # accept only when the exporter's own tower search clears every part.

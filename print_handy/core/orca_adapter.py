@@ -2572,6 +2572,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                      and (verified is None or 'bambu_studio' in verified))
     orca_failed = primary == 'orca' and (result.returncode or not output.is_file()
                                          or output.stat().st_size == 0)
+    bambu_executable = shutil.which(BAMBU_COMMAND[0]) if BAMBU_COMMAND else None
+    bambu_available = bool(bambu_executable and os.access(bambu_executable, os.X_OK))
     if orca_failed and not bambu_allowed:
         details = _orca_failure_details(folder)
         raise SliceFailure(f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
@@ -2583,6 +2585,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                            f'see {_keep_failure_logs(folder) / "flash-studio.log"}',
                            kind='engine', slicer='Flash Studio', returncode=result.returncode,
                            **_failure_evidence(folder))
+    if orca_failed and bambu_allowed and not bambu_available:
+        details = _orca_failure_details(folder)
+        raise SliceFailure(
+            f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
+            f'{_BAMBU_NOT_INSTALLED}; see {_keep_failure_logs(folder) / "orca.log"}',
+            kind='conflict' if _orca_conflict(folder) else 'launch', slicer='OrcaSlicer',
+            returncode=result.returncode, **_failure_evidence(folder))
     if primary == 'bambu_studio' or orca_failed:
         # Only an actual Orca execution failure (or the opt-in Bambu Studio primary) reaches this
         # branch. All Print Handy validation and placement refusals above remain fail-closed and
@@ -2610,10 +2619,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             if geometry_conflict:
                 return SliceFailure(
                     f'Orca found a geometry conflict between parts{details}; the parts overlap or interlock. '
-                    f'Group them into one object or separate them, then retry',
+                    f'Group them into one object or separate them, then retry; fallback failed: {why}',
                     kind='conflict', slicer='OrcaSlicer', returncode=why,
                     **_failure_evidence(folder, 'orca.log'))
-            return SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
+            return SliceFailure(f'{orca_failure}; {why}; {_BAMBU_NOT_INSTALLED}', kind='launch',
                                 slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
                                 returncode=127, **_failure_evidence(folder, 'orca.log'))
         logger.warning('%s: %s', bambu_role, orca_failure)
