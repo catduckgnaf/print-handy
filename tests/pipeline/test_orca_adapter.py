@@ -126,9 +126,37 @@ def test_bambu_runs_only_after_orca_execution_failure(tmp_path, monkeypatch):
     assert any(path.name == 'machine.json' and path.parent.name == 'bambu' for path in configs)
 
 
+def test_bambu_fallback_available_by_command_name_uses_path_executable(tmp_path, monkeypatch):
+    _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['flatpak', 'run', '--unshare=network',
+                                                  '--command=bambu-studio',
+                                                  'com.bambulab.BambuStudio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/opt/bin/flatpak')
+    real_access = adapter.os.access
+    monkeypatch.setattr(adapter.os, 'access', lambda path, mode: (
+        True if path == '/opt/bin/flatpak' else real_access(path, mode)))
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            return type('R', (), {'returncode': 18, 'stdout': '', 'stderr': 'Orca exploded'})()
+        output = Path(command[command.index('--outputdir') + 1]) / 'plate_1.gcode'
+        output.write_text('; HEADER_BLOCK_START\n; BambuStudio 2.8.2\n'
+                          '; model printing time: 1m 0s; total estimated time: 2m 0s\nG90\nG1 X1 Y1 Z0.2\nEND_PRINT\n')
+        return type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    output, _provenance, _configs = adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert output.is_file()
+    assert len(calls) == 2
+
+
+
 def test_bambu_fallback_unavailable_is_not_spawned_and_preserves_conflict(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
     monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/definitely/not/a/bambu-studio'])
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: None)
     calls = []
 
     def run(command, **_kwargs):

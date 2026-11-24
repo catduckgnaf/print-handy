@@ -2572,8 +2572,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                      and (verified is None or 'bambu_studio' in verified))
     orca_failed = primary == 'orca' and (result.returncode or not output.is_file()
                                          or output.stat().st_size == 0)
-    bambu_available = bool(BAMBU_COMMAND and shutil.which(BAMBU_COMMAND[0])
-                           and os.access(BAMBU_COMMAND[0], os.X_OK))
+    bambu_executable = shutil.which(BAMBU_COMMAND[0]) if BAMBU_COMMAND else None
+    bambu_available = bool(bambu_executable and os.access(bambu_executable, os.X_OK))
     if orca_failed and not bambu_allowed:
         details = _orca_failure_details(folder)
         raise SliceFailure(f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
