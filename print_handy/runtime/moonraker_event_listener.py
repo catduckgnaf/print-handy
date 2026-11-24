@@ -4503,7 +4503,7 @@ class Listener:
                         initial_ffm is not None and initial_ifs is not None
                         and ffm != initial_ffm and ffm != initial_ifs):
                     warning = self._slot_agreement(sources)
-                    if warning:
+                    if warning and _claim_notification(identity, "slot_warning"):
                         await asyncio.to_thread(post, warning)
                     return
             log(f"slot self-check inconclusive: no confirmed active channel for job slot {job_slot}")
