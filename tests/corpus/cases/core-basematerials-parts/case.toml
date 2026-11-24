@@ -20,19 +20,31 @@ question = "Choose colors for these parts"
 button = "Choose colors"
 
 [[click]]
-question = "body"
+question = "author made it White"
 button = "White"
 
 [[click]]
-question = "hat"
+question = "Choose the color/material for Part 1 (source: body)"
+button = "White"
+
+[[click]]
+question = "author made it Black"
 button = "Black"
 
 [[click]]
-question = "band"
+question = "Choose the color/material for Part 2 (source: hat)"
+button = "Black"
+
+[[click]]
+question = "author made it Pink"
 button = "Pink"
 
 [[click]]
-question = "gold"
+question = "Choose the color/material for Part 3 (source: band)"
+button = "Pink"
+
+[[click]]
+question = "Choose the color/material for Part 4 (source: gold)"
 button = "Dark green"
 
 [[click]]
@@ -46,7 +58,7 @@ button = "Slice and print"
 [expect]
 status = "STARTED"
 parts = ["body", "hat", "band", "gold"]
-prompts = ["author made it White", "author made it Black", "author made it Pink", "author made it Green"]
+prompts = ["Choose the color/material for Part 1 (source: body)", "Choose the color/material for Part 2 (source: hat)", "Choose the color/material for Part 3 (source: band)", "Choose the color/material for Part 4 (source: gold)"]
 colors = { body = "white", hat = "black", band = "pink", gold = "dark green" }
 gcodes = 1
 supports = false
