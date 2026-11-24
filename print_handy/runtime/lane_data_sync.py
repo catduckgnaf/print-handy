@@ -1088,11 +1088,13 @@ class LaneDataWatcher:
             if relinked is not None:
                 # The screen put back a link Print Handy had already replaced
                 # (#1885). Relinked again: the record was right all along, so
-                # there is nothing to ask. The next poll reads the repaired
-                # record as Print Handy's own bind and adopts it silently.
+                # there is nothing to ask. The stale record is not adopted:
+                # the screen writes the very same record back on its next
+                # command, and a baseline holding it would read that as no
+                # change. The next poll reads the repaired record as Print
+                # Handy's own bind and adopts it silently.
                 _log.info("lane_data watcher: %s named spool #%s (%s); relinked it to spool #%s",
                           _slot(slot), spool_id, status, relinked)
-                adopt()
                 return True
             recorded = claimants[0].get("id") if claimants and len(claimants) == 1 else None
             if self._say_once(slot, f"stale_spool:{spool_id}:{recorded}"):
