@@ -2771,6 +2771,17 @@ def post_lane_event(event):
     if not text:
         return False
     slot = (event or {}).get("slot")
+    if (event or {}).get("kind") == "claimed_elsewhere" and not _buttonless_standalone():
+        try:
+            from . import print_alert_buttons as pab
+            hint = ("\nKeep rewrites the screen to the recorded spool. Move swaps the two slot "
+                    "assignments (only choose it if both spools are physically exchanged). "
+                    "Pick another spool opens the shelf picker.")
+            if pab.post_claimed_lane(_bot_token(), announcer.DISCORD_CHAT_ID, text + hint, event):
+                return True
+            warn(f"claimed lane button post failed slot={slot}; falling back to text")
+        except Exception as exc:
+            warn(f"claimed lane button post error slot={slot}: {exc!r}")
     if (event or {}).get("kind") == "identity_conflict" and slot in (1, 2, 3, 4) \
             and not _buttonless_standalone():
         # #1788: the notice asks which spool is really in the slot, so it
