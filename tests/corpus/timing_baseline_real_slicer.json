@@ -64,6 +64,71 @@
     }
    },
    "recorded_from": "CI run 43685401435 (595ef054ddd0b333a28071e354bf26e298e0e2d4), artifact slicer-timing-real, median of 3, 2.3.4 release, runner CPU AMD EPYC 9V74 80-Core Processor"
+  },
+  "Intel(R) Xeon(R) 6975P-C": {
+   "cases": {
+    "plates-multicolor/direct": {
+     "first_prompt_s": 0.07,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.07,
+      "fit_check_s": 0.01,
+      "wall_s": 1.2
+     },
+     "wall_s": 1.2
+    },
+    "rotation-fit/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 1.35,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 1.35,
+      "wall_s": 3.52
+     },
+     "wall_s": 3.52
+    },
+    "single-part/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 4.03,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 4.03,
+      "wall_s": 4.4
+     },
+     "wall_s": 4.4
+    },
+    "stl-large-plate/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.48,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.48,
+      "wall_s": 15.25
+     },
+     "wall_s": 15.25
+    },
+    "stl-single-part/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 4.03,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 4.03,
+      "wall_s": 4.39
+     },
+     "wall_s": 4.39
+    },
+    "witch-ghost-cults3d/direct": {
+     "first_prompt_s": 0.05,
+     "fit_check_s": 4.79,
+     "original": {
+      "first_prompt_s": 0.05,
+      "fit_check_s": 4.79,
+      "wall_s": 11.55
+     },
+     "wall_s": 11.55
+    }
+   },
+   "recorded_from": "CI run 45438378964 (453d90d9dab6be4e19dc7666d69a098cc691fc5a), artifact slicer-timing-real, median of 3, runner CPU Intel(R) Xeon(R) 6975P-C"
   }
  },
  "cases": {
