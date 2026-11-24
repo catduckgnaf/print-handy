@@ -89,7 +89,7 @@ def test_a1_link_intake_offers_print_in_one_color(tmp_path, monkeypatch):
 def test_a1_summary_names_the_configured_printer_not_the_ad5x(env, monkeypatch):  # noqa: F811
     use_model(monkeypatch, A1)
     log, _ = run_preview(env, monkeypatch, "A sturdy stand.", {**AD5X_ROW, "site_printer": "Bambu Lab A1"})
-    assert log[0][1].endswith("The Bambu Lab A1 figure after slicing will differ somewhat.")
+    assert log[0][1].endswith("Model page estimate: about 1h 30m and 20 g of filament over 2 plates.")
     assert "AD5X" not in log[0][1]
 
 

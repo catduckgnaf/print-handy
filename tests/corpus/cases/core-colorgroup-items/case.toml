@@ -41,7 +41,7 @@ button = "Slice and print"
 [expect]
 status = "STARTED"
 parts = ["Left", "Middle", "Right"]
-prompts = ["author made it White", "author made it Black", "author made it Pink"]
+prompts = ["designer color: White (`#FFFFFFFF`)", "designer color: Black (`#000000FF`)", "designer color: Pink (`#FF80C0FF`)"]
 colors = { Left = "white", Middle = "black", Right = "pink" }
 gcodes = 1
 supports = false

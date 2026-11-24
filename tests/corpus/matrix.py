@@ -127,7 +127,8 @@ def expand(entry):
                   "[[click]]", 'question = "Same colors as last time"', 'button = "Change colors"', "",
                   "[[click]]", 'question = "Choose colors for these parts"', 'button = "Choose colors"', ""]
         for part, button in zip(names, buttons):
-            question = f"for {part}," if layout == "assembly" else f'("{part}")'
+            # Loose parts carry generic names, so intake labels them with their source name (#1858).
+            question = part if layout == "assembly" else f"{part} (source: {part})"
             lines += ["[[click]]", f"question = {_value(question)}", f'button = "{button}"', ""]
         lines += ["[[click]]", 'question = "How many copies"', 'button = "One copy"', "",
                   "[[click]]", 'question = "·"', 'button = "Slice and print"', "", "[expect]",

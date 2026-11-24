@@ -147,8 +147,7 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
         for group in (groups if groups is not None
                       else color_groups(manifest, selected_plate_ids=selected_plates)):
             first = group['rows'][0]
-            note = (f" (author color: {' '.join(group['color_words']).title()})"
-                    if group['color_words'] else '')
+            note = f" (designer color: {group['author_label']})"
             question = (first['question'] if len(group['rows']) == 1
                         else f"Choose the color/material for {group['label']}{note}")
             row = {'key': first['key'], 'source_extruder': first.get('source_extruder'),

@@ -18,7 +18,7 @@ import time
 import posixpath
 from pathlib import Path
 import xml.etree.ElementTree as ET
-from .part_translator import display_name
+from .part_translator import is_meaningless, named_color
 from .mesh_fast import archive_tables, MeshTable
 from .compact_geometry import transform_vertices_array
 import zipfile
@@ -405,7 +405,7 @@ def _apply_plate_names(archive, names, parts):
             part['name'] = label
 
 
-def _annotate_parts(archive, names, parts, filaments):
+def _annotate_parts(archive, names, parts, filaments=None):
     """Give each part what a person needs to recognise it: real size, plate and the author's color.
 
     Best effort and display only; a failure here never blocks intake.
@@ -496,12 +496,6 @@ def _annotate_parts(archive, names, parts, filaments):
                 for part in parts:
                     if part.get('object_id') in plate_of:
                         part['plate'] = plate_of[part['object_id']]
-        palette = {f.get('source_extruder'): f.get('color') for f in filaments}
-        if len({c for c in palette.values() if c}) > 1:
-            for part in parts:
-                color = palette.get(part.get('source_extruder'))
-                if color:
-                    part['author_color'] = color
         _core_material_colors(root, objects, parts)
     except Exception:
         logger.debug("Best-effort recovery from Exception", exc_info=True)
@@ -511,15 +505,16 @@ def _core_material_colors(root, objects, parts):
     """Author colors from core 3MF materials (#711): object pid/pindex into basematerials/colorgroup.
 
     Plain 3MF exports (Blender, Fusion, generators) carry per-object colors
-    here instead of a slicer palette. Display only; a part that already has a
-    slicer palette color keeps it.
+    here instead of a slicer palette. Core displaycolor and the Materials
+    Extension colorgroup both encode alpha last (#RRGGBBAA). Keep the token
+    intact, including invalid values so they are not reported as missing.
     """
     groups = {}
     for node in root.iter():
         tag = node.tag.split('}')[-1]
         if tag in ('basematerials', 'colorgroup'):
             attr = 'displaycolor' if tag == 'basematerials' else 'color'
-            groups[node.get('id')] = [str(c.get(attr) or '')[:7] for c in node
+            groups[node.get('id')] = [str(c.get(attr) or '') for c in node
                                       if c.tag.split('}')[-1] in ('base', 'color')]
     if not groups:
         return
@@ -528,22 +523,19 @@ def _core_material_colors(root, objects, parts):
         if obj is None or obj.get('pid') not in groups:
             return None
         try:
-            value = groups[obj.get('pid')][int(obj.get('pindex') or 0)]
+            index = int(obj.get('pindex') or 0)
+            if index < 0:
+                return None
+            value = groups[obj.get('pid')][index]
         except (ValueError, IndexError):
             return None
-        return value if re.fullmatch(r'#[0-9A-Fa-f]{6}', value) else None
+        return value or None
 
-    found = {}
     for part in parts:
-        if part.get('author_color'):
-            continue
         color = color_of(objects.get(part.get('part_id'))) or color_of(objects.get(part.get('object_id')))
         if color:
-            found[id(part)] = color
-    if len(set(found.values())) > 1:  # one color everywhere tells the operator nothing
-        for part in parts:
-            if id(part) in found:
-                part['author_color'] = found[id(part)]
+            part['author_color'] = color
+            part['author_color_source'] = '3mf_material'
 
 
 def _prusa_palette(config_bytes):
@@ -806,7 +798,7 @@ def _inventory(path):
             parts = _split_prusa_volumes(parts, prusa_layout)
         # Negative parts and modifiers are cutters/settings volumes, not printed
         # bodies: never a color question, never a separate printed object.
-        _annotate_parts(archive, names, parts, filaments)
+        _annotate_parts(archive, names, parts)
         cutters = [p for p in parts if p.get('subtype', 'normal_part') != 'normal_part']
         parts = [p for p in parts if p.get('subtype', 'normal_part') == 'normal_part']
         if not parts:
@@ -817,6 +809,27 @@ def _inventory(path):
             for part in parts:
                 if part.get('source_extruder') is None:
                     part['source_extruder'] = 1
+        # Bambu/Orca project palettes write RGB or RGBA, not ARGB. Prefer an explicit
+        # project assignment to the core display material, but retain disagreements.
+        palette = {f['source_extruder']: f.get('color') for f in filaments}
+        label_counts = {}
+        for part in parts:
+            label = _part_label(part).casefold()
+            label_counts[label] = label_counts.get(label, 0) + 1
+        for index, part in enumerate(parts, 1):
+            label = _part_label(part)
+            if not label:
+                source = _clean_source_name(part.get('name')) or f"object {part.get('object_id') or '?'}"
+                part['display_label'] = f'Part {index} (source: {source})'
+            elif label_counts[label.casefold()] > 1:
+                part['display_label'] = f'{label} (part {index})'
+            color = palette.get(part.get('source_extruder'))
+            if color:
+                original = part.get('author_color')
+                if original and _color_hex(color) != _color_hex(original):
+                    part['alternate_author_color'] = original
+                part['author_color'] = color
+                part['author_color_source'] = 'project_palette'
         # Height-based color changes (#870): per-layer tool changes are colors
         # in their own right. An extruder they switch to that the palette does
         # not name joins the palette with the color the entry itself carries,
@@ -2002,31 +2015,86 @@ def _shape_word(bounds):
     return 'Chunky piece'
 
 
+def _clean_source_name(name):
+    return ' '.join(str(name or '').split()).replace('`', "'").replace('@', '@\u200b')[:100]
+
+
+def _part_label(part):
+    from .part_translator import translate_name
+    for raw in (part.get('name'), part.get('object_name')):
+        value = _clean_source_name(raw)
+        if not value or is_meaningless(value):
+            continue
+        label = re.sub(r'_+', ' ', translate_name(value)).strip()
+        label = re.sub(r'^\d+[.)]?\s+', '', label)
+        if label and not re.fullmatch(r'(?i)(?:object|part|mesh|body|solid)(?:[ _-]*\d+)?', label):
+            return label
+    return ''
+
+
+_CAD_PRIMITIVE = re.compile(r'(?i)(cylinder|cube|box|sphere|cone|extrude|torus)(\s*[a-z0-9]{0,3})?(\s*\d+)?')
+
+
+def _base_label(part):
+    """The one part label for questions and summaries.
+
+    A CAD primitive name ('Cylinder', 'Cube 2') says nothing about the part, so
+    its plain shape from the bounding box leads and the source name follows as
+    provenance: 'Tall post ("Cylinder")'. A label made unique at intake
+    (``display_label``) is used as is.
+    """
+    if part.get('display_label'):
+        return part['display_label']
+    label = _part_label(part)
+    if not label:
+        return 'Part'
+    shape = _shape_word(part.get('bounds_mm')) if _CAD_PRIMITIVE.fullmatch(label) else ''
+    return f'{shape} ("{label}")' if shape else label
+
+
+def author_color_label(value):
+    """Textual alternative to the swatch; never a filament selection."""
+    from .filament_color import parse_hex
+    raw = _clean_source_name(value)
+    if not raw:
+        return 'No designer color specified'
+    parsed = parse_hex(raw) if ',' not in raw else None
+    if parsed:
+        _, alpha = parsed
+        transparency = '' if alpha in (None, 255) else (', transparent' if alpha == 0 else f', {alpha / 255:.0%} opacity')
+        return f'{named_color(raw).title()}{transparency} (`{raw}`)'
+    if re.fullmatch(r'[A-Za-z][A-Za-z -]*', raw):
+        from .filament_color import derive
+        if derive(raw):
+            return raw
+    return f'Unreadable designer color (`{raw}`)'
+
+
+def part_author_color(part):
+    color = author_color_label(part.get('author_color'))
+    if part.get('alternate_author_color'):
+        color += f"; core material differs: {author_color_label(part['alternate_author_color'])}"
+    return color
+
+
 def _prompt_parts(part, plural=False):
     """(base name, [detail, ...]) for a question; _prompt_name joins them.
 
     plural words the author colour for a group of identical parts ('author made them Pink').
     """
+    from .part_translator import size_hint
+    base = _base_label(part)
     try:
-        from . import part_translator
-        base = part_translator.translate_name(part.get('name') or '') if not part_translator.is_meaningless(part.get('name'))             else (part.get('object_name') or 'Main body')
-        hint = part_translator.size_hint(part)
-    except Exception:
-        base, hint = part.get('name') or '', ''
-    base = re.sub(r'[_]+', ' ', str(base)).strip()
-    shape = _shape_word(part.get('bounds_mm'))
-    if shape and re.fullmatch(r'(?i)(cylinder|cube|box|sphere|cone|body|object|part|mesh|solid|extrude|torus)(\s*[a-z0-9]{0,3})?(\s*\d+)?', base):
-        base = f'{shape} ("{base}")'
+        hint = size_hint(part)
+    except (ValueError, TypeError):
+        hint = ''
     details = [hint] if hint else []
     if part.get('plate'):
         details.append(f"plate {part['plate']}")
     if part.get('author_color'):
-        try:
-            from . import part_translator
-            color = part_translator.named_color(part['author_color']).title()
-        except Exception:
-            color = str(part['author_color'])
-        details.append(f"author made {'them' if plural else 'it'} {color}")
+        details.append(f"author made {'them' if plural else 'it'} {part_author_color(part)}")
+    else:
+        details.append('No designer color specified')
     return base, details
 
 
@@ -2042,7 +2110,7 @@ def _prompt_name(part):
 
 def short_part_name(part):
     """The part's display name without size, plate or author colour (for summaries)."""
-    return _prompt_parts(part)[0]
+    return _base_label(part)
 
 
 def _family_question(fam, chunk):
@@ -2083,20 +2151,17 @@ def _palette_rows(manifest, canonical=False):
         if canonical and not color:
             raise ValueError('Painted source regions cannot be distinguished by their color/material labels; '
                              'preparation requires a source with identifiable regions or separate named parts')
-        try:
-            from . import part_translator
-            name = part_translator.named_color(color)
-        except Exception:
-            name = color or 'unknown color'
+        author = author_color_label(color)
         stat_suffix = ''
         if canonical and ext and ext in ext_stats:
             s = ext_stats[ext]
             stat_suffix = f" [uses ~{s['g']}g / {s['m']}m]"
         action = 'Choose the loaded color/material for' if canonical else 'Map'
         rows.append({'key': f'filament:{ext}',
-                     'question': (f"{action} {name.title()} regions ({color or 'unknown color'}, {material})"
+                     'question': (f"{action} painted regions (designer color: {author}; {material})"
                                   f"{stat_suffix}" if canonical else
-                                  f"Map {name.title()} regions ({color or 'unknown color'}, {material}) to an IFS slot"),
+                                  f"Map painted regions (designer color: {author}; {material}) to an IFS slot"),
+                     'author_label': author, 'label': f'Painted region {ext}',
                      'source_extruder': ext})
     if len({row['key'] for row in rows}) != len(rows):
         raise ValueError('duplicate part/color selection key')
@@ -2189,7 +2254,8 @@ def canonical_prompts(manifest, selected_plate_ids=None):
         stat_suffix = ''
         rows.append({'key': 'part:' + p['key'],
                      'question': f"Choose the color/material for {_prompt_name(p)}{stat_suffix}",
-                     'source_extruder': p['source_extruder']})
+                     'source_extruder': p['source_extruder'],
+                     'label': p.get('display_label') or short_part_name(p), 'author_label': part_author_color(p)})
     # Height-based color changes (#870): an extruder the per-layer tool
     # changes switch to is a color question in its own right, alongside the
     # part colors. An extruder a part already asks about needs no second row.
@@ -2410,19 +2476,19 @@ def part_families(manifest):
         if not key:
             key = '\0' + part['key']
         # Group must be partitioned by extruder if known
-        full_key = (ext, key)
+        full_key = (ext, key, part.get('author_color'), part.get('alternate_author_color'))
         if full_key not in groups:
             order.append(full_key)
             groups[full_key] = []
         groups[full_key].append(part)
     out = []
     for full_key in order:
-        ext, key = full_key
+        ext, key, _, _ = full_key
         members = groups[full_key]
         groupable = len(members) > 1 and ('#' in key or len({p['name'] for p in members}) == 1)
         chunks = [members] if groupable else [[p] for p in members]
         for chunk in chunks:
-            names = [_prompt_name(p) for p in chunk]
+            names = [_prompt_name(p).removesuffix(', No designer color specified') for p in chunk]
             ext_suffix = ""  # 'extruder 2' means nothing to the person choosing; author color says it
             noun = _family_noun(key, len(chunk))
             if re.match(r'(?i)(cylinder|cube|box|sphere|cone|body|object|part|mesh|solid|extrude|torus)', noun):
@@ -2456,7 +2522,8 @@ def grouped_prompts(manifest, selected_plate_ids=None):
             out.append({**by_key[keys[0]], 'keys': keys})
         else:
             out.append({'key': keys[0], 'keys': keys, 'source_extruder': by_key[keys[0]]['source_extruder'],
-                        'label': fam['label'], 'question': fam['question']})
+                        'label': fam['label'], 'question': fam['question'],
+                        'author_label': by_key[keys[0]].get('author_label')})
     out += [{**row, 'keys': [row['key']]} for row in rows if not row['key'].startswith('part:')]
     return out
 
@@ -2524,6 +2591,8 @@ def _part_display_name(part):
     words = base.split()
     while words and (words[0].isdigit() or re.fullmatch(r'\d+[.)]', words[0])):
         words.pop(0)
+    if part.get('display_label'):
+        return part['display_label']
     colors = set()
     from . import filament_color
     guess = filament_color.derive(part.get('name'))
@@ -2559,14 +2628,20 @@ def color_groups(manifest, selected_plate_ids=None, *, rows=None):
     groups, order = {}, []
     for row in rows:
         color, material = prompt_source_colour(manifest, row)
+        part = parts.get(row['key'][5:]) if row['key'].startswith('part:') else None
+        color = str((part or {}).get('author_color') or color).strip()
         words = _color_words(color, material)
-        identity = (words, ' '.join(str(material or '').casefold().split())) \
-            if words and words != ('unknown color',) else None
+        from .filament_color import parse_hex
+        parsed = parse_hex(color) if ',' not in color else None
+        # Approximate names are for display and spool suggestions, never for
+        # merging two distinguishable designer colors into one decision.
+        identity = (parsed or color.casefold(), material, (part or {}).get('alternate_author_color')) if color else None
         gkey = identity or ('\0row', row['key'])
         group = groups.get(gkey)
         if group is None:
             group = groups[gkey] = {'keys': [], 'rows': [], 'color': color, 'material': material,
-                                    'color_words': words, 'name_words': [], 'part_names': []}
+                                    'color_words': words, 'name_words': [], 'part_names': [],
+                                    'author_label': row.get('author_label') or author_color_label(color)}
             order.append(gkey)
         group['keys'].extend(row['keys'])
         group['rows'].append(row)
@@ -2591,7 +2666,7 @@ def color_groups(manifest, selected_plate_ids=None, *, rows=None):
         elif names:
             label = ' and '.join(names) if len(names) <= 2 else ', '.join(names[:-1]) + f' and {names[-1]}'
         else:
-            label = ' '.join(group['color_words']).title() + ' regions'
+            label = group['rows'][0].get('label') or ' '.join(group['color_words']).title() + ' regions'
         out.append({**group, 'label': label})
     return out
 
@@ -2679,8 +2754,11 @@ def mapping_summary(groups):
 
     Groups are joined with '; ' because each spool label carries its own comma
     (FILAMENT-TYPES-DESIGN section 4)."""
-    return '; '.join(f"{group['label']}: {group['spool_label']}"
-                     for group in groups if group.get('slot') is not None)
+    return '; '.join(
+        f"{group['label']}: designer color: {group['author_label']} → "
+        + (f"suggested slot {group['slot']}: {group['spool_label']}"
+           if group.get('slot') is not None else 'no spool suggested')
+        for group in groups)
 
 
 def spool_set_fingerprint(selections):

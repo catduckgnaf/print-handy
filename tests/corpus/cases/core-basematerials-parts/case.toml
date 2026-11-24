@@ -20,7 +20,7 @@ question = "Choose colors for these parts"
 button = "Choose colors"
 
 [[click]]
-question = "body"
+question = "Part 1 (source: body)"
 button = "White"
 
 [[click]]
@@ -46,7 +46,7 @@ button = "Slice and print"
 [expect]
 status = "STARTED"
 parts = ["body", "hat", "band", "gold"]
-prompts = ["author made it White", "author made it Black", "author made it Pink", "author made it Green"]
+prompts = ["designer color: White (`#FAF9F7`)", "designer color: Black (`#383845`)", "designer color: Pink (`#FFB3C4`)", "designer color: Green (`#067749`)"]
 colors = { body = "white", hat = "black", band = "pink", gold = "dark green" }
 gcodes = 1
 supports = false

@@ -19,19 +19,19 @@ question = "Choose colors for these parts"
 button = "Choose colors ("
 
 [[click]]
-question = "(Tile 00 00,"
+question = "Tile 00 00,"
 button = "White"
 
 [[click]]
-question = "(Tile 00 01,"
+question = "Tile 00 01,"
 button = "Pink"
 
 [[click]]
-question = "(Tile 00 02,"
+question = "Tile 00 02,"
 button = "Black"
 
 [[click]]
-question = "(Tile 00 03,"
+question = "Tile 00 03,"
 button = "Dark green"
 
 [[click]]

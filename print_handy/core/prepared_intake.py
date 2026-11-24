@@ -718,35 +718,30 @@ def _end_sentence(text):
 _QUESTION_PREFIX = re.compile(r'^Choose (?:the |one )?(?:loaded )?(?:slot/)?color/material for ')
 
 
-def _choice_summary(manifest, questions, choices, color_of):
+def _choice_summary(questions, choices, color_of):
     """Pre-slice summary of per-part choices, identical parts grouped.
 
-    '2× frameLeg: Matte white PLA · seat-brick: Pink PLA'. A size is added only where two groups
-    would otherwise show the same part name.
+    '2× frameLeg, seat-brick: designer color: … → final print color: Matte white PLA'. Parts that
+    share a designer color and a final color form one entry; identical names are counted and a
+    long list is cut after three names ('… and 125 more'), so a 512-part plate still gives one
+    short line per color instead of a message long enough to split away from its buttons.
     """
-    from .source_colors import short_part_name
-    from .part_translator import size_hint
-    parts = {'part:' + p['key']: p for p in manifest.get('parts', [])}
-    questions_by_key = {row['key']: row.get('question', '') for row in questions}
+    rows = {row['key']: row for row in questions}
     groups = {}
     for key, selection in choices.items():
-        part = parts.get(key)
-        if part is not None:
-            # 'Tall post ("Part 1")' -> 'Tall post': the CAD name was for the question; the size
-            # below tells same-named groups apart.
-            name, hint = re.sub(r'\s*\("[^"]*"\)$', '', short_part_name(part)), size_hint(part)
-        else:  # painted region rows and anything unexpected: the question's subject
-            name, hint = _QUESTION_PREFIX.sub('', questions_by_key.get(key, '')).split(' (')[0] or key, ''
-        group = (name, hint, color_of(selection))
-        groups[group] = groups.get(group, 0) + 1
-    hints_per_name = {}
-    for name, hint, _ in groups:
-        hints_per_name.setdefault(name, set()).add(hint)
-    out = []
-    for (name, hint, color), count in groups.items():
-        label = f'{name} ({hint})' if hint and len(hints_per_name[name]) > 1 else name
-        out.append(f"{f'{count}× ' if count > 1 else ''}{label}: {color}")
-    return ' · '.join(out)
+        row = rows.get(key, {})
+        name = row.get('label') or _QUESTION_PREFIX.sub('', row.get('question', '')).split(' (')[0] or key
+        names = groups.setdefault((row.get('author_label'), color_of(selection)), {})
+        names[name] = names.get(name, 0) + 1
+
+    def _names(counts):
+        shown = [f'{n}× {name}' if n > 1 else name for name, n in list(counts.items())[:3]]
+        rest = sum(list(counts.values())[3:])
+        return ', '.join(shown) + (f' and {rest} more' if rest else '')
+
+    return ' · '.join(
+        f"{_names(counts)}: " + (f"designer color: {author} → " if author else '') + f"final print color: {color}"
+        for (author, color), counts in groups.items())
 
 
 def _preview_estimate(row):
@@ -810,8 +805,7 @@ def preview_sentence(job, row, filament_note=None):
         if site:
             plates = len((row or {}).get('plates') or [])
             text += (f" Model page estimate: about {jobs_store.human_dur(site[0])}"
-                     f" and {round(site[1])} g of filament{f' over {plates} plates' if plates > 1 else ''}."
-                     f' The {_printer_name(job)} figure after slicing will differ somewhat.')
+                     f" and {round(site[1])} g of filament{f' over {plates} plates' if plates > 1 else ''}.")
         elif (job or {}).get('site') == 'upload':
             # An uploaded file has no model page to quote.
             text += ' I will report time and filament after slicing.'
@@ -3271,9 +3265,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             """One askable unit for a color group (#1473): its decision keys,
             a question that names the parts and their author color, and the
             row its source color is read from."""
-            note = ''
-            if group['color_words']:
-                note = f" (author color: {' '.join(group['color_words']).title()})"
+            note = f" (designer color: {group['author_label']})"
             question = (group['rows'][0]['question'] if len(group['rows']) == 1
                         else f"Choose the color/material for {group['label']}{note}")
             return {'keys': group['keys'], 'label': group['label'],
@@ -3338,7 +3330,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # work on the way to the first color question.
             groups = color_groups(manifest, selected_plate_ids=selected_plates,
                                   rows=grouped)
-            if len(groups) < 2:
+            if len(groups) < 2 or job_adapter.color_system == 'single':
                 return None
             if job_adapter.tool_based:
                 # One colour per toolhead (#346): more distinct source
@@ -3398,7 +3390,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         families = [row for row in grouped if len(row['keys']) > 1]
         tally = {}
         for p in manifest['parts']:
-            label = re.sub(r'\.(stl|3mf|obj|step|stp)$', '', p['name'], flags=re.I)
+            from .source_colors import short_part_name
+            label = short_part_name(p)
             tally[label] = tally.get(label, 0) + 1
         names = ', '.join(f'{n}× {k}' if n > 1 else k for k, n in tally.items()) or Path(path).name
         saved_decisions = job.get('color_decisions') if _carries_decisions(job) else None
@@ -4061,11 +4054,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             noun = 'Toolhead' if jobs_store._job_adapter(latest).tool_based else 'Slot'
             from .printer_state import display_material
             material = display_material(sel.get('material'))
-            return ' '.join(v for v in (color[:1].upper() + color[1:], material) if v) or f"{noun} {sel.get('slot')}"
+            spool = ' '.join(v for v in (color[:1].upper() + color[1:], material) if v) or 'Color not recorded'
+            return f"{spool} ({noun.lower()} {sel.get('slot')})"
         if validated.get('mode') == 'single_color':
-            names = _color_of(validated.get('selection'))
+            names = f"Final print color: {_color_of(validated.get('selection'))} (all parts)"
         else:
-            names = _choice_summary(manifest, questions, validated.get('choices', {}), _color_of)
+            names = _choice_summary(questions, validated.get('choices', {}), _color_of)
         # Never promise "together" before slicing: the planner may still split with a stated reason.
         print_label = PRINT_NOW_LABEL
         cancel_label = 'Cancel print request'

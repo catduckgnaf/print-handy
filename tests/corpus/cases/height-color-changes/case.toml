@@ -20,7 +20,7 @@ question = "changes color by height"
 button = "Keep the height-based colors"
 
 [[click]]
-question = "for Tower"
+question = "Tower"
 button = "White"
 
 [[click]]
@@ -29,6 +29,14 @@ button = "Black"
 
 [[click]]
 question = "height-based color change to Red"
+button = "Pink"
+
+[[click]]
+question = "Black regions"
+button = "Black"
+
+[[click]]
+question = "Red regions"
 button = "Pink"
 
 [[click]]

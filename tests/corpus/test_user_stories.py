@@ -25,10 +25,10 @@ def test_catduck_drops_a_multicolor_file_then_slices_and_prints(tmp_path):
     """
     case, run = _run("four-colors-one-plate", tmp_path)
     harness.check_expectations(case, run)
-    assert _picked(run, '("Part 1")') == ["White PLA"]
-    assert _picked(run, '("Part 2")') == ["Black PLA"]
-    assert _picked(run, '("Part 3")') == ["Pink PLA"]
-    assert _picked(run, '("Part 4")') == ["Dark Green PLA"]
+    assert _picked(run, 'Part 1 (source: Part 1)') == ["White PLA"]
+    assert _picked(run, 'Part 2 (source: Part 2)') == ["Black PLA"]
+    assert _picked(run, 'Part 3 (source: Part 3)') == ["Pink PLA"]
+    assert _picked(run, 'Part 4 (source: Part 4)') == ["Dark Green PLA"]
     assert len(run.gcodes) == 1 and len(run.starts) == 1
     assert run.receipt["status"] == "STARTED"
 

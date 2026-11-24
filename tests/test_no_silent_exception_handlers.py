@@ -174,7 +174,7 @@ BROAD_NO_LOG_ALLOWANCE = {
         "One pre-existing broad no-log handler remains (the adapter fallback in resolve); the four decision-path handlers listed in #1467 now log or catch narrowly. Frozen so a new one fails; burning this last one down is future work."),
     "print_handy/core/roast.py": (1,
         "Pre-existing broad no-log handlers in core decision and slicing code, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
-    "print_handy/core/source_colors.py": (13,
+    "print_handy/core/source_colors.py": (10,
         "Pre-existing broad no-log handlers in core decision and slicing code, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),
     "print_handy/core/split_fit.py": (2,
         "Pre-existing broad no-log handlers in core decision and slicing code, frozen at the #1467 count so a new one fails CI; burning them down beyond the #1467 decision paths is future work, not done here."),

@@ -33,9 +33,9 @@ def _box(x0):
             + '</triangles></mesh>')
 
 
-def _write(path, style):
+def _write(path, style, *, parts=PARTS):
     """style: 'basematerials' (assembly of components), 'colorgroup' (separate build items) or 'one_color'."""
-    parts = [(n, PARTS[0][1]) for n, _ in PARTS] if style == 'one_color' else PARTS
+    parts = [(n, parts[0][1]) for n, _ in parts] if style == 'one_color' else parts
     if style == 'colorgroup':
         res = (f'<m:colorgroup id="1">' + ''.join(f'<m:color color="{c}FF"/>' for _, c in parts) + '</m:colorgroup>')
     else:
@@ -62,15 +62,15 @@ def _write(path, style):
 def test_core_material_colors_are_author_colors_not_paint(tmp_path, style):
     m = sc.inventory(_write(tmp_path / f'{style}.3mf', style))
     assert m['painted'] is False
-    assert [p.get('author_color', '').upper() for p in m['parts']] == [c for _, c in PARTS]
+    assert [p.get('author_color', '').upper() for p in m['parts']] == [c + ('FF' if style == 'colorgroup' else '') for _, c in PARTS]
     rows = sc.canonical_prompts(m)
     assert all(r['key'].startswith('part:') for r in rows) and len(rows) == len(PARTS)
     assert all('author made it' in r['question'] for r in rows)
 
 
-def test_one_core_color_everywhere_is_not_announced(tmp_path):
+def test_one_core_color_is_preserved_for_each_part(tmp_path):
     m = sc.inventory(_write(tmp_path / 'one.3mf', 'one_color'))
-    assert m['painted'] is False and not any(p.get('author_color') for p in m['parts'])
+    assert m['painted'] is False and all(p['author_color'] == PARTS[0][1] for p in m['parts'])
 
 
 def test_answered_core_material_selection_validates(tmp_path):
@@ -107,3 +107,29 @@ def test_volume_extruder_zero_inherits_object_filament(tmp_path):
             dst.writestr(item, data)
     parts = {p["name"]: p for p in sc.inventory(target)["parts"]}
     assert parts["Base"]["source_extruder"] == 1
+
+
+def test_inventory_disambiguates_duplicate_parts_in_color_picker(tmp_path):
+    """Exercise generated labels, not a manifest with preassigned display labels."""
+    path = _write(tmp_path / 'duplicate.3mf', 'colorgroup',
+                  parts=[('Badge', '#F9E2B7'), ('Badge', '#0000FF')])
+    manifest = sc.inventory(path)
+    labels = [part['display_label'] for part in manifest['parts']]
+    assert len(labels) == len(set(labels)) == 2
+    rows = sc.canonical_prompts(manifest)
+    assert [row['label'] for row in rows] == labels
+    groups = sc.color_groups(manifest)
+    assert [group['label'] for group in groups] == labels
+    assert 'Light Cream (`#F9E2B7FF`)' in groups[0]['author_label']
+    assert 'Blue (`#0000FFFF`)' in groups[1]['author_label']
+
+
+def test_same_color_duplicate_parts_remain_identifiable_in_group(tmp_path):
+    path = _write(tmp_path / 'same-color.3mf', 'colorgroup',
+                  parts=[('Badge', '#F9E2B7'), ('Badge', '#F9E2B7')])
+    manifest = sc.inventory(path)
+    labels = [part['display_label'] for part in manifest['parts']]
+    group, = sc.color_groups(manifest)
+    assert len(group['keys']) == 2
+    assert len(set(labels)) == 2
+    assert all(label in group['label'] for label in labels)
