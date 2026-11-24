@@ -18,7 +18,7 @@ Bed sizes are the pinned Orca profiles' printable areas; the values slicing enfo
 
 ## Set up the profiles
 
-Print Handy ships no Elegoo slicer profiles (OrcaSlicer's Elegoo profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.1 installation (the shipped slicer; the 2.5 line; its Elegoo profiles flatten to the v2.5.0-beta hashes, and v2.5.1 records its own identities at vendor profiles 02.04.00.14):
+Print Handy ships no Elegoo slicer profiles (OrcaSlicer's Elegoo profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.2 installation (the shipped slicer; the 2.5 line; its Elegoo profiles flatten to the v2.5.0-beta hashes, and v2.5.1 records its own identities at vendor profiles 02.04.00.14; v2.5.2's Elegoo profiles are unchanged from v2.5.1, so a 2.5.2 install verifies against those):
 
 ```bash
 python3 scripts/elegoo-templates.py --printer neptune4 --resources <OrcaSlicer resources folder>
