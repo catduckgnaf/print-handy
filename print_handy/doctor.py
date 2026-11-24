@@ -2,7 +2,7 @@
 
     python3 -m print_handy.doctor
 
-Exits 1 when any check fails. Services and the slicer are skipped when local.toml does not set them.
+Exits 1 when any check fails. Services and the slicer are skipped when local.yaml does not set them.
 """
 from __future__ import annotations
 
@@ -542,7 +542,7 @@ def run(out=sys.stdout):
             failed = True
             print(f"FAIL  {label}: {exc}", file=out)
             return None
-        print(f"{'ok' if detail is not None else 'skip':<5} {label}" + (f": {detail}" if detail else " (not set in local.toml)"), file=out)
+        print(f"{'ok' if detail is not None else 'skip':<5} {label}" + (f": {detail}" if detail else " (not set in local.yaml)"), file=out)
         return detail
 
     try:

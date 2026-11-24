@@ -28,7 +28,7 @@ def _blocked_hosts():
 @pytest.fixture(autouse=True)
 def _never_write_live_printer_state(monkeypatch):
     saved = []
-    monkeypatch.setattr(printer_state, "save", saved.append)
+    monkeypatch.setattr(printer_state, "save", lambda state, printer_id=None: saved.append(state))
     return saved
 
 

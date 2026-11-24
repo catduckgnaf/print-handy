@@ -8,6 +8,7 @@ the catduck-unraid-templates repo is not synced (routine-variable rule)
 and the in-repo template carries only the install surface since its
 slimming, so it deliberately omits this key (pinned below).
 """
+import json
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,7 @@ def _load(tmp_path, text):
     # home=None loads the repo's own shipped config/home.yaml as the
     # defaults base (the load() contract); the file under test rides
     # as the operator layer, where [vision] keys are validated.
-    path = tmp_path / "home.toml"
+    path = tmp_path / "home.yaml"
     path.write_text(text, encoding="utf-8")
     return settings.load(local=path, environ={})
 
@@ -44,7 +45,7 @@ def test_env_form_loads(tmp_path):
 @pytest.mark.parametrize("bad", ["yes", "1", 1, 0])
 def test_non_bool_is_refused(tmp_path, bad):
     with pytest.raises(settings.SettingsError, match="local_empty_enabled"):
-        _load(tmp_path, f'[vision]\nlocal_empty_enabled = {bad!r}\n'.replace("'", '"'))
+        _load(tmp_path, f"vision:\n  local_empty_enabled: {json.dumps(bad)}\n")
 
 
 def test_env_example_carries_the_key():

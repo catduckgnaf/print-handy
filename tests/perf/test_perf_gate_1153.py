@@ -58,7 +58,7 @@ def test_verify_scan_perf_gate(plate):
 @pytest.fixture
 def home_layer():
     """The shipped home layer, the largest file every settings.load() and /config read parses."""
-    path = settings.HOME if settings.HOME.is_file() else settings.LEGACY_HOME
+    path = settings.HOME
     settings._READ_CACHE.clear()
     if time.time() - os.stat(path).st_mtime < settings._READ_CACHE_RACY_S + 0.5:
         pytest.skip("the home layer was just written; the cache would rightly refuse it")

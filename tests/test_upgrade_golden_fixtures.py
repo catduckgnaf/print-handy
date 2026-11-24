@@ -1,3 +1,4 @@
+import toml_twin
 """Upgrade-path golden fixtures: today's readers over frozen old shapes.
 
 The fixtures under ``tests/fixtures/legacy/`` freeze state as older
@@ -135,7 +136,7 @@ def test_doctor_refuses_the_old_install_layout_with_the_move(tmp_path):
     record missing or starting the printer empty."""
     local = tmp_path / "local.toml"
     local.write_text(f'[paths]\nstate_home = "{tmp_path}/hermes"\n')
-    data = settings.load(local=local, environ={})
+    data = settings.load(local=toml_twin.yaml_fixture(local), environ={})
     state_dir = settings.state_dir(data)
     state_dir.mkdir(parents=True, exist_ok=True)
     nozzle = data["printer"]["nozzle_diameter_mm"]
@@ -158,9 +159,10 @@ def test_doctor_refuses_the_old_install_layout_with_the_move(tmp_path):
 
 # ------------------------------------------------------------- retired settings keys
 
-def test_retired_settings_fixture_names_the_required_migration():
+def test_retired_settings_fixture_names_the_required_migration(tmp_path):
     with pytest.raises(settings.SettingsError, match="renamed to"):
-        settings.load(local=LEGACY / "settings_all_retired_keys.toml", environ={})
+        settings.load(local=toml_twin.yaml_fixture(
+            LEGACY / "settings_all_retired_keys.toml", destination=tmp_path / "retired.yaml"), environ={})
 
 
 def test_old_environment_keys_are_refused_and_current_keys_load():
@@ -187,4 +189,4 @@ def test_printer_family_is_a_named_refusal_not_an_alias(tmp_path):
     local = tmp_path / "local.toml"
     local.write_text('[printer]\nfamily = "sovol_klipper"\n')
     with pytest.raises(settings.SettingsError, match=r"family was replaced by model"):
-        settings.load(local=local, environ={})
+        settings.load(local=toml_twin.yaml_fixture(local), environ={})

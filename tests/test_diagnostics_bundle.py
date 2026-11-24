@@ -5,13 +5,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import toml_twin
+
 from print_handy import diagnostics_bundle, settings
 
 
 def _data(tmp, extra_toml=""):
     path = Path(tmp) / "local.toml"
     path.write_text(extra_toml)
-    return settings.load(local=path, environ={})
+    return settings.load(local=toml_twin.yaml_fixture(path), environ={})
 
 
 class BundleTests(unittest.TestCase):
@@ -126,7 +128,7 @@ class CrashAndFallbackTests(unittest.TestCase):
         path = Path(tmp) / "local.toml"
         path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\ncache = "{tmp}/cache"\n'
                         + extra_toml)
-        return settings.load(local=path, environ={})
+        return settings.load(local=toml_twin.yaml_fixture(path), environ={})
 
     def _record_crash(self, data, message="kaput in the worker"):
         import sys
@@ -213,7 +215,7 @@ class RuntimeAndPrinterLogsTests(unittest.TestCase):
         path = Path(tmp) / "local.toml"
         path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\ncache = "{tmp}/cache"\n'
                         + extra_toml)
-        return settings.load(local=path, environ={})
+        return settings.load(local=toml_twin.yaml_fixture(path), environ={})
 
     def test_runtime_section_reports_heartbeat_supervisor_and_captures(self):
         import json as _json

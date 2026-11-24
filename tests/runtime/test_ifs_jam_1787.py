@@ -17,6 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
+from print_handy import settings
+from print_handy.core import printer_state
 from print_handy.runtime import moonraker_event_listener as mel
 from print_handy.runtime import print_alert_buttons as pab
 from print_handy.runtime import print_control, print_stop, spool_sync
@@ -51,11 +53,14 @@ class FirmwareCauseTests(unittest.TestCase):
 class JamListenerCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        hardware = Path(self.tmp.name) / "hardware.json"
+        state_root = Path(self.tmp.name) / "state"
+        hardware = state_root / "printers" / settings.default_printer_id() / "printer_hardware.json"
+        hardware.parent.mkdir(parents=True, exist_ok=True)
         hardware.write_text(json.dumps({"active_slot": 3, "filament_slots": {
             "3": {"spoolman_id": 21, "material": "PLA+", "color": "black"}}}))
         patches = [
-            mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(hardware)}),
+            mock.patch.object(printer_state, "STATE_ROOT", str(state_root)),
+            mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": ""}),
             mock.patch.object(mel.printers, "current", return_value=S(has_native_screen=True)),
             mock.patch.object(mel, "log"),
             mock.patch.object(mel, "run_announcer"),

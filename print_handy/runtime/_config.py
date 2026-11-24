@@ -97,7 +97,7 @@ def service_url(key: str) -> str:
 def require(url: str, setting: str) -> str:
     """Return url, or fail clearly when the setting is empty."""
     if not url:
-        raise RuntimeError(f"{setting} is not configured. Set it in config/local.yaml (or legacy config/local.toml).")
+        raise RuntimeError(f"{setting} is not configured. Set it in config/local.yaml.")
     return url
 
 

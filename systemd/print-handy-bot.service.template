@@ -1,5 +1,5 @@
 [Unit]
-Description=Print Handy standalone Discord bot (no Hermes, no LLM needed)
+Description=Print Handy standalone Discord bot (no LLM needed)
 After=network-online.target
 Wants=network-online.target
 

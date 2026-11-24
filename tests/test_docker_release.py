@@ -17,7 +17,6 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import tomllib
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -37,7 +36,7 @@ UNRAID = ET.parse(ROOT / "docker" / "unraid" / "print-handy.xml").getroot()
 # Public files a user copies or reads to deploy. All must be sanitized.
 DEPLOYMENT_FILES = [".env.example", "docker-compose.yml", "Dockerfile",
                     "docker/entrypoint.sh", "docker/orca-build-jobs.sh", "docker/orca-prebuilt.sh", "docker/unraid/print-handy.xml",
-                    "docker/supervise.sh", "docker/healthcheck.py", "config/docker.yaml", "config/docker.toml",
+                    "docker/supervise.sh", "docker/healthcheck.py", "config/docker.yaml",
                     "docs/DOCKER.md", "docs/SETTINGS.md", "tests/docker/compose.acceptance.yml"]
 SECRETS = {"DISCORD_BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "MATRIX_ACCESS_TOKEN", "LLM_API_KEY", "OCTOPRINT_API_KEY", "MOONRAKER_API_KEY",
            "BAMBU_LAN_PASSWORD", "AD5X_SERIAL", "AD5X_CHECK_CODE", "WEBUI_ACCESS_TOKEN",
@@ -1200,17 +1199,13 @@ class LiveContainerTests(unittest.TestCase):
 
 class CameraWatchVisibilityTests(unittest.TestCase):
     """#248: the camera watchdog is advertised, and visual_watch sensitivity is explicit
-    and configurable in the shipped YAML/TOML Docker configs and Compose. The slimmed
+    and configurable in the shipped YAML Docker config and Compose. The slimmed
     Unraid template carries no visual_watch variables, so a mounted config's watchdog
     settings stand there exactly as written."""
 
     def test_docker_configs_carry_visual_watch_with_the_documented_defaults(self):
         docker_yaml = yaml.safe_load((ROOT / "config" / "docker.yaml").read_text())
         self.assertEqual(docker_yaml["visual_watch"], {"sensitivity": 3, "enabled": True,
-                                                        "early_layers": 10, "early_interval_s": 120,
-                                                        "auto_pause_early": False})
-        docker_toml = tomllib.loads((ROOT / "config" / "docker.toml").read_text())
-        self.assertEqual(docker_toml["visual_watch"], {"sensitivity": 3, "enabled": True,
                                                         "early_layers": 10, "early_interval_s": 120,
                                                         "auto_pause_early": False})
         loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
@@ -1432,8 +1427,19 @@ class AcceptanceFixtureTests(unittest.TestCase):
         self.assertIn('-v "$data:/data"', args)
         self.assertIn('mkdir -p "$data"/{state,archive,records,cache,spoolman}', script)
         self.assertIn('probe readonly --read-only --tmpfs /tmp:size=64m -- "$check"', script)
-        self.assertIn('for check in payload closure slice egress ffmpeg openscad; do', script)
+        self.assertIn('for check in payload closure slice egress ffmpeg openscad model; do', script)
         self.assertNotIn('--entrypoint', args)
+
+    def test_bundled_model_directory_is_traversable_and_weights_read_only(self):
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        mkdir = "install -d -m 0755 -o root -g root /opt/print-handy/models"
+        copy = "COPY --from=vision-model --chmod=0444 /obico-failure-detector.onnx"
+        self.assertIn(mkdir, dockerfile)
+        self.assertIn(copy, dockerfile)
+        self.assertLess(dockerfile.index(mkdir), dockerfile.index(copy))
+        probe = (ROOT / "tests" / "docker" / "image_probe.py").read_text()
+        self.assertIn('"model": model', probe)
+        self.assertIn("os.getuid() == 0", probe)
 
     def test_harness_owns_its_names_and_publishes_no_port(self):
         script = (ROOT / "tests" / "docker" / "image_acceptance.sh").read_text()

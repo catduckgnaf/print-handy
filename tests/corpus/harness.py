@@ -456,6 +456,17 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
 
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
+    # Every corpus journey gets its own printer-specific record. Copying the
+    # supplied fixture prevents one test's write from corrupting another test's
+    # seed and lets state_path(printer_id) exercise real roster routing.
+    hardware_root = work / "hardware-state"
+    routed_state = hardware_root / "printers" / settings.default_printer_id() / "printer_hardware.json"
+    routed_state.parent.mkdir(parents=True, exist_ok=True)
+    # BUILT has already been resolved through spool_fixture.build_state above;
+    # retain that generated record as the source rather than treating the sentinel as a path.
+    source_state_file = Path(state_file)
+    routed_state.write_bytes(source_state_file.read_bytes())
+    state_file = routed_state
     stub = _stub_print_now(work)
     model_copy = None
     if case.model is not None:
@@ -513,7 +524,8 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         enter = stack.enter_context
         patch = lambda *a, **k: enter(mock.patch.object(*a, **k))  # noqa: E731
         enter(printer_overrides.patched(overrides))
-        enter(mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": str(state_file)}))
+        enter(mock.patch.dict(os.environ, {"PRINTER_HARDWARE_STATE": ""}))
+        patch(printer_state, "STATE_ROOT", str(hardware_root))
         patch(_config, "state_dir", lambda: work / "state")
         # The remembered color mappings (#1473) live in the app state dir; a
         # run is one drop's alternate history, so its memory starts empty and
@@ -637,7 +649,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
              slice_starts=slice_starts, state_root=state_root, receipts=receipts, archive=archive,
              gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,
              spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file,
-             real_slicer=real_slicer, wall_s=wall_s, segment=segment)
+             source_state_file=source_state_file, real_slicer=real_slicer, wall_s=wall_s, segment=segment)
 
 
 def _standalone_core(case, work, plugin, events, patch, *, auto=True):

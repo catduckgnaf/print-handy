@@ -97,16 +97,13 @@ printers:
 """)
         self.assertEqual(legacy, roster)
 
-    def test_toml_roster_parses(self):
-        data = load_local("""
+    def test_toml_roster_is_refused_with_a_yaml_hint(self):
+        with self.assertRaisesRegex(settings.SettingsError, "TOML settings are no longer supported.*YAML"):
+            load_local("""
 [[printers]]
 id = "garage-a1"
 model = "bambulab.a1"
-lan_host = "192.168.1.60"
-lan_serial = "00M00A000000000"
 """, suffix=".toml")
-        self.assertEqual(data["printer"]["model"], "bambulab.a1")
-        self.assertEqual(data["printers"][0]["lan_host"], "192.168.1.60")
 
 
 class RosterParsingTests(unittest.TestCase):

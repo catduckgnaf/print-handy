@@ -129,9 +129,10 @@ def force_restart(
         return moonraker()
 
     def default_native():
+        from print_handy import settings
         from print_handy.core import printer_state
         from ..jobs.filament import read_stock_detail
-        return read_stock_detail(printer_state.load(printer_id) if printer_id else printer_state.load())
+        return read_stock_detail(printer_state.load(printer_id or settings.default_printer_id()))
 
     mr_read = moonraker_reader or default_mr
     nat_read = native_reader or default_native

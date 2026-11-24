@@ -192,7 +192,7 @@ def test_retention_days_setting_is_validated_and_env_overridable():
 
 def test_docker_default_writes_logs_to_the_persistent_state_volume():
     root = Path(__file__).resolve().parents[1]
-    for suffix in ("yaml", "toml"):
+    for suffix in ("yaml",):
         cfg = settings.load(local=root / "config" / f"docker.{suffix}", user=False, environ={})
         assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"
         assert cfg["logging"]["retention_days"] == 14
@@ -313,9 +313,12 @@ def test_stage_interruption_is_a_warning_without_a_traceback():
 # --- settings -------------------------------------------------------------------------------------------
 
 def test_logging_defaults_come_from_the_checked_in_config(tmp_path):
-    import toml_twin  # a TOML home rendered from home.yaml: the legacy TOML loader path (#1322)
-    legacy = toml_twin.write_home_toml(tmp_path / "home.toml")
-    for home in (settings.load(local=False, environ={}), settings.load(home=legacy, local=False, environ={})):
+    import yaml
+    from tests.toml_twin import home_data
+
+    fixture = tmp_path / "home.yaml"
+    fixture.write_text(yaml.safe_dump(home_data(), sort_keys=False))
+    for home in (settings.load(local=False, environ={}), settings.load(home=fixture, local=False, environ={})):
         assert home["logging"] == {"level": "INFO", "format": "text", "file": "", "retention_days": 14, "levels": {}}
 
 

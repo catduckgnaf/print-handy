@@ -860,18 +860,16 @@ class PrinterNameWriterTests(unittest.TestCase):
             for path in (legacy, local):
                 self.assertFalse(list(Path(tmp).glob(path.name + ".bak-*")))
 
-    def test_a_toml_roster_stays_read_only(self):
+    def test_a_toml_roster_is_rejected_before_editing(self):
         with tempfile.TemporaryDirectory() as tmp:
             local = self.write(
                 tmp, '[[printers]]\nid = "garage-ad5x"\nname = "Garage AD5X"\n'
-                     'model = "flashforge.ad5x"\n'
-                     'moonraker_url = "http://192.168.1.61:7125"\n', "local.toml")
-            data = settings.load(local=local, environ={})
-            state = config_api.printer_name_state(data, local=local, environ={})
-            self.assertEqual(state.shape, "roster_toml")
+                     'model = "flashforge.ad5x"\n', "local.toml")
+            with self.assertRaisesRegex(settings.SettingsError, "TOML settings are no longer supported"):
+                settings.load(local=local, environ={})
             with self.assertRaises(config_api.WebUIConfigError):
-                config_api.write_printer_name("garage-ad5x", "Name",
-                                              config_path=local, environ={})
+                config_api.write_printer_name("garage-ad5x", "Name", config_path=local, environ={})
+
 
     def test_read_fields_survives_an_indexed_env_override(self):
         # Regression (#813): _layers resolved the environment without the

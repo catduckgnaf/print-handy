@@ -113,11 +113,9 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertIn('"openscad": openscad', probe)
 
     def test_docker_examples_use_source_installed_slicer(self):
-        for suffix in ("yaml", "toml"):
-            with self.subTest(format=suffix):
-                config = (ROOT / "config" / f"docker.{suffix}").read_text()
-                self.assertIn("/usr/local/bin/orca-slicer", config)
-                self.assertNotIn("/opt/orcaslicer/AppRun", config)
+        config = (ROOT / "config" / "docker.yaml").read_text()
+        self.assertIn("/usr/local/bin/orca-slicer", config)
+        self.assertNotIn("/opt/orcaslicer/AppRun", config)
 
     def test_single_container_with_included_spoolman_api(self):
         """#214: one Compose service runs Print Handy plus the bundled Spoolman API on loopback."""
@@ -271,14 +269,11 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertNotIn("client_v2/build/assets", stage)
 
     def test_configuration_parity_channels_and_packaged_plugins(self):
-        import tomllib
         from print_handy import settings
 
-        configs = [settings.load(local=ROOT / "config" / f"docker.{suffix}", environ={})
-                   for suffix in ("yaml", "toml")]
-        self.assertEqual(configs[0], configs[1])
-        self.assertEqual(configs[0]["services"]["spoolman_url"], "http://127.0.0.1:8000")
-        self.assertEqual(configs[0]["orca"]["command"], ["/usr/local/bin/orca-slicer"])
+        config = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
+        self.assertEqual(config["services"]["spoolman_url"], "http://127.0.0.1:8000")
+        self.assertEqual(config["orca"]["command"], ["/usr/local/bin/orca-slicer"])
         dockerfile = (ROOT / "Dockerfile").read_text()
         self.assertIn("ARG APP_CHANNEL=development", dockerfile)
         ignored = (ROOT / ".dockerignore").read_text().splitlines()
@@ -393,8 +388,7 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertIn("-DSLIC3R_FHS=ON", stage)
         self.assertNotIn(".AppImage", stage)
         self.assertIn("COPY --from=bambu-build /out/ /", dockerfile)
-        for suffix in ("yaml", "toml"):
-            self.assertIn("/usr/bin/bambu-studio", (ROOT / "config" / f"docker.{suffix}").read_text())
+        self.assertIn("/usr/bin/bambu-studio", (ROOT / "config" / "docker.yaml").read_text())
 
     def test_documentation_and_app_version_match_the_docker_contract(self):
         docs = (ROOT / "docs" / "DOCKER.md").read_text()

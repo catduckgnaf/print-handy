@@ -4,7 +4,7 @@ Every user-adjustable setting, its YAML key, its environment variable and its va
 
 * **YAML**: put keys in a file and select it with `PRINT_HANDY_CONFIG`. In Docker, mount the file and point `PRINT_HANDY_CONFIG` at its container path.
 * **Your own file**: keys in `~/.config/print-handy/settings.yaml` (Docker: `/data/.config/print-handy/settings.yaml`; on the host, `.config/print-handy/settings.yaml` in the Unraid Appdata folder or `dot-config/print-handy/settings.yaml` under the Compose data folder) layer over the selected file, so personal values such as `material_tuning` survive image updates. `PRINT_HANDY_USER_CONFIG` names a different path.
-* **Environment**: `PRINT_HANDY__SECTION__KEY=value` overrides any file. Booleans accept `true/false`, `1/0`, `yes/no`, `on/off`. Integer settings need integer spelling (`12`, not `12.0`). A blank value for a text setting is ignored, so the file value stays; the environment cannot clear a file-set string (P1-64: an unfilled Compose variable must not erase a mounted config's value), and a blank number or boolean is still an error. Rows marked *file only* are lists or tables and can only come from YAML or legacy TOML; the list exceptions are `delivery.methods` and `public_text.denylist`, which also accept a comma- or space-separated environment value (`PRINT_HANDY__DELIVERY__METHODS=discord,bambu_handoff,printer`, #270).
+* **Environment**: `PRINT_HANDY__SECTION__KEY=value` overrides any file. Booleans accept `true/false`, `1/0`, `yes/no`, `on/off`. Integer settings need integer spelling (`12`, not `12.0`). A blank value for a text setting is ignored, so the file value stays; the environment cannot clear a file-set string (P1-64: an unfilled Compose variable must not erase a mounted config's value), and a blank number or boolean is still an error. Rows marked *file only* are lists or tables and can only come from YAML; the list exceptions are `delivery.methods` and `public_text.denylist`, which also accept a comma- or space-separated environment value (`PRINT_HANDY__DELIVERY__METHODS=discord,bambu_handoff,printer`, #270).
 * **Precedence**, later wins: vendor and printer model defaults (*model*), `config/home.yaml`, the selected config file, environment. Settings are read once at start, so restart the service after a change.
 * An invalid value for a known setting stops startup and names the setting. A setting this version does not know (for example one a newer release added, still present in your config after a rollback, or a misspelled key) is ignored instead: startup continues with a warning naming it, and `bot check` shows the same warning. YAML holds no secrets; see [Secrets](#secrets).
 
@@ -218,7 +218,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `logging.format` | `PRINT_HANDY__LOGGING__FORMAT` | `text` | `text` (one readable line per event) or `json` (one JSON object per line) |
 | `logging.file` | `PRINT_HANDY__LOGGING__FILE` | empty (Docker image: `/data/state/logs/print-handy.log`) | Also write daily log files beside this path (`print-handy.log` becomes `print-handy-YYYY-MM-DD.log`); empty logs to stderr only. See [Logs and troubleshooting](DOCKER.md#logs-and-troubleshooting) |
 | `logging.retention_days` | `PRINT_HANDY__LOGGING__RETENTION_DAYS` | `14` | Days of daily log files kept (today counts as one); older files are deleted. A whole number, 1 or more |
-| `logging.levels` | file only | empty | Per-subsystem verbosity: a table of logger name to level, for example `levels = { "print_handy.core.orca_adapter" = "DEBUG" }` in TOML, so one subsystem can be raised without a wall of debug output; applied at process start |
+| `logging.levels` | file only | empty | Per-subsystem verbosity: a table of logger name to level, for example `logging:\n  levels:\n    print_handy.core.orca_adapter: DEBUG` in YAML, so one subsystem can be raised without a wall of debug output; applied at process start |
 | `maintenance.quick_hours` | `PRINT_HANDY__MAINTENANCE__QUICK_HOURS` | `25` | Quick maintenance due after these print hours |
 | `maintenance.full_hours` | `PRINT_HANDY__MAINTENANCE__FULL_HOURS` | `75` | Full maintenance due after these print hours |
 | `maintenance.full_days` | `PRINT_HANDY__MAINTENANCE__FULL_DAYS` | `30` | Full maintenance due after these days |
@@ -265,7 +265,7 @@ completions** endpoint (`POST .../v1/chat/completions`) configured in
 camera and image checks, spool label and purchase reads, and model-file
 edits, so any provider or local server that speaks that API works:
 OpenAI, OpenRouter, Cloudflare Workers AI, or a local server such as
-Ollama, LM Studio, llama.cpp or vLLM. Nothing requires Hermes; the
+Ollama, LM Studio, llama.cpp or vLLM. The
 standalone bot (Discord, Telegram or Matrix) reads these settings
 directly. Discord, Telegram and Matrix are pure bots: no message on
 those platforms ever reaches a model call. The one conversational lane
@@ -279,7 +279,7 @@ is Web Chat's, behind `webui.chat_llm_enabled`.
 ### AI tiers
 
 Three tiers name the purposes a call serves. A tier is a table under `ai`
-in the YAML (or `[ai.small]` in legacy TOML); the tables are file only,
+in YAML under `ai:\n  small:`; the tables are file only,
 and each holds **only a model name**: set `model` to use a different
 model for that purpose on the same endpoint, leave it empty to use
 `llm.model`. Nothing ships filled in.
@@ -442,7 +442,7 @@ How it works:
 
 ## Printers list
 
-By default Print Handy runs one printer, described by the `[printer]`, `[services]`, `[bambu]`, `[prusa]`, `[elegoo_sdcp]` and `[flashforge_stock]` settings above. A config file may instead declare a **list of printers** (`printers:` in YAML, `[[printers]]` in TOML), one entry per printer, each carrying its own connection keys. The list itself is file only: it cannot come from the environment.
+By default Print Handy runs one printer, described by the `[printer]`, `[services]`, `[bambu]`, `[prusa]`, `[elegoo_sdcp]` and `[flashforge_stock]` settings above. A config file may instead declare a **list of printers** (`printers:` in YAML), one entry per printer, each carrying its own connection keys. The list itself is file only: it cannot come from the environment.
 
 The **first entry is the default printer**: the legacy single-printer settings are populated from it, so everything that reads `[printer]`, the `[services]` URLs or a vendor section sees the first entry. When a list is declared, the legacy per-printer locations must be absent or empty in the same file and in the environment; setting both is refused at startup, with the offending locations named. A config with no list behaves exactly as before: loading synthesises a one-entry roster from the legacy settings, its `id` the slug of `printer.name` (or `printer` when there is no name).
 
@@ -510,7 +510,7 @@ An accessory is hardware fitted to one printer that did not ship with its model,
 Where the list goes:
 
 - **With a printers list**, put an `accessories` list inside the entry of the printer that has the hardware (`printers.accessories` above). A top-level `accessories` list beside a printers list is refused at startup by name, because it would not say which printer has the hardware.
-- **Without a printers list** (the single-printer default), a top-level `accessories` list (`[[accessories]]` in TOML) is that one printer's. When guided onboarding later adds a second printer, it moves the list onto the first printer's entry for you.
+- **Without a printers list** (the single-printer default), a top-level `accessories` list in YAML is that one printer's. When guided onboarding later adds a second printer, it moves the list onto the first printer's entry for you.
 
 The list is file only: it cannot come from the environment, and `PRINT_HANDY__PRINTERS__<ID>__ACCESSORIES` is refused by name. The Web UI has no field for it (its catalog addresses global fields only, the same verdict as the rest of the printers list). The Unraid template carries no settings beyond its container set, so it has no accessories entry either.
 
@@ -555,7 +555,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 | `PRINT_HANDY_IMAGE` | none, required | Image the combined container runs. Set a tested immutable digest (`ghcr.io/catduckgnaf/print-handy@sha256:...`), not `:latest`, `:develop` or `:nightly`. The current release digest is in [Pinning the image](DOCKER.md#pinning-the-image). |
 | `PRINT_HANDY_DATA` | `./data` | Host folder holding the `state`, `archive`, `records` and `cache` volumes (a pre-2.2.5 `hermes` folder there is only checked, read-only, so an unmigrated install refuses to start, #1817) |
 | `PRINT_HANDY_SPOOLMAN_DATA` | `./data/spoolman` | Host folder for the bundled Spoolman database, config, logs and backups |
-| `PRINT_HANDY_CONFIG` | `/app/config/docker.yaml` | Settings file Print Handy reads (YAML, or legacy `.toml`) |
+| `PRINT_HANDY_CONFIG` | `/app/config/docker.yaml` | Settings file Print Handy reads (YAML only; `.toml` is refused since 2.4.0) |
 | `DISCORD_CLIENT_ID` | empty | The Discord application's ID for the live view: a plain identifier (it appears in invite URLs), not a secret. The Activity server refuses to start without it when live viewing is enabled |
 | `CLOUDFLARED_IMAGE` | none, required for the sidecar | Image the optional `cloudflared` sidecar runs (Compose profile `live-stream`): a locally tested tag or immutable digest of the Cloudflare Tunnel connector |
 | `TZ` | `America/New_York` | Container timezone (IANA name): the image's local time for log timestamps, scheduled and timed features and the bundled services' timestamps. Set any IANA name, for example `Europe/London`; an unknown name is logged at startup and the default is used. Chat display times follow `discord.timezone` instead |

@@ -124,7 +124,7 @@ def main(argv=None):
     # Same isolation as tests/corpus/conftest.py: never write live printer state, use home slicer commands.
     from print_handy import settings
     from print_handy.core import orca_adapter, printer_state
-    printer_state.save = lambda state: None
+    printer_state.save = lambda state, printer_id=None: None
     home = settings.load(local=False, environ={})
     orca_adapter.ORCA_COMMAND = list(home["orca"]["command"])
     orca_adapter.BAMBU_COMMAND = list(home["bambu"]["command"])

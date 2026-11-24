@@ -123,7 +123,6 @@ def test_application_and_slicer_channels_are_independent_build_arguments():
 def test_optional_octoprint_and_nozzle_settings_file_environment_parity(tmp_path):
     configs = {
         "yaml": "services:\n  octoprint_url: http://octoprint.example:5000\nprinter:\n  nozzle_type: hardened_steel\n",
-        "toml": '[services]\noctoprint_url = "http://octoprint.example:5000"\n[printer]\nnozzle_type = "hardened_steel"\n',
     }
     expected = settings.load(local=ROOT / "config/docker.yaml", environ={
         "PRINT_HANDY__SERVICES__OCTOPRINT_URL": "http://octoprint.example:5000",

@@ -110,7 +110,7 @@ def test_start_guard_refuses_when_moonraker_does_not_answer(tmp_path, monkeypatc
           "filament_slots": {"2": {"spoolman_id": 11, "material": "PLA", "name": "Pink PLA"}},
           "spool": {"spoolman_id": 10}}
     saved = []
-    monkeypatch.setattr(model_job.printer_state, "save", lambda fresh: saved.append(fresh))
+    monkeypatch.setattr(model_job.printer_state, "save", lambda fresh, printer_id=None: saved.append(fresh))
     with patch_bound(jobs_common, "_mr", side_effect=REFUSED):
         with pytest.raises(RuntimeError) as caught:
             launch_print_now._sync_active_spool(st, 2)

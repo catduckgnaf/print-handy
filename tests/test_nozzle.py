@@ -266,7 +266,10 @@ def test_printer_state_cli_persistence(tmp_path, monkeypatch):
     import json
     from print_handy.core import printer_state
 
-    state_file = tmp_path / "printer_hardware.json"
+    monkeypatch.setattr(printer_state, "STATE_ROOT", str(tmp_path))
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    state_file = printer_state.state_path()
+    state_file.parent.mkdir(parents=True, exist_ok=True)
     initial_st = {
         "moonraker_url": "http://127.0.0.1:7125",
         "spoolman_url": "http://127.0.0.1:7912",
@@ -277,8 +280,6 @@ def test_printer_state_cli_persistence(tmp_path, monkeypatch):
         "z_offset_mm": -0.05,
     }
     state_file.write_text(json.dumps(initial_st, indent=2) + "\n")
-
-    monkeypatch.setenv("PRINTER_HARDWARE_STATE", str(state_file))
 
     # 1. Update nozzle diameter via CLI
     monkeypatch.setattr("sys.argv", ["printer_state.py", "set", "--nozzle", "0.6", "--no-sync-klipper"])
