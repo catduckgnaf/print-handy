@@ -508,7 +508,7 @@ Every configuration change needs a restart of the process or container that uses
 
 A save rewrites the settings file from its parsed mappings. Comments in a hand-edited file are **not guaranteed to survive**, and list or table values outside the catalog are preserved as parsed data rather than as their original text. The page states this before saving. Keep a separate copy when the comments in a hand-maintained file matter.
 
-Legacy TOML settings files are refused by Print Handy 2.4.0. Convert them to YAML and point `PRINT_HANDY_CONFIG` at the YAML file before using the Web UI.
+Legacy TOML settings files are refused since Print Handy 2.3.7. Convert them to YAML and point `PRINT_HANDY_CONFIG` at the YAML file before using the Web UI.
 
 ## What the Web UI cannot do
 
