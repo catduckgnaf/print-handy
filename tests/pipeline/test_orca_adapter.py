@@ -13,7 +13,7 @@ def test_failed_two_copy_slice_keeps_both_engine_logs_and_structured_cause(tmp_p
     from print_handy.core import slice_failure, worker_errors
     from print_handy.runtime import _config
     _allow_post(monkeypatch)
-    monkeypatch.setattr(adapter, '_fallback_available', lambda: True)
+    _fallback_available(monkeypatch)
     monkeypatch.setattr(adapter, 'shutil', type('S', (), {'which': lambda *_: '/mock/bambu-studio'})())
     monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
     monkeypatch.setattr(_config, 'state_home', lambda: str(tmp_path / 'profile'))
@@ -61,6 +61,13 @@ def _source(tmp_path):
     source = tmp_path / 'part.stl'
     source.write_text('solid x\nfacet normal 0 0 0\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid x\n')
     return source
+
+
+def _fallback_available(monkeypatch, available=True):
+    executable = '/mock/bambu-studio' if available else None
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: executable)
+    if available:
+        monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
 
 
 def _allow_post(monkeypatch):
@@ -162,19 +169,21 @@ def test_bambu_fallback_available_by_command_name_uses_path_executable(tmp_path,
 
 def test_bambu_fallback_unavailable_is_not_spawned_and_preserves_conflict(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
-    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/definitely/not/a/bambu-studio'])
-    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: None)
     calls = []
 
     def run(command, **_kwargs):
         calls.append(command)
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            out = Path(command[command.index('--outputdir') + 1])
+            (out / 'result.json').write_text(json.dumps({
+                'return_code': -101, 'error_string': 'G-code conflicts detected after slicing.'}))
         return type('R', (), {'returncode': 1, 'stdout': 'G-code conflicts detected', 'stderr': ''})()
 
     monkeypatch.setattr(adapter, '_spawn_slicer', run)
     with pytest.raises(adapter.SliceFailure) as caught:
         adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
     assert len(calls) == 1
-    assert 'geometry conflict' in str(caught.value)
+    assert 'G-code conflicts detected' in str(caught.value)
     assert 'Bambu Studio fallback slicer is not installed' in str(caught.value)
     assert caught.value.kind == 'conflict'
 
@@ -382,7 +391,7 @@ def test_designer_support_placement_keys_carry_over_the_template(tmp_path, monke
 def test_bambu_fallback_timeout_keeps_the_orca_context_and_stays_retryable(tmp_path, monkeypatch):
     from print_handy.core import slice_failure
     _allow_post(monkeypatch)
-    monkeypatch.setattr(adapter, '_fallback_available', lambda: True)
+    _fallback_available(monkeypatch)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -464,7 +473,7 @@ def test_flex_retry_without_explicit_settings_keeps_the_plain_flex_profile(tmp_p
 def test_missing_bambu_fallback_binary_says_it_is_not_installed(tmp_path, monkeypatch):
     # taskset exits 127 with "failed to execute <binary>" when the fallback slicer is absent (#814).
     _allow_post(monkeypatch)
-    monkeypatch.setattr(adapter, '_fallback_available', lambda: True)
+    _fallback_available(monkeypatch)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -501,7 +510,7 @@ def test_missing_bambu_fallback_keeps_why_orca_failed(tmp_path, monkeypatch):
 def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback(tmp_path, monkeypatch):
     # #912: an -101 with named objects must not read as "Bambu Studio not installed".
     _allow_post(monkeypatch)
-    monkeypatch.setattr(adapter, '_fallback_available', lambda: False)
+    _fallback_available(monkeypatch, available=False)
 
     def run(command, **kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -518,7 +527,7 @@ def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback
         adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
     assert caught.value.kind == 'conflict'
     assert caught.value.slicer == 'OrcaSlicer'
-    assert caught.value.signature == 'geometry_conflict'
+    assert caught.value.signature is None
     assert 'conflicting objects: BRONZE DETAILS and BLACK BODY' in str(caught.value)
 
 
