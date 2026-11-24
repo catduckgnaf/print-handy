@@ -13,6 +13,7 @@ def test_failed_two_copy_slice_keeps_both_engine_logs_and_structured_cause(tmp_p
     from print_handy.core import slice_failure, worker_errors
     from print_handy.runtime import _config
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, '_fallback_available', lambda: True)
     monkeypatch.setattr(adapter, 'shutil', type('S', (), {'which': lambda *_: '/mock/bambu-studio'})())
     monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
     monkeypatch.setattr(_config, 'state_home', lambda: str(tmp_path / 'profile'))
@@ -381,6 +382,7 @@ def test_designer_support_placement_keys_carry_over_the_template(tmp_path, monke
 def test_bambu_fallback_timeout_keeps_the_orca_context_and_stays_retryable(tmp_path, monkeypatch):
     from print_handy.core import slice_failure
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, '_fallback_available', lambda: True)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -462,6 +464,7 @@ def test_flex_retry_without_explicit_settings_keeps_the_plain_flex_profile(tmp_p
 def test_missing_bambu_fallback_binary_says_it_is_not_installed(tmp_path, monkeypatch):
     # taskset exits 127 with "failed to execute <binary>" when the fallback slicer is absent (#814).
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, '_fallback_available', lambda: True)
 
     def run(command, **_kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
@@ -498,6 +501,7 @@ def test_missing_bambu_fallback_keeps_why_orca_failed(tmp_path, monkeypatch):
 def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback(tmp_path, monkeypatch):
     # #912: an -101 with named objects must not read as "Bambu Studio not installed".
     _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, '_fallback_available', lambda: False)
 
     def run(command, **kwargs):
         if 'com.orcaslicer.OrcaSlicer' in command:
