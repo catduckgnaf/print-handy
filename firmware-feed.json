@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-23T07:56:00Z",
+ "generated_at": "2026-11-24T20:14:51Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -106,23 +106,23 @@
    "stock_models": [],
    "update": "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer.",
    "latest": {
-    "version": "1.0.11",
-    "tag": "v1.0.11",
-    "published_at": "2026-11-21T11:06:59Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.11"
+    "version": "1.1.0",
+    "tag": "v1.1.0",
+    "published_at": "2026-11-24T03:20:39Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0"
    },
    "latest_stable": {
-    "version": "1.0.11",
-    "tag": "v1.0.11",
-    "published_at": "2026-11-21T11:06:59Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.0.11"
+    "version": "1.1.0",
+    "tag": "v1.1.0",
+    "published_at": "2026-11-24T03:20:39Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0"
    },
    "latest_prerelease": {
-    "version": "1.1.0-rc.6",
-    "tag": "v1.1.0-rc.6",
-    "published_at": "2026-11-23T02:18:56Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0-rc.6",
-    "track": "rc"
+    "version": "1.2.0-alpha.1",
+    "tag": "v1.2.0-alpha.1",
+    "published_at": "2026-11-24T16:17:00Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.2.0-alpha.1",
+    "track": "alpha"
    },
    "audited": null,
    "stale": false
