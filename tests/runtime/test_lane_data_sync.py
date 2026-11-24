@@ -1657,3 +1657,48 @@ def test_spool_sync_relinks_a_lane_that_names_a_deleted_spool(tmp_path):
     assert mr.gcode_scripts() == []  # software only
     # Already linked: nothing to say.
     assert spool_sync.repair_lane_links(state, mr=mr, client=fake, printer_id=None) == []
+
+
+def test_claimed_elsewhere_notice_survives_screen_and_listener_restart_1886(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, ph_slot=f"{PID}:2"), spool(16, ph_slot=f"{PID}:1")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(16), "lane2": lane(19, slot=2)})
+    mr.lanes["lane1"] = lane(19, scan_time=200)
+    events = watcher.poll()
+    assert len(events) == 1
+    event = events[0]
+    assert event["kind"] == "claimed_elsewhere"
+    assert event["recorded_spool_id"] == 16 and event["other_slot"] == 2
+    assert "/spool sync" in event["text"]
+    watcher.delivered(event["key"])
+    restarted, restarted_applied = make_watcher(tmp_path, mr, client)
+    mr.lanes["lane1"] = lane(19, color="FFFFFF", scan_time=300)
+    assert restarted.poll() == []
+    assert applied == restarted_applied == []
+    client.spools[16]["extra"]["ph_slot"] = json.dumps("")
+    client.spools[17] = spool(17, ph_slot=f"{PID}:1")
+    mr.lanes["lane1"] = lane(19, color="EEEEEE", scan_time=400)
+    events = restarted.poll()
+    assert len(events) == 1 and events[0]["recorded_spool_id"] == 17
+
+
+def test_keep_claimed_elsewhere_repairs_only_screen_1886(tmp_path, monkeypatch):
+    mr = FakeMoonraker({"lane1": lane(19), "lane2": lane(19, slot=2)})
+    client = FakeSpoolman([spool(19, ph_slot=f"{PID}:2"), spool(16, ph_slot=f"{PID}:1")])
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"filament_slots": {
+        "1": {"spoolman_id": 16}, "2": {"spoolman_id": 19}}}))
+    monkeypatch.setattr(spool_sync, "_toolhead_lane_namespace", lambda _pid: False)
+    monkeypatch.setattr(spool_sync, "_lane_data_write_refusal", lambda _pid: None)
+    alert = {"slot": 1, "other_slot": 2, "recorded_spool_id": 16, "spool_id": 19}
+    result = spool_sync.repair_claimed_lane(alert, "keep", client=client, mr=mr,
+                                           state_path=state, printer_id=PID)
+    assert "verified" in result
+    assert mr.lanes["lane1"]["spool_id"] == 16
+    assert mr.lanes["lane2"]["spool_id"] == 19
+    assert not mr.gcode_scripts()
+    assert all(method == "GET" for method, _, _ in client.calls)
+    with pytest.raises(spool_sync.SpoolError, match="screen conflict changed"):
+        spool_sync.repair_claimed_lane(alert, "move", client=client, mr=mr,
+                                       state_path=state, printer_id=PID)
