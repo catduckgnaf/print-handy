@@ -1564,7 +1564,8 @@ def alert_button_handlers(bot, adapter):
         if not options:
             await interaction.followup.send('No live shelf spools are available. Nothing changed.', ephemeral=True)
             return
-        select_aid = await _store(pab.record, 'insertion-select', '', slot=slot)
+        select_aid = await _store(pab.record, 'insertion-select', '', slot=slot,
+                                  claimed_lane=alert if alert.get('kind') == 'claimed-lane' else None)
         select = discord.ui.Select(placeholder='Choose a shelf spool', min_values=1, max_values=1,
                                    options=[discord.SelectOption(**option) for option in options],
                                    custom_id=f'pbinsertselect:{select_aid}')
@@ -2142,7 +2143,11 @@ def alert_button_handlers(bot, adapter):
         # Spoolman/Moonraker calls inside can outlast Discord's window.
         try:
             from print_handy.runtime import spool_sync
-            if pending.get('origin') == 'insertion':
+            if pending.get('origin') == 'insertion' and (pending.get('context') or {}).get('claimed_lane'):
+                result = await _action(spool_sync.repair_claimed_lane,
+                                       pending['context']['claimed_lane'], 'pick',
+                                       chosen_id=pending['spool_id'])
+            elif pending.get('origin') == 'insertion':
                 result = await _action(
                     pab.bind_insertion_existing, pending['slot'], pending['spool_id'], spool_sync,
                     expected_prior_spool_id=(int(pending['old_spool_id'])
@@ -2177,7 +2182,7 @@ def alert_button_handlers(bot, adapter):
                                 spool_id=spool_id, context=context)
 
     async def handle_insertion(interaction, action, aid):
-        alert = await claim_and_ack(interaction, aid, 'insertion',
+        alert = await claim_and_ack(interaction, aid, ('insertion', 'claimed-lane'),
                                     'That insertion prompt is old or was already answered. Nothing changed.')
         if not alert:
             return
@@ -2186,6 +2191,26 @@ def alert_button_handlers(bot, adapter):
         except Exception:
             logger.debug('could not strip insertion buttons', exc_info=True)
         slot = alert.get('slot')
+        if alert.get('kind') == 'claimed-lane':
+            if action == 'pick':
+                await insertion_select(interaction, aid, alert)
+                return
+            if action not in ('keep', 'move'):
+                await interaction.edit_original_response(content='Invalid repair choice. Run /spool sync.', view=None)
+                return
+            from print_handy.runtime import spool_sync
+            try:
+                result = await _action(spool_sync.repair_claimed_lane, alert, action)
+            except spool_sync.SpoolError as exc:
+                result = str(exc)
+            except Exception:
+                logger.exception('claimed lane repair failed')
+                result = 'Could not verify the repair. Run /spool sync and check both slots.'
+            await interaction.edit_original_response(content=result, view=None)
+            return
+        if action not in ('same', 'existing', 'new'):
+            await interaction.edit_original_response(content='Invalid insertion choice. Nothing changed.', view=None)
+            return
         if action == 'same':
             # The answer ends the slot's reload mark (#1788): intake no longer asks.
             from print_handy.intake import slot_verify
@@ -2208,7 +2233,8 @@ def alert_button_handlers(bot, adapter):
             await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
         await bind_confirm_show(interaction, origin='insertion', slot=pending['slot'],
-                                spool_id=spool_id)
+                                spool_id=spool_id, context={'claimed_lane': pending['claimed_lane']}
+                                if pending.get('claimed_lane') else None)
 
     async def new_spool_slot_select(interaction, spool_id, label):
         """The load step of the new-spool prompt (#483): pick a slot, preselected spool.
