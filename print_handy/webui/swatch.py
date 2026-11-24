@@ -22,7 +22,7 @@ def css_hex(value):
     return f"#{hex_value}" if hex_value else None
 
 
-def swatch(value, *, size="small", empty=False):
+def swatch(value, *, size="small", empty=False, preserve_alpha=False):
     """A round color swatch for ``value``, or "" when it is not a color.
 
     ``size`` is ``"small"`` (inline, beside text) or ``"large"`` (the
@@ -32,6 +32,10 @@ def swatch(value, *, size="small", empty=False):
     beside it as text.
     """
     color = css_hex(value)
+    if color and preserve_alpha:
+        _, alpha = filament_color.parse_hex(value)
+        if alpha is not None:
+            color += f"{alpha:02X}"
     kind = "disc small" if size == "small" else "disc"
     if color is None:
         if not empty:

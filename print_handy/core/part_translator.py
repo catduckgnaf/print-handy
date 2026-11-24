@@ -117,9 +117,11 @@ def named_color(hex_color):
     distance named a gold (#FFE57C) "pink" and a dark slate (#383845) "brown"
     on the 2026-10-31 Witch Ghost intake (#711).
     """
-    raw = str(hex_color or '').strip().lstrip('#')
-    if not re.fullmatch(r'[0-9A-Fa-f]{6}', raw):
+    from .filament_color import parse_hex
+    parsed = parse_hex(hex_color)
+    if not parsed:
         return 'unknown color'
+    raw, _ = parsed
     r, g, b = (int(raw[i:i + 2], 16) / 255 for i in range(0, 6, 2))
     hue, light, sat = colorsys.rgb_to_hls(r, g, b)
     hue *= 360
@@ -133,6 +135,10 @@ def named_color(hex_color):
         return 'brown'
     if hue < 12 or hue >= 345:
         return 'pink' if light >= 0.72 else 'red'
+    if 28 <= hue < 65 and 0.78 <= light < 0.93:
+        return 'light cream'
+    if 28 <= hue < 65 and 0.78 <= light < 0.93:
+        return 'light cream'
     if hue < 40:
         return 'orange'
     if hue < 70:

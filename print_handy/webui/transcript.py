@@ -20,6 +20,8 @@ from __future__ import annotations
 import html
 import re
 
+from .swatch import swatch
+
 WORKING_TEXT = "Working on it…"
 
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
@@ -44,7 +46,11 @@ def _inline(line: str) -> str:
     for part in re.split(r"(`[^`\n]+`)", str(line)):
         code = _CODE.fullmatch(part)
         if code:
-            out.append(f"<code>{_esc(code.group(1))}</code>")
+            value = code.group(1)
+            # Show the actual color next to its accessible text, never as text contrast.
+            if re.fullmatch(r'(?:\#|0[xX])?[0-9a-fA-F]{6,8}|\#[0-9a-fA-F]{3,4}', value):
+                out.append(swatch(value, preserve_alpha=True))
+            out.append(f"<code>{_esc(value)}</code>")
             continue
         for piece in _LINK.split(part):
             if piece and _LINK.fullmatch(piece):
