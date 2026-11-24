@@ -172,6 +172,7 @@ def test_bambu_fallback_available_by_command_name_uses_path_executable(tmp_path,
 
 def test_bambu_fallback_unavailable_is_not_spawned_and_preserves_conflict(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
+    _fallback_available(monkeypatch, available=False)
     calls = []
 
     def run(command, **_kwargs):
