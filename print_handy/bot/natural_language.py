@@ -441,6 +441,19 @@ def matching_intents(text, vocabulary=None):
     return found
 
 
+_SLOT_WORDS = {word: number for number, word in enumerate(
+    ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+     "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen"))}
+
+
+def slot_query(text):
+    """A precise read-only slot question, before fuzzy suggestions."""
+    parsed = parse(text)
+    if parsed and parsed.capability_id == "loaded_spools" and "slot" in parsed.slots:
+        return parsed
+    return None
+
+
 def parse(text, vocabulary=None):
     """The one ParsedIntent for a message, or None when nothing matches.
 
@@ -471,7 +484,10 @@ def parse(text, vocabulary=None):
         for key in ("spool_id", "slot"):
             if key in slots:
                 try:
-                    slots[key] = int(slots[key])
+                    value = slots[key]
+                    if key == "slot" and value.casefold() in _SLOT_WORDS:
+                        value = _SLOT_WORDS[value.casefold()]
+                    slots[key] = int(value)
                 except (TypeError, ValueError):
                     slots.pop(key, None)
         slots.update({k: v for k, v in _scan_vocabulary(stripped, vocabulary).items()
@@ -974,19 +990,16 @@ def answer_spool_detail(core, parsed, facade):
     return spool_detail_text(record)
 
 
-def answer_loaded(core, parsed, facade):
+def answer_loaded(core, parsed, facade, *, source=None):
+    if "slot" in parsed.slots:
+        from .handlers.loaded_spools import slot_answer
+        return slot_answer(parsed, source, getattr(core, "gateway", None), cfg=core.cfg)
     try:
         records, _loaded = _fetch_spool_records(core)
     except Exception:
         logger.debug("loaded answer failed", exc_info=True)
         return "Spoolman is unavailable right now, so I can't tell you what's loaded."
-    slot = parsed.slots.get("slot")
     loaded = [r for r in records if r.get("loaded")]
-    if slot is not None:
-        record = next((r for r in loaded if r.get("slot") == slot), None)
-        if record is None:
-            return f"Slot {slot} has no spool recorded as loaded."
-        return spool_detail_text(record)
     if parsed.slots.get("color") or parsed.slots.get("material"):
         merged = dict(parsed.slots)
         merged["loaded_only"] = True
@@ -1239,14 +1252,15 @@ def answer(core, event, metadata):
         record_route("unmatched")
         log_unmatched(event.text, enabled=bool(cfg.get("unmatched_log_enabled")))
         return None
-    try:
-        records, _loaded = _fetch_spool_records(core)
-        live = build_vocabulary(records)
-        refined = parse_with_context(event.text, key, live)
-        if refined is not None:
-            parsed = refined
-    except Exception:
-        logger.debug("live vocabulary fetch failed; base vocabulary stands", exc_info=True)
+    if not (parsed.capability_id == "loaded_spools" and "slot" in parsed.slots):
+        try:
+            records, _loaded = _fetch_spool_records(core)
+            live = build_vocabulary(records)
+            refined = parse_with_context(event.text, key, live)
+            if refined is not None:
+                parsed = refined
+        except Exception:
+            logger.debug("live vocabulary fetch failed; base vocabulary stands", exc_info=True)
     if parsed.slots.get("unrecognized") and (_FOLLOWUP_ONLY.match(parsed.text)
                                              or _FOLLOWUP_WHAT_ABOUT.match(parsed.text)):
         # "What about zzz?" named nothing Spoolman knows: say so rather
@@ -1270,7 +1284,8 @@ def answer(core, event, metadata):
     if handler is None:
         return None
     facade = ReadOnlyFacade({})
-    result = handler(core, parsed, facade)
+    result = (handler(core, parsed, facade, source=event.source)
+              if effective == "loaded_spools" else handler(core, parsed, facade))
     if result:
         record_route("deterministic")
     return result

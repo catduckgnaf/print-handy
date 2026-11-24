@@ -352,3 +352,35 @@ def test_unmatched_text_on_discord_without_an_llm_gets_the_same_short_reply(cfg)
     out = run(core.process(runtime.make_event(source, "hello there, how is it going?", 9)))
     assert out == {"action": "skip", "reason": "command list"}
     assert adapter.sent and adapter.sent[-1] == runtime.unmatched_text()
+
+
+@pytest.mark.parametrize("platform", ("discord", "matrix", "telegram", "webui"))
+def test_plain_slot_question_uses_shared_read_only_route(cfg, monkeypatch, platform):
+    from print_handy import settings
+    from print_handy.runtime import spool_sync
+
+    pid = settings.default_printer_id(cfg)
+    adapter = _FakeAdapter(["42"])
+    adapter.name = platform
+    core = runtime.BotCore(_FakeClient(), cfg, platform_name=platform,
+                           adapter=adapter, chat_id="slot-test", router=Router(), use_llm=False)
+    # Stamp the printer exactly as an incoming routed message does.
+    core.gateway.channel_printers = {"slot-test": pid}
+    core.gateway.shared_printers = {}
+    monkeypatch.setattr(spool_sync, "load_state",
+                        lambda **kw: {"filament_slots": {"3": {"spoolman_id": 123}}})
+
+    def read_only(method, path, body=None):
+        assert method == "GET"
+        return [{"id": 123, "remaining_weight": 321,
+                 "filament": {"name": "Black", "material": "PLA"},
+                 "extra": {"ph_slot": f"{pid}:3"}}]
+
+    monkeypatch.setattr(spool_sync, "spoolman", read_only)
+    calls = _exploding_llm(monkeypatch)
+    source = runtime.make_source("42", "slot-test", platform_name=platform, printer_id=pid)
+    run(core.process(runtime.make_event(source, "What number spool is on 3", 9)))
+    assert not calls
+    assert any("Slot 3" in text and "#123" in text and "321 g" in text
+               for text in adapter.sent), adapter.sent
+    assert not any("/print-help" in text or "Did you mean" in text for text in adapter.sent)

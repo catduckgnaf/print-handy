@@ -110,6 +110,51 @@ def _loaded_spools_fuzzy(text):
     return decision.kind == "direct" and decision.best == "loaded"
 
 
+def slot_answer(parsed, source, gateway, *, cfg=None):
+    """Resolve the channel before looking up a physical slot; never guess a printer."""
+    from print_handy import settings
+    from print_handy.runtime import spool_sync
+    from .common import _channel_printer_id
+
+    slot = parsed.slots["slot"]
+    wanted = str(parsed.slots.get("printer_name") or "").strip().casefold()
+    try:
+        candidates = _undecided_printer_ids(source, gateway)
+        pid = _channel_printer_id(source, gateway)
+        entries = settings.printers(cfg)
+        names = {str(entry["id"]): str(entry.get("name") or entry["id"]) for entry in entries}
+        stamped = getattr(source, "printer_id", None)
+        if (candidates and isinstance(stamped, str) and stamped in names
+                and not getattr(source, "shared_printer_ids", None)
+                and getattr(gateway, "shared_printer_ids_for", None) is None):
+            # A source stamped with its printer has decided it, even when that
+            # printer is the default one _routed_printer_id normalizes away;
+            # only a truly shared channel is undecided.
+            candidates, pid = None, stamped
+        if candidates:
+            allowed = [str(candidate) for candidate in candidates]
+        elif pid:
+            allowed = [pid]
+        else:
+            allowed = [str(settings.default_printer_id(cfg))]
+        if wanted:
+            matches = [p for p in allowed if wanted in (p.casefold(), names.get(p, p).casefold())]
+            if len(matches) != 1:
+                return f"Which printer for slot {slot}? Choose " + " or ".join(names.get(p, p) for p in allowed) + "."
+            pid = matches[0]
+        elif len(allowed) != 1:
+            options = " or ".join(names.get(p, p) for p in allowed)
+            return (f"Which printer for slot {slot}: {options}? "
+                    f"Ask 'Which spool is in slot {slot} on <printer name>?'")
+        else:
+            pid = allowed[0]
+        label = names.get(pid, pid)
+        return f"{label} — " + spool_sync.loaded_slot_text(slot, printer_id=pid)
+    except Exception:
+        logger.exception("could not read printer slot")
+        return f"Slot {slot}: I couldn't read the printer's spool record. Nothing was changed."
+
+
 async def loaded_spools_dispatch(event, gateway, **kwargs):
     """/print-spools and its twins (#744): what filament is loaded, where,
     and how much is left — read-only, no confirmation, never the shelf.
@@ -126,6 +171,18 @@ async def loaded_spools_dispatch(event, gateway, **kwargs):
     """
     text = str(getattr(event, 'text', '')).strip()
     folded = ' '.join(text.split())
+    from ..natural_language import slot_query
+    precise = slot_query(text)
+    if precise:
+        source, adapter = _control_gate(event, gateway)
+        if source is None:
+            return None
+        if adapter is None:
+            return {'action': 'skip', 'reason': 'loaded slot UI delivery unavailable'}
+        metadata = {'thread_id': source.thread_id} if source.thread_id else None
+        message = await asyncio.to_thread(slot_answer, precise, source, gateway)
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
+        return {'action': 'skip', 'reason': 'loaded slot lookup handled'}
     exact = (folded in ('/print-spools', '/print-colors', '/spool loaded')
              or folded.startswith('/print-spools ')
              or bool(_loaded_spools_intent(text)))

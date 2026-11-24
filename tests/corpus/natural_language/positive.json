@@ -250,7 +250,7 @@
    "slots": {
     "color": "purple",
     "material": "petg",
-    "required_grams": 240.0
+    "required_grams": 240
    },
    "mood": "interrogative",
    "allowed_effects": [
@@ -894,6 +894,72 @@
   {
    "text": "How many copies will fit?",
    "intent": "model_fit_question",
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What number spool is on 3",
+   "intent": "loaded_spools",
+   "slots": {
+    "slot": 3
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What spool number is in slot 3?",
+   "intent": "loaded_spools",
+   "slots": {
+    "slot": 3
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which spool is on 3?",
+   "intent": "loaded_spools",
+   "slots": {
+    "slot": 3
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What's loaded in slot three?",
+   "intent": "loaded_spools",
+   "slots": {
+    "slot": 3
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "What is the Spoolman ID for slot 3?",
+   "intent": "loaded_spools",
+   "slots": {
+    "slot": 3
+   },
+   "mood": "interrogative",
+   "allowed_effects": [
+    "read-only"
+   ]
+  },
+  {
+   "text": "Which filament is in IFS slot 3?",
+   "intent": "loaded_spools",
+   "slots": {
+    "slot": 3
+   },
    "mood": "interrogative",
    "allowed_effects": [
     "read-only"
