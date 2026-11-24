@@ -2619,10 +2619,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             if geometry_conflict:
                 return SliceFailure(
                     f'Orca found a geometry conflict between parts{details}; the parts overlap or interlock. '
-                    f'Group them into one object or separate them, then retry',
+                    f'Group them into one object or separate them, then retry; {why}',
                     kind='conflict', slicer='OrcaSlicer', returncode=why,
                     **_failure_evidence(folder, 'orca.log'))
-            return SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
+            return SliceFailure(f'{orca_failure}; {why}; {_BAMBU_NOT_INSTALLED}', kind='launch',
                                 slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
                                 returncode=127, **_failure_evidence(folder, 'orca.log'))
         logger.warning('%s: %s', bambu_role, orca_failure)
