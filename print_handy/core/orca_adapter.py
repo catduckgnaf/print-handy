@@ -1988,7 +1988,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         return None if not record or record.get('archived') else record.get('filament')
     # Explicit adapters can target a different model from the process-wide
     # default. Carry the actual model through the shared temperature resolver.
-    state = {**state, 'printer_model': printer.model.key}
+    model_key = getattr(printer.model, 'key', None)
+    if isinstance(model_key, str) and model_key:
+        state = {**state, 'printer_model': model_key}
     temps_c, resolution = slice_temperatures(state, spool_filament, _fetch_filament)
     state = {**state, 'temps_c': temps_c, 'temperature_resolution': resolution}
     from .printer_state import _material_temperature_contract
