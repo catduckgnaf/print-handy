@@ -414,46 +414,54 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
             filament = None
         if filament is not None and not same_material(filament.get("material"), material):
             filament = None  # a different material on file: the slot record decides, at its defaults
+    if filament and not same_material(filament.get("material"), material):
+        filament = None
     try:
         family, targets, sources = resolve_material_temperatures(material, filament or {})
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
-    # Vendor profile temperatures feed the shared resolution (#1832) when no explicit Spoolman
-    # temperature is set and a vendor profile can be resolved for this printer/nozzle/material.
-    # Both slice and verification see the same value.
-    try:
+    # Stage the vendor-temperature rollout on the AD5X HS PETG incident (#1832).
+    # Other adapters, generic profiles and the tuned PLA family retain their current
+    # targets until their slice/verification matrix has been checked. Both paths use
+    # this resolver; never set vendor temperatures directly in the slicer.
+    model = state.get("printer_model") or settings.current().get("printer", {}).get("model")
+    if model == "flashforge.ad5x" and family == "PETG":
+        import math
         from . import orca_profile_db, filament_type as _ftype
-        model = state.get("printer_model") or settings.current().get("printer", {}).get("model")
+
+        # A pre-fetched Spoolman record must describe the same material, just as
+        # the lookup above must. Use its name/extra flags, not only "PETG".
+        ftype = _ftype.from_spoolman_filament(filament) if filament else None
+        if ftype is None or ftype.family is None:
+            ftype = _ftype.from_text(material, spool.get("name") or spool.get("color"))
         nozzle_dia = (state.get("nozzle") or {}).get("diameter_mm")
-        if model and nozzle_dia and sources.get("nozzle") != "Spoolman filament":
-            ftype = _ftype.from_text(material)
-            # Keep the brand and machine preset identical to orca_adapter's
-            # family_profile/vendor_resolution, or verification can disagree with
-            # the slicer about both bed and nozzle targets.
-            brand = spool.get("brand") or (filament or {}).get("vendor")
-            template = printers.get(model, settings.current()).templates_dir() / "machine.json"
-            machine = json.loads(template.read_text(encoding="utf-8"))
-            preset = orca_profile_db.printer_preset(
-                model, float(nozzle_dia), preferred=machine.get("name"))
-            resolution = orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
-            if resolution is not None:
-                v_nozzle = resolution.get("nozzle_temperature")
-                v_bed = resolution.get("hot_plate_temp") or resolution.get("textured_plate_temp")
-                if v_nozzle is not None:
-                    try:
-                        targets["nozzle"] = int(float(v_nozzle)) if float(v_nozzle).is_integer() else float(v_nozzle)
-                        sources["nozzle"] = f"vendor profile ({resolution.name})"
-                    except (ValueError, TypeError):
-                        logger.warning("vendor profile nozzle temperature %r is not a number", v_nozzle)
-                if v_bed is not None and sources.get("bed") != "Spoolman filament":
-                    try:
-                        targets["bed"] = int(float(v_bed)) if float(v_bed).is_integer() else float(v_bed)
-                        sources["bed"] = f"vendor profile ({resolution.name})"
-                    except (ValueError, TypeError):
-                        logger.warning("vendor profile bed temperature %r is not a number", v_bed)
-    except Exception:
-        logger.warning("vendor profile temperatures were not applied; material defaults stand",
-                       exc_info=True)
+        if ftype.has("high_speed") and nozzle_dia:
+            try:
+                brand = spool.get("brand") or (filament or {}).get("vendor")
+                template = printers.get(model, settings.current()).templates_dir() / "machine.json"
+                machine = json.loads(template.read_text(encoding="utf-8"))
+                preset = orca_profile_db.printer_preset(
+                    machine.get("printer_model"), float(nozzle_dia), preferred=machine.get("name"))
+                vendor = orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
+                if vendor is not None and "high_speed" in vendor.flags:
+                    # The existing contract has one target for every layer. Use
+                    # the normal-layer vendor target, not its first-layer boost.
+                    for key, raw in (("nozzle", vendor.get("nozzle_temperature")),
+                                     ("bed", vendor.get("hot_plate_temp") or vendor.get("textured_plate_temp"))):
+                        if sources[key] == "Spoolman filament" or raw is None:
+                            continue
+                        try:
+                            value = float(raw)
+                            if not math.isfinite(value) or not 0 < value <= 300:
+                                raise ValueError("temperature outside supported range")
+                        except (ValueError, TypeError):
+                            logger.warning("ignoring invalid vendor %s temperature %r", key, raw)
+                            continue
+                        targets[key] = int(value) if value.is_integer() else value
+                        sources[key] = f"vendor profile ({vendor.name})"
+            except (OSError, ValueError, TypeError, orca_profile_db.ProfileDatabaseError):
+                logger.warning("vendor profile temperatures were not applied; material defaults stand",
+                               exc_info=True)
     return ({"nozzle": targets["nozzle"], "bed": targets["bed"]},
             {"material_family": family, "material": material, "spoolman_id": spool.get("spoolman_id"),
              "sources": sources,
