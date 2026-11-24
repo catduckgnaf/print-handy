@@ -870,6 +870,8 @@ class LaneDataWatcher:
         # What the channel last heard per slot, for the #1474 coalescing in
         # _queue: {slot: {"at": clock time, "action": action key}}.
         self._announced = state.get("announced") if isinstance(state.get("announced"), dict) else {}
+        # Stable assignment identity, not volatile screen color/material/scan data.
+        self._claimed_notices = state.get("claimed_notices") if isinstance(state.get("claimed_notices"), dict) else {}
         seen: dict[int, dict[str, Any]] = {}
         for key, value in state["lanes"].items():
             if str(key).isdigit() and isinstance(value, dict):
@@ -933,7 +935,7 @@ class LaneDataWatcher:
         updated = {"seeded": True,
                    "lanes": {str(slot): fp for slot, fp in sorted(seen.items())},
                    "pending": pending, "noted": noted, "colliding_author": self._colliding,
-                   "announced": self._announced}
+                   "announced": self._announced, "claimed_notices": self._claimed_notices}
         if dirty or updated != state:
             _write_json(self.state_path, updated)
         return due
@@ -1111,14 +1113,31 @@ class LaneDataWatcher:
         other_slot = self._claimed_elsewhere(slot, spool_id, spool)
         if other_slot is not None:
             self._drop_noted(pending, noted, slot)
-            self._queue(pending, noted, slot, "claimed_elsewhere",
-                        f"**HelixScreen lane needs attention:** the lane record for "
-                        f"{_slot(slot)} names spool #{spool_id}, but Print Handy has spool "
-                        f"#{spool_id} in {_slot(other_slot)} and the screen does not show it "
-                        f"leaving {_slot(other_slot)}. Nothing was rebound. If the spool "
-                        f"really moved, swap the two slots or unassign {_slot(other_slot)} "
-                        f"first, then relink it with `/spool change {slot} {spool_id}`.",
-                        action, spool_id=spool_id)
+            claimants = self._slot_claimants(slot)
+            recorded = (claimants[0].get("id") if claimants is not None
+                        and len(claimants) == 1 else None)
+            identity = f"{spool_id}:{other_slot}:{recorded}"
+            # Retain this across reconnects, including transient missing/recolored lanes.
+            # A different assignment gets a new notice; undelivered posts retain retries.
+            if self._claimed_notices.get(str(slot)) != identity:
+                self._claimed_notices[str(slot)] = identity
+                for key, entry in list(pending.items()):
+                    event = (entry.get("event") or {}) if isinstance(entry, dict) else {}
+                    if event.get("kind") == "claimed_elsewhere" and event.get("slot") == slot:
+                        del pending[key]
+                recorded_text = (f"Print Handy records spool #{recorded} in {_slot(slot)}. "
+                                 if recorded is not None else "")
+                key = self._queue(pending, noted, slot, "claimed_elsewhere",
+                                  f"**HelixScreen lane needs attention:** the lane record for "
+                                  f"{_slot(slot)} names spool #{spool_id}, but Print Handy has spool "
+                                  f"#{spool_id} in {_slot(other_slot)}. {recorded_text}"
+                                  "Nothing was rebound. Keep the recorded spool by running "
+                                  "`/spool sync`, or, if the spool really moved, swap the two "
+                                  f"slots or unassign {_slot(other_slot)} first, then use "
+                                  f"`/spool change {slot} {spool_id}`. "
+                                  f"To pick a different spool, use `/spool change {slot} <spool#>`.",
+                                  identity, spool_id=spool_id)
+                pending[key]["event"].update(other_slot=other_slot, recorded_spool_id=recorded)
             adopt()
             return True
 
