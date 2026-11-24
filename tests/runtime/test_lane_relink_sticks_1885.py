@@ -120,6 +120,32 @@ def test_a_delete_the_screen_lane_still_blocks_archives_instead(tmp_path, printe
     assert "was deleted from Spoolman" not in text
 
 
+def test_an_unreadable_reread_after_a_failed_relink_archives_instead(tmp_path, printer_id):
+    """Review finding on #1894: lane3 named spool 21, the rewrite failed, the reread did not answer."""
+    client = FakeSpoolman([spool(21, "Tan", "PETG", "D2B48C", ph_slot=f"{PID}:3"),
+                           spool(23, "Coffee", "PLA", "6F4E37")])
+    mr = FakeMoonraker(lanes={"lane3": lane(21, slot=3, material="PETG", color="D2B48C")})
+    real_call = mr.__call__
+    reads = []
+
+    def failing_screen(method, path, body=None):
+        if method == "POST" and path == "/server/database/item":
+            raise OSError("moonraker database write failed")
+        if method == "GET" and path.startswith("/server/database/item"):
+            reads.append(path)
+            if len(reads) > 1:
+                raise OSError("moonraker did not answer")
+        return real_call(method, path, body)
+
+    result = spool_sync.bind_slot(3, 23, client=client, mr=failing_screen,
+                                  state_path=_state(tmp_path), prior_disposition="delete",
+                                  expected_prior_spool_id=21, push_screen_update=False)
+    assert 21 in client.spools and client.spools[21]["archived"] is True
+    assert not [c for c in client.calls if c[0] == "DELETE"]
+    assert result["prior_disposition"] == "archive"
+    assert "archived instead of deleted" in spool_sync.bind_text(result)
+
+
 def test_a_delete_without_a_lane_naming_the_spool_still_deletes(tmp_path, printer_id):
     client = FakeSpoolman([spool(21, ph_slot=f"{PID}:3"), spool(23, "Coffee", "PLA", "6F4E37")])
     mr = FakeMoonraker(lanes=None)  # no screen publishes lane_data
