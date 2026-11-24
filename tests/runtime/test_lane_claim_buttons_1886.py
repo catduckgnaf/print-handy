@@ -132,10 +132,20 @@ def test_the_buttons_lead_with_keep():
 
 # ------------------------------------------------------------------ the clicks
 
+class _ShelfSpoolman(FakeSpoolman):
+    """Also answers the live-only list the shelf picker reads."""
+
+    def __call__(self, method, path, body=None):
+        if method == "GET" and path == "/api/v1/spool?allow_archived=false":
+            return [dict(s) for s in self.spools.values() if not s.get("archived")]
+        return super().__call__(method, path, body)
+
+
 def _rig(tmp_path, monkeypatch):
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
-    client = FakeSpoolman([spool(16, "White", "PLA", "FFFFFF", ph_slot=f"{PID}:1"),
-                           spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:2")])
+    client = _ShelfSpoolman([spool(16, "White", "PLA", "FFFFFF", ph_slot=f"{PID}:1"),
+                             spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:2"),
+                             spool(25, "Gray", "PETG", "808080")])
     mr = FakeMoonraker(lanes={"lane1": lane(19, slot=1, material="PLA+", color="CD7F32"),
                               "lane2": lane(19, slot=2, material="PLA+", color="CD7F32")})
     monkeypatch.setattr(spool_sync, "spoolman", client)
