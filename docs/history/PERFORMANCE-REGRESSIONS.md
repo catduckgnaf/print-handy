@@ -38,6 +38,13 @@ add an entry whenever a slowdown is reported or found (#1392).
 
 Newest first. "Guard" is what fails if it comes back; "none" is a known gap.
 
+### 2.3.7: real-Orca witch-ghost wall time +0.33 s on the EPYC 9V74 runner since 2.3.4 (cause unverified)
+- **Seen:** `main` CI run 45431783584 at 6f44cc1 (`slicer-timing-real`, AMD EPYC 9V74), the first candidate baseline run for 2.3.7, measured `witch-ghost-cults3d/direct` at 13.30 s wall (repeats 13.30, 13.19, 13.32 s) against the 9V74 profile's 12.97 s, recorded for 2.3.4 from run 43685401435. That is +2.5%, inside the leg's +10% +1.0 s reporting limit, and outside this job's own 0.13 s repeat spread. The two other proposed raises in that run were not slowdowns: `plates-multicolor` fit check 0.0157 s rounds to 0.02 s against 0.01 s, and `stl-single-part` fit check 4.835 s rounds to 4.84 s against 4.83 s, inside its 4.79 to 4.87 s repeats.
+- **Cause:** unverified. It is not the OrcaSlicer 2.5.2 upgrade (#1875): run 45317564701 at b52b371, on the same CPU and still on Orca 2.5.1, already measured 13.26 s. It lies somewhere between 2.3.4 (595ef05) and b52b371; no bisection was run.
+- **Fix:** none. The real-Orca leg is reporting-only. The 2.3.7 baselines were recorded from the later run 45438378964 at 453d90d (#1873 merged after 6f44cc1), whose real-Orca leg drew an Intel Xeon 6975P-C and became that CPU's first profile. The 9V74 profile was not re-recorded for 2.3.7 (deferred on release checklist #1870), so its 12.97 s baseline stands and keeps reporting the rise on that runner.
+- **Guard:** the real-Orca leg's warning past +10% +1.0 s (reporting only); none blocking.
+- **Lesson:** compare against an earlier run on the same CPU before naming the newest change: the obvious candidate here, a new Orca, was already ruled out by a run from earlier the same day.
+
 ### 2.3.2: the Ready question waited 26 s after OrcaSlicer on a large single-color job (#1392)
 - **Seen:** a 25 MB, 1.16M-line single-color G-code (the lantern at the designer's 0.20 mm layers and gyroid infill): OrcaSlicer took 9.6 s, then 26 s passed before the Ready question.
 - **Cause (profiled in the container):** post-slice Python passes over the file. The ZMod finalize ran twice: `slice_model` finalizes with the one-slot map built from `filament_slot`, and every single-color caller in `jobs/slice.py` then called `finalize_multicolor` with the same map, re-normalizing the whole file for identical bytes (5.1 s). `slice_guard.post_slice`'s bed check parsed every word of every move into a dict and kept a list of every point (10.0 s for the whole guard, 6.2 s of it the bed loop). Neither was new in 2.3.2; the designer's settings made the G-code larger, so every pass cost more.
