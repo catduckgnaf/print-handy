@@ -8,7 +8,7 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 
 - [Docker](DOCKER.md): the recommended install, with a copy-paste quickstart from nothing to a first print.
 - [Plain-language chat walkthroughs](../README.md#talk-to-it-in-plain-words): everyday questions and the print flow; use the command reference when you want exact syntax.
-- [Draft 2.3.6 release notes](RELEASE-2.3.6.md): story-first overview of changes merged to `main`; not a published release.
+- [Draft 2.3.7 release notes](RELEASE-2.3.7.md): what changes in 2.3.7, starting with the upgrade steps existing installs need; not a published release until it is tagged. The [2.3.6 notes](RELEASE-2.3.6.md) cover the previous release.
 - [Home Assistant OS app](HOME-ASSISTANT-OS.md): install the same image as a Home Assistant app that updates itself with each release.
 - [Standalone bot](STANDALONE.md): run without Docker. Choose [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md).
 - [Native installation](INSTALL.md): install Print Handy without Docker (Python + systemd).
@@ -61,7 +61,7 @@ Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find yo
 ## Contributors and history
 
 - [Contribution workflow](../CONTRIBUTING.md) · [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md)
-- [Branding guide](BRANDING.md) · [Release notes guide](RELEASE-NOTES-GUIDE.md) · [Draft 2.3.6 release notes](RELEASE-2.3.6.md) · [Release checklist](history/RELEASE-CHECKLIST.md) · [Release notes template](history/RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
+- [Branding guide](BRANDING.md) · [Release notes guide](RELEASE-NOTES-GUIDE.md) · [Draft 2.3.7 release notes](RELEASE-2.3.7.md) · [2.3.6 release notes](RELEASE-2.3.6.md) · [Release checklist](history/RELEASE-CHECKLIST.md) · [Release notes template](history/RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
 - Historical and internal records, not setup instructions, live in [`history/`](history/). They are kept as written, so older ones still use the project's earlier names (Print Buddy, the Hermes plugin) and describe setups that no longer exist; for anything current, follow the guides above. The records: [operator live-proof protocol](history/PHASE2-LIVE-PROOFS.md), [rename migration](history/RENAME-MIGRATION.md), [Docker acceptance](history/DOCKER-117-ACCEPTANCE.md), [Docker progress](history/DOCKER-117-PROGRESS.md), [timelapse record](history/ISSUE-126-TIMELAPSE.md), [hardcoded values inventory](history/hardcoded-inventory.md), [CAD evaluation](history/KICAD-EVALUATION.md), [reuse map](history/REUSE-MAP.md), [multi-printer design](history/MULTI-PRINTER-DESIGN.md), the [filament families and sub-types design](history/FILAMENT-TYPES-DESIGN.md), the [AD5X implementation contract](history/AD5X-CONTRACT.md) and the [recovered testing lane](history/RECOVERY-TESTING.md).
 - [3MF remap inventory](history/3MF-REMAP-INVENTORY.md): which 3MF references a conversion remaps, and where each one lives.
 - [Documentation audit, 15 November 2026](history/DOCUMENTATION-AUDIT-2026-11-15.md): the README and printer-guide accuracy pass behind 2.3.4.
