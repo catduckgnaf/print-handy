@@ -187,5 +187,6 @@ def test_the_watcher_state_keeps_what_it_already_said(tmp_path, printer_id):
     restarted = lane_data_sync.LaneDataWatcher(
         tmp_path / "lane_watch.json", mr=mr, client=client, printer_id=PID,
         printer_state_fn=lambda _mr: "standby", apply_fn=lambda *_a: None)
-    mr.lanes = {"lane1": lane(99, scan_time=300, material="PLA+")}
+    # A screen restart rewrites the record with another material string.
+    mr.lanes = {"lane1": lane(99, scan_time=300, material="PETG", color="FFFFFF")}
     assert restarted.poll() == []
