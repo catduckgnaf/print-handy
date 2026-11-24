@@ -108,6 +108,7 @@ def test_bambu_runs_only_after_orca_execution_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['flatpak', 'run', '--unshare=network',
                                                   '--command=bambu-studio', 'com.bambulab.BambuStudio'])
     monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/flatpak')
+    monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
     calls = []
 
     def run(command, **_kwargs):
