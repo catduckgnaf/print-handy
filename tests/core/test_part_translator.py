@@ -57,9 +57,9 @@ class PartTranslatorTests(unittest.TestCase):
         rows = source_colors.grouped_prompts(manifest)
         assert [row['key'] for row in rows] == ['filament:1', 'filament:2', 'filament:3']
         assert [row['question'] for row in rows] == [
-            'Choose the loaded color/material for Pink regions (#FF80C0, PLA)',
-            'Choose the loaded color/material for Red regions (#FF0000, PLA)',
-            'Choose the loaded color/material for White regions (#FFFFFF, PLA)']
+            'Choose the loaded color/material for painted regions (designer color: Pink (`#FF80C0`); PLA)',
+            'Choose the loaded color/material for painted regions (designer color: Red (`#FF0000`); PLA)',
+            'Choose the loaded color/material for painted regions (designer color: White (`#FFFFFF`); PLA)']
         assert all('Cuerpo' not in row['question'] and 'Cubo' not in row['question'] for row in rows)
 
 
@@ -75,7 +75,8 @@ class PartTranslatorTests(unittest.TestCase):
                                'bounds_mm': [(0, 10), (0, 20), (0, 5)]}]}
         rows = source_colors.canonical_prompts(manifest)
         assert rows[0]['key'] == 'part:build:0/0'
-        assert rows[0]['question'] == 'Choose the color/material for Body 1 (Cuerpo1), 10 x 20 x 5 mm'
+        assert rows[0]['question'] == ('Choose the color/material for Body 1 (Cuerpo1), 10 x 20 x 5 mm, '
+                                       'No designer color specified')
         legacy = source_colors.prompts(manifest)
         assert legacy[0]['key'] == 'part:build:0/0'
         assert 'Body 1 (Cuerpo1)' in legacy[0]['question']

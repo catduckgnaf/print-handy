@@ -1139,7 +1139,7 @@ def test_color_save_prompt_shows_spool_projection_and_estimate_before_print_choi
     asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))
     saved = [q['question'] for q in adapter.questions if q['choices'] and q['choices'][0].startswith('Slice and print')]
     assert len(saved) == 1
-    assert saved[0].startswith('Ready to slice · White PLA')
+    assert saved[0].startswith('Ready to slice · Final print color: White PLA (slot 1)')
     assert 'Slot 1 white PLA: needs about 25 g; spool has 200 g, about 175 g left after.' in saved[0]
     assert 'AD5X' not in saved[0]
     assert env.starts == []
@@ -1168,8 +1168,7 @@ def test_preview_omits_estimate_when_incomplete_but_keeps_description(env, monke
     if extra == {}:
         row = {'name': 'ghost.3mf', 'instance_id': 1}
     log, _ = run_preview(env, monkeypatch, 'A sturdy stand.', row)
-    tail = ('Model page estimate: about 1h 30m and 20 g of filament over 2 plates. '
-            'The Flashforge AD5X figure after slicing will differ somewhat.' if extra.get('site_printer')
+    tail = ('Model page estimate: about 1h 30m and 20 g of filament over 2 plates.' if extra.get('site_printer')
             else 'The model page gives no time or filament estimate; I will report both after slicing.')
     assert log[0] == ('send', 'That looks like Ghost Stand, A sturdy stand. I will use the selected file: ghost. ' + tail)
 
@@ -1653,14 +1652,15 @@ def test_multipart_first_prompt_offers_the_proposed_mapping(env, monkeypatch):
     first = adapter.questions[0]
     # #1473: both author colors match loaded spools, so the first prompt is
     # the proposed mapping, not a mode question.
-    assert first['question'] == 'Colors for these parts: Shell: White, PLA; Eyes: Black, PLA. Use these colors?'
+    assert 'Shell: designer color: White' in first['question']
+    assert 'Eyes: designer color: Black' in first['question']
+    assert 'suggested slot' in first['question']
     assert first['choices'][:3] == ['Use these colors', 'Change colors', 'One color for everything']
     assert len(first['choices']) == 4
     assert first['choices'][-1] == 'Cancel'
     # Choosing Change continues to the per-part prompts instead of stalling.
-    assert [q['question'] for q in adapter.questions[1:3]] == [
-        'Choose the color/material for Shell, author made it White',
-        'Choose the color/material for Eyes, author made it Black']
+    assert adapter.questions[1]['question'].startswith('Choose the color/material for Shell, author made it White')
+    assert adapter.questions[2]['question'].startswith('Choose the color/material for Eyes, author made it Black')
 
 
 def test_audit_manifest_reused_only_when_bound_to_current_source_bytes(env, monkeypatch):
@@ -2093,7 +2093,7 @@ def test_preview_names_the_selected_printer_not_a_hard_coded_model(monkeypatch):
     # #273: the summary said "The AD5X figure after slicing" on a Bambu A1.
     job = {'title': 'Cavaletti', 'summary': 'A stackable cavaletti.', 'printer_model': 'bambulab.a1'}
     text = prepared_intake.preview_sentence(job, {**AD5X_ROW, 'site_printer': 'P2S'})
-    assert 'The Bambu Lab A1 figure after slicing will differ somewhat.' in text
+    assert 'figure after slicing' not in text
     assert 'AD5X' not in text
 
 

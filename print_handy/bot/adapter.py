@@ -225,16 +225,24 @@ class StandaloneAdapter(BasePlatformAdapter):
                 chunk = groups[start:start + 5]
                 view = discord.ui.View(timeout=None)
                 batch = {"pending": set(), "answers": {}, "labels": {}}
-                for group in chunk:
+                legend = []
+                for number, group in enumerate(chunk, start + 1):
+                    detail = group.get("question")
+                    if detail:
+                        legend.append(f"{number}. {detail}")
                     labels = [str(c)[:100] for c in group["choices"]][:25]
                     labels_by_cid[group["clarify_id"]] = labels
                     batch["pending"].add(group["clarify_id"])
                     batch["labels"][group["clarify_id"]] = str(group["label"])
                     view.add_item(discord.ui.Select(
-                        placeholder=str(group.get("question") or group["label"])[:150],
+                        placeholder=(f"{number}. {group['label']}" if detail else str(group['label']))[:150],
                         options=[discord.SelectOption(label=label, value=label) for label in labels],
                         custom_id=custom_id(group["clarify_id"], 0)))
-                message = await channel.send(pieces[-1], view=view,
+                content = pieces[-1] + ('\n' + '\n'.join(legend) if legend else '')
+                pages = rest.chunks(content)
+                for page in pages[:-1]:
+                    await channel.send(page, allowed_mentions=discord.AllowedMentions.none())
+                message = await channel.send(pages[-1], view=view,
                                              allowed_mentions=discord.AllowedMentions.none())
                 first_id = first_id or str(message.id)
                 for group in chunk:

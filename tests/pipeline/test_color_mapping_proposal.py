@@ -95,7 +95,8 @@ def test_proposal_matches_author_color_and_part_names(tmp_path):
     proposal = source_colors.propose_mapping(manifest, SPOOLS)
     assert proposal['complete'] and proposal['matched'] == 2
     assert source_colors.mapping_summary(proposal['groups']) == (
-        'Plaque, Foot Left and Foot Right: Black, PLA+; Letters and Trim: Bronze, PLA+')
+        'Plaque, Foot Left and Foot Right: designer color: Black (`#161616`) → suggested slot 1: Black, PLA+; '
+        'Letters and Trim: designer color: Orange (`#CD7F32`) → suggested slot 2: Bronze, PLA+')
 
 
 def test_proposal_uses_a_part_name_color_when_the_author_color_has_no_spool(tmp_path):
@@ -186,7 +187,7 @@ def test_one_tap_accepts_the_proposed_mapping(tmp_path):
         assert len(adapter.questions) == 1
         assert adapter.questions[0]['choices'][:3] == [
             'Use these colors', 'Change colors', 'One color for everything']
-        assert 'Plaque, Foot Left and Foot Right: Black, PLA+; ' in adapter.questions[0]['question']
+        assert 'Plaque, Foot Left and Foot Right: designer color: Black (`#161616`) → suggested slot 1: Black, PLA+; ' in adapter.questions[0]['question']
         saved = json.loads(jp.read_text())['color_decisions']
         slots = {k: v['slot'] for k, v in saved['choices'].items()}
         assert set(slots.values()) == {1, 2}

@@ -3321,7 +3321,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # work on the way to the first color question.
             groups = color_groups(manifest, selected_plate_ids=selected_plates,
                                   rows=grouped)
-            if len(groups) < 2:
+            if len(groups) < 2 or job_adapter.color_system == 'single':
                 return None
             if job_adapter.tool_based:
                 # One colour per toolhead (#346): more distinct source

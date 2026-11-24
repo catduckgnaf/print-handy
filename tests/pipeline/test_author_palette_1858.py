@@ -13,5 +13,5 @@ def test_painted_designer_color_survives_chat_prompt_and_web_render():
     assert 'Unknown Color' not in row['question']
     prompt = {'clarify_id': 'p1', 'question': row['question'], 'choices': ['Slot 1: black PLA']}
     page = transcript.render_prompt(prompt, action='/choice', form_token='token')
-    assert 'background:#F9E2B7FF' in page
+    assert 'background: #F9E2B7FF' in page
     assert 'Slot 1: black PLA' in page

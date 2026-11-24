@@ -22,7 +22,7 @@ SWING = {'source_sha256': 's' * 64, 'painted': False, 'filaments': [],
 def test_identical_siblings_get_one_short_question():
     rows = {tuple(r['keys']): r['question'] for r in source_colors.grouped_prompts(SWING)}
     chains = rows[tuple(f'part:{i}:1' for i in range(1, 5))]
-    assert chains == 'Choose one color/material for the 4 chains (15 x 87.7 x 6 mm, author made them Pink)'
+    assert chains == 'Choose one color/material for the 4 chains (15 x 87.7 x 6 mm, author made them Pink (`#FFC0CB`))'
     legs = rows[('part:5:1', 'part:6:1')]
     assert legs.startswith('Choose one color/material for both framelegs (')
     assert legs.count('95.4 x 103.6 x 16.6 mm') == 1
@@ -70,16 +70,20 @@ def test_pre_slice_summary_groups_identical_parts_and_normalises_material():
         color = sel['color']
         return f"{color[:1].upper() + color[1:]} {printer_state.display_material(sel['material'])}"
 
-    text = prepared_intake._choice_summary(SWING, questions, choices, color_of)
-    assert text == ('4× chain: Pink Silk PLA · 2× frameLeg: Matte white PLA · seat-brick: Matte white PLA'
-                    ' · double-frame: Matte white PLA')
+    text = prepared_intake._choice_summary(questions, choices, color_of)
+    assert text == ('chain, chain, chain, chain: designer color: Pink (`#FFC0CB`) → final print color: Pink Silk PLA'
+                    ' · frameLeg, frameLeg, seat-brick, double-frame: designer color: Pink (`#FFC0CB`)'
+                    ' → final print color: Matte white PLA')
 
 
-def test_same_name_different_sizes_keep_their_sizes():
+def test_same_name_parts_keep_their_distinct_labels():
     manifest = {**SWING, 'parts': [_part('1:1', 'leg', (10, 10, 50)), _part('2:1', 'leg', (10, 10, 80))]}
     choices = {'part:1:1': 'A', 'part:2:1': 'B'}
-    text = prepared_intake._choice_summary(manifest, source_colors.canonical_prompts(manifest), choices, str)
-    assert text == 'leg (10 x 10 x 50 mm): A · leg (10 x 10 x 80 mm): B'
+    manifest['parts'][0]['display_label'] = 'leg (part 1)'
+    manifest['parts'][1]['display_label'] = 'leg (part 2)'
+    text = prepared_intake._choice_summary(source_colors.canonical_prompts(manifest), choices, str)
+    assert 'leg (part 1): designer color: Pink (`#FFC0CB`) → final print color: A' in text
+    assert 'leg (part 2): designer color: Pink (`#FFC0CB`) → final print color: B' in text
 
 
 def test_display_material_is_display_only():

@@ -62,15 +62,15 @@ def _write(path, style):
 def test_core_material_colors_are_author_colors_not_paint(tmp_path, style):
     m = sc.inventory(_write(tmp_path / f'{style}.3mf', style))
     assert m['painted'] is False
-    assert [p.get('author_color', '').upper() for p in m['parts']] == [c for _, c in PARTS]
+    assert [p.get('author_color', '').upper() for p in m['parts']] == [c + ('FF' if style == 'colorgroup' else '') for _, c in PARTS]
     rows = sc.canonical_prompts(m)
     assert all(r['key'].startswith('part:') for r in rows) and len(rows) == len(PARTS)
     assert all('author made it' in r['question'] for r in rows)
 
 
-def test_one_core_color_everywhere_is_not_announced(tmp_path):
+def test_one_core_color_is_preserved_for_each_part(tmp_path):
     m = sc.inventory(_write(tmp_path / 'one.3mf', 'one_color'))
-    assert m['painted'] is False and not any(p.get('author_color') for p in m['parts'])
+    assert m['painted'] is False and all(p['author_color'] == PARTS[0][1] for p in m['parts'])
 
 
 def test_answered_core_material_selection_validates(tmp_path):

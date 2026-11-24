@@ -127,6 +127,29 @@ def test_six_groups_render_as_two_messages_five_rows_then_one():
     run(flow())
 
 
+def test_batch_preserves_designer_hex_in_numbered_legend_without_extra_prompts():
+    from print_handy.core.source_colors import canonical_prompts
+
+    async def flow():
+        channel = _Channel()
+        adapter = StandaloneAdapter(_Client(channel), ["1"])
+        groups = _groups(2)
+        manifest = {'painted': True, 'parts': [], 'filaments': [
+            {'source_extruder': 1, 'color': '#F9E2B7FF', 'material': 'PLA'},
+            {'source_extruder': 2, 'color': '#FF000080', 'material': 'PLA'},
+        ]}
+        for group, row in zip(groups, canonical_prompts(manifest)):
+            group.update(label=row['label'], question=row['question'])
+        result = await adapter.send_clarify_batch(CHAT, 'Choose colors:', groups, 'batch-test')
+        assert result.success and len(channel.sent) == 1
+        entry, = channel.sent
+        assert 'Light Cream (`#F9E2B7FF`)' in entry['content']
+        assert 'Red, 50% opacity (`#FF000080`)' in entry['content']
+        assert [child.placeholder for child in entry['view'].children] == [
+            '1. Painted region 1', '2. Painted region 2']
+    run(flow())
+
+
 def test_batch_prompt_is_not_stripped_while_sibling_selects_are_open():
     async def flow():
         channel = _Channel()
