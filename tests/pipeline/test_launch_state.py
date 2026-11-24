@@ -122,6 +122,10 @@ def printer(tmp_path):
                mock.patch.object(model_job.printer_state, "load", return_value={"moonraker_url": PRINTER}),
                patch_bound(launch_gates, "_printer_phase", phase),
                patch_bound(gcode_verify, "verify_gcode"),
+               # A bound fixture (make_bound_job) relaunched after its first full verify
+               # takes the #925 skip, which runs the live printer check directly instead
+               # of through verify_gcode; fake it too so no real Moonraker read happens.
+               patch_bound(gcode_verify, "_run_live_printer_check"),
                patch_bound(launch_gates, "_verify_filament_readiness"),
                patch_bound(jobs_common, "_mr", mr),
                mock.patch.object(launch_print_now, "_wait_printing", return_value="printing"),
