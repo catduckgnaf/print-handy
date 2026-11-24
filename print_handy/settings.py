@@ -239,7 +239,7 @@ def _reject_toml(path):
     path = Path(path)
     if path.suffix.lower() == ".toml":
         raise SettingsError(
-            f"{path}: TOML settings are no longer supported (2.4.0); "
+            f"{path}: TOML settings are no longer supported (since 2.3.7); "
             "convert the file to YAML and select a .yaml file instead")
     return path
 
@@ -2401,7 +2401,7 @@ def load(home=None, local=None, environ=None, user=None):
             local = LOCAL
         elif LOCAL.with_suffix(".toml").is_file():
             raise SettingsError(
-                f"{LOCAL.with_suffix('.toml')}: TOML settings are no longer supported (2.4.0); "
+                f"{LOCAL.with_suffix('.toml')}: TOML settings are no longer supported (since 2.3.7); "
                 f"convert this file to {LOCAL} before starting")
     local_layer = _read(local) if local else {}
     extra = local_layer

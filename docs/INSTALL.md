@@ -31,7 +31,7 @@ Or install by hand from the OrcaSlicer 2.5.2 release page: download the `x86_64`
 
 ## 3. Settings: YAML preferred, TOML supported
 
-Defaults live in `config/home.yaml`. Put machine-specific overrides in the gitignored `config/local.yaml`; `config/local.toml` is no longer read: convert it to `config/local.yaml` before updating to 2.4.0 (startup refuses and names the file otherwise). See [the configuration guide](CONFIGURATION-YAML.md) for precedence, validation and migration details.
+Defaults live in `config/home.yaml`. Put machine-specific overrides in the gitignored `config/local.yaml`; `config/local.toml` is no longer read: convert it to `config/local.yaml` before updating to 2.3.7 (startup refuses and names the file otherwise). See [the configuration guide](CONFIGURATION-YAML.md) for precedence, validation and migration details.
 
 - `services.moonraker_url` and `services.spoolman_url`
 - `paths.state_home` (the state folder), `archive`, `records_vault` and `cache`

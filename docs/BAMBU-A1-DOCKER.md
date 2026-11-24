@@ -91,7 +91,7 @@ The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5
 
 **Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<state_home>/state/printers/<id>/printer_hardware.json`, where `<id>` is the printer's roster id (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand.
 
-Create `data/state/state/printers/<id>/printer_hardware.json` on the host (the container sees it as `/data/state/state/printers/<id>/printer_hardware.json`; a record at the old `state/printer_hardware.json` path is refused since 2.4.0). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
+Create `data/state/state/printers/<id>/printer_hardware.json` on the host (the container sees it as `/data/state/state/printers/<id>/printer_hardware.json`; a record at the old `state/printer_hardware.json` path is refused since 2.3.7). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
 
 ```json
 {

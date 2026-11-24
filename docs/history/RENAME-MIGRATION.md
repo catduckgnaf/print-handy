@@ -31,7 +31,7 @@ The chat-facing bot name defaults to `Print Handy` now. To keep a different name
 
 ## Package and state key renamed in 2.3.0 (#1323)
 
-Two names still pointed at the retired Hermes install method. Unlike the earlier renames, both keep their old spelling through 2.3.x, and both old spellings are removed in 2.4.0 (see [Scheduled removals in 2.4.0](../PROJECT-REFERENCE.md#scheduled-removals-in-240)). The Hermes names written into G-code and printer state are not renamed at all; see [Frozen Hermes wire names](../PROJECT-REFERENCE.md#frozen-hermes-wire-names):
+Two names still pointed at the retired Hermes install method. Unlike the earlier renames, both kept their old spelling through 2.3.6, and both old spellings were removed in 2.3.7, the release that shipped the cut first planned for 2.4.0 (see [Removals in 2.3.7](../PROJECT-REFERENCE.md#removals-in-237)). The Hermes names written into G-code and printer state were left alone by this rename; 2.3.7 replaced those too (see [Print Handy 2.3.7 wire formats](../PROJECT-REFERENCE.md#frozen-hermes-wire-names)):
 
 - **Python package:** `print_handy.hermes` is now `print_handy.runtime`. Importing the old name logs a `DeprecationWarning` and gives the same modules, so scripts and patches that use it keep working until the old name is removed.
 - **State folder setting:** `paths.hermes_home` is now `paths.state_home` (`PRINT_HANDY__PATHS__HERMES_HOME` is now `PRINT_HANDY__PATHS__STATE_HOME`). The old spelling, in a config file or the environment, is still read and logs a warning once; when both are set, the new one wins. Rename it in `config/local.yaml`, your compose file or `.env`, and the Unraid template. The folder itself does not move.

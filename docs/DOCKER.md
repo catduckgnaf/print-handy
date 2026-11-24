@@ -389,9 +389,9 @@ This is an optional, per-install edit for holding a version. The templates stay 
 
 An install already running a tested digest keeps that digest. Do not overwrite it with the template default just because the default changed.
 
-### Old `hermes` state folder (2.4.0)
+### Old `hermes` state folder (2.3.7)
 
-Before 2.2.5 the state folder was called `hermes`. 2.4.0 no longer reads or
+Before 2.2.5 the state folder was called `hermes`. 2.3.7 no longer reads or
 migrates it. An install whose state still sits only in `hermes`, with an
 empty `state` folder beside it, refuses to start with one line saying so, so
 it never comes up empty. To fix it, stop the container, delete the empty

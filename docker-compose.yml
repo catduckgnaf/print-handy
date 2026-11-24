@@ -6,7 +6,7 @@ services:
     env_file: [.env]
     environment:
       # Set PRINT_HANDY_CONFIG to a mounted YAML file in .env when overriding defaults.
-      # Legacy TOML settings paths are refused from 2.4.0 onward.
+      # Legacy TOML settings paths are refused from 2.3.7 onward.
       PRINT_HANDY_CONFIG: ${PRINT_HANDY_CONFIG:-/app/config/docker.yaml}
       # Bundled OrcaSlicer selection at startup (docs/SETTINGS.md "Runtime
       # environment"); Print Handy ships one bundled OrcaSlicer, and stable is

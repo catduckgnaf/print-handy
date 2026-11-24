@@ -454,7 +454,7 @@ def check_legacy_state_folder(data):
             for item in stranded)
         raise RuntimeError(
             f"{legacy} holds Print Handy data that paths.state_home ({state}) does not: "
-            f"{', '.join(stranded)}. 2.4.0 no longer reads the old folder. Either set "
+            f"{', '.join(stranded)}. Since 2.3.7 Print Handy no longer reads the old folder. Either set "
             f"paths.state_home to {legacy}, or stop Print Handy and move each item: {moves}")
     return (f"{legacy} still exists; every key item is also in paths.state_home ({state}). "
             "Compare the two folders, then remove the old one once nothing in it is needed")
@@ -487,7 +487,7 @@ def legacy_state_folder_leftovers(data, limit=5):
         return None
     only_old.sort()
     shown = ", ".join(only_old[:limit]) + (f" and {len(only_old) - limit} more" if len(only_old) > limit else "")
-    return (f"{len(only_old)} file(s) exist only in {legacy} and are not read since 2.4.0: {shown}. "
+    return (f"{len(only_old)} file(s) exist only in {legacy} and are not read since 2.3.7: {shown}. "
             "Review them (move anything still needed into paths.state_home) before removing the old folder")
 
 
