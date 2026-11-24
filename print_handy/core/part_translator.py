@@ -135,10 +135,6 @@ def named_color(hex_color):
         return 'brown'
     if hue < 12 or hue >= 345:
         return 'pink' if light >= 0.72 else 'red'
-    if 28 <= hue < 65 and 0.78 <= light < 0.93:
-        return 'light cream'
-    if 28 <= hue < 65 and 0.78 <= light < 0.93:
-        return 'light cream'
     if hue < 40:
         return 'orange'
     if hue < 70:
