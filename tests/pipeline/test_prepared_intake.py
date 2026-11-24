@@ -681,7 +681,7 @@ def test_unanswered_or_cancelled_resume_closes_the_intake(env, monkeypatch, resu
     assert receipt['sliced'] is False and receipt['uploaded'] is False and receipt['started'] is False
     assert env.sliced == [] and env.starts == []
     assert result == {'action': 'skip', 'reason': 'resume cancelled or expired'}
-    assert adapter.sent[-1] == 'Intake closed. Nothing was sliced, uploaded or started.'
+    assert adapter.sent[-1] == 'Ghost Stand: intake closed. Nothing was sliced, uploaded or started.'
 
 
 def test_resume_continues_the_saved_intake_instead_of_stopping_at_the_marker(env):
