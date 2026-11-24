@@ -823,7 +823,8 @@ class LaneDataWatcher:
     # -- event plumbing ----------------------------------------------------
 
     def _queue(self, pending: dict[str, Any], noted: dict[str, Any], slot: int, kind: str,
-               text: str, action: str, *, spool_id: int | None = None) -> str:
+               text: str, action: str, *, spool_id: int | None = None,
+               extra: dict[str, Any] | None = None) -> str:
         key = f"{slot}:{kind}:{action}"
         if kind in _CHANGE_KINDS:
             # A newer change notice for this slot supersedes any undelivered
@@ -849,7 +850,7 @@ class LaneDataWatcher:
                 return key
         pending[key] = {"since": 0.0, "tried": 0.0, "action": action,
                         "event": {"key": key, "slot": slot, "kind": kind,
-                                  "spool_id": spool_id, "text": text}}
+                                  "spool_id": spool_id, "text": text, **(extra or {})}}
         return key
 
     def _drop_noted(self, pending: dict[str, Any], noted: dict[str, Any], slot: int) -> None:
@@ -1155,14 +1156,17 @@ class LaneDataWatcher:
         other_slot = self._claimed_elsewhere(slot, spool_id, spool)
         if other_slot is not None:
             self._drop_noted(pending, noted, slot)
-            self._queue(pending, noted, slot, "claimed_elsewhere",
-                        f"**HelixScreen lane needs attention:** the lane record for "
-                        f"{_slot(slot)} names spool #{spool_id}, but Print Handy has spool "
-                        f"#{spool_id} in {_slot(other_slot)} and the screen does not show it "
-                        f"leaving {_slot(other_slot)}. Nothing was rebound. If the spool "
-                        f"really moved, swap the two slots or unassign {_slot(other_slot)} "
-                        f"first, then relink it with `/spool change {slot} {spool_id}`.",
-                        action, spool_id=spool_id)
+            claimants = self._slot_claimants(slot)
+            recorded = (int(claimants[0]["id"]) if claimants and len(claimants) == 1
+                        else None)
+            # Posted once per problem (#1886): HelixScreen writes the same
+            # record back after every restart and screen command, often in a
+            # new material string, and each rewrite used to post again.
+            if self._say_once(slot, f"claimed_elsewhere:{spool_id}:{other_slot}:{recorded}"):
+                self._queue(pending, noted, slot, "claimed_elsewhere",
+                            claimed_elsewhere_text(slot, spool_id, other_slot, recorded),
+                            action, spool_id=spool_id,
+                            extra={"other_slot": other_slot, "recorded_spool_id": recorded})
             adopt()
             return True
 
@@ -1292,6 +1296,29 @@ class LaneDataWatcher:
         pending = state.get("pending")
         if isinstance(pending, dict) and pending.pop(str(key), None) is not None:
             _write_json(self.state_path, state)
+
+
+def claimed_elsewhere_text(slot: int, spool_id: int, other_slot: int,
+                           recorded: int | None) -> str:
+    """The claimed_elsewhere notice: the screen names a spool Print Handy has in another slot (#1886).
+
+    Print Handy's record wins until the operator says otherwise (#1816):
+    the notice leads with keeping it, which ``/spool sync`` does from any
+    chat, and names the commands for the other two answers. On Discord
+    the same three answers are buttons (``post_lane_event``).
+    """
+    holds = (f"spool #{recorded} in {_slot(slot)} and " if recorded is not None
+             else f"nothing in {_slot(slot)} and ")
+    keep = (f"To keep spool #{recorded} and fix the screen lane, run `/spool sync`."
+            if recorded is not None else
+            "`/spool sync` rewrites the screen lanes from Print Handy's record.")
+    return (f"**HelixScreen lane needs attention:** the lane record for {_slot(slot)} names "
+            f"spool #{spool_id}, but Print Handy has {holds}spool #{spool_id} in "
+            f"{_slot(other_slot)}, and the screen does not show it leaving "
+            f"{_slot(other_slot)}. Nothing was rebound: Print Handy's record is kept. {keep} "
+            f"If spool #{spool_id} really moved, run `/spool shelve {other_slot}`, then "
+            f"`/spool change {slot} {spool_id}`; to record another spool, "
+            f"`/spool change {slot} <spool#>`.")
 
 
 def lane_event_text(event: dict[str, Any]) -> str:

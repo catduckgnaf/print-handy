@@ -2147,6 +2147,13 @@ def alert_button_handlers(bot, adapter):
                     pab.bind_insertion_existing, pending['slot'], pending['spool_id'], spool_sync,
                     expected_prior_spool_id=(int(pending['old_spool_id'])
                                              if pending.get('old_spool_id') else None))
+            elif pending.get('origin') == 'lane-move':
+                # #1886: move_spool re-checks both slots and names what it refused.
+                try:
+                    result = await _action(pab.move_lane_claim, pending['slot'],
+                                           pending.get('lane_claim') or {}, spool_sync)
+                except spool_sync.SpoolError as exc:
+                    result = f'{exc}.'
             else:
                 from print_handy.runtime import moonraker_event_listener as listener
                 result = await _action(_answer_spool_question, listener, spool_sync,
@@ -2186,7 +2193,30 @@ def alert_button_handlers(bot, adapter):
         except Exception:
             logger.debug('could not strip insertion buttons', exc_info=True)
         slot = alert.get('slot')
-        if action == 'same':
+        claim = alert.get('lane_claim') if isinstance(alert.get('lane_claim'), dict) else None
+        if action in ('keep', 'move') and (claim is None or slot not in (1, 2, 3, 4)):
+            await interaction.edit_original_response(content='That prompt has no usable slot. Nothing changed.', view=None)
+            return
+        if action == 'keep':
+            # #1886: Print Handy's record wins (#1816); only the screen lane is rewritten.
+            from print_handy.runtime import spool_sync
+            try:
+                result = await _action(pab.keep_lane_claim, slot, claim, spool_sync)
+            except Exception:
+                logger.exception('lane claim keep failed')
+                result = 'Nothing was changed. Run `/spool sync` to relink the screen lane.'
+            await interaction.edit_original_response(content=result, view=None)
+        elif action == 'move':
+            # #1886: one confirmation naming both slots before anything is written.
+            moved, other, kept = claim.get('spool_id'), claim.get('other_slot'), claim.get('recorded_spool_id')
+            confirm_aid = await _store(pab.record, 'bind-confirm', '', origin='lane-move', slot=int(slot),
+                                       spool_id=int(moved), lane_claim=dict(claim))
+            fate = f' Spool #{kept} goes back on the shelf.' if kept else ''
+            await interaction.edit_original_response(
+                content=(f'Move spool #{moved} from slot {other} to slot {slot}? Slot {other} is left '
+                         f'empty.{fate} Nothing changes until you confirm.'),
+                view=intake_view(pab.bind_confirm_components(confirm_aid)))
+        elif action == 'same':
             # The answer ends the slot's reload mark (#1788): intake no longer asks.
             from print_handy.intake import slot_verify
             await asyncio.to_thread(slot_verify.clear_unconfirmed, slot)
