@@ -405,7 +405,7 @@ def _apply_plate_names(archive, names, parts):
             part['name'] = label
 
 
-def _annotate_parts(archive, names, parts):
+def _annotate_parts(archive, names, parts, filaments=None):
     """Give each part what a person needs to recognise it: real size, plate and the author's color.
 
     Best effort and display only; a failure here never blocks intake.
