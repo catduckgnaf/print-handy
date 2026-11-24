@@ -1197,7 +1197,10 @@ def _delete_replaced_spool(slot: int, prior: int, spool: dict[str, Any], *, clie
                 logging.getLogger(__name__).warning(
                     "Could not relink screen lane %s before deleting spool #%s", slot, prior,
                     exc_info=True)
-            keys = _lane_keys_naming(mr, prior)
+            reread = _lane_keys_naming(mr, prior)
+            # A lane was seen naming the spool: a reread that cannot be read
+            # proves nothing, so it is treated as still naming it (archive).
+            keys = [f"lane{int(slot)}"] if reread is None else reread
         if keys:
             body: dict[str, Any] = {"archived": True}
             if clear_claim:
