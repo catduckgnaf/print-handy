@@ -2572,6 +2572,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                      and (verified is None or 'bambu_studio' in verified))
     orca_failed = primary == 'orca' and (result.returncode or not output.is_file()
                                          or output.stat().st_size == 0)
+    bambu_available = bool(BAMBU_COMMAND and shutil.which(BAMBU_COMMAND[0])
+                           and os.access(BAMBU_COMMAND[0], os.X_OK))
     if orca_failed and not bambu_allowed:
         details = _orca_failure_details(folder)
         raise SliceFailure(f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
@@ -2583,6 +2585,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                            f'see {_keep_failure_logs(folder) / "flash-studio.log"}',
                            kind='engine', slicer='Flash Studio', returncode=result.returncode,
                            **_failure_evidence(folder))
+    if orca_failed and bambu_allowed and not bambu_available:
+        details = _orca_failure_details(folder)
+        raise SliceFailure(
+            f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
+            f'{_BAMBU_NOT_INSTALLED}; see {_keep_failure_logs(folder) / "orca.log"}',
+            kind='conflict' if _orca_conflict(folder) else 'launch', slicer='OrcaSlicer',
+            returncode=result.returncode, **_failure_evidence(folder))
     if primary == 'bambu_studio' or orca_failed:
         # Only an actual Orca execution failure (or the opt-in Bambu Studio primary) reaches this
         # branch. All Print Handy validation and placement refusals above remain fail-closed and

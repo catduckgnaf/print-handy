@@ -126,6 +126,24 @@ def test_bambu_runs_only_after_orca_execution_failure(tmp_path, monkeypatch):
     assert any(path.name == 'machine.json' and path.parent.name == 'bambu' for path in configs)
 
 
+def test_bambu_fallback_unavailable_is_not_spawned_and_preserves_conflict(tmp_path, monkeypatch):
+    _allow_post(monkeypatch)
+    monkeypatch.setattr(adapter, 'BAMBU_COMMAND', ['/definitely/not/a/bambu-studio'])
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        return type('R', (), {'returncode': 1, 'stdout': 'G-code conflicts detected', 'stderr': ''})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert len(calls) == 1
+    assert 'geometry conflict' in str(caught.value)
+    assert 'Bambu Studio fallback slicer is not installed' in str(caught.value)
+    assert caught.value.kind == 'conflict'
+
+
 def test_bambu_fallback_runs_after_orca_gcode_conflict(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
     calls = []
