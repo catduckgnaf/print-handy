@@ -353,6 +353,120 @@ def _sticky_slot_samples(samples):
     return _next
 
 
+def test_slot_warning_is_deduped_across_listener_restart(tmp_path, monkeypatch):
+    state = tmp_path / "notifications.json"
+    monkeypatch.setattr(mel, "NOTIFICATION_STATE", state)
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 3, 3, None))
+    monkeypatch.setattr(mel.Listener, "_slot_agreement", lambda self, sources=None: "slot mismatch")
+    async def no_wait(delay):
+        return None
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    posts = []
+    monkeypatch.setattr(mel, "post", lambda message: posts.append(message) or True)
+
+    async def check(listener):
+        listener.filename = "job.gcode"
+        listener.print_identity = "job:142"
+        await listener._slot_self_check()
+
+    asyncio.run(check(mel.Listener()))
+    asyncio.run(check(mel.Listener()))
+    assert posts == ["slot mismatch"]
+
+
+@pytest.mark.parametrize("failure", ["refused", "raised"])
+def test_an_undelivered_slot_warning_is_retried_by_the_next_check(tmp_path, monkeypatch, failure):
+    state = tmp_path / "notifications.json"
+    monkeypatch.setattr(mel, "NOTIFICATION_STATE", state)
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 3, 3, None))
+    monkeypatch.setattr(mel.Listener, "_slot_agreement", lambda self, sources=None: "slot mismatch")
+    async def no_wait(delay):
+        return None
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    attempts = []
+
+    def flaky_post(message):
+        attempts.append(message)
+        if len(attempts) == 1:
+            if failure == "raised":
+                raise RuntimeError("chat unreachable")
+            return False
+        return True
+
+    monkeypatch.setattr(mel, "post", flaky_post)
+
+    async def check(listener):
+        listener.filename = "job.gcode"
+        listener.print_identity = "job:142"
+        await listener._slot_self_check()
+
+    asyncio.run(check(mel.Listener()))
+    asyncio.run(check(mel.Listener()))
+    asyncio.run(check(mel.Listener()))
+    assert attempts == ["slot mismatch", "slot mismatch"]
+
+
+def test_a_release_that_cannot_lock_is_retried_after_a_listener_restart(tmp_path, monkeypatch):
+    state = tmp_path / "notifications.json"
+    monkeypatch.setattr(mel, "NOTIFICATION_STATE", state)
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 3, 3, None))
+    monkeypatch.setattr(mel.Listener, "_slot_agreement", lambda self, sources=None: "slot mismatch")
+    async def no_wait(delay):
+        return None
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(mel.time, "time", lambda: clock["now"])
+    real_locked = mel.state_file.locked
+    lock_busy = {"on": False}
+
+    def locked(path, **kwargs):
+        if lock_busy["on"]:
+            raise TimeoutError("state lock busy")
+        return real_locked(path, **kwargs)
+
+    monkeypatch.setattr(mel.state_file, "locked", locked)
+    attempts = []
+
+    def flaky_post(message):
+        attempts.append(message)
+        if len(attempts) == 1:
+            lock_busy["on"] = True  # the release after this failed post times out
+            return False
+        return True
+
+    monkeypatch.setattr(mel, "post", flaky_post)
+
+    async def check(listener):
+        listener.filename = "job.gcode"
+        listener.print_identity = "job:142"
+        await listener._slot_self_check()
+
+    asyncio.run(check(mel.Listener()))
+    lock_busy["on"] = False
+    # The undelivered claim is on disk, so a restarted listener (nothing
+    # carried over in memory) sees it once it has expired.
+    getattr(mel, "_UNRELEASED_CLAIMS", set()).clear()
+    ttl = getattr(mel, "DELIVERY_CLAIM_TTL_S", 60.0)
+    clock["now"] += ttl + 1
+    asyncio.run(check(mel.Listener()))
+    clock["now"] += ttl + 1
+    asyncio.run(check(mel.Listener()))
+    assert attempts == ["slot mismatch", "slot mismatch"]
+
+
+def test_a_pending_delivery_claim_blocks_until_it_expires_or_is_confirmed(tmp_path):
+    state = tmp_path / "notifications.json"
+    assert mel._claim_delivery("job:7", "slot_warning", path=state, now=100.0)
+    # Another live attempt is still posting: no duplicate.
+    assert not mel._claim_delivery("job:7", "slot_warning", path=state, now=130.0)
+    # That attempt never finished: the claim is taken again.
+    assert mel._claim_delivery("job:7", "slot_warning", path=state, now=100.0 + mel.DELIVERY_CLAIM_TTL_S + 1)
+    mel._confirm_delivery("job:7", "slot_warning", path=state)
+    assert not mel._claim_delivery("job:7", "slot_warning", path=state, now=10_000.0)
+    mel._release_delivery("job:8", "slot_warning", path=state)
+    assert mel._claim_delivery("job:8", "slot_warning", path=state, now=10_000.0)
+
+
 @pytest.mark.parametrize("active_slot, warned", [(3, False), (4, True)])
 def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warned):
     listener = mel.Listener()

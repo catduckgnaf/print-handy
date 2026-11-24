@@ -2460,6 +2460,13 @@ def platform_sized_video(path, max_bytes=None):
 
 NOTIFICATION_STATE = _config.state_file("PRINT_HANDY_NOTIFICATION_STATE", "lifecycle_notifications.json", per_instance=True)
 
+# A delivery claim (_claim_delivery) that is neither confirmed nor released
+# this long after it was taken belongs to an attempt that did not finish
+# (a failed post whose release could not get the lock, or a process that
+# died mid-post), so the next claim takes it again. Longer than a post's
+# own timeouts, so a slow but live attempt in another process is not doubled.
+DELIVERY_CLAIM_TTL_S = 60.0
+
 
 def _notification_identity(stats):
     """Stable per-job identity; prefer Moonraker history id, then filename plus start time."""
@@ -2499,6 +2506,94 @@ def _claim_notification(identity, phase, path=None):
         warn(f"notification claim {identity}|{phase} could not get the state lock; "
              "skipping this notice rather than risking a duplicate")
         return False
+
+
+def _delivery_state_update(identity, phase, change, path=None, attempts=3):
+    """Apply ``change(state, key)`` to the notification state under its lock; True when it ran."""
+    target = Path(path or NOTIFICATION_STATE)
+    key = f"{identity}|{phase}"
+    for _ in range(max(1, attempts)):
+        try:
+            with state_file.locked(target, raise_on_timeout=True):
+                state = read_json_object(target)
+                result = change(state, key)
+                if result:
+                    atomic_write_json(target, state)
+                return result
+        except TimeoutError:
+            continue
+    return None
+
+
+def _claim_delivery(identity, phase, path=None, now=None):
+    """At-most-once claim of a notice that must not be lost when its delivery fails.
+
+    Unlike :func:`_claim_notification`, the claim is first recorded as
+    pending, with its time. :func:`_confirm_delivery` makes it sent once
+    the notice went out; :func:`_release_delivery` drops it when it did
+    not. A pending claim older than ``DELIVERY_CLAIM_TTL_S`` (its release
+    could not get the lock, or the process ended mid-post) is taken
+    again, by this process or a restarted one, because it is persisted.
+    Fails closed like the lifecycle claim: no lock, no notice now.
+    """
+    if not identity:
+        return True
+    clock = time.time() if now is None else now
+
+    def take(state, key):
+        if key in state.get("sent", []):
+            return False
+        pending = dict(state.get("pending") or {})
+        since = pending.get(key)
+        if isinstance(since, (int, float)) and clock - since < DELIVERY_CLAIM_TTL_S:
+            return False
+        pending[key] = clock
+        state["pending"] = dict(list(pending.items())[-500:])
+        return True
+
+    taken = _delivery_state_update(identity, phase, take, path, attempts=1)
+    if taken is None:
+        warn(f"notification claim {identity}|{phase} could not get the state lock; "
+             "skipping this notice rather than risking a duplicate")
+        return False
+    return taken
+
+
+def _confirm_delivery(identity, phase, path=None):
+    """Record a delivered notice's claim as sent (:func:`_claim_delivery`)."""
+    if not identity:
+        return
+
+    def confirm(state, key):
+        pending = dict(state.get("pending") or {})
+        pending.pop(key, None)
+        state["pending"] = pending
+        sent = list(state.get("sent", []))
+        if key not in sent:
+            sent.append(key)
+        state["sent"] = sent[-500:]
+        return True
+
+    if _delivery_state_update(identity, phase, confirm, path) is None:
+        warn(f"notification claim {identity}|{phase} could not get the state lock to confirm it; "
+             f"a check after {DELIVERY_CLAIM_TTL_S:.0f} s may send the notice again")
+
+
+def _release_delivery(identity, phase, path=None):
+    """Drop the pending claim of a notice that was not delivered, so a later check sends it."""
+    if not identity:
+        return
+
+    def release(state, key):
+        pending = dict(state.get("pending") or {})
+        pending.pop(key, None)
+        state["pending"] = pending
+        return True
+
+    if _delivery_state_update(identity, phase, release, path) is None:
+        warn(f"notification claim {identity}|{phase} could not get the state lock to release it; "
+             f"a check after {DELIVERY_CLAIM_TTL_S:.0f} s takes it again")
+
 
 def classify_transition(old, new_state):
     """Classify one print state transition. Pure: no I/O, no listener state.
@@ -4507,8 +4602,19 @@ class Listener:
                         initial_ffm is not None and initial_ifs is not None
                         and ffm != initial_ffm and ffm != initial_ifs):
                     warning = self._slot_agreement(sources)
-                    if warning:
-                        await asyncio.to_thread(post, warning)
+                    if warning and _claim_delivery(identity, "slot_warning"):
+                        # The claim becomes sent only for a delivered
+                        # warning: a failed or raising post releases it,
+                        # and one whose release cannot lock expires, so a
+                        # later self-check for this job still sends it.
+                        delivered = False
+                        try:
+                            delivered = await asyncio.to_thread(post, warning)
+                        finally:
+                            if delivered:
+                                _confirm_delivery(identity, "slot_warning")
+                            else:
+                                _release_delivery(identity, "slot_warning")
                     return
             log(f"slot self-check inconclusive: no confirmed active channel for job slot {job_slot}")
             # Untimestamped FFM/IFS snapshots cannot prove these readings
