@@ -34,3 +34,16 @@ def test_approximate_names_do_not_merge_distinct_designer_colors():
     groups = source_colors.color_groups(manifest)
     assert [g['keys'] for g in groups] == [['filament:1'], ['filament:2']]
     assert all('Light Cream' in g['author_label'] for g in groups)
+
+
+def test_duplicate_part_labels_survive_canonical_and_grouped_prompts():
+    manifest = {'painted': False, 'filaments': [
+        {'source_extruder': 1, 'color': '#FF0000', 'material': 'PLA'},
+        {'source_extruder': 2, 'color': '#0000FF', 'material': 'PLA'},
+    ], 'parts': [
+        {'key': 'a', 'name': 'Badge', 'display_label': 'Badge (part 1)', 'source_extruder': 1},
+        {'key': 'b', 'name': 'Badge', 'display_label': 'Badge (part 2)', 'source_extruder': 2},
+    ]}
+    labels = ['Badge (part 1)', 'Badge (part 2)']
+    assert [row['label'] for row in source_colors.canonical_prompts(manifest)] == labels
+    assert [group['label'] for group in source_colors.color_groups(manifest)] == labels
