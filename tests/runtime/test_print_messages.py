@@ -374,6 +374,38 @@ def test_slot_warning_is_deduped_across_listener_restart(tmp_path, monkeypatch):
     assert posts == ["slot mismatch"]
 
 
+@pytest.mark.parametrize("failure", ["refused", "raised"])
+def test_an_undelivered_slot_warning_is_retried_by_the_next_check(tmp_path, monkeypatch, failure):
+    state = tmp_path / "notifications.json"
+    monkeypatch.setattr(mel, "NOTIFICATION_STATE", state)
+    monkeypatch.setattr(mel.Listener, "_slot_sources", lambda self: (3, 3, 3, None))
+    monkeypatch.setattr(mel.Listener, "_slot_agreement", lambda self, sources=None: "slot mismatch")
+    async def no_wait(delay):
+        return None
+    monkeypatch.setattr(mel.asyncio, "sleep", no_wait)
+    attempts = []
+
+    def flaky_post(message):
+        attempts.append(message)
+        if len(attempts) == 1:
+            if failure == "raised":
+                raise RuntimeError("chat unreachable")
+            return False
+        return True
+
+    monkeypatch.setattr(mel, "post", flaky_post)
+
+    async def check(listener):
+        listener.filename = "job.gcode"
+        listener.print_identity = "job:142"
+        await listener._slot_self_check()
+
+    asyncio.run(check(mel.Listener()))
+    asyncio.run(check(mel.Listener()))
+    asyncio.run(check(mel.Listener()))
+    assert attempts == ["slot mismatch", "slot mismatch"]
+
+
 @pytest.mark.parametrize("active_slot, warned", [(3, False), (4, True)])
 def test_slot_self_check_waits_for_active_channel(monkeypatch, active_slot, warned):
     listener = mel.Listener()

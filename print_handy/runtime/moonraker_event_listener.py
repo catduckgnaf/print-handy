@@ -2500,6 +2500,25 @@ def _claim_notification(identity, phase, path=None):
              "skipping this notice rather than risking a duplicate")
         return False
 
+
+def _release_notification(identity, phase, path=None):
+    """Drop a claim whose notice was not delivered, so a later check can send it."""
+    if not identity:
+        return
+    target = Path(path or NOTIFICATION_STATE)
+    key = f"{identity}|{phase}"
+    try:
+        with state_file.locked(target, raise_on_timeout=True):
+            state = read_json_object(target)
+            sent = list(state.get("sent", []))
+            if key not in sent:
+                return
+            state["sent"] = [item for item in sent if item != key]
+            atomic_write_json(target, state)
+    except TimeoutError:
+        warn(f"notification claim {key} could not get the state lock to release it; "
+             "a later check for this job will not resend the notice")
+
 def classify_transition(old, new_state):
     """Classify one print state transition. Pure: no I/O, no listener state.
 
@@ -4504,7 +4523,15 @@ class Listener:
                         and ffm != initial_ffm and ffm != initial_ifs):
                     warning = self._slot_agreement(sources)
                     if warning and _claim_notification(identity, "slot_warning"):
-                        await asyncio.to_thread(post, warning)
+                        # The claim stands only for a delivered warning: a
+                        # failed or raising post releases it so a later
+                        # self-check for this job can still send it.
+                        delivered = False
+                        try:
+                            delivered = await asyncio.to_thread(post, warning)
+                        finally:
+                            if not delivered:
+                                _release_notification(identity, "slot_warning")
                     return
             log(f"slot self-check inconclusive: no confirmed active channel for job slot {job_slot}")
             # Untimestamped FFM/IFS snapshots cannot prove these readings
