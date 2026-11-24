@@ -5557,7 +5557,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # Lead with a precise repair or an honest verification decision,
                 # not a speculative AI change to a slice we could not measure.
                 allow_ai = heavy and not repairs and not unverified
-                fix_ready = allow_ai and _fix_budget_left() > 0 and not multi_note
+                fix_ready = (allow_ai and fix_attempts < _ai_fix.MAX_FIX_ATTEMPTS
+                             and _fix_budget_left() > 0 and not multi_note)
                 if repairs:
                     lines.append(low_gap_text(repairs))
                     lines.extend(f"- {a['label']}: re-slices a repaired copy of the model (the original "
@@ -5672,8 +5673,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         if line not in (_ai_fix.UNCONFIGURED_NOTE,)
                         and not line.startswith('Nothing is uploaded yet'))
                     if await _ai_fix_attempt(problem) is None:
-                        if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS or _fix_budget_left() <= 0:
-                            fix_ready = False
                         continue  # declined or unusable proposal: ask the gate question again
                     # Re-slice with the fix and grade the gates again on the
                     # new slice; nothing about the fix waives any of them.
@@ -5718,8 +5717,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                    'Nothing was waived.')
                         return 'fixed'
                     resliced = True
-                    if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS or _fix_budget_left() <= 0:
-                        fix_ready = False
                     continue
                 if pick != 0:
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -6224,6 +6221,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # No roast on the start post: the one roast per print rides the
             # completion post (#874), which the listener adds there.
             message = print_summary.format_started(exact_job, exact_plate) + later
+            if remote is not None:
+                # The listener promotes this same Discord message once printing is observed.
+                message = message.replace('Print started:', 'Start accepted, waiting for the printer:', 1)
         else:
             message = print_summary.scrub(_launch_refusal_text(tail))
             if _restart_helps(tail):

@@ -312,13 +312,24 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
             return S(success=True)
 
     class StopMessage:
+        id = '42'
+
+        def __init__(self):
+            self.edits = []
+
         async def edit(self, **kwargs):
-            return None
+            if kwargs.get('content'):
+                self.edits.append(kwargs['content'])
 
     press_tasks = []
+    launch_messages = []
 
-    async def stop_sender(_source, _text, clarify_id):
+    async def stop_sender(_source, text, clarify_id):
         import tools.clarify_gateway as cm
+
+        msg = StopMessage()
+        if text.startswith('Preparing to start'):
+            launch_messages.append(msg)
 
         async def press_after_spawn():
             for _ in range(500):
@@ -329,7 +340,7 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
             raise AssertionError('print-now subprocess did not start')
 
         press_tasks.append(asyncio.create_task(press_after_spawn()))
-        return StopMessage()
+        return msg
 
     monkeypatch.setattr(prepared_intake, 'STOP_SENDER', stop_sender)
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
@@ -352,7 +363,8 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
     assert len(list((env.tmp / 'claims').glob('*.json'))) == 1
     claim = json.loads(next((env.tmp / 'claims').glob('*.json')).read_text())
     assert claim['outcome'] == 'uncertain_cancelled'
-    assert any('UNCERTAIN:' in line and 'Not retrying' in line for line in adapter.sent)
+    launch, = launch_messages
+    assert 'UNCERTAIN:' in launch.edits[-1] and 'Not retrying' in launch.edits[-1]
     assert not any('Nothing sliced, uploaded or started.' in line for line in adapter.sent)
 
 
@@ -969,11 +981,9 @@ def test_intake_recognizes_real_print_now_output():
     assert print_next.started_file(REAL_AWAITING) == 'ghost_plate_1_abc.gcode'
 
 
-def test_start_still_preparing_posts_one_start_without_roast_and_records_its_id(env, monkeypatch, tmp_path):
-    """#374: a warming start posts its canonical start message with NO roast and
-    does not invoke the roast generator at all. Its message id is recorded for
-    the claimed file, so the listener can edit that one post — adding the
-    warmup-complete line and exactly one roast — when printing begins."""
+def test_start_still_preparing_posts_one_waiting_status_without_roast_and_records_its_id(env, monkeypatch, tmp_path):
+    """A warming start reports waiting, not printing. The listener edits that
+    same message once the print starts; no roast is generated during warmup."""
     monkeypatch.setattr(print_next, 'START_MESSAGES', tmp_path / 'start_messages.json')
     mel = external('moonraker_event_listener')
     roast_calls = []
@@ -994,8 +1004,8 @@ def test_start_still_preparing_posts_one_start_without_roast_and_records_its_id(
     monkeypatch.setattr(Adapter, 'send', send)
     adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
-    starts = [m for m in adapter.sent if m.startswith('Print started')]
-    assert len(starts) == 1 and 'Warming up' not in starts[0]
+    starts = [m for m in adapter.sent if m.startswith('Start accepted, waiting for the printer:')]
+    assert len(starts) == 1 and not any(m.startswith('Print started') for m in adapter.sent)
     assert 'Roast that must not appear yet' not in starts[0] and roast_calls == []
     assert print_next.take_start_message('ghost_plate_1_abc.gcode') == f'm{len(adapter.sent)}'
 
