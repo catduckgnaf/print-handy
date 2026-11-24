@@ -139,7 +139,8 @@ def test_five_million_triangles_exceeding_old_expanded_and_xml_caps(tmp_path):
 
     Generate directly into the compressed member: no 500+ MiB Python buffer
     or checked-in fixture. The values cycle through valid vertex indices, so
-    this is not an artificially high-ratio ZIP-bomb payload.
+    this is not an artificially high-ratio ZIP-bomb payload. Padding is inside
+    the start tag, not DOM-retained character data.
     """
     source = tmp_path / 'five-million.3mf'
     triangles, vertices = 5_000_000, 100_000
@@ -151,8 +152,9 @@ def test_five_million_triangles_exceeding_old_expanded_and_xml_caps(tmp_path):
             member.write(b'</vertices><triangles>')
             for start in range(0, triangles, 1000):
                 batch = ''.join(
-                    ' ' * 70 + f'<triangle v1="{i % vertices}" '
-                    f'v2="{(i + 1) % vertices}" v3="{(i + 2) % vertices}"/>\n'
+                    f'<triangle v1="{i % vertices}" '
+                    f'v2="{(i + 1) % vertices}" v3="{(i + 2) % vertices}"'
+                    + ' ' * 70 + '/>\n'
                     for i in range(start, start + 1000))
                 member.write(batch.encode())
             member.write(b'</triangles></mesh></object></resources></model>')
@@ -198,9 +200,33 @@ def test_geometry_attributes_count_toward_fallback_payload_bound(tmp_path):
     body = (b'<object id="1"><mesh><vertices>'
             + b'<vertex x="0" y="0" z="0"/>' * 30
             + b'</vertices><triangles/></mesh></object>')
-    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 100):
-        with pytest.raises(limits.IntakeLimitExceeded, match=r'non-geometry limit'):
+    with patch.object(limits, 'MAX_XML_GEOMETRY_ATTRIBUTE_BYTES', 100):
+        with pytest.raises(limits.IntakeLimitExceeded, match=r'geometry attribute limit'):
             limits.check_source(_model_3mf(tmp_path, 'geometry-attrs.3mf', body))
+
+
+def test_geometry_attributes_have_separate_aggregate_budget(tmp_path):
+    body = b'<vertex x="1234567890" y="0" z="0"/>' * 30
+    source = _model_3mf(tmp_path, 'coordinates.3mf', body)
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 100):
+        limits.check_source(source)
+    with patch.object(limits, 'MAX_XML_GEOMETRY_ATTRIBUTE_BYTES', 100):
+        with pytest.raises(limits.IntakeLimitExceeded, match='geometry attribute limit'):
+            limits.check_source(source)
+
+
+def test_element_names_count_toward_payload(tmp_path):
+    source = _model_3mf(tmp_path, 'name.3mf', b'<' + b'a' * 200 + b'/>')
+    with patch.object(limits, 'MAX_XML_PAYLOAD_BYTES', 100):
+        with pytest.raises(limits.IntakeLimitExceeded, match='non-geometry limit'):
+            limits.check_source(source)
+
+
+def test_unfinished_xml_token_bounded_before_callback(tmp_path):
+    source = _model_3mf(tmp_path, 'token.3mf', b'<' + b'a' * (limits.CHUNK * 4) + b'/>')
+    with patch.object(limits, 'MAX_XML_TOKEN_BYTES', limits.CHUNK):
+        with pytest.raises(limits.IntakeLimitExceeded, match='XML token exceeds'):
+            limits.check_source(source)
 
 
 def test_normal_metadata_and_indentation_allowed(tmp_path):

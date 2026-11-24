@@ -25,10 +25,17 @@ MAX_ESTIMATED_GEOMETRY_BYTES = 1536 * MIB
 MAX_TRIANGLES = 10_000_000
 MAX_VERTICES = 10_000_000
 MAX_XML_ELEMENTS = 40_000_000
-# Text and attributes are not geometry, yet the ElementTree fallback holds
-# them in a DOM. Bound them even though the geometry counters do not (#1846).
+# Bound retained XML separately from the compact geometry arrays. Ordinary
+# numeric mesh attributes have their own aggregate budget, so millions of
+# valid indices do not consume the much smaller metadata allowance.
 MAX_XML_ATTRIBUTE_BYTES = MIB
 MAX_XML_PAYLOAD_BYTES = 64 * MIB
+MAX_XML_GEOMETRY_ATTRIBUTE_BYTES = 512 * MIB
+MAX_XML_TOKEN_BYTES = 4 * MIB
+_GEOMETRY_FIELDS = {'vertex': frozenset(('x', 'y', 'z')),
+                    'triangle': frozenset(('v1', 'v2', 'v3'))}
+_CORE_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02}'
+
 CHUNK = 64 * 1024
 # Not a model-size cap (#1824). A download of any size is kept when the
 # volume still has this much free afterwards. Crossing it refuses the
@@ -186,7 +193,7 @@ def _recorded_counts(path, model_members):
 def _stream_counts(archive, models, *, path=None):
     """Stream every model member's XML, refusing at the first limit crossed; returns the totals."""
     counts = {'triangle': 0, 'vertex': 0, 'elements': 0, 'estimated_bytes': 0,
-              'payload_bytes': 0}
+              'payload_bytes': 0, 'geometry_attribute_bytes': 0}
 
     def add_payload(size):
         counts['payload_bytes'] += size
@@ -195,25 +202,38 @@ def _stream_counts(archive, models, *, path=None):
                     f'bytes exceeds {MAX_XML_PAYLOAD_BYTES // MIB} MiB non-geometry limit',
                     path=path)
 
+    def byte_length(value):
+        return len(value) if value.isascii() else len(value.encode('utf-8'))
+
     def text(data):
         # Count whitespace too: ElementTree retains it in the DOM fallback.
-        # Normal indentation is negligible against the aggregate 64 MiB cap.
-        add_payload(len(data.encode('utf-8', 'surrogatepass')))
+        add_payload(byte_length(data))
 
     def start(name, attrs):
         local = name.rsplit('}', 1)[-1]
         counts['elements'] += 1
-        for value in attrs.values():
-            if len(value) > MAX_XML_ATTRIBUTE_BYTES:
+        geometry_fields = _GEOMETRY_FIELDS.get(local, ())
+        # Only the fixed core geometry names are covered by the primitive
+        # budget. Arbitrary names (including namespace URIs) are retained XML.
+        payload = 0 if geometry_fields and name in (local, _CORE_NS + local) else byte_length(name)
+        geometry_payload = 0
+        for key, value in attrs.items():
+            value_bytes = byte_length(value)
+            if value_bytes > MAX_XML_ATTRIBUTE_BYTES:
                 _refuse(f'an XML attribute value exceeds {MAX_XML_ATTRIBUTE_BYTES // MIB} MiB '
                         'limit', path=path)
-        # Standard geometry fields are bounded by geometry counts and the XML
-        # member byte cap; charge every other attribute to the DOM payload cap.
-        geometry_fields = ({'x', 'y', 'z'} if local == 'vertex'
-                           else {'v1', 'v2', 'v3'} if local == 'triangle'
-                           else set())
-        add_payload(sum(len(k) + len(v) for k, v in attrs.items()
-                        if k not in geometry_fields))
+            size = byte_length(key) + value_bytes
+            if key in geometry_fields:
+                geometry_payload += size
+            else:
+                payload += size
+        if payload:
+            add_payload(payload)
+        counts['geometry_attribute_bytes'] += geometry_payload
+        if counts['geometry_attribute_bytes'] > MAX_XML_GEOMETRY_ATTRIBUTE_BYTES:
+            _refuse(f'XML geometry attributes at least {counts["geometry_attribute_bytes"]:,} '
+                    f'bytes exceeds {MAX_XML_GEOMETRY_ATTRIBUTE_BYTES // MIB} MiB geometry attribute limit',
+                    path=path)
         if counts['elements'] > MAX_XML_ELEMENTS:
             _refuse(f'XML element count at least {counts["elements"]:,} exceeds '
                     f'{MAX_XML_ELEMENTS:,} limit', path=path)
@@ -242,7 +262,14 @@ def _stream_counts(archive, models, *, path=None):
         parser.CharacterDataHandler = text
         parser.StartDoctypeDeclHandler = doctype
         with archive.open(member) as source:
+            fed = 0
             while chunk := source.read(CHUNK):
+                fed += len(chunk)
                 _parse_chunk(parser, chunk, False)
+                # Expat reports the byte offset of an unfinished token. Stop
+                # feeding before a long name/attribute can grow without bound.
+                if fed - parser.CurrentByteIndex > MAX_XML_TOKEN_BYTES:
+                    _refuse(f'XML token exceeds {MAX_XML_TOKEN_BYTES // MIB} MiB limit',
+                            path=path)
             _parse_chunk(parser, b'', True)
     return counts

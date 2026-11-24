@@ -16,7 +16,9 @@ Safety limits in this revision:
 | STL file | No byte cap; triangle count (binary header, ASCII facets) under the triangle budget |
 | XML triangles / vertices | 10,000,000 each |
 | XML elements across models | 40,000,000 |
-| Non-geometry XML text and attributes | 64 MiB in total; any single attribute value at most 1 MiB (bounds the ElementTree fallback) |
+| Non-geometry XML text, names and attributes | 64 MiB in total, including whitespace |
+| Standard vertex/triangle attributes | 512 MiB aggregate, separate from non-geometry payload |
+| Single XML attribute value / unfinished parser token | 1 MiB / 4 MiB (plus at most one read chunk before refusal) |
 | Estimated geometry working storage | 1,536 MiB |
 
 ZIP member counts and individual plus aggregate compression ratios are checked before opening any member.
@@ -57,7 +59,7 @@ Geometry layout, transforms, topology, mesh audit and part annotation now
 consume the same indexed vertex/face arrays instead of re-expanding the mesh
 into Python objects, and color inventory scans members without building the
 model DOM. Meshes the streaming reader declines still take the ElementTree
-fallback, whose memory use this work does not bound. Synthetic
+fallback, whose retained XML content is subject to the separate payload budgets above; these are not a complete RSS bound. Synthetic
 streaming-success and allocation-bound tests cover the parser and individual
 consumers; they do not by themselves establish an end-to-end RSS guarantee.
 Private-model capped intake and successful slicing acceptance remains
