@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-24T20:14:51Z",
+ "generated_at": "2026-11-25T01:17:27Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -78,16 +78,16 @@
    "stock_models": [],
    "update": "OpenCreator updates itself from its own updater, or from Fluidd or Mainsail; an update can flash the printer's boards, so never start one during a print. Print Handy reports OpenCreator updates and does not apply them.",
    "latest": {
-    "version": "0.0.7.6",
-    "tag": "0.0.7.6",
-    "published_at": "2026-11-22T08:46:20Z",
-    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.6"
+    "version": "0.0.7.7",
+    "tag": "0.0.7.7",
+    "published_at": "2026-11-25T00:52:13Z",
+    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.7"
    },
    "latest_stable": {
-    "version": "0.0.7.6",
-    "tag": "0.0.7.6",
-    "published_at": "2026-11-22T08:46:20Z",
-    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.6"
+    "version": "0.0.7.7",
+    "tag": "0.0.7.7",
+    "published_at": "2026-11-25T00:52:13Z",
+    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.7"
    },
    "latest_prerelease": null,
    "audited": "0.0.7.4",
