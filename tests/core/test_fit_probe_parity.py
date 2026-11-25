@@ -207,3 +207,45 @@ def test_every_intake_fit_probe_gets_the_job_printer_state():
         seen.append(func.attr)
         assert 'fit_state' in names and 'state' not in names, f'{func.attr} probe at line {node.lineno}'
     assert {'fit_options', 'largest_fitting_fraction', 'split_plan_100', 'orca_plate_capacity'} <= set(seen)
+
+
+def test_lone_authored_copy_is_probed_centered_like_the_slice(tmp_path, monkeypatch):
+    """#1911: a 3MF laid out for a 256 mm bed kept its off-center position in the probe.
+
+    Orca's --arrange leaves one object where it is, so the probe judged a part
+    the slice would center (and print) against its authored position: 101.6 x
+    203.2 mm at Y 20.6 to 223.8 failed a 220 mm bed and was stood on end.
+    """
+    templates = tmp_path / 'templates'
+    templates.mkdir()
+    for name in ('machine', 'process', 'filament'):
+        (templates / f'{name}.json').write_text('{}')
+    monkeypatch.setattr(oa, 'TEMPLATES', templates)
+    monkeypatch.setattr(oa, '_fit_exclusion_polygon', lambda state=None: ())
+    monkeypatch.setattr(oa, '_footprint', lambda *a: (
+        [(76.8, 20.6), (178.4, 20.6), (178.4, 223.8), (76.8, 223.8)], 0.0, 61.0))
+    placed = {}
+
+    def spawn(cmd, timeout, cwd):
+        # Like Orca with one object: wherever the STL puts it is where it stays.
+        import struct as _struct
+        data = open(cmd[-1], 'rb').read()
+        count = _struct.unpack('<I', data[80:84])[0]
+        xs, ys = [], []
+        for i in range(count):
+            vals = _struct.unpack('<12f', data[84 + 50 * i:84 + 50 * i + 48])
+            xs += vals[3::3]
+            ys += vals[4::3]
+        placed['bounds'] = [(min(xs), max(xs)), (min(ys), max(ys)), (0, 61)]
+        with zipfile.ZipFile(cwd / 'probe.3mf', 'w') as archive:
+            archive.writestr('Metadata/model_settings.config',
+                             '<config><plate><metadata key="plater_id" value="1"/></plate></config>')
+        return SimpleNamespace(returncode=0, stderr='', stdout='')
+
+    monkeypatch.setattr(oa, '_spawn_slicer', spawn)
+    monkeypatch.setattr(oa, 'export_geometry', lambda *a: {'build_bounds_mm': placed['bounds']})
+    state = {'bed_mm': [220, 220], 'max_print_height_mm': 220,
+             'resolved_retraction_mm': [0], 'resolved_hop_types': ['Normal Lift']}
+    assert oa.orca_plate_capacity(tmp_path / 'part.stl', state, scale=1.0, copy_limit=1) == 1
+    (x0, x1), (y0, y1), _ = placed['bounds']
+    assert abs((x0 + x1) / 2 - 110) < 0.01 and abs((y0 + y1) / 2 - 110) < 0.01

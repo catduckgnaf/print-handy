@@ -377,6 +377,18 @@ def fit_choice_rows(options):
     return rows
 
 
+def silent_fit_row(rows):
+    """The fit row applied without a question, or None to ask.
+
+    Only a full-size turn on the bed qualifies: it keeps the designer's contact
+    face, height and supports. Tipping a part onto another face changes all
+    three, so it is always offered as a choice (#1911: a flat part was stood
+    on end without a word).
+    """
+    return next((row for row in rows if row['kind'] == 'rotate' and row['scale'] >= 0.995
+                 and not row.get('supports') and row.get('axis') == '+Z'), None)
+
+
 def _rotation_phrase(alt):
     """Short button words for a rotated option: "turned 126°" or "rotated 90° on Y"."""
     name = str(alt.get('name') or alt.get('label') or '')
