@@ -1185,18 +1185,27 @@ class LaneDataWatcher:
             claimants = self._slot_claimants(slot)
             recorded = (int(claimants[0]["id"]) if claimants and len(claimants) == 1
                         else None)
+            target_empty = claimants == []
             # Posted once per problem (#1886): HelixScreen writes the same
             # record back after every restart and screen command, often in a
-            # new material string, and each rewrite used to post again.
-            if self._say_once(slot, f"claimed_elsewhere:{spool_id}:{other_slot}:{recorded}"):
+            # new material string, and each rewrite used to post again. The
+            # target slot's state is part of the problem: one recorded spool,
+            # known empty, or unknown each get their own notice and Move facts.
+            target = recorded if recorded is not None else ("empty" if target_empty else "unknown")
+            if self._say_once(slot, f"claimed_elsewhere:{spool_id}:{other_slot}:{target}"):
+                # A newer notice for the slot replaces an undelivered older one.
+                for stale in [k for k, entry in pending.items() if isinstance(entry, dict)
+                              and (entry.get("event") or {}).get("slot") == slot
+                              and (entry.get("event") or {}).get("kind") == "claimed_elsewhere"]:
+                    del pending[stale]
                 self._queue(pending, noted, slot, "claimed_elsewhere",
                             claimed_elsewhere_text(slot, spool_id, other_slot, recorded,
-                                                   target_empty=claimants == []),
+                                                   target_empty=target_empty),
                             action, spool_id=spool_id,
                             extra={"other_slot": other_slot, "recorded_spool_id": recorded,
                                    # What Move may replace (#1886): known empty,
                                    # one recorded spool, or unknown (neither).
-                                   "target_empty": claimants == []})
+                                   "target_empty": target_empty})
             adopt()
             return True
 

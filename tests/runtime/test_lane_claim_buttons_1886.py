@@ -289,6 +289,28 @@ def test_the_notice_does_not_call_an_ambiguous_slot_empty(tmp_path):
     assert "could not tell what" in text and "`/spool sync`" in text
 
 
+def test_an_empty_target_that_becomes_ambiguous_gets_a_new_notice(tmp_path):
+    # Slot 1 is empty when the notice posts; then spools 16 and 17 both claim it.
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:2")])
+    watcher, _applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane2": lane(19, slot=2, material="PLA+", color="CD7F32")})
+    mr.lanes = {"lane1": lane(19, slot=1, material="PLA+", color="CD7F32", scan_time=200),
+                "lane2": lane(19, slot=2, material="PLA+", color="CD7F32")}
+    first = [e for e in watcher.poll() if e["kind"] == "claimed_elsewhere"]
+    assert len(first) == 1 and first[0]["target_empty"] is True
+    watcher.delivered(first[0]["key"])
+    client.spools[16] = spool(16, ph_slot=f"{PID}:1")
+    client.spools[17] = spool(17, ph_slot=f"{PID}:1")
+    # The screen clears the lane, then writes the old record back.
+    mr.lanes["lane1"] = lane(None, slot=1, material="", color="", scan_time=300)
+    watcher.poll()
+    mr.lanes["lane1"] = lane(19, slot=1, material="PLA+", color="CD7F32", scan_time=400)
+    second = [e for e in watcher.poll() if e["kind"] == "claimed_elsewhere"]
+    assert len(second) == 1
+    assert second[0]["target_empty"] is False and "could not tell what" in second[0]["text"]
+
+
 def test_the_text_calls_a_slot_empty_only_when_it_is_known_empty():
     known = lane_data_sync.claimed_elsewhere_text(1, 19, 2, None, target_empty=True)
     unknown = lane_data_sync.claimed_elsewhere_text(1, 19, 2, None)
