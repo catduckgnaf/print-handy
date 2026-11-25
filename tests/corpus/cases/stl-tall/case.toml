@@ -23,6 +23,10 @@ question = "Choose the orientation"
 button = "Lay down"
 
 [[click]]
+question = "does not fit the bed full size"
+button = "100% · rotated"
+
+[[click]]
 question = "How many copies"
 button = "One copy"
 
