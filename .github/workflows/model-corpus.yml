@@ -36,7 +36,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The corpus repo and its release assets keep their pre-rename
           # The corpus now lives in catduckgnaf/print-handy-corpus. Releases keep
           # their pre-rename tags (corpus-v1/v2) so these download commands are
           # unchanged; each release's outer SHA256SUMS lists the renamed asset,
