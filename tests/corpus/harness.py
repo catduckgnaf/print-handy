@@ -822,7 +822,12 @@ def check_refusal(case, run):
         f"{run.receipt.get('error')}\n{_transcript(run)}")
     needle = want.get("error_contains")
     if needle:
-        assert needle in str(run.receipt.get("error") or ""), (
+        # The refusal reason lives on the receipt ('error') for some cases, but others (e.g. the
+        # multicolor octopus) stop at the slice stage with the diagnostic carried in the Discord
+        # reply sent before slicing was blocked. Match either place so the pinned reference is
+        # found without depending on where the product put it.
+        haystack = "\n".join([str(run.receipt.get("error") or ""), _transcript(run)])
+        assert needle in haystack, (
             f"refusal reason {run.receipt.get('error')!r} does not name the pinned "
             f"refusal {needle!r}\n{_transcript(run)}")
     assert not run.slice_starts, "a refused case must never reach slicing"
