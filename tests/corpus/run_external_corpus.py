@@ -112,8 +112,9 @@ OVERRIDE_EXPECT = {
     "gyroid-surface": {"status": "STARTED"},
     "fnaf-mask": {"status": "STARTED"},
     "012-articulated-octopus--317d1e8d5f728b44ff0ab8e6abb49f157216b0e1055705699c0070560b49dc05": {
-        "status": "FAILED",
-        "error_contains": "PH_SLICING_CONFIGURATION",
+        "status": "SLICE_FAILED",
+        "slice_error_contains": "an assembly cannot be split per slot",
+        "says": ["cannot be split onto separate plates", "PH_SLICING_CONFIGURATION"],
     },
 }
 
@@ -147,10 +148,12 @@ def build_case(model, root):
 def evaluate(case, run):
     """Assert what the case expects of a finished run; raises AssertionError."""
     if case.expect.get("status") == "FAILED":
-        # A pinned refusal: the FAILED receipt for the expected reason, and
-        # slicing/starting never occurred (P2-177).
+        # An intake refusal: the expected failure occurred before slicing.
         harness.check_refusal(case, run)
         return
+    # SLICE_FAILED is a distinct expected terminal outcome: slicing was attempted,
+    # but the slicer rejected the assembly. check_expectations verifies the receipt,
+    # refusal message and that printing never started.
     harness.check_expectations(case, run)
     if not run.slice_starts:
         raise AssertionError("actual BackgroundSlice.start was never called")
