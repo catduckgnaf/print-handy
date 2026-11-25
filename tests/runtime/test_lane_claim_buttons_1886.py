@@ -273,6 +273,29 @@ def test_the_notice_says_when_the_target_slot_is_empty(tmp_path):
     assert events and events[0]["recorded_spool_id"] is None and events[0]["target_empty"] is True
 
 
+def test_the_notice_does_not_call_an_ambiguous_slot_empty(tmp_path):
+    # Spools 16 and 17 both claim slot 1: nothing unique is recorded, and the slot is not empty.
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(16, ph_slot=f"{PID}:1"), spool(17, ph_slot=f"{PID}:1"),
+                           spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:2")])
+    watcher, _applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane2": lane(19, slot=2, material="PLA+", color="CD7F32")})
+    mr.lanes = {"lane1": lane(19, slot=1, material="PLA+", color="CD7F32", scan_time=200),
+                "lane2": lane(19, slot=2, material="PLA+", color="CD7F32")}
+    events = [e for e in watcher.poll() if e["kind"] == "claimed_elsewhere"]
+    assert events and events[0]["recorded_spool_id"] is None and not events[0]["target_empty"]
+    text = events[0]["text"]
+    assert "nothing in" not in text
+    assert "could not tell what" in text and "`/spool sync`" in text
+
+
+def test_the_text_calls_a_slot_empty_only_when_it_is_known_empty():
+    known = lane_data_sync.claimed_elsewhere_text(1, 19, 2, None, target_empty=True)
+    unknown = lane_data_sync.claimed_elsewhere_text(1, 19, 2, None)
+    assert "nothing in" in known and "could not tell" not in known
+    assert "nothing in" not in unknown and "could not tell" in unknown
+
+
 # ------------------------------------------------------------------ move_spool itself
 
 def _record(tmp_path):

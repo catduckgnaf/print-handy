@@ -1190,7 +1190,8 @@ class LaneDataWatcher:
             # new material string, and each rewrite used to post again.
             if self._say_once(slot, f"claimed_elsewhere:{spool_id}:{other_slot}:{recorded}"):
                 self._queue(pending, noted, slot, "claimed_elsewhere",
-                            claimed_elsewhere_text(slot, spool_id, other_slot, recorded),
+                            claimed_elsewhere_text(slot, spool_id, other_slot, recorded,
+                                                   target_empty=claimants == []),
                             action, spool_id=spool_id,
                             extra={"other_slot": other_slot, "recorded_spool_id": recorded,
                                    # What Move may replace (#1886): known empty,
@@ -1328,14 +1329,25 @@ class LaneDataWatcher:
 
 
 def claimed_elsewhere_text(slot: int, spool_id: int, other_slot: int,
-                           recorded: int | None) -> str:
+                           recorded: int | None, *, target_empty: bool = False) -> str:
     """The claimed_elsewhere notice: the screen names a spool Print Handy has in another slot (#1886).
 
     Print Handy's record wins until the operator says otherwise (#1816):
     the notice leads with keeping it, which ``/spool sync`` does from any
     chat, and names the commands for the other two answers. On Discord
-    the same three answers are buttons (``post_lane_event``).
+    the same three answers are buttons (``post_lane_event``). The slot is
+    called empty only when it is known empty (``target_empty``); with no
+    unique recorded spool otherwise (two claimants, or Spoolman silent),
+    the notice says it could not tell and asks for ``/spool sync`` first.
     """
+    if recorded is None and not target_empty:
+        return (f"**HelixScreen lane needs attention:** the lane record for {_slot(slot)} names "
+                f"spool #{spool_id}, but Print Handy has spool #{spool_id} in {_slot(other_slot)}, "
+                f"and the screen does not show it leaving {_slot(other_slot)}. Print Handy could not "
+                f"tell what {_slot(slot)} holds (more than one spool claims it, or Spoolman did not "
+                f"answer). Nothing was rebound. Run `/spool sync` to name what {_slot(slot)} holds "
+                f"before moving anything; then, if spool #{spool_id} really moved, run "
+                f"`/spool shelve {other_slot}` and `/spool change {slot} {spool_id}`.")
     holds = (f"spool #{recorded} in {_slot(slot)} and " if recorded is not None
              else f"nothing in {_slot(slot)} and ")
     keep = (f"To keep spool #{recorded} and fix the screen lane, run `/spool sync`."
