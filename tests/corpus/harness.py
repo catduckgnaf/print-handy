@@ -813,21 +813,12 @@ def check_refusal(case, run):
     want = case.expect
     assert not getattr(run.adapter, "unanswered", None), "\n".join(run.adapter.unanswered)
     assert not getattr(run.adapter, "errors", None), run.adapter.errors
-    # A pinned intake refusal: the FAILED receipt, for the expected reason, with slicing/starting
-    # proof that never happened. Some corpus models (e.g. the multicolor octopus) stop before
-    # slicing with a SLICE_FAILED receipt, which is also an intake rejection.
-    status = run.receipt.get("status")
-    assert status in ("FAILED", "SLICE_FAILED"), (
-        f"expected an intake refusal, got receipt {status!r}: "
+    assert run.receipt.get("status") == "FAILED", (
+        f"expected an intake refusal, got receipt {run.receipt.get('status')!r}: "
         f"{run.receipt.get('error')}\n{_transcript(run)}")
     needle = want.get("error_contains")
     if needle:
-        # The refusal reason lives on the receipt ('error') for some cases, but others (e.g. the
-        # multicolor octopus) stop at the slice stage with the diagnostic carried in the Discord
-        # reply sent before slicing was blocked. Match either place so the pinned reference is
-        # found without depending on where the product put it.
-        haystack = "\n".join([str(run.receipt.get("error") or ""), _transcript(run)])
-        assert needle in haystack, (
+        assert needle in str(run.receipt.get("error") or ""), (
             f"refusal reason {run.receipt.get('error')!r} does not name the pinned "
             f"refusal {needle!r}\n{_transcript(run)}")
     assert not run.slice_starts, "a refused case must never reach slicing"
