@@ -148,7 +148,12 @@ def build_case(model, root):
 def evaluate(case, run):
     """Assert what the case expects of a finished run; raises AssertionError."""
     if case.expect.get("status") == "FAILED":
-        # An intake refusal: the expected failure occurred before slicing.
+        # Intake refusals must carry the pinned reason on the FAILED receipt.
+        needle = case.expect.get("error_contains")
+        if needle and needle not in str(run.receipt.get("error") or ""):
+            raise AssertionError(
+                f"refusal receipt {run.receipt.get('error')!r} does not name the pinned "
+                f"reason {needle!r}")
         harness.check_refusal(case, run)
         return
     # SLICE_FAILED is a distinct expected terminal outcome: slicing was attempted,
