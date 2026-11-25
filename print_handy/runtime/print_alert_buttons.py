@@ -324,6 +324,27 @@ def insertion_components(aid: str) -> list[dict[str, Any]]:
     ]}]
 
 
+def lane_claim_components(aid: str, claim: dict[str, Any]) -> list[dict[str, Any]]:
+    """The claimed_elsewhere answers (#1886): keep the record (first), move the spool here, pick another.
+
+    The insertion prompt's prefix and alert, with two more answers: keep
+    rewrites the screen lane to Print Handy's recorded spool, move takes
+    the spool the screen names out of its other slot. Pick another is the
+    insertion prompt's own Existing spool step.
+    """
+    spool_id = claim.get("spool_id")
+    recorded = claim.get("recorded_spool_id")
+    buttons = []
+    if recorded:
+        buttons.append({"type": 2, "style": 1, "label": f"Keep spool #{recorded}",
+                        "custom_id": f"{INSERTION_PREFIX}:keep:{aid}"})
+    buttons.append({"type": 2, "style": 2, "label": f"Move spool #{spool_id} here",
+                    "custom_id": f"{INSERTION_PREFIX}:move:{aid}"})
+    buttons.append({"type": 2, "style": 2, "label": "Pick another",
+                    "custom_id": f"{INSERTION_PREFIX}:existing:{aid}"})
+    return [{"type": 1, "components": buttons}]
+
+
 def spool_question_components(aid: str, prior_spool_id: int | None = None,
                               cause: str | None = None) -> list[dict[str, Any]]:
     """Answers for a paused runout or swap question.
@@ -539,12 +560,23 @@ def rearm_alert(token: str, channel_id: str, message_id: str, content: str, kind
     return False
 
 
-def post_insertion_confirmation(token: str, channel_id: str, content: str, slot: int) -> bool:
-    """Post an answer-only IFS insertion UI. It has no printer or inventory side effect."""
+def post_insertion_confirmation(token: str, channel_id: str, content: str, slot: int,
+                                lane_claim: dict[str, Any] | None = None) -> bool:
+    """Post an answer-only IFS insertion UI. It has no printer or inventory side effect.
+
+    ``lane_claim`` (#1886) is the claimed_elsewhere notice's facts
+    (``spool_id``, ``other_slot``, ``recorded_spool_id``): the alert keeps
+    them and the post carries :func:`lane_claim_components` instead.
+    """
     if not token or not channel_id or slot not in (1, 2, 3, 4):
         return False
-    aid = record("insertion", "", slot=slot)
-    body = json.dumps({"content": content[:1990], "components": insertion_components(aid),
+    if lane_claim:
+        aid = record("insertion", "", slot=slot, lane_claim=dict(lane_claim))
+        components = lane_claim_components(aid, lane_claim)
+    else:
+        aid = record("insertion", "", slot=slot)
+        components = insertion_components(aid)
+    body = json.dumps({"content": content[:1990], "components": components,
                        "allowed_mentions": {"parse": []}}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
@@ -1153,6 +1185,23 @@ def bind_insertion_existing(slot: int, spool_id: int, spool_sync,
     return f"Slot {slot} → spool #{spool_id} ({record['name']}{grams}). Inventory updated; printer untouched."
 
 
+def keep_lane_claim(slot: int, claim: dict[str, Any], spool_sync) -> str:
+    """Keep Print Handy's recorded spool for the slot and relink the screen lane to it (#1886)."""
+    out = spool_sync.relink_slot_lane(slot, expected_spool_id=claim.get("recorded_spool_id"),
+                                      client=spool_sync.spoolman, mr=spool_sync.moonraker)
+    return spool_sync.relink_text(out)
+
+
+def move_lane_claim(slot: int, claim: dict[str, Any], spool_sync) -> str:
+    """Move the spool the screen names into this slot, out of the slot Print Handy has it in (#1886)."""
+    expected = {"expected_prior_spool_id": claim.get("recorded_spool_id")}
+    if claim.get("target_empty") and claim.get("recorded_spool_id") is None:
+        expected["expect_empty"] = True
+    result = spool_sync.move_spool(int(claim["other_slot"]), int(slot), int(claim["spool_id"]),
+                                   **expected)
+    return spool_sync.move_text(result)
+
+
 def create_and_bind_insertion(slot: int, values: dict[str, Any], spool_sync,
                               prior_disposition: str = "shelf",
                               expected_prior_spool_id: int | None = None) -> str:
@@ -1701,7 +1750,8 @@ def parse_retry_custom_id(custom_id: str) -> str | None:
 def parse_insertion_custom_id(custom_id: str) -> tuple[str, str] | None:
     """Return the inventory-only insertion choice and alert id, or None for unrelated controls."""
     parts = str(custom_id or "").split(":")
-    if len(parts) == 3 and parts[0] == INSERTION_PREFIX and parts[1] in ("same", "existing", "new") and parts[2]:
+    if len(parts) == 3 and parts[0] == INSERTION_PREFIX \
+            and parts[1] in ("same", "existing", "new", "keep", "move") and parts[2]:
         return parts[1], parts[2]
     return None
 

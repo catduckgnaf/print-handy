@@ -2492,6 +2492,115 @@ def repair_lane_links(state: dict[str, Any], *, mr: Client = moonraker, client: 
     return out
 
 
+def relink_slot_lane(slot: int, *, expected_spool_id: int | None = None, client: Client = spoolman,
+                     mr: Client = moonraker, state_path: Path | None = None,
+                     printer_id: str | None = None) -> dict[str, Any]:
+    """Relink one slot's screen lane to the spool Print Handy records there (#1886 "Keep").
+
+    The repair ``/spool sync`` makes for every slot, for one: the lane key
+    is rewritten when it names another spool and read back, screen-owned
+    fields kept, no printer command sent. ``expected_spool_id`` is the
+    spool the notice named as recorded; when the slot holds another one
+    now, nothing is written. Returns ``{"slot", "spool_id", "status"}``,
+    where status is a :func:`verify_lane_link` status, ``changed`` (the
+    record moved on), ``unsupported`` or ``unknown`` (no live spool).
+    """
+    slot = int(slot)
+    rec = (load_state(state_path, printer_id=printer_id).get("filament_slots") or {}) \
+        .get(str(slot)) or {}
+    sid = rec.get("spoolman_id")
+    out: dict[str, Any] = {"slot": slot, "spool_id": sid, "expected": expected_spool_id}
+    if expected_spool_id is not None and (sid is None or int(sid) != int(expected_spool_id)):
+        return {**out, "status": "changed"}
+    if _lane_data_write_refusal(printer_id) is not None or _toolhead_lane_namespace(printer_id):
+        return {**out, "status": "unsupported"}
+    try:
+        spool = client("GET", f"/api/v1/spool/{int(sid)}", None) if sid else None
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not read spool #%s to relink slot %s: %s",
+                                            sid, slot, exc)
+        spool = None
+    if not isinstance(spool, dict) or spool.get("archived"):
+        return {**out, "status": "unknown"}
+    return {**out, "status": verify_lane_link(slot, spool, mr=mr)["status"]}
+
+
+def relink_text(out: dict[str, Any]) -> str:
+    slot, sid, status = out["slot"], out.get("spool_id"), out["status"]
+    if status in ("verified", "repaired"):
+        return (f"Slot {slot}: kept spool #{sid}, Print Handy's record. The screen lane now names "
+                "it; nothing was sent to the printer.")
+    if status == "changed":
+        now = f"spool #{sid}" if sid else "no spool"
+        return (f"Slot {slot} now holds {now}, not spool #{out.get('expected')}, so the screen "
+                "lane was left alone. Run `/spool sync` to relink it to the current record.")
+    if status == "stale":
+        return (f"Slot {slot}: kept spool #{sid}, but the screen lane still names another spool "
+                "after a rewrite. Run `/spool sync` to try again.")
+    if status == "unsupported":
+        return f"Slot {slot}: kept spool #{sid}. This printer's screen lanes are not Print Handy's to write."
+    return (f"Slot {slot}: kept the record, but its spool could not be read, so the screen lane "
+            "was not relinked. Run `/spool sync` to try again.")
+
+
+def move_spool(from_slot: int, to_slot: int, spool_id: int, *,
+               expected_prior_spool_id: int | None = None, expect_empty: bool = False,
+               client: Client = spoolman, mr: Client = moonraker, state_path: Path | None = None,
+               printer_id: str | None = None) -> dict[str, Any]:
+    """Move a bound spool from one slot to another, the replaced spool to the shelf (#1886 "Move").
+
+    Both slots are re-checked before anything is written: ``from_slot``
+    must still hold ``spool_id`` and ``to_slot`` the spool the operator's
+    prompt named (``expected_prior_spool_id``), or nothing when
+    ``expect_empty``. With neither, what ``to_slot`` holds was not known
+    when the operator was asked, so nothing is moved. Then ``from_slot`` is
+    unassigned (``unbind_slot``) and the spool is bound into ``to_slot``
+    with the shelf disposition. Inventory only, like the insertion prompt:
+    no printer command is sent.
+    """
+    from_slot, to_slot, spool_id = int(from_slot), int(to_slot), int(spool_id)
+    if from_slot == to_slot:
+        raise SpoolError(f"spool #{spool_id} is already in slot {to_slot}. Nothing changed")
+    slots = load_state(state_path, printer_id=printer_id).get("filament_slots") or {}
+    held = (slots.get(str(from_slot)) or {}).get("spoolman_id")
+    if held is None or int(held) != spool_id:
+        raise SpoolError(f"slot {from_slot} no longer holds spool #{spool_id}. Nothing changed")
+    prior = (slots.get(str(to_slot)) or {}).get("spoolman_id")
+    if expected_prior_spool_id is not None:
+        if int(prior or 0) != int(expected_prior_spool_id):
+            now = f"spool #{prior}" if prior else "no spool"
+            raise SpoolError(f"slot {to_slot} now holds {now}, not spool #{expected_prior_spool_id}. "
+                             "Nothing changed")
+    elif expect_empty:
+        if prior:
+            raise SpoolError(f"slot {to_slot} now holds spool #{prior}; it was empty when you were "
+                             "asked. Nothing changed")
+    else:
+        raise SpoolError(f"what slot {to_slot} holds was not known when you were asked, so "
+                         "nothing was moved. Run `/spool sync` and try again. Nothing changed")
+    unbound = unbind_slot(from_slot, client=client, mr=mr, state_path=state_path,
+                          printer_id=printer_id, note=f"Moved to slot {to_slot} from chat")
+    try:
+        bound = bind_slot(to_slot, spool_id, client=client, mr=mr, state_path=state_path,
+                          printer_id=printer_id, note=f"Moved from slot {from_slot} from chat",
+                          push_screen_update=False,
+                          expected_prior_spool_id=int(prior) if prior else None)
+    except Exception as exc:
+        raise SpoolError(f"slot {from_slot} was emptied and spool #{spool_id} is on the shelf, but "
+                         f"binding it into slot {to_slot} failed: {exc} Load it with "
+                         f"`/spool change {to_slot} {spool_id}`") from exc
+    return {"from_slot": from_slot, "to_slot": to_slot, "spool_id": spool_id,
+            "unbound": unbound, "bound": bound}
+
+
+def move_text(result: dict[str, Any]) -> str:
+    prior = result["bound"].get("prior_spool_id")
+    shelf = f" Spool #{prior} went back to the shelf." if prior else ""
+    return (f"Moved spool #{result['spool_id']} from slot {result['from_slot']} to slot "
+            f"{result['to_slot']}; slot {result['from_slot']} is now empty.{shelf} Inventory "
+            "updated; nothing was sent to the printer.")
+
+
 def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
                      pending_path: Path | None = None, printer_id: str | None = None) -> list[str]:
     state = load_state(state_path, printer_id=printer_id)

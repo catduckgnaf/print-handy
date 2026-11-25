@@ -2881,8 +2881,35 @@ def post_lane_event(event):
             warn(f"lane conflict button post failed slot={slot}; falling back to text")
         except Exception as exc:
             warn(f"lane conflict button post error slot={slot}: {exc!r}")
+    if (event or {}).get("kind") == "claimed_elsewhere" and slot in (1, 2, 3, 4) \
+            and event.get("spool_id") and event.get("other_slot") in (1, 2, 3, 4) \
+            and not _buttonless_standalone():
+        # #1886: the notice carries its three answers, keep the record
+        # first (#1816: Print Handy's record wins), on the insertion
+        # prompt's alert. Telegram and Matrix get the text, which names
+        # the commands for the same answers.
+        try:
+            from . import print_alert_buttons as pab
+            claim = {"spool_id": event["spool_id"], "other_slot": event["other_slot"],
+                     "recorded_spool_id": event.get("recorded_spool_id"),
+                     "target_empty": bool(event.get("target_empty"))}
+            content = text
+            if claim["recorded_spool_id"]:
+                content = f"{text}\n{LANE_CLAIM_BUTTONS_HINT.format(slot=slot, **claim)}"
+            if pab.post_insertion_confirmation(_bot_token(), announcer.DISCORD_CHAT_ID, content, slot,
+                                               lane_claim=claim):
+                log(f"post lane claim buttons slot={slot}")
+                return True
+            warn(f"lane claim button post failed slot={slot}; falling back to text")
+        except Exception as exc:
+            warn(f"lane claim button post error slot={slot}: {exc!r}")
     return post(text)
 
+
+LANE_CLAIM_BUTTONS_HINT = ("**Keep spool #{recorded_spool_id}** keeps Print Handy's record and "
+                           "rewrites the screen lane, **Move spool #{spool_id} here** takes it out "
+                           "of slot {other_slot} into slot {slot} (spool #{recorded_spool_id} goes to "
+                           "the shelf), **Pick another** chooses a shelf spool.")
 
 CONFLICT_BUTTONS_HINT = ("**Same spool** keeps spool #{spool_id} (the screen's material is wrong), "
                          "**Existing spool** picks the real one from the shelf, **New spool** records it.")
