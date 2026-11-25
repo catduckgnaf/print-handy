@@ -377,6 +377,33 @@ def fit_choice_rows(options):
     return rows
 
 
+def row_orientation(row):
+    """The orientation a chosen rotate row records on the job.
+
+    A row's ``supports`` is the overhang estimate it was offered with. True was
+    named on the button ("+ supports"), so choosing it approves supports. False
+    was never shown: it is marked ``supports_source: fit_estimate`` so the
+    slicer's own support warning still reaches the operator (print 145: a part
+    stood on end printed a floating cantilever with nobody asked).
+    """
+    orientation = {k: row[k] for k in ('rotation', 'axis', 'dims_full_mm', 'supports', 'brim', 'label')}
+    if not orientation.get('supports'):
+        orientation['supports_source'] = 'fit_estimate'
+    return orientation
+
+
+def silent_fit_row(rows):
+    """The fit row applied without a question, or None to ask.
+
+    Only a full-size turn on the bed qualifies: it keeps the designer's contact
+    face, height and supports. Tipping a part onto another face changes all
+    three, so it is always offered as a choice (#1911: a flat part was stood
+    on end without a word).
+    """
+    return next((row for row in rows if row['kind'] == 'rotate' and row['scale'] >= 0.995
+                 and not row.get('supports') and row.get('axis') == '+Z'), None)
+
+
 def _rotation_phrase(alt):
     """Short button words for a rotated option: "turned 126°" or "rotated 90° on Y"."""
     name = str(alt.get('name') or alt.get('label') or '')

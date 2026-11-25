@@ -3209,11 +3209,14 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
         dilated_stl = tmp / 'dilated.stl'
         write_stl(dilated_stl, sx, sy)
         single_stl = tmp / 'single.stl'
-        # An exact rotation sliced alone is placed bed-centered with no arrange
-        # (place_stl), so probe it the same way: Orca's arrange pass otherwise
-        # rejects diagonal hulls the slice path would print (about 1 mm per side).
+        # A lone copy is sliced bed-centered (export_geometry -> _place_triangles),
+        # so it is probed centered too. Orca's --arrange leaves a single object
+        # where the source put it: a 3MF laid out for a larger bed then failed
+        # the edge here although the slice would print it (#1911).
+        # An exact rotation is also probed with no arrange: Orca's arrange pass
+        # otherwise rejects diagonal hulls the slice path would print (about 1 mm per side).
         exact_single = rotation is not None and copy_limit == 1
-        write_stl(single_stl, scale, scale, center=(bed_x / 2.0, bed_y / 2.0) if exact_single else None)
+        write_stl(single_stl, scale, scale, center=(bed_x / 2.0, bed_y / 2.0))
         m_base = json.loads(Path(TEMPLATES / 'machine.json').read_text())
         ppath = TEMPLATES / 'process.json'
         fpath = TEMPLATES / 'filament.json'

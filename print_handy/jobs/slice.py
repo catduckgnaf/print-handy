@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .. import printers
 from ..core import material_accept, printer_state, purge
+from ..core import slice_warnings as _slice_warnings
 from ..core.filament_warnings import FilamentWarningPending
 from ..gcode.artifact import file_sha256
 from ..gcode.verify import _verify_routed, verify_gcode_offline
@@ -638,6 +639,8 @@ def _job_fit(job, brim_override):
         # per-plate slice and marked the question decided.
         _orient_supports = orientation.get('supports')
         supports = _orient_supports if isinstance(_orient_supports, bool) else decided
+        if decided is not None and _slice_warnings.fit_estimate(job):
+            supports = decided  # answered after the slicer's warning; the estimate was only a guess
     else:
         supports = decided
     if brim_override is None and job.get('fit_brim_policy'):

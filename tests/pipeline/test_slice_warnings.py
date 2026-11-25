@@ -328,3 +328,39 @@ def test_edit_kw_and_support_kw_carry_the_chat_edit():
     # The operator's own support decision still wins over the edit.
     job['support_decision'] = {'supports': False}
     assert jobs_slice._support_kw(job) == {'supports': False}
+
+
+_ESTIMATE = {'rotation': [1, 0, 0, 0, 0, 1, 0, -1, 0], 'axis': '-Y', 'supports': False,
+             'supports_source': 'fit_estimate'}
+
+
+def test_fit_estimate_of_no_supports_still_asks_about_the_slicer_finding():
+    """Print 145: a fit rotation's supports=False estimate hid Orca's floating cantilever.
+
+    The slice ran with supports off from that estimate, so its provenance says
+    support_decided; neither is the operator's answer.
+    """
+    job = {**_warned(decided=True), 'orientation': dict(_ESTIMATE)}
+    assert slice_warnings.support_finding(job)['objects'] == ['BLACK BODY', 'BRONZE DETAILS']
+    assert not slice_warnings.operator_decided(job)
+    # Answered after the warning: decided, never asked again.
+    assert slice_warnings.support_finding({**job, 'support_decision': {'supports': False}}) is None
+    # Supports already on, or a "+ supports" orientation the operator chose: nothing to ask.
+    assert slice_warnings.support_finding({**job, 'provenance': {**job['provenance'], 'supports_on': True}}) is None
+    chosen = {**_ESTIMATE, 'supports': True}
+    chosen.pop('supports_source')
+    assert slice_warnings.support_finding({**_warned(decided=True), 'orientation': chosen}) is None
+
+
+def test_fit_rows_record_their_supports_estimate():
+    from print_handy.intake import fit_flow
+    row = {'kind': 'rotate', 'label': '100% · rotated', 'scale': 1.0, 'rotation': _ESTIMATE['rotation'],
+           'axis': '-Y', 'dims_full_mm': [101.6, 61.0, 203.2], 'supports': False, 'brim': False}
+    assert fit_flow.row_orientation(row)['supports_source'] == 'fit_estimate'
+    assert 'supports_source' not in fit_flow.row_orientation({**row, 'supports': True})
+
+
+def test_job_fit_lets_the_operator_answer_override_the_estimate():
+    job = {'scale': 1.0, 'orientation': dict(_ESTIMATE)}
+    assert jobs_slice._job_fit(job, None)[1] is False  # sliced as the fit was verified
+    assert jobs_slice._job_fit({**job, 'support_decision': {'supports': True}}, None)[1] is True

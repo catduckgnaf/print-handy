@@ -122,12 +122,20 @@ def _provenances(job):
     return [r for r in rows if isinstance(r, dict)]
 
 
+def fit_estimate(job):
+    """True when the job's supports-off value is the fit flow's overhang estimate, not a choice."""
+    orientation = (job or {}).get('orientation') or {}
+    return (bool(orientation.get('rotation')) and orientation.get('supports') is False
+            and orientation.get('supports_source') == 'fit_estimate')
+
+
 def operator_decided(job):
     """True when the operator, not the 3MF author, settled supports for this job."""
     if isinstance((job.get('support_decision') or {}).get('supports'), bool):
         return True
     orientation = job.get('orientation') or {}
-    return bool(orientation.get('rotation')) and isinstance(orientation.get('supports'), bool)
+    return (bool(orientation.get('rotation')) and isinstance(orientation.get('supports'), bool)
+            and not fit_estimate(job))
 
 
 def support_mismatch(job):
@@ -153,9 +161,13 @@ def support_finding(job):
     if operator_decided(job):
         return None
     objects, texts = [], []
+    # A slice run with the fit estimate's supports-off still records support_decided;
+    # that estimate is not an answer, so the slicer's finding is still asked.
+    estimate = fit_estimate(job)
     for prov in _provenances(job):
         found = prov.get('slice_warnings') or {}
-        if found.get('support_needed') and not prov.get('supports_on') and not prov.get('support_decided'):
+        if (found.get('support_needed') and not prov.get('supports_on')
+                and (estimate or not prov.get('support_decided'))):
             objects += [o for o in found.get('objects') or [] if o not in objects]
             texts += [t for t in found.get('support_texts') or [] if t not in texts]
     if not texts:

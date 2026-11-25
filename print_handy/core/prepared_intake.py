@@ -31,7 +31,7 @@ from ..intake.fit_flow import (
     _elapsed_text, _fit_choice_reply, _fit_state, _painted_fit_sizes, _painted_no_fit_detail, _pct,
     _printer_name, _scale_direction_reply, _scale_fit_offer_reply, _scale_percent_reply,
     _single_body, _unit_oversize_reply, audit_dimensions, auto_rearrange_notice, fit_choice_rows,
-    fit_hint, fit_question, large_model_notice, row_brim_policy, write_split_plan
+    fit_hint, fit_question, large_model_notice, row_brim_policy, row_orientation, silent_fit_row, write_split_plan
 )
 FILAMENT_SLOTS = settings.current()['printer']['filament_slots']
 print_summary = _external.lazy('discord_print_summary')
@@ -3916,9 +3916,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                           ' Choose a fit option, or type ' + fit_hint(picked)[len(FIT_HINT_PREFIX):])
             else:
                 prompt = fit_question(title, options, picked)
-            # Fits at 100% by rotation alone (no supports): just do it, no question, no announcement.
-            silent = next((r for r in picked if r['kind'] == 'rotate' and r['scale'] >= 0.995
-                           and not r.get('supports')), None)
+            # Fits at 100% by a turn on the bed alone: just do it, no question.
+            # A tipped orientation is always asked (#1911).
+            silent = silent_fit_row(picked)
             await fit_status.finish('turned to fit at 100%.' if silent is not None else 'choose how to print it.')
             while silent is None:
                 scale_pick = await _ask(adapter, source, key, prompt,
@@ -4021,7 +4021,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 latest['scale'] = selected_scale
                 receipt['scale'] = selected_scale
             if rotation:
-                orientation = {k: row[k] for k in ('rotation', 'axis', 'dims_full_mm', 'supports', 'brim', 'label')}
+                orientation = row_orientation(row)
                 latest['orientation'] = orientation
                 receipt['orientation'] = orientation
             jobs_store.write_job(folder, latest)
