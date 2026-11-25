@@ -105,9 +105,10 @@ EXTRA_CLICKS = {
 # mixed-color intake prompts ("Use those and pick the rest?" then "Choose one color/material for the
 # N octopus…") it stops at the slice stage with a SLICE_FAILED receipt because its colors form a
 # single assembly that leaves no room on one plate, so nothing is sliced or started (see
-# https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-slicing-configuration). It stays
-# pinned FAILED here; check_refusal accepts SLICE_FAILED and finds the PH_SLICING_CONFIGURATION
-# reference in the reply transcript.
+# https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-slicing-configuration). It is pinned
+# SLICE_FAILED: evaluate() checks it through check_expectations (receipt status, slice error and the
+# operator message) and requires that slicing started, while intake FAILED cases keep
+# check_refusal's strict receipt-reason, no-slice, no-start contract.
 OVERRIDE_EXPECT = {
     "gyroid-surface": {"status": "STARTED"},
     "fnaf-mask": {"status": "STARTED"},
