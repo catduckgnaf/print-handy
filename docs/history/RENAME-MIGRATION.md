@@ -141,3 +141,26 @@ The macro is now `PRINT_BUDDY`; update any gcode or slicer start macros that cal
 ### Printer model setting
 
 `[printer] family` is gone. `scripts/migrate-names.sh` rewrites it in `config/local.toml` (backup `local.toml.pre-model`). To do it by hand, replace it with `model = "flashforge.ad5x"` (or `sovol.sv06`, `klipper.generic`), or the import stops and names the key. Printer defaults now come from the model file under `print_buddy/printers/`. JOB.json files record `printer_model` instead of `printer_family`; a job without it is an AD5X job.
+
+### Regression corpus relocation (print-buddy-corpus → print-handy-corpus)
+
+The model-corpus workflow and its tests consume the regression corpus from GitHub
+Releases. The corpus is published as two tagged releases, `corpus-v1` (the
+171-model core set) and `corpus-v2` (the [#458](https://github.com/catduckgnaf/print-handy/issues/458)
+complex cases), each an outer `SHA256SUMS` plus a `models/` tarball.
+
+The 2.4.0 legacy cleanup ([#1849](https://github.com/catduckgnaf/print-handy/issues/1849), item L16) moved
+the corpus out of the old `catduckgnaf/print-buddy-corpus` repository into a
+dedicated `catduckgnaf/print-handy-corpus` repository (a new repo, not a rename
+in place, because release assets cannot be renamed after publication — [#486](https://github.com/catduckgnaf/print-handy/issues/486)).
+The release **tags are unchanged** (`corpus-v1`, `corpus-v2`), so the workflow's
+`gh release download` commands are unchanged except for the repository name; each
+release ships a renamed tarball (`print-handy-corpus-v1.tar.gz`,
+`print-handy-corpus-v2.tar.gz`) whose outer `SHA256SUMS` lists the renamed name.
+The inner manifests, model byte sets, and the `sha256sum -c` / `find models`
+contract (`-eq 171` for v1, `gt 171` after v2) are preserved. The large-mesh
+intake tier ([#1790](https://github.com/catduckgnaf/print-handy/issues/1790)) downloads the renamed
+`corpus-v1` the same way and is verified on the new assets. See
+[docs/RELEASE-2.3.7.md](../RELEASE-2.3.7.md) and
+[`tests/corpus/complex/README.md`](../../tests/corpus/complex/README.md) for the
+public-case reproduction flow.

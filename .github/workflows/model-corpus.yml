@@ -36,19 +36,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The corpus repo and its release assets keep their pre-rename
-          # print-buddy names: release assets cannot be renamed in place (#486).
+          # The corpus now lives in catduckgnaf/print-handy-corpus. Releases keep
+          # their pre-rename tags (corpus-v1/v2) so these download commands are
+          # unchanged; each release's outer SHA256SUMS lists the renamed asset,
+          # because release assets cannot be renamed in place (#486).
           mkdir -p "$RUNNER_TEMP/corpus"
-          gh release download corpus-v1 --repo catduckgnaf/print-buddy-corpus --dir "$RUNNER_TEMP/corpus"
+          gh release download corpus-v1 --repo catduckgnaf/print-handy-corpus --dir "$RUNNER_TEMP/corpus"
           cd "$RUNNER_TEMP/corpus"
           sha256sum -c SHA256SUMS
-          tar -xzf print-buddy-corpus-v1.tar.gz
+          tar -xzf print-handy-corpus-v1.tar.gz
           test "$(find models -type f \( -name '*.3mf' -o -name '*.stl' \) | wc -l)" -eq 171
           # corpus-v2: the #458 complex cases (manifest: tests/corpus/complex_cases.toml).
           mkdir v2 && cd v2
-          gh release download corpus-v2 --repo catduckgnaf/print-buddy-corpus --dir .
+          gh release download corpus-v2 --repo catduckgnaf/print-handy-corpus --dir .
           sha256sum -c SHA256SUMS
-          tar -xzf print-buddy-corpus-v2.tar.gz -C ..
+          tar -xzf print-handy-corpus-v2.tar.gz -C ..
           cd ..
           test "$(find models -type f \( -name '*.3mf' -o -name '*.stl' \) | wc -l)" -gt 171
       - name: Complex corpus manifest contract against the fetched files
@@ -133,10 +135,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/corpus"
-          gh release download corpus-v1 --repo catduckgnaf/print-buddy-corpus --dir "$RUNNER_TEMP/corpus"
+          gh release download corpus-v1 --repo catduckgnaf/print-handy-corpus --dir "$RUNNER_TEMP/corpus"
           cd "$RUNNER_TEMP/corpus"
           sha256sum -c SHA256SUMS
-          tar -xzf print-buddy-corpus-v1.tar.gz
+          tar -xzf print-handy-corpus-v1.tar.gz
           test "$(find models -type f \( -name '*.3mf' -o -name '*.stl' \) | wc -l)" -eq 171
       - name: Run external edit corpus shard
         env:
