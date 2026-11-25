@@ -35,8 +35,13 @@ class FakeSpoolman:
         if method == "POST" and path == "/api/v1/field/spool/ph_slot":
             self.fields.append({"key": "ph_slot", **(body or {})})
             return {}
-        if method == "GET" and path == "/api/v1/spool?allow_archived=true":
-            return [copy.deepcopy(s) for s in self.spools.values()]
+        if method == "GET" and path == "/api/v1/spool":
+            return [copy.deepcopy(s) for s in self.spools.values()
+                    if not s.get("archived")]
+        if method == "GET" and path.startswith("/api/v1/spool?"):
+            want_archived = "allow_archived=true" in path
+            return [copy.deepcopy(s) for s in self.spools.values()
+                    if want_archived or not s.get("archived")]
         if method == "GET" and path.startswith("/api/v1/spool/"):
             return copy.deepcopy(self.spools[int(path.rsplit("/", 1)[1])])
         if method == "PATCH" and path.startswith("/api/v1/spool/"):
