@@ -71,6 +71,17 @@ PINNED_REFUSALS = {
 
 # Extra answers for corpus-v2 complex cases whose own case.toml (in the release, not this repo)
 # predates a question. Appended after the case's rules, so its own answers always win.
+# Palette pick plus the "Use those and pick the rest?" confirm (both phrasings matched on their
+# stable words), shared by the mixed-color corpus-v2 cases below.
+MIXED_COLOR_CLICKS = [
+    {"question": "color/material", "button": "White"},
+    {"question": "color/material", "button": "Pink"},
+    {"question": "color/material", "button": "Black"},
+    {"question": "color/material", "button": "Dark Green"},
+    {"question": "pick the rest", "button": "Use these and pick the rest"},
+]
+OCTOPUS = "012-articulated-octopus--317d1e8d5f728b44ff0ab8e6abb49f157216b0e1055705699c0070560b49dc05"
+
 EXTRA_CLICKS = {
     # The fit question now offers only "83.3% · rotated 90° on X" on the AD5X bed; a rotated
     # print is acceptable (owner decision, 2026-11-03).
@@ -80,20 +91,12 @@ EXTRA_CLICKS = {
     # the same four spool buttons + Cancel; matching "color/material" covers "Choose the loaded
     # color/material for painted regions ...", and the confirm rule matches on the stable
     # "pick the rest" phrase. Picking any loaded palette color lets intake proceed to slice.
-    "cute-dino-mmu": [
-        {"question": "color/material", "button": "White"},
-        {"question": "color/material", "button": "Pink"},
-        {"question": "color/material", "button": "Black"},
-        {"question": "color/material", "button": "Dark Green"},
-        {"question": "pick the rest", "button": "Use these and pick the rest"},
-    ],
-    "jukebox-face": [
-        {"question": "color/material", "button": "White"},
-        {"question": "color/material", "button": "Pink"},
-        {"question": "color/material", "button": "Black"},
-        {"question": "color/material", "button": "Dark Green"},
-        {"question": "pick the rest", "button": "Use these and pick the rest"},
-    ],
+    "cute-dino-mmu": MIXED_COLOR_CLICKS,
+    "jukebox-face": MIXED_COLOR_CLICKS,
+    # The octopus asks the same mixed-color confirm and per-part color question before its
+    # slice-stage refusal. A case.toml folder gets only its own clicks plus these, never
+    # GENERIC_CLICKS, so the answers ride here too or intake stalls before SLICE_FAILED.
+    OCTOPUS: MIXED_COLOR_CLICKS,
 }
 
 
@@ -112,7 +115,7 @@ EXTRA_CLICKS = {
 OVERRIDE_EXPECT = {
     "gyroid-surface": {"status": "STARTED"},
     "fnaf-mask": {"status": "STARTED"},
-    "012-articulated-octopus--317d1e8d5f728b44ff0ab8e6abb49f157216b0e1055705699c0070560b49dc05": {
+    OCTOPUS: {
         "status": "SLICE_FAILED",
         "slice_error_contains": "an assembly cannot be split per slot",
         "says": ["cannot be split onto separate plates", "PH_SLICING_CONFIGURATION"],
