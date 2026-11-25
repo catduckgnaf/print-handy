@@ -4,7 +4,8 @@ name: Develop Docker image to GHCR
 # nightly, the channel follows `main`: the promote job fast-forwards the
 # develop branch to the newest commit on `main` whose CI workflow run
 # completed successfully, so a red or unfinished main is never promoted
-# and never published. The two channels differ in tag, version scheme
+# and never published. A manual sha input pins promotion to a specific
+# reachable CI-green main commit instead. The two channels differ in tag, version scheme
 # and app channel only. The build matrix, acceptance and push-by-digest
 # flow are the release publisher's (docker-publish.yml); only the
 # source and the tags differ. Published tag: `develop`. Release tags
@@ -29,9 +30,14 @@ on:
         type: boolean
         default: true
       promote:
-        description: First fast-forward the develop branch to the newest CI-green main commit
+        description: First fast-forward the develop branch to a CI-green main commit
         type: boolean
         default: true
+      sha:
+        description: Optional full main commit SHA to promote exactly (requires promote=true)
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -42,7 +48,7 @@ concurrency:
 
 jobs:
   promote:
-    name: Promote develop to the newest CI-green main commit
+    name: Promote develop to a CI-green main commit
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -57,11 +63,18 @@ jobs:
       # Inputs reach the shell only as environment variables, never interpolated into scripts.
       PROMOTE: ${{ github.event_name == 'schedule' || inputs.promote }}
       PUBLISH_INPUT: ${{ inputs.publish }}
+      REQUESTED_SHA: ${{ inputs.sha }}
     steps:
       - id: resolve
         run: |
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
+          if [[ -n "$REQUESTED_SHA" ]]; then
+            if [[ "$PROMOTE" != "true" || ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "sha requires promote=true and a full lowercase commit SHA" >&2
+              exit 1
+            fi
+          fi
           develop_sha=""
           if ! develop_sha=$(gh api "repos/$repo/git/ref/heads/develop" --jq '.object.sha' 2>/dev/null); then
             develop_sha=""
@@ -73,11 +86,31 @@ jobs:
           target="$develop_sha"
           changed=false
           if [[ "$PROMOTE" == "true" ]]; then
-            # event=push is load-bearing: ci.yml also runs on pull_request,
-            # and branch=main alone would also match a green PR run from a
-            # fork branch named main, whose head is not in this repository's
-            # main history. Only a push run proves the commit is on main.
-            green=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
+            if [[ -n "$REQUESTED_SHA" ]]; then
+              # Pin the main tip for the ancestry proof. A newer green main
+              # commit must not replace the requested release commit.
+              main_sha=$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')
+              [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
+              main_status=$(gh api "repos/$repo/compare/$REQUESTED_SHA...$main_sha" --jq '.status')
+              if [[ "$main_status" != "ahead" && "$main_status" != "identical" ]]; then
+                echo "Requested commit is not reachable from main; refusing to move develop." >&2
+                exit 1
+              fi
+              # A release tag can have its own successful CI dispatch even
+              # if the queued main push run was superseded. PR runs do not
+              # qualify: their tested merge revision can differ from head_sha.
+              successful=$(gh api --paginate "repos/$repo/actions/workflows/ci.yml/runs?head_sha=$REQUESTED_SHA&status=success&per_page=100" --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | select(.conclusion == "success") | .head_sha')
+              if ! grep -Fxq "$REQUESTED_SHA" <<<"$successful"; then
+                echo "No successful push or dispatch CI run on the requested SHA; refusing to move develop." >&2
+                exit 1
+              fi
+              green="$REQUESTED_SHA"
+            else
+              # event=push is load-bearing: ci.yml also runs on pull_request,
+              # and branch=main alone would match a green PR run from a fork
+              # branch named main. Preserve the floating channel selection.
+              green=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
+            fi
             [[ "$green" =~ ^[0-9a-f]{40}$ ]] || {
               echo "No successful CI run found on main" >&2
               exit 1
