@@ -377,6 +377,21 @@ def fit_choice_rows(options):
     return rows
 
 
+def row_orientation(row):
+    """The orientation a chosen rotate row records on the job.
+
+    A row's ``supports`` is the overhang estimate it was offered with. True was
+    named on the button ("+ supports"), so choosing it approves supports. False
+    was never shown: it is marked ``supports_source: fit_estimate`` so the
+    slicer's own support warning still reaches the operator (print 145: a part
+    stood on end printed a floating cantilever with nobody asked).
+    """
+    orientation = {k: row[k] for k in ('rotation', 'axis', 'dims_full_mm', 'supports', 'brim', 'label')}
+    if not orientation.get('supports'):
+        orientation['supports_source'] = 'fit_estimate'
+    return orientation
+
+
 def silent_fit_row(rows):
     """The fit row applied without a question, or None to ask.
 
