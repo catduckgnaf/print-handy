@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-25T01:17:27Z",
+ "generated_at": "2026-11-25T19:26:14Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -198,16 +198,16 @@
    "stock_models": [],
    "update": "Update OctoPrint from its own Software Update page. Print Handy does not update OctoPrint or the printer's board firmware.",
    "latest": {
-    "version": "2.0.1",
-    "tag": "2.0.1",
-    "published_at": "2026-11-18T13:54:31Z",
-    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.1"
+    "version": "2.0.2",
+    "tag": "2.0.2",
+    "published_at": "2026-11-25T12:21:44Z",
+    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.2"
    },
    "latest_stable": {
-    "version": "2.0.1",
-    "tag": "2.0.1",
-    "published_at": "2026-11-18T13:54:31Z",
-    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.1"
+    "version": "2.0.2",
+    "tag": "2.0.2",
+    "published_at": "2026-11-25T12:21:44Z",
+    "url": "https://github.com/OctoPrint/OctoPrint/releases/tag/2.0.2"
    },
    "latest_prerelease": null,
    "audited": "2.0.0",
