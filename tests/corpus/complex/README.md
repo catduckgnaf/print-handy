@@ -17,7 +17,7 @@ The files are large (7–69 MB each, ~258 MB for the public set) and are
 shrunk to fit: the full-complexity mesh is the point of the case.
 
 - Public cases are published as the `corpus-v2` release of
-  `catduckgnaf/print-buddy-corpus` (the same mechanism as the 171-model
+  `catduckgnaf/print-handy-corpus` (the same mechanism as the 171-model
   `corpus-v1`), as a tar with one folder per case plus `SHA256SUMS`, and the
   `model-corpus` workflow downloads and verifies both releases.
 - Anyone can reproduce the same files with
