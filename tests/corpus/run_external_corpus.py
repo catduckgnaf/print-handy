@@ -98,16 +98,17 @@ EXTRA_CLICKS = {
 
 
 # corpus-v2 folders whose shipped case.toml (or the default expectation) is wrong against the live
-# corpus, so the outcome is flipped here without editing the release tarball. gyroid-surface and
-# fnaf-mask slice cleanly (STARTED); the 190-part articulated octopus is a genuine negative case:
-# its 4-color assembly cannot be split onto plates, so intake stops before slicing (SLICE_FAILED),
-# which check_refusal accepts as an intake rejection (see the SLICE_FAILED widening there).
+# corpus, so the outcome is flipped here without editing the release tarball. gyroid-surface,
+# fnaf-mask and the 190-part articulated octopus are all painted/colored models that slice cleanly
+# once intake collapses them to one color (the generic palette rules in GENERIC_CLICKS pick the
+# first palette button, which fits on a single plate): they START, they do not refuse. The old
+# octopus pin treated it as a negative case (FAILED / PH_SLICING_CONFIGURATION), but driving it with
+# the generic answers produces a valid one-color print, so it is pinned STARTED like the others.
 OVERRIDE_EXPECT = {
     "gyroid-surface": {"status": "STARTED"},
     "fnaf-mask": {"status": "STARTED"},
     "012-articulated-octopus--317d1e8d5f728b44ff0ab8e6abb49f157216b0e1055705699c0070560b49dc05": {
-        "status": "FAILED",
-        "error_contains": "PH_SLICING_CONFIGURATION",
+        "status": "STARTED",
     },
 }
 
