@@ -12,8 +12,13 @@ add an entry whenever a slowdown is reported or found (#1392).
 1. **Measure the real case, not a guess.** Every job folder has `TIMING.jsonl`
    (stage timestamps, slicer time split from Python time since #993), and the
    log lines carry the intake id. Write down the gap that grew, in seconds, and
-   which stages bracket it. A worker's log lines are relayed when it returns,
-   so read the per-day file log for when a step really started.
+   which stages bracket it. For intake to the first Ready question, subtract
+   `message_received` from `ready_question_posted`. The interval includes any
+   earlier operator choices, so use the same fixture, slicer, configuration
+   and host, with prompt answers supplied immediately, for comparisons. A
+   failed prompt send does not record Ready. A successful send is measured
+   at the adapter, not at the client display. A worker's log lines are relayed
+   when it returns, so read the per-day file log for when a step really started.
 2. **Profile the artifact that was slow.** Copy the job folder to a scratch
    directory inside the running container and re-run the step under
    `python -m cProfile`, never on the live archive. Then time the hot functions

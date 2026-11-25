@@ -36,6 +36,8 @@ def _full_job(archive, name, base=1000.0):
         {"stage": "first_question_posted", "t": base + 2},
         {"stage": "download_done", "t": base + 3},
         {"stage": "inspection_done", "t": base + 5},
+        {"stage": "ready_question_posted", "t": base + 14},
+        {"stage": "ready_question_posted", "t": base + 21},
         {"stage": "intake_slice_requested", "t": base + 30},
         {"stage": "slice_start", "t": base + 30},
         {"stage": "verify_begin", "t": base + 38},
@@ -137,6 +139,8 @@ def test_report_computes_median_p90_and_counts(tmp_path):
     spans = report["spans"]
     assert spans["link_to_first_question"]["median"] == 2.0
     assert spans["link_to_first_question"]["n"] == 2
+    ready = spans["intake_to_ready_question"]
+    assert (ready["median"], ready["n"], ready["budget_median"]) == (14.0, 2, None)
     assert spans["last_answer_to_ready"]["median"] == 13.0
     assert spans["slice"]["median"] == 12.0 and spans["slice"]["p90"] == 60.0
     assert spans["slice"]["n"] == 3

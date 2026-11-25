@@ -4402,7 +4402,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 + ('\n' + scale_note if scale_note else '') + caveat
                 + ('\n' + BED_CLEAR_NOTE if can_print else ''),
                 first_labels, timeout,
-                on_shown=early.release.set, approval=True)
+                on_shown=early.release.set, approval=True, timing_stage='ready_question_posted')
 
             if is_flagged:
                 opt = menu_options[picked]
