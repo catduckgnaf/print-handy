@@ -256,3 +256,14 @@ def test_chosen_rotation_is_confirmed_with_the_exact_single_probe(env, monkeypat
     assert not any('no longer verifies a fit' in text for text in adapter.sent)
     job = json.loads(next(env.root.parent.glob('archive/*/JOB.json')).read_text())
     assert job['scale'] == 0.963 and job['orientation']['axis'] == '+Z'
+
+
+def test_only_a_turn_on_the_bed_is_applied_without_a_question():
+    """#1911: a full-size tipped orientation was applied silently and stood a flat part on end."""
+    turn = {'kind': 'rotate', 'scale': 1.0, 'supports': False, 'axis': '+Z', 'label': '100% · rotated'}
+    tipped = {'kind': 'rotate', 'scale': 1.0, 'supports': False, 'axis': '-Y', 'label': '100% · rotated'}
+    cancel = {'kind': 'cancel', 'label': 'Cancel'}
+    assert intake_fit_flow.silent_fit_row([tipped, cancel]) is None
+    assert intake_fit_flow.silent_fit_row([tipped, turn, cancel]) is turn
+    assert intake_fit_flow.silent_fit_row([{**turn, 'scale': 0.96}, cancel]) is None
+    assert intake_fit_flow.silent_fit_row([{**turn, 'supports': True}, cancel]) is None
