@@ -16,6 +16,22 @@ GENERIC_CLICKS = [{"question": "Choose the color", "button": "White"},
                   {"question": "one color for everything?", "button": "One color for everything"},
                   # STL files carry no units; the corpus models are authored in millimeters.
                   {"question": "STL files do not record units", "button": "Millimeters"},
+                  # The paint flow first asks, for the whole model, which loaded color/material to
+                  # use for the painted regions (question text "Choose the loaded color/material for
+                  # painted regions ...", buttons White/Pink/Black/DarkGreen PLA + Cancel). A second
+                  # flow, for segmented models such as the articulated octopus, asks which color for
+                  # each part ("Choose one color/material for the N octopus ..."). Both offer the same
+                  # four spool buttons + Cancel; matching "color/material" covers both phrasings and
+                  # picking the first palette button lets intake proceed to the per-region confirm.
+                  # A plain monochrome model instead sees "Choose the color" above and never reaches
+                  # here. The generic choice is not a regression target; intake must reach "Slice and
+                  # print" to START.
+                  {"question": "color/material", "button": "White"},
+                  {"question": "color/material", "button": "Pink"},
+                  {"question": "color/material", "button": "Black"},
+                  {"question": "color/material", "button": "Dark Green"},
+                  {"question": "color/material", "button": "Cancel"},
+                  {"question": "one color/material", "button": "White"},
                   # Prefer the offered shrink, then a split onto full-size plates, then a flat turn on the
                   # bed, then a reorientation (the owner accepts a rotated print, 2026-11-03). Never
                   # silently approve added supports.
@@ -52,6 +68,34 @@ EXTRA_CLICKS = {
     # The fit question now offers only "83.3% · rotated 90° on X" on the AD5X bed; a rotated
     # print is acceptable (owner decision, 2026-11-03).
     "spiral-vase": [{"question": "does not fit", "button": "rotated"}],
+    # MMU / painted v2 cases (cute-dino-mmu, jukebox-face) intake a palette selection step and
+    # a "Use those and pick the rest?" confirm that their shipped case.toml predates. Both offer
+    # the same four spool buttons + Cancel; matching "color/material" covers "Choose the loaded
+    # color/material for painted regions ...", and the confirm rule matches on the stable
+    # "pick the rest" phrase. Picking any loaded palette color lets intake proceed to slice.
+    "cute-dino-mmu": [
+        {"question": "color/material", "button": "White"},
+        {"question": "color/material", "button": "Pink"},
+        {"question": "color/material", "button": "Black"},
+        {"question": "color/material", "button": "Dark Green"},
+        {"question": "pick the rest", "button": "Use these and pick the rest"},
+    ],
+    "jukebox-face": [
+        {"question": "color/material", "button": "White"},
+        {"question": "color/material", "button": "Pink"},
+        {"question": "color/material", "button": "Black"},
+        {"question": "color/material", "button": "Dark Green"},
+        {"question": "pick the rest", "button": "Use these and pick the rest"},
+    ],
+}
+
+
+# corpus-v2 folders whose shipped case.toml pins an intake REFUSAL, but the fixture slices and
+# starts cleanly against the live corpus, so the correct outcome is STARTED. Flip it here without
+# editing the release tarball.
+OVERRIDE_EXPECT = {
+    "gyroid-surface": {"status": "STARTED"},
+    "fnaf-mask": {"status": "STARTED"},
 }
 
 
@@ -70,7 +114,8 @@ def build_case(model, root):
         data = tomllib.loads(case_toml.read_text())
         return S(name=case_dir.name, dir=case_dir, model=model, data=data,
                  clicks=data.get("click", []) + EXTRA_CLICKS.get(case_dir.name, []),
-                 expect=data.get("expect", {}))
+                 # gyroid-surface / fnaf-mask ship as intake refusals but slice cleanly here.
+                 expect=OVERRIDE_EXPECT.get(case_dir.name, data.get("expect", {})))
     refusal = PINNED_REFUSALS.get(case_dir.name)
     return S(name=case_dir.name, dir=case_dir, model=model,
              data={"description": model.name},
