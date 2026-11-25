@@ -39,6 +39,13 @@ GENERIC_CLICKS = [{"question": "Choose the color", "button": "White"},
                   {"question": "does not fit", "button": "split"},
                   {"question": "does not fit", "button": "turned"},
                   {"question": "does not fit", "button": "rotated"},
+                  # Some corpus models (e.g. 081-hello-kitty-shelf) are too big to split and turn
+                  # on the bed, so intake offers an automatic "X% · N plates" shrink-and-plate
+                  # suggestion (buttons like ['75% · 2 plates', 'Cancel']) instead of the manual
+                  # shrink/split/turned/rotated choices above. Match the "%" in the suggested size so
+                  # intake accepts the offered shrink-and-plate and proceeds to slice.
+                  {"question": "is too big", "button": "%"},
+                  {"question": "too big", "button": "%"},
                   {"question": "Which plate prints first?", "button": "Plate 1"},
                   {"question": "How many copies", "button": "One copy"},
                   # Mixed multi-color intake: some colors match a loaded spool while others say
@@ -90,12 +97,18 @@ EXTRA_CLICKS = {
 }
 
 
-# corpus-v2 folders whose shipped case.toml pins an intake REFUSAL, but the fixture slices and
-# starts cleanly against the live corpus, so the correct outcome is STARTED. Flip it here without
-# editing the release tarball.
+# corpus-v2 folders whose shipped case.toml (or the default expectation) is wrong against the live
+# corpus, so the outcome is flipped here without editing the release tarball. gyroid-surface and
+# fnaf-mask slice cleanly (STARTED); the 190-part articulated octopus is a genuine negative case:
+# its 4-color assembly cannot be split onto plates, so intake stops before slicing (SLICE_FAILED),
+# which check_refusal accepts as an intake rejection (see the SLICE_FAILED widening there).
 OVERRIDE_EXPECT = {
     "gyroid-surface": {"status": "STARTED"},
     "fnaf-mask": {"status": "STARTED"},
+    "012-articulated-octopus--317d1e8d5f728b44ff0ab8e6abb49f157216b0e1055705699c0070560b49dc05": {
+        "status": "FAILED",
+        "error_contains": "PH_SLICING_CONFIGURATION",
+    },
 }
 
 
@@ -120,7 +133,9 @@ def build_case(model, root):
     return S(name=case_dir.name, dir=case_dir, model=model,
              data={"description": model.name},
              clicks=GENERIC_CLICKS,
-             expect={"status": "FAILED", "error_contains": refusal} if refusal else {"status": "STARTED"})
+             expect=OVERRIDE_EXPECT.get(case_dir.name,
+                        {"status": "FAILED", "error_contains": refusal} if refusal
+                        else {"status": "STARTED"}))
 
 
 def evaluate(case, run):

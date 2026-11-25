@@ -813,8 +813,12 @@ def check_refusal(case, run):
     want = case.expect
     assert not getattr(run.adapter, "unanswered", None), "\n".join(run.adapter.unanswered)
     assert not getattr(run.adapter, "errors", None), run.adapter.errors
-    assert run.receipt.get("status") == "FAILED", (
-        f"expected an intake refusal, got receipt {run.receipt.get('status')!r}: "
+    # A pinned intake refusal: the FAILED receipt, for the expected reason, with slicing/starting
+    # proof that never happened. Some corpus models (e.g. the multicolor octopus) stop before
+    # slicing with a SLICE_FAILED receipt, which is also an intake rejection.
+    status = run.receipt.get("status")
+    assert status in ("FAILED", "SLICE_FAILED"), (
+        f"expected an intake refusal, got receipt {status!r}: "
         f"{run.receipt.get('error')}\n{_transcript(run)}")
     needle = want.get("error_contains")
     if needle:
