@@ -25,6 +25,14 @@ GENERIC_CLICKS = [{"question": "Choose the color", "button": "White"},
                   {"question": "does not fit", "button": "rotated"},
                   {"question": "Which plate prints first?", "button": "Plate 1"},
                   {"question": "How many copies", "button": "One copy"},
+                  # Mixed multi-color intake: some colors match a loaded spool while others say
+                  # "no spool suggested", so intake offers to use the suggested slots and pick the
+                  # rest (not every color, not one-for-all). The confirm question ends
+                  # "Use those and pick the rest?" but the button reads "Use these and pick the
+                  # rest"; match on the stable "pick the rest" phrase so the button label
+                  # wording is not required. This is the rule the corpus-v1/v2 mixed-color models
+                  # (e.g. 012-articulated-octopus, 168-valentines-headphones-stand) need.
+                  {"question": "pick the rest", "button": "Use these and pick the rest"},
                   {"question": "·", "button": "Slice and print"}]
 
 
