@@ -358,9 +358,12 @@ def test_a_lane_naming_a_deleted_spool_is_relinked_without_a_question():
                             "helix_catalog_id": "generic-pla"}})
     rows = [{"id": 23, "archived": False, "remaining_weight": 900,
              "filament": {"name": "Coffee", "material": "PLA", "color_hex": "6F4E37"}}]
-    with mock.patch.object(spool_sync, "spoolman", return_value=rows), \
+    with mock.patch.object(spool_sync, "spoolman", return_value=rows) as spoolman, \
             mock.patch("print_handy.jobs.filament.configured_slots", return_value=_slots_23()):
         notes = sv.heal_dead_links({}, mr.lanes, None, mr)
+    # The Spoolman archive-list lookup actually ran before healing (not a swallowed crash).
+    assert spoolman.call_count == 1
+    assert spoolman.call_args[0][1] == "/api/v1/spool?allow_archived=true"
     assert mr.lanes["lane3"]["spool_id"] == 23
     assert mr.lanes["lane3"]["helix_catalog_id"] == "generic-pla"  # screen-owned field kept
     assert len(notes) == 1 and "#21" in notes[0] and "#23" in notes[0]
@@ -373,18 +376,28 @@ def test_a_lane_naming_a_live_other_spool_is_still_a_question_not_a_silent_relin
     mr = _LaneMr({"lane3": {"spool_id": 22, "lane": 2, "material": "PETG"}})
     rows = [{"id": 23, "archived": False, "filament": {"material": "PLA"}},
             {"id": 22, "archived": False, "filament": {"material": "PETG"}}]
-    with mock.patch.object(spool_sync, "spoolman", return_value=rows), \
+    with mock.patch.object(spool_sync, "spoolman", return_value=rows) as spoolman, \
             mock.patch("print_handy.jobs.filament.configured_slots", return_value=_slots_23()):
         assert sv.heal_dead_links({}, mr.lanes, None, mr) == []
+    # An empty list here means the lookup ran and found nothing to relink, not that it crashed.
+    assert spoolman.call_count == 1
+    assert "/api/v1/spool?allow_archived=true" in [c.args[1] for c in spoolman.call_args_list]
     assert mr.lanes["lane3"]["spool_id"] == 22
 
 
 def test_spoolman_unreadable_leaves_the_lane_alone():
     from print_handy.runtime import spool_sync
     mr = _LaneMr({"lane3": {"spool_id": 21, "lane": 2}})
-    with mock.patch.object(spool_sync, "spoolman", side_effect=OSError("down")), \
+    def look(*args):  # records the archive-list call, then fails like a real outage
+        seen.append(args)
+        raise OSError("down")
+    seen = []
+    with mock.patch.object(spool_sync, "spoolman", side_effect=look), \
             mock.patch("print_handy.jobs.filament.configured_slots", return_value=_slots_23()):
         assert sv.heal_dead_links({}, mr.lanes, None, mr) == []
+    # The empty list is because the unreadable lookup was tried (and its error swallowed),
+    # not because Print Handy never asked Spoolman.
+    assert seen and seen[0][0] == "GET" and seen[0][1] == "/api/v1/spool?allow_archived=true"
     assert mr.lanes["lane3"]["spool_id"] == 21
 
 

@@ -3,6 +3,8 @@ import json
 
 import pytest
 
+from print_handy.runtime import spool_sync
+
 from . import harness, spool_fixture
 
 
@@ -37,3 +39,27 @@ def test_bind_slot_during_spoolman_503_changes_nothing_then_succeeds(tmp_path):
                              push_screen_update=False)
     assert path.read_text() == before, "a refused bind must not touch the saved state"
     assert not any(m == "PATCH" for m, _ in spoolman.calls[-1:])
+
+
+def test_fake_spoolman_answers_the_archived_spool_list(tmp_path):
+    """#1891: a query string used to raise KeyError('spool?allow_archived=true') in the fake."""
+    _, spoolman = spool_fixture.build_state(tmp_path, harness.FIXTURE_STATE)
+    spoolman.spools[0]["archived"] = True
+    every = spoolman("GET", "/api/v1/spool?allow_archived=true")
+    assert [s["id"] for s in every] == [1, 2, 3, 4]
+    assert [s["id"] for s in spoolman("GET", "/api/v1/spool")] == [2, 3, 4]
+
+
+def test_heal_dead_links_reads_the_corpus_spoolman_without_failing(tmp_path, caplog):
+    """The corpus journeys run heal_dead_links; its lookup must succeed, not fail soft (#1891)."""
+    import logging
+    from unittest import mock
+
+    from print_handy.intake import slot_verify
+
+    path, spoolman = spool_fixture.build_state(tmp_path, harness.FIXTURE_STATE)
+    state = json.loads(path.read_text())
+    with mock.patch.object(spool_sync, "spoolman", spoolman),             caplog.at_level(logging.INFO, logger=slot_verify.logger.name):
+        assert slot_verify.heal_dead_links(state, {}, None, None) == []
+    assert ("GET", "/api/v1/spool?allow_archived=true") in spoolman.calls
+    assert "dead lane link check failed" not in caplog.text

@@ -31,9 +31,14 @@ class FakeSpoolman:
         if self.fail_first > 0:
             self.fail_first -= 1
             raise spool_sync.SpoolError("Spoolman answered 503 (restarting)")
-        parts = path.strip("/").split("/")[2:]
+        route, _, query = path.partition("?")
+        parts = route.strip("/").split("/")[2:]
         table = {"vendor": self.vendors, "filament": self.filaments, "spool": self.spools}[parts[0]]
         if method == "GET" and len(parts) == 1:
+            # Spoolman hides archived spools unless allow_archived=true (#1891: the query string
+            # used to reach the table lookup and raise KeyError, which heal_dead_links swallowed).
+            if parts[0] == "spool" and "allow_archived=true" not in query.split("&"):
+                return [r for r in table if not r.get("archived")]
             return list(table)
         if method == "GET":
             return next((dict(r) for r in table if r["id"] == int(parts[1])), None)
