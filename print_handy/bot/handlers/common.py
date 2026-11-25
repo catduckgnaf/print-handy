@@ -2209,9 +2209,20 @@ def alert_button_handlers(bot, adapter):
         elif action == 'move':
             # #1886: one confirmation naming both slots before anything is written.
             moved, other, kept = claim.get('spool_id'), claim.get('other_slot'), claim.get('recorded_spool_id')
+            if not kept and not claim.get('target_empty'):
+                # The notice could not name what this slot holds, so the
+                # confirmation could not say what Move replaces.
+                await interaction.edit_original_response(
+                    content=(f'Print Handy could not tell what slot {slot} holds when this notice was '
+                             'posted, so Move cannot say what it would replace. Nothing changed. Run '
+                             '`/spool sync`, then use `/spool change` if the spool really moved.'),
+                    view=None)
+                return
             confirm_aid = await _store(pab.record, 'bind-confirm', '', origin='lane-move', slot=int(slot),
                                        spool_id=int(moved), lane_claim=dict(claim))
-            fate = f' Spool #{kept} goes back on the shelf.' if kept else ''
+            fate = (f' Spool #{kept} goes back on the shelf.' if kept
+                    else f' Slot {slot} is empty now; if a spool is recorded there by the time you '
+                         'confirm, nothing changes.')
             await interaction.edit_original_response(
                 content=(f'Move spool #{moved} from slot {other} to slot {slot}? Slot {other} is left '
                          f'empty.{fate} Nothing changes until you confirm.'),

@@ -1192,7 +1192,10 @@ class LaneDataWatcher:
                 self._queue(pending, noted, slot, "claimed_elsewhere",
                             claimed_elsewhere_text(slot, spool_id, other_slot, recorded),
                             action, spool_id=spool_id,
-                            extra={"other_slot": other_slot, "recorded_spool_id": recorded})
+                            extra={"other_slot": other_slot, "recorded_spool_id": recorded,
+                                   # What Move may replace (#1886): known empty,
+                                   # one recorded spool, or unknown (neither).
+                                   "target_empty": claimants == []})
             adopt()
             return True
 

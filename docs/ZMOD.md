@@ -572,7 +572,9 @@ place:
   **Keep spool N** (the same lane rewrite, for that slot),
   **Move spool M here** (asks once, then empties the other slot and
   binds the spool into this one, the replaced spool to the shelf;
-  inventory only) and **Pick another** (the shelf picker). It is
+  inventory only; it re-checks that this slot still holds the spool,
+  or still holds nothing, that the notice saw, and refuses when the
+  notice could not tell) and **Pick another** (the shelf picker). It is
   posted once per slot, spool, other slot and recorded spool, so
   HelixScreen writing the record back after a restart does not
   post it again.

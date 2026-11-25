@@ -1194,8 +1194,11 @@ def keep_lane_claim(slot: int, claim: dict[str, Any], spool_sync) -> str:
 
 def move_lane_claim(slot: int, claim: dict[str, Any], spool_sync) -> str:
     """Move the spool the screen names into this slot, out of the slot Print Handy has it in (#1886)."""
+    expected = {"expected_prior_spool_id": claim.get("recorded_spool_id")}
+    if claim.get("target_empty") and claim.get("recorded_spool_id") is None:
+        expected["expect_empty"] = True
     result = spool_sync.move_spool(int(claim["other_slot"]), int(slot), int(claim["spool_id"]),
-                                   expected_prior_spool_id=claim.get("recorded_spool_id"))
+                                   **expected)
     return spool_sync.move_text(result)
 
 

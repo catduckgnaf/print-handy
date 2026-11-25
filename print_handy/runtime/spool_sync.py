@@ -2544,14 +2544,16 @@ def relink_text(out: dict[str, Any]) -> str:
 
 
 def move_spool(from_slot: int, to_slot: int, spool_id: int, *,
-               expected_prior_spool_id: int | None = None, client: Client = spoolman,
-               mr: Client = moonraker, state_path: Path | None = None,
+               expected_prior_spool_id: int | None = None, expect_empty: bool = False,
+               client: Client = spoolman, mr: Client = moonraker, state_path: Path | None = None,
                printer_id: str | None = None) -> dict[str, Any]:
     """Move a bound spool from one slot to another, the replaced spool to the shelf (#1886 "Move").
 
     Both slots are re-checked before anything is written: ``from_slot``
     must still hold ``spool_id`` and ``to_slot`` the spool the operator's
-    prompt named (``expected_prior_spool_id``). Then ``from_slot`` is
+    prompt named (``expected_prior_spool_id``), or nothing when
+    ``expect_empty``. With neither, what ``to_slot`` holds was not known
+    when the operator was asked, so nothing is moved. Then ``from_slot`` is
     unassigned (``unbind_slot``) and the spool is bound into ``to_slot``
     with the shelf disposition. Inventory only, like the insertion prompt:
     no printer command is sent.
@@ -2564,10 +2566,18 @@ def move_spool(from_slot: int, to_slot: int, spool_id: int, *,
     if held is None or int(held) != spool_id:
         raise SpoolError(f"slot {from_slot} no longer holds spool #{spool_id}. Nothing changed")
     prior = (slots.get(str(to_slot)) or {}).get("spoolman_id")
-    if expected_prior_spool_id is not None and int(prior or 0) != int(expected_prior_spool_id):
-        now = f"spool #{prior}" if prior else "no spool"
-        raise SpoolError(f"slot {to_slot} now holds {now}, not spool #{expected_prior_spool_id}. "
-                         "Nothing changed")
+    if expected_prior_spool_id is not None:
+        if int(prior or 0) != int(expected_prior_spool_id):
+            now = f"spool #{prior}" if prior else "no spool"
+            raise SpoolError(f"slot {to_slot} now holds {now}, not spool #{expected_prior_spool_id}. "
+                             "Nothing changed")
+    elif expect_empty:
+        if prior:
+            raise SpoolError(f"slot {to_slot} now holds spool #{prior}; it was empty when you were "
+                             "asked. Nothing changed")
+    else:
+        raise SpoolError(f"what slot {to_slot} holds was not known when you were asked, so "
+                         "nothing was moved. Run `/spool sync` and try again. Nothing changed")
     unbound = unbind_slot(from_slot, client=client, mr=mr, state_path=state_path,
                           printer_id=printer_id, note=f"Moved to slot {to_slot} from chat")
     try:

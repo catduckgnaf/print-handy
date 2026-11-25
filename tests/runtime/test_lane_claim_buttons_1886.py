@@ -101,7 +101,8 @@ def test_the_notice_posts_its_three_answers_on_discord(tmp_path):
     _token, _channel, content, slot = buttons.call_args.args
     assert slot == 1
     assert buttons.call_args.kwargs["lane_claim"] == {"spool_id": 19, "other_slot": 2,
-                                                      "recorded_spool_id": 16}
+                                                      "recorded_spool_id": 16,
+                                                      "target_empty": False}
     assert content.startswith(event["text"])
     assert "**Keep spool #16** keeps Print Handy's record" in content
     assert "**Move spool #19 here** takes it out of slot 2 into slot 1" in content
@@ -205,6 +206,71 @@ def test_pick_another_opens_the_shelf_picker(tmp_path, monkeypatch):
     sink = []
     asyncio.run(on_interaction(_interaction(sink, f"pbinsert:existing:{aid}")))
     assert any(cid.startswith("pbinsertselect:") for cid in _custom_ids(sink[-1][2]))
+
+
+def _real_move_rig(tmp_path, monkeypatch, lane_claim, slots):
+    """The Move click and confirmation through the router, with the real move_spool."""
+    on_interaction, _aid, _mr, _moves = _rig(tmp_path, monkeypatch)
+    monkeypatch.setattr(spool_sync, "_default_printer_id", lambda: PID)
+    client = FakeSpoolman([spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:2"),
+                           spool(30, "Black", "PLA", "000000", ph_slot=f"{PID}:1")])
+    client.spools[30]["location"] = "IFS Slot 1"
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"spool": {}, "filament_slots": slots}))
+    real_move = _REAL_MOVE_SPOOL
+    monkeypatch.setattr(spool_sync, "load_state", _REAL_LOAD_STATE)
+    monkeypatch.setattr(spool_sync, "move_spool", lambda *a, **k: real_move(
+        *a, client=client, mr=FakeMoonraker(lanes={}), state_path=state, **k))
+    aid = pab.record("insertion", "", slot=1, lane_claim=lane_claim)
+    return on_interaction, aid, client, state
+
+
+_REAL_MOVE_SPOOL = spool_sync.move_spool
+_REAL_LOAD_STATE = spool_sync.load_state
+
+
+def test_move_refuses_when_an_empty_target_slot_gained_a_spool(tmp_path, monkeypatch):
+    # The notice saw slot 1 empty; spool 30 was recorded there before the confirm.
+    claim = {"spool_id": 19, "other_slot": 2, "recorded_spool_id": None, "target_empty": True}
+    slots = {"1": {"slot": 1, "spoolman_id": 30, "material": "PLA", "hex": "000000", "name": "Black PLA"},
+             "2": {"slot": 2, "spoolman_id": 19, "material": "PLA+", "hex": "CD7F32", "name": "Bronze PLA+"}}
+    on_interaction, aid, client, state = _real_move_rig(tmp_path, monkeypatch, claim, slots)
+    before = state.read_text()
+    sink = []
+    asyncio.run(on_interaction(_interaction(sink, f"pbinsert:move:{aid}")))
+    question = sink[-1][1]
+    confirm = next(cid for cid in _custom_ids(sink[-1][2]) if cid.startswith("pbbindconfirm:confirm:"))
+    sink.clear()
+    asyncio.run(on_interaction(_interaction(sink, confirm)))
+    assert client.spools[30]["location"] == "IFS Slot 1"  # not sent to the shelf
+    assert not [c for c in client.calls if c[0] in ("PATCH", "DELETE")]
+    assert state.read_text() == before
+    assert "slot 1 now holds spool #30" in sink[-1][1] and "Nothing changed" in sink[-1][1]
+    assert "Slot 1 is empty now" in question
+
+
+def test_move_is_refused_when_the_notice_could_not_name_the_target_slot(tmp_path, monkeypatch):
+    # Two spools claimed slot 1 (or Spoolman was silent): nothing recorded, not known empty.
+    claim = {"spool_id": 19, "other_slot": 2, "recorded_spool_id": None}
+    slots = {"1": {"slot": 1, "spoolman_id": 30, "material": "PLA", "hex": "000000", "name": "Black PLA"},
+             "2": {"slot": 2, "spoolman_id": 19, "material": "PLA+", "hex": "CD7F32", "name": "Bronze PLA+"}}
+    on_interaction, aid, client, state = _real_move_rig(tmp_path, monkeypatch, claim, slots)
+    sink = []
+    asyncio.run(on_interaction(_interaction(sink, f"pbinsert:move:{aid}")))
+    assert sink[-1][1].startswith("Print Handy could not tell what slot 1 holds")
+    assert not [cid for cid in _custom_ids(sink[-1][2]) if cid.startswith("pbbindconfirm:")]
+    assert not [c for c in client.calls if c[0] in ("PATCH", "DELETE")]
+
+
+def test_the_notice_says_when_the_target_slot_is_empty(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:2")])
+    watcher, _applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane2": lane(19, slot=2, material="PLA+", color="CD7F32")})
+    mr.lanes = {"lane1": lane(19, slot=1, material="PLA+", color="CD7F32", scan_time=200),
+                "lane2": lane(19, slot=2, material="PLA+", color="CD7F32")}
+    events = [e for e in watcher.poll() if e["kind"] == "claimed_elsewhere"]
+    assert events and events[0]["recorded_spool_id"] is None and events[0]["target_empty"] is True
 
 
 # ------------------------------------------------------------------ move_spool itself

@@ -2796,7 +2796,8 @@ def post_lane_event(event):
         try:
             from . import print_alert_buttons as pab
             claim = {"spool_id": event["spool_id"], "other_slot": event["other_slot"],
-                     "recorded_spool_id": event.get("recorded_spool_id")}
+                     "recorded_spool_id": event.get("recorded_spool_id"),
+                     "target_empty": bool(event.get("target_empty"))}
             content = text
             if claim["recorded_spool_id"]:
                 content = f"{text}\n{LANE_CLAIM_BUTTONS_HINT.format(slot=slot, **claim)}"
