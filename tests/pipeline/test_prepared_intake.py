@@ -4,6 +4,7 @@ Buttons are answered via the real clarify gateway. Slicing is stubbed (offline, 
 through the real print_next.start gates with a stub print-now executable and a temp claim dir.
 """
 import asyncio
+import hashlib
 import json
 import stat
 import sys
@@ -1815,7 +1816,7 @@ def test_many_profiles_without_fragment_still_require_a_button(env, monkeypatch)
 
 # --- multipart intake freeze: source inspection must be off-loop, and the part count must be announced ---
 
-def _slow_inventory_flow(env, monkeypatch, audit_manifest=None):
+def _slow_inventory_flow(env, monkeypatch, audit_manifest=None, answers=(1, 0, 1, 3)):
     """Run a multipart (Shell/Eyes) intake with a slow inventory; return what ran where."""
     import threading
     from print_handy.core import source_colors
@@ -1850,7 +1851,7 @@ def _slow_inventory_flow(env, monkeypatch, audit_manifest=None):
         task = asyncio.create_task(ticker())
         event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
                   message_id=__import__('uuid').uuid4().hex, text='https://www.printables.com/model/1-ghost')
-        adapter = Ordered([1, 0, 1, 3])  # #1473: Change colors, Shell->slot1, Eyes->slot2, cancel
+        adapter = Ordered(answers)  # #1473: Change colors, Shell->slot1, Eyes->slot2, cancel
         try:
             await prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1)
         finally:
@@ -1885,6 +1886,34 @@ def test_multipart_first_prompt_offers_the_proposed_mapping(env, monkeypatch):
     # Choosing Change continues to the per-part prompts instead of stalling.
     assert adapter.questions[1]['question'].startswith('Choose the color/material for Shell, author made it White')
     assert adapter.questions[2]['question'].startswith('Choose the color/material for Eyes, author made it Black')
+
+
+def test_multipart_author_suggested_selected_roles_reach_slice_without_start(env, monkeypatch):
+    """Production entry replay keeps author palette, suggestion and chosen spool distinct."""
+    adapter, _, _, _ = _slow_inventory_flow(env, monkeypatch, answers=(1, 0, 1, 0, 1))
+    assert adapter.questions[0]['choices'][0] == 'Use these colors'
+    assert adapter.questions[1]['question'].startswith('Choose the color/material for Shell, author made it White')
+    assert adapter.questions[2]['question'].startswith('Choose the color/material for Eyes, author made it Black')
+    final = adapter.questions[-1]
+    assert final['choices'][1] == 'Slice and Download'
+    job_path = next(env.tmp.glob('archive/*/JOB.json'))
+    job = json.loads(job_path.read_text())
+    assert len(env.sliced) == 1 and len(env.starts) == 1
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'STARTED'
+    assert receipt['bed_clear_approval']['via'] == 'button'
+    approved = receipt['bed_clear_approval']
+    assert approved['gcode'] == env.sliced[0]
+    assert approved['gcode_sha256'] == hashlib.sha256(Path(env.sliced[0]).read_bytes()).hexdigest()
+    assert approved['gcode_sha256'] == env.starts[0]['gcode_sha256']
+    # The production approval summarizes the authored palette and chosen mapping.
+    assert 'Shell: designer color: White' in final['question']
+    assert 'Eyes: designer color: Black' in final['question']
+    decisions = job['color_decisions']
+    assert decisions['mode'] == 'per_part'
+    parts = {part['name']: f"part:{part['key']}" for part in job['color_manifest']['parts']}
+    assert decisions['choices'][parts['Shell']]['color'].lower() == "white"
+    assert decisions['choices'][parts['Eyes']]['color'].lower() == "black"
 
 
 def test_audit_manifest_reused_only_when_bound_to_current_source_bytes(env, monkeypatch):
