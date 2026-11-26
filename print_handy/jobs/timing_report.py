@@ -14,6 +14,10 @@ is deliberately honest about what each pair of stages brackets):
     ``message_received`` -> ``first_question_posted``. The front of the
     flow: the intake took the message, then the first question went
     up. Both stages are new in #1476, so older jobs have no sample.
+``intake_to_ready_question``
+    ``message_received`` -> ``ready_question_posted``. Time from intake
+    entry to delivery of the first Ready question. This includes any
+    operator choices before Ready and has no general timing budget.
 ``last_answer_to_ready``
     ``intake_slice_requested`` -> ``intake_slice_returned``. The slice
     approval is the intake's last answer; the second stamp lands when
@@ -75,6 +79,8 @@ MOVEMENT_ABSOLUTE_S = 0.5
 SPANS = {
     "link_to_first_question": ("Link to first question", "message_received",
                                "first_question_posted", "first"),
+    "intake_to_ready_question": ("Intake to Ready question", "message_received",
+                                 "ready_question_posted", "first"),
     "last_answer_to_ready": ("Last answer to ready to slice", "intake_slice_requested",
                              "intake_slice_returned", "first"),
     "slice": ("Slice", "slice_start", "slice_done", "last_start"),

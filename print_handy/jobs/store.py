@@ -36,7 +36,8 @@ def _timing(job_path, stage, at=None, **extra):
     job folder), ``source_checked`` (source checks and the working copy),
     ``combine_begin`` -> ``combine_done`` (multi-file models only),
     ``audit_done``, ``manifest_done`` and ``inspection_done`` (clearance
-    too), with ``first_question_posted`` wherever the first question falls.
+    too), with ``first_question_posted`` wherever the first question falls
+    and ``ready_question_posted`` after the first Ready question is delivered.
 
     ``at`` overrides the stamped time: the front-of-flow capture below
     stamps a stage when it happens and writes the line later, when the

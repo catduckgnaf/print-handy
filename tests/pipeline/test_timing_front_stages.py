@@ -32,3 +32,13 @@ def test_link_intake_records_the_front_stages(env):
             <= stages["inspection_done"] <= stages["intake_slice_requested"]
             <= stages["intake_slice_returned"])
     assert adapter.questions  # the flow really asked questions
+
+
+def test_intake_times_first_ready_before_operator_approval(env):
+    adapter, _, receipt = run_flow(env, [2, 0, 1, 2])
+    assert any(q['question'].startswith('Ready to slice') for q in adapter.questions)
+    timing_path = Path(receipt['job_json']).parent / 'TIMING.jsonl'
+    stages = [json.loads(line)['stage'] for line in timing_path.read_text().splitlines()]
+    assert stages.count('ready_question_posted') == 1
+    assert (stages.index('message_received') < stages.index('ready_question_posted')
+            < stages.index('intake_slice_requested'))

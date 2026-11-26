@@ -303,7 +303,7 @@ def _parse_typed(parser, answer):
 
 
 async def ask(adapter, source, session_key, question, choices, timeout=None, allow_other=False, parser=None,
-              live_key=None, approval=False):
+              live_key=None, approval=False, *, timing_stage=None):
     """Ask a button question. With ``parser``, a typed reply in the same chat is also accepted;
     ``live_key`` registers under the live chat session so a busy gateway routes the text here
     instead of queueing it as a new agent turn. ``approval`` marks a print
@@ -344,6 +344,8 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
             # buffer; outside an intake this is a no-op.
             from ..jobs import store as _timing_store
             _timing_store.front_mark('first_question_posted')
+            if timing_stage is not None:
+                _timing_store.front_mark(timing_stage)
             answer = await _prompt_marks.await_answer(cid, timeout, registry=cm)
             if cancel_added and answer == CANCEL_LABEL:
                 raise PromptCancelled('cancelled')
