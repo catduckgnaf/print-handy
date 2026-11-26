@@ -30,9 +30,14 @@ def _vendor(name):
 
 def test_high_speed_petg_slices_with_the_vendor_hs_petg_profile(slice_inputs):
     state = stale_state("PETG")
+    state["printer_model"] = AD5X
     slice_inputs.spools[17] = {"id": 17, "filament": {"material": "PETG", "name": "High Speed Matte Black PETG",
                                                       "settings_extruder_temp": None, "settings_bed_temp": None}}
     _nozzle, _bed, filament = slice_inputs.slice(AD5X, state)
+    assert filament["nozzle_temperature"] == ["235"]
+    assert filament["nozzle_temperature_initial_layer"] == ["240"]
+    assert filament["hot_plate_temp"] == ["75"]
+    assert filament["hot_plate_temp_initial_layer"] == ["75"]
     vendor = _vendor("Flashforge HS PETG @FF AD5X")
     assert filament["nozzle_temperature"] == ["235"]
     assert filament["nozzle_temperature_initial_layer"] == ["240"]
