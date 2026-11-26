@@ -233,7 +233,8 @@ def _mismatch_own_temperatures(state, text, materials):
               or job_checks._config_numbers(text, 'nozzle_temperature')
               or [v for v in job_checks._commands(text, 'M109') + job_checks._commands(text, 'M104') if v > 0])
     bed = ([v for v in job_checks._commands(text, 'M190') + job_checks._commands(text, 'M140') if v > 0]
-           or [v for key in job_checks._PLATE_KEYS for v in job_checks._config_numbers(text, key) if v > 0])
+           or [v for key in job_checks._PLATE_KEYS + tuple(f'{key}_initial_layer' for key in job_checks._PLATE_KEYS)
+               for v in job_checks._config_numbers(text, key) if v > 0])
     if not nozzle or not bed:
         return None
     try:
