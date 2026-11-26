@@ -47,7 +47,7 @@ def test_high_speed_petg_slices_with_the_vendor_hs_petg_profile(slice_inputs):
     assert filament["enable_pressure_advance"] == ["0"]
 
 
-def test_vendor_temperature_resolution_retains_both_layer_targets():
+def test_temperature_resolution_retains_both_layer_targets():
     state = stale_state("PETG")
     state["printer_model"] = AD5X
     hs_petg = {"material": "PETG", "name": "High Speed Matte Black PETG"}
