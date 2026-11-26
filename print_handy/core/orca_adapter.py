@@ -2260,7 +2260,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 record = state['filament_slots'][str(position)]
                 temps, resolution = slot_temps[tool]
                 data, tool_nozzle, _note = job_filament(
-                    record['material'], record.get('density', state['spool']['density']), temps,
+                    record['material'], record.get('density', state['spool']['density']),
+                    {**temps,
+                     'nozzle_initial_layer': resolution.get('layer_temperatures', {}).get('nozzle', temps['nozzle']),
+                     'bed_initial_layer': resolution.get('layer_temperatures', {}).get('bed', temps['bed'])},
                     slot_hex(position, record) if record.get('hex') else filament['filament_colour'][0], bed_c=job_bed,
                     ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
                     slot=position)

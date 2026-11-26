@@ -80,10 +80,23 @@ def expected_family_values(model, material):
 @pytest.mark.parametrize("material", sorted(TABLE))
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
-    assert tuple(filament[key][0] for key in KEYS) == expected_family_values(model, material)
+    expected = expected_family_values(model, material)
+    assert tuple(filament[key][0] for key in KEYS) == expected
     assert filament["filament_type"] == [material]
-    # Print Handy's own values still win over the family row.
-    assert (nozzle, bed) == (nozzle_effective(model, TARGETS[material][0]), TARGETS[material][1])
+    # Print Handy's material default is replaced by a resolved Flashforge vendor target when present.
+    from print_handy.core import filament_type, orca_profile_db
+    templates = adapter_for(model).templates_dir()
+    machine = json.loads((templates / "machine.json").read_text())
+    preset = orca_profile_db.printer_preset(machine.get("printer_model") or "", float(machine["nozzle_diameter"][0]),
+                                            preferred=machine.get("name"))
+    resolution = orca_profile_db.resolve(preset, filament_type.from_text(material)) if preset else None
+    vendor = orca_profile_db.vendor_layer(json.loads((templates / "filament.json").read_text()), resolution) if resolution else {}
+    nozzle_default, bed_default = TARGETS[material]
+    if model.startswith("flashforge.") and vendor:
+        nozzle_default = vendor.get("nozzle_temperature", [nozzle_default])[0]
+        bed_default = next((vendor[k][0] for k in ("hot_plate_temp", "textured_plate_temp", "cool_plate_temp")
+                            if k in vendor and vendor[k][0] not in {"0", "0.0"}), bed_default)
+    assert (nozzle, bed) == (nozzle_effective(model, float(nozzle_default)), float(bed_default))
     assert int(filament["nozzle_temperature_range_low"][0]) <= nozzle <= int(filament["nozzle_temperature_range_high"][0])
 
 
@@ -160,6 +173,8 @@ def test_bambu_lab_keeps_its_checked_vendor_profiles_and_everyone_else_uses_the_
     ("TPU", "ruby", 230, 230), ("ASA", "diamond", 260, 260),
 ])
 def test_material_and_nozzle_type_compose_in_slice(slice_inputs, monkeypatch, material, nozzle_type, base, expected):
+    # Vendor defaults apply to non-PLA Flashforge materials; verify nozzle composition separately
+    # through the explicit Spoolman path, which intentionally wins over vendor temperatures.
     # The shared legacy fixtures deliberately zero steel offsets. Exercise the
     # shipped defaults here without inheriting that test-only override.
     config = settings.current()
@@ -167,6 +182,8 @@ def test_material_and_nozzle_type_compose_in_slice(slice_inputs, monkeypatch, ma
     assert expected - base == (5 if nozzle_type in {"hardened_steel", "stainless_steel"} else 0)
     state = stale_state(material)
     state["nozzle"] = {**state.get("nozzle", {}), "type": nozzle_type, "diameter_mm": 0.4}
+    state["temperature_resolution"] = {"material": material, "spoolman_id": 17, "source": "operator setting"}
+    state["temps_c"] = {"nozzle": base, "bed": 60}
     assert slice_inputs.slice("flashforge.ad5x", state)[0] == expected
 
 
