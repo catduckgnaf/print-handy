@@ -10,6 +10,15 @@ from .adapter import QidiAdapter
 
 class Q1ProAdapter(QidiAdapter):
     facts = facts.Q1PRO
+    # The 6.1.1 contract forbids Fluidd filament management. Until version
+    # detection is verified across QIDI builds, fail closed for this model:
+    # keep local Spoolman bookkeeping but do not publish printer-side writes.
+    lane_data_write_refusal = (
+        "not written: QIDI Q1 Pro firmware does not support Fluidd filament "
+        "management; configure BOX filament settings in QIDI Studio")
+
+    def screen_command(self, slot, material, hex_code):
+        return None  # QIDI's vendor contract forbids Fluidd filament management
 
 
 MODEL = PrinterModel(

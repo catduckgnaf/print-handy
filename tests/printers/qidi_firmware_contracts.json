@@ -1,0 +1,25 @@
+{
+  "_doc": "Version-specific upstream QIDI firmware release contracts relevant to Print Handy printer-facing spool metadata writes. Source: official GitHub release notes and version README, links recorded in docs/QIDI.md.",
+  "QIDI Q1 Pro 6.1.1": {
+    "tag": "Q1_PRO_V6.1.1",
+    "commit": "61836007215a8b4f71418ac62059bc81c1f40b93",
+    "released": "2026-11-18",
+    "config_replaced": true,
+    "recalibration_required": true,
+    "fluidd_filament_management_supported": false,
+    "box_settings_interface": "QIDI Studio",
+    "fluidd_box_settings_writes_allowed": false,
+    "notes": ["QIDI Maker App and QIDI Studio must be current", "QDC_100_005_000_001 recovery procedure is vendor-documented"]
+  },
+  "QIDI X-Plus 4 2.1.1": {
+    "tag": "Plus4_v2.1.1",
+    "commit": "ec595fc903540564be757bcafa745cd5c4a52cd0",
+    "released": "2026-11-18",
+    "config_replaced": true,
+    "recalibration_required": true,
+    "fluidd_filament_management_supported": false,
+    "box_settings_interface": "QIDI Studio",
+    "fluidd_box_settings_writes_allowed": false,
+    "notes": ["QIDI Maker App and QIDI Studio must be current", "New BOX firmware supported", "QDC_100_005_000_001 recovery procedure is vendor-documented"]
+  }
+}

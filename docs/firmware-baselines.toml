@@ -119,17 +119,16 @@ baseline = "8.0.2"
 basis = "8.0.2 (2026-11-16) audited feature by feature against the PrusaLink contracts (#1617); the release covers the MINI and MINI+ (one firmware), and the 6.4.2 baseline it replaces dated from when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
 
 # QIDI: one repository per model, each with its own tag shape
-# (Q1_Pro_V4.4.24, Plus4_v1.7.1, Max3_V4.3.15). The watch reads the
-# version from the end of the tag. Each baseline is the model's newest
-# final release when QIDI support was written (#463, merged 2026-10-27);
-# none has released since.
+# (Q1_Pro_V4.4.24, Plus4_v1.7.1, Max3_V4.3.15). Q1 Pro 6.1.1 and
+# X-Plus 4 2.1.1 are audited in docs/QIDI.md; the other model baselines
+# remain at their independently checked versions.
 
 [[firmware]]
 name = "QIDI Q1 Pro"
 repo = "QIDITECH/QIDI_Q1_Pro"
 feed = "releases"
-baseline = "4.4.24"
-basis = "Q1_Pro_V4.4.24 (2024-09-02) was the newest Q1 Pro release when QIDI support was written (#463, merged 2026-10-27)"
+baseline = "6.1.1"
+basis = "Q1_PRO_V6.1.1 (2026-11-18, commit 61836007215a8b4f71418ac62059bc81c1f40b93) audited under #1906 (PR #1923) against the upstream release page and version README; QIDI documents configuration replacement and recalibration, disallows Fluidd filament management, and directs BOX settings to QIDI Studio. Print Handy refuses Fluidd-side screen and lane_data writes for this model; hardware behavior remains unverified."
 
 [[firmware]]
 name = "QIDI X-Plus 3"
@@ -142,8 +141,8 @@ basis = "Plus3_V4.2.15 (2024-10-17) was the newest X-Plus 3 release when QIDI su
 name = "QIDI X-Plus 4"
 repo = "QIDITECH/QIDI_PLUS4"
 feed = "releases"
-baseline = "1.7.1"
-basis = "Plus4_v1.7.1 (2025-08-06) was the newest X-Plus 4 release when QIDI support was written (#463, merged 2026-10-27)"
+baseline = "2.1.1"
+basis = "Plus4_v2.1.1 (2026-11-18, commit ec595fc903540564be757bcafa745cd5c4a52cd0) audited under #1906 (PR #1923) against the upstream release page and version README; QIDI documents configuration replacement and recalibration, disallows Fluidd filament management, directs BOX settings to QIDI Studio, and adds support for new BOX firmware. Print Handy refuses Fluidd-side screen and lane_data writes for this model; hardware behavior remains unverified."
 
 [[firmware]]
 name = "QIDI X-Max 3"
