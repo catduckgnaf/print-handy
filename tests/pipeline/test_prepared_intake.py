@@ -1897,7 +1897,12 @@ def test_multipart_author_suggested_selected_roles_reach_slice_without_start(env
     assert final['choices'][1] == 'Slice and Download'
     job_path = next(env.tmp.glob('archive/*/JOB.json'))
     job = json.loads(job_path.read_text())
-    assert len(env.sliced) == 1 and env.starts == []
+    assert len(env.sliced) == 1 and len(env.starts) == 1
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'STARTED'
+    assert receipt['bed_clear_approval']['via'] == 'button'
+    assert receipt['bed_clear_approval']['gcode'] == env.starts[0]['gcode']
+    assert receipt['bed_clear_approval']['gcode_sha256'] == env.starts[0]['gcode_sha256']
     manifest = job['color_manifest']
     assert [(part['name'], part.get('designer_color')) for part in manifest['parts']] == [
         ('Shell', 'White'), ('Eyes', 'Black')]
