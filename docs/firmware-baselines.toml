@@ -44,8 +44,8 @@
 name = "Klipper"
 repo = "Klipper3d/klipper"
 feed = "tags"
-baseline = "0.13.0"
-basis = "Klipper 13 (v0.13.0, tagged 2025-04-12) is the release the firmware report's MCU currency check judges (#561, 0.13.x hosts only) and the one the reference AD5X runs (docs/DEVICE-AD5X.md, Tested baseline); it has been the newest Klipper tag for all of Print Handy's history"
+baseline = "0.14.0"
+basis = "Klipper 0.14.0 (tag v0.14.0, released 2026-11-20) audited for #1906 against Print Handy contracts in docs/KLIPPER-014-AUDIT.md; reference AD5X remains separately documented at its tested 0.13 baseline"
 
 [[firmware]]
 name = "Moonraker"

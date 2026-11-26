@@ -68,5 +68,6 @@ Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find yo
 - [Documentation audit, 15 November 2026](history/DOCUMENTATION-AUDIT-2026-11-15.md): the README and printer-guide accuracy pass behind 2.3.4.
 - [3MF conversion evidence matrix](history/3MF-CONVERSION-EVIDENCE.md): the criterion-by-criterion evidence for the foreign 3MF conversion work.
 - [Geometry soundness audit](history/GEOMETRY_AUDIT.md): what the sizing, rotation, mirroring, bed fit and support checks cover, and their known limits.
+- [Klipper 0.14 contract audit](KLIPPER-014-AUDIT.md): upstream compatibility evidence, coordinate status, host/MCU detection scope and fork limitations.
 
 These versioned `docs/` pages are the source of truth. Document features with the code and identify wiki impact in the [contribution checklist](../CONTRIBUTING.md#automated-pr-review-support). Use documentation for the checked-out revision; draft work is not shipped capability.

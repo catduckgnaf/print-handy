@@ -28,7 +28,7 @@ def _travel(section):
     if top is None:
         return None
     try:
-        bottom = max(float(section.get("position_min", 0)), 0.0)
+        bottom = float(section.get("position_min", 0))
     except (TypeError, ValueError):
         bottom = 0.0
     return top - bottom if top > bottom else None
