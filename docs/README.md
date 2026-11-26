@@ -40,6 +40,7 @@ Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find yo
 - [Bambu Lab](BAMBU-LAB.md) · [Bambu connectivity details](BAMBU-CONNECTIVITY.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)
 - [Creality](CREALITY.md) · [Qidi](QIDI.md) · [Sovol](SOVOL.md)
 - [Anycubic](ANYCUBIC.md) · [Snapmaker](SNAPMAKER.md) · [OctoPrint and Marlin](OCTOPRINT-MARLIN.md)
+- [OctoPrint 2.0.1 REST contract audit](OCTOPRINT-2.0.1-AUDIT.md): upstream API changes checked against the OctoPrint adapter, with unverified server and connector behavior called out.
 - [Device best practices](DEVICE-BEST-PRACTICES.md)
 
 ## Troubleshooting
