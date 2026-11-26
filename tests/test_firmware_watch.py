@@ -737,7 +737,7 @@ class ShippedBaselines(unittest.TestCase):
     def test_recorded_versions_and_their_evidence(self):
         expected = {
             "Klipper": "0.14.0", "Moonraker": "0.11.0",
-            "OctoPrint": "2.0.0", "Marlin": "2.1.2.10",
+            "OctoPrint": "2.0.1", "Marlin": "2.1.2.10",
             "Prusa Buddy (MK4S)": "8.0.2", "Prusa Buddy (CORE One)": "8.0.2",
             "Prusa Buddy (XL)": "8.0.2", "Prusa Buddy (MINI+)": "8.0.2",
             "QIDI Q1 Pro": "6.1.1", "QIDI X-Plus 3": "4.2.15",

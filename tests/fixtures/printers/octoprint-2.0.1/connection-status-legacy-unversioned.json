@@ -1,0 +1,17 @@
+{
+  "current": {
+    "state": "Operational",
+    "printerProfile": "_default",
+    "port": "/dev/ttyUSB0",
+    "baudrate": 115200
+  },
+  "options": {
+    "ports": ["/dev/ttyUSB0"],
+    "baudrates": [250000, 115200],
+    "printerProfiles": [{"id": "_default", "name": "Default Profile"}],
+    "portPreference": "/dev/ttyUSB0",
+    "baudratePreference": 115200,
+    "printerProfilePreference": "_default",
+    "autoconnect": false
+  }
+}

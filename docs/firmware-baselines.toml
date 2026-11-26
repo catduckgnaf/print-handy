@@ -63,8 +63,8 @@ basis = "v0.11.0 (tagged 2026-08-25) has been the newest Moonraker tag for all o
 name = "OctoPrint"
 repo = "OctoPrint/OctoPrint"
 feed = "releases"
-baseline = "2.0.0"
-basis = "2.0.0 (2026-11-16) audited feature by feature against the OctoPrint adapter and its REST contract tests (#1615); the 1.11.8 baseline it replaces dated from when that adapter was written (#129, merged 2026-10-22)"
+baseline = "2.0.1"
+basis = "2.0.1 (2026-11-18) audited for #1906 against Print Handy's OctoPrint REST contracts; Print Handy never calls GET /api/connection (offline client and source guard tests), upstream redaction of connection parameters is documented in docs/OCTOPRINT-2.0.1-AUDIT.md but not tested, and optional M115 firmware identity stays serial-side and is documented, not exercised; upstream tag 2.0.1 at 012a92d7f5bffa1c2c059264968283fc578ca985"
 
 [[firmware]]
 name = "Marlin"
