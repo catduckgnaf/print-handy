@@ -34,15 +34,11 @@ def test_high_speed_petg_slices_with_the_vendor_hs_petg_profile(slice_inputs):
     slice_inputs.spools[17] = {"id": 17, "filament": {"material": "PETG", "name": "High Speed Matte Black PETG",
                                                       "settings_extruder_temp": None, "settings_bed_temp": None}}
     _nozzle, _bed, filament = slice_inputs.slice(AD5X, state)
-    assert filament["nozzle_temperature"] == ["235"]
-    assert filament["nozzle_temperature_initial_layer"] == ["240"]
-    assert filament["hot_plate_temp"] == ["75"]
-    assert filament["hot_plate_temp_initial_layer"] == ["75"]
     vendor = _vendor("Flashforge HS PETG @FF AD5X")
-    assert filament["nozzle_temperature"] == ["235"]
-    assert filament["nozzle_temperature_initial_layer"] == ["240"]
-    assert filament["hot_plate_temp"] == ["75"]
-    assert filament["hot_plate_temp_initial_layer"] == ["75"]
+    expected = {"nozzle_temperature": 235, "nozzle_temperature_initial_layer": 240,
+                "hot_plate_temp": 75, "hot_plate_temp_initial_layer": 75}
+    for key, value in expected.items():
+        assert filament[key] == [str(value)]
     assert filament["name"] == "Flashforge HS PETG @FF AD5X"
     assert filament["filament_type"] == ["PETG"]
     assert filament["filament_flow_ratio"] == _flow(state, vendor["filament_flow_ratio"][0])
@@ -175,8 +171,9 @@ def test_ad5x_hs_petg_slice_and_verification_share_temperatures(slice_inputs, ex
     text += f"; nozzle_temperature_initial_layer = {nozzle}\n; hot_plate_temp_initial_layer = {bed}\n"
     verified = gcode_verify._with_gcode_temperatures(state, text)
     expected_temps = {"nozzle": expected[0], "bed": expected[1]}
-    expected_temps["nozzle_initial_layer"] = vendor_nozzle_initial
-    if vendor_bed_initial != expected[1] or "settings_bed_temp" not in explicit:
+    if "settings_extruder_temp" not in explicit:
+        expected_temps["nozzle_initial_layer"] = vendor_nozzle_initial
+    if "settings_bed_temp" not in explicit:
         expected_temps["bed_initial_layer"] = vendor_bed_initial
     assert verified["temps_c"] == expected_temps
 
