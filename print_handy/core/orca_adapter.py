@@ -2150,7 +2150,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         }
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
         bed_initial_base = temps_c.get('bed_initial_layer', state.get('_layer_temperatures', {}).get('bed', temps_c['bed']))
-        bed_initial = str(bed_initial_base if bed_c is None else bed_c)
+        bed_initial = str(bed_initial_base)
         for key in ('cool_plate_temp', 'eng_plate_temp', 'hot_plate_temp', 'textured_plate_temp'):
             data[key] = [bed]
             data[key + '_initial_layer'] = [bed_initial]
