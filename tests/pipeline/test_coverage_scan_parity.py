@@ -77,3 +77,27 @@ def test_scan_failure_falls_back_to_legacy(monkeypatch):
         raise RuntimeError('boom')
     monkeypatch.setattr(sc, '_GcodeScan', boom)
     assert sc.coverage_scan('G1 X1 Y1 E1\n') is None
+
+
+def test_scan_updates_bounds_without_per_coordinate_min_max(monkeypatch):
+    # Include ties, descending coordinates, an object block and support.
+    text = ("; printing object Part id:0 copy 0\n"
+            "G1 X0 Y0 Z1 E1\nG1 X-2 Y4 Z2 E1\n"
+            "G1 X3 Y-4 Z1 E1\nG1 X3 Y-4 E1\n"
+            ";TYPE:Support\nG1 X8 Y8 E1\n"
+            "; stop printing object Part id:0 copy 0\n")
+    expected = (sc.gcode_model_bounds(text), sc.gcode_object_bounds(text),
+                sc.gcode_model_height(text))
+    calls = []
+    import builtins
+    def counted_min(*args):
+        calls.append("min")
+        return builtins.min(*args)
+    def counted_max(*args):
+        calls.append("max")
+        return builtins.max(*args)
+    monkeypatch.setattr(sc, "min", counted_min, raising=False)
+    monkeypatch.setattr(sc, "max", counted_max, raising=False)
+    scan = sc._GcodeScan(text)
+    assert (scan.model_bounds, scan.object_bounds, scan.model_height) == expected
+    assert calls == []

@@ -1127,9 +1127,12 @@ class _GcodeScan:
             if extrudes and in_object and not support:
                 if mb_x is not None and mb_y is not None:
                     for k, v in enumerate((mb_x, mb_y)):
-                        mb_lo[k] = v if mb_lo[k] is None else min(mb_lo[k], v)
-                        mb_hi[k] = v if mb_hi[k] is None else max(mb_hi[k], v)
-                h_top = h_z if h_top is None else max(h_top, h_z)
+                        if mb_lo[k] is None or v < mb_lo[k]:
+                            mb_lo[k] = v
+                        if mb_hi[k] is None or v > mb_hi[k]:
+                            mb_hi[k] = v
+                if h_top is None or h_z > h_top:
+                    h_top = h_z
             if is_start or is_end:
                 continue  # object bounds never treat a marker line as a move
             # object bounds: only inside an instance block
@@ -1140,8 +1143,10 @@ class _GcodeScan:
                     ob_y = wy
                 if extrudes and not support and ob_x is not None and ob_y is not None:
                     for k, v in enumerate((ob_x, ob_y)):
-                        current['lo'][k] = v if current['lo'][k] is None else min(current['lo'][k], v)
-                        current['hi'][k] = v if current['hi'][k] is None else max(current['hi'][k], v)
+                        if current['lo'][k] is None or v < current['lo'][k]:
+                            current['lo'][k] = v
+                        if current['hi'][k] is None or v > current['hi'][k]:
+                            current['hi'][k] = v
         self.model_bounds = None if mb_lo[0] is None else (mb_lo[0], mb_lo[1], mb_hi[0], mb_hi[1])
         self.object_bounds = [{'name': e['name'], 'bounds': (e['lo'][0], e['lo'][1], e['hi'][0], e['hi'][1])}
                               for e in order if e['lo'][0] is not None]
