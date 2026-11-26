@@ -2583,10 +2583,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     bambu_available = bool(bambu_executable and os.access(bambu_executable, os.X_OK))
     if orca_failed and not bambu_allowed:
         details = _orca_failure_details(folder)
+        cli_conflict = bool(re.search(r'G-code conflicts detected', result.stdout + '\n' + result.stderr, re.I))
         raise SliceFailure(f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
+                           f'Bambu Studio fallback skipped: not eligible for this target or purge mode; '
                            f'see {_keep_failure_logs(folder) / "orca.log"}',
-                           kind='conflict' if _orca_conflict(folder) else 'engine',
-                           slicer='OrcaSlicer', returncode=result.returncode, **_failure_evidence(folder))
+                           kind='conflict' if (cli_conflict or _orca_conflict(folder)) else 'engine',
+                           slicer='OrcaSlicer', returncode=result.returncode,
+                           **_failure_evidence(folder, conflict=cli_conflict))
     if primary == 'flash_studio' and (result.returncode or not output.is_file() or output.stat().st_size == 0):
         raise SliceFailure(f'Flash Studio slicing failed ({result.returncode}) or produced no G-code; '
                            f'see {_keep_failure_logs(folder) / "flash-studio.log"}',
