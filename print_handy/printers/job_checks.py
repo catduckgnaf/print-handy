@@ -117,7 +117,7 @@ def temperature_problems(text, state, materials=None):
             recorded_nozzle_type(state), float(temps.get("nozzle_initial_layer", temps["nozzle"])))
     except NozzleError as exc:
         return [f"recorded nozzle temperature is not usable: {exc}"]
-    bed = float(temps["bed"])
+    float(temps["bed"])
     multi = len(embedded_materials(text)) > 1
     problems = []
     for label, normal, initial, config_normal, config_initial, commands, args in (
