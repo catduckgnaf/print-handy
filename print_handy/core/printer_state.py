@@ -678,8 +678,11 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=N
         temps, resolution = slice_temperatures(spool_state, None, fetch_filament, stored_ok=stored_ok)
         layers = resolution.get("layer_temperatures") or {}
         result = dict(temps)
-        result["nozzle_initial_layer"] = layers.get("nozzle", temps["nozzle"])
-        result["bed_initial_layer"] = layers.get("bed", temps["bed"])
+        sources = resolution.get("sources") or {}
+        if layers.get("nozzle", temps["nozzle"]) != temps["nozzle"] or str(sources.get("nozzle", "")).startswith("vendor profile"):
+            result["nozzle_initial_layer"] = layers.get("nozzle", temps["nozzle"])
+        if layers.get("bed", temps["bed"]) != temps["bed"] or str(sources.get("bed", "")).startswith("vendor profile"):
+            result["bed_initial_layer"] = layers.get("bed", temps["bed"])
         return result
 
     if len(labels) != 1:

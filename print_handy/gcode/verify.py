@@ -179,9 +179,9 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
             temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed'])}
             nozzle_initial = recorded.get('nozzle_initial_layer')
             bed_initial = recorded.get('bed_initial_layer')
-            if nozzle_initial is not None and float(nozzle_initial) != temps['nozzle']:
+            if nozzle_initial is not None:
                 temps['nozzle_initial_layer'] = float(nozzle_initial)
-            if bed_initial is not None and float(bed_initial) != temps['bed']:
+            if bed_initial is not None:
                 temps['bed_initial_layer'] = float(bed_initial)
         except (KeyError, TypeError, ValueError):
             temps = None
@@ -636,9 +636,9 @@ def _recorded_temperatures(job, gcode_path):
         if isinstance(layers, dict):
             nozzle = layers.get('nozzle', temps.get('nozzle'))
             bed = layers.get('bed', temps.get('bed'))
-            if nozzle is not None and nozzle != temps.get('nozzle'):
+            if nozzle is not None:
                 result['nozzle_initial_layer'] = nozzle
-            if bed is not None and bed != temps.get('bed'):
+            if bed is not None:
                 result['bed_initial_layer'] = bed
         return result
 

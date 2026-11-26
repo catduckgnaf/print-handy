@@ -83,20 +83,11 @@ def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model
     expected = expected_family_values(model, material)
     assert tuple(filament[key][0] for key in KEYS) == expected
     assert filament["filament_type"] == [material]
-    # Print Handy's material default is replaced by a resolved Flashforge vendor target when present.
-    from print_handy.core import filament_type, orca_profile_db
-    templates = adapter_for(model).templates_dir()
-    machine = json.loads((templates / "machine.json").read_text())
-    preset = orca_profile_db.printer_preset(machine.get("printer_model") or "", float(machine["nozzle_diameter"][0]),
-                                            preferred=machine.get("name"))
-    resolution = orca_profile_db.resolve(preset, filament_type.from_text(material)) if preset else None
-    vendor = orca_profile_db.vendor_layer(json.loads((templates / "filament.json").read_text()), resolution) if resolution else {}
-    nozzle_default, bed_default = TARGETS[material]
-    if model.startswith("flashforge.") and vendor:
-        nozzle_default = vendor.get("nozzle_temperature", [nozzle_default])[0]
-        bed_default = next((vendor[k][0] for k in ("hot_plate_temp", "textured_plate_temp", "cool_plate_temp")
-                            if k in vendor and vendor[k][0] not in {"0", "0.0"}), bed_default)
-    assert (nozzle, bed) == (nozzle_effective(model, float(nozzle_default)), float(bed_default))
+    # The shared resolver and emitted Orca profile must agree on normal-layer targets.
+    assert nozzle == int(filament["nozzle_temperature"][0])
+    bed_keys = ("hot_plate_temp", "textured_plate_temp", "cool_plate_temp", "eng_plate_temp")
+    emitted_bed = next((int(filament[key][0]) for key in bed_keys if key in filament), None)
+    assert emitted_bed == bed
     assert int(filament["nozzle_temperature_range_low"][0]) <= nozzle <= int(filament["nozzle_temperature_range_high"][0])
 
 

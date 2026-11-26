@@ -2076,10 +2076,15 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         import copy
         nozzle_temp = effective_nozzle_temperature(nozzle_type, float(temps_c['nozzle']))
         nozzle_initial_base = temps_c.get('nozzle_initial_layer', state.get('_layer_temperatures', {}).get('nozzle', temps_c['nozzle']))
-        nozzle_initial_temp = effective_nozzle_temperature(nozzle_type, float(nozzle_initial_base))
+        nozzle_initial_temp = (nozzle_temp if 'nozzle_initial_layer' not in temps_c
+                               and printer.vendor_material_profiles else
+                               effective_nozzle_temperature(nozzle_type, float(nozzle_initial_base)))
         if printer.vendor_material_profiles:
             data, note = copy.deepcopy(template_filament), 'vendor filament profile'
             include_nozzle_temperature(data, nozzle_temp)
+            # Bambu's checked vendor targets are explicit spool overrides too; its source
+            # state has no shared Orca vendor temperatures, so preserve the profile initial target.
+            nozzle_initial_temp = nozzle_temp if 'nozzle_temperature_initial_layer' not in data else int(data['nozzle_temperature_initial_layer'][0])
             if slot is not None:
                 base = (data.get('filament_settings_id') or [data.get('name') or material])[0]
                 data.update({'name': f"{base} [slot {int(slot)}]", 'filament_settings_id': [f"{base} [slot {int(slot)}]"]})
@@ -2328,8 +2333,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         job_bed = slot_temps[0][0]['bed']
         for tool, record, (temps, resolution) in zip(order, records, slot_temps):
             physical_slot = mapping[tool]
+            temps_for_profile = {**temps,
+                                 'nozzle_initial_layer': resolution.get('layer_temperatures', {}).get('nozzle', temps['nozzle']),
+                                 'bed_initial_layer': resolution.get('layer_temperatures', {}).get('bed', temps['bed'])}
             data, tool_nozzle, _note = job_filament(
-                record['material'], record.get('density', state['spool']['density']), temps,
+                record['material'], record.get('density', state['spool']['density']), temps_for_profile,
                 slot_hex(physical_slot, record), bed_c=job_bed,
                 ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
                 slot=physical_slot)
