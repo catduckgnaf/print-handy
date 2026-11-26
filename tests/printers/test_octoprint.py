@@ -138,25 +138,26 @@ def test_no_client_request_targets_connection_or_version_endpoints(tmp_path):
 
 
 def test_octoprint_adapter_source_never_names_connection_endpoint():
-    """Static guard: the adapter package has no reference to /api/connection."""
+    """Static guard: no module in the adapter package, including subpackages, names /api/connection."""
     root = Path(__file__).parent.parent.parent / 'print_handy/printers/octoprint'
-    offenders = [f.name for f in root.glob('*.py') if '/api/connection' in f.read_text()]
+    offenders = [str(f.relative_to(root)) for f in root.rglob('*.py') if '/api/connection' in f.read_text()]
     assert offenders == []
 
 
-def test_octoprint_201_connection_fixtures_pin_per_shape_exposure():
-    """Document what each upstream shape discloses to a STATUS-only key (sanitized fixtures)."""
+def test_octoprint_201_connection_fixture_shapes_are_recorded_only():
+    """Fixture-shape check only: this does NOT run any Print Handy code.
+
+    Print Handy has no /api/connection parser (the client tests above prove it
+    never requests the endpoint), so these sanitized fixtures only record the
+    upstream shapes that docs/OCTOPRINT-2.0.1-AUDIT.md describes. Upstream
+    redaction is documented there, not tested here.
+    """
     redacted = _fixture('connection-status-no-connection-permission.json')
     assert redacted['current']['parameters'] == {}
     assert redacted['current']['connector'] == 'bambu'
     legacy = _fixture('connection-status-legacy-unversioned.json')
     assert legacy['current']['port'] and legacy['current']['baudrate']
     assert 'parameters' not in legacy['current']
-
-
-def test_octoprint_201_default_version_fixture_keeps_legacy_api_marker():
-    """Without X-OctoPrint-Api-Version, 2.0.1 still reports api 0.1."""
-    assert _fixture('version-default-api.json') == {'api': '0.1', 'server': '2.0.1', 'text': 'OctoPrint 2.0.1'}
 
 
 def test_status_without_firmware_identity_normalizes_and_emits_no_identity():

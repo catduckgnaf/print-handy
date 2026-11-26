@@ -64,7 +64,7 @@ name = "OctoPrint"
 repo = "OctoPrint/OctoPrint"
 feed = "releases"
 baseline = "2.0.1"
-basis = "2.0.1 (2026-11-18) audited for #1906 against Print Handy's OctoPrint REST contracts; credential redaction on GET /api/connection and optional M115 firmware identity are covered/documented in docs/OCTOPRINT-2.0.1-AUDIT.md and version-specific offline tests; upstream tag 2.0.1 at 012a92d7f5bffa1c2c059264968283fc578ca985"
+basis = "2.0.1 (2026-11-18) audited for #1906 against Print Handy's OctoPrint REST contracts; Print Handy never calls GET /api/connection (offline client and source guard tests), upstream redaction of connection parameters is documented in docs/OCTOPRINT-2.0.1-AUDIT.md but not tested, and optional M115 firmware identity stays serial-side and is documented, not exercised; upstream tag 2.0.1 at 012a92d7f5bffa1c2c059264968283fc578ca985"
 
 [[firmware]]
 name = "Marlin"
