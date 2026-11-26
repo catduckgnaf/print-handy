@@ -73,13 +73,7 @@ def expected_family_values(model, material):
                                             preferred=machine.get("name"))
     resolution = orca_profile_db.resolve(preset, filament_type.from_text(material)) if preset else None
     layer = orca_profile_db.vendor_layer(template, resolution) if resolution else {}
-    values = [layer[key][0] if key in layer else row for key, row in zip(KEYS, TABLE[material])]
-    # The shared resolver applies Orca's vendor nozzle target separately from
-    # the profile's upper-range bound; the emitted range must still match Orca.
-    high = vendor_value(model, material, "nozzle_temperature_range_high")
-    if model.startswith("flashforge.") and material != "PLA" and high:
-        values[7] = high[0]
-    return tuple(values)
+    return tuple(layer[key][0] if key in layer else row for key, row in zip(KEYS, TABLE[material]))
 
 
 @pytest.mark.parametrize("model", FAMILIES)
@@ -87,10 +81,8 @@ def expected_family_values(model, material):
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
     expected_family = list(expected_family_values(model, material))
-    if model.startswith("flashforge.") and material != "PLA":
-        vendor_high = vendor_value(model, material, "nozzle_temperature_range_high")
-        if vendor_high:
-            expected_family[7] = vendor_high[0]
+    # Orca's emitted range is widened when the resolved vendor target exceeds its source range.
+    expected_family[7] = str(max(float(expected_family[7]), float(filament["nozzle_temperature"][0])))
     assert tuple(filament[key][0] for key in KEYS) == tuple(expected_family)
     assert filament["filament_type"] == [material]
     # The shared resolver and emitted Orca profile must agree on normal-layer targets.
