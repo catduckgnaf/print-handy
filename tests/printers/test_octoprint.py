@@ -66,6 +66,51 @@ def _adapter():
     return printers.get(model, settings.load(local=False, environ={'PRINT_HANDY__PRINTER__MODEL': model}))
 
 
+def test_octoprint_201_connection_status_fixture_redacts_parameters():
+    """Pin the 2.0.1 STATUS-only /api/connection contract offline."""
+    from pathlib import Path
+
+    fixture = Path(__file__).parent.parent / 'fixtures/printers/octoprint-2.0.1/connection-status-permission.json'
+    response = json.loads(fixture.read_text())
+    assert response['current']['parameters'] == {}
+    assert response['current']['connector'] == 'bambu'
+
+
+def test_octoprint_201_default_version_fixture_keeps_legacy_api_marker():
+    """Without X-OctoPrint-Api-Version, 2.0.1 still documents api=0.1."""
+    from pathlib import Path
+
+    fixture = Path(__file__).parent.parent / 'fixtures/printers/octoprint-2.0.1/version-default-api.json'
+    response = json.loads(fixture.read_text())
+    assert response == {'api': '0.1', 'server': '2.0.1', 'text': 'OctoPrint 2.0.1'}
+
+
+def test_status_does_not_query_connection_settings_or_disclose_connector_parameters():
+    """OctoPrint 2.0.1 hides connector credentials without CONNECTION permission.
+
+    Print Handy's read-only status contract needs only /api/printer and
+    /api/job; it must not request /api/connection, whose pre-2.0.0 API
+    shape can disclose connector parameters to STATUS-only accounts.
+    """
+    c = OctoPrintClient('http://octoprint.invalid', 'test-key')
+    c.request = Mock(side_effect=[{}, {}])
+    assert c.status() == {'printer': {}, 'job': {}}
+    assert [call.args for call in c.request.call_args_list] == [
+        ('GET', '/api/printer'), ('GET', '/api/job')]
+
+
+def test_optional_firmware_identity_is_not_required_for_rest_status():
+    """OctoPrint 2.0.1 fixes serial crashes for M115 without FIRMWARE_NAME.
+
+    Its identity comes from serial M115, not the printer/job REST payloads
+    consumed by this adapter. Keep the REST path valid when it is absent.
+    """
+    out = _adapter().normalize_status({'printer': {'state': {'flags': {'ready': True}}}, 'job': {}})
+    assert out['state'] == 'standby'
+    assert 'firmware_name' not in out
+    assert 'firmware_version' not in out
+
+
 def test_status_reports_targets_and_remaining_time():
     out = _adapter().normalize_status({
         'printer': {'state': {'flags': {'printing': True}},
