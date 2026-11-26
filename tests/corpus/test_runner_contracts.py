@@ -156,6 +156,22 @@ def test_external_runner_fails_a_case_toml_refusal_with_the_wrong_reason(tmp_pat
     assert json.loads(results_path.read_text())[0]["result"] == "FAIL"
 
 
+def test_external_runner_accepts_expected_slice_failure_before_fake_slicer(tmp_path, monkeypatch):
+    run = S(adapter=S(unanswered=[], errors=[], questions=[],
+                      sent=["cannot be split onto separate plates: PH_SLICING_CONFIGURATION"]),
+            receipt={"status": "SLICE_FAILED", "slice_error": "an assembly cannot be split per slot"},
+            job={}, starts=[], slice_starts=[("slice_start", "job")],
+            events=[("slice_start", "job")], gcodes=[], state={})
+    root, results_path = run_main(tmp_path, monkeypatch, lambda case, work: run)
+    write_model(root, case_toml=(
+        '[expect]\nstatus = "SLICE_FAILED"\n'
+        'slice_error_contains = "an assembly cannot be split per slot"\n'
+        'says = ["cannot be split onto separate plates", "PH_SLICING_CONFIGURATION"]\n'
+        'started = false\n'))
+    assert run_external_corpus.main() == 0
+    assert json.loads(results_path.read_text())[0]["result"] == "PASS"
+
+
 def test_slice_failed_case_expectation_allows_no_print_start():
     case = S(expect={"status": "SLICE_FAILED", "slice_error_contains": "an assembly cannot be split per slot", "says": ["cannot be split onto separate plates", "PH_SLICING_CONFIGURATION"], "started": False})
     run = S(adapter=S(unanswered=[], errors=[], questions=[], sent=["cannot be split onto separate plates: PH_SLICING_CONFIGURATION"]), receipt={"status": "SLICE_FAILED", "slice_error": "an assembly cannot be split per slot"}, job={}, starts=[], slice_starts=[("slice_start", "job")], events=[("slice",)], gcodes=[], state={})
