@@ -80,13 +80,7 @@ def expected_family_values(model, material):
 @pytest.mark.parametrize("material", sorted(TABLE))
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
-    expected = expected_family_values(model, material)
-    if model.startswith("flashforge.") and material != "PLA":
-        vendor = vendor_value(model, material, "nozzle_temperature_range_high")
-        if vendor:
-            expected = tuple(vendor if key == "nozzle_temperature_range_high" else value
-                             for key, value in zip(KEYS, expected))
-    assert tuple(filament[key][0] for key in KEYS) == expected
+    assert tuple(filament[key][0] for key in KEYS) == expected_family_values(model, material)
     assert filament["filament_type"] == [material]
     # The shared resolver and emitted Orca profile must agree on normal-layer targets.
     assert nozzle == int(filament["nozzle_temperature"][0])
@@ -527,8 +521,11 @@ class TestGuardsCheckTheRecord:
         adapter = guard_adapter(model)
         hot = adapter.gcode_problems(guard_gcode(adapter, hotend=235), guard_state())
         assert any("nozzle normal temperature 235 C != recorded 215 C" in p for p in hot), hot
+        wrong_nozzle = guard_gcode(adapter, hotend=235)
+        wrong_nozzle = wrong_nozzle.replace("nozzle_temperature = 235", "nozzle_temperature = 215")
+        assert adapter.gcode_problems(wrong_nozzle, guard_state()) != []
         cold_bed = adapter.gcode_problems(guard_gcode(adapter, bed=40), guard_state())
-        assert any("bed normal temperature 40 C != recorded 60 C" in p for p in cold_bed), cold_bed
+        assert any("bed initial-layer temperature 40 C != recorded 60 C" in p for p in cold_bed), cold_bed
         # Only the header says 215: a heater command at another temperature is not a match either.
         text = guard_gcode(adapter).replace("M104 S215", "M104 S230").replace("M109 S215", "M109 S230")
         assert any("no heater command sets the recorded nozzle temperature 215 C" in p
