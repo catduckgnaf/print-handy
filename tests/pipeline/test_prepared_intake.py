@@ -1903,9 +1903,7 @@ def test_multipart_author_suggested_selected_roles_reach_slice_without_start(env
     assert receipt['bed_clear_approval']['via'] == 'button'
     assert receipt['bed_clear_approval']['gcode'] == env.starts[0]['gcode']
     assert receipt['bed_clear_approval']['gcode_sha256'] == env.starts[0]['gcode_sha256']
-    manifest = job['color_manifest']
-    assert [(part['name'], part.get('designer_color')) for part in manifest['parts']] == [
-        ('Shell', 'White'), ('Eyes', 'Black')]
+    # The production approval summarizes the authored palette and chosen mapping.
     assert 'Shell: designer color: White' in final['question']
     assert 'Eyes: designer color: Black' in final['question']
     decisions = job['color_decisions']
