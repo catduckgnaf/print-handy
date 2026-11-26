@@ -105,7 +105,7 @@ def test_optional_firmware_identity_is_not_required_for_rest_status():
     Its identity comes from serial M115, not the printer/job REST payloads
     consumed by this adapter. Keep the REST path valid when it is absent.
     """
-    out = _adapter().normalize_status({'printer': {'state': {'flags': {'ready': True}}}, 'job': {}})
+    out = _adapter().normalize_status({'printer': {'state': {'flags': {'ready': True, 'operational': True}}}, 'job': {}})
     assert out['state'] == 'standby'
     assert 'firmware_name' not in out
     assert 'firmware_version' not in out
