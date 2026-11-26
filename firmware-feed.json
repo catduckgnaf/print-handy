@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-26T04:03:02Z",
+ "generated_at": "2026-11-26T04:08:19Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -393,7 +393,7 @@
     "url": "https://github.com/QIDITECH/QIDI_Q1_Pro/releases/tag/Q1_PRO_V6.1.1"
    },
    "latest_prerelease": null,
-   "audited": "4.4.24",
+   "audited": "6.1.1",
    "stale": false
   },
   {
@@ -449,7 +449,7 @@
     "url": "https://github.com/QIDITECH/QIDI_PLUS4/releases/tag/Plus4_v2.1.1"
    },
    "latest_prerelease": null,
-   "audited": "1.7.1",
+   "audited": "2.1.1",
    "stale": false
   },
   {
