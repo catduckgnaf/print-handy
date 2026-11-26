@@ -45,7 +45,7 @@ name = "Klipper"
 repo = "Klipper3d/klipper"
 feed = "tags"
 baseline = "0.14.0"
-basis = "Klipper 0.14.0 (tag v0.14.0, released 2026-11-20) audited against Print Handy contracts in docs/KLIPPER-014-AUDIT.md; reference AD5X remains separately documented at its tested 0.13 baseline"
+basis = "Klipper 0.14.0 (tag v0.14.0, released 2026-11-20) audited for #1906 against Print Handy contracts in docs/KLIPPER-014-AUDIT.md; reference AD5X remains separately documented at its tested 0.13 baseline"
 
 [[firmware]]
 name = "Moonraker"
