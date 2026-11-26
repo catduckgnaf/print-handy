@@ -177,6 +177,12 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     if recorded:
         try:
             temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed'])}
+            nozzle_initial = recorded.get('nozzle_initial_layer')
+            bed_initial = recorded.get('bed_initial_layer')
+            if nozzle_initial is not None:
+                temps['nozzle_initial_layer'] = float(nozzle_initial)
+            if bed_initial is not None:
+                temps['bed_initial_layer'] = float(bed_initial)
         except (KeyError, TypeError, ValueError):
             temps = None
         if temps is not None:
@@ -223,19 +229,37 @@ def _mismatch_own_temperatures(state, text, materials):
         return None
     from ..printers import job_checks
     from ..core.nozzle import NozzleError, get_nozzle_type_adjustments
-    nozzle = (job_checks._config_numbers(text, 'nozzle_temperature_initial_layer')
-              or job_checks._config_numbers(text, 'nozzle_temperature')
-              or [v for v in job_checks._commands(text, 'M109') + job_checks._commands(text, 'M104') if v > 0])
-    bed = ([v for v in job_checks._commands(text, 'M190') + job_checks._commands(text, 'M140') if v > 0]
-           or [v for key in job_checks._PLATE_KEYS for v in job_checks._config_numbers(text, key) if v > 0])
-    if not nozzle or not bed:
+    def first(values):
+        return next((float(value) for value in values if value > 0), None)
+
+    nozzle_normal = first(job_checks._config_numbers(text, 'nozzle_temperature'))
+    nozzle_initial = first(job_checks._config_numbers(text, 'nozzle_temperature_initial_layer'))
+    nozzle_commands = first(job_checks._commands(text, 'M109') + job_checks._commands(text, 'M104'))
+    nozzle_normal = nozzle_normal if nozzle_normal is not None else nozzle_commands
+    nozzle_initial = nozzle_initial if nozzle_initial is not None else nozzle_normal
+    # Initial-layer-only profiles still describe the file's effective nozzle target.
+    nozzle_normal = nozzle_normal if nozzle_normal is not None else nozzle_initial
+
+    bed_commands = first(job_checks._commands(text, 'M190') + job_checks._commands(text, 'M140'))
+    bed_normal = first(value for key in job_checks._PLATE_KEYS
+                       for value in job_checks._config_numbers(text, key))
+    bed_initial = first(value for key in job_checks._PLATE_KEYS
+                        for value in job_checks._config_numbers(text, f'{key}_initial_layer'))
+    bed_normal = bed_normal if bed_normal is not None else (bed_commands if bed_commands is not None else bed_initial)
+    bed_initial = bed_initial if bed_initial is not None else (bed_normal if bed_normal is not None else bed_commands)
+    if nozzle_normal is None or bed_normal is None:
         return None
     try:
         offset = get_nozzle_type_adjustments(printer_state.recorded_nozzle_type(state))['temp_offset_c']
     except NozzleError:
         return None
     # The file carries the effective target (base plus the nozzle-type offset); temps_c holds the base.
-    return {'nozzle': float(nozzle[0]) - offset, 'bed': float(bed[0])}
+    temps = {'nozzle': nozzle_normal - offset, 'bed': bed_normal}
+    if nozzle_initial is not None:
+        temps['nozzle_initial_layer'] = nozzle_initial - offset
+    if bed_initial is not None:
+        temps['bed_initial_layer'] = bed_initial
+    return temps
 
 
 def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None, slot=None):
@@ -624,7 +648,17 @@ def _recorded_temperatures(job, gcode_path):
                 provenance = row.get('provenance')
                 break
     temps = (provenance or {}).get('temperatures') if isinstance(provenance, dict) else None
-    return temps if isinstance(temps, dict) else None
+    if isinstance(temps, dict):
+        layers = (provenance or {}).get('layer_temperatures')
+        result = dict(temps)
+        if isinstance(layers, dict):
+            nozzle = layers.get('nozzle', temps.get('nozzle'))
+            bed = layers.get('bed', temps.get('bed'))
+            if nozzle is not None:
+                result['nozzle_initial_layer'] = nozzle
+            if bed is not None:
+                result['bed_initial_layer'] = bed
+        return result
 
 
 def _verification_facts_digest(state):
