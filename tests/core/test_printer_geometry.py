@@ -51,5 +51,18 @@ def test_the_inset_bed_mesh_does_not_shrink_the_bed():
 
 def test_the_axis_length_is_position_max_less_position_min_and_the_mesh_is_the_fallback():
     assert from_configfile(_config(stepper_x={"position_max": "245", "position_min": "-5"},
-                                   stepper_y={"position_max": "300", "position_min": "20"}))["bed_mm"] == [245.0, 280.0]
+                                   stepper_y={"position_max": "300", "position_min": "20"}))["bed_mm"] == [250.0, 280.0]
     assert from_configfile(_config(bed_mesh={"mesh_min": "5, 5", "mesh_max": "215, 215"}))["bed_mm"] == [210.0, 210.0]
+
+
+def test_klipper_014_dynamic_coordinate_fixture_has_more_than_four_axes():
+    import json
+    from pathlib import Path
+
+    fixture = Path(__file__).parents[1] / "fixtures" / "klipper" / "v0.14.0-dynamic-coordinates.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    position = payload["objects"]["toolhead"]["position"]
+    axis_map = payload["objects"]["gcode_move"]["axis_map"]
+    assert len(position) == 5
+    assert position[axis_map["E"]] == 7.0
+    assert position[2] == 5.25
