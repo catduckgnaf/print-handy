@@ -9,6 +9,8 @@ import copy
 import json
 from pathlib import Path
 
+from print_handy.core import printer_state
+
 import pytest
 
 from print_handy import printers, settings
