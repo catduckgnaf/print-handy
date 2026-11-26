@@ -1363,6 +1363,56 @@ def test_model_question_link_is_still_recognized(text):
     assert model_link(text) == 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-3848581'
 
 
+def test_linked_maker_profile_and_authored_plate_reach_slice(env, monkeypatch):
+    """Synthetic MakerWorld replay: both URL profile and explicit plate stay scoped."""
+    url = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-3848581'
+    rows = [
+        {'instance_id': 3848581, 'title': 'Linked profile'},
+        {'instance_id': 3873478, 'title': 'Other profile'},
+    ]
+    monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda _url: {
+        'site': 'makerworld', 'slug': 'frame', 'title': 'Frame', 'sources': rows})
+    selected = []
+
+    def download(job, chosen, dest):
+        selected.append(chosen['instance_id'])
+        return _copy(env.tmp / 'source.3mf', dest)
+
+    monkeypatch.setattr(jobs_sources, 'maker_download', download)
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
+              message_id='profile-plate', text=url + ' print plate 1')
+    # Select Slice and Download, then Done. This reaches the slice stub without starting a print.
+    adapter = Adapter([2, 0, 1, 2])
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    assert selected == [3848581]
+    assert not any('print profiles' in q['question'] for q in adapter.questions)
+    job_path = next((env.tmp / 'archive').glob('*/JOB.json'))
+    job = json.loads(job_path.read_text())
+    assert job['selected_source']['instance_id'] == 3848581
+    assert job['selected_plates'] == ['1']
+    assert len(env.sliced) == 1
+    assert job['derived_plates']
+    assert env.starts == []
+
+
+def test_unavailable_linked_maker_profile_refuses_without_fallback(env, monkeypatch):
+    url = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-9999999'
+    rows = [{'instance_id': 3848581, 'title': 'Available profile'}]
+    monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda _url: {
+        'site': 'makerworld', 'slug': 'frame', 'title': 'Frame', 'sources': rows})
+    downloads = []
+    monkeypatch.setattr(jobs_sources, 'maker_download',
+                        lambda *args: downloads.append(args) or pytest.fail('must not download fallback'))
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
+              message_id='missing-profile', text=url)
+    adapter = Adapter([])
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    assert downloads == []
+    assert env.starts == [] and not env.sliced
+    assert not any('print profiles' in q['question'] for q in adapter.questions)
+    assert not list((env.tmp / 'archive').glob('*/JOB.json'))
+
+
 def test_linked_maker_profile_is_selected_automatically(env, monkeypatch):
     url = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-3848581'
     rows = [
