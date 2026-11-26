@@ -277,16 +277,25 @@ class PlanActions(unittest.TestCase):
         ]
         findings = [
             watch.Finding(
-                firmware=issue.firmware,
+                firmware="Klipper",
                 baseline_description="test baseline",
-                baseline="0.15.0" if issue.number == 1906 else "0.0.0",
-                newer_release=None if issue.number == 1906 else release(issue.version),
-                baseline_caught_up=lambda version, issue=issue: (
-                    issue.number == 1906 and version == "0.15.0"
-                ),
-                group=issue.firmware,
-            )
-            for issue in originals
+                baseline="0.15.0",
+                newer_release=None,
+                baseline_caught_up=lambda version: watch.firmware_version_key(version)
+                <= watch.firmware_version_key("0.15.0"),
+                group="Klipper",
+            ),
+            *[
+                watch.Finding(
+                    firmware=issue.firmware,
+                    baseline_description="test baseline",
+                    baseline="0.0.0",
+                    newer_release=release(issue.version),
+                    baseline_caught_up=lambda _version: False,
+                    group=issue.firmware,
+                )
+                for issue in originals[1:5]
+            ],
         ]
         actions = watch.plan_actions(findings, originals)
         self.assertEqual(
