@@ -86,11 +86,12 @@ def expected_family_values(model, material):
 @pytest.mark.parametrize("material", sorted(TABLE))
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
-    assert tuple(filament[key][0] for key in KEYS) == expected_family_values(model, material)
+    expected_family = list(expected_family_values(model, material))
     if model.startswith("flashforge.") and material != "PLA":
         vendor_high = vendor_value(model, material, "nozzle_temperature_range_high")
         if vendor_high:
-            assert filament["nozzle_temperature_range_high"] == vendor_high
+            expected_family[7] = vendor_high[0]
+    assert tuple(filament[key][0] for key in KEYS) == tuple(expected_family)
     assert filament["filament_type"] == [material]
     # The shared resolver and emitted Orca profile must agree on normal-layer targets.
     assert nozzle == int(filament["nozzle_temperature"][0])
