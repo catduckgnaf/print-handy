@@ -472,11 +472,12 @@ def vendor_layer(template: Mapping[str, Any], resolution: Resolution) -> dict[st
 def profile_name(resolution: Resolution | None, material: str, slot: int | None = None) -> str:
     """The filament profile name a slice records (``name`` and ``filament_settings_id``).
 
-    #123: the archived PETG G-code was reported with the PLA profile label and a 1.05 flow.
-    The label alone cannot establish where that ratio came from: the template, material
-    tuning or the fitted nozzle multiplier may each affect it. The original archived
-    job records are needed to establish that source (#1832). Do not infer it from the label.
-    The current profile naming rule prevents the misleading PLA label for non-PLA jobs.
+    # Nozzle-specific multipliers compose with the selected profile's base ratio.
+    # The archived #123 PETG G-code's 1.05 is now traced: the archived
+    # filament template had flow 1.0 and the recorded DUROZZLE tungsten-carbide
+    # nozzle had multiplier 1.05. Its old PLA profile label was accurate about
+    # the template layer but not sufficient to identify the final flow source.
+    # Current profile naming prevents that mismatch for new jobs.
 
     The vendor profile's own name when one was resolved ("Flashforge HS PETG @FF AD5X"), otherwise the
     library generic for the material ("Print Handy PETG (library generic)"), never the printer template's
