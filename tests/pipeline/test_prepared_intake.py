@@ -1911,7 +1911,9 @@ def test_multipart_author_suggested_selected_roles_reach_slice_without_start(env
     assert 'Eyes: designer color: Black' in final['question']
     decisions = job['color_decisions']
     assert decisions['mode'] == 'per_part'
-    assert {value['color'].lower() for value in decisions['choices'].values()} >= {'white', 'black'}
+    parts = {part['name']: f"part:{part['key']}" for part in job['color_manifest']['parts']}
+    assert decisions['choices'][parts['Shell']]['color'].lower() == "white"
+    assert decisions['choices'][parts['Eyes']]['color'].lower() == "black"
 
 
 def test_audit_manifest_reused_only_when_bound_to_current_source_bytes(env, monkeypatch):
