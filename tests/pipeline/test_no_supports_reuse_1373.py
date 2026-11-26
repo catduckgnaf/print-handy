@@ -44,3 +44,29 @@ def test_take_no_supports_keeps_a_real_no_supports_slice(tmp_path):
     bg.job_no_supports = {'title': 'dino'}
     bg.result = [_gcode(tmp_path / 'plate_1.gcode', 0)]
     assert asyncio.run(bg.take_no_supports()) == bg.result
+
+
+def test_sliced_with_supports_reads_only_the_support_setting(tmp_path, monkeypatch):
+    from print_handy.core import edit_plan
+
+    original = edit_plan._config_value
+    scanned = []
+
+    def only_support_key(text, key):
+        scanned.append(key)
+        assert key == "enable_support"
+        return original(text, key)
+
+    monkeypatch.setattr(edit_plan, "_config_value", only_support_key)
+    path = _gcode(tmp_path / "support.gcode", 1)
+    assert _sliced_with_supports(path) is True
+    assert scanned == ["enable_support"]
+
+
+def test_sliced_with_supports_preserves_first_matching_value(tmp_path):
+    path = tmp_path / "duplicate.gcode"
+    path.write_text(
+        "; enable_support = 0\n; enable_support = 1\n"
+        "; CONFIG_BLOCK_START\n; enable_support = 1\n; CONFIG_BLOCK_END\n"
+    )
+    assert _sliced_with_supports(path) is False
