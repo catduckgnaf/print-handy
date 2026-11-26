@@ -169,9 +169,12 @@ def test_ad5x_hs_petg_slice_and_verification_share_temperatures(slice_inputs, ex
     text = '; filament_type = "PETG"\n'
     text += f"; nozzle_temperature_initial_layer = {nozzle}\n; hot_plate_temp_initial_layer = {bed}\n"
     verified = gcode_verify._with_gcode_temperatures(state, text)
-    assert verified["temps_c"] == {"nozzle": expected[0], "bed": expected[1],
-                                    "nozzle_initial_layer": vendor_nozzle_initial,
-                                    "bed_initial_layer": vendor_bed_initial}
+    expected_temps = {"nozzle": expected[0], "bed": expected[1]}
+    if vendor_nozzle_initial != expected[0]:
+        expected_temps["nozzle_initial_layer"] = vendor_nozzle_initial
+    if vendor_bed_initial != expected[1]:
+        expected_temps["bed_initial_layer"] = vendor_bed_initial
+    assert verified["temps_c"] == expected_temps
 
 
 @pytest.mark.parametrize("label", ["operator setting", "Spoolman filament"])
