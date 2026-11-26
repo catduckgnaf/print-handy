@@ -166,7 +166,8 @@ def test_own_temperatures_are_the_gcodes_not_the_loaded_spools():
     temps = gcode_verify._mismatch_own_temperatures(state, _gcode("PETG", hotend=245, bed=85), ["PETG"])
     from print_handy.core.nozzle import get_nozzle_type_adjustments
     offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
-    assert temps == {"nozzle": 245 - offset, "bed": 85.0}
+    assert temps == {"nozzle": 245 - offset, "nozzle_initial_layer": 245 - offset,
+                     "bed": 85.0, "bed_initial_layer": 85.0}
     assert gcode_verify._mismatch_own_temperatures(state, _gcode("PLA"), ["PLA"]) is None
 
 

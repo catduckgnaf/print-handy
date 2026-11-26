@@ -243,7 +243,7 @@ def _mismatch_own_temperatures(state, text, materials):
                        for value in job_checks._config_numbers(text, key))
     bed_initial = first(value for key in job_checks._PLATE_KEYS
                         for value in job_checks._config_numbers(text, f'{key}_initial_layer'))
-    bed_normal = bed_normal if bed_normal is not None else bed_commands
+    bed_normal = bed_normal if bed_normal is not None else (bed_commands if bed_commands is not None else bed_initial)
     bed_initial = bed_initial if bed_initial is not None else (bed_normal if bed_normal is not None else bed_commands)
     if nozzle_normal is None or bed_normal is None:
         return None
