@@ -287,6 +287,8 @@ def _mcu_payload(version):
 @pytest.mark.parametrize("host,mcu,expected", [
     ("v0.13.0-100", "v0.13.0-90", "match"),       # same release triple: in step
     ("v0.13.0-100", "v0.12.0-289", "mismatch"),
+    ("v0.14.0-12-gabc123", "v0.13.0-200", "unknown"),  # 0.14 is outside ZMod-specific 13 check
+    ("v0.14.0-12-gabc123", "v0.14.0-12-gabc123", "unknown"),
     ("v0.12.0-289", "v0.11.0-1", "unknown"),      # only Klipper 13 is judged
     ("v0.13.0-100", None, "unknown"),
     ("v0.13.0-100", "garbage", "unknown"),

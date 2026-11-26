@@ -1,0 +1,11 @@
+{
+  "source": "https://www.klipper3d.org/Status_Reference.html#accessing-coordinates",
+  "release": "Klipper 0.14.0",
+  "objects": {
+    "toolhead": {"position": [12.5, 34.0, 5.25, 88.0, 7.0]},
+    "gcode_move": {
+      "gcode_position": [12.5, 34.0, 5.25, 88.0, 7.0],
+      "axis_map": {"X": 0, "Y": 1, "Z": 2, "E": 4}
+    }
+  }
+}
