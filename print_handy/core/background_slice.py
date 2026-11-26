@@ -573,8 +573,8 @@ def _sliced_with_supports(result):
             text = Path(path).read_text(errors='replace')
         except (OSError, TypeError, ValueError):
             continue
-        from .edit_plan import gcode_config
-        if str(gcode_config(text).get('enable_support') or '').strip() == '1':
+        from .edit_plan import _config_value
+        if str(_config_value(text, "enable_support") or '').strip() == '1':
             return True
     return False
 
