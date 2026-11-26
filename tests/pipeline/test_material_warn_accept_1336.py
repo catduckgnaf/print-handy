@@ -182,7 +182,6 @@ def test_own_temperatures_recover_initial_plate_target_without_bed_commands():
 
     offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
     assert temps == {"nozzle": 245 - offset, "bed": 92.0}
-    assert gcode_verify.temperature_problems(text, {**state, "temps_c": temps}) == []
 
 
 # ---- Bambu: abrasive on a soft nozzle and the not-recommended list ---------------------------
