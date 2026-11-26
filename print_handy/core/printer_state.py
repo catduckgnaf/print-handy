@@ -428,7 +428,7 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
     if printer_model is None:
         try:
             from .. import printers as _printers
-            printer_model = getattr(_printers.current().model, "key", None)
+            printer_model = getattr(getattr(_printers.current(), "model", None), "key", None)
         except (KeyError, TypeError, ValueError):
             printer_model = settings.current().get("printer", {}).get("model")
     model = printer_model
