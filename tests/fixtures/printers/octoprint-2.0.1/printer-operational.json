@@ -1,0 +1,4 @@
+{
+  "state": {"text": "Operational", "flags": {"operational": true, "ready": true, "printing": false, "paused": false, "error": false, "closedOrError": false}},
+  "temperature": {"tool0": {"actual": 24.5, "target": 0.0, "offset": 0}, "bed": {"actual": 23.1, "target": 0.0, "offset": 0}}
+}

@@ -1,6 +1,8 @@
 """Offline OctoPrint protocol checks, never contacts a printer."""
 import json
+from pathlib import Path
 from unittest.mock import Mock
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -66,49 +68,109 @@ def _adapter():
     return printers.get(model, settings.load(local=False, environ={'PRINT_HANDY__PRINTER__MODEL': model}))
 
 
-def test_octoprint_201_connection_status_fixture_redacts_parameters():
-    """Pin the 2.0.1 STATUS-only /api/connection contract offline."""
-    from pathlib import Path
+_FIXTURES = Path(__file__).parent.parent / 'fixtures/printers/octoprint-2.0.1'
 
-    fixture = Path(__file__).parent.parent / 'fixtures/printers/octoprint-2.0.1/connection-status-permission.json'
-    response = json.loads(fixture.read_text())
-    assert response['current']['parameters'] == {}
-    assert response['current']['connector'] == 'bambu'
+
+def _fixture(name):
+    return json.loads((_FIXTURES / name).read_text())
+
+
+class _Recorder:
+    """Opener that serves canned responses and records every request made."""
+
+    def __init__(self, responses=None):
+        self.responses = responses or {}
+        self.requests = []
+
+    def __call__(self, req, timeout=None):
+        self.requests.append(req)
+        body = json.dumps(self.responses.get(urlsplit(req.full_url).path, {})).encode()
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = body
+        return response
+
+
+def test_status_reads_2_0_1_fixtures_and_never_requests_connection_endpoint():
+    """Status uses only /api/printer and /api/job, so no connector parameters are fetched.
+
+    OctoPrint 2.0.1's unversioned GET /api/connection still returns the serial
+    port and baudrate to any STATUS-only key; the 2.0.0+ shape redacts parameters
+    without CONNECTION permission. Print Handy sends no X-OctoPrint-Api-Version
+    header and must not call the endpoint in either shape.
+    """
+    opener = _Recorder({'/api/printer': _fixture('printer-operational.json'), '/api/job': _fixture('job-idle.json')})
+    c = OctoPrintClient('http://octoprint.invalid', 'test-key', opener=opener)
+    snapshot = c.status()
+    assert [urlsplit(r.full_url).path for r in opener.requests] == ['/api/printer', '/api/job']
+    assert all(r.get_header('X-octoprint-api-version') is None for r in opener.requests)
+    assert all(r.get_header('X-api-key') == 'test-key' for r in opener.requests)
+    out = _adapter().normalize_status(snapshot)
+    assert out['state'] == 'standby'
+    assert out['hotend_c'] == 24.5
+    assert out['bed_c'] == 23.1
+
+
+def test_no_client_request_targets_connection_or_version_endpoints(tmp_path):
+    """Every client method stays off /api/connection and /api/version."""
+    gcode = tmp_path / 'part.gcode'
+    gcode.write_bytes(b'G28\n')
+    ready = {'state': {'flags': {'operational': True, 'ready': True}}}
+    opener = _Recorder({
+        '/api/printer': ready,
+        '/api/files/local': {'files': {'local': {'origin': 'local', 'path': 'part.gcode'}}},
+        '/api/timelapse': {'files': [], 'unrendered': []},
+    })
+    c = OctoPrintClient('http://octoprint.invalid', 'test-key', opener=opener)
+    c.status()
+    c.upload(gcode, 'part.gcode')
+    c.start('part.gcode', 60, 210)
+    c.timelapse_movies()
+    c.timelapse_unrendered()
+    c.download('/downloads/timelapse/movie.mp4')
+    c.send_commands(['M105'])
+    for action in ('pause', 'resume', 'cancel'):
+        c.control(action)
+    paths = [urlsplit(r.full_url).path for r in opener.requests]
+    assert len(paths) >= 12
+    assert not [p for p in paths if p.startswith(('/api/connection', '/api/version'))]
+
+
+def test_octoprint_adapter_source_never_names_connection_endpoint():
+    """Static guard: the adapter package has no reference to /api/connection."""
+    root = Path(__file__).parent.parent.parent / 'print_handy/printers/octoprint'
+    offenders = [f.name for f in root.glob('*.py') if '/api/connection' in f.read_text()]
+    assert offenders == []
+
+
+def test_octoprint_201_connection_fixtures_pin_per_shape_exposure():
+    """Document what each upstream shape discloses to a STATUS-only key (sanitized fixtures)."""
+    redacted = _fixture('connection-status-no-connection-permission.json')
+    assert redacted['current']['parameters'] == {}
+    assert redacted['current']['connector'] == 'bambu'
+    legacy = _fixture('connection-status-legacy-unversioned.json')
+    assert legacy['current']['port'] and legacy['current']['baudrate']
+    assert 'parameters' not in legacy['current']
 
 
 def test_octoprint_201_default_version_fixture_keeps_legacy_api_marker():
-    """Without X-OctoPrint-Api-Version, 2.0.1 still documents api=0.1."""
-    from pathlib import Path
-
-    fixture = Path(__file__).parent.parent / 'fixtures/printers/octoprint-2.0.1/version-default-api.json'
-    response = json.loads(fixture.read_text())
-    assert response == {'api': '0.1', 'server': '2.0.1', 'text': 'OctoPrint 2.0.1'}
+    """Without X-OctoPrint-Api-Version, 2.0.1 still reports api 0.1."""
+    assert _fixture('version-default-api.json') == {'api': '0.1', 'server': '2.0.1', 'text': 'OctoPrint 2.0.1'}
 
 
-def test_status_does_not_query_connection_settings_or_disclose_connector_parameters():
-    """OctoPrint 2.0.1 hides connector credentials without CONNECTION permission.
-
-    Print Handy's read-only status contract needs only /api/printer and
-    /api/job; it must not request /api/connection, whose pre-2.0.0 API
-    shape can disclose connector parameters to STATUS-only accounts.
-    """
-    c = OctoPrintClient('http://octoprint.invalid', 'test-key')
-    c.request = Mock(side_effect=[{}, {}])
-    assert c.status() == {'printer': {}, 'job': {}}
-    assert [call.args for call in c.request.call_args_list] == [
-        ('GET', '/api/printer'), ('GET', '/api/job')]
-
-
-def test_optional_firmware_identity_is_not_required_for_rest_status():
+def test_status_without_firmware_identity_normalizes_and_emits_no_identity():
     """OctoPrint 2.0.1 fixes serial crashes for M115 without FIRMWARE_NAME.
 
-    Its identity comes from serial M115, not the printer/job REST payloads
-    consumed by this adapter. Keep the REST path valid when it is absent.
+    Identity comes from serial M115, not the printer/job REST payloads this
+    adapter reads, so a snapshot without any firmware field is still valid and
+    the adapter invents no identity.
     """
-    out = _adapter().normalize_status({'printer': {'state': {'flags': {'ready': True, 'operational': True}}}, 'job': {}})
+    printer = _fixture('printer-operational.json')
+    assert not any('firmware' in key.lower() for key in printer)
+    out = _adapter().normalize_status({'printer': printer, 'job': _fixture('job-idle.json')})
     assert out['state'] == 'standby'
-    assert 'firmware_name' not in out
-    assert 'firmware_version' not in out
+    assert not [k for k in out if 'firmware' in k]
 
 
 def test_status_reports_targets_and_remaining_time():
