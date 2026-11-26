@@ -169,7 +169,8 @@ def evaluate(case, run):
         raise AssertionError("actual BackgroundSlice.start was never called")
     if len(run.slice_starts) != 1:
         raise AssertionError(f"expected one slice start, got {len(run.slice_starts)}")
-    if not any(event[0] == "slice" for event in run.events):
+    expected_slice_failure = case.expect.get("status") == "SLICE_FAILED"
+    if not expected_slice_failure and not any(event[0] == "slice" for event in run.events):
         raise AssertionError("fake slicer was never called")
 
 
