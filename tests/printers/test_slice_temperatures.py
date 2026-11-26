@@ -202,7 +202,7 @@ def test_material_matrix_reaches_orca_for_each_printer_family(slice_inputs, mode
         state = stale_state(material)
         state["printer_model"] = model
         _temps, resolution = printer_state.slice_temperatures(
-            state, filament={"material": material}, stored_ok=False)
+            state, filament={"material": material}, stored_ok=False, printer_model=model)
         want_nozzle = _temps["nozzle"]
         want_bed = _temps["bed"]
     assert (nozzle, bed) == (nozzle_effective(model, want_nozzle), want_bed)

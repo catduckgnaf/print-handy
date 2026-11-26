@@ -55,7 +55,7 @@ def test_stale_flashforge_state_does_not_apply_vendor_temperatures_to_other_adap
     temps, resolution = printer_state.slice_temperatures(
         state, filament=filament, stored_ok=False, printer_model="klipper.generic")
     assert temps == {"nozzle": 240, "bed": 85}
-    assert resolution.get("layer_temperatures", {}) == {}
+    assert resolution.get("layer_temperatures", {}) == {"nozzle": 240, "bed": 85}
     assert not any(str(source).startswith("vendor profile")
                    for source in (resolution.get("sources") or {}).values())
 
