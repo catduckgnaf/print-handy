@@ -1991,7 +1991,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     model_key = getattr(printer.model, 'key', None)
     if isinstance(model_key, str) and model_key:
         state = {**state, 'printer_model': model_key}
-    temps_c, resolution = slice_temperatures(state, spool_filament, _fetch_filament)
+    temps_c, resolution = slice_temperatures(state, spool_filament, _fetch_filament, printer_model=model_key)
     layer_temperatures = resolution.get('layer_temperatures') or {}
     temps_for_checks = {**temps_c,
                         'nozzle_initial_layer': layer_temperatures.get('nozzle', temps_c['nozzle']),

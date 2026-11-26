@@ -48,6 +48,30 @@ def test_high_speed_petg_slices_with_the_vendor_hs_petg_profile(slice_inputs):
     assert filament["enable_pressure_advance"] == ["0"]
 
 
+def test_stale_flashforge_state_does_not_apply_vendor_temperatures_to_other_adapter():
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    filament = {"material": "PETG", "name": "High Speed Matte Black PETG"}
+    temps, resolution = printer_state.slice_temperatures(
+        state, filament=filament, stored_ok=False, printer_model="klipper.generic")
+    assert temps == {"nozzle": 240, "bed": 85}
+    assert resolution.get("layer_temperatures", {}) == {}
+    assert not any(str(source).startswith("vendor profile")
+                   for source in (resolution.get("sources") or {}).values())
+
+
+def test_non_flashforge_slice_ignores_stale_flashforge_state(slice_inputs):
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    slice_inputs.spools[17] = {"id": 17, "filament": {"material": "PETG", "name": "High Speed Matte Black PETG",
+                                                      "settings_extruder_temp": None, "settings_bed_temp": None}}
+    nozzle, bed, filament = slice_inputs.slice("klipper.generic", state)
+    assert nozzle == 240
+    assert bed == 85
+    assert filament["nozzle_temperature"] == ["240"]
+    assert filament["nozzle_temperature_initial_layer"] == ["240"]
+
+
 def test_temperature_resolution_retains_both_layer_targets():
     state = stale_state("PETG")
     state["printer_model"] = AD5X

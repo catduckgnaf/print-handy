@@ -373,7 +373,7 @@ def resolve_material_temperatures(material, filament, config=None):
     return family, result, sources
 
 
-def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True):
+def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True, printer_model=None):
     """Nozzle/bed targets for slicing the job's selected spool, resolved from that spool.
 
     The stored temps_c is a printer-wide record: `set --spool` writes it, but slot
@@ -423,7 +423,15 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
     # Orca vendor temperatures are the material defaults when available; explicit
     # Spoolman/operator values remain authoritative. Keep normal and initial-layer
     # targets together so slicing and artifact verification share one resolution.
-    model = state.get("printer_model") or settings.current().get("printer", {}).get("model")
+    # The caller passes the active adapter's model explicitly. State is persisted across
+    # adapter changes and may contain a stale printer_model, so it is never authoritative.
+    if printer_model is None:
+        try:
+            from .. import printers as _printers
+            printer_model = getattr(_printers.current().model, "key", None)
+        except (KeyError, TypeError, ValueError):
+            printer_model = settings.current().get("printer", {}).get("model")
+    model = printer_model
     targets.update({"nozzle_initial_layer": targets["nozzle"], "bed_initial_layer": targets["bed"]})
     try:
         import math
