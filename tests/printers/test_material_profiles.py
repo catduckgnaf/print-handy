@@ -81,6 +81,11 @@ def expected_family_values(model, material):
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
     expected = expected_family_values(model, material)
+    if model.startswith("flashforge.") and material != "PLA":
+        vendor = vendor_value(model, material, "nozzle_temperature_range_high")
+        if vendor:
+            expected = tuple(vendor if key == "nozzle_temperature_range_high" else value
+                             for key, value in zip(KEYS, expected))
     assert tuple(filament[key][0] for key in KEYS) == expected
     assert filament["filament_type"] == [material]
     # The shared resolver and emitted Orca profile must agree on normal-layer targets.
@@ -521,9 +526,9 @@ class TestGuardsCheckTheRecord:
     def test_wrong_heater_temperatures_are_reported(self, model):
         adapter = guard_adapter(model)
         hot = adapter.gcode_problems(guard_gcode(adapter, hotend=235), guard_state())
-        assert any("nozzle temperature 235 C != recorded 215 C" in p for p in hot), hot
+        assert any("nozzle normal temperature 235 C != recorded 215 C" in p for p in hot), hot
         cold_bed = adapter.gcode_problems(guard_gcode(adapter, bed=40), guard_state())
-        assert any("bed temperature 40 C != recorded 60 C" in p for p in cold_bed), cold_bed
+        assert any("bed normal temperature 40 C != recorded 60 C" in p for p in cold_bed), cold_bed
         # Only the header says 215: a heater command at another temperature is not a match either.
         text = guard_gcode(adapter).replace("M104 S215", "M104 S230").replace("M109 S215", "M109 S230")
         assert any("no heater command sets the recorded nozzle temperature 215 C" in p
@@ -573,7 +578,8 @@ def test_a_multi_filament_file_is_checked_against_its_config_block(model):
     # Heater commands follow each tool's own target, so only the config block must carry the recorded one.
     assert adapter.gcode_problems(text.replace("M104 S215", "M104 S220"), guard_state()) == []
     wrong = text.replace("= 215,220", "= 225,230")
-    assert any("nozzle temperature 225 C != recorded 215 C" in p for p in adapter.gcode_problems(wrong, guard_state()))
+    assert any("nozzle normal temperature 225 C != recorded 215 C" in p
+               for p in adapter.gcode_problems(wrong, guard_state()))
 
 
 # ---------------------------------------------------------------- the operator record: no temperature_resolution

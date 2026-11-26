@@ -2082,9 +2082,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if printer.vendor_material_profiles:
             data, note = copy.deepcopy(template_filament), 'vendor filament profile'
             include_nozzle_temperature(data, nozzle_temp)
-            # Bambu's checked vendor targets are explicit spool overrides too; its source
-            # state has no shared Orca vendor temperatures, so preserve the profile initial target.
-            nozzle_initial_temp = nozzle_temp if 'nozzle_temperature_initial_layer' not in data else int(data['nozzle_temperature_initial_layer'][0])
+            # Bambu keeps its per-spool target for both layers; no shared layer resolution applies.
+            nozzle_initial_temp = nozzle_temp
             if slot is not None:
                 base = (data.get('filament_settings_id') or [data.get('name') or material])[0]
                 data.update({'name': f"{base} [slot {int(slot)}]", 'filament_settings_id': [f"{base} [slot {int(slot)}]"]})
