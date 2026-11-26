@@ -180,5 +180,5 @@ basis = "1.4.1 (2026-02-18) is the newest final Forge-X release; Print Handy's F
 name = "OpenCreator"
 repo = "FlashForge-C5-Modding-Group/OpenCreator"
 feed = "releases"
-baseline = "0.0.7.4"
-basis = "0.0.7.4 (2026-11-14) is the release whose source the OpenCreator contracts were verified against (docs/OPENCREATOR.md, #1490, #1555, #1556)"
+baseline = "0.0.7.6"
+basis = "0.0.7.6 (2026-11-22) audited against the 0.0.7.4 MCU/config baseline; 0.0.7.5 and 0.0.7.6 are host/runtime and HelixScreen installer changes only (docs/OPENCREATOR.md, tests/fixtures/opencreator/releases.json, #1906)"

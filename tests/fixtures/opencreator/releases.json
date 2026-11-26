@@ -1,0 +1,35 @@
+{
+  "_doc": "OpenCreator upstream release evidence for the 0.0.7.4 to 0.0.7.6 contract audit. Source: GitHub Releases and annotated tag refs, fetched 2026-11-25.",
+  "repository": "FlashForge-C5-Modding-Group/OpenCreator",
+  "releases": [
+    {
+      "tag": "0.0.7.4",
+      "tag_commit": "d3e9125a4f45a2ab832abf478d254bd9b43780fb",
+      "published_at": "2026-11-14T05:51:55Z",
+      "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.4",
+      "mcu_firmware": "Kalico 7ce49713",
+      "scope": ["toolhead MCU temperature sensor", "board fan behavior", "chamber heater heating check", "cooldown wipe Z", "bed PID_CALIBRATE option", "Kalico and MCU update behavior"]
+    },
+    {
+      "tag": "0.0.7.5",
+      "tag_commit": "08ee1668ac3e60d8ae296005330596c69467a600",
+      "published_at": "2026-11-18T23:32:24Z",
+      "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.5",
+      "mcu_firmware": "Kalico 7ce49713 (unchanged from 0.0.7.4)",
+      "scope": ["tunneled install hard-float Python", "network time at boot", "Python 3.8 fallback for oc-plugin and oc-tunneled"]
+    },
+    {
+      "tag": "0.0.7.6",
+      "tag_commit": "30d58984465bb55c61b437865b9e4b794cc4b666",
+      "published_at": "2026-11-22T08:46:20Z",
+      "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.6",
+      "mcu_firmware": "Kalico 7ce49713 (unchanged from 0.0.7.4 and 0.0.7.5)",
+      "scope": ["HelixScreen MIPS build", "HelixScreen updater beta channel"]
+    }
+  ],
+  "audit": {
+    "contracts_reviewed": ["Moonraker objects and status", "AFC/ACE readiness and lane mapping", "runout prompt action handling", "print start and temperature contract", "firmware component reporting", "HelixScreen interaction"],
+    "conclusion": "No Print Handy contract change established by 0.0.7.5 or 0.0.7.6 release notes: both retain the 0.0.7.4 MCU firmware and describe host runtime or HelixScreen installer changes. Existing AFC and ACE fail-closed / read-only behavior remains applicable.",
+    "hardware_unverified": ["Actual install and update on CFW and SBC editions", "HelixScreen MIPS beta installation and update", "AFC and ACE runout failover and dock temperatures", "Print Handy runout alert behavior during a physical print"]
+  }
+}
