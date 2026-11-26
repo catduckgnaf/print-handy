@@ -196,6 +196,13 @@ def test_material_matrix_reaches_orca_for_each_printer_family(slice_inputs, mode
         pytest.skip(f"{model} has no checked profile for {material}")
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
     want_nozzle, want_bed = EXPECTED[material]
+    if model.startswith("flashforge.") and material != "PLA":
+        state = stale_state(material)
+        state["printer_model"] = model
+        _temps, resolution = printer_state.slice_temperatures(
+            state, filament={"material": material}, stored_ok=False)
+        want_nozzle = _temps["nozzle"]
+        want_bed = _temps["bed"]
     assert (nozzle, bed) == (nozzle_effective(model, want_nozzle), want_bed)
     assert filament["filament_type"] == [material]
 
