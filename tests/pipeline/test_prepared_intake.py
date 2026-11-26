@@ -1381,7 +1381,8 @@ def test_linked_maker_profile_and_authored_plate_reach_slice(env, monkeypatch):
     monkeypatch.setattr(jobs_sources, 'maker_download', download)
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='profile-plate', text=url + ' print plate 1')
-    adapter = Adapter([2, 0, 3])  # proceed through synthetic color flow, then cancel start
+    # Select Slice and Download, then Done. This reaches the slice stub without starting a print.
+    adapter = Adapter([2, 0, 1, 2])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert selected == [3848581]
     assert not any('print profiles' in q['question'] for q in adapter.questions)
@@ -1389,8 +1390,9 @@ def test_linked_maker_profile_and_authored_plate_reach_slice(env, monkeypatch):
     job = json.loads(job_path.read_text())
     assert job['selected_source']['instance_id'] == 3848581
     assert job['selected_plates'] == ['1']
+    assert len(env.sliced) == 1
+    assert job['derived_plates']
     assert env.starts == []
-    assert not any(Path(p).exists() for p in env.sliced)
 
 
 def test_unavailable_linked_maker_profile_refuses_without_fallback(env, monkeypatch):
