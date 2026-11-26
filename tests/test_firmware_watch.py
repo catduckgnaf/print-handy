@@ -230,6 +230,79 @@ class PlanActions(unittest.TestCase):
             [(a.kind, a.version) for a in actions], [("create", "1.7.8")]
         )
 
+    def test_consolidated_original_closed_notices_dedupe_independently(self):
+        # #1906 consolidates these five notices without replacing their
+        # exact issue identities. A subsequent watch finds the same
+        # releases for all five; the closed originals suppress duplicates.
+        originals = [
+            watch.WatchIssue(1901, "Klipper", "0.14.0", open=False),
+            watch.WatchIssue(1902, "OctoPrint", "2.0.1", open=False),
+            watch.WatchIssue(1903, "QIDI Q1 Pro", "6.1.1", open=False),
+            watch.WatchIssue(1904, "QIDI X-Plus 4", "2.1.1", open=False),
+            watch.WatchIssue(1905, "OpenCreator", "0.0.7.6", open=False),
+        ]
+        findings = [
+            watch.Finding(
+                firmware=issue.firmware,
+                baseline_description="test baseline",
+                baseline="0.0.0",
+                newer_release=release(issue.version),
+                baseline_caught_up=lambda _version: False,
+                group=issue.firmware,
+            )
+            for issue in originals
+        ]
+        self.assertEqual(watch.plan_actions(findings, originals), [])
+        self.assertEqual(
+            [watch.issue_title(issue.firmware, issue.version) for issue in originals],
+            [
+                "Firmware release: Klipper 0.14.0",
+                "Firmware release: OctoPrint 2.0.1",
+                "Firmware release: QIDI Q1 Pro 6.1.1",
+                "Firmware release: QIDI X-Plus 4 2.1.1",
+                "Firmware release: OpenCreator 0.0.7.6",
+            ],
+        )
+
+    def test_consolidated_notice_partial_progress_closes_only_caught_up_issue(self):
+        # A baseline audit for one firmware closes only its open notice;
+        # the four already-closed consolidated notices remain untouched.
+        originals = [
+            watch.WatchIssue(1901, "Klipper", "0.14.0", open=False),
+            watch.WatchIssue(1902, "OctoPrint", "2.0.1", open=False),
+            watch.WatchIssue(1903, "QIDI Q1 Pro", "6.1.1", open=False),
+            watch.WatchIssue(1904, "QIDI X-Plus 4", "2.1.1", open=False),
+            watch.WatchIssue(1905, "OpenCreator", "0.0.7.6", open=False),
+            watch.WatchIssue(1906, "Klipper", "0.15.0", open=True),
+        ]
+        findings = [
+            watch.Finding(
+                firmware="Klipper",
+                baseline_description="test baseline",
+                baseline="0.15.0",
+                newer_release=None,
+                baseline_caught_up=lambda version: watch.firmware_version_key(version)
+                <= watch.firmware_version_key("0.15.0"),
+                group="Klipper",
+            ),
+            *[
+                watch.Finding(
+                    firmware=issue.firmware,
+                    baseline_description="test baseline",
+                    baseline="0.0.0",
+                    newer_release=release(issue.version),
+                    baseline_caught_up=lambda _version: False,
+                    group=issue.firmware,
+                )
+                for issue in originals[1:5]
+            ],
+        ]
+        actions = watch.plan_actions(findings, originals)
+        self.assertEqual(
+            [(action.kind, action.issue_number) for action in actions],
+            [("close", 1906)],
+        )
+
     def test_issue_body_names_the_audit_follow_up(self):
         findings = findings_for(releases=[release("1.7.7")])
         body = watch.issue_body(findings[0], release("1.7.7"))
