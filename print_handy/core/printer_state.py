@@ -676,6 +676,7 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=N
             return per_tool
     def resolve_for(spool_state, stored_ok=True):
         temps, resolution = slice_temperatures(spool_state, None, fetch_filament, stored_ok=stored_ok)
+        resolution = resolution or {}
         layers = resolution.get("layer_temperatures") or {}
         result = dict(temps)
         sources = resolution.get("sources") or {}
