@@ -154,3 +154,9 @@ def test_external_runner_fails_a_case_toml_refusal_with_the_wrong_reason(tmp_pat
     with pytest.raises(SystemExit):
         run_external_corpus.main()
     assert json.loads(results_path.read_text())[0]["result"] == "FAIL"
+
+
+def test_slice_failed_case_expectation_allows_no_print_start():
+    case = S(expect={"status": "SLICE_FAILED", "slice_error_contains": "an assembly cannot be split per slot", "says": ["cannot be split onto separate plates", "PH_SLICING_CONFIGURATION"], "started": False})
+    run = S(adapter=S(unanswered=[], errors=[], questions=[], sent=["cannot be split onto separate plates: PH_SLICING_CONFIGURATION"]), receipt={"status": "SLICE_FAILED", "slice_error": "an assembly cannot be split per slot"}, job={}, starts=[], slice_starts=[("slice_start", "job")], events=[("slice",)], gcodes=[], state={})
+    harness.check_expectations(case, run)
