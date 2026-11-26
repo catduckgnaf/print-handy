@@ -1889,7 +1889,7 @@ def test_multipart_first_prompt_offers_the_proposed_mapping(env, monkeypatch):
 
 def test_multipart_author_suggested_selected_roles_reach_slice_without_start(env, monkeypatch):
     """Production entry replay keeps author palette, suggestion and chosen spool distinct."""
-    adapter, _, _, _ = _slow_inventory_flow(env, monkeypatch, answers=(1, 0, 1, 2, 1))
+    adapter, _, _, _ = _slow_inventory_flow(env, monkeypatch, answers=(1, 0, 1, 0, 1))
     assert adapter.questions[0]['choices'][0] == 'Use these colors'
     assert adapter.questions[1]['question'].startswith('Choose the color/material for Shell, author made it White')
     assert adapter.questions[2]['question'].startswith('Choose the color/material for Eyes, author made it Black')
