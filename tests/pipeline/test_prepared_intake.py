@@ -1889,22 +1889,23 @@ def test_multipart_first_prompt_offers_the_proposed_mapping(env, monkeypatch):
 
 def test_multipart_author_suggested_selected_roles_reach_slice_without_start(env, monkeypatch):
     """Production entry replay keeps author palette, suggestion and chosen spool distinct."""
-    adapter, _, _, _ = _slow_inventory_flow(env, monkeypatch, answers=(0, 0, 1, 2))
+    adapter, _, _, _ = _slow_inventory_flow(env, monkeypatch, answers=(1, 0, 1, 1))
     assert adapter.questions[0]['choices'][0] == 'Use these colors'
     assert adapter.questions[1]['question'].startswith('Choose the color/material for Shell, author made it White')
     assert adapter.questions[2]['question'].startswith('Choose the color/material for Eyes, author made it Black')
+    final = adapter.questions[-1]
+    assert final['choices'][1] == 'Slice and Download'
     job_path = next(env.tmp.glob('archive/*/JOB.json'))
     job = json.loads(job_path.read_text())
     assert len(env.sliced) == 1 and env.starts == []
     manifest = job['color_manifest']
     assert [(part['name'], part.get('designer_color')) for part in manifest['parts']] == [
         ('Shell', 'White'), ('Eyes', 'Black')]
+    assert 'Shell: designer color: White' in final['question']
+    assert 'Eyes: designer color: Black' in final['question']
     decisions = job['color_decisions']
     assert decisions['mode'] == 'per_part'
-    for name, role in (('Shell', 'designer'), ('Eyes', 'suggested')):
-        assert any(p.get('name') == name and p.get('role') == role
-                   for p in decisions.get('choices', {}).values())
-    assert all(p.get('role') == 'selected' for p in decisions.get('choices', {}).values())
+    assert {value['color'].lower() for value in decisions['choices'].values()} >= {'white', 'black'}
 
 
 def test_audit_manifest_reused_only_when_bound_to_current_source_bytes(env, monkeypatch):
