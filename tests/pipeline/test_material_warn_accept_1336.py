@@ -205,9 +205,10 @@ def test_own_temperatures_recover_initial_layer_only_nozzle_target():
     from print_handy.core.nozzle import get_nozzle_type_adjustments
 
     state = _state("PLA")
-    text = (_gcode("PETG", hotend=245, bed=85)
-            .replace("; nozzle_temperature = 245", "")
-            .replace("M104 S245", "").replace("M109 S245", ""))
+    text = "\n".join(
+        line for line in _gcode("PETG", hotend=245, bed=85).splitlines()
+        if not line.startswith(("; nozzle_temperature =", "M104 S245", "M109 S245"))
+    )
 
     temps = gcode_verify._mismatch_own_temperatures(state, text, ["PETG"])
 
