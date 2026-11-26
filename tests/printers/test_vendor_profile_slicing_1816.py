@@ -57,10 +57,13 @@ def test_vendor_temperature_resolution_retains_both_layer_targets():
     assert {**temps, "nozzle_initial_layer": layers.get("nozzle", temps["nozzle"]),
             "bed_initial_layer": layers.get("bed", temps["bed"])} == expected
     assert resolution["layer_temperatures"] == {"nozzle": 240, "bed": 75}
+    state["printer_model"] = AD5X
+    state["temperature_resolution"] = resolution
+    state["temps_c"] = {**temps, "nozzle_initial_layer": 240, "bed_initial_layer": 75}
     assert printer_state.gcode_temperatures(
         state, ["PETG"], fetch_filament=lambda _sid: None,
         text='; filament_type = PETG\n; nozzle_temperature = 235\n; nozzle_temperature_initial_layer = 240\n',
-    ) == {"nozzle": 235, "bed": 75, "nozzle_initial_layer": 240, "bed_initial_layer": 75}
+    ) == expected
 
 
 def test_plain_petg_slices_with_the_vendor_generic_and_never_the_pla_name(slice_inputs):
@@ -154,9 +157,11 @@ def test_ad5x_hs_petg_slice_and_verification_share_temperatures(slice_inputs, ex
     }
     nozzle, bed, filament = slice_inputs.slice(AD5X, state)
     assert filament["nozzle_temperature"] == [str(expected[0])]
-    assert filament["nozzle_temperature_initial_layer"] == [str(expected[0])]
+    vendor_nozzle_initial = 240 if expected[0] == 235 and "settings_extruder_temp" not in explicit else expected[0]
+    assert filament["nozzle_temperature_initial_layer"] == [str(vendor_nozzle_initial)]
     assert filament["hot_plate_temp"] == [str(expected[1])]
-    assert filament["hot_plate_temp_initial_layer"] == [str(expected[1])]
+    vendor_bed_initial = 75 if expected[1] == 75 and "settings_bed_temp" not in explicit else expected[1]
+    assert filament["hot_plate_temp_initial_layer"] == [str(vendor_bed_initial)]
     assert (nozzle, bed) == expected
     assert filament["filament_settings_id"] == ["Flashforge HS PETG @FF AD5X"]
     # Re-resolve independently through the verification entry point, with no

@@ -1992,8 +1992,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     if isinstance(model_key, str) and model_key:
         state = {**state, 'printer_model': model_key}
     temps_c, resolution = slice_temperatures(state, spool_filament, _fetch_filament)
-    state = {**state, 'temps_c': temps_c, 'temperature_resolution': resolution,
-             '_layer_temperatures': resolution.get('layer_temperatures') or {}}
+    layer_temperatures = resolution.get('layer_temperatures') or {}
+    temps_for_checks = {**temps_c,
+                        'nozzle_initial_layer': layer_temperatures.get('nozzle', temps_c['nozzle']),
+                        'bed_initial_layer': layer_temperatures.get('bed', temps_c['bed'])}
+    state = {**state, 'temps_c': temps_for_checks, 'temperature_resolution': resolution,
+             '_layer_temperatures': layer_temperatures}
     from .printer_state import _material_temperature_contract
     _material_temperature_contract(state)  # a legacy record's stored temperatures still need a known material
     print(f"SLICE TEMPERATURES: {state['spool']['material']} nozzle {temps_c['nozzle']} °C, "
