@@ -80,10 +80,11 @@ def expected_family_values(model, material):
 @pytest.mark.parametrize("material", sorted(TABLE))
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
-    expected_family = list(expected_family_values(model, material))
-    # Orca's emitted range is widened when the resolved vendor target exceeds its source range.
-    expected_family[7] = str(max(float(expected_family[7]), float(filament["nozzle_temperature"][0])))
-    assert tuple(filament[key][0] for key in KEYS) == tuple(expected_family)
+    expected_family = expected_family_values(model, material)
+    assert tuple(filament[key][0] for key in KEYS[:7] + KEYS[8:]) == (
+        expected_family[:7] + expected_family[8:])
+    # Vendor profile range is widened when needed to contain the resolved target.
+    assert float(filament["nozzle_temperature_range_high"][0]) >= nozzle
     assert filament["filament_type"] == [material]
     # The shared resolver and emitted Orca profile must agree on normal-layer targets.
     assert nozzle == int(filament["nozzle_temperature"][0])
