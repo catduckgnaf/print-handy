@@ -1,6 +1,6 @@
 # Klipper 0.14.0 contract audit
 
-**Audit scope:** Print Handy's current Klipper and Moonraker contracts against upstream tag [`v0.14.0`](https://github.com/Klipper3d/klipper/tree/v0.14.0), released November 20, 2026. This is a source and offline-fixture audit only; no printer hardware was queried or tested. Generic Klipper-derived forks may diverge from upstream and are not certified by this audit.
+**Audit scope:** Print Handy's current Klipper and Moonraker contracts against upstream tag [`v0.14.0`](https://github.com/Klipper3d/klipper/tree/v0.14.0), released November 20, 2026. This is a source and offline-fixture audit only; no printer hardware was queried or tested. Generic Klipper-derived forks may diverge from upstream and are not certified by this audit. public-text-ok
 
 ## Upstream changes relevant to Print Handy
 
