@@ -176,9 +176,13 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     state = printer_state.with_artifact_spool(state, text, lines)
     if recorded:
         try:
-            temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed']),
-                     'nozzle_initial_layer': float(recorded.get('nozzle_initial_layer', recorded['nozzle'])),
-                     'bed_initial_layer': float(recorded.get('bed_initial_layer', recorded['bed']))}
+            temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed'])}
+            nozzle_initial = recorded.get('nozzle_initial_layer')
+            bed_initial = recorded.get('bed_initial_layer')
+            if nozzle_initial is not None and float(nozzle_initial) != temps['nozzle']:
+                temps['nozzle_initial_layer'] = float(nozzle_initial)
+            if bed_initial is not None and float(bed_initial) != temps['bed']:
+                temps['bed_initial_layer'] = float(bed_initial)
         except (KeyError, TypeError, ValueError):
             temps = None
         if temps is not None:
@@ -628,9 +632,15 @@ def _recorded_temperatures(job, gcode_path):
     temps = (provenance or {}).get('temperatures') if isinstance(provenance, dict) else None
     if isinstance(temps, dict):
         layers = (provenance or {}).get('layer_temperatures')
-        return {**temps, 'nozzle_initial_layer': layers.get('nozzle', temps.get('nozzle')) if isinstance(layers, dict) else temps.get('nozzle'),
-                'bed_initial_layer': layers.get('bed', temps.get('bed')) if isinstance(layers, dict) else temps.get('bed')}
-    return None
+        result = dict(temps)
+        if isinstance(layers, dict):
+            nozzle = layers.get('nozzle', temps.get('nozzle'))
+            bed = layers.get('bed', temps.get('bed'))
+            if nozzle is not None and nozzle != temps.get('nozzle'):
+                result['nozzle_initial_layer'] = nozzle
+            if bed is not None and bed != temps.get('bed'):
+                result['bed_initial_layer'] = bed
+        return result
 
 
 def _verification_facts_digest(state):
