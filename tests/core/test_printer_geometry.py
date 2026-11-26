@@ -51,5 +51,25 @@ def test_the_inset_bed_mesh_does_not_shrink_the_bed():
 
 def test_the_axis_length_is_position_max_less_position_min_and_the_mesh_is_the_fallback():
     assert from_configfile(_config(stepper_x={"position_max": "245", "position_min": "-5"},
-                                   stepper_y={"position_max": "300", "position_min": "20"}))["bed_mm"] == [245.0, 280.0]
+                                   stepper_y={"position_max": "300", "position_min": "20"}))["bed_mm"] == [250.0, 280.0]
     assert from_configfile(_config(bed_mesh={"mesh_min": "5, 5", "mesh_max": "215, 215"}))["bed_mm"] == [210.0, 210.0]
+
+
+def test_klipper_014_dynamic_coordinates_are_read_by_the_cancel_report():
+    """The cancel report reads Z from a status position that has more than four entries."""
+    import json
+    from pathlib import Path
+
+    from print_handy.runtime import klipper_report
+
+    fixture = Path(__file__).parents[1] / "fixtures" / "klipper" / "v0.14.0-dynamic-coordinates.json"
+    objects = json.loads(fixture.read_text(encoding="utf-8"))["objects"]
+    assert len(objects["toolhead"]["position"]) == 5
+    assert objects["gcode_move"]["axis_map"]["E"] == 4
+    base = {"webhooks": {"state": "ready"}, "print_stats": {"state": "cancelled", "print_duration": 60}}
+    # gcode_move.gcode_position is preferred; toolhead.position is the fallback.
+    both = klipper_report.build("f.gcode", {**base, **objects}, [], "", by_bot=False, now=1792070000.0)
+    assert "nozzle at Z=5.25 mm" in both
+    only_toolhead = {**base, "toolhead": objects["toolhead"]}
+    fallback = klipper_report.build("f.gcode", only_toolhead, [], "", by_bot=False, now=1792070000.0)
+    assert "nozzle at Z=5.25 mm" in fallback

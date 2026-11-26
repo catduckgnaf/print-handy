@@ -36,10 +36,11 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 
 Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find your brand, model and firmware route, then [Printer support](PRINTER-SUPPORT.md) for what support means and the hardware checklist. A registered model or passing tests do not prove your physical printer has been verified.
 
-- [ZMod](ZMOD.md) · [Forge-X](FORGEX.md) · [OpenCreator](OPENCREATOR.md) · [Reforge](REFORGE.md) · [Stock Flashforge](FLASHFORGE-STOCK.md) · [AD5X best practices](DEVICE-AD5X.md)
+- [ZMod](ZMOD.md) · [Forge-X](FORGEX.md) · [OpenCreator](OPENCREATOR.md) · [OpenCreator 0.0.7.6 audit](OPENCREATOR-0.0.7.6-AUDIT.md) · [Reforge](REFORGE.md) · [Stock Flashforge](FLASHFORGE-STOCK.md) · [AD5X best practices](DEVICE-AD5X.md)
 - [Bambu Lab](BAMBU-LAB.md) · [Bambu connectivity details](BAMBU-CONNECTIVITY.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)
 - [Creality](CREALITY.md) · [Qidi](QIDI.md) · [Sovol](SOVOL.md)
 - [Anycubic](ANYCUBIC.md) · [Snapmaker](SNAPMAKER.md) · [OctoPrint and Marlin](OCTOPRINT-MARLIN.md)
+- [OctoPrint 2.0.1 REST contract audit](OCTOPRINT-2.0.1-AUDIT.md): upstream API changes checked against the OctoPrint adapter, with unverified server and connector behavior called out.
 - [Device best practices](DEVICE-BEST-PRACTICES.md)
 
 ## Troubleshooting
@@ -67,5 +68,6 @@ Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find yo
 - [Documentation audit, 15 November 2026](history/DOCUMENTATION-AUDIT-2026-11-15.md): the README and printer-guide accuracy pass behind 2.3.4.
 - [3MF conversion evidence matrix](history/3MF-CONVERSION-EVIDENCE.md): the criterion-by-criterion evidence for the foreign 3MF conversion work.
 - [Geometry soundness audit](history/GEOMETRY_AUDIT.md): what the sizing, rotation, mirroring, bed fit and support checks cover, and their known limits.
+- [Klipper 0.14 contract audit](KLIPPER-014-AUDIT.md): upstream compatibility evidence, coordinate status, host/MCU detection scope and fork limitations.
 
 These versioned `docs/` pages are the source of truth. Document features with the code and identify wiki impact in the [contribution checklist](../CONTRIBUTING.md#automated-pr-review-support). Use documentation for the checked-out revision; draft work is not shipped capability.

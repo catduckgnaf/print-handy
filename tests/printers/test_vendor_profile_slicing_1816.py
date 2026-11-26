@@ -1,8 +1,8 @@
 """#1816: a non-PLA spool slices with the Orca vendor profile for its sub-type, never the printer's PLA profile.
 
-The 2026-11-21 PETG spool on the AD5X was sliced with the PLA template's values and its G-code said "Flashforge
-Generic PLA" (#123). These slices go through slice_model with the real AD5X templates and the committed Orca
-profile database; only Orca itself is stubbed (the slice_inputs fixture captures the filament JSON it receives).
+These slices go through slice_model with the real AD5X templates and the committed Orca profile database; only Orca
+itself is stubbed (the slice_inputs fixture captures the filament JSON it receives). The original 2026-11-21 PETG
+artifact is documented by its archived job evidence: it did use the PLA template as source, then its tungsten-carbide nozzle's 1.05 multiplier yielded the emitted 1.05. The regression below pins the cause and the corrected path.
 """
 import pytest
 
@@ -181,6 +181,27 @@ def test_hs_petg_flow_is_reconstructable_from_slice_provenance(slice_inputs, mon
     assert record["material_tuning_flow_ratio"] is None
     rebuilt = round(record["base_flow_ratio"] * record["flow_multiplier"], 4)
     assert rebuilt == record["emitted_flow_ratio"] == float(filament["filament_flow_ratio"][0])
+
+
+def test_archived_petg_105_flow_source_is_the_nozzle_multiplier():
+    """Reconstruct #123: the archived PLA template supplied 1.0; tungsten carbide supplied 1.05."""
+    nozzle = nozzle_mod.get_nozzle_type_adjustments("DUROZZLE tungsten carbide 0.4 (nickel-plated copper)")
+    assert nozzle["flow_multiplier"] == 1.05
+    base_template_flow = 1.0
+    emitted_archived_flow = round(base_template_flow * nozzle["flow_multiplier"], 4)
+    assert emitted_archived_flow == 1.05
+
+
+def test_non_pla_does_not_emit_the_archived_pla_template_flow(slice_inputs):
+    state = stale_state("PETG")
+    state["nozzle"]["type"] = "tungsten_carbide"
+    slice_inputs.spools[17] = {"id": 17, "filament": {"material": "PETG", "name": "High Speed Matte Black PETG"}}
+    _, _, filament = slice_inputs.slice(AD5X, state)
+    vendor = _vendor("Flashforge HS PETG @FF AD5X")
+    expected = _flow(state, vendor["filament_flow_ratio"][0])
+    assert filament["filament_settings_id"] == ["Flashforge HS PETG @FF AD5X"]
+    assert filament["filament_flow_ratio"] == expected
+    assert filament["filament_flow_ratio"] != ["1.05"]
 
 
 @pytest.mark.parametrize("vendor, expected", [

@@ -1,0 +1,15 @@
+{
+  "current": {
+    "state": "Operational",
+    "connector": "bambu",
+    "parameters": {},
+    "capabilities": {"temperature_offsets": true},
+    "profile": "_default"
+  },
+  "options": {
+    "connectors": [
+      {"connector": "bambu", "name": "Bambu (local)", "parameters": {}}
+    ],
+    "profiles": [{"id": "_default", "name": "Default Profile"}]
+  }
+}

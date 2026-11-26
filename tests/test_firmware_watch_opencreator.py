@@ -31,7 +31,7 @@ class OpenCreatorIsWatched(unittest.TestCase):
 
     def test_baseline_is_the_audited_release_and_names_its_evidence(self):
         entry = self.watched["OpenCreator"]
-        self.assertEqual(entry.baseline, "0.0.7.4")
+        self.assertEqual(entry.baseline, "0.0.7.6")
         self.assertRegex(entry.baseline_source, r"#\d+")
 
     def test_watch_and_feed_follow_the_same_repository(self):
@@ -43,7 +43,7 @@ class OpenCreatorIsWatched(unittest.TestCase):
 
     def test_a_newer_release_opens_one_maintainer_notice(self):
         """The watch run with only the shipped OpenCreator entry: a release
-        newer than 0.0.7.4 opens exactly one issue naming it."""
+        newer than 0.0.7.6 opens exactly one issue naming it."""
         import tempfile
 
         entry = self.watched["OpenCreator"]
@@ -64,12 +64,12 @@ class OpenCreatorIsWatched(unittest.TestCase):
                     ("GET", "/repos/me/repo/labels/firmware-watch"): {"name": "x"},
                     ("POST", "/repos/me/repo/issues"): {"number": 12},
                     ("GET", f"/repos/{entry.repo}/releases"): [
-                        {"tag_name": "0.0.7.5", "name": "", "prerelease": False,
-                         "draft": False, "published_at": "2026-11-17T00:00:00Z",
-                         "html_url": "https://example.invalid/0.0.7.5"},
-                        {"tag_name": "0.0.7.4", "name": "", "prerelease": False,
-                         "draft": False, "published_at": "2026-11-14T00:00:00Z",
-                         "html_url": "https://example.invalid/0.0.7.4"},
+                        {"tag_name": "0.0.7.7", "name": "", "prerelease": False,
+                         "draft": False, "published_at": "2026-11-25T00:52:13Z",
+                         "html_url": "https://example.invalid/0.0.7.7"},
+                        {"tag_name": "0.0.7.6", "name": "", "prerelease": False,
+                         "draft": False, "published_at": "2026-11-22T08:46:20Z",
+                         "html_url": "https://example.invalid/0.0.7.6"},
                     ],
                 }.get(key, [])
 
@@ -82,7 +82,7 @@ class OpenCreatorIsWatched(unittest.TestCase):
             watch.run(Path(tmp), "me/repo", False, Client())
         writes = [c for c in calls if c[0] != "GET"]
         self.assertEqual(len(writes), 1, writes)
-        self.assertEqual(writes[0][2]["title"], "Firmware release: OpenCreator 0.0.7.5")
+        self.assertEqual(writes[0][2]["title"], "Firmware release: OpenCreator 0.0.7.7")
 
 
 if __name__ == "__main__":
