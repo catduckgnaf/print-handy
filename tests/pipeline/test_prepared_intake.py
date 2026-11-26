@@ -1395,6 +1395,40 @@ def test_linked_maker_profile_and_authored_plate_reach_slice(env, monkeypatch):
     assert env.starts == []
 
 
+
+def test_cached_linked_maker_profile_and_plate_reach_slice_offline(env, monkeypatch):
+    """Cached source replay preserves the link's profile and authored plate intent."""
+    url = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-3848581'
+    rows = [
+        {'instance_id': 3848581, 'title': 'Linked profile'},
+        {'instance_id': 3873478, 'title': 'Other profile'},
+    ]
+    monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda _url: {
+        'site': 'makerworld', 'slug': 'frame', 'title': 'Frame', 'sources': rows})
+    # Seed the normal source cache with a prior intake of the linked MakerWorld file.
+    cached = env.tmp / 'cached' / 'source.3mf'
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(source(env.tmp).read_bytes())
+    prior = env.tmp / 'archive' / 'prior' / 'JOB.json'
+    prior.parent.mkdir(parents=True)
+    prior.write_text(json.dumps({
+        'site': 'makerworld', 'selected_source': {'instance_id': 3848581},
+        'downloaded_file': str(cached),
+    }))
+    monkeypatch.setattr(jobs_sources, 'request_json',
+                        lambda *a, **kw: pytest.fail('cached MakerWorld replay must not use the network'))
+    event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
+              message_id='cached-profile-plate', text=url + ' print plate 1')
+    adapter = Adapter([2, 0, 1, 2])
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    job_path = max((env.tmp / 'archive').glob('*/JOB.json'), key=lambda p: p.stat().st_mtime_ns)
+    job = json.loads(job_path.read_text())
+    assert job['selected_source']['instance_id'] == 3848581
+    assert job['selected_plates'] == ['1']
+    assert not any('print profiles' in q['question'] for q in adapter.questions)
+    assert len(env.sliced) == 1 and env.starts == []
+
+
 def test_unavailable_linked_maker_profile_refuses_without_fallback(env, monkeypatch):
     url = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-9999999'
     rows = [{'instance_id': 3848581, 'title': 'Available profile'}]
