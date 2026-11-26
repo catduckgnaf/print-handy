@@ -201,6 +201,21 @@ def test_own_temperatures_recover_initial_plate_target_without_bed_commands():
                      "bed": 92.0, "bed_initial_layer": 92.0}
 
 
+def test_own_temperatures_recover_initial_layer_only_nozzle_target():
+    from print_handy.core.nozzle import get_nozzle_type_adjustments
+
+    state = _state("PLA")
+    text = (_gcode("PETG", hotend=245, bed=85)
+            .replace("; nozzle_temperature = 245", "")
+            .replace("M104 S245", "").replace("M109 S245", ""))
+
+    temps = gcode_verify._mismatch_own_temperatures(state, text, ["PETG"])
+
+    offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
+    assert temps == {"nozzle": 245 - offset, "nozzle_initial_layer": 245 - offset,
+                     "bed": 85.0, "bed_initial_layer": 85.0}
+
+
 # ---- Bambu: abrasive on a soft nozzle and the not-recommended list ---------------------------
 
 def test_ams_tray_of_another_material_warns_naming_the_tray_then_accepts():

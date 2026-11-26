@@ -237,6 +237,8 @@ def _mismatch_own_temperatures(state, text, materials):
     nozzle_commands = first(job_checks._commands(text, 'M109') + job_checks._commands(text, 'M104'))
     nozzle_normal = nozzle_normal if nozzle_normal is not None else nozzle_commands
     nozzle_initial = nozzle_initial if nozzle_initial is not None else nozzle_normal
+    # Initial-layer-only profiles still describe the file's effective nozzle target.
+    nozzle_normal = nozzle_normal if nozzle_normal is not None else nozzle_initial
 
     bed_commands = first(job_checks._commands(text, 'M190') + job_checks._commands(text, 'M140'))
     bed_normal = first(value for key in job_checks._PLATE_KEYS
