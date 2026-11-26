@@ -128,7 +128,7 @@ name = "QIDI Q1 Pro"
 repo = "QIDITECH/QIDI_Q1_Pro"
 feed = "releases"
 baseline = "6.1.1"
-basis = "Q1_PRO_V6.1.1 (2026-11-18, commit 61836007215a8b4f71418ac62059bc81c1f40b93) audited against the upstream release page and version README; QIDI documents configuration replacement and recalibration, disallows Fluidd filament management, and directs BOX settings to QIDI Studio. Print Handy refuses Fluidd-side screen and lane_data writes for this model; hardware behavior remains unverified."
+basis = "Q1_PRO_V6.1.1 (2026-11-18, commit 61836007215a8b4f71418ac62059bc81c1f40b93) audited under #1906 (PR #1923) against the upstream release page and version README; QIDI documents configuration replacement and recalibration, disallows Fluidd filament management, and directs BOX settings to QIDI Studio. Print Handy refuses Fluidd-side screen and lane_data writes for this model; hardware behavior remains unverified."
 
 [[firmware]]
 name = "QIDI X-Plus 3"
@@ -142,7 +142,7 @@ name = "QIDI X-Plus 4"
 repo = "QIDITECH/QIDI_PLUS4"
 feed = "releases"
 baseline = "2.1.1"
-basis = "Plus4_v2.1.1 (2026-11-18, commit ec595fc903540564be757bcafa745cd5c4a52cd0) audited against the upstream release page and version README; QIDI documents configuration replacement and recalibration, disallows Fluidd filament management, directs BOX settings to QIDI Studio, and adds support for new BOX firmware. Print Handy refuses Fluidd-side screen and lane_data writes for this model; hardware behavior remains unverified."
+basis = "Plus4_v2.1.1 (2026-11-18, commit ec595fc903540564be757bcafa745cd5c4a52cd0) audited under #1906 (PR #1923) against the upstream release page and version README; QIDI documents configuration replacement and recalibration, disallows Fluidd filament management, directs BOX settings to QIDI Studio, and adds support for new BOX firmware. Print Handy refuses Fluidd-side screen and lane_data writes for this model; hardware behavior remains unverified."
 
 [[firmware]]
 name = "QIDI X-Max 3"
