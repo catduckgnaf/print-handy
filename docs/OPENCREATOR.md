@@ -344,6 +344,13 @@ start would run the chamber above it (the file's first `M141` or
 settings block). The base Creator 5 has no chamber heater, so no
 chamber ceiling applies to its files.
 
+The 0.0.7.4 release loosened the chamber heater's heating check
+(`max_error: 600`, `hysteresis: 15`). Releases 0.0.7.5 and 0.0.7.6
+explicitly retain the same Kalico MCU firmware, so this audit found no
+later release-note change to the chamber control contract. This is a
+source/release-note comparison, not a hardware heating test. See
+[the 0.0.7.6 audit](OPENCREATOR-0.0.7.6-AUDIT.md).
+
 ### Readiness, the active tool and the AFC lane map
 
 Readiness and status ride on the `creator5_toolchanger` object
@@ -436,6 +443,21 @@ A complete runout prompt is mirrored with exactly its offered Load and continue
 create a guessed action. Discord, Telegram, Matrix and web chat use the same
 alert action path.
 
+Upstream [OpenCreator #19](https://github.com/FlashForge-C5-Modding-Group/OpenCreator/issues/19)
+reports a different concern: during an AFC runout, the operator chose a
+replacement tool manually, and the report says the docked tool remained at
+250 C while the replacement was selected and heated to 250 C, although the
+operator expected a lower-temperature handoff. The report's own log shows a
+manual `C5_TOOL_SELECT T=2`; it does not establish an automatic Print Handy
+selection or a temperature supplied by Print Handy. The reported Orca profile
+temperature was not propagated to that manual selection. Print Handy does not
+infer a replacement tool or its temperature from spool metadata, and the
+OpenCreator alert buttons below refuse to send commands even after a click.
+This report therefore exposes no matching Print Handy command-path defect.
+Do not select a replacement tool or resume based on the alert alone; check the
+printer's own control and temperature state. Any physical runout/dock-heating
+behavior remains unverified by Print Handy.
+
 On connection and when Klipper becomes ready, `power_loss_recovery` is queried.
 When `recovery_available` is true, one alert per observed interruption names the
 file, file-byte progress if valid, and the reported `holding_bed` state. Resume
@@ -465,6 +487,14 @@ alone is not evidence of filament presence. Print Handy never sends
 `SET_RUNOUT` or `SET_MAP` from this surface.
 
 ### Firmware updates
+
+The 0.0.7.6 release uses HelixScreen's MIPS build and moves an existing
+stable updater entry to beta. Print Handy reads the installed
+`helixscreen` component as reported by Moonraker and its offers; it does
+not install or change HelixScreen's channel. This installer change is
+therefore documented as a user-facing dependency/update detail, not a
+change to the firmware contract. Install/update on hardware is not
+verified here; the latest release 0.0.7.7 is outside this audit.
 
 Print Handy reports OpenCreator's update state and never installs an
 update (decided on #1490, 2026-11-15). `/print-firmware update` is
