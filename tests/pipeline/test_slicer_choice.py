@@ -65,6 +65,31 @@ def test_bambu_studio_primary_runs_once_and_is_not_a_fallback(tmp_path, monkeypa
     assert not (tmp_path / 'out' / 'orca.log').exists()
 
 
+def test_ineligible_fallback_is_not_spawned_and_cli_conflict_is_preserved(tmp_path, monkeypatch):
+    from dataclasses import replace
+    _allow_post(monkeypatch)
+    printer = bambu_adapter(monkeypatch, "orca")
+    printer.model = replace(printer.model, vendor=replace(printer.model.vendor, fallback_slicer=None))
+    monkeypatch.setattr(adapter.shutil, 'which', lambda _name: '/mock/bambu-studio')
+    monkeypatch.setattr(adapter.os, 'access', lambda *_args: True)
+    calls = []
+
+    def fail(command, **_kwargs):
+        calls.append(command)
+        return type('R', (), {'returncode': 1, 'stdout': (
+            'G-code conflicts detected after slicing.\n'
+            'gcode path conflicts found between BRONZE DETAILS and BLACK BODY.\n'), 'stderr': ''})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', fail)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state(), adapter=printer)
+    assert len(calls) == 1
+    assert caught.value.kind == 'conflict'
+    assert caught.value.returncode == 1
+    assert caught.value.as_dict()['conflict_objects'] == ['BRONZE DETAILS', 'BLACK BODY']
+    assert 'fallback skipped' in str(caught.value).lower()
+
+
 def test_bambu_vendor_with_orca_runs_orca(tmp_path, monkeypatch):
     _allow_post(monkeypatch)
     calls = []
