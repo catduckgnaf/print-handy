@@ -4,6 +4,7 @@ Buttons are answered via the real clarify gateway. Slicing is stubbed (offline, 
 through the real print_next.start gates with a stub print-now executable and a temp claim dir.
 """
 import asyncio
+import hashlib
 import json
 import stat
 import sys
@@ -1901,8 +1902,10 @@ def test_multipart_author_suggested_selected_roles_reach_slice_without_start(env
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     assert receipt['status'] == 'STARTED'
     assert receipt['bed_clear_approval']['via'] == 'button'
-    assert receipt['bed_clear_approval']['gcode'] == env.starts[0]['gcode']
-    assert receipt['bed_clear_approval']['gcode_sha256'] == env.starts[0]['gcode_sha256']
+    approved = receipt['bed_clear_approval']
+    assert approved['gcode'] == env.sliced[0]
+    assert approved['gcode_sha256'] == hashlib.sha256(Path(env.sliced[0]).read_bytes()).hexdigest()
+    assert approved['gcode_sha256'] == env.starts[0]['gcode_sha256']
     # The production approval summarizes the authored palette and chosen mapping.
     assert 'Shell: designer color: White' in final['question']
     assert 'Eyes: designer color: Black' in final['question']
