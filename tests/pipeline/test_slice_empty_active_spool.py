@@ -104,7 +104,7 @@ def test_verification_expects_the_slot_spools_own_temperatures_not_the_stored_re
     filled = printer_state.with_artifact_spool(state, MAPPED)
     expected = printer_state.gcode_temperatures(filled, ['PETG'], lambda sid: None, text=MAPPED)
     assert expected == sliced
-    assert expected == {'nozzle': 255, 'bed': 70, 'nozzle_initial_layer': 255, 'bed_initial_layer': 70}
+    assert expected == {'nozzle': 255, 'bed': 70}
     assert expected != {'nozzle': 210, 'bed': 60}
     printer_state._material_temperature_contract(filled)
 
