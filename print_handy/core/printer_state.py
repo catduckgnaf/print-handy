@@ -432,7 +432,10 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         if ftype is None or ftype.family is None:
             ftype = _ftype.from_text(material, spool.get("name") or spool.get("color"))
         nozzle_dia = (state.get("nozzle") or {}).get("diameter_mm")
-        if model and nozzle_dia and family != "PLA":
+        # The Orca vendor DB is only authoritative for Flashforge profiles in this
+        # resolver. Other adapter templates may carry stale printer identity in state;
+        # never apply a foreign vendor's material defaults to them.
+        if model and str(model).startswith("flashforge.") and nozzle_dia and family != "PLA":
             from . import orca_profile_db
             from .. import printers as _printers
             template = _printers.get(model, settings.current()).templates_dir() / "machine.json"
