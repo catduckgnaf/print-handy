@@ -2,8 +2,7 @@
 
 These slices go through slice_model with the real AD5X templates and the committed Orca profile database; only Orca
 itself is stubbed (the slice_inputs fixture captures the filament JSON it receives). The original 2026-11-21 PETG
-artifact is documented by its archived job evidence: it did use the PLA template as source, then its tungsten-carbide
-nozzle's 1.05 flow multiplier yielded the emitted 1.05. The regression below pins the cause and the corrected path.
+artifact is documented by its archived job evidence: it did use the PLA template as source, then its tungsten-carbide nozzle's 1.05 multiplier yielded the emitted 1.05. The regression below pins the cause and the corrected path.
 """
 import pytest
 

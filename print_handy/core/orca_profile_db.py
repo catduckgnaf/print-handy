@@ -473,12 +473,7 @@ def profile_name(resolution: Resolution | None, material: str, slot: int | None 
     """The filament profile name a slice records (``name`` and ``filament_settings_id``).
 
     # Nozzle-specific multipliers compose with the selected profile's base ratio.
-    # The archived #123 PETG G-code's 1.05 is now traced: the archived
-    # filament template had flow 1.0 and the recorded DUROZZLE tungsten-carbide
-    # nozzle had multiplier 1.05. Its old PLA profile label was accurate about
-    # the template layer but not sufficient to identify the final flow source.
-    # Current profile naming prevents that mismatch for new jobs.
-
+    # The archive establishes the template layer, not a brand or model name.
     The vendor profile's own name when one was resolved ("Flashforge HS PETG @FF AD5X"), otherwise the
     library generic for the material ("Print Handy PETG (library generic)"), never the printer template's
     PLA name for another material (#123: PETG G-code labeled "Flashforge Generic PLA"). A multi-slot or
