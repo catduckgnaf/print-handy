@@ -119,6 +119,7 @@ OVERRIDE_EXPECT = {
         "status": "SLICE_FAILED",
         "slice_error_contains": "an assembly cannot be split per slot",
         "says": ["cannot be split onto separate plates", "PH_SLICING_CONFIGURATION"],
+        "started": False,
     },
 }
 
