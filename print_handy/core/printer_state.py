@@ -433,7 +433,9 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
             ftype = _ftype.from_text(material, spool.get("name") or spool.get("color"))
         nozzle_dia = (state.get("nozzle") or {}).get("diameter_mm")
         if model and nozzle_dia and family != "PLA":
-            template = printers.get(model, settings.current()).templates_dir() / "machine.json"
+            from . import orca_profile_db
+            from .. import printers as _printers
+            template = _printers.get(model, settings.current()).templates_dir() / "machine.json"
             machine = json.loads(template.read_text(encoding="utf-8"))
             preset = orca_profile_db.printer_preset(
                 machine.get("printer_model"), float(nozzle_dia), preferred=machine.get("name"))
