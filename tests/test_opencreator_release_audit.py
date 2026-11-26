@@ -35,3 +35,17 @@ def test_audit_does_not_treat_upstream_runout_report_as_ph_verified_behavior():
     assert "AFC and ACE runout failover and dock temperatures" in evidence["audit"]["hardware_unverified"]
     assert "Print Handy runout alert behavior during a physical print" in evidence["audit"]["hardware_unverified"]
     assert "No Print Handy contract change established" in evidence["audit"]["conclusion"]
+
+
+def test_baseline_matches_last_fixture_tag_and_audit_names_it():
+    import tomllib
+
+    evidence = json.loads(CAPTURE.read_text(encoding="utf-8"))
+    last_tag = evidence["releases"][-1]["tag"]
+    baselines = tomllib.loads((ROOT / "docs" / "firmware-baselines.toml").read_text(encoding="utf-8"))
+    entries = [v for v in baselines.values() if isinstance(v, list)]
+    opencreator = [e for group in entries for e in group if isinstance(e, dict) and e.get("name") == "OpenCreator"]
+    assert len(opencreator) == 1
+    assert opencreator[0]["baseline"] == last_tag
+    audit = (ROOT / "docs" / "OPENCREATOR-0.0.7.6-AUDIT.md").read_text(encoding="utf-8")
+    assert last_tag in audit

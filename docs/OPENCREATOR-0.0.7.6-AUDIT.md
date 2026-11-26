@@ -4,7 +4,7 @@ OpenCreator 0.0.7.5 and 0.0.7.6 were reviewed against 0.0.7.4. Their release not
 
 The firmware baseline can therefore advance to 0.0.7.6 for those release notes, but not beyond it based on this audit. Upstream 0.0.7.7 was published 2026-11-25 and is outside this audit. It claims a Full Rollback fix; the audit does not claim rollback behavior or the latest release is verified. Re-audit before the baseline advances again.
 
-ACE/AFC and edition distinctions: the existing contracts are unchanged. ACE Pro is not in these 0.0.7.x releases (the existing page notes it only on upstream feature branches); AFC lanes remain the relevant released tool map. CFW uses the printer host as the Moonraker endpoint, while SBC edition uses the SBC endpoint and distinct updater component. Tunneling Python changes in 0.0.7.5 do not change that network target. HelixScreen is an add-on package, not a separate printer firmware contract.
+ACE/AFC and edition distinctions: the existing contracts are unchanged. ACE Pro is not in these 0.0.7.x release notes (the existing page lists ACE Pro multiplexing as Planned upstream); AFC lanes remain the relevant released tool map. CFW uses the printer host as the Moonraker endpoint, while SBC edition uses the SBC endpoint and distinct updater component. The 0.0.7.5 release notes list no network-target change. HelixScreen is an add-on package, not a separate printer firmware contract.
 
 ## Upstream OpenCreator #19
 

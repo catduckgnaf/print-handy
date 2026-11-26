@@ -449,8 +449,8 @@ replacement tool manually, and the report says the docked tool remained at
 250 C while the replacement was selected and heated to 250 C, although the
 operator expected a lower-temperature handoff. The report's own log shows a
 manual `C5_TOOL_SELECT T=2`; it does not establish an automatic Print Handy
-selection or a temperature supplied by Print Handy. The reported Orca profile
-temperature was not propagated to that manual selection. Print Handy does not
+selection or a temperature supplied by Print Handy. The report does not establish whether the Orca profile
+temperature reached that manual selection. Print Handy does not
 infer a replacement tool or its temperature from spool metadata, and the
 OpenCreator alert buttons below refuse to send commands even after a click.
 This report therefore exposes no matching Print Handy command-path defect.
