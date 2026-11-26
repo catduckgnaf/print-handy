@@ -420,38 +420,41 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         family, targets, sources = resolve_material_temperatures(material, filament or {})
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
-    # Stage the vendor-temperature rollout on the AD5X HS PETG incident (#1832).
-    # Other adapters, generic profiles and the tuned PLA family retain their current
-    # targets until their slice/verification matrix has been checked. Both paths use
-    # this resolver; never set vendor temperatures directly in the slicer.
+    # Orca vendor temperatures are the material defaults when available; explicit
+    # Spoolman/operator values remain authoritative. Keep normal and initial-layer
+    # targets together so slicing and artifact verification share one resolution.
     model = state.get("printer_model") or settings.current().get("printer", {}).get("model")
-    if model == "flashforge.ad5x" and family == "PETG":
+    targets.update({"nozzle_initial_layer": targets["nozzle"], "bed_initial_layer": targets["bed"]})
+    try:
         import math
         from . import orca_profile_db, filament_type as _ftype
-
-        # A pre-fetched Spoolman record must describe the same material, just as
-        # the lookup above must. Use its name/extra flags, not only "PETG".
         ftype = _ftype.from_spoolman_filament(filament) if filament else None
         if ftype is None or ftype.family is None:
             ftype = _ftype.from_text(material, spool.get("name") or spool.get("color"))
         nozzle_dia = (state.get("nozzle") or {}).get("diameter_mm")
-        if ftype.has("high_speed") and nozzle_dia:
-            try:
-                brand = spool.get("brand") or (filament or {}).get("vendor")
-                template = printers.get(model, settings.current()).templates_dir() / "machine.json"
-                machine = json.loads(template.read_text(encoding="utf-8"))
-                preset = orca_profile_db.printer_preset(
-                    machine.get("printer_model"), float(nozzle_dia), preferred=machine.get("name"))
-                vendor = orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
-                if vendor is not None and "high_speed" in vendor.flags:
-                    # The existing contract has one target for every layer. Use
-                    # the normal-layer vendor target, not its first-layer boost.
-                    for key, raw in (("nozzle", vendor.get("nozzle_temperature")),
-                                     ("bed", vendor.get("hot_plate_temp") or vendor.get("textured_plate_temp"))):
-                        # Replace only a material default (with or without a variant
-                        # adjustment). Any other source (a Spoolman filament value, an
-                        # attested operator target, or a label added later) wins.
-                        if not str(sources.get(key, "")).startswith("material default") or raw is None:
+        if model and nozzle_dia and family != "PLA":
+            template = printers.get(model, settings.current()).templates_dir() / "machine.json"
+            machine = json.loads(template.read_text(encoding="utf-8"))
+            preset = orca_profile_db.printer_preset(
+                machine.get("printer_model"), float(nozzle_dia), preferred=machine.get("name"))
+            brand = spool.get("brand") or (filament or {}).get("vendor")
+            vendor = orca_profile_db.resolve(preset, ftype, brand=brand) if preset else None
+            if vendor is not None:
+                for key, fields in {
+                    "nozzle": ("nozzle_temperature", "nozzle_temperature_initial_layer"),
+                    "bed": ("hot_plate_temp", "textured_plate_temp", "cool_plate_temp"),
+                }.items():
+                    if not str(sources.get(key, "")).startswith("material default"):
+                        continue
+                    # Prefer the active machine plate target, with other Orca plate
+                    # variants as a safe fallback. Initial nozzle target defaults to normal.
+                    bed_field = next((f for f in fields if vendor.get(f) is not None
+                                      and str(vendor.get(f)).strip() not in {"0", "0.0"}), fields[0])
+                    raw_normal = vendor.get(bed_field) if key == "bed" else vendor.get(fields[0])
+                    initial_key = (bed_field if key == "bed" else fields[0]) + "_initial_layer"
+                    raw_initial = vendor.get(initial_key)
+                    for suffix, raw in (("", raw_normal), ("_initial_layer", raw_initial if raw_initial is not None else raw_normal)):
+                        if raw is None:
                             continue
                         try:
                             value = float(raw)
@@ -460,13 +463,29 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
                         except (ValueError, TypeError):
                             logger.warning("ignoring invalid vendor %s temperature %r", key, raw)
                             continue
-                        targets[key] = int(value) if value.is_integer() else value
+                        target_key = key + suffix
+                        targets[target_key] = int(value) if value.is_integer() else value
                         sources[key] = f"vendor profile ({vendor.name})"
-            except (OSError, ValueError, TypeError, orca_profile_db.ProfileDatabaseError):
-                logger.warning("vendor profile temperatures were not applied; material defaults stand",
-                               exc_info=True)
+                # Bed profiles use the same initial target when present; otherwise normal.
+                if str(sources.get("bed", "")).startswith("material default"):
+                    bed_field = next((f for f in ("hot_plate_temp", "textured_plate_temp", "cool_plate_temp")
+                                      if vendor.get(f) is not None), None)
+                    if bed_field and str(vendor.get(bed_field)).strip() not in {"0", "0.0"}:
+                        raw_initial = vendor.get(bed_field + "_initial_layer")
+                        if raw_initial is not None:
+                            try:
+                                value = float(raw_initial)
+                                if math.isfinite(value) and 0 < value <= 300:
+                                    targets["bed_initial_layer"] = int(value) if value.is_integer() else value
+                                    sources["bed"] = f"vendor profile ({vendor.name})"
+                            except (ValueError, TypeError):
+                                logger.warning("ignoring invalid vendor initial bed temperature %r", raw_initial)
+    except (OSError, RuntimeError, ValueError, TypeError, orca_profile_db.ProfileDatabaseError):
+        logger.warning("vendor profile temperatures were not applied; material defaults stand", exc_info=True)
     return ({"nozzle": targets["nozzle"], "bed": targets["bed"]},
             {"material_family": family, "material": material, "spoolman_id": spool.get("spoolman_id"),
+             "layer_temperatures": {"nozzle": targets["nozzle_initial_layer"],
+                                    "bed": targets["bed_initial_layer"]},
              "sources": sources,
              "source": next(iter(set(sources.values()))) if len(set(sources.values())) == 1
              else "material default / Spoolman filament / vendor profile"})
@@ -650,8 +669,14 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=N
                                            lines=lines)
         if per_tool is not None:
             return per_tool
+    def resolve_for(spool_state, stored_ok=True):
+        temps, resolution = slice_temperatures(spool_state, None, fetch_filament, stored_ok=stored_ok)
+        layers = resolution.get("layer_temperatures") or {}
+        return {**temps, "nozzle_initial_layer": layers.get("nozzle", temps["nozzle"]),
+                "bed_initial_layer": layers.get("bed", temps["bed"])}
+
     if len(labels) != 1:
-        return slice_temperatures(state, None, fetch_filament)[0]
+        return resolve_for(state)
     label = labels.pop()
     mapped = _job_map_spool_ids(state, text, lines)
     if len(mapped) == 1:
@@ -660,19 +685,18 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=N
         # synchronizes the active spool only after verification, so the
         # active spool merely holding the same material proves nothing.
         sid = mapped[0]
-        return slice_temperatures({**state, "spool": {**spool, "spoolman_id": sid, "material": label}},
-                                  None, fetch_filament,
-                                  stored_ok=sid == spool.get("spoolman_id"))[0]
+        return resolve_for({**state, "spool": {**spool, "spoolman_id": sid, "material": label}},
+                           stored_ok=sid == spool.get("spoolman_id"))
     ids = sorted({rec.get("spoolman_id") for rec in (state.get("filament_slots") or {}).values()
                   if isinstance(rec, dict) and " ".join(str(rec.get("material") or "").split()).casefold()
                   == label.casefold()}, key=str)
     if not ids or spool.get("spoolman_id") in ids:
         # The active spool holds it, or no slot does (a single-spool printer): slice_model sliced
         # the active spool, so resolve the same way.
-        return slice_temperatures(state, None, fetch_filament)[0]
-    # Another slot's spool: slice_model swapped to it and resolved its own targets.
-    resolved = [slice_temperatures({**state, "spool": {**spool, "spoolman_id": sid, "material": label}},
-                                   None, fetch_filament, stored_ok=False)[0] for sid in ids]
+        return resolve_for(state)
+    # Another slot's spool(s): resolve each from its own profile, then refuse ambiguity.
+    resolved = [resolve_for({**state, "spool": {**spool, "spoolman_id": sid, "material": label}},
+                            stored_ok=False) for sid in ids]
     if any(r != resolved[0] for r in resolved):
         raise RuntimeError(f"slots holding {label} resolve to different temperatures; reslice from one slot")
     return resolved[0]

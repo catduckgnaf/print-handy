@@ -176,7 +176,9 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     state = printer_state.with_artifact_spool(state, text, lines)
     if recorded:
         try:
-            temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed'])}
+            temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed']),
+                     'nozzle_initial_layer': float(recorded.get('nozzle_initial_layer', recorded['nozzle'])),
+                     'bed_initial_layer': float(recorded.get('bed_initial_layer', recorded['bed']))}
         except (KeyError, TypeError, ValueError):
             temps = None
         if temps is not None:
@@ -624,7 +626,11 @@ def _recorded_temperatures(job, gcode_path):
                 provenance = row.get('provenance')
                 break
     temps = (provenance or {}).get('temperatures') if isinstance(provenance, dict) else None
-    return temps if isinstance(temps, dict) else None
+    if isinstance(temps, dict):
+        layers = (provenance or {}).get('layer_temperatures')
+        return {**temps, 'nozzle_initial_layer': layers.get('nozzle', temps.get('nozzle')) if isinstance(layers, dict) else temps.get('nozzle'),
+                'bed_initial_layer': layers.get('bed', temps.get('bed')) if isinstance(layers, dict) else temps.get('bed')}
+    return None
 
 
 def _verification_facts_digest(state):

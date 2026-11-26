@@ -21,8 +21,7 @@ _NUMBER = r"(-?\d+(?:\.\d+)?)"
 # Qidi's PRINT_START BED= HOTEND=, Creality/ZMod's START_PRINT BED_TEMP= EXTRUDER_TEMP=.
 _NOZZLE_ARGS = ("EXTRUDER_TEMP", "NOZZLE_TEMP", "HOTEND_TEMP", "HOTEND", "EXTRUDER")
 _BED_ARGS = ("BED_TEMP", "BED_TEMPERATURE", "BED")
-_PLATE_KEYS = ("cool_plate_temp_initial_layer", "eng_plate_temp_initial_layer",
-               "hot_plate_temp_initial_layer", "textured_plate_temp_initial_layer")
+_PLATE_KEYS = ("cool_plate_temp", "eng_plate_temp", "hot_plate_temp", "textured_plate_temp")
 
 
 def _config(text, key):
@@ -114,25 +113,29 @@ def temperature_problems(text, state, materials=None):
     from ..core.printer_state import recorded_nozzle_type
     try:
         nozzle = effective_nozzle_temperature(recorded_nozzle_type(state), float(temps["nozzle"]))
+        nozzle_initial = effective_nozzle_temperature(
+            recorded_nozzle_type(state), float(temps.get("nozzle_initial_layer", temps["nozzle"])))
     except NozzleError as exc:
         return [f"recorded nozzle temperature is not usable: {exc}"]
     bed = float(temps["bed"])
     multi = len(embedded_materials(text)) > 1
     problems = []
-    for label, wanted, config_values, commands, args in (
-            ("nozzle", nozzle,
-             _config_numbers(text, "nozzle_temperature_initial_layer") or _config_numbers(text, "nozzle_temperature"),
+    for label, normal, initial, config_normal, config_initial, commands, args in (
+            ("nozzle", nozzle, nozzle_initial,
+             _config_numbers(text, "nozzle_temperature"), _config_numbers(text, "nozzle_temperature_initial_layer"),
              _commands(text, "M104") + _commands(text, "M109"), _macro_args(text, _NOZZLE_ARGS)),
-            ("bed", bed,
-             [v for key in _PLATE_KEYS for v in (_config_numbers(text, key)[:None if multi else 1])],
+            ("bed", float(temps["bed"]), float(temps.get("bed_initial_layer", temps["bed"])),
+             [v for key in _PLATE_KEYS for v in _config_numbers(text, key)[:None if multi else 1]],
+             [v for key in _PLATE_KEYS for v in _config_numbers(text, key + "_initial_layer")[:None if multi else 1]],
              _commands(text, "M140") + _commands(text, "M190"), _macro_args(text, _BED_ARGS))):
         commanded = [v for v in commands + args if v > 0]
-        matches = lambda v: math.isclose(v, wanted, abs_tol=1e-3)  # noqa: E731
-        if config_values and not (any(map(matches, config_values)) if multi else all(map(matches, config_values))):
-            problems.append(f"G-code {label} temperature {config_values[0]:g} C != recorded {wanted:g} C")
-        elif not multi and not any(map(matches, commanded)) and (commanded or not config_values):
-            # (a multi-filament file's heater commands follow each tool's own target: the config block decides)
-            problems.append(f"no heater command sets the recorded {label} temperature {wanted:g} C")
+        matches = lambda value, wanted: math.isclose(value, wanted, abs_tol=1e-3)  # noqa: E731
+        for layer, wanted, values in (("normal", normal, config_normal), ("initial-layer", initial, config_initial)):
+            if values and not (any(matches(v, wanted) for v in values) if multi
+                               else all(matches(v, wanted) for v in values)):
+                problems.append(f"G-code {label} {layer} temperature {values[0]:g} C != recorded {wanted:g} C")
+        if not multi and not any(matches(v, normal) or matches(v, initial) for v in commanded) and (commanded or not config_normal):
+            problems.append(f"no heater command sets the recorded {label} temperature {normal:g} C")
     return problems
 
 

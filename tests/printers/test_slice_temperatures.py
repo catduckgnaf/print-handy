@@ -139,11 +139,13 @@ def slice_inputs(tmp_path, monkeypatch):
         adapter = adapter_for(model)
         orca_adapter.slice_model(MODEL, folder, state, adapter=adapter, **kw)
         filament = json.loads((folder / "filament.json").read_text())
-        nozzle = {int(filament["nozzle_temperature"][0]), int(filament["nozzle_temperature_initial_layer"][0])}
+        nozzle = (int(filament["nozzle_temperature"][0]), int(filament["nozzle_temperature_initial_layer"][0]))
         beds = {int(filament[k][0]) for k in ("cool_plate_temp", "hot_plate_temp", "textured_plate_temp")
                 if k in filament}
-        assert len(nozzle) == 1 and len(beds) == 1, (nozzle, beds)
-        return nozzle.pop(), beds.pop(), filament
+        bed_initials = {int(filament[k][0]) for k in ("cool_plate_temp_initial_layer", "hot_plate_temp_initial_layer",
+                                                       "textured_plate_temp_initial_layer") if k in filament}
+        assert len(beds) == 1 and len(bed_initials) == 1, (beds, bed_initials)
+        return nozzle[0], beds.pop(), filament
 
     return type("Inputs", (), {"slice": staticmethod(slice_for), "spools": spools, "tmp": tmp_path})
 
