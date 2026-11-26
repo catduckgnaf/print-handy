@@ -45,7 +45,7 @@ def test_qidi_adapter_refuses_fluidd_slot_writes(release, model_key, monkeypatch
     assert calls == []
 
 
-@pytest.mark.parametrize("release", CONTRACTS)
+@pytest.mark.parametrize("release", MODELS)
 def test_qidi_release_contract_has_distinct_upstream_identity(release):
     contract = CONTRACTS[release]
     assert contract["tag"]
