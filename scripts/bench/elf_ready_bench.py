@@ -378,8 +378,9 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
                 'enable_support_selected_value': setting.get('selected_value'),
                 'support_decision': rec.get('support_decision'),
             }
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            # Report why the support facts are missing instead of dropping the cause.
+            variants['why_not_launched'] = {'unreadable_job_record': f'{type(exc).__name__}: {exc}'}
     if chat.t_copies_answered is not None and chat.t_ready is not None:
         copies_to_ready = round(chat.t_ready - chat.t_copies_answered, 3)
     report = {
