@@ -249,3 +249,40 @@ def test_lone_authored_copy_is_probed_centered_like_the_slice(tmp_path, monkeypa
     assert oa.orca_plate_capacity(tmp_path / 'part.stl', state, scale=1.0, copy_limit=1) == 1
     (x0, x1), (y0, y1), _ = placed['bounds']
     assert abs((x0 + x1) / 2 - 110) < 0.01 and abs((y0 + y1) / 2 - 110) < 0.01
+
+
+def test_authored_pose_probe_never_lets_orca_turn_the_part(probe):
+    """A 231.3 x 74.3 x 85.5 mm MakerWorld part was judged to fit a 220 mm bed.
+
+    The capacity probe passed --allow-rotations, so Orca's arrange turned the
+    part about 45 degrees and reported one copy. The slice never applies that
+    turn: it centers the authored pose and its volume check refused the model.
+    The authored-pose probe must judge the pose the slice prints; fit_options
+    finds the turn and records it as an exact rotation.
+    """
+    source, _ = probe
+    commands = []
+    spawn = oa._spawn_slicer
+
+    def record(cmd, timeout, cwd):
+        commands.append(cmd)
+        return spawn(cmd, timeout, cwd)
+
+    oa._spawn_slicer = record
+    try:
+        state = {'bed_mm': [220, 220], 'max_print_height_mm': 220}
+        oa.orca_plate_capacity(source, state, copy_limit=1)
+        oa.orca_plate_capacity(source, state, copy_limit=16)
+    finally:
+        oa._spawn_slicer = spawn
+    assert commands
+    assert all('--allow-rotations' not in cmd for cmd in commands)
+    # An explicit opt-in still reaches Orca.
+    commands.clear()
+    oa._spawn_slicer = record
+    try:
+        oa.orca_plate_capacity(source, {'bed_mm': [220, 220], 'max_print_height_mm': 220},
+                               copy_limit=1, allow_rotations=True)
+    finally:
+        oa._spawn_slicer = spawn
+    assert any('--allow-rotations' in cmd for cmd in commands)
