@@ -199,3 +199,36 @@ def test_reused_first_slice_rebinds_recipe_on_artifact_and_every_derived_plate(t
     assert runner.supports_result == ['first.gcode'] and runner.variant_reused == 'first_slice'
     # the first slice's own record is not touched
     assert job['slice_recipe'] == stored and job['artifact_binding']['recipe_sha256'] == stored['sha256']
+
+
+def test_taking_supports_stops_a_running_nosupports_slice_before_removing_its_folder(tmp_path, monkeypatch):
+    """take_supports after a failed with-supports slice must not delete the without-supports folder
+    while that slicer is still running (#1936 review)."""
+    monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, **k: False)
+
+    async def run():
+        folder, job_path = _setup(tmp_path)
+        runner = BackgroundSlice()
+        started, release = asyncio.Event(), asyncio.Event()
+        seen = {}
+
+        async def slow_nosupports():
+            started.set()
+            try:
+                await release.wait()
+            finally:
+                seen['folder_at_exit'] = variant.is_dir()
+        variant = folder / 'variant_nosupports'
+        variant.mkdir()
+        runner.nosup_variant = variant
+        runner.nosup_task = asyncio.ensure_future(slow_nosupports())
+        await started.wait()
+
+        async def failed_supports():  # the real task records its failure, it does not raise
+            runner.supports_error = RuntimeError('with-supports slice failed')
+        runner.supports_task = asyncio.ensure_future(failed_supports())
+        await runner.take_supports()
+        assert runner.nosup_task is None or runner.nosup_task.done()
+        assert seen['folder_at_exit'] is True  # the slicer ended before its folder was removed
+        assert not variant.exists()
+    asyncio.run(run())

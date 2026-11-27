@@ -421,8 +421,20 @@ class BackgroundSlice:
             self._unswap()
         self._reset_nosupports()
 
-    def _release_nosupports(self):
-        """Put the first slice's record back and delete the without-supports trial folder."""
+    async def _release_nosupports(self):
+        """Put the first slice's record back and delete the without-supports trial folder.
+
+        A without-supports slice still running (the with-supports slice failed, or the first slice was
+        taken before it finished) is stopped and settled first, so its folder is never removed under a
+        live slicer.
+        """
+        task = self.nosup_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await owned_worker.settle(task)
+            except asyncio.CancelledError:
+                logger.debug('without-supports slice cancelled before its folder was released')
         if self.nosup_swapped:
             self._unswap()
         folder, self.nosup_variant = self.nosup_variant, None
@@ -618,7 +630,7 @@ class BackgroundSlice:
         with contextlib.suppress(asyncio.CancelledError):
             await self.task
         self.task = None
-        self._release_nosupports()  # nothing chose the without-supports variant: the first slice is the answer
+        await self._release_nosupports()  # nothing chose the without-supports variant: the first slice is the answer
         if self.error is not None or self.result is None:
             return None
         self._write_slice_job(self.job_no_supports)
@@ -656,7 +668,7 @@ class BackgroundSlice:
                     await self.supports_task
         finally:  # a failed supports slice raises above; its private folder must not outlive it
             self._adopt_variant()
-            self._release_nosupports()  # supports were chosen: the without-supports trial is not kept
+            await self._release_nosupports()  # supports were chosen: the without-supports trial is not kept
         self._write_slice_job(self.job_with_supports, default_supports=True)
         return self.supports_result
 
