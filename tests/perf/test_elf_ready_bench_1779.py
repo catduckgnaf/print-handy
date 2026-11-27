@@ -58,10 +58,28 @@ def test_normalized_digest_ignores_the_per_run_header_lines(tmp_path):
 
 def test_offline_guard_refuses_a_non_loopback_connection(monkeypatch):
     monkeypatch.setattr(socket.socket, 'connect', socket.socket.connect)
+    monkeypatch.setattr(socket.socket, 'connect_ex', socket.socket.connect_ex)
     monkeypatch.setattr(socket, 'getaddrinfo', socket.getaddrinfo)
     bench._block_network()
     with pytest.raises(OSError, match='offline'):
         with socket.socket(socket.AF_INET) as s:
             s.connect(('203.0.113.9', 80))
     with pytest.raises(OSError, match='offline'):
+        with socket.socket(socket.AF_INET) as s:
+            s.connect_ex(('203.0.113.9', 80))
+    with pytest.raises(OSError, match='offline'):
         socket.getaddrinfo('makerworld.com', 443)
+
+
+def _recorder(color='red', slot=2):
+    return bench.Recorder(lambda: 0.0, copies=2, slot=slot, color_word=color)
+
+
+def test_color_question_picks_the_matching_slot_button():
+    rec = _recorder()
+    assert rec._pick('Which color?', ['Blue (slot 1)', 'Red (slot 2)', 'Red (slot 3)']) == 1
+
+
+def test_an_unmatched_color_raises_instead_of_answering_with_the_first_button():
+    with pytest.raises(RuntimeError, match='no button for color'):
+        _recorder()._pick('Which color?', ['Blue (slot 1)', 'Green (slot 2)'])

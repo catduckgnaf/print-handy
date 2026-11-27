@@ -13,7 +13,7 @@ Cancel button.
 The measured span starts when the copies answer is delivered and ends when the
 Ready question reaches the (fake) chat, the same span Discord reports as
 "copies chosen -> Ready". ``slices`` and ``timing_stages`` carry what TIMING.jsonl recorded for
-each slice (the intake's own and the ``variant_supports`` one), so a report
+each slice (the intake's own and the ``supports`` variant one), so a report
 answers: how long did each slice take, how much of that was Orca
 (``slicer_s``) against Print Handy's own work (``python_s``, with
 ``prepare_s`` = inventory + geometry + other prepare work), was the variant
@@ -50,17 +50,18 @@ REPORT_VERSION = 1
 
 def _block_network():
     """Offline by construction: only unix sockets and loopback may connect."""
-    real_connect = socket.socket.connect
+    def guard(real):
+        def guarded(self, address):
+            if self.family == getattr(socket, 'AF_UNIX', None):
+                return real(self, address)
+            host = address[0] if isinstance(address, tuple) else str(address)
+            if host not in ('127.0.0.1', '::1', 'localhost'):
+                raise OSError(f'benchmark is offline: refused connection to {host}')
+            return real(self, address)
+        return guarded
 
-    def guarded(self, address):
-        if self.family == getattr(socket, 'AF_UNIX', None):
-            return real_connect(self, address)
-        host = address[0] if isinstance(address, tuple) else str(address)
-        if host not in ('127.0.0.1', '::1', 'localhost'):
-            raise OSError(f'benchmark is offline: refused connection to {host}')
-        return real_connect(self, address)
-
-    socket.socket.connect = guarded
+    socket.socket.connect = guard(socket.socket.connect)
+    socket.socket.connect_ex = guard(socket.socket.connect_ex)
     real_getaddrinfo = socket.getaddrinfo
 
     def no_dns(host, *a, **k):
@@ -225,7 +226,7 @@ class Recorder:
         for i, c in enumerate(low):
             if self.color_word in c:
                 return i
-        return 0
+        raise RuntimeError(f'no button for color {self.color_word!r} (slot {self.slot}): {choices}')
 
     async def send_clarify(self, **kw):
         from print_handy.core import prompts as core_prompts
@@ -263,8 +264,9 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     workdir = Path(workdir)
     archive = workdir / 'archive'
     receipts = workdir / 'receipts'
-    # A reused --workdir must not leak an earlier run's job folder or Ready snapshot into this report.
+    # A reused --workdir must not leak an earlier run's job folder, receipts or Ready snapshot into this report.
     shutil.rmtree(archive, ignore_errors=True)
+    shutil.rmtree(receipts, ignore_errors=True)
     shutil.rmtree(workdir / 'ready-snapshot', ignore_errors=True)
     archive.mkdir(parents=True, exist_ok=True)
     selection = (job['color_decisions'].get('selection') or {})
