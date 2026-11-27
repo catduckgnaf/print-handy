@@ -71,10 +71,14 @@ def _block_network():
 
 
 def _hardware_record(job):
-    """The archived hardware record without any service URL (fake Spoolman and Moonraker: none)."""
+    """The archived hardware record with its service URLs pointed at a closed loopback port.
+
+    Fake Spoolman and Moonraker: every call is refused at once, as in the offline tests;
+    the slice path treats both as advisory.
+    """
     hw = json.loads(json.dumps(job['hardware']))
     for key in ('spoolman_url', 'moonraker_url'):
-        hw.pop(key, None)
+        hw[key] = 'http://127.0.0.1:9'
     return hw
 
 
@@ -200,13 +204,15 @@ class Recorder:
 
 def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     """One intake from link to the Ready question. Returns the report dict."""
+    job = json.loads(Path(job_record).read_text())
+    # The printer model must be set before print_handy.settings loads (the archived job's own model).
+    os.environ.setdefault('PRINT_HANDY__PRINTER__MODEL', job.get('printer_model') or 'flashforge.ad5x')
     from print_handy import settings  # noqa: F401  (import before patching the modules below)
     from print_handy.core import background_slice, orca_adapter, prepared_intake, printer_state
     from print_handy.jobs import audit as jobs_audit  # noqa: F401
     from print_handy.jobs import common as jobs_common
     from print_handy.jobs import sources as jobs_sources
 
-    job = json.loads(Path(job_record).read_text())
     workdir = Path(workdir)
     archive = workdir / 'archive'
     receipts = workdir / 'receipts'
@@ -219,8 +225,9 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     hardware = _hardware_record(job)
     record_root = workdir / 'hardware-state'
     printer_state.STATE_ROOT = str(record_root)
-    os.environ.pop('PRINTER_HARDWARE_STATE', None)
-    record = printer_state.state_path()
+    # An env override, not just STATE_ROOT: the slice runs in worker processes that only inherit the environment.
+    record = record_root / 'printer_hardware.json'
+    os.environ[printer_state.HARDWARE_ENV] = str(record)
     record.parent.mkdir(parents=True, exist_ok=True)
     record.write_text(json.dumps(hardware))
     printer_state.save = lambda state, printer_id=None: None  # never write a hardware record
@@ -245,15 +252,32 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     wall0 = time.time()
     state = json.loads(json.dumps(hardware))
 
+    outcome = {}
+
     async def go():
-        return await asyncio.wait_for(
-            prepared_intake.prepare_link(event, chat, state, receipts, timeout=timeout_s), timeout_s)
+        try:
+            outcome['result'] = await asyncio.wait_for(
+                prepared_intake.prepare_link(event, chat, state, receipts, timeout=timeout_s), timeout_s)
+        finally:
+            # Background slices and prompt waiters outlive prepare_link; cancel them so the loop can close.
+            me = asyncio.current_task()
+            for task in asyncio.all_tasks():
+                if task is not me:
+                    task.cancel()
+            await asyncio.sleep(0)
     error = None
+    loop = asyncio.new_event_loop()
     try:
-        asyncio.run(go())
-    except Exception as exc:  # noqa: BLE001 - the report records how the run ended
+        loop.run_until_complete(go())
+    except BaseException as exc:  # noqa: BLE001 - the report records how the run ended
+        import traceback
         error = f'{type(exc).__name__}: {exc}'
+        outcome['traceback'] = traceback.format_exc()[-1500:]
     ended = clock()
+    try:
+        loop.close()
+    except Exception:  # noqa: BLE001
+        pass
 
     folders = [p for p in archive.iterdir() if (p / 'JOB.json').is_file()]
     folder = folders[0] if folders else None
@@ -293,6 +317,9 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
         'host_cpus': os.cpu_count(),
         'started_epoch': wall0,
         'error': error,
+        'prepare_result': json.loads(json.dumps(outcome.get('result'), default=str)),
+        'traceback': outcome.get('traceback'),
+        'sent': chat.sent,
         'reached_ready': chat.t_ready is not None,
         'copies_to_ready_s': copies_to_ready,
         'link_to_ready_s': round(chat.t_ready - started, 3) if chat.t_ready is not None else None,
