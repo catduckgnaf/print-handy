@@ -70,15 +70,59 @@ def _block_network():
     socket.getaddrinfo = no_dns
 
 
-def _hardware_record(job):
-    """The archived hardware record with its service URLs pointed at a closed loopback port.
+def _fake_moonraker(job):
+    """A loopback Moonraker that answers the slice-time printer check from the archived record.
 
-    Fake Spoolman and Moonraker: every call is refused at once, as in the offline tests;
-    the slice path treats both as advisory.
+    Serves only what ``printer_state.check`` reads: the Klipper config (nozzle, pressure
+    advance), the saved variables (screenless calibration authority matching the record)
+    and the active spool. Anything else gets an empty result. Returns (server, url).
     """
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    hw = job['hardware']
+    pa = (hw.get('pressure_advance') or {}).get('value')
+    extruder = {'nozzle_diameter': str(hw['nozzle']['diameter_mm'])}
+    if pa is not None:
+        extruder['pressure_advance'] = str(pa)
+    variables = {'display_off': 1, 'load_zoffset': 1, 'gcode_offsets': {'z': hw.get('z_offset_mm')},
+                 'use_trash_on_print': 0, 'print_leveling': 0}
+    spool_id = (hw.get('spool') or {}).get('spoolman_id')
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            path = self.path
+            if 'configfile' in path:
+                result = {'status': {'configfile': {'settings': {'extruder': extruder, 'probe': {}}}}}
+            elif 'save_variables' in path:
+                result = {'status': {'save_variables': {'variables': variables}}}
+            elif path.startswith('/server/spoolman/spool_id'):
+                result = {'spool_id': spool_id}
+            else:
+                result = {'status': {}}
+            body = json.dumps({'result': result}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_POST = do_GET  # noqa: N815
+
+        def log_message(self, *a):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f'http://127.0.0.1:{server.server_address[1]}'
+
+
+def _hardware_record(job, moonraker_url):
+    """The archived hardware record with its service URLs on loopback: the fake Moonraker,
+    and a closed port for Spoolman (refused at once; the slice path treats it as advisory)."""
     hw = json.loads(json.dumps(job['hardware']))
-    for key in ('spoolman_url', 'moonraker_url'):
-        hw[key] = 'http://127.0.0.1:9'
+    hw['moonraker_url'] = moonraker_url
+    hw['spoolman_url'] = 'http://127.0.0.1:9'
     return hw
 
 
@@ -222,7 +266,8 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     if not isinstance(slot, int):
         raise SystemExit(f'color decision slot must be an integer, got {slot!r}')
 
-    hardware = _hardware_record(job)
+    fake_mr, mr_url = _fake_moonraker(job)
+    hardware = _hardware_record(job, mr_url)
     record_root = workdir / 'hardware-state'
     printer_state.STATE_ROOT = str(record_root)
     # An env override, not just STATE_ROOT: the slice runs in worker processes that only inherit the environment.
@@ -274,6 +319,7 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
         error = f'{type(exc).__name__}: {exc}'
         outcome['traceback'] = traceback.format_exc()[-1500:]
     ended = clock()
+    fake_mr.shutdown()
     try:
         loop.close()
     except Exception:  # noqa: BLE001
