@@ -401,6 +401,24 @@ def _two_slot_job(tmp_path, **extra):
     return source, state, decisions, job_path
 
 
+def test_apply_matches_generator_reference():
+    from print_handy.core.color_geometry import _apply
+
+    matrices = [
+        [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+        [0.5, -2, 3, 4, 0.25, -6, -7, 8, 1.5, 10, -20, 30],
+        [-1, 0.1, 1e-9, 2.5, -3.25, 0, 8, -0.5, 9, -100.5, 0.125, 1e6],
+    ]
+    points = [(0, 0, 0), (1, 2, 3), (-4.5, 7.25, -0.125)]
+    for matrix in matrices:
+        for point in points:
+            expected = tuple(
+                sum(point[j] * matrix[j * 3 + i] for j in range(3)) + matrix[9 + i]
+                for i in range(3)
+            )
+            assert _apply(matrix, point) == expected
+
+
 def test_compose_matches_sequential_application():
     from print_handy.core.color_geometry import _apply, _compose
     item = [0, 1, 0, -1, 0, 0, 0, 0, 1, 100, 5, 0]

@@ -1020,7 +1020,7 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
                 for vertex in verts:
                     pt = tuple(float(vertex.get(k)) for k in ('x', 'y', 'z'))
                     for m in chain:
-                        pt = tuple(sum(pt[j] * m[j * 3 + i] for j in range(3)) + m[9 + i] for i in range(3))
+                        pt = _apply(m, pt)
                     if rotation is not None:
                         pt = _rotate(pt, rotation)
                     pts.append(tuple(c * scale for c in pt))
@@ -1259,7 +1259,12 @@ def fit_transform(fit):
 
 
 def _apply(matrix, point):
-    return tuple(sum(point[j] * matrix[j * 3 + i] for j in range(3)) + matrix[9 + i] for i in range(3))
+    x, y, z = point
+    return (
+        sum((x * matrix[0], y * matrix[3], z * matrix[6])) + matrix[9],
+        sum((x * matrix[1], y * matrix[4], z * matrix[7])) + matrix[10],
+        sum((x * matrix[2], y * matrix[5], z * matrix[8])) + matrix[11],
+    )
 
 
 def _matrix(node):
