@@ -12,7 +12,7 @@ Cancel button.
 
 The measured span starts when the copies answer is delivered and ends when the
 Ready question reaches the (fake) chat, the same span Discord reports as
-"copies chosen -> Ready". ``stages`` carries what TIMING.jsonl recorded for
+"copies chosen -> Ready". ``slices`` and ``timing_stages`` carry what TIMING.jsonl recorded for
 each slice (the intake's own and the ``variant_supports`` one), so a report
 answers: how long did each slice take, how much of that was Orca
 (``slicer_s``) against Print Handy's own work (``python_s``, with
@@ -263,6 +263,9 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     workdir = Path(workdir)
     archive = workdir / 'archive'
     receipts = workdir / 'receipts'
+    # A reused --workdir must not leak an earlier run's job folder or Ready snapshot into this report.
+    shutil.rmtree(archive, ignore_errors=True)
+    shutil.rmtree(workdir / 'ready-snapshot', ignore_errors=True)
     archive.mkdir(parents=True, exist_ok=True)
     selection = (job['color_decisions'].get('selection') or {})
     slot, color = selection.get('slot'), selection.get('color') or 'red'
@@ -325,7 +328,7 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     loop = asyncio.new_event_loop()
     try:
         loop.run_until_complete(go())
-    except BaseException as exc:  # noqa: BLE001 - the report records how the run ended
+    except Exception as exc:  # noqa: BLE001 - the report records how the run ended
         import traceback
         error = f'{type(exc).__name__}: {exc}'
         outcome['traceback'] = traceback.format_exc()[-1500:]
@@ -426,12 +429,10 @@ def main(argv=None):
         report = run_bench(args.source, args.job_record, args.copies, work, args.timeout)
     finally:
         if not args.workdir and not args.keep:
-            pass  # removed below, after the report is written
+            shutil.rmtree(work, ignore_errors=True)
     Path(args.out).write_text(json.dumps(report, indent=2) + '\n')
     summary = {k: report[k] for k in ('reached_ready', 'copies_to_ready_s', 'link_to_ready_s', 'error')}
     print(json.dumps(summary))
-    if not args.workdir and not args.keep:
-        shutil.rmtree(work, ignore_errors=True)
     return 0 if report['reached_ready'] and report['copies_to_ready_s'] is not None else 1
 
 

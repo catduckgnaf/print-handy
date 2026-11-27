@@ -61,6 +61,7 @@ def test_offline_guard_refuses_a_non_loopback_connection(monkeypatch):
     monkeypatch.setattr(socket, 'getaddrinfo', socket.getaddrinfo)
     bench._block_network()
     with pytest.raises(OSError, match='offline'):
-        socket.socket(socket.AF_INET).connect(('203.0.113.9', 80))
+        with socket.socket(socket.AF_INET) as s:
+            s.connect(('203.0.113.9', 80))
     with pytest.raises(OSError, match='offline'):
         socket.getaddrinfo('makerworld.com', 443)
