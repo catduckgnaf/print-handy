@@ -681,15 +681,31 @@ def inventory_scope():
 
 
 def inventory(path):
-    """The color/part manifest of the source at path (see _inventory)."""
+    """The color/part manifest of the source at path (see _inventory).
+
+    Inside an inventory_scope the resource guard (check_source) runs once per
+    distinct input, keyed by suffix and content hash, instead of once per call:
+    on the 716k triangle elf source each pass streams about 1M XML elements
+    (18 s). A changed or different file hashes differently and is checked
+    again; a refusal is never cached, so every later call raises it again.
+    """
     from .intake_resources import check_source
     path = Path(path)
-    check_source(path)
     cache = _INVENTORY_SCOPE.get()
     if cache is None:
+        check_source(path)
         return _inventory(path)
     import hashlib
-    key = (path.suffix.lower(), hashlib.sha256(path.read_bytes()).hexdigest())
+    suffix = path.suffix.lower()
+    if suffix == '.stl':
+        # The STL guard is cheap and bounded; keep it on every call.
+        check_source(path)
+    with path.open('rb') as source:
+        digest = hashlib.file_digest(source, 'sha256').hexdigest()
+    key = (suffix, digest)
+    if suffix != '.stl' and ('checked',) + key not in cache:
+        check_source(path)
+        cache[('checked',) + key] = True
     if key not in cache:
         cache[key] = _inventory(path)
     return copy.deepcopy(cache[key])
