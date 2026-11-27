@@ -163,8 +163,7 @@ class BackgroundSlice:
         self.nosup_error = None
         self.nosup_swapped = False
         self.nosup_settled = False
-        self.variant_reused = None  # 'supports' when the with-supports variant was the first slice itself
-        self._early_kind = None
+        self.variant_reused = None  # 'first_slice' when the with-supports variant was the first slice itself
         if forget_first:
             self.first_job = None
             self.first_result = None

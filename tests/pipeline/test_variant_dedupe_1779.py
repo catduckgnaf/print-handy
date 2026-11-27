@@ -161,3 +161,41 @@ def test_a_setting_the_decision_would_change_is_not_called_equal(tmp_path):
     assert supports_variant_equals_first(job_with({**PROCESS, 'support_type': 'tree(manual)'})) is False
     assert supports_variant_equals_first(job_with({**PROCESS, 'enable_support': '0'})) is False
     assert supports_variant_equals_first({'downloaded_file': str(folder / 'm.3mf')}) is False  # no config: unknown
+
+
+def test_reused_first_slice_rebinds_recipe_on_artifact_and_every_derived_plate(tmp_path, monkeypatch):
+    """The reuse rewrites the recorded recipe to the supports decision it now stands for, and every
+    binding that pointed at the old recipe follows it, so the launch-time recipe check binds the
+    G-code to the decision that was actually sliced (#1936 review)."""
+    from print_handy.core import background_slice, slice_recipe
+    monkeypatch.setattr(background_slice, 'slice_binding', lambda job, sha, state=None: 'binding')
+    folder, job_path = _setup(tmp_path)
+    recipe = {'supports_brim': {'brim': 'auto'}, 'layer_height': '0.16'}
+    stored = slice_recipe.record(recipe)
+    other = 'f' * 64
+    job = {'color_manifest': {'source_sha256': 'src-a'}, 'downloaded_file': str(folder / 'm.3mf'),
+           'slice_recipe': stored,
+           'artifact_binding': {'recipe_sha256': stored['sha256'], 'gcode_sha256': 'g0'},
+           'provenance': {'support_decided': False},
+           'derived_plates': [
+               {'artifact_binding': {'recipe_sha256': stored['sha256']}, 'provenance': {'support_decided': False}},
+               {'artifact_binding': {'recipe_sha256': stored['sha256']}},
+               {'artifact_binding': {'recipe_sha256': other}},  # bound to another recipe: left alone
+           ]}
+    runner = BackgroundSlice()
+    runner.job_path = job_path
+    runner.result = ['first.gcode']
+    runner._reuse_first_as_supports(job)
+
+    sup = runner.job_with_supports
+    expected = slice_recipe.record({**recipe, 'supports_brim': {'brim': 'auto', 'support_decision': True}})
+    assert sup['support_decision']['supports'] is True
+    assert sup['slice_recipe'] == expected and expected['sha256'] != stored['sha256']
+    assert sup['artifact_binding']['recipe_sha256'] == expected['sha256']
+    assert [p['artifact_binding']['recipe_sha256'] for p in sup['derived_plates']] == [
+        expected['sha256'], expected['sha256'], other]
+    assert sup['provenance']['support_decided'] is True
+    assert sup['derived_plates'][0]['provenance']['support_decided'] is True
+    assert runner.supports_result == ['first.gcode'] and runner.variant_reused == 'first_slice'
+    # the first slice's own record is not touched
+    assert job['slice_recipe'] == stored and job['artifact_binding']['recipe_sha256'] == stored['sha256']
