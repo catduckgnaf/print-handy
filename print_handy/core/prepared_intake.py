@@ -4220,7 +4220,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 is_flagged = False  # the existing slice-failure handler owns this failure, not a Ready approval
                 break
             is_flagged, sup_reason, sup_inputs = supports_decision(
-                early.flagged, early.finding, clearance)
+                early.flagged, early.finding, clearance, job=early.job_no_supports or latest)
             reused = latest.get('reused_decisions') or {}
             # The carried answer as the offer recorded it; the job's own
             # field can since have been overwritten by a speculative slice.
@@ -4380,7 +4380,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # Show the worst real slice when both support choices are on the menu.
                 spool_variants = (early.job_with_supports, early.job_no_supports)
             else:
-                spool_variants = (early.job_with_supports if getattr(early, 'supports_result', None)
+                spool_variants = (early.job_no_supports if not early.flagged
+                                  else early.job_with_supports if getattr(early, 'supports_result', None)
                                   else early.job_no_supports,)
             spool_text = await _spool_projection_text(latest, manifest, state, chosen_quantity,
                                                       shortages=shown_shortages, sliced_variants=spool_variants)

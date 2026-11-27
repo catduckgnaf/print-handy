@@ -222,6 +222,9 @@ class BackgroundSlice:
                 first_layer_mm=support_clearance.job_first_layer_mm(job_data))
 
         is_flagged = bool(finding) or support_clearance.risky(clearance)
+        from ..intake.support_flow import authored_makerworld_clearance_decided
+        if not finding and authored_makerworld_clearance_decided(job_data, clearance):
+            is_flagged = False  # keep the author's first slice, not a speculative override
         self.flagged = is_flagged
         self.finding = finding
         self.clearance = clearance

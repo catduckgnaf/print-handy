@@ -352,7 +352,9 @@ def require_current_artifact(job, gcode):
     if clearance is None and job.get('downloaded_file'):
         clearance = support_clearance.safe_analyze(job.get('downloaded_file'),
                                                    first_layer_mm=support_clearance.job_first_layer_mm(job))
-    if support_clearance.risky(clearance):
+    from ..intake.support_flow import authored_makerworld_clearance_decided
+    authored_clearance = bool(job.get('artifact_binding')) and authored_makerworld_clearance_decided(job, clearance)
+    if support_clearance.risky(clearance) and not authored_clearance:
         ack = job.get('clearance_acknowledgement') or {}
         src_path = job.get('downloaded_file')
         src_sha = file_sha256(src_path) if src_path and Path(src_path).is_file() else None
