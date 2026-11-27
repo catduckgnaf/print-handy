@@ -1066,6 +1066,8 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
     out_build = ET.SubElement(model, tag('build'))
     groups, next_id, counts = {}, 1, {}
     mesh_xml = {}
+    recorded = []  # (mesh id, source points, faces) of each directly written mesh, for the mesh sidecar
+    fallback = False
     for key, item_id, mesh, pts in leaves:
         part, subtype = kind[key]
         mesh_id = str(next_id)
@@ -1076,12 +1078,15 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
             # #1940: write the mesh text directly. The placeholder keeps the
             # element's place and tail in the tree; its token is replaced by
             # the same bytes ElementTree would have written for the mesh.
+            inner, faces = inner
             token = f'\x00MESH{len(mesh_xml)}\x00'
             placeholder = ET.SubElement(obj, tag('mesh'))
             placeholder.text = token
             placeholder.tail = mesh.tail
             mesh_xml[token.encode()] = inner.encode('utf-8')
+            recorded.append((mesh_id, pts, faces))
         else:
+            fallback = True
             new_mesh = copy.deepcopy(mesh)
             for node in new_mesh.iter():
                 node.tag = tag(node.tag.split('}')[-1])
@@ -1121,14 +1126,29 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
         ET.SubElement(out_build, tag('item'), objectid=wrapper_id, printable='1')
     from .package_remap import write_package_atomically
     model_bytes = ET.tostring(model, encoding='utf-8', xml_declaration=True)
+    from . import mesh_sidecar
+    skeleton = model_bytes
     for token, inner in mesh_xml.items():
         model_bytes = model_bytes.replace(b'<mesh>' + token + b'</mesh>', b'<mesh>' + inner + b'</mesh>', 1)
+        skeleton = skeleton.replace(
+            b'<mesh>' + token + b'</mesh>',
+            b'<mesh><vertices>' + mesh_sidecar.PLACEHOLDER_VERTEX.encode() + b'</vertices><triangles>'
+            + mesh_sidecar.PLACEHOLDER_TRIANGLE.encode() + b'</triangles></mesh>', 1)
+    mesh_sidecar.discard(target)
     write_package_atomically(target, {
         '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>',
         '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
         '3D/3dmodel.model': model_bytes,
         'Metadata/model_settings.config': ET.tostring(config, encoding='utf-8', xml_declaration=True)})
     placed = [(bounds[a][0] + delta[a], bounds[a][1] + delta[a]) for a in range(3)]
+    if recorded and not fallback:
+        # Later intake steps (the copies clone arrangement) read these tables
+        # instead of parsing the model XML we just wrote (#1790, #1940).
+        import numpy as np
+        offset = np.asarray(delta, dtype=np.float64)
+        mesh_sidecar.write(target, [skeleton.decode('utf-8')],
+                           [(mesh_id, np.asarray(pts, dtype=np.float64).reshape((-1, 3)) + offset,
+                             np.asarray(faces, dtype=np.int32)) for mesh_id, pts, faces in recorded])
     res = {'volumes': counts, 'build_bounds_mm': bounds, 'translation_mm': delta, 'placed_bounds_mm': placed,
            'converted_sha256': digest(target),
            'policy': 'printed volumes plus typed negative/modifier volumes per object; rigid translation; float64 XML'}
@@ -1178,8 +1198,13 @@ def _plain_mesh_xml(mesh, pts, delta):
         tail = vertex.tail or ''
         vertex_parts.append(f'<vertex x="{pt[0] + d0!r}" y="{pt[1] + d1!r}" z="{pt[2] + d2!r}" />{tail}')
     triangle_parts = []
+    faces = []
     for tri in tris:
         if len(tri) or tri.text or not plain(tri.tail):
+            return None
+        try:
+            faces.append((int(tri.attrib['v1']), int(tri.attrib['v2']), int(tri.attrib['v3'])))
+        except (KeyError, ValueError):
             return None
         attrs = []
         for name, value in tri.attrib.items():
@@ -1189,8 +1214,9 @@ def _plain_mesh_xml(mesh, pts, delta):
                 return None
             attrs.append(f'{name}="{value}"')
         triangle_parts.append('<triangle' + ''.join(' ' + a for a in attrs) + f' />{tri.tail or ""}')
-    return (f'{mesh.text or ""}<vertices>{verts.text or ""}{"".join(vertex_parts)}</vertices>{verts.tail or ""}'
+    text = (f'{mesh.text or ""}<vertices>{verts.text or ""}{"".join(vertex_parts)}</vertices>{verts.tail or ""}'
             f'<triangles>{tris.text or ""}{"".join(triangle_parts)}</triangles>{tris.tail or ""}')
+    return text, faces
 
 
 PROD = 'http://schemas.microsoft.com/3dmanufacturing/production/2015/06'

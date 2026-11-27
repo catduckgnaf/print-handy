@@ -60,6 +60,25 @@ def test_direct_write_matches_elementtree_bytes(tmp_path, monkeypatch, name):
     assert _members(tmp_path / 'fast.3mf') == _members(tmp_path / 'slow.3mf')
 
 
+def test_recorded_mesh_tables_equal_a_parse_of_the_written_model(tmp_path):
+    import numpy as np
+    from print_handy.core import mesh_fast, mesh_sidecar
+    src = _write(tmp_path / 'src.3mf', item_tf='0 1 0 -1 0 0 0 0 1 12.5 -3.25 4')
+    out = tmp_path / 'out.3mf'
+    color_geometry.export_volume_plate(src, out, scale=1.5, bed=(256, 256))
+    assert mesh_sidecar.path_for(out).exists()
+    with zipfile.ZipFile(out) as archive:
+        info = archive.getinfo('3D/3dmodel.model')
+        recorded = mesh_sidecar.tables(out, info)
+        assert recorded is not None
+        parsed_tables, parsed_structure = mesh_fast._parse_member(archive.read('3D/3dmodel.model'))
+    structure, tables = recorded
+    assert structure == parsed_structure and list(tables) == list(parsed_tables)
+    for oid, table in tables.items():
+        assert np.array_equal(table.vertices, parsed_tables[oid].vertices)
+        assert np.array_equal(table.triangles, parsed_tables[oid].triangles)
+
+
 def test_unusual_mesh_falls_back_to_elementtree(tmp_path, monkeypatch):
     src = _write(tmp_path / 'src.3mf', mesh_children='<extra/>')
     seen = []
