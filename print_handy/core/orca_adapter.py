@@ -1539,6 +1539,30 @@ def start_mesh_profile(state):
     return mesh
 
 
+def apply_supports_decision(process, supports, painted, first_layer=False):
+    """Apply an operator's supports decision to Orca process settings, in place.
+
+    The one resolution of that decision: slice_model applies it, and the background slice compares a
+    first slice with it to skip an identical with-supports run (#1779, #1939). ``painted`` is called
+    only when it matters (it reads the source). Returns (keys set besides enable_support, notes for the
+    author-settings report).
+    """
+    process['enable_support'] = '1' if supports else '0'
+    changed, notes = [], []
+    if (supports and str(process.get('support_type') or '').endswith('(manual)')
+            and not first_layer and not painted()):
+        # Manual placement only supports painted enforcers: with none painted, the
+        # operator's "with supports" would slice with no supports at all (#1373 review).
+        process['support_type'] = process['support_type'].replace('(manual)', '(auto)')
+        changed.append('support_type')
+        notes.append('supports set to automatic placement: the project asked for manual '
+                     'placement but paints no support enforcers')
+    if supports and 'support_type' not in process:
+        process['support_type'] = 'tree(auto)'
+        changed.append('support_type')
+    return changed, notes
+
+
 @painted_geometry.decode_scoped
 @source_colors.inventory_scope()
 def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None, towerless=False):
@@ -1778,19 +1802,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         _selected('designer', ['enable_support'])
         author_notes.append('supports turned on: the model has painted support enforcers')
     if supports is not None:
-        process.update({'enable_support': '1' if supports else '0'})
-        _selected('operator', ['enable_support'])
-        if (supports and str(process.get('support_type') or '').endswith('(manual)')
-                and not first_layer and not author_settings.painted_supports(source)):
-            # Manual placement only supports painted enforcers: with none painted, the
-            # operator's "with supports" would slice with no supports at all (#1373 review).
-            process['support_type'] = process['support_type'].replace('(manual)', '(auto)')
-            _selected('operator', ['support_type'])
-            author_notes.append('supports set to automatic placement: the project asked for manual '
-                                'placement but paints no support enforcers')
-        if supports and 'support_type' not in process:
-            process['support_type'] = 'tree(auto)'
-            _selected('operator', ['support_type'])
+        changed, notes = apply_supports_decision(process, supports, lambda: author_settings.painted_supports(source),
+                                                 first_layer=first_layer)
+        _selected('operator', ['enable_support', *changed])
+        author_notes.extend(notes)
     if first_layer:
         process.update({'layer_height': '0.2', 'initial_layer_print_height': '0.2', 'wall_loops': '2',
                         'brim_width': '0', 'brim_type': 'no_brim', 'initial_layer_speed': '20',

@@ -4179,26 +4179,27 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # state is read from the slice record right after.
                     with contextlib.suppress(asyncio.TimeoutError):
                         await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
-                sup_task = getattr(early, 'supports_task', None)
-                if (getattr(early, 'flagged', False) and sup_task is not None and not sup_task.done()
+                # Both estimates, under one bound: the with-supports slice and, when the first slice
+                # already carried supports, the real without-supports slice (its own task, #1939).
+                estimates = {task for task in (getattr(early, 'supports_task', None),
+                                               getattr(early, 'nosup_finish', None))
+                             if isinstance(task, asyncio.Future) and not task.done()}
+                if (getattr(early, 'flagged', False) and estimates
                         and getattr(early, 'release', None) is not None and early.release.is_set()):
-                    # A timeout or a failed supports slice leaves the "slicing..." line;
-                    # the intake's own cancellation still propagates.
-                    try:
-                        await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
-                    except asyncio.TimeoutError:
-                        # Bounded wait (#1455): timing out is one of the two
-                        # expected outcomes; the shielded slice keeps running
-                        # and its outcome is read from the slice record below.
-                        logger.debug("supports estimate not ready after %ss; asking without it",
+                    # A timeout or a failed slice leaves the "slicing..." line; the slices keep
+                    # running and their outcome is read from the slice record below. The
+                    # intake's own cancellation still propagates.
+                    done, pending = await asyncio.wait(estimates, timeout=SUPPORTS_ESTIMATE_WAIT_S)
+                    if pending:
+                        logger.debug("supports estimates not ready after %ss; asking without them",
                                      SUPPORTS_ESTIMATE_WAIT_S)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        logger.debug("speculative supports slice failed", exc_info=True)
+                    for task in done:
+                        if not task.cancelled() and task.exception() is not None:
+                            logger.debug("speculative slice failed", exc_info=task.exception())
             waiting = early.running() and not (
                 getattr(early, 'flag_decided', None) is not None and early.flag_decided.is_set()
-                and not (getattr(early, 'supports_task', None) is not None and not early.supports_task.done()))
+                and not any(isinstance(task, asyncio.Future) and not task.done()
+                            for task in (getattr(early, 'supports_task', None), getattr(early, 'nosup_finish', None))))
             if waiting and getattr(early, 'release', None) is not None and early.release.is_set():
                 try:
                     comparing = getattr(early, 'flagged', False)
