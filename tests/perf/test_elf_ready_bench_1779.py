@@ -139,6 +139,7 @@ def test_an_unmatched_color_through_send_clarify_ends_the_run_fast_with_the_erro
         asyncio.run(run())
     assert time.monotonic() - t0 < 20  # ends at once; the run timeout is 1500 s
     assert 'no button for color' in rec.run_error(None) and COLOR_Q in rec.run_error(None)
-    assert rec.run_error('TimeoutError: x') == 'TimeoutError: x'
+    both = rec.run_error('TimeoutError: x')
+    assert both.startswith(rec.fatal) and both.endswith('(then TimeoutError: x)')  # the color cause stays first
     from print_handy.core import prompts as core_prompts
     assert len(ids) == 1 and not core_prompts.is_open(ids[0])  # the prompt is closed, nothing left waiting

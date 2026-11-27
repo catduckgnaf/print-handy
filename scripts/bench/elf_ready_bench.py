@@ -216,7 +216,12 @@ class Recorder:
         self.fatal = None  # why the run was ended from inside a prompt (the intake swallows the raise)
 
     def run_error(self, error):
-        """The report's error: the intake catches what a prompt raises and answers 'skip', so name it here."""
+        """The report's error: the intake catches what a prompt raises and answers 'skip', so name it here.
+
+        The prompt's cause comes first; a later error (a timeout, a rejected clarification) is the symptom.
+        """
+        if self.fatal and error:
+            return f'{self.fatal} (then {error})'
         return error or self.fatal
 
     def _pick(self, question, choices):
