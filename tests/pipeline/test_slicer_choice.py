@@ -98,6 +98,10 @@ def test_bambu_vendor_with_orca_runs_orca(tmp_path, monkeypatch):
     _output, provenance, _ = adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state(), adapter=printer)
     assert len(calls) == 1 and 'com.orcaslicer.OrcaSlicer' in calls[0]
     assert provenance['slicer'] == 'OrcaSlicer'
+    phases = provenance['timing_s']['python_subphases_s']
+    assert phases['prepare_s'] >= 0
+    assert phases['other_s'] >= 0
+    assert abs(sum(phases.values()) - provenance['timing_s']['python_s']) < 0.02
 
 
 def test_klipper_start_code_in_bambu_output_is_blocked_after_slicing(tmp_path, monkeypatch):
