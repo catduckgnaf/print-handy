@@ -23,7 +23,12 @@ def test_makerworld_profile_low_gap_ready_has_no_repair_menu(env, elf_job, monke
         out.write_bytes(env.src.read_bytes())
         return out
     monkeypatch.setattr(jobs_sources, 'download_for_site', download)
-    monkeypatch.setattr(support_clearance, 'safe_analyze', lambda *a, **kw: elf_job['support_clearance'])
+    original_heavy = prepared_intake._heavy
+    async def heavy(func, *args, **kwargs):
+        if func is support_clearance.safe_analyze:
+            return elf_job['support_clearance']
+        return await original_heavy(func, *args, **kwargs)
+    monkeypatch.setattr(prepared_intake, '_heavy', heavy)
     def sliced(job_path, recipe_sha256=None, **kwargs):
         job = json.loads(Path(job_path).read_text())
         job['provenance'] = elf_job['provenance']
