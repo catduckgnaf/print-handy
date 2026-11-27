@@ -255,7 +255,7 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     # The printer model must be set before print_handy.settings loads (the archived job's own model).
     os.environ.setdefault('PRINT_HANDY__PRINTER__MODEL', job.get('printer_model') or 'flashforge.ad5x')
     from print_handy import settings  # noqa: F401  (import before patching the modules below)
-    from print_handy.core import background_slice, orca_adapter, prepared_intake, printer_state
+    from print_handy.core import background_slice, prepared_intake, printer_state
     from print_handy.jobs import audit as jobs_audit  # noqa: F401
     from print_handy.jobs import common as jobs_common
     from print_handy.jobs import sources as jobs_sources
