@@ -1065,24 +1065,41 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
     ET.SubElement(plate, 'metadata', key='plater_id', value='1')
     out_build = ET.SubElement(model, tag('build'))
     groups, next_id, counts = {}, 1, {}
+    mesh_xml = {}
+    recorded = []  # (mesh id, source points, faces) of each directly written mesh, for the mesh sidecar
+    fallback = False
     for key, item_id, mesh, pts in leaves:
         part, subtype = kind[key]
         mesh_id = str(next_id)
         next_id += 1
         obj = ET.SubElement(resources, tag('object'), id=mesh_id, type='model', name=part['name'])
-        new_mesh = copy.deepcopy(mesh)
-        for node in new_mesh.iter():
-            node.tag = tag(node.tag.split('}')[-1])
-            node.attrib.pop('paint_color', None)
-            for key in [k for k in node.attrib if k.split('}')[-1] == 'mmu_segmentation']:
-                del node.attrib[key]
-            if node.tag.split('}')[-1] == 'triangle':
-                for attr in ('pid', 'p1', 'p2', 'p3'):
-                    node.attrib.pop(attr, None)
-        for vertex, pt in zip(new_mesh.find(tag('vertices')), pts):
-            for a, axis in enumerate(('x', 'y', 'z')):
-                vertex.set(axis, repr(pt[a] + delta[a]))
-        obj.append(new_mesh)
+        inner = _plain_mesh_xml(mesh, pts, delta)
+        if inner is not None:
+            # #1940: write the mesh text directly. The placeholder keeps the
+            # element's place and tail in the tree; its token is replaced by
+            # the same bytes ElementTree would have written for the mesh.
+            inner, faces = inner
+            token = f'\x00MESH{len(mesh_xml)}\x00'
+            placeholder = ET.SubElement(obj, tag('mesh'))
+            placeholder.text = token
+            placeholder.tail = mesh.tail
+            mesh_xml[token.encode()] = inner.encode('utf-8')
+            recorded.append((mesh_id, pts, faces))
+        else:
+            fallback = True
+            new_mesh = copy.deepcopy(mesh)
+            for node in new_mesh.iter():
+                node.tag = tag(node.tag.split('}')[-1])
+                node.attrib.pop('paint_color', None)
+                for key in [k for k in node.attrib if k.split('}')[-1] == 'mmu_segmentation']:
+                    del node.attrib[key]
+                if node.tag.split('}')[-1] == 'triangle':
+                    for attr in ('pid', 'p1', 'p2', 'p3'):
+                        node.attrib.pop(attr, None)
+            for vertex, pt in zip(new_mesh.find(tag('vertices')), pts):
+                for a, axis in enumerate(('x', 'y', 'z')):
+                    vertex.set(axis, repr(pt[a] + delta[a]))
+            obj.append(new_mesh)
         counts[subtype] = counts.get(subtype, 0) + 1
         groups.setdefault(item_id, {'name': part.get('object_name') or part['name'], 'vols': []})['vols'].append(
             (mesh_id, part['name'], subtype, part.get('settings')))
@@ -1108,12 +1125,30 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
         ET.SubElement(instance, 'metadata', key='instance_id', value='0')
         ET.SubElement(out_build, tag('item'), objectid=wrapper_id, printable='1')
     from .package_remap import write_package_atomically
+    model_bytes = ET.tostring(model, encoding='utf-8', xml_declaration=True)
+    from . import mesh_sidecar
+    skeleton = model_bytes
+    for token, inner in mesh_xml.items():
+        model_bytes = model_bytes.replace(b'<mesh>' + token + b'</mesh>', b'<mesh>' + inner + b'</mesh>', 1)
+        skeleton = skeleton.replace(
+            b'<mesh>' + token + b'</mesh>',
+            b'<mesh><vertices>' + mesh_sidecar.PLACEHOLDER_VERTEX.encode() + b'</vertices><triangles>'
+            + mesh_sidecar.PLACEHOLDER_TRIANGLE.encode() + b'</triangles></mesh>', 1)
+    mesh_sidecar.discard(target)
     write_package_atomically(target, {
         '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>',
         '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
-        '3D/3dmodel.model': ET.tostring(model, encoding='utf-8', xml_declaration=True),
+        '3D/3dmodel.model': model_bytes,
         'Metadata/model_settings.config': ET.tostring(config, encoding='utf-8', xml_declaration=True)})
     placed = [(bounds[a][0] + delta[a], bounds[a][1] + delta[a]) for a in range(3)]
+    if recorded and not fallback:
+        # Later intake steps (the copies clone arrangement) read these tables
+        # instead of parsing the model XML we just wrote (#1790, #1940).
+        import numpy as np
+        offset = np.asarray(delta, dtype=np.float64)
+        mesh_sidecar.write(target, [skeleton.decode('utf-8')],
+                           [(mesh_id, np.asarray(pts, dtype=np.float64).reshape((-1, 3)) + offset,
+                             np.asarray(faces, dtype=np.int32)) for mesh_id, pts, faces in recorded])
     res = {'volumes': counts, 'build_bounds_mm': bounds, 'translation_mm': delta, 'placed_bounds_mm': placed,
            'converted_sha256': digest(target),
            'policy': 'printed volumes plus typed negative/modifier volumes per object; rigid translation; float64 XML'}
@@ -1122,6 +1157,66 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
     if rotation is not None:
         res['rotation_matrix'] = rotation
     return res
+
+
+_UNSAFE_ATTR = re.compile('[&<>"\r\n\t]')
+_DROPPED_TRIANGLE_ATTRS = frozenset(('paint_color', 'pid', 'p1', 'p2', 'p3'))
+
+
+def _plain_mesh_xml(mesh, pts, delta):
+    """The text ElementTree writes between ``<mesh>`` and ``</mesh>`` for a leaf, or None (#1940).
+
+    ``export_volume_plate`` used to deep copy every mesh element and serialize
+    the copy, which cost ~26 s for a 358k triangle part. This writes the same
+    bytes straight from the parsed element: ``<vertices>`` and ``<triangles>``
+    only, bare ``x y z`` vertices, triangle attributes in their source order
+    minus color paint, material ids and ``mmu_segmentation``. Anything else
+    (extra children, namespaced or unusual attributes, text that needs
+    escaping, an empty body) returns None and the caller keeps the
+    ElementTree path.
+    """
+    def local(node):
+        return node.tag.split('}')[-1]
+
+    def plain(text):
+        # Indentation only. ElementTree writes whitespace text as is (cdata escapes just & < >).
+        return text is None or not text.strip()
+
+    kids = list(mesh)
+    if mesh.attrib or len(kids) != 2 or [local(k) for k in kids] != ['vertices', 'triangles']:
+        return None
+    verts, tris = kids
+    if verts.attrib or tris.attrib or not len(verts) or not len(tris) or len(verts) != len(pts):
+        return None
+    if not all(plain(t) for t in (mesh.text, verts.text, verts.tail, tris.text, tris.tail)):
+        return None
+    d0, d1, d2 = delta
+    vertex_parts = []
+    for vertex, pt in zip(verts, pts):
+        if len(vertex) or vertex.text or list(vertex.attrib) != ['x', 'y', 'z'] or not plain(vertex.tail):
+            return None
+        tail = vertex.tail or ''
+        vertex_parts.append(f'<vertex x="{pt[0] + d0!r}" y="{pt[1] + d1!r}" z="{pt[2] + d2!r}" />{tail}')
+    triangle_parts = []
+    faces = []
+    for tri in tris:
+        if len(tri) or tri.text or not plain(tri.tail):
+            return None
+        try:
+            faces.append((int(tri.attrib['v1']), int(tri.attrib['v2']), int(tri.attrib['v3'])))
+        except (KeyError, ValueError):
+            return None
+        attrs = []
+        for name, value in tri.attrib.items():
+            if name in _DROPPED_TRIANGLE_ATTRS or name.split('}')[-1] == 'mmu_segmentation':
+                continue
+            if '{' in name or '}' in name or _UNSAFE_ATTR.search(value):
+                return None
+            attrs.append(f'{name}="{value}"')
+        triangle_parts.append('<triangle' + ''.join(' ' + a for a in attrs) + f' />{tri.tail or ""}')
+    text = (f'{mesh.text or ""}<vertices>{verts.text or ""}{"".join(vertex_parts)}</vertices>{verts.tail or ""}'
+            f'<triangles>{tris.text or ""}{"".join(triangle_parts)}</triangles>{tris.tail or ""}')
+    return text, faces
 
 
 PROD = 'http://schemas.microsoft.com/3dmanufacturing/production/2015/06'
