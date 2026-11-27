@@ -3174,7 +3174,7 @@ def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_
 
 
 def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edge_margin_mm: float | None = None,
-                        scale: float = 1.0, copy_limit: int = 16, allow_rotations: bool = True,
+                        scale: float = 1.0, copy_limit: int = 16, allow_rotations: bool = False,
                         rotation=None, supports: bool | None = None, brim_policy=None) -> int:
     """Return the Orca-confirmed copy count; probe failures raise and are never treated as no-fit.
 
@@ -3184,6 +3184,12 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
     ``supports`` probes with the same support setting the slice will use (None: the 3MF
     author's setting, else off). Tree supports can double a part's footprint, so a probe
     without them over-reports copies.
+
+    Orca never turns the part here unless ``allow_rotations`` is passed: the slice
+    centers the part in the pose the probe was given and never applies a turn Orca's
+    arrange found, so a probe that turned it reported a fit the slice then refused
+    (a 231 x 74 mm part judged to fit a 220 mm bed). A turn that fits is found by
+    ``fit_options`` and recorded on the job as an exact ``rotation``.
     """
     import tempfile
     source = Path(source)

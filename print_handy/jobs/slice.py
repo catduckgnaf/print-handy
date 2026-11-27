@@ -2792,7 +2792,13 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             unit_provenance = {'units': 'mm', 'source': 'authored_size',
                                'original_mm': list(authored_dims), 'factor': 1.0}
     eff_sx, eff_sy, eff_sz = sx * (float(scale) if scale else 1.0), sy * (float(scale) if scale else 1.0), sz * (float(scale) if scale else 1.0)
-    if eff_sx>st["bed_mm"][0] or eff_sy>st["bed_mm"][1] or eff_sz>st["max_print_height_mm"]: raise RuntimeError(f"model {sx}x{sy}x{sz} mm exceeds printer volume")
+    if eff_sx>st["bed_mm"][0] or eff_sy>st["bed_mm"][1] or eff_sz>st["max_print_height_mm"]:
+        # A SliceFailure carries its signature across the worker boundary; a bare
+        # RuntimeError arrived as an unexplained RemoteError and chat said the
+        # cause was unknown and offered a retry that cannot help.
+        from ..core.slice_failure import SliceFailure
+        raise SliceFailure(f"model {sx}x{sy}x{sz} mm exceeds printer volume", kind='layout',
+                           signature='outside_bed')
     if brim_override is None and job.get('fit_brim_policy'):
         brim_override = job['fit_brim_policy'].get('width_mm', 0)
     if rotation and brim_override is None and orientation.get("brim"):

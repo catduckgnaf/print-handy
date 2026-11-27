@@ -230,3 +230,25 @@ def test_failure_folders_list_newest_first(tmp_path):
     rows = failure_report.failure_folders(tmp_path)
     assert [row['name'] for row in rows] == ['new', 'old']
     assert failure_report.failure_folders(tmp_path / 'nothing') == []
+
+
+def test_slice_volume_check_names_the_bed_across_the_worker_wire():
+    """The slice's own volume check reached chat as "could not identify the cause".
+
+    It raised a bare RuntimeError, which crosses the worker boundary as an
+    unexplained RemoteError, so the outside_bed signature was lost and chat
+    offered a retry that cannot help. It raises a SliceFailure that keeps it.
+    """
+    import inspect
+    from print_handy.jobs import slice as jobs_slice
+    body = inspect.getsource(jobs_slice._slice_job)
+    assert 'raise RuntimeError(f"model {sx}x{sy}x{sz} mm exceeds printer volume")' not in body
+    assert "signature='outside_bed'" in body
+    original = slice_failure.SliceFailure('model 231.3x74.34x85.5 mm exceeds printer volume',
+                                          kind='layout', signature='outside_bed')
+    back = worker_errors.decode(json.loads(json.dumps(worker_errors.encode(original))))
+    post = slice_failure.post(back)
+    assert 'could not identify the cause' not in post
+    assert "does not fit inside the printer's build volume" in post
+    assert 'PH_PLATE_PLAN_OUTSIDE_BED' in post
+    assert not slice_failure.explain(back).retryable
