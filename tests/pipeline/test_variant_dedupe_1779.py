@@ -97,6 +97,7 @@ def test_nosupports_variant_config_has_supports_disabled_and_gives_real_numbers(
         runner = BackgroundSlice()
         await runner.start(job_path, 'b', _slice_func(launches))
         await runner.settle()
+        await runner.wait_nosupports()  # the Ready question's estimate wait (#1939)
         # the Ready card reads these two for its numbers
         assert runner.job_with_supports is not None and runner.supports_result is not None
         assert runner.job_no_supports is not None and runner.result is not None
@@ -232,3 +233,73 @@ def test_taking_supports_stops_a_running_nosupports_slice_before_removing_its_fo
         assert seen['folder_at_exit'] is True  # the slicer ended before its folder was removed
         assert not variant.exists()
     asyncio.run(run())
+
+
+def test_choosing_supports_on_a_reused_first_slice_does_not_wait_for_the_nosupports_slice(tmp_path, monkeypatch):
+    """#1939 item 1: the reused with-supports side is ready once coverage is checked. Choosing it stops
+    the without-supports slice instead of waiting for a slice that is then thrown away."""
+    monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, **k: False)
+
+    async def run():
+        folder, job_path = _setup(tmp_path)
+        launches = []
+        never = asyncio.Event()
+        seen = {}
+
+        async def hold(launch):
+            if launch['decided'] is False:  # the without-supports slice never finishes on its own
+                try:
+                    await never.wait()
+                finally:
+                    seen['variant_at_exit'] = (folder / 'variant_nosupports').is_dir()
+        runner = BackgroundSlice()
+        await runner.start(job_path, 'b', _slice_func(launches, hold=hold))
+        await asyncio.wait_for(runner.settle(), 2)
+        assert runner.variant_reused == 'first_slice'
+        assert runner.supports_task.done()  # coverage only: not tied to the without-supports slice
+        assert runner.running()  # the without-supports estimate is still on its way
+        sup = await asyncio.wait_for(runner.take_supports(), 2)
+        assert sup and 'enable_support = 1' in Path(sup[0]).read_text()
+        assert seen['variant_at_exit'] is True  # stopped before its folder was removed
+        assert not (folder / 'variant_nosupports').exists()
+        assert not runner.running()
+    asyncio.run(run())
+
+
+def test_supports_after_nosupports_leaves_no_adopted_folder(tmp_path, monkeypatch):
+    """#1939 item 2: take_no_supports moves the real without-supports slice to adopted_nosupports_*;
+    choosing supports afterwards puts the first slice back and removes that folder too."""
+    monkeypatch.setattr(preview_parallel, 'enabled', lambda *a, **k: False)
+
+    async def run():
+        folder, job_path = _setup(tmp_path)
+        runner = BackgroundSlice()
+        await runner.start(job_path, 'b', _slice_func([]))
+        await runner.settle()
+        nosup = await runner.take_no_supports()
+        adopted = sorted(folder.glob('adopted_nosupports_*'))
+        assert len(adopted) == 1 and Path(nosup[0]).is_relative_to(adopted[0])
+        sup = await runner.take_supports()
+        assert sup and 'enable_support = 1' in Path(sup[0]).read_text()
+        assert sorted(folder.glob('adopted_nosupports_*')) == []
+        assert not (folder / 'variant_nosupports').exists()
+    asyncio.run(run())
+
+
+def test_dedupe_compares_with_the_resolution_slice_model_applies(monkeypatch):
+    """#1939 item 3: the dedupe check and slice_model share one supports-on resolution."""
+    from print_handy.core import background_slice, orca_adapter
+
+    def cases():
+        yield {'enable_support': '1', 'support_type': 'normal(manual)'}, False
+        yield {'enable_support': '1', 'support_type': 'normal(manual)'}, True
+        yield {'enable_support': '0'}, False
+        yield {'enable_support': '1', 'support_type': 'tree(auto)', 'layer_height': '0.2'}, False
+    for process, painted in cases():
+        applied = dict(process)
+        orca_adapter.apply_supports_decision(applied, True, lambda p=painted: p)
+        assert background_slice._resolved_with_supports(process, painted) == applied
+    assert orca_adapter.apply_supports_decision({'support_type': 'normal(manual)'}, True, lambda: False)[0] == ['support_type']
+    monkeypatch.setattr(orca_adapter, 'apply_supports_decision',
+                        lambda process, supports, painted, first_layer=False: process.update(marker='shared') or ([], []))
+    assert background_slice._resolved_with_supports({'enable_support': '1'}, False)['marker'] == 'shared'

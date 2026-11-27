@@ -79,9 +79,8 @@ class BackgroundSlice:
         return self.binding == binding and (self.task is not None or self.result is not None)
 
     def running(self):
-        return (self.task is not None and not self.task.done()) or (
-            self.supports_task is not None and not self.supports_task.done()
-        )
+        return any(task is not None and not task.done()
+                   for task in (self.task, self.supports_task, self.nosup_finish))
 
     async def start(self, job_path, binding, slice_func):
         """Start a slice for this binding, replacing any slice bound to something else."""
@@ -163,6 +162,8 @@ class BackgroundSlice:
         self.nosup_error = None
         self.nosup_swapped = False
         self.nosup_settled = False
+        self.nosup_finish = None  # the task that waits for that slice and swaps it into the record (#1939)
+        self.nosup_adopted = None  # its folder once take_no_supports moved it into the intake folder
         self.variant_reused = None  # 'first_slice' when the with-supports variant was the first slice itself
         if forget_first:
             self.first_job = None
@@ -199,7 +200,6 @@ class BackgroundSlice:
                 self._merge_variant_timing(job_path)
             if self.job_with_supports is not None:
                 await self._verify_supports_coverage()
-            await self._finish_nosupports()  # the estimate wait covers the real without-supports numbers
 
         self.supports_task = asyncio.ensure_future(slice_and_check())
         return self.supports_task
@@ -291,11 +291,13 @@ class BackgroundSlice:
                     concurrent = None
                 if self.nosup_task is None:
                     self._launch_nosupports(slice_func, job_data)
+                # Its own task (#1939): choosing supports never waits for it, the estimate wait does.
+                self._start_nosupports_finish()
             else:
                 await self._stop_nosupports()  # a guessed early run that the first slice made unnecessary
             if supports_equal:
                 self._reuse_first_as_supports(job_data)
-                self.supports_task = asyncio.ensure_future(self._reused_supports_and_nosupports())
+                self.supports_task = asyncio.ensure_future(self._verify_supports_coverage())
                 self.flag_decided.set()
                 await asyncio.shield(self.supports_task)
                 return
@@ -304,7 +306,6 @@ class BackgroundSlice:
                 try:
                     await asyncio.shield(concurrent)
                     if self.supports_result is not None:
-                        await self._finish_nosupports()
                         return
                 except asyncio.CancelledError:
                     raise
@@ -330,7 +331,6 @@ class BackgroundSlice:
                 sup_work = self._start_supports(slice_func, sup_path, sup_job, sup_binding)
                 self.flag_decided.set()
                 await asyncio.shield(sup_work)
-            await self._finish_nosupports()
         except asyncio.CancelledError:
             if self.supports_task and not self.supports_task.done():
                 self.supports_task.cancel()
@@ -377,12 +377,19 @@ class BackgroundSlice:
         _timing_note(self.job_path, 'variant_reused', variant='supports',
                      reason='resolved settings equal the first slice (enable_support already 1)')
 
-    async def _reused_supports_and_nosupports(self):
-        """Verify the reused with-supports slice's coverage while the without-supports slice runs.
+    def _start_nosupports_finish(self):
+        if self.nosup_task is not None and self.nosup_finish is None:
+            self.nosup_finish = asyncio.ensure_future(self._finish_nosupports())
 
-        One task, so the Ready question's estimate wait covers both numbers.
+    async def wait_nosupports(self):
+        """Wait until the real without-supports slice is in the record (or has failed, see nosup_error).
+
+        The Ready question's estimate wait and take_no_supports wait here; choosing supports or the
+        first slice does not (#1939): take and take_supports stop the slice instead.
         """
-        await asyncio.gather(self._verify_supports_coverage(), self._finish_nosupports())
+        finish = self.nosup_finish
+        if finish is not None and not finish.done():
+            await asyncio.wait({finish})  # the caller's own cancellation still propagates
 
     async def _finish_nosupports(self):
         """Wait for the real without-supports slice and make it the no-supports side of the record."""
@@ -407,16 +414,21 @@ class BackgroundSlice:
         self.job_no_supports, self.result = self.nosup_job, self.nosup_result
         self.nosup_swapped = True
 
-    async def _stop_nosupports(self):
+    async def _cancel_nosupports(self):
+        """Stop the without-supports slice and its record swap; both have settled on return."""
         task = self.nosup_task
-        if task is not None and not task.done():
-            task.cancel()
-            try:
-                await owned_worker.settle(task)
-            except asyncio.CancelledError:
-                logger.debug('without-supports slice cancelled')
-        elif task is not None and not task.cancelled() and task.exception() is not None:
+        for running in (self.nosup_finish, task):  # the swap first, so it cannot land after this
+            if running is not None and not running.done():
+                running.cancel()
+                try:
+                    await owned_worker.settle(running)
+                except asyncio.CancelledError:
+                    logger.debug('without-supports slice cancelled')
+        if task is not None and task.done() and not task.cancelled() and task.exception() is not None:
             logger.debug('finished without-supports slice had failed', exc_info=task.exception())
+
+    async def _stop_nosupports(self):
+        await self._cancel_nosupports()
         if self.nosup_swapped:
             self._unswap()
         self._reset_nosupports()
@@ -424,22 +436,20 @@ class BackgroundSlice:
     async def _release_nosupports(self):
         """Put the first slice's record back and delete the without-supports trial folder.
 
-        A without-supports slice still running (the with-supports slice failed, or the first slice was
-        taken before it finished) is stopped and settled first, so its folder is never removed under a
-        live slicer.
+        A without-supports slice still running (supports were chosen, or the first slice was taken
+        before it finished) is stopped and settled first, so its folder is never removed under a live
+        slicer and nothing waits for a slice that is not kept (#1939).
         """
-        task = self.nosup_task
-        if task is not None and not task.done():
-            task.cancel()
-            try:
-                await owned_worker.settle(task)
-            except asyncio.CancelledError:
-                logger.debug('without-supports slice cancelled before its folder was released')
+        await self._cancel_nosupports()
         if self.nosup_swapped:
             self._unswap()
-        folder, self.nosup_variant = self.nosup_variant, None
-        if folder is not None:
-            shutil.rmtree(folder, ignore_errors=True)
+        # The trial folder, or the folder take_no_supports already moved it to: after the swap back
+        # nothing refers to either (#1939).
+        for attr in ('nosup_variant', 'nosup_adopted'):
+            folder = getattr(self, attr)
+            setattr(self, attr, None)
+            if folder is not None:
+                shutil.rmtree(folder, ignore_errors=True)
 
     def _unswap(self):
         self.job_no_supports, self.result = self.first_job, self.first_result
@@ -496,7 +506,7 @@ class BackgroundSlice:
         folder, self.variant = self.variant, None
         if folder is None:
             return
-        self.job_with_supports, self.supports_result = self._adopt_folder(
+        self.job_with_supports, self.supports_result, _root = self._adopt_folder(
             folder, self.job_with_supports, self.supports_result, 'adopted_supports_')
 
     def _adopt_nosupports(self):
@@ -504,13 +514,14 @@ class BackgroundSlice:
         folder, self.nosup_variant = self.nosup_variant, None
         if folder is None:
             return
-        self.job_no_supports, self.result = self._adopt_folder(
+        self.job_no_supports, self.result, self.nosup_adopted = self._adopt_folder(
             folder, self.job_no_supports, self.result, 'adopted_nosupports_')
 
     def _adopt_folder(self, folder, job_record, result_record, prefix):
+        """Move a variant folder into the intake folder. Returns (job record, result, new folder or None)."""
         if job_record is None:  # the variant slice failed: leave no partial outputs
             shutil.rmtree(folder, ignore_errors=True)
-            return job_record, result_record
+            return job_record, result_record, None
         old_root = str(folder)
         # Never publish into the first slice's namespace. Both slices can emit
         # the same filename, and the review binds to the chosen variant's bytes.
@@ -538,7 +549,7 @@ class BackgroundSlice:
                 Path(dest).parent.mkdir(parents=True, exist_ok=True)
                 os.replace(src, dest)
         shutil.rmtree(folder, ignore_errors=True)
-        return job, result
+        return job, result, Path(new_root)
 
     async def _verify_supports_coverage(self):
         """Verify preview G-code in the bounded worker; keep failures explicitly unverified."""
@@ -642,6 +653,7 @@ class BackgroundSlice:
             # suppress kept with reason (#1455): see settle().
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
+        await self.wait_nosupports()  # the real without-supports slice is the one chosen
         if await asyncio.to_thread(_sliced_with_supports, self.result):
             # The first slice ran before any decision, so a designer project
             # with supports on (or painted enforcers) sliced WITH supports:
@@ -808,13 +820,14 @@ def _authored_supports_on(job):
 
 
 def _resolved_with_supports(process, painted):
-    """The process settings after an operator \"supports on\" decision is applied (orca_adapter.slice_model)."""
+    """The process settings after an operator \"supports on\" decision is applied.
+
+    The one resolution slice_model applies (orca_adapter.apply_supports_decision, #1939), so this
+    comparison cannot drift from what a with-supports slice would really use.
+    """
+    from .orca_adapter import apply_supports_decision
     out = dict(process)
-    out['enable_support'] = '1'
-    if str(out.get('support_type') or '').endswith('(manual)') and not painted:
-        out['support_type'] = out['support_type'].replace('(manual)', '(auto)')
-    if 'support_type' not in out:
-        out['support_type'] = 'tree(auto)'
+    apply_supports_decision(out, True, lambda: painted)
     return out
 
 
