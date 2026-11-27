@@ -99,7 +99,9 @@ def test_bambu_vendor_with_orca_runs_orca(tmp_path, monkeypatch):
     assert len(calls) == 1 and 'com.orcaslicer.OrcaSlicer' in calls[0]
     assert provenance['slicer'] == 'OrcaSlicer'
     phases = provenance['timing_s']['python_subphases_s']
-    assert phases['prepare_s'] >= 0
+    assert phases['inventory_s'] >= 0
+    assert phases['geometry_s'] >= 0
+    assert phases['prepare_other_s'] >= 0
     assert phases['other_s'] >= 0
     assert abs(sum(phases.values()) - provenance['timing_s']['python_s']) < 0.02
 
