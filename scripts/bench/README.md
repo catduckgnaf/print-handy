@@ -17,7 +17,7 @@ the Ready question is posted and is answered with its Cancel button.
   Elf shorts: slot 3, red PLA, Spoolman spool 24.
 - `--copies` (default 2), `--out` (JSON report), `--workdir`, `--timeout`.
 
-## Run it (Francium, never Dysprosium)
+## Run it (the test host, never a workstation)
 
 Orca is in the Print Handy image, so run in the image with the checkout mounted over `/app`
 code and the network disabled:

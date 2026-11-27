@@ -19,7 +19,7 @@ answers: how long did each slice take, how much of that was Orca
 ``prepare_s`` = inventory + geometry + other prepare work), was the variant
 launched, was it identical to the first slice, and what did coverage cost.
 
-Run it where Orca is installed (the Francium container, see the docs in
+Run it where Orca is installed (the test host container, see the docs in
 ``scripts/bench/README.md``)::
 
     python scripts/bench/elf_ready_bench.py --source SRC.3mf --job-record JOB.json \\
