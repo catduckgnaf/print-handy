@@ -593,6 +593,25 @@ def _place_indexed(result, target, scale, rotation, bed, mirror=None):
     return res
 
 
+def _shifted_copies(triangles, shifts):
+    """Every (dx, dy) copy of ``triangles``, in shift order, as one triangle sequence.
+
+    Indexed storage (a 3MF source) is replicated as arrays, so a 716k triangle
+    model with two copies is two array adds instead of a million tuple
+    constructions (18 s); _place_indexed then treats each point with the same
+    float64 arithmetic (point + shift) as the scalar loop, so the clones file
+    is byte-identical. Any other sequence keeps the scalar loop.
+    """
+    if isinstance(triangles, IndexedTriangles) and len(triangles):
+        vertices, faces = [], []
+        for index, (dx, dy) in enumerate(shifts):
+            faces.append(triangles.faces + index * len(triangles.vertices))
+            vertices.append(triangles.vertices + np.array([dx, dy, 0.0]))
+        return IndexedTriangles(np.concatenate(vertices), np.concatenate(faces))
+    return [[(point[0] + dx, point[1] + dy, point[2]) for point in triangle]
+            for dx, dy in shifts for triangle in triangles]
+
+
 def _place_triangles(result, target, scale=1.0, rotation=None, bed=None, mirror=None):
     """Rotate (rigid), uniformly scale, then center on the bed with the lowest vertex on Z0.
 
@@ -2363,8 +2382,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             shifts.append((col * (width + 10), row * (depth + 10)))
         clones = folder / 'clones.stl'
         triangles = source_triangles(input_path)
-        duplicated = [[(point[0] + dx, point[1] + dy, point[2]) for point in triangle]
-                      for dx, dy in shifts for triangle in triangles]
+        duplicated = _shifted_copies(triangles, shifts)
         geometry.update(_place_triangles(duplicated, clones, bed=printer.build_volume().bed_mm))
         input_path = clones
         copies = None
