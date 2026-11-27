@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated_at": "2026-11-26T19:09:38Z",
+ "generated_at": "2026-11-27T19:04:21Z",
  "source": "https://github.com/catduckgnaf/print-handy",
  "firmware": [
   {
@@ -78,16 +78,16 @@
    "stock_models": [],
    "update": "OpenCreator updates itself from its own updater, or from Fluidd or Mainsail; an update can flash the printer's boards, so never start one during a print. Print Handy reports OpenCreator updates and does not apply them.",
    "latest": {
-    "version": "0.0.7.7",
-    "tag": "0.0.7.7",
-    "published_at": "2026-11-25T00:52:13Z",
-    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.7"
+    "version": "0.0.7.8",
+    "tag": "0.0.7.8",
+    "published_at": "2026-11-27T10:19:41Z",
+    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.8"
    },
    "latest_stable": {
-    "version": "0.0.7.7",
-    "tag": "0.0.7.7",
-    "published_at": "2026-11-25T00:52:13Z",
-    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.7"
+    "version": "0.0.7.8",
+    "tag": "0.0.7.8",
+    "published_at": "2026-11-27T10:19:41Z",
+    "url": "https://github.com/FlashForge-C5-Modding-Group/OpenCreator/releases/tag/0.0.7.8"
    },
    "latest_prerelease": null,
    "audited": "0.0.7.6",
@@ -106,16 +106,16 @@
    "stock_models": [],
    "update": "On a printer whose Moonraker lists a helixscreen component, run /print-firmware update helixscreen; otherwise use HelixScreen's own installer.",
    "latest": {
-    "version": "1.1.0",
-    "tag": "v1.1.0",
-    "published_at": "2026-11-24T03:20:39Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0"
+    "version": "1.1.1",
+    "tag": "v1.1.1",
+    "published_at": "2026-11-27T01:50:34Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.1"
    },
    "latest_stable": {
-    "version": "1.1.0",
-    "tag": "v1.1.0",
-    "published_at": "2026-11-24T03:20:39Z",
-    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.0"
+    "version": "1.1.1",
+    "tag": "v1.1.1",
+    "published_at": "2026-11-27T01:50:34Z",
+    "url": "https://github.com/prestonbrown/helixscreen/releases/tag/v1.1.1"
    },
    "latest_prerelease": {
     "version": "1.2.0-alpha.1",
