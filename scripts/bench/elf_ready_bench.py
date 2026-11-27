@@ -203,7 +203,7 @@ class Recorder:
         self.t_copies_answered = None
         self.t_ready = None
         self.ready_text = None
-
+        self.snapshot = None  # called when the Ready question arrives
     def _pick(self, question, choices):
         low = [str(c).lower() for c in choices]
         q = question.lower()
@@ -235,6 +235,8 @@ class Recorder:
             return S(success=True)  # a status prompt: nobody taps Stop, the step finishing closes it
         if question.lower().startswith('ready to slice'):
             self.t_ready, self.ready_text = now, question
+            if self.snapshot is not None:
+                self.snapshot()  # before Cancel: cancelling removes the sliced files
         pick = self._pick(question, choices) if choices else 0
         if 'how many copies' in question.lower():
             self.t_copies_answered = self.clock()
@@ -296,7 +298,15 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     started = clock()
     wall0 = time.time()
     state = json.loads(json.dumps(hardware))
+    snap = workdir / 'ready-snapshot'
 
+    def snapshot():
+        """Copy the job folder as it stands at Ready: Cancel then deletes the sliced files."""
+        for p in archive.iterdir():
+            if (p / 'JOB.json').is_file():
+                shutil.copytree(p, snap, ignore=shutil.ignore_patterns('source'), dirs_exist_ok=True)
+                return
+    chat.snapshot = snapshot
     outcome = {}
 
     async def go():
@@ -326,7 +336,7 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
         pass
 
     folders = [p for p in archive.iterdir() if (p / 'JOB.json').is_file()]
-    folder = folders[0] if folders else None
+    folder = snap if snap.is_dir() else (folders[0] if folders else None)
     timing = _read_timing(folder) if folder else []
     slices = slice_rows(timing)
 
