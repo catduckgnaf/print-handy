@@ -89,7 +89,41 @@ def with_supports_line(reason, estimate, finding, clearance, gap_repair=False):
     return f"- Slice and print with supports (recommended: {reason or 'floating regions found'}): {estimate}"
 
 
-def supports_decision(flagged, finding, clearance):
+def authored_makerworld_clearance_decided(job, clearance):
+    """Honor an unchanged, explicitly authored MakerWorld profile on clearance alone.
+
+    The slice provenance must prove the selected support value came from the
+    designer and that the slicer found no floating regions. Never infer intent
+    from an inherited value, a missing warning, or a speculative slice.
+    """
+    from ..core import support_clearance
+
+    if not isinstance(job, dict) or job.get('site') != 'makerworld':
+        return False
+    if not isinstance(job.get('selected_source'), dict) or not job['selected_source'].get('instance_id'):
+        return False
+    if (job.get('support_decision') or {}).get('by') == 'speculative_intake':
+        return False
+    orientation = job.get('orientation') or {}
+    if orientation.get('rotation') or job.get('full_size_split_plan') or job.get('full_size_rearrange_plan'):
+        return False
+    if job.get('derived_plates') and len(job['derived_plates']) > 1:
+        return False
+    findings = (clearance or {}).get('findings') or []
+    risks = [f for f in findings if f.get('severity') == 'risk']
+    if not risks or any(f.get('code') != support_clearance.CODE_CLEARANCE for f in risks):
+        return False
+    prov = job.get('provenance') or {}
+    warnings = prov.get('slice_warnings')
+    setting = ((prov.get('conversion_provenance') or {}).get('settings') or {}).get('enable_support') or {}
+    value = str(setting.get('project_value'))
+    return (isinstance(warnings, dict) and warnings.get('support_needed') is False
+            and setting.get('selected_reason') == 'designer'
+            and value in ('0', '1') and str(setting.get('selected_value')) == value
+            and prov.get('supports_on') is (value == '1'))
+
+
+def supports_decision(flagged, finding, clearance, *, job=None):
     """(show, reason, inputs) for the supports question (#1020 F).
 
     ``show`` is True only on evidence: a slicer floating-region finding,
@@ -133,6 +167,9 @@ def supports_decision(flagged, finding, clearance):
     if not reasons and flagged:
         reasons.append("the slice was flagged for supports")
     show = bool(flagged or finding or risky)
+    if not finding and authored_makerworld_clearance_decided(job, clearance):
+        show = False
+        reasons.append('the designer selected supports in the MakerWorld profile')
     inputs = {'flagged': bool(flagged), 'finding': bool(finding),
               'clearance_risky': bool(risky),
               'clearance_codes': support_clearance.codes(clearance) if clearance else []}
