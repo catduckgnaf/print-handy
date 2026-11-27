@@ -203,7 +203,8 @@ class Recorder:
         self.t_copies_answered = None
         self.t_ready = None
         self.ready_text = None
-        self.snapshot = None  # called when the Ready question arrives
+        self.snapshot = None  # callable, set by run_bench: called when the Ready question arrives
+
     def _pick(self, question, choices):
         low = [str(c).lower() for c in choices]
         q = question.lower()
