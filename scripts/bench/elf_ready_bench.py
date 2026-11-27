@@ -346,11 +346,26 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
         identical = bool(a & b) and a == b
     variants = {
         'launched': 'supports' in slices or bool(variant_gcodes),
+        'why_not_launched': None,
         'supports_variant_identical_to_first': identical,
         'first_enable_support': sorted({v['enable_support'] for v in first_gcodes.values() if v['enable_support']}),
         'variant_enable_support': sorted({v['enable_support'] for v in variant_gcodes.values() if v['enable_support']}),
     }
     copies_to_ready = None
+    if not variants['launched'] and folder:
+        # Say why: the slice record's own support facts (the designer's setting kept, no floating regions).
+        try:
+            rec = json.loads((folder / 'JOB.json').read_text())
+            prov = rec.get('provenance') or {}
+            setting = ((prov.get('conversion_provenance') or {}).get('settings') or {}).get('enable_support') or {}
+            variants['why_not_launched'] = {
+                'slice_warnings_support_needed': (prov.get('slice_warnings') or {}).get('support_needed'),
+                'enable_support_selected_reason': setting.get('selected_reason'),
+                'enable_support_selected_value': setting.get('selected_value'),
+                'support_decision': rec.get('support_decision'),
+            }
+        except (OSError, ValueError):
+            pass
     if chat.t_copies_answered is not None and chat.t_ready is not None:
         copies_to_ready = round(chat.t_ready - chat.t_copies_answered, 3)
     report = {
