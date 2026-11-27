@@ -336,8 +336,8 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
     fake_mr.shutdown()
     try:
         loop.close()
-    except Exception:  # noqa: BLE001
-        pass
+    except (RuntimeError, OSError) as exc:
+        print(f'bench: event loop close failed: {type(exc).__name__}: {exc}', file=sys.stderr)
 
     folders = [p for p in archive.iterdir() if (p / 'JOB.json').is_file()]
     folder = snap if snap.is_dir() else (folders[0] if folders else None)
