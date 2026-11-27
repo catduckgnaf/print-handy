@@ -183,6 +183,8 @@ class Recorder:
         now = self.clock()
         question, choices = kw['question'], list(kw.get('choices') or [])
         self.questions.append({'t': now, 'question': question[:400], 'choices': [str(c) for c in choices]})
+        if [str(c).lower() for c in choices] == ['stop']:
+            return S(success=True)  # a status prompt: nobody taps Stop, the step finishing closes it
         if question.lower().startswith('ready to slice'):
             self.t_ready, self.ready_text = now, question
         pick = self._pick(question, choices) if choices else 0
