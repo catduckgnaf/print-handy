@@ -191,6 +191,13 @@ def slice_rows(timing_rows):
     return out
 
 
+# The intake words its color questions "Choose the color for ...", "Choose the color/material for ...",
+# "Choose the loaded color/material for ...", "Choose slot/color/material for ..." (source_colors.py,
+# prepared_intake.py). The color plan prompts ("Same colors as last time ...?", "Use these and pick the
+# rest") mention colors but are not asks for one, so they must not match.
+_COLOR_QUESTION = re.compile(r'\s*choose\b[^\n]*?\bcolou?r', re.I)
+
+
 class Recorder:
     """The fake chat: records every question and post with a monotonic time, answers by rule."""
 
@@ -205,6 +212,12 @@ class Recorder:
         self.t_ready = None
         self.ready_text = None
         self.snapshot = None  # callable, set by run_bench: called when the Ready question arrives
+        self.unmatched = []  # non-color prompts answered with the first button, never silent
+        self.fatal = None  # why the run was ended from inside a prompt (the intake swallows the raise)
+
+    def run_error(self, error):
+        """The report's error: the intake catches what a prompt raises and answers 'skip', so name it here."""
+        return error or self.fatal
 
     def _pick(self, question, choices):
         low = [str(c).lower() for c in choices]
@@ -226,7 +239,12 @@ class Recorder:
         for i, c in enumerate(low):
             if self.color_word in c:
                 return i
-        raise RuntimeError(f'no button for color {self.color_word!r} (slot {self.slot}): {choices}')
+        if _COLOR_QUESTION.match(question):
+            raise RuntimeError(f'no button for color {self.color_word!r} (slot {self.slot}) '
+                               f'in question {question[:200]!r}: {choices}')
+        # Any other prompt (the color plan, a fit or spool check) keeps the first button, on the record.
+        self.unmatched.append({'question': question[:400], 'choices': [str(c) for c in choices], 'picked': 0})
+        return 0
 
     async def send_clarify(self, **kw):
         from print_handy.core import prompts as core_prompts
@@ -239,7 +257,13 @@ class Recorder:
             self.t_ready, self.ready_text = now, question
             if self.snapshot is not None:
                 self.snapshot()  # before Cancel: cancelling removes the sliced files
-        pick = self._pick(question, choices) if choices else 0
+        try:
+            pick = self._pick(question, choices) if choices else 0
+        except RuntimeError as exc:
+            # End the run now: close the open prompt so nothing waits on it, and keep the cause.
+            self.fatal = f'{type(exc).__name__}: {exc}'
+            core_prompts.resolve_gateway_clarify(kw['clarify_id'], core_prompts.CANCELLED)
+            raise
         if 'how many copies' in question.lower():
             self.t_copies_answered = self.clock()
         core_prompts.resolve_gateway_clarify(kw['clarify_id'], choices[pick] if choices else '')
@@ -335,6 +359,7 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
         error = f'{type(exc).__name__}: {exc}'
         outcome['traceback'] = traceback.format_exc()[-1500:]
     ended = clock()
+    error = chat.run_error(error)
     fake_mr.shutdown()
     try:
         loop.close()
@@ -398,6 +423,7 @@ def run_bench(source, job_record, copies, workdir, timeout_s=1500):
         'prepare_result': json.loads(json.dumps(outcome.get('result'), default=str)),
         'traceback': outcome.get('traceback'),
         'sent': chat.sent,
+        'unmatched': chat.unmatched,
         'reached_ready': chat.t_ready is not None,
         'copies_to_ready_s': copies_to_ready,
         'link_to_ready_s': round(chat.t_ready - started, 3) if chat.t_ready is not None else None,

@@ -75,11 +75,70 @@ def _recorder(color='red', slot=2):
     return bench.Recorder(lambda: 0.0, copies=2, slot=slot, color_word=color)
 
 
+COLOR_Q = 'Choose the color for Elf body'
+
+
 def test_color_question_picks_the_matching_slot_button():
     rec = _recorder()
-    assert rec._pick('Which color?', ['Blue (slot 1)', 'Red (slot 2)', 'Red (slot 3)']) == 1
+    assert rec._pick(COLOR_Q, ['Blue (slot 1)', 'Red (slot 2)', 'Red (slot 3)']) == 1
+    assert rec.unmatched == []
 
 
-def test_an_unmatched_color_raises_instead_of_answering_with_the_first_button():
+def test_an_unmatched_color_raises_with_the_question_instead_of_the_first_button():
+    with pytest.raises(RuntimeError, match='no button for color') as err:
+        _recorder()._pick(COLOR_Q, ['Blue (slot 1)', 'Green (slot 2)'])
+    assert COLOR_Q in str(err.value)
+
+
+@pytest.mark.parametrize('question', [
+    'Choose the color/material for the 4 chains',
+    'Choose the loaded color/material for the White filament',
+    'Choose the starting color for Elf body (the print pauses at each height color change)',
+])
+def test_every_intake_color_wording_raises_when_unmatched(question):
     with pytest.raises(RuntimeError, match='no button for color'):
-        _recorder()._pick('Which color?', ['Blue (slot 1)', 'Green (slot 2)'])
+        _recorder()._pick(question, ['Blue (slot 1)', 'Green (slot 2)'])
+
+
+@pytest.mark.parametrize('question,choices', [
+    ('I can match some of these colors to loaded spools: Body: Red. Use those and pick the rest?',
+     ['Use these and pick the rest', 'Pick every color', 'One color for everything']),
+    ('Same colors as last time for this file? Body: Blue', ['Same colors as last time', 'Change colors', 'One color for everything']),
+    ('Does this fit?', ['Shrink to fit', 'Cancel']),
+])
+def test_a_non_color_prompt_gets_the_first_button_and_is_recorded(question, choices):
+    rec = _recorder()
+    assert rec._pick(question, choices) == 0
+    assert rec.unmatched == [{'question': question, 'choices': choices, 'picked': 0}]
+
+
+def test_an_unmatched_color_through_send_clarify_ends_the_run_fast_with_the_error():
+    """The intake catches what a prompt raises and answers 'skip', so the report must still say why."""
+    import asyncio
+    import time
+    from types import SimpleNamespace as S
+
+    from print_handy.core import link_intake
+
+    rec = _recorder()
+    source = S(chat_id='bench', thread_id=None, user_id='bench')
+    ids = []
+    real_send = rec.send_clarify
+
+    async def spy(**kw):
+        ids.append(kw['clarify_id'])
+        return await real_send(**kw)
+    rec.send_clarify = spy
+
+    async def run():
+        return await asyncio.wait_for(
+            link_intake.ask(rec, source, 'bench-key', COLOR_Q, ['Blue (slot 1)', 'Green (slot 2)'], timeout=30), 20)
+
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match='no button for color'):
+        asyncio.run(run())
+    assert time.monotonic() - t0 < 20  # ends at once; the run timeout is 1500 s
+    assert 'no button for color' in rec.run_error(None) and COLOR_Q in rec.run_error(None)
+    assert rec.run_error('TimeoutError: x') == 'TimeoutError: x'
+    from print_handy.core import prompts as core_prompts
+    assert len(ids) == 1 and not core_prompts.is_open(ids[0])  # the prompt is closed, nothing left waiting
