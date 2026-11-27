@@ -98,6 +98,39 @@ def test_bambu_vendor_with_orca_runs_orca(tmp_path, monkeypatch):
     _output, provenance, _ = adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state(), adapter=printer)
     assert len(calls) == 1 and 'com.orcaslicer.OrcaSlicer' in calls[0]
     assert provenance['slicer'] == 'OrcaSlicer'
+    phases = provenance['timing_s']['python_subphases_s']
+    assert phases['inventory_s'] >= 0
+    assert phases['geometry_s'] >= 0
+    assert phases['prepare_other_s'] >= 0
+    assert phases['other_s'] >= 0
+    assert abs(sum(phases.values()) - provenance['timing_s']['python_s']) < 0.02
+
+
+def test_slice_reuses_inventory_but_rechecks_resource_guards(tmp_path, monkeypatch):
+    from print_handy.core import intake_resources, slice_guard, source_colors
+    _allow_post(monkeypatch)
+    source = _source(tmp_path)
+    calls = {'inventory': 0, 'guard': 0}
+
+    def inventory(path):
+        calls['inventory'] += 1
+        return {'parts': []}
+
+    def guard(path):
+        calls['guard'] += 1
+
+    def pre_slice(**kwargs):
+        first = source_colors.inventory(source)
+        first['parts'].append('mutated')
+        assert source_colors.inventory(source)['parts'] == []
+        return slice_guard.Result()
+
+    monkeypatch.setattr(source_colors, '_inventory', inventory)
+    monkeypatch.setattr(intake_resources, 'check_source', guard)
+    monkeypatch.setattr(adapter, 'pre_slice', pre_slice)
+    monkeypatch.setattr(adapter.subprocess, 'run', fake_run([]))
+    adapter.slice_model(source, tmp_path / 'out', _state(), adapter=bambu_adapter(monkeypatch, 'orca'))
+    assert calls == {'inventory': 1, 'guard': 2}
 
 
 def test_klipper_start_code_in_bambu_output_is_blocked_after_slicing(tmp_path, monkeypatch):
