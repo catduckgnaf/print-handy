@@ -6,7 +6,7 @@ the session must produce no *posted* alert under the weak-detection rules
 (camera_watch.weak_noted): a lone weak box is noted, not posted.
 
 * The real-weights check is opt-in: set ``PRINT_HANDY_REAL_DETECTOR`` to
-  the path of the real 202 MB ``obico-failure-detector.onnx``. Without it
+  the path of the real ~13.6 MB ``printguard-standard.onnx``. Without it
   the test skips; nothing is ever downloaded.
 * The plumbing (a plain frame folder as a session, the posted-alert
   accounting, the ``python -m tests.runtime.vision_eval`` entry point) runs
@@ -50,15 +50,15 @@ def detector_model(monkeypatch):
 
 
 @pytest.mark.skipif(not REAL_MODEL, reason="set PRINT_HANDY_REAL_DETECTOR to the real "
-                                           "obico-failure-detector.onnx to run this check")
+                                           "printguard-standard.onnx to run this check")
 @pytest.mark.parametrize("risky", [True, False], ids=["early-window", "plain"])
 def test_real_detector_posts_no_alert_on_real_healthy_frames(detector_model, risky):
     model = Path(REAL_MODEL).expanduser()
     assert model.is_file(), f"PRINT_HANDY_REAL_DETECTOR={REAL_MODEL}: no such file"
     if model.stat().st_size == lv.MODEL_SIZE_BYTES:
-        with model.open("rb") as handle:  # streamed: never 202 MB in memory at once
+        with model.open("rb") as handle:
             digest = hashlib.file_digest(handle, "sha256").hexdigest()
-        assert digest == lv.MODEL_SHA256, "the model file is not the pinned Obico weights"
+        assert digest == lv.MODEL_SHA256, "the model file is not the pinned PrintGuard Standard weights"
     detector_model(model)
     report = harness.evaluate(harness.local_detector_producer,
                               sessions=[harness.folder_session(REAL_FRAMES, cadence_s=600)],

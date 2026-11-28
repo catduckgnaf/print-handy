@@ -66,6 +66,9 @@ class LicensingAttribution1158(unittest.TestCase):
         compose = (ROOT / "docker-compose.yml").read_text()
         cloudflared = re.search(r"cloudflare/cloudflared:([0-9][0-9A-Za-z.]*)@", compose).group(1)
         self.assertIn(f"`{cloudflared}`", table)
+        from print_handy.runtime import local_vision as lv
+        self.assertIn(f"`{lv.MODEL_VERSION}`, commit `{lv.MODEL_REVISION[:8]}…`", table)
+        self.assertIn(lv.MODEL_SHA256, table)
 
     def test_piper_is_listed_as_operator_supplied_not_shipped(self):
         # Wrapped narration uses a Piper binary and voice model from

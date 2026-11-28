@@ -160,6 +160,10 @@ INERT_NOTICE = (
 
 GO2RTC_REPO = "AlexxIT/go2rtc"
 GO2RTC_FILE = "docker/go2rtc-prebuilt.sh"
+PRINTGUARD_REPO = "oliverbravery/PrintGuard"
+PRINTGUARD_FILE = "print_handy/runtime/local_vision.py"
+PRINTGUARD_MODEL_PATH = "models/standard/model.onnx"
+PRINTGUARD_META_PATH = "models/standard/metadata.json"
 SPOOLMAN_REPO = "Donkie/Spoolman"
 SPOOLMAN_FILE = "Dockerfile"
 BAMBU_REPO = "bambulab/BambuStudio"
@@ -323,6 +327,11 @@ STEP_SURFACE_HINTS = {
         "the identity sweep results in the provenance below, for all six vendors",
         "the printer facts' recorded Orca identities",
         "the CI bundle pin and the flatpak slicer legs",
+    ],
+    "printguard": [
+        "the PrintGuard Standard ONNX metadata contract (input shape, normalization, calibrated probability output)",
+        "the local failure detector threshold bands and FailureStreak escalation (print_handy/runtime/local_vision.py)",
+        "real-camera replay results over tests/runtime/fixtures/timelapse_real and any operator failure corpus",
     ],
 }
 
@@ -2070,11 +2079,180 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
                 body_extra=db_report)
 
 
+@dataclass
+class PrintGuardPin:
+    version: str
+    revision: str
+    sha256: str
+    size_bytes: int
+
+
+def parse_printguard(text):
+    version = re.search(r'^MODEL_VERSION\s*=\s*"([^"]+)"\s*$', text, flags=re.MULTILINE)
+    revision = re.search(r'^MODEL_REVISION\s*=\s*"([0-9a-f]{40})"\s*$', text, flags=re.MULTILINE)
+    sha256 = re.search(r'^MODEL_SHA256\s*=\s*"([0-9a-f]{64})"\s*$', text, flags=re.MULTILINE)
+    size = re.search(r'^MODEL_SIZE_BYTES\s*=\s*([0-9_]+)\s*$', text, flags=re.MULTILINE)
+    if not (version and revision and sha256 and size):
+        raise BumpError("local_vision.py is missing a PrintGuard model pin constant")
+    return PrintGuardPin(
+        version=version.group(1),
+        revision=revision.group(1),
+        sha256=sha256.group(1),
+        size_bytes=int(size.group(1).replace("_", "")),
+    )
+
+
+def render_printguard(text, pin):
+    size_literal = f"{pin.size_bytes:_}"
+    replacements = [
+        (r'^MODEL_VERSION\s*=\s*"[^"]+"\s*$', f'MODEL_VERSION = "{pin.version}"'),
+        (r'^MODEL_REVISION\s*=\s*"[0-9a-f]{40}"\s*$', f'MODEL_REVISION = "{pin.revision}"'),
+        (r'^MODEL_SHA256\s*=\s*"[0-9a-f]{64}"\s*$', f'MODEL_SHA256 = "{pin.sha256}"'),
+        (r'^MODEL_SIZE_BYTES\s*=\s*[0-9_]+\s*$', f'MODEL_SIZE_BYTES = {size_literal}'),
+    ]
+    for pattern, repl in replacements:
+        text, count = re.subn(pattern, repl, text, count=1, flags=re.MULTILINE)
+        if count != 1:
+            raise BumpError(f"local_vision.py has no pin line matching {pattern}")
+    return text
+
+
+def verify_printguard_metadata(meta):
+    """Fail closed if upstream PrintGuard changes Standard's I/O or preprocessing contract."""
+    if not isinstance(meta, dict):
+        raise BumpError("PrintGuard metadata.json is not a JSON object")
+    if meta.get("output") != "probability":
+        raise BumpError(f"PrintGuard Standard output changed to {meta.get('output')!r}")
+    inp = meta.get("input") or {}
+    if inp.get("layout") != "NCHW" or inp.get("shape") != [1, 3, 224, 224] or inp.get("dtype") != "float32":
+        raise BumpError(f"PrintGuard Standard input contract changed: {inp!r}")
+    pre = meta.get("preprocessing") or {}
+    expected_pre = {
+        "resize_shortest_edge_px": 256,
+        "center_crop_px": 224,
+        "color": "rgb",
+        "normalise_mean": [0.485, 0.456, 0.406],
+        "normalise_std": [0.229, 0.224, 0.225],
+    }
+    for key, expected in expected_pre.items():
+        if pre.get(key) != expected:
+            raise BumpError(f"PrintGuard Standard preprocessing {key!r} changed to {pre.get(key)!r}")
+
+
+def plan_printguard(root, api, now):
+    text = (root / PRINTGUARD_FILE).read_text(encoding="utf-8")
+    pin = parse_printguard(text)
+    release = api.get_latest_release(PRINTGUARD_REPO)
+    if release is None:
+        raise BumpError("PrintGuard has no published final release")
+    if not is_newer(release.version, pin.version):
+        return Plan("printguard", "current", version=pin.version,
+                    reason=f"pin {pin.version} is at or ahead of the latest final release {release.version}")
+    ok, age = _age_gate(release, now)
+    if not ok:
+        return Plan("printguard", "too-young", version=release.version,
+                    reason=f"release is {age:.1f} days old; the gate is {MIN_RELEASE_AGE_DAYS} days")
+    commit = api.resolve_tag_commit(PRINTGUARD_REPO, release.tag)
+    meta_url = f"https://raw.githubusercontent.com/{PRINTGUARD_REPO}/{commit}/{PRINTGUARD_META_PATH}"
+    model_url = f"https://raw.githubusercontent.com/{PRINTGUARD_REPO}/{commit}/{PRINTGUARD_MODEL_PATH}"
+    meta = json.loads(api.download(meta_url).decode("utf-8"))
+    verify_printguard_metadata(meta)
+    weights = api.download(model_url)
+    new_sha = hashlib.sha256(weights).hexdigest()
+    new_size = len(weights)
+    new_pin = PrintGuardPin(
+        version=release.version,
+        revision=commit,
+        sha256=new_sha,
+        size_bytes=new_size,
+    )
+    new_vision = render_printguard(text, new_pin)
+    new_vision = replace_exact(
+        new_vision,
+        f"pinned release ``v{pin.version}``, commit ``{pin.revision}``",
+        f"pinned release ``v{release.version}``, commit ``{commit}``",
+        "local_vision.py docstring provenance",
+    )
+    new_vision = replace_exact(
+        new_vision,
+        f"* SHA-256: {pin.sha256}",
+        f"* SHA-256: {new_sha}",
+        "local_vision.py docstring SHA-256",
+    )
+    new_vision = replace_exact(
+        new_vision,
+        f"* Size: {pin.size_bytes:,} bytes",
+        f"* Size: {new_size:,} bytes",
+        "local_vision.py docstring size",
+    )
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile = replace_exact(
+        dockerfile,
+        f"ADD --checksum=sha256:{pin.sha256}",
+        f"ADD --checksum=sha256:{new_sha}",
+        "Dockerfile vision-model checksum",
+    )
+    dockerfile = replace_exact(
+        dockerfile,
+        f"https://raw.githubusercontent.com/{PRINTGUARD_REPO}/{pin.revision}/{PRINTGUARD_MODEL_PATH}",
+        model_url,
+        "Dockerfile vision-model URL",
+    )
+    components = (root / DOC_COMPONENTS).read_text(encoding="utf-8")
+    components = replace_exact(
+        components,
+        f"`{pin.version}`, commit `{pin.revision[:8]}…`",
+        f"`{release.version}`, commit `{commit[:8]}…`",
+        "docs/COMPONENTS.md PrintGuard version/commit",
+    )
+    components = replace_exact(
+        components,
+        f"SHA-256 (`{pin.sha256}`)",
+        f"SHA-256 (`{new_sha}`)",
+        "docs/COMPONENTS.md PrintGuard SHA-256",
+    )
+    settings_doc = (root / DOC_SETTINGS).read_text(encoding="utf-8")
+    settings_doc = replace_exact(
+        settings_doc,
+        f"v{pin.version}, commit `{pin.revision}`",
+        f"v{release.version}, commit `{commit}`",
+        "docs/SETTINGS.md PrintGuard version/commit",
+    )
+    settings_doc = replace_exact(
+        settings_doc,
+        f"SHA-256 `{pin.sha256}`",
+        f"SHA-256 `{new_sha}`",
+        "docs/SETTINGS.md PrintGuard SHA-256",
+    )
+    provenance = [
+        f"Release: {release.html_url} (published {release.published_at.date().isoformat()})",
+        f"Commit: {commit}",
+        f"Metadata verified: {meta_url} (input [1, 3, 224, 224], probability output)",
+        f"Weights SHA-256 ({PRINTGUARD_MODEL_PATH}, {new_size:,} bytes): {new_sha}",
+    ]
+    changes = [
+        f"version: {pin.version} -> {release.version}",
+        f"revision: {pin.revision} -> {commit}",
+        f"sha256: {pin.sha256} -> {new_sha}",
+        f"size_bytes: {pin.size_bytes} -> {new_size}",
+    ]
+    edits = [
+        (PRINTGUARD_FILE, new_vision),
+        ("Dockerfile", dockerfile),
+        (DOC_COMPONENTS, components),
+        (DOC_SETTINGS, settings_doc),
+    ]
+    return Plan("printguard", "bump", version=release.version, old_version=pin.version,
+                files=[relpath for relpath, _ in edits],
+                provenance=provenance, changes=changes, release=release, edits=edits)
+
+
 PLANNERS = {
     "go2rtc": plan_go2rtc,
     "spoolman": plan_spoolman,
     "bambu": plan_bambu,
     "orca": plan_orca,
+    "printguard": plan_printguard,
 }
 
 
@@ -2425,7 +2603,7 @@ def main(argv=None, env=None, now=None, out=None, err=None):
     out = sys.stdout if out is None else out
     err = sys.stderr if err is None else err
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--component", choices=["all", "go2rtc", "spoolman", "bambu", "orca"], default="all")
+    parser.add_argument("--component", choices=["all", "go2rtc", "spoolman", "bambu", "orca", "printguard"], default="all")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--repo", default=env.get("GITHUB_REPOSITORY") or DEFAULT_REPO)
     parser.add_argument("--check-identity", action="store_true")
@@ -2463,7 +2641,7 @@ def main(argv=None, env=None, now=None, out=None, err=None):
         return 0
 
     api = GitHubApi(token)
-    components = ["go2rtc", "spoolman", "bambu", "orca"] if args.component == "all" else [args.component]
+    components = ["go2rtc", "spoolman", "bambu", "orca", "printguard"] if args.component == "all" else [args.component]
     return run_components(root, api, args.repo, components, args.dry_run, now,
                           log=lambda msg: print(msg, file=out))
 

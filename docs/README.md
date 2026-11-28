@@ -54,7 +54,7 @@ Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find yo
 
 - [Docker details](DOCKER.md): image pinning, storage, optional camera features, timelapses, upgrades and rollback.
 - [Web UI details](WEBUI.md): access, settings behavior, optional controls and limitations.
-- [Multi-instance setup](MULTI-INSTANCE.md) · [Listeners](LISTENERS.md) · [Component provenance](COMPONENTS.md)
+- [Multi-instance setup](MULTI-INSTANCE.md) · [Listeners](LISTENERS.md) · [Component provenance](COMPONENTS.md) · [Local vision detector evaluation](VISION-DETECTOR-EVALUATION.md)
 - [Cloudflare examples](CLOUDFLARE.md): optional hosted endpoints and network use. Examples are not proof of a live deployment.
 - [Flash Studio](FLASH-STUDIO.md): optional user-installed slicer.
 - [Geometry layout](GEOMETRY-LAYOUT.md) · [CAD split plans](CAD-SPLIT-PLANS.md)

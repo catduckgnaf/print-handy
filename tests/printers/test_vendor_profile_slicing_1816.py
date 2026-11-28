@@ -30,19 +30,65 @@ def _vendor(name):
 
 def test_high_speed_petg_slices_with_the_vendor_hs_petg_profile(slice_inputs):
     state = stale_state("PETG")
+    state["printer_model"] = AD5X
     slice_inputs.spools[17] = {"id": 17, "filament": {"material": "PETG", "name": "High Speed Matte Black PETG",
                                                       "settings_extruder_temp": None, "settings_bed_temp": None}}
     _nozzle, _bed, filament = slice_inputs.slice(AD5X, state)
     vendor = _vendor("Flashforge HS PETG @FF AD5X")
-    assert filament["filament_settings_id"] == ["Flashforge HS PETG @FF AD5X"]
+    expected = {"nozzle_temperature": 235, "nozzle_temperature_initial_layer": 240,
+                "hot_plate_temp": 75, "hot_plate_temp_initial_layer": 75}
+    for key, value in expected.items():
+        assert filament[key] == [str(value)]
     assert filament["name"] == "Flashforge HS PETG @FF AD5X"
     assert filament["filament_type"] == ["PETG"]
     assert filament["filament_flow_ratio"] == _flow(state, vendor["filament_flow_ratio"][0])
     assert filament["filament_max_volumetric_speed"] == vendor["filament_max_volumetric_speed"] == ["12"]
     assert filament["fan_min_speed"] == vendor["fan_min_speed"]
-    # What the vendor layer leaves to the printer and the job.
     assert filament["filament_z_hop_types"] == ["Normal Lift"]
     assert filament["enable_pressure_advance"] == ["0"]
+
+
+def test_stale_flashforge_state_does_not_apply_vendor_temperatures_to_other_adapter():
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    filament = {"material": "PETG", "name": "High Speed Matte Black PETG"}
+    temps, resolution = printer_state.slice_temperatures(
+        state, filament=filament, stored_ok=False, printer_model="klipper.generic")
+    assert temps == {"nozzle": 240, "bed": 85}
+    assert resolution.get("layer_temperatures", {}) == {"nozzle": 240, "bed": 85}
+    assert not any(str(source).startswith("vendor profile")
+                   for source in (resolution.get("sources") or {}).values())
+
+
+def test_non_flashforge_slice_ignores_stale_flashforge_state(slice_inputs):
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    slice_inputs.spools[17] = {"id": 17, "filament": {"material": "PETG", "name": "High Speed Matte Black PETG",
+                                                      "settings_extruder_temp": None, "settings_bed_temp": None}}
+    nozzle, bed, filament = slice_inputs.slice("klipper.generic", state)
+    assert nozzle == 240
+    assert bed == 85
+    assert filament["nozzle_temperature"] == ["240"]
+    assert filament["nozzle_temperature_initial_layer"] == ["240"]
+
+
+def test_temperature_resolution_retains_both_layer_targets():
+    state = stale_state("PETG")
+    state["printer_model"] = AD5X
+    hs_petg = {"material": "PETG", "name": "High Speed Matte Black PETG"}
+    temps, resolution = printer_state.slice_temperatures(state, filament=hs_petg, stored_ok=False)
+    layers = resolution.get('layer_temperatures') or {}
+    expected = {"nozzle": 235, "bed": 75, "nozzle_initial_layer": 240, "bed_initial_layer": 75}
+    assert {**temps, "nozzle_initial_layer": layers.get("nozzle", temps["nozzle"]),
+            "bed_initial_layer": layers.get("bed", temps["bed"])} == expected
+    assert resolution["layer_temperatures"] == {"nozzle": 240, "bed": 75}
+    state["printer_model"] = AD5X
+    state["temperature_resolution"] = resolution
+    state["temps_c"] = {**temps, "nozzle_initial_layer": 240, "bed_initial_layer": 75}
+    assert printer_state.gcode_temperatures(
+        state, ["PETG"], fetch_filament=lambda _sid: None,
+        text='; filament_type = PETG\n; nozzle_temperature = 235\n; nozzle_temperature_initial_layer = 240\n',
+    ) == expected
 
 
 def test_plain_petg_slices_with_the_vendor_generic_and_never_the_pla_name(slice_inputs):
@@ -135,6 +181,12 @@ def test_ad5x_hs_petg_slice_and_verification_share_temperatures(slice_inputs, ex
         "filament": {"material": "PETG", "name": "High Speed Matte Black PETG", **explicit},
     }
     nozzle, bed, filament = slice_inputs.slice(AD5X, state)
+    assert filament["nozzle_temperature"] == [str(expected[0])]
+    vendor_nozzle_initial = 240 if expected[0] == 235 and "settings_extruder_temp" not in explicit else expected[0]
+    assert filament["nozzle_temperature_initial_layer"] == [str(vendor_nozzle_initial)]
+    assert filament["hot_plate_temp"] == [str(expected[1])]
+    vendor_bed_initial = 75 if expected[1] == 75 and "settings_bed_temp" not in explicit else expected[1]
+    assert filament["hot_plate_temp_initial_layer"] == [str(vendor_bed_initial)]
     assert (nozzle, bed) == expected
     assert filament["filament_settings_id"] == ["Flashforge HS PETG @FF AD5X"]
     # Re-resolve independently through the verification entry point, with no
@@ -142,7 +194,12 @@ def test_ad5x_hs_petg_slice_and_verification_share_temperatures(slice_inputs, ex
     text = '; filament_type = "PETG"\n'
     text += f"; nozzle_temperature_initial_layer = {nozzle}\n; hot_plate_temp_initial_layer = {bed}\n"
     verified = gcode_verify._with_gcode_temperatures(state, text)
-    assert verified["temps_c"] == {"nozzle": expected[0], "bed": expected[1]}
+    expected_temps = {"nozzle": expected[0], "bed": expected[1]}
+    if "settings_extruder_temp" not in explicit:
+        expected_temps["nozzle_initial_layer"] = vendor_nozzle_initial
+    if "settings_bed_temp" not in explicit:
+        expected_temps["bed_initial_layer"] = vendor_bed_initial
+    assert verified["temps_c"] == expected_temps
 
 
 @pytest.mark.parametrize("label", ["operator setting", "Spoolman filament"])

@@ -1433,7 +1433,7 @@ class AcceptanceFixtureTests(unittest.TestCase):
     def test_bundled_model_directory_is_traversable_and_weights_read_only(self):
         dockerfile = (ROOT / "Dockerfile").read_text()
         mkdir = "install -d -m 0755 -o root -g root /opt/print-handy/models"
-        copy = "COPY --from=vision-model --chmod=0444 /obico-failure-detector.onnx"
+        copy = "COPY --from=vision-model --chmod=0444 /printguard-standard.onnx"
         self.assertIn(mkdir, dockerfile)
         self.assertIn(copy, dockerfile)
         self.assertLess(dockerfile.index(mkdir), dockerfile.index(copy))

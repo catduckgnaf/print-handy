@@ -2045,8 +2045,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     model_key = getattr(printer.model, 'key', None)
     if isinstance(model_key, str) and model_key:
         state = {**state, 'printer_model': model_key}
-    temps_c, resolution = slice_temperatures(state, spool_filament, _fetch_filament)
-    state = {**state, 'temps_c': temps_c, 'temperature_resolution': resolution}
+    temps_c, resolution = slice_temperatures(state, spool_filament, _fetch_filament, printer_model=model_key)
+    layer_temperatures = resolution.get('layer_temperatures') or {}
+    temps_for_checks = {**temps_c,
+                        'nozzle_initial_layer': layer_temperatures.get('nozzle', temps_c['nozzle']),
+                        'bed_initial_layer': layer_temperatures.get('bed', temps_c['bed'])}
+    state = {**state, 'temps_c': temps_for_checks, 'temperature_resolution': resolution,
+             '_layer_temperatures': layer_temperatures}
     from .printer_state import _material_temperature_contract
     _material_temperature_contract(state)  # a legacy record's stored temperatures still need a known material
     print(f"SLICE TEMPERATURES: {state['spool']['material']} nozzle {temps_c['nozzle']} °C, "
@@ -2124,9 +2129,15 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         """
         import copy
         nozzle_temp = effective_nozzle_temperature(nozzle_type, float(temps_c['nozzle']))
+        nozzle_initial_base = temps_c.get('nozzle_initial_layer', state.get('_layer_temperatures', {}).get('nozzle', temps_c['nozzle']))
+        nozzle_initial_temp = (nozzle_temp if 'nozzle_initial_layer' not in temps_c
+                               and printer.vendor_material_profiles else
+                               effective_nozzle_temperature(nozzle_type, float(nozzle_initial_base)))
         if printer.vendor_material_profiles:
             data, note = copy.deepcopy(template_filament), 'vendor filament profile'
             include_nozzle_temperature(data, nozzle_temp)
+            # Bambu keeps its per-spool target for both layers; no shared layer resolution applies.
+            nozzle_initial_temp = nozzle_temp
             if slot is not None:
                 base = (data.get('filament_settings_id') or [data.get('name') or material])[0]
                 data.update({'name': f"{base} [slot {int(slot)}]", 'filament_settings_id': [f"{base} [slot {int(slot)}]"]})
@@ -2135,7 +2146,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         data.update({'filament_type': [material], 'filament_density': [str(density)],
                      'filament_colour': [colour or data['filament_colour'][0]],
                      'nozzle_temperature': [str(int(nozzle_temp))],
-                     'nozzle_temperature_initial_layer': [str(int(nozzle_temp))]})
+                     'nozzle_temperature_initial_layer': [str(int(nozzle_initial_temp))]})
         base_flow = None
         if 'filament_flow_ratio' in data and data['filament_flow_ratio']:
             try:
@@ -2192,8 +2203,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             'emitted_flow_ratio': emitted_flow,
         }
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
+        bed_initial_base = temps_c.get('bed_initial_layer', state.get('_layer_temperatures', {}).get('bed', temps_c['bed']))
+        bed_initial = str(bed_initial_base)
         for key in ('cool_plate_temp', 'eng_plate_temp', 'hot_plate_temp', 'textured_plate_temp'):
-            data[key] = data[key + '_initial_layer'] = [bed]
+            data[key] = [bed]
+            data[key + '_initial_layer'] = [bed_initial]
         return data, nozzle_temp, note
 
     # The job's own spool: its Spoolman filament carries the sub-type flags (HS, Silk, +) that pick the
@@ -2304,7 +2318,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 record = state['filament_slots'][str(position)]
                 temps, resolution = slot_temps[tool]
                 data, tool_nozzle, _note = job_filament(
-                    record['material'], record.get('density', state['spool']['density']), temps,
+                    record['material'], record.get('density', state['spool']['density']),
+                    {**temps,
+                     'nozzle_initial_layer': resolution.get('layer_temperatures', {}).get('nozzle', temps['nozzle']),
+                     'bed_initial_layer': resolution.get('layer_temperatures', {}).get('bed', temps['bed'])},
                     slot_hex(position, record) if record.get('hex') else filament['filament_colour'][0], bed_c=job_bed,
                     ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
                     slot=position)
@@ -2369,8 +2386,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         job_bed = slot_temps[0][0]['bed']
         for tool, record, (temps, resolution) in zip(order, records, slot_temps):
             physical_slot = mapping[tool]
+            temps_for_profile = {**temps,
+                                 'nozzle_initial_layer': resolution.get('layer_temperatures', {}).get('nozzle', temps['nozzle']),
+                                 'bed_initial_layer': resolution.get('layer_temperatures', {}).get('bed', temps['bed'])}
             data, tool_nozzle, _note = job_filament(
-                record['material'], record.get('density', state['spool']['density']), temps,
+                record['material'], record.get('density', state['spool']['density']), temps_for_profile,
                 slot_hex(physical_slot, record), bed_c=job_bed,
                 ftype=_ftype.from_text(record['material'], record.get('name') or record.get('color')),
                 slot=physical_slot)
@@ -2990,6 +3010,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     # (a Spoolman outage at verify time would otherwise fall
                     # back to material defaults and refuse a sound file, P2-275).
                     'temperatures': dict(state['temps_c']),
+                    'layer_temperatures': (state.get('temperature_resolution') or {}).get('layer_temperatures', {}),
                     'flow_provenance': state.get('_flow_provenance'),
                     'temperature_resolution': state.get('temperature_resolution'),
                     'config_sha256': {str(p): digest(p) for p in configs}, 'geometry': geometry,

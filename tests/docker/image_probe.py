@@ -202,7 +202,7 @@ def egress():
 
 def model():
     """The bundled vision weights are reachable by the unprivileged runtime user, and stay read-only."""
-    path = Path("/opt/print-handy/models/obico-failure-detector.onnx")
+    path = Path("/opt/print-handy/models/printguard-standard.onnx")
     problems = []
     if os.getuid() == 0:
         problems.append("probe runs as root; it must run as the image's unprivileged user")
