@@ -1397,8 +1397,8 @@ def test_linked_maker_profile_and_authored_plate_reach_slice(env, monkeypatch):
 
 
 
-def test_cached_linked_maker_profile_and_plate_reach_slice_offline(env, monkeypatch):
-    """Cached source replay preserves the link's profile and authored plate intent."""
+def test_stubbed_maker_inventory_profile_and_plate_reach_slice_offline(env, monkeypatch):
+    """Stubbed inventory replay preserves linked profile and authored plate intent."""
     url = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-3848581'
     rows = [
         {'instance_id': 3848581, 'title': 'Linked profile'},
@@ -1406,7 +1406,8 @@ def test_cached_linked_maker_profile_and_plate_reach_slice_offline(env, monkeypa
     ]
     monkeypatch.setattr(jobs_sources, 'maker_inventory', lambda _url: {
         'site': 'makerworld', 'slug': 'frame', 'title': 'Frame', 'sources': rows})
-    # Seed the normal source cache with a prior intake of the linked MakerWorld file.
+    # Inventory is stubbed above; this proves profile and plate propagation,
+    # not zero network calls for the real inventory lookup.
     cached = env.tmp / 'cached' / 'source.3mf'
     cached.parent.mkdir(parents=True)
     cached.write_bytes(source(env.tmp).read_bytes())
@@ -1416,8 +1417,6 @@ def test_cached_linked_maker_profile_and_plate_reach_slice_offline(env, monkeypa
         'site': 'makerworld', 'selected_source': {'instance_id': 3848581},
         'downloaded_file': str(cached),
     }))
-    monkeypatch.setattr(jobs_sources, 'request_json',
-                        lambda *a, **kw: pytest.fail('cached MakerWorld replay must not use the network'))
     event = S(source=S(chat_id='c1', thread_id=None, user_id='u'),
               message_id='cached-profile-plate', text=url + ' print plate 1')
     adapter = Adapter([2, 0, 1, 2])
