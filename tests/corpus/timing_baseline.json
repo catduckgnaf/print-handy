@@ -2484,26 +2484,6 @@
      },
      "wall_s": 0.05
     },
-    "diagonal-turn/direct": {
-     "first_prompt_s": 0.01,
-     "fit_check_s": 0.01,
-     "original": {
-      "first_prompt_s": 0.01,
-      "fit_check_s": 0.01,
-      "wall_s": 0.15
-     },
-     "wall_s": 0.15
-    },
-    "diagonal-turn/standalone": {
-     "first_prompt_s": 0.01,
-     "fit_check_s": 0.01,
-     "original": {
-      "first_prompt_s": 0.01,
-      "fit_check_s": 0.01,
-      "wall_s": 0.16
-     },
-     "wall_s": 0.16
-    },
     "duplicate-part-names/direct": {
      "first_prompt_s": 0.01,
      "fit_check_s": 0.0,
