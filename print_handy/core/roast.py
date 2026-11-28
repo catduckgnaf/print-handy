@@ -828,6 +828,13 @@ def _title_keywords(ctx: Mapping[str, Any], corpus: Mapping[str, Any]) -> list[s
             pattern = rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])"
             if re.search(pattern, folded) or (corrected and re.search(pattern, corrected)):
                 hits.append(target)
+    # Exact title matches can also occur beyond the display truncation.
+    # Do not apply fuzzy correction to the longer matching-only text.
+    full = str(ctx.get("_topic_title") or "")
+    for keyword in corpus["title_reactions"]:
+        key = _topic_key(keyword)
+        if key and re.search(rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])", full):
+            hits.append(keyword)
     return sorted(set(hits), key=lambda k: (-len(k), k))
 
 
