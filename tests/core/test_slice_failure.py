@@ -276,6 +276,8 @@ def test_slice_boundaries_bare_runtime_errors_are_allowlisted():
                 text = arg.value
             elif isinstance(arg, ast.JoinedStr):
                 text = ''.join(v.value for v in arg.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+            elif isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Add):
+                text = ''.join(v.value for v in ast.walk(arg) if isinstance(v, ast.Constant) and isinstance(v.value, str))
             else:
                 text = ''
             if text.startswith('model measures ') and 'exceeds printer volume' in text:
