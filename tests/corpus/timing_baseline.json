@@ -2174,6 +2174,26 @@
       "wall_s": 1.24
      },
      "wall_s": 1.24
+    },
+    "diagonal-turn/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.02,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.02,
+      "wall_s": 0.16
+     },
+     "wall_s": 0.16
+    },
+    "diagonal-turn/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.02,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.02,
+      "wall_s": 0.24
+     },
+     "wall_s": 0.24
     }
    },
    "recorded_from": "CI run 45438378964 (453d90d9dab6be4e19dc7666d69a098cc691fc5a), artifact discord-timing, median of 5, runner CPU AMD EPYC 9V74 80-Core Processor"
