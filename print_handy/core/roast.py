@@ -302,7 +302,7 @@ ROAST_TONES = frozenset({'dad', 'sarcastic', 'harsh'})
 
 
 def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
-                     blocklist=(), *, topic_keywords=None, tone_labels=None) -> tuple[list[tuple[str, str, str]], list[str]]:
+                     blocklist=(), *, topic_keywords=None, tone_labels=None, accepted_indices=None) -> tuple[list[tuple[str, str, str]], list[str]]:
     """An operator's custom bank file as ([(id, family, text)], [problems]).
 
     The file is a JSON object with an ``entries`` list (a bare list is
@@ -354,7 +354,7 @@ def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
     entries: list[tuple[str, str, str]] = []
     seen_ids: set[str] = set()
     seen_texts: dict[str, str] = {}
-    for raw in rows:
+    for index, raw in enumerate(rows):
         try:
             eid, family, text = parse_entry(CUSTOM_BANK, raw)
         except CorpusError as exc:
@@ -424,6 +424,8 @@ def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
         seen_texts[norm] = eid
         near.add(text)  # later entries are checked against accepted ones too
         entries.append((eid, family, text))
+        if accepted_indices is not None:
+            accepted_indices.append(index)
     return entries, problems
 
 
