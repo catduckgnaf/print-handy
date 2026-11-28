@@ -212,3 +212,75 @@ def test_worker_traceback_is_bounded_and_skipped_for_explained_failures():
     assert len(reply['traceback']) == worker_errors.TRACEBACK_LIMIT
     explained = worker_errors.encode(slice_failure.SliceFailure('guard', kind='guard'))
     assert 'traceback' not in explained
+
+
+@pytest.mark.parametrize('message,plain,recovery,retryable', [
+    ('only STL/3MF can be sliced; selected source is not geometry', 'not a model Print Handy can slice', 'Send the model as an .stl or .3mf file.', False),
+    ('3MF plate assignment has no plater_id value', '3MF file has a plate with no valid plate assignment', 'Re-export the model as a fresh 3MF', False),
+    ('unable to inspect 3MF plate assignments: malformed value', '3MF file has invalid or unreadable plate assignments', 'Re-export the model as a fresh 3MF', False),
+    ('multi-plate 3MF source has no plate thumbnails; no slicing attempted', 'multi-plate 3MF is missing its plate thumbnails', 'Re-export the model as a fresh 3MF', False),
+    ('multi-plate 3MF cannot be merged or split: invalid inventory; no slicing attempted', "multi-plate 3MF's parts could not be assigned to plates", 'Re-export the model as a fresh 3MF', False),
+    ('part/color choices required; run color-plan and color-select before slicing', 'needs color or part choices', 'color-plan', False),
+    ('per-part decision did not resolve any single-color plate', 'did not resolve to any printable plate', 'color-plan', False),
+    ('derived plate physical IFS slot 2 has no verified material', 'slot 2 has no verified material', 'Record the loaded spool', False),
+    ('source, decisions or slice recipe changed during slicing; artifacts not made ready', 'saved job or printer settings changed after this slice was requested', 'Prepare the saved model again', False),
+    ('source, decisions or slice recipe changed during slicing; artifact not made ready', 'saved job or printer settings changed after this slice was requested', 'Prepare the saved model again', False),
+])
+def test_slice_refusals_survive_worker_wire_and_explain_without_retry(message, plain, recovery, retryable):
+    from print_handy.core.slice_refusal import SliceRefusal
+    original = SliceRefusal(message, plain=plain, next_step=recovery)
+    back = worker_errors.decode(json.loads(json.dumps(worker_errors.encode(original))))
+    post = slice_failure.post(back)
+    info = slice_failure.explain(back)
+    assert plain in post
+    assert 'could not identify the cause' not in post
+    assert info.retryable is retryable
+    assert recovery in post
+
+
+def test_recipe_change_slice_failure_survives_worker_wire_without_retry():
+    original = slice_failure.SliceFailure('source, decisions or slice recipe changed during slicing', kind='recipe')
+    back = worker_errors.decode(json.loads(json.dumps(worker_errors.encode(original))))
+    post = slice_failure.post(back)
+    assert 'saved job or printer settings changed after this slice was requested' in post
+    assert 'could not identify the cause' not in post
+    assert not slice_failure.explain(back).retryable
+    assert 'Prepare the saved model again' in post
+
+
+def test_slice_boundaries_bare_runtime_errors_are_allowlisted():
+    import ast
+    from pathlib import Path
+    source = Path('print_handy/jobs/slice.py').read_text()
+    tree = ast.parse(source)
+    # Internal invariants are deliberately left as RuntimeError; keep a reason beside each.
+    allowlist = {
+        'multi-plate 3MF objects ': 'an audited source object missing a plate assignment is an internal inventory invariant',
+        "plate_mode must be 'merge' or 'separate'": 'caller mode is constrained by the internal slice planner',
+        'every derived plate was refused: ': 'all per-plate slicer refusals are reported as an aggregated pipeline failure',
+        'per-plate output does not account for every source part': 'artifact/source accounting invariant',
+    }
+    offenders = []
+    for name in ('_slice_job', 'slice_multi_plate', '_slice_per_plate'):
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
+                continue
+            if not (isinstance(node.exc.func, ast.Name) and node.exc.func.id == 'RuntimeError'):
+                continue
+            arg = node.exc.args[0] if node.exc.args else None
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                text = arg.value
+            elif isinstance(arg, ast.JoinedStr):
+                text = ''.join(v.value for v in arg.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+            elif isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Add):
+                text = ''.join(v.value for v in ast.walk(arg) if isinstance(v, ast.Constant) and isinstance(v.value, str))
+            else:
+                text = ''
+            if text.startswith('every derived plate was refused:'):
+                continue
+            if any(text.startswith(allowed) for allowed in allowlist):
+                continue
+            offenders.append((name, node.lineno, text))
+    assert not offenders, f'Unallowlisted bare RuntimeError: {offenders}'
+
