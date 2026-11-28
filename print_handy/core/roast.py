@@ -475,6 +475,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
     history_callbacks = keyed("history_callbacks", "history")
     material_roasts = keyed("material_roasts", "material")
     milestone = keyed("milestone", "milestone")
+    failure_reactions = keyed("failure_title_reactions", "failure-title")
 
     # The operator's custom bank (#1002 Phase 4): validated through the
     # same gates as the shipped banks (see load_custom_bank) and merged
@@ -488,7 +489,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
         shipped_texts = [text for rows in banks.values() for _i, text in rows]
         shipped_texts += [text for rows in reactions.values() for _i, text in rows]
         for keyed_rows in (color_roasts, reprint_failed, history_callbacks,
-                           material_roasts, milestone):
+                           material_roasts, milestone, failure_reactions):
             shipped_texts += [text for rows in keyed_rows.values() for _i, text in rows]
         custom_entries, custom_problems = load_custom_bank(
             custom_path, shipped_ids=set(families), shipped_texts=shipped_texts,
@@ -525,7 +526,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
 
     digest = hashlib.sha1(json.dumps([banks, reactions, fragments, color_roasts,
                                       reprint_failed, history_callbacks, material_roasts,
-                                      milestone, dictionary, families, custom_keywords, custom_tones],
+                                      milestone, failure_reactions, dictionary, families, custom_keywords, custom_tones],
                                      sort_keys=True).encode("utf-8")).hexdigest()[:12]
     return {
         "banks": banks, "title_reactions": reactions, "fragments": fragments,
@@ -533,6 +534,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
         "blocklist": blocklist, "color_roasts": color_roasts,
         "reprint_failed": reprint_failed, "history_callbacks": history_callbacks,
         "material_roasts": material_roasts, "milestone": milestone,
+        "failure_title_reactions": failure_reactions,
         "dictionary": dictionary, "dictionary_lookup": dict_lookup,
         "families": families, "version": digest,
         "custom_problems": custom_problems,
@@ -548,7 +550,8 @@ def corpus_size(custom_path: str | None = None) -> int:
             + sum(len(v) for v in corpus.get("reprint_failed", {}).values())
             + sum(len(v) for v in corpus.get("history_callbacks", {}).values())
             + sum(len(v) for v in corpus.get("material_roasts", {}).values())
-            + sum(len(v) for v in corpus.get("milestone", {}).values()))
+            + sum(len(v) for v in corpus.get("milestone", {}).values())
+            + sum(len(v) for v in corpus.get("failure_title_reactions", {}).values()))
 
 
 def dictionary_size() -> int:
@@ -846,6 +849,16 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
         if fail_streak >= 2 and corpus.get("history_callbacks", {}).get("fail_streak"):
             out.append(("history:fail_streak", corpus["history_callbacks"]["fail_streak"]))
         bank = STATUS_BANKS[status]
+        if status == "failed":
+            # Only failure-authored jokes, never completed-title punchlines.
+            failed_titles = corpus.get("failure_title_reactions", {})
+            title_key = str(ctx.get("_topic_title") or _topic_key(str(ctx.get("title") or "")))
+            hits = set(_title_keywords(ctx, corpus))
+            for tag in failed_titles:
+                if re.search(rf"(?<![a-z0-9]){re.escape(tag)}(?:s|es)?(?![a-z0-9])", title_key):
+                    hits.add(tag)
+            for tag in sorted(hits & failed_titles.keys(), key=lambda k: (-len(k.split()), -len(k), k)):
+                out.append((f"failure-title:{tag}", failed_titles[tag]))
         out.append((bank, corpus["banks"][bank]))
         return out
 
@@ -991,6 +1004,7 @@ def _normalized(state: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str
     aliases = {}
     groups = list(corpus.get("banks", {}).items())
     for section, prefix in (("title_reactions", "title"),
+                            ("failure_title_reactions", "failure-title"),
                             ("color_roasts", "color"),
                             ("reprint_failed", "reprint_failed"),
                             ("history_callbacks", "history"),
