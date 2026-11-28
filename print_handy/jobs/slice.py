@@ -2372,6 +2372,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             job["filament_selection"] = selection
     src=Path(job["downloaded_file"]); ad=job["audit"]; multi_plate=False
     from ..core.slice_refusal import SliceRefusal
+    from ..core.slice_failure import SliceFailure
     if src.suffix.lower() not in (".3mf",".stl"):
         raise SliceRefusal("only STL/3MF can be sliced; selected source is not geometry",
                            plain="That file is not a model Print Handy can slice. Only STL and 3MF files are supported.",

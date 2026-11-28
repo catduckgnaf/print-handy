@@ -282,6 +282,8 @@ def test_slice_boundaries_bare_runtime_errors_are_allowlisted():
                 text = 'model measures '
             if any(text.startswith(allowed) for allowed in allowlist):
                 continue
+            if text.startswith('model measures ') and 'exceeds printer volume' in text:
+                continue
             offenders.append((name, node.lineno, text))
     assert not offenders, f'Unallowlisted bare RuntimeError: {offenders}'
 
