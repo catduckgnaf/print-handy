@@ -160,16 +160,15 @@ COPY README.md ./README.md
 RUN mkdir -p /out && cd native/bounds && \
     maturin build --release --locked -i python3 --out /out
 
-# The local failure detector's model (#1844) is bundled, not downloaded at
-# run time: obico.io asked us to stop pulling it from them, and the weights
-# are AGPL-3.0, so Print Handy hosts its own copy as a release asset of
-# catduckgnaf/print-handy-vision-model (license and provenance there).
-# ADD --checksum verifies the pinned SHA-256 (the same pin as
-# print_handy/runtime/local_vision.py) and BuildKit caches the layer.
+# The local failure detector's model (#1844, #1899) is bundled, not downloaded
+# at run time: PrintGuard Standard (oliverbravery/PrintGuard, GPL-2.0-only),
+# pinned by upstream commit SHA and SHA-256 matching
+# print_handy/runtime/local_vision.py. ADD --checksum verifies the pinned
+# SHA-256 and BuildKit caches the layer.
 FROM scratch AS vision-model
-ADD --checksum=sha256:0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa \
-    https://github.com/catduckgnaf/print-handy-vision-model/releases/download/obico-5a6b1be1fa/obico-failure-detector.onnx \
-    /obico-failure-detector.onnx
+ADD --checksum=sha256:9265f8fdf80fb07302ff03d0adaa7a3fdb4eda9c21d0f38546870d1ef395e889 \
+    https://raw.githubusercontent.com/oliverbravery/PrintGuard/b45ff6096e994936a72129e05b851bd18635758c/models/standard/model.onnx \
+    /printguard-standard.onnx
 
 FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runtime
 ARG WITH_GO2RTC=true
@@ -225,7 +224,7 @@ COPY --from=bambu-build /out/ /
 # untraversable for the unprivileged runtime user and `bot check` died with PermissionError on stat.
 # The weights themselves stay read-only (0444).
 RUN install -d -m 0755 -o root -g root /opt/print-handy/models
-COPY --from=vision-model --chmod=0444 /obico-failure-detector.onnx /opt/print-handy/models/obico-failure-detector.onnx
+COPY --from=vision-model --chmod=0444 /printguard-standard.onnx /opt/print-handy/models/printguard-standard.onnx
 RUN if [ -x /usr/local/bin/orca-slicer-stable ]; then \
       ln -s /opt/orca-stable/bin/orca-slicer /usr/bin/orca-slicer && \
       ln -s /orca-stable-build-info /orca-build-info && \

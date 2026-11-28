@@ -1,40 +1,38 @@
-"""Built-in local failure detector for the camera watchdog (#455, Stage 1).
+"""Built-in local failure detector for the camera watchdog (#455, #1899).
 
 The watchdog's verdicts normally come from the one AI endpoint (the
 [ai.small] tier over [llm]). An install with it not configured used to
 get no detection at all — ``vision_ready`` kept the watch off. This module
-is the strictly-local third route from the #455 verdict: an ONNX failure
-detector that runs on this machine, so a no-LLM, no-cloud install still
-gets bad-print detection. Nothing leaves the house; no key is needed.
+is the strictly-local route: an ONNX failure detector that runs on this
+machine, so a no-LLM, no-cloud install still gets bad-print detection.
+Nothing leaves the house; no key is needed.
 
 It is a failure detector only, not a vision model. It answers exactly one
 question — "does this frame show a print failure?" — so it can produce
 ``spaghetti``, ``uncertain`` and ``ok`` verdicts, never ``air``,
 ``detached`` or ``empty_idle``, and it never answers label/extraction
 reads (those still need an endpoint). Because it cannot certify an empty
-plate, auto light-off (#516) still requires an endpoint.
+plate, auto light-off (#516) still requires an endpoint or a calibrated
+local plate reference.
 
-Model provenance (pinned; the weights are bundled in the container image
-and hosted by this project, never fetched from obico.io, #1844):
+Model provenance (pinned by upstream release, commit SHA and SHA-256;
+bundled in the Docker image at build time and verified offline, #1844,
+#1899):
 
-* Obico / The Spaghetti Detective failure-detection model, ONNX export
-  (YOLOv2-style region detector, single ``failure`` class), from the
-  obico-server project's ``ml_api/model/model-weights.onnx.url``
-  (upstream file ``model-weights-5a6b1be1fa.onnx``, :data:`MODEL_UPSTREAM_URL`,
-  recorded for provenance only).
-* Hosted copy: :data:`MODEL_URL`, a release asset of
-  https://github.com/catduckgnaf/print-handy-vision-model (AGPL-3.0
-  licence text and provenance there).
-  Obico asked us to stop pulling the file from obico.io (#1844: about
-  1,100 downloads a day at their cost) and permits a self-hosted copy
-  under the AGPL. The Docker image bundles the file at
+* PrintGuard Standard failure-detection model (ConvNeXt-Atto, distilled
+  binary classifier producing a calibrated failure probability in [0, 1]),
+  from https://github.com/oliverbravery/PrintGuard (``models/standard/model.onnx``,
+  pinned release ``v3.0.1``, commit ``b45ff6096e994936a72129e05b851bd18635758c``).
+* The Docker image bundles the unmodified weights file at
   :data:`DEFAULT_BUNDLED_MODEL_PATH`, verified by SHA-256 at build time,
   so a container never downloads it. A source install without the
-  bundled file downloads it once from the hosted copy into the model
-  directory.
-* SHA-256: 0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa
-* Size: 202,223,918 bytes (~202 MB).
-* Licence: AGPL-3.0 (the obico-server project's licence).
+  bundled file downloads it once from :data:`MODEL_URL` into the model
+  directory and verifies the pinned SHA-256.
+* SHA-256: 9265f8fdf80fb07302ff03d0adaa7a3fdb4eda9c21d0f38546870d1ef395e889
+* Size: 13,563,144 bytes (~13 MB).
+* License: GPL-2.0-only (the PrintGuard project's license for the
+  unmodified standalone weights file; see docs/COMPONENTS.md and NOTICE).
+  This loader module itself is original Print Handy code under AGPL-3.0-only.
 
 Fail-soft discipline (#387): a missing runtime, a missing or corrupt
 model, a failed download or an inference error raises
@@ -42,33 +40,33 @@ model, a failed download or an inference error raises
 verdict (which alerts) with the real error logged — never a crash, never
 a silent pass, never a blocked print. A failure is remembered for a
 while (FAILURE_RETRY_BASE_S, doubling per repeat up to
-FAILURE_RETRY_MAX_S), so a broken setup does not retry a 202 MB
-download on every camera check, but a transient one (a network blip
-during the first download) recovers without a restart. The model is
-fetched off the check path (:func:`prefetch_model`, a background
-thread with an overall deadline), never inside a camera check.
+FAILURE_RETRY_MAX_S), so a broken setup does not retry a download on
+every camera check, but a transient one (a network blip during the first
+download) recovers without a restart. The model is fetched off the check
+path (:func:`prefetch_model`, a background thread with an overall
+deadline), never inside a camera check.
 
-Temporal escalation (later stage): a single frame is weak evidence, so
-a print watch can feed its frames through a :class:`FailureStreak` —
-the sustained-streak pattern ``AutoLightPolicy`` uses — and a possible
-failure that keeps being seen across consecutive checks escalates to a
-failure verdict, the multi-frame escalation Obico's own serving applies
-and Stage 1 noted as missing. The single-frame bands below keep their
-meaning; the streak only judges persistence.
+Temporal escalation: a single frame is weak evidence, so a print watch
+feeds its frames through a :class:`FailureStreak` — the sustained-streak
+pattern ``AutoLightPolicy`` uses — and a possible failure that keeps
+being seen across consecutive independent checks escalates to a failure
+verdict. The single-frame bands below keep their meaning; the streak only
+judges persistence.
 
-GPU execution providers (later stage): session creation asks
-onnxruntime which providers the host offers and picks the most
-preferred accelerated one (:data:`PROVIDER_PREFERENCE`), with CPU
-always in the list as the fallback; a provider that fails to
-initialise retries once on CPU alone. The active provider is logged
-once at load and reported by :func:`detector_status` (the bot check
-row). Selection is automatic — there is no provider setting. The
-wiring is tested against fake provider lists; live GPU proof is an
-operator follow-up (see #455), so no host is claimed GPU-verified.
+GPU execution providers: session creation asks onnxruntime which
+providers the host offers and picks the most preferred accelerated one
+(:data:`PROVIDER_PREFERENCE`), with CPU always in the list as the
+fallback; a provider that fails to initialize retries once on CPU alone.
+The active provider is logged once at load and reported by
+:func:`detector_status` (the bot check row). Selection is automatic —
+there is no provider setting. The wiring is tested against fake provider
+lists; live GPU proof is an operator follow-up (see #455), so no host is
+claimed GPU-verified.
 """
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import math
 import os
@@ -84,33 +82,48 @@ from . import _config
 logger = logging.getLogger(__name__)
 
 # --- Pinned model provenance (see module docstring) --------------------------
-MODEL_NAME = "Obico failure-detection model"
-# Never fetched: the upstream location, kept for provenance (#1844).
-MODEL_UPSTREAM_URL = "https://www.obico.io/static_pub/ml-models/model-weights-5a6b1be1fa.onnx"
-# The only URL Print Handy downloads the model from: the release asset of
-# catduckgnaf/print-handy-vision-model, this project's model repo (#1844). tests/runtime/test_no_third_party_model_fetch.py
-# pins it to that repository's releases.
-MODEL_URL = ("https://github.com/catduckgnaf/print-handy-vision-model/releases/download/"
-             "obico-5a6b1be1fa/obico-failure-detector.onnx")
-MODEL_SHA256 = "0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa"
-MODEL_SIZE_BYTES = 202_223_918
-MODEL_FILENAME = "obico-failure-detector.onnx"
+MODEL_NAME = "PrintGuard Standard failure-detection model"
+MODEL_UPSTREAM_REPO = "oliverbravery/PrintGuard"
+MODEL_VERSION = "3.0.1"
+MODEL_REVISION = "b45ff6096e994936a72129e05b851bd18635758c"
+MODEL_UPSTREAM_PATH = "models/standard/model.onnx"
+MODEL_URL = (
+    f"https://raw.githubusercontent.com/{MODEL_UPSTREAM_REPO}/"
+    f"{MODEL_REVISION}/{MODEL_UPSTREAM_PATH}"
+)
+MODEL_SHA256 = "9265f8fdf80fb07302ff03d0adaa7a3fdb4eda9c21d0f38546870d1ef395e889"
+MODEL_SIZE_BYTES = 13_563_144
+MODEL_FILENAME = "printguard-standard.onnx"
 # Where the Docker image bundles the weights (Dockerfile, vision-model
 # stage). PRINT_HANDY_BUNDLED_MODEL overrides it (tests point it away).
 DEFAULT_BUNDLED_MODEL_PATH = "/opt/print-handy/models/" + MODEL_FILENAME
 
+# --- Preprocessing contract (from PrintGuard Standard metadata.json) ---------
+# Standard ConvNeXt-Atto takes NCHW float32 RGB squares of 224x224,
+# produced by bilinear shortest-edge resize to 256 px, centered 224 px
+# crop, and ImageNet channel normalization. Wide camera frames (such as
+# 16:9 webcams) are tiled along the long edge into overlapping squares
+# (at least 20% overlap, bounded to the central 4:1 span) and scored by
+# their highest-risk tile.
+INPUT_RESIZE_SHORTEST = 256
+INPUT_CROP_SIZE = 224
+NORMALIZE_MEAN = (0.485, 0.456, 0.406)
+NORMALIZE_STD = (0.229, 0.224, 0.225)
+TILE_OVERLAP = 0.20
+MAX_ASPECT_RATIO = 4
+
 # --- Verdict mapping (single still frame) ------------------------------------
-# Obico's own serving code treats a detection above 0.08 confidence as a
-# positive (ml_api THRESH). One frame is weaker evidence than Obico's
-# multi-frame escalation, so the verdict needs a stronger single frame:
-# at or above FAILURE_AT the frame is judged a failure (``spaghetti``);
-# a weaker positive stays ``uncertain``. A weak positive on its own is
-# noted, not posted: one 10-20% box on a healthy print is common, and an
-# alert for it teaches the operator to ignore the camera. It is posted
-# (without a ping) only once it persists (WEAK_ALERT_AFTER, below).
-POSITIVE_FLOOR = 0.08
-FAILURE_AT = 0.5
-NMS_IOU = 0.45  # Obico's OnnxNet.detect default
+# PrintGuard Standard outputs a calibrated failure probability in [0, 1]
+# with 0.50 as its decision boundary and 0.75 as PrintGuard's own default
+# alert threshold:
+# * below POSITIVE_FLOOR (0.50): clean frame (``ok``);
+# * POSITIVE_FLOOR..FAILURE_AT (0.50..0.75): weak positive (``uncertain``) —
+#   noted on a single check, posted without a ping once it persists
+#   (WEAK_ALERT_AFTER), and escalated to ``spaghetti`` on ESCALATE_AFTER
+#   consecutive independent checks;
+# * at or above FAILURE_AT (0.75): strong single-frame failure (``spaghetti``).
+POSITIVE_FLOOR = 0.50
+FAILURE_AT = 0.75
 
 # --- Temporal escalation (FailureStreak) --------------------------------------
 # Independent consecutive positive checks (FailureStreak._independent)
@@ -129,8 +142,8 @@ STREAK_CAP = 100
 
 DOWNLOAD_TIMEOUT_S = 180
 # The whole download, not one read: a slow-drip server cannot hold it open
-# for ever. 202 MB in 20 minutes needs about 170 KB/s.
-DOWNLOAD_DEADLINE_S = 1200
+# forever. ~13.6 MB in 5 minutes needs about 45 KB/s.
+DOWNLOAD_DEADLINE_S = 300
 # A remembered failure is retried after this long, doubling per repeat.
 FAILURE_RETRY_BASE_S = 60.0
 FAILURE_RETRY_MAX_S = 3600.0
@@ -546,7 +559,7 @@ def _session_options(ort):
 
 def _create_session(ort, path: Path, providers: list[str]):
     """One InferenceSession attempt, with a single CPU-only retry when
-    an accelerated provider was requested but cannot initialise — an
+    an accelerated provider was requested but cannot initialize — an
     accelerator that is present-but-broken (driver mismatch, missing
     libraries) degrades to CPU, never to a dead detector."""
     options = _session_options(ort)
@@ -594,62 +607,103 @@ def _session(path: Path):
 # --- Detection -------------------------------------------------------------------
 
 
-def _iou(a, b) -> float:
-    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
-    x2, y2 = min(a[2], b[2]), min(a[3], b[3])
-    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-    if inter <= 0:
-        return 0.0
-    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
-    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
+def _tile_windows(width: int, height: int) -> list[tuple[int, int, int, int]]:
+    """Overlapping square pixel windows covering a frame along its long edge.
+
+    Near-square frames (aspect ratio at most ``1 + TILE_OVERLAP``) yield
+    one centered square. Wider or taller frames are split into square
+    tiles with at least ``TILE_OVERLAP`` overlap across the central span
+    bounded by ``MAX_ASPECT_RATIO``.
+    """
+    if width <= 0 or height <= 0:
+        raise LocalVisionError(f"invalid camera frame dimensions: {width}x{height}")
+    long_side = max(width, height)
+    short_side = min(width, height)
+    span = min(long_side, short_side * MAX_ASPECT_RATIO)
+    ratio = span / short_side
+    if ratio <= 1.0 + TILE_OVERLAP:
+        starts = [(long_side - short_side) // 2]
+    else:
+        count = math.ceil((ratio - TILE_OVERLAP) / (1.0 - TILE_OVERLAP))
+        margin = (long_side - span) // 2
+        step = (span - short_side) / (count - 1)
+        starts = [margin + round(i * step) for i in range(count)]
+    if width >= height:
+        return [(s, 0, s + height, height) for s in starts]
+    return [(0, s, width, s + width) for s in starts]
 
 
-def _postprocess(boxes, confs):
-    """The model's output contract: ``boxes`` [1, N, 1, 4] relative xyxy
-    and ``confs`` [1, N, 1], decoded in-graph. Returns the kept
-    (confidence, box) pairs after the positive floor and NMS, strongest
-    first — the same post-processing shape as Obico's own server code."""
-    import numpy as np
-
-    box_arr = np.asarray(boxes, dtype=np.float64)
-    conf_arr = np.asarray(confs, dtype=np.float64)
-    if box_arr.ndim != 4 or conf_arr.ndim != 3 or box_arr.shape[1] != conf_arr.shape[1]:
-        raise LocalVisionError(
-            f"unexpected local detector output shapes: boxes {box_arr.shape}, "
-            f"confs {conf_arr.shape}")
-    flat_boxes = box_arr[0, :, 0, :]
-    flat_confs = conf_arr[0, :, 0]
-    order = sorted(
-        (i for i in range(len(flat_confs)) if flat_confs[i] > POSITIVE_FLOOR),
-        key=lambda i: -flat_confs[i])
-    kept: list[int] = []
-    for i in order:
-        if all(_iou(flat_boxes[i], flat_boxes[j]) <= NMS_IOU for j in kept):
-            kept.append(i)
-    return [(float(flat_confs[i]), flat_boxes[i]) for i in kept]
-
-
-def _preprocess(image: bytes, width: int, height: int):
-    """JPEG bytes -> the model's input tensor: RGB, resized to the
-    model's input size, CHW, scaled to 0..1 (Obico's own preprocessing)."""
-    import io
-
+def _preprocess_tile(tile, crop_size: int):
+    """Square RGB PIL image -> NCHW float32 tensor normalized with ImageNet stats."""
     import numpy as np
     from PIL import Image
 
+    resize_shortest = (
+        INPUT_RESIZE_SHORTEST
+        if crop_size == INPUT_CROP_SIZE
+        else max(crop_size, round(crop_size * INPUT_RESIZE_SHORTEST / INPUT_CROP_SIZE))
+    )
+    resized = tile.resize((resize_shortest, resize_shortest), Image.Resampling.BILINEAR)
+    offset = int(round((resize_shortest - crop_size) / 2.0))
+    cropped = resized.crop((offset, offset, offset + crop_size, offset + crop_size))
+    pixels = np.asarray(cropped, dtype=np.float32) / np.float32(255.0)
+    mean = np.asarray(NORMALIZE_MEAN, dtype=np.float32)
+    std = np.asarray(NORMALIZE_STD, dtype=np.float32)
+    normalized = (pixels - mean) / std
+    tensor = np.transpose(normalized, (2, 0, 1))[np.newaxis, ...]
+    return np.ascontiguousarray(tensor, dtype=np.float32)
+
+
+def _preprocess(image: bytes, width: int, height: int):
+    """JPEG/PNG bytes -> list of ``(tensor, normalized_box)`` tiles for the classifier."""
+    from PIL import Image
+
+    if width != height or width <= 0:
+        raise LocalVisionError(f"local detector requires square input, got {width}x{height}")
     with Image.open(io.BytesIO(image)) as frame:
-        rgb = frame.convert("RGB").resize((width, height), Image.BILINEAR)
-        array = np.asarray(rgb, dtype=np.float32)
-    tensor = np.transpose(array, (2, 0, 1))[np.newaxis, ...]
-    return np.ascontiguousarray(tensor) / 255.0
+        rgb = frame.convert("RGB")
+        img_w, img_h = rgb.size
+        tiles = []
+        for x1, y1, x2, y2 in _tile_windows(img_w, img_h):
+            tile = rgb.crop((x1, y1, x2, y2))
+            tensor = _preprocess_tile(tile, width)
+            norm_box = (x1 / img_w, y1 / img_h, x2 / img_w, y2 / img_h)
+            tiles.append((tensor, norm_box))
+    return tiles
+
+
+def _read_probability(output) -> float:
+    """Validate and extract the single scalar failure probability from ``outputs[0]``."""
+    import numpy as np
+
+    arr = np.asarray(output, dtype=np.float64)
+    if arr.size != 1 or arr.ndim > 2:
+        raise LocalVisionError(
+            f"unexpected local detector probability output shape: {arr.shape}")
+    score = float(arr.reshape(-1)[0])
+    if not math.isfinite(score) or score < 0.0 or score > 1.0:
+        raise LocalVisionError(
+            f"local detector returned an out-of-range probability: {score!r}")
+    return score
+
+
+def _postprocess(tile_scores):
+    """Keep tiles at or above :data:`POSITIVE_FLOOR`, strongest first."""
+    kept = [
+        (float(score), box)
+        for score, box in tile_scores
+        if float(score) >= POSITIVE_FLOOR
+    ]
+    kept.sort(key=lambda pair: -pair[0])
+    return kept
 
 
 def detect(image: bytes, cfg=None):
-    """Run the detector on one JPEG frame. Returns the kept detections,
-    strongest first. Raises :class:`LocalVisionError` on any
-    infrastructure failure (runtime, model, inference)."""
+    """Run the detector on one camera frame. Returns kept positive
+    ``(confidence, normalized_tile_box)`` pairs strongest first (empty
+    when all tiles score below :data:`POSITIVE_FLOOR`). Raises
+    :class:`LocalVisionError` on any infrastructure failure (runtime,
+    model, inference)."""
     cfg = _config.cfg() if cfg is None else cfg
     path = model_path(cfg)
     if not path.is_file():
@@ -670,26 +724,29 @@ def detect(image: bytes, cfg=None):
             f"the local detector model at {path} has an unexpected input "
             f"shape {spec.shape!r}") from exc
     try:
-        tensor = _preprocess(image, width, height)
+        tiles = _preprocess(image, width, height)
     except LocalVisionError:
         raise
     except Exception as exc:  # noqa: BLE001 - an unreadable frame is a failed check
         raise LocalVisionError(f"the camera frame could not be read: {exc}") from exc
-    try:
-        outputs = session.run(None, {spec.name: tensor})
-    except LocalVisionError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - inference errors degrade like endpoint errors
-        raise LocalVisionError(f"local detector inference failed: {exc}") from exc
-    if len(outputs) < 2:
-        raise LocalVisionError(
-            f"the local detector model returned {len(outputs)} outputs, expected 2")
-    try:
-        return _postprocess(outputs[0], outputs[1])
-    except LocalVisionError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - malformed outputs are a failed check
-        raise LocalVisionError(f"local detector outputs could not be read: {exc}") from exc
+    scored = []
+    for tensor, norm_box in tiles:
+        try:
+            outputs = session.run(None, {spec.name: tensor})
+        except LocalVisionError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - inference errors degrade like endpoint errors
+            raise LocalVisionError(f"local detector inference failed: {exc}") from exc
+        if not outputs:
+            raise LocalVisionError("the local detector model returned no outputs")
+        try:
+            score = _read_probability(outputs[0])
+        except LocalVisionError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - malformed outputs are a failed check
+            raise LocalVisionError(f"local detector outputs could not be read: {exc}") from exc
+        scored.append((score, norm_box))
+    return _postprocess(scored)
 
 
 #: The words a weak ("possible failure") detection's detail carries.
@@ -701,19 +758,19 @@ def percent(confidence) -> int:
     """A confidence in whole percent, rounded down.
 
     Rounded down so a sub-threshold value never reads as the threshold:
-    0.4999 shows as 49%, not 50%.
+    0.7499 shows as 74%, not 75%.
     """
     return math.floor(float(confidence) * 100 + 1e-9)
 
 
 class Detection(NamedTuple):
-    """The detector's structured result for one frame with a positive box.
+    """The detector's structured result for one frame with a positive score.
 
-    ``confidence`` is the strongest kept box (0..1), ``seen`` how many
-    independent consecutive checks saw a positive (this one included, 1
-    for a single-frame judgement), ``counted`` whether this frame was one
-    of them (a frame too soon after, or unchanged from, the last counted
-    one is not), and ``verdict`` the verdict it produced.
+    ``confidence`` is the strongest tile probability (0..1), ``seen`` how
+    many independent consecutive checks saw a positive (this one included,
+    1 for a single-frame judgement), ``counted`` whether this frame was
+    one of them (a frame too soon after, or unchanged from, the last
+    counted one is not), and ``verdict`` the verdict it produced.
     """
     confidence: float
     seen: int
@@ -787,16 +844,16 @@ def _weak_detail(detection: Detection) -> str:
 
 def _strong_detail(kept, positives) -> str:
     confidence = kept[0][0]
-    areas = len(kept)
-    reason = (f"local failure detector: print failure at {confidence:.0%} "
-              f"confidence ({areas} area{'s' if areas != 1 else ''})")
+    regions = len(kept)
+    region_note = f" ({regions} regions)" if regions > 1 else ""
+    reason = f"local failure detector: print failure at {confidence:.0%} confidence{region_note}"
     if positives >= 2:
         reason += f", confirmed across {positives} consecutive checks"
     return reason
 
 
 def _single_frame_verdict(kept) -> Verdict:
-    """One frame's verdict, Stage 1 semantics: the mapping the bands
+    """One frame's verdict, single-frame semantics: the mapping the bands
     above define, with no memory of earlier frames (a weak detection is
     one sighting, so it is noted, never posted)."""
     if kept:
@@ -906,7 +963,7 @@ def local_verdict(image: bytes, cfg=None, streak: FailureStreak | None = None, *
     """The detector's verdict for one frame, in the watchdog's
     vocabulary. Raises :class:`LocalVisionError` when it cannot judge.
 
-    Without ``streak`` the frame is judged on its own (Stage 1). With a
+    Without ``streak`` the frame is judged on its own. With a
     :class:`FailureStreak` (one per printer per print, owned by the
     calling watch) the frame also feeds the streak, and a sustained
     weak detection escalates as the streak's rules define. ``now`` is
