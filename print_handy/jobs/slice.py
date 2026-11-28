@@ -825,7 +825,7 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
     """
     from ..core import plate_merge
     if not decisions:
-        raise RuntimeError('part/color choices required; run color-plan and color-select before slicing')
+        raise SliceRefusal('part/color choices required; run color-plan and color-select before slicing', plain='This model needs color or part choices before it can be sliced.', next_step='Run `color-plan` and `color-select`, then prepare the model again.')
     view = _per_part_view(manifest, decisions)
     slots = _part_slots(view, manifest)
     implicit = False
@@ -1645,7 +1645,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
         raise RuntimeError('per-plate output does not account for every source part')
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
-        raise RuntimeError('source, decisions or slice recipe changed during slicing; artifacts not made ready')
+        raise SliceFailure('source, decisions or slice recipe changed during slicing; artifacts not made ready', kind='recipe')
     job['derived_plates'] = artifacts
     if refused:
         job['refused_plates'] = refused
@@ -2231,6 +2231,7 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
     import copy as _copy
     import shutil
     from ..core import slice_recipe as sr
+    from ..core.slice_failure import SliceFailure
     from ..core.background_slice import SLICE_JOB_FIELDS
     path = Path(job_path)
     job = json.loads(path.read_text())
@@ -2366,7 +2367,11 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             _validate_slot_selection(st, selection)
             job["filament_selection"] = selection
     src=Path(job["downloaded_file"]); ad=job["audit"]; multi_plate=False
-    if src.suffix.lower() not in (".3mf",".stl"): raise RuntimeError("only STL/3MF can be sliced; selected source is not geometry")
+    from ..core.slice_refusal import SliceRefusal
+    if src.suffix.lower() not in (".3mf",".stl"):
+        raise SliceRefusal("only STL/3MF can be sliced; selected source is not geometry",
+                           plain="That file is not a model Print Handy can slice. Only STL and 3MF files are supported.",
+                           next_step="Send the model as an .stl or .3mf file.")
     from ..core import slice_recipe as sr
     recipe = sr.record(sr.slice_recipe(job, file_sha256(src), st,
                                        copies=copies, scale=scale, brim_override=brim_override))
@@ -2391,10 +2396,10 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
                             if metadata.get("key") == "plater_id":
                                 plate_id = metadata.get("value")
                                 if plate_id is None:
-                                    raise RuntimeError("3MF plate assignment has no plater_id value")
+                                    raise SliceRefusal("3MF plate assignment has no plater_id value", plain="The 3MF file has a plate with no valid plate assignment.", next_step="Re-export the model as a fresh 3MF (or send the STL), then send it again.")
                                 actual_plates.add(int(plate_id))
                 except (ET.ParseError, ValueError, TypeError) as exc:
-                    raise RuntimeError(f"unable to inspect 3MF plate assignments: {exc}") from exc
+                    raise SliceRefusal(f"unable to inspect 3MF plate assignments: {exc}", plain="The 3MF file has invalid or unreadable plate assignments.", next_step="Re-export the model as a fresh 3MF (or send the STL), then send it again.") from exc
         multi_plate = len(actual_plates) > 1 or int(ad.get("plates", 0) or 0) > 1
 
     from ..core.source_colors import inventory, prompts, require_single_color, validate_decisions
@@ -2415,7 +2420,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
                     plate_ids = set()
                 has_thumbnails = any(re.fullmatch(r"Metadata/plate_\d+\.png", name) for name in names)
             if len(plate_ids) > 1 and not has_thumbnails:
-                raise RuntimeError("multi-plate 3MF source has no plate thumbnails; no slicing attempted") from exc
+                raise SliceRefusal("multi-plate 3MF source has no plate thumbnails; no slicing attempted", plain="This multi-plate 3MF is missing its plate thumbnails, so its plates cannot be prepared safely.", next_step="Re-export the model as a fresh 3MF (or send the STL), then send it again.") from exc
         # Owner ruling (catduck, 2026-11-10): unknown filament usage never
         # blocks a print; the job proceeds to the slicer. A plates-only
         # source — the archive carries its plates as thumbnails, the job's
@@ -2436,7 +2441,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             from ..core.source_colors import _append_filament_stats
             _append_filament_stats(src, manifest)
         elif multi_plate:
-            raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
+            raise SliceRefusal(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted', plain="The multi-plate 3MF's parts could not be assigned to plates, so it cannot be merged or split safely.", next_step="Re-export the model as a fresh 3MF (or send the STL), then send it again.") from exc
         else:
             raise
     selected_plates = job.get('selected_plates') or None
@@ -2585,7 +2590,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     else:
         job.pop('filament_fallback', None)
     if manifest['requires_choices'] and not decisions:
-        raise RuntimeError('part/color choices required; run color-plan and color-select before slicing')
+        raise SliceRefusal('part/color choices required; run color-plan and color-select before slicing', plain='This model needs color or part choices before it can be sliced.', next_step='Run `color-plan` and `color-select`, then prepare the model again.')
     if copies and int(copies) > 1 and not generic and not copies_supported(job, multi_plate):
         # Split, multi-plate and per-part paths never clone copies (#37); keep JOB.json truthful.
         print(f'NOTE: {int(copies)} copies requested, but split and per-part jobs slice one copy per plate')
@@ -2603,9 +2608,11 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
         except ImplicitPlateSplit as exc:
             if not adapter.multi_tool:
                 raise
-            raise RuntimeError(
+            raise SliceRefusal(
                 f"{adapter.label} prints a multi-color job as one merged plate; this source does not "
-                f"merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted") from exc
+                f"merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted",
+                plain=f"This multi-plate model cannot be merged onto one bed for {adapter.label}.",
+                next_step="Use a printer that supports this plate layout, or send a model that fits one plate.") from exc
         _timing(job_path, 'slice_done', path='multi_plate')
         return result
     if decisions and decisions['mode'] == 'single_color':
@@ -2623,16 +2630,20 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             scale_now = scale if scale is not None else job.get('scale')
             if (copies and int(copies) > 1) or (job.get('orientation') or {}).get('rotation') \
                     or (scale_now is not None and float(scale_now) != 1.0):
-                raise RuntimeError(
+                raise SliceRefusal(
                     f"{adapter.label} slices a single-color toolhead job as one merged plate at "
                     "authored size; copies, resizing and rotation are not supported on that path. "
-                    "Slice one copy at 100% to print on the picked toolhead. Nothing sliced")
+                    "Slice one copy at 100% to print on the picked toolhead. Nothing sliced",
+                    plain="This printer can only slice the selected single-color toolhead job at its authored size.",
+                    next_step="Slice one copy at 100% with no rotation, then prepare the model again.")
             try:
                 return slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override)
             except ImplicitPlateSplit as exc:
-                raise RuntimeError(
+                raise SliceRefusal(
                     f"{adapter.label} prints a single-color toolhead job as one merged plate; this source "
-                    f"does not merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted") from exc
+                    f"does not merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted",
+                    plain=f"This model cannot be merged onto one bed for {adapter.label}.",
+                    next_step="Use a printer that supports this plate layout, or send a model that fits one plate.") from exc
         if not multi_tool:
             # The IFS slot verification is slot-shaped; a toolhead pick was
             # already resolved against the recorded toolheads (#346).
@@ -2646,9 +2657,11 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             try:
                 return slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override)
             except ImplicitPlateSplit as exc:
-                raise RuntimeError(
+                raise SliceRefusal(
                     f"{adapter.label} prints a multi-color job as one merged plate; this source does not "
-                    f"merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted") from exc
+                    f"merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted",
+                    plain=f"This model cannot be merged onto one bed for {adapter.label}.",
+                    next_step="Use a printer that supports this plate layout, or send a model that fits one plate.") from exc
         if src.suffix.lower() == '.3mf':
             # Single-plate per-part decisions use the same merge planner as
             # multi-plate sources: one multicolor G-code unless a stated reason splits.
@@ -2660,7 +2673,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
         # Non-mergeable and non-3MF per-part sources use the single-slot plate split.
         groups = single_color_groups(job, manifest)
         if not groups:
-            raise RuntimeError('per-part decision did not resolve any single-color plate')
+            raise SliceRefusal('per-part decision did not resolve any single-color plate', plain='The saved per-part color choices did not resolve to any printable plate.', next_step='Review the part choices with `color-plan` and `color-select`, then prepare the model again.')
         refuse_assembly_split(src, manifest, groups, st, job.get('plate_merge'))
         # Every slot group is sliced. The loaded spool is a launch fact, not a
         # reason to drop a plate that already names its own slot.
@@ -2701,7 +2714,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             # is remapped to logical T0 on this single-color derivative.
             material = st.get('filament_slots', {}).get(str(group['slot']), {}).get('material')
             if not material:
-                raise RuntimeError(f"derived plate physical IFS slot {group['slot']} has no verified material")
+                raise SliceRefusal(f"derived plate physical IFS slot {group['slot']} has no verified material", plain=f"Printer slot {group['slot']} has no verified material for this plate.", next_step="Record the loaded spool and material for that slot, then prepare the model again.")
             finalize_multicolor(out, None, st, {'0': group['slot']}, adapter=adapter)
             # Verify the exact final bytes (after map, color and MD5 rewrite).
             check = verify_gcode_offline(out, st, _job_adapter(job), slot=group['slot'])
@@ -2710,7 +2723,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
                               'provenance': provenance, 'slice_config': [str(path) for path in configs]})
         latest = json.loads(Path(job_path).read_text())
         if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
-            raise RuntimeError('source, decisions or slice recipe changed during slicing; artifacts not made ready')
+            raise SliceFailure('source, decisions or slice recipe changed during slicing; artifacts not made ready', kind='recipe')
         job['derived_plates'] = artifacts
         job.pop('refused_plates', None)
         job['artifact_binding'] = {**_recipe_binding(job), 'source_sha256': source_sha, 'decisions_sha256': decision_sha,
@@ -2900,7 +2913,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     latest = json.loads(Path(job_path).read_text())
     _timing(job_path, 'verify_done')
     if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
-        raise RuntimeError("source, decisions or slice recipe changed during slicing; artifact not made ready")
+        raise SliceFailure("source, decisions or slice recipe changed during slicing; artifact not made ready", kind='recipe')
     job["artifact_binding"] = {**_recipe_binding(job), "source_sha256": source_sha, "decisions_sha256": decision_sha,
                                "gcode_sha256": file_sha256(out)}
     if auto_scale is not None:
