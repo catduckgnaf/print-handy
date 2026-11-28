@@ -1,0 +1,517 @@
+{
+  "_about": "Model-specific failure-only punchlines, never completion roasts.",
+  "_phase": 5,
+  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+  "entries": {
+    "benchy": [
+      {
+        "id": "failure-title-benchy-1",
+        "family": "failure-title-benchy-1",
+        "text": "The Titanic would like to thank you for taking the pressure off its reputation."
+      },
+      {
+        "id": "failure-title-benchy-2",
+        "family": "failure-title-benchy-2",
+        "text": "That ship went down before the launch ceremony."
+      },
+      {
+        "id": "failure-title-benchy-3",
+        "family": "failure-title-benchy-3",
+        "text": "The maritime accident report is going to be shorter than the slicer settings."
+      }
+    ],
+    "cube": [
+      {
+        "id": "failure-title-cube-1",
+        "family": "failure-title-cube-1",
+        "text": "Geometry has issued a formal complaint about the unauthorized addition of extra faces."
+      },
+      {
+        "id": "failure-title-cube-2",
+        "family": "failure-title-cube-2",
+        "text": "Six sides was apparently an unreasonable number of deliverables."
+      },
+      {
+        "id": "failure-title-cube-3",
+        "family": "failure-title-cube-3",
+        "text": "Euclid has requested that this evidence be destroyed."
+      }
+    ],
+    "dragon": [
+      {
+        "id": "failure-title-dragon-1",
+        "family": "failure-title-dragon-1",
+        "text": "Smaug would burn the evidence before anybody could see this."
+      },
+      {
+        "id": "failure-title-dragon-2",
+        "family": "failure-title-dragon-2",
+        "text": "The dragon went extinct before it finished evolving."
+      },
+      {
+        "id": "failure-title-dragon-3",
+        "family": "failure-title-dragon-3",
+        "text": "The fantasy kingdom has canceled its air force procurement contract."
+      }
+    ],
+    "phone stand": [
+      {
+        "id": "failure-title-phone-stand-1",
+        "family": "failure-title-phone-stand-1",
+        "text": "Your phone has been advised to seek emergency accommodation elsewhere."
+      },
+      {
+        "id": "failure-title-phone-stand-2",
+        "family": "failure-title-phone-stand-2",
+        "text": "The desk has resumed providing the service for free."
+      },
+      {
+        "id": "failure-title-phone-stand-3",
+        "family": "failure-title-phone-stand-3",
+        "text": "The phone's new housing development has collapsed before occupancy."
+      }
+    ],
+    "gear": [
+      {
+        "id": "failure-title-gear-1",
+        "family": "failure-title-gear-1",
+        "text": "The industrial revolution has been postponed due to a problem with one tooth."
+      },
+      {
+        "id": "failure-title-gear-2",
+        "family": "failure-title-gear-2",
+        "text": "The gear has discovered that unemployment is easier than transferring torque."
+      },
+      {
+        "id": "failure-title-gear-3",
+        "family": "failure-title-gear-3",
+        "text": "The mechanism has filed for divorce on grounds of irreconcilable tolerances."
+      }
+    ],
+    "bracket": [
+      {
+        "id": "failure-title-bracket-1",
+        "family": "failure-title-bracket-1",
+        "text": "The wall has revoked the bracket's building permit."
+      },
+      {
+        "id": "failure-title-bracket-2",
+        "family": "failure-title-bracket-2",
+        "text": "Gravity has won the structural engineering argument before installation even started."
+      },
+      {
+        "id": "failure-title-bracket-3",
+        "family": "failure-title-bracket-3",
+        "text": "The bracket has been declared unfit for holding even its own reputation."
+      }
+    ],
+    "organizer": [
+      {
+        "id": "failure-title-organizer-1",
+        "family": "failure-title-organizer-1",
+        "text": "The mess has successfully defeated the department established to eliminate it."
+      },
+      {
+        "id": "failure-title-organizer-2",
+        "family": "failure-title-organizer-2",
+        "text": "The storage project has produced another thing that needs to be disposed of."
+      },
+      {
+        "id": "failure-title-organizer-3",
+        "family": "failure-title-organizer-3",
+        "text": "The junk drawer has won the war on urban planning."
+      }
+    ],
+    "planter": [
+      {
+        "id": "failure-title-planter-1",
+        "family": "failure-title-planter-1",
+        "text": "The plant has been notified that its apartment failed inspection."
+      },
+      {
+        "id": "failure-title-planter-2",
+        "family": "failure-title-planter-2",
+        "text": "The landlord has lost the building before collecting the first month's rent."
+      },
+      {
+        "id": "failure-title-planter-3",
+        "family": "failure-title-planter-3",
+        "text": "Photosynthesis has been postponed due to a construction defect."
+      }
+    ],
+    "vase": [
+      {
+        "id": "failure-title-vase-1",
+        "family": "failure-title-vase-1",
+        "text": "The flowers are now accepting condolences instead of water."
+      },
+      {
+        "id": "failure-title-vase-2",
+        "family": "failure-title-vase-2",
+        "text": "The museum has withdrawn the exhibit before the opening ceremony."
+      },
+      {
+        "id": "failure-title-vase-3",
+        "family": "failure-title-vase-3",
+        "text": "The pottery department has requested a refund on the concept of a container."
+      }
+    ],
+    "helmet": [
+      {
+        "id": "failure-title-helmet-1",
+        "family": "failure-title-helmet-1",
+        "text": "The helmet failed its first encounter with absolutely no combat."
+      },
+      {
+        "id": "failure-title-helmet-2",
+        "family": "failure-title-helmet-2",
+        "text": "The safety inspector has declined to wear the evidence."
+      },
+      {
+        "id": "failure-title-helmet-3",
+        "family": "failure-title-helmet-3",
+        "text": "The knight will be attending the battle in business casual."
+      }
+    ],
+    "octopus": [
+      {
+        "id": "failure-title-octopus-1",
+        "family": "failure-title-octopus-1",
+        "text": "Eight arms were apparently seven more than the printer could manage."
+      },
+      {
+        "id": "failure-title-octopus-2",
+        "family": "failure-title-octopus-2",
+        "text": "The octopus has become a maritime search and rescue operation."
+      },
+      {
+        "id": "failure-title-octopus-3",
+        "family": "failure-title-octopus-3",
+        "text": "Poseidon has rejected the creature's application for aquatic life."
+      }
+    ],
+    "dino": [
+      {
+        "id": "failure-title-dino-1",
+        "family": "failure-title-dino-1",
+        "text": "The dinosaur has undergone a second and significantly less interesting extinction."
+      },
+      {
+        "id": "failure-title-dino-2",
+        "family": "failure-title-dino-2",
+        "text": "Jurassic Park has pulled the plug on the cloning program."
+      },
+      {
+        "id": "failure-title-dino-3",
+        "family": "failure-title-dino-3",
+        "text": "The fossil record has declined to include this specimen."
+      }
+    ],
+    "robot": [
+      {
+        "id": "failure-title-robot-1",
+        "family": "failure-title-robot-1",
+        "text": "The robot uprising has been delayed by a manufacturing defect."
+      },
+      {
+        "id": "failure-title-robot-2",
+        "family": "failure-title-robot-2",
+        "text": "Skynet has officially canceled the hardware contract."
+      },
+      {
+        "id": "failure-title-robot-3",
+        "family": "failure-title-robot-3",
+        "text": "The robot failed before it could even threaten an unoccupied desk."
+      }
+    ],
+    "rocket": [
+      {
+        "id": "failure-title-rocket-1",
+        "family": "failure-title-rocket-1",
+        "text": "Mission control has lost contact before liftoff."
+      },
+      {
+        "id": "failure-title-rocket-2",
+        "family": "failure-title-rocket-2",
+        "text": "NASA would classify this as a very small crater in the research budget."
+      },
+      {
+        "id": "failure-title-rocket-3",
+        "family": "failure-title-rocket-3",
+        "text": "The countdown has been replaced with a procurement investigation."
+      }
+    ],
+    "lightsaber": [
+      {
+        "id": "failure-title-lightsaber-1",
+        "family": "failure-title-lightsaber-1",
+        "text": "The Jedi Council has downgraded this weapon to an administrative incident."
+      },
+      {
+        "id": "failure-title-lightsaber-2",
+        "family": "failure-title-lightsaber-2",
+        "text": "The Force has declined to intervene in the failed manufacturing process."
+      },
+      {
+        "id": "failure-title-lightsaber-3",
+        "family": "failure-title-lightsaber-3",
+        "text": "The Sith have lost the arms race to a heated bed."
+      }
+    ],
+    "curiosity rover": [
+      {
+        "id": "failure-title-curiosity-rover-1",
+        "family": "failure-title-curiosity-rover-1",
+        "text": "The rover couldn't survive Earth, which makes the Mars mission a little ambitious."
+      },
+      {
+        "id": "failure-title-curiosity-rover-2",
+        "family": "failure-title-curiosity-rover-2",
+        "text": "Mission control has stopped searching for signs of intelligent design."
+      },
+      {
+        "id": "failure-title-curiosity-rover-3",
+        "family": "failure-title-curiosity-rover-3",
+        "text": "NASA would like its launch vehicle back before you touch anything else."
+      }
+    ],
+    "eiffel tower": [
+      {
+        "id": "failure-title-eiffel-tower-1",
+        "family": "failure-title-eiffel-tower-1",
+        "text": "Paris has requested that you leave urban planning to the French."
+      },
+      {
+        "id": "failure-title-eiffel-tower-2",
+        "family": "failure-title-eiffel-tower-2",
+        "text": "The tower has encountered an unexpected horizontal career opportunity."
+      },
+      {
+        "id": "failure-title-eiffel-tower-3",
+        "family": "failure-title-eiffel-tower-3",
+        "text": "The tourism board has canceled the ribbon cutting."
+      }
+    ],
+    "gyroid": [
+      {
+        "id": "failure-title-gyroid-1",
+        "family": "failure-title-gyroid-1",
+        "text": "The topology has achieved a new and thoroughly unwanted mathematical singularity."
+      },
+      {
+        "id": "failure-title-gyroid-2",
+        "family": "failure-title-gyroid-2",
+        "text": "The infill has discovered an alternative geometry called none of the above."
+      },
+      {
+        "id": "failure-title-gyroid-3",
+        "family": "failure-title-gyroid-3",
+        "text": "The mathematician has withdrawn the proof pending a review of the physical evidence."
+      }
+    ],
+    "mammoth": [
+      {
+        "id": "failure-title-mammoth-1",
+        "family": "failure-title-mammoth-1",
+        "text": "The Ice Age has claimed another victim without needing to show up."
+      },
+      {
+        "id": "failure-title-mammoth-2",
+        "family": "failure-title-mammoth-2",
+        "text": "The Smithsonian has rejected the fossil before it could enter the fossil record."
+      },
+      {
+        "id": "failure-title-mammoth-3",
+        "family": "failure-title-mammoth-3",
+        "text": "The extinction event was remarkably localized to one build plate."
+      }
+    ],
+    "jukebox": [
+      {
+        "id": "failure-title-jukebox-1",
+        "family": "failure-title-jukebox-1",
+        "text": "The jukebox has been silenced before it could play its first questionable record."
+      },
+      {
+        "id": "failure-title-jukebox-2",
+        "family": "failure-title-jukebox-2",
+        "text": "The diner has canceled its grand reopening due to an equipment catastrophe."
+      },
+      {
+        "id": "failure-title-jukebox-3",
+        "family": "failure-title-jukebox-3",
+        "text": "The music industry has lost absolutely nothing of cultural significance."
+      }
+    ],
+    "church bell": [
+      {
+        "id": "failure-title-church-bell-1",
+        "family": "failure-title-church-bell-1",
+        "text": "The bell tolls for the filament budget, which will not be resurrected."
+      },
+      {
+        "id": "failure-title-church-bell-2",
+        "family": "failure-title-church-bell-2",
+        "text": "The congregation has declared the print beyond divine intervention."
+      },
+      {
+        "id": "failure-title-church-bell-3",
+        "family": "failure-title-church-bell-3",
+        "text": "The church has canceled the dedication and scheduled a cleanup instead."
+      }
+    ],
+    "marionette": [
+      {
+        "id": "failure-title-marionette-1",
+        "family": "failure-title-marionette-1",
+        "text": "The puppet has lost the plot before the curtain went up."
+      },
+      {
+        "id": "failure-title-marionette-2",
+        "family": "failure-title-marionette-2",
+        "text": "The theater has replaced the performance with a brief announcement about technical difficulties."
+      },
+      {
+        "id": "failure-title-marionette-3",
+        "family": "failure-title-marionette-3",
+        "text": "The strings were apparently not the only thing holding the production together."
+      }
+    ],
+    "elf": [
+      {
+        "id": "failure-title-elf-1",
+        "family": "failure-title-elf-1",
+        "text": "Santa has terminated the subcontractor responsible for this particular holiday disaster."
+      },
+      {
+        "id": "failure-title-elf-2",
+        "family": "failure-title-elf-2",
+        "text": "The elf on the shelf has been relocated to the bin."
+      },
+      {
+        "id": "failure-title-elf-3",
+        "family": "failure-title-elf-3",
+        "text": "The North Pole has issued a recall before Christmas even started."
+      }
+    ],
+    "cat": [
+      {
+        "id": "failure-title-cat-1",
+        "family": "failure-title-cat-1",
+        "text": "The cat has used up one of its nine lives before leaving the printer."
+      },
+      {
+        "id": "failure-title-cat-2",
+        "family": "failure-title-cat-2",
+        "text": "Even Schrodinger wouldn't bother opening this box."
+      },
+      {
+        "id": "failure-title-cat-3",
+        "family": "failure-title-cat-3",
+        "text": "The feline has declined to land on its feet."
+      }
+    ],
+    "dog": [
+      {
+        "id": "failure-title-dog-1",
+        "family": "failure-title-dog-1",
+        "text": "The obedience school has expelled the dog before orientation."
+      },
+      {
+        "id": "failure-title-dog-2",
+        "family": "failure-title-dog-2",
+        "text": "The dog has been returned to the shelter for a structural problem."
+      },
+      {
+        "id": "failure-title-dog-3",
+        "family": "failure-title-dog-3",
+        "text": "The mailman remains undefeated despite having done absolutely nothing."
+      }
+    ],
+    "gridfinity": [
+      {
+        "id": "failure-title-gridfinity-1",
+        "family": "failure-title-gridfinity-1",
+        "text": "The zoning board has condemned the development before the first tool could move in."
+      },
+      {
+        "id": "failure-title-gridfinity-2",
+        "family": "failure-title-gridfinity-2",
+        "text": "The grid has achieved neither order nor infinity, an ambitious double failure."
+      },
+      {
+        "id": "failure-title-gridfinity-3",
+        "family": "failure-title-gridfinity-3",
+        "text": "The hex keys have been told to remain homeless until further notice."
+      }
+    ],
+    "cable": [
+      {
+        "id": "failure-title-cable-1",
+        "family": "failure-title-cable-1",
+        "text": "The cables have survived yet another attempt to organize them."
+      },
+      {
+        "id": "failure-title-cable-2",
+        "family": "failure-title-cable-2",
+        "text": "The wiring closet has declined to accept this settlement proposal."
+      },
+      {
+        "id": "failure-title-cable-3",
+        "family": "failure-title-cable-3",
+        "text": "The infrastructure project has run out of structural integrity before it ran out of money."
+      }
+    ],
+    "hinge": [
+      {
+        "id": "failure-title-hinge-1",
+        "family": "failure-title-hinge-1",
+        "text": "The relationship ended before either party got to change its mind."
+      },
+      {
+        "id": "failure-title-hinge-2",
+        "family": "failure-title-hinge-2",
+        "text": "The door has retained its independence from the engineering department."
+      },
+      {
+        "id": "failure-title-hinge-3",
+        "family": "failure-title-hinge-3",
+        "text": "The hinge's limited range of motion has been reduced to zero."
+      }
+    ],
+    "sword": [
+      {
+        "id": "failure-title-sword-1",
+        "family": "failure-title-sword-1",
+        "text": "The king has returned the weapon to the stone for warranty service."
+      },
+      {
+        "id": "failure-title-sword-2",
+        "family": "failure-title-sword-2",
+        "text": "The battle has been canceled because the sword failed to survive peacetime."
+      },
+      {
+        "id": "failure-title-sword-3",
+        "family": "failure-title-sword-3",
+        "text": "The blacksmith's apprentice has been reassigned to sweeping the floor."
+      }
+    ],
+    "dice": [
+      {
+        "id": "failure-title-dice-1",
+        "family": "failure-title-dice-1",
+        "text": "The dice have discovered a new outcome outside the range of acceptable probabilities."
+      },
+      {
+        "id": "failure-title-dice-2",
+        "family": "failure-title-dice-2",
+        "text": "The dungeon master has ruled that the manufacturer failed its saving throw."
+      },
+      {
+        "id": "failure-title-dice-3",
+        "family": "failure-title-dice-3",
+        "text": "The casino has returned the equipment before the first losing bet."
+      }
+    ]
+  }
+}

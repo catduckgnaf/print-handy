@@ -79,10 +79,11 @@ def test_a_failed_print_gets_its_status_bank(history, tmp_path):
     ctx = engine.build_context("Dragon Egg", duration_s=5400, material="PLA", grams=40,
                                print_number=2, finish_hour=2)
     corpus = engine.load_corpus()
-    failed = {engine.render(t, ctx) for _id, t in corpus["banks"]["failed"]}
-    failed |= {framed for text in (t for _id, t in corpus["banks"]["failed"])
+    pools = engine.candidate_pools(ctx, "failed", corpus)
+    failed = {engine.render(t, ctx) for _, rows in pools for _id, t in rows}
+    failed |= {framed for bank, rows in pools for _id, text in rows
                if (rendered := engine.render(text, ctx))
-               for framed in engine.framing_options(rendered, "failed", ctx, corpus)}
+               for framed in engine.framing_options(rendered, bank, ctx, corpus)}
     assert line in failed
 
 

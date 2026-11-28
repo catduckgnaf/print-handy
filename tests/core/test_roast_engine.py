@@ -55,7 +55,7 @@ def _pool_names(c, status="completed"):
 
 def test_status_outranks_everything():
     c = ctx("Benchy", duration_s=10 * 3600, grams=300, times=4, finish_hour=3)
-    assert _pool_names(c, "failed") == ["failed"]
+    assert _pool_names(c, "failed")[-1] == "failed"
     assert _pool_names(c, "cancelled") == ["cancelled"]
     assert _pool_names(c, "spaghetti") == ["spaghetti"]
     assert _pool_names(c, "nonsense") == []
@@ -110,7 +110,7 @@ def test_phase2_precedence_pools():
 
     # Failed prints with history facts: reprint_failed:failed and history:fail_streak
     c_fail = ctx("Benchy", prev_fails=1, fail_streak=2)
-    assert _pool_names(c_fail, "failed") == ["reprint_failed:failed", "history:fail_streak", "failed"]
+    assert _pool_names(c_fail, "failed") == ["reprint_failed:failed", "history:fail_streak", "failure-title:benchy", "failed"]
 
 
 def test_title_keywords_match_through_the_shared_fuzzy_layer():
@@ -154,6 +154,7 @@ def test_a_failed_benchy_never_gets_success_language():
     c = ctx("Benchy", grams=40, material="PLA")
     texts = {t for _id, t in roast.load_corpus()["banks"]["failed"]}
     allowed = _renders_and_framed(texts, c, "failed")
+    allowed.update(t for _, t in roast.load_corpus()["failure_title_reactions"]["benchy"])
     for seed in range(20):
         line = roast.roast(c, status="failed", rng=random.Random(seed))
         assert line in allowed
@@ -471,3 +472,13 @@ def test_new_title_keywords_stay_off_one_edit_english_words():
         assert f"title:{key}" not in _pool_names(ctx(title)), title
     assert "title:rocket" in _pool_names(ctx("Rocket Stove"))
     assert "title:rabbit" in _pool_names(ctx("Two Rabbits"))
+
+
+def test_failure_title_jokes_are_separate_and_specific():
+    c = ctx("Curiosity Rover")
+    assert _pool_names(c, "failed")[0] == "failure-title:curiosity rover"
+    assert not any(n.startswith("failure-title:") for n in _pool_names(c))
+    assert not any(n.startswith("failure-title:") for n in _pool_names(c, "spaghetti"))
+    corpus = roast.load_corpus()
+    texts = {t for _, t in corpus["failure_title_reactions"]["curiosity rover"]}
+    assert roast.roast(c, status="failed", rng=random.Random(1)) in texts

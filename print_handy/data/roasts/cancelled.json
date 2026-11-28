@@ -1,377 +1,607 @@
 {
- "_about": "Cancelled prints only. Gentle: the target is the print, never the operator.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
- "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
- "entries": [
-  {
-   "id": "cancelled-you-pulled-the-plug-on",
-   "family": "cancelled-you-pulled-the-plug-on",
-   "text": "You pulled the plug on {title}, a mercy decision historians will call correct."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-at-duration",
-   "family": "cancelled-title-was-cancelled-at-duration",
-   "text": "{title} was cancelled at {duration}, the print equivalent of leaving the party early."
-  },
-  {
-   "id": "cancelled-cancelling-title-saved-grams-grams",
-   "family": "cancelled-cancelling-title-saved-grams-grams",
-   "text": "Cancelling {title} saved {grams} grams of {material} from a fate they did not deserve."
-  },
-  {
-   "id": "cancelled-title-got-voted-off-the",
-   "family": "cancelled-title-got-voted-off-the",
-   "text": "{title} got voted off the print bed, and the tribe of one has spoken."
-  },
-  {
-   "id": "cancelled-you-looked-at-title-checked",
-   "family": "cancelled-you-looked-at-title-checked",
-   "text": "You looked at {title}, checked the clock, and chose peace, which is respectable."
-  },
-  {
-   "id": "cancelled-printer-thanks-you-for-ending",
-   "family": "cancelled-printer-thanks-you-for-ending",
-   "text": "{printer} thanks you for ending {title} before things got truly embarrassing for everyone."
-  },
-  {
-   "id": "cancelled-title-was-not-cancelled-it",
-   "family": "cancelled-title-was-not-cancelled-it",
-   "text": "{title} was not cancelled, it was released from its obligations ahead of schedule."
-  },
-  {
-   "id": "cancelled-the-stop-button-was-pressed",
-   "family": "cancelled-the-stop-button-was-pressed",
-   "text": "The stop button was pressed on {title}, and honestly it never saw it coming."
-  },
-  {
-   "id": "cancelled-title-in-color-had-a",
-   "family": "cancelled-title-in-color-had-a",
-   "text": "{title} in {color} had a good run, right up until you regained your senses."
-  },
-  {
-   "id": "cancelled-stopping-title-early-was-not",
-   "family": "cancelled-stopping-title-early-was-not",
-   "text": "Stopping {title} early was not quitting; it was editing with extreme prejudice."
-  },
-  {
-   "id": "cancelled-you-gave-title-a-full",
-   "family": "cancelled-you-gave-title-a-full",
-   "text": "You gave {title} a full {duration} to impress you, generous bordering on charitable."
-  },
-  {
-   "id": "cancelled-title-has-been-cancelled-by",
-   "family": "cancelled-title-has-been-cancelled-by",
-   "text": "{title} has been cancelled by popular demand, where the demand was entirely yours."
-  },
-  {
-   "id": "cancelled-some-prints-finish-but-title",
-   "family": "cancelled-some-prints-finish-but-title",
-   "text": "Some prints finish, but {title} got an early retirement package and a firm handshake."
-  },
-  {
-   "id": "cancelled-the-wisest-move-in-printing",
-   "family": "cancelled-the-wisest-move-in-printing",
-   "text": "The wisest move in printing is knowing when to stop, and {title} thanks you."
-  },
-  {
-   "id": "cancelled-you-cancelled-title-before-the",
-   "family": "cancelled-you-cancelled-title-before-the",
-   "text": "You cancelled {title} before the spaghetti phase, a decision aged in wisdom."
-  },
-  {
-   "id": "cancelled-material-everywhere-sends-its-thanks",
-   "family": "cancelled-material-everywhere-sends-its-thanks",
-   "text": "{material} everywhere sends its thanks: {title} will not be wasting any more of it."
-  },
-  {
-   "id": "cancelled-title-was-going-places-mostly",
-   "family": "cancelled-title-was-going-places-mostly",
-   "text": "{title} was going places, mostly wrong ones, so the cancellation was a public service."
-  },
-  {
-   "id": "cancelled-ending-title-took-courage-a",
-   "family": "cancelled-ending-title-took-courage-a",
-   "text": "Ending {title} took courage, a steady hand, and one very final button press."
-  },
-  {
-   "id": "cancelled-title-joins-the-honorable-ranks",
-   "family": "cancelled-title-joins-the-honorable-ranks",
-   "text": "{title} joins the honorable ranks of prints stopped while dignity was still available."
-  },
-  {
-   "id": "cancelled-you-did-not-fail-title",
-   "family": "cancelled-you-did-not-fail-title",
-   "text": "You did not fail {title}; you simply declined to let it finish failing."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-before-it",
-   "family": "cancelled-title-was-cancelled-before-it",
-   "text": "{title} was cancelled before it could develop a convincing excuse."
-  },
-  {
-   "id": "cancelled-title-received-a-stop-order",
-   "family": "cancelled-title-received-a-stop-order",
-   "text": "{title} received a stop order from management, effective immediately."
-  },
-  {
-   "id": "cancelled-production-on-title-has-been",
-   "family": "cancelled-production-on-title-has-been",
-   "text": "Production on {title} has been suspended pending a reality check."
-  },
-  {
-   "id": "cancelled-title-left-the-queue-early",
-   "family": "cancelled-title-left-the-queue-early",
-   "text": "{title} left the queue early; the spool is calling it a strategic retreat."
-  },
-  {
-   "id": "cancelled-title-was-pulled-from-production",
-   "family": "cancelled-title-was-pulled-from-production",
-   "text": "{title} was pulled from production before the printer could finish its opening statement."
-  },
-  {
-   "id": "cancelled-the-committee-has-postponed-title",
-   "family": "cancelled-the-committee-has-postponed-title",
-   "text": "The committee has postponed {title} until the idea sounds better."
-  },
-  {
-   "id": "cancelled-title-is-on-indefinite-leave",
-   "family": "cancelled-title-is-on-indefinite-leave",
-   "text": "{title} is on indefinite leave from the build plate."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-proving-someone",
-   "family": "cancelled-title-was-cancelled-proving-someone",
-   "text": "{title} was cancelled, proving someone here can recognize sunk costs."
-  },
-  {
-   "id": "cancelled-you-pulled-the-plug-on-2",
-   "family": "cancelled-you-pulled-the-plug-on-2",
-   "text": "You pulled the plug on {title}; that was pure mercy intervention."
-  },
-  {
-   "id": "cancelled-cancelling-title-early-was-an",
-   "family": "cancelled-cancelling-title-early-was-an",
-   "text": "Cancelling {title} early was an act of mercy for everyone."
-  },
-  {
-   "id": "cancelled-you-saw-where-title-was",
-   "family": "cancelled-you-saw-where-title-was",
-   "text": "You saw where {title} was headed and hit abort without hesitation."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-before-the",
-   "family": "cancelled-title-was-cancelled-before-the",
-   "text": "{title} was cancelled before the spaghetti monster could finish claiming it."
-  },
-  {
-   "id": "cancelled-stopping-title-after-duration-saved",
-   "family": "cancelled-stopping-title-after-duration-saved",
-   "text": "Stopping {title} after {duration} saved the remaining spool from severe embarrassment."
-  },
-  {
-   "id": "cancelled-you-intervened-on-title-before",
-   "family": "cancelled-you-intervened-on-title-before",
-   "text": "You intervened on {title} before physics could commit a public crime."
-  },
-  {
-   "id": "cancelled-title-was-aborted-even-the",
-   "family": "cancelled-title-was-aborted-even-the",
-   "text": "{title} was aborted; even the printer seemed relieved to stop humming."
-  },
-  {
-   "id": "cancelled-pulling-the-plug-on-title",
-   "family": "cancelled-pulling-the-plug-on-title",
-   "text": "Pulling the plug on {title} was the most responsible parenting today."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-at-layer",
-   "family": "cancelled-title-was-cancelled-at-layer",
-   "text": "{title} was cancelled at layer twenty; dignity was salvaged just in time."
-  },
-  {
-   "id": "cancelled-you-pressed-emergency-stop-on",
-   "family": "cancelled-you-pressed-emergency-stop-on",
-   "text": "You pressed emergency stop on {title}, and the workshop sighed with relief."
-  },
-  {
-   "id": "cancelled-stopping-title-saved-grams-grams",
-   "family": "cancelled-stopping-title-saved-grams-grams",
-   "text": "Stopping {title} saved {grams} grams from participating in an obvious disaster."
-  },
-  {
-   "id": "cancelled-you-cut-power-to-title",
-   "family": "cancelled-you-cut-power-to-title",
-   "text": "You cut power to {title}; sometimes surrender is the smartest strategy."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-after-duration",
-   "family": "cancelled-title-was-cancelled-after-duration",
-   "text": "{title} was cancelled after {duration}; that was twenty minutes too late."
-  },
-  {
-   "id": "cancelled-aborting-title-was-not-quitting",
-   "family": "cancelled-aborting-title-was-not-quitting",
-   "text": "Aborting {title} was not quitting; it was tactical retreat from catastrophe."
-  },
-  {
-   "id": "cancelled-you-stopped-title-before-the",
-   "family": "cancelled-you-stopped-title-before-the",
-   "text": "You stopped {title} before the nozzle welded itself into modern sculpture."
-  },
-  {
-   "id": "cancelled-title-got-the-red-button",
-   "family": "cancelled-title-got-the-red-button",
-   "text": "{title} got the red button treatment, preserving whatever little peace remained."
-  },
-  {
-   "id": "cancelled-cancelling-title-spared-the-build",
-   "family": "cancelled-cancelling-title-spared-the-build",
-   "text": "Cancelling {title} spared the build plate another hour of unmitigated chaos."
-  },
-  {
-   "id": "cancelled-you-pulled-the-emergency-brake",
-   "family": "cancelled-you-pulled-the-emergency-brake",
-   "text": "You pulled the emergency brake on {title}; disaster averted by seconds."
-  },
-  {
-   "id": "cancelled-title-was-terminated-before-its",
-   "family": "cancelled-title-was-terminated-before-its",
-   "text": "{title} was terminated before its warped corners could breach earth atmosphere."
-  },
-  {
-   "id": "cancelled-the-abort-button-rescued-title",
-   "family": "cancelled-the-abort-button-rescued-title",
-   "text": "The abort button rescued {title} from becoming another sad viral clip."
-  },
-  {
-   "id": "cancelled-you-ended-title-at-duration",
-   "family": "cancelled-you-ended-title-at-duration",
-   "text": "You ended {title} at {duration}; the spool will forever honor your mercy."
-  },
-  {
-   "id": "cancelled-stopping-title-early-was-a",
-   "family": "cancelled-stopping-title-early-was-a",
-   "text": "Stopping {title} early was a gift to yourself and the power grid."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-because-even",
-   "family": "cancelled-title-was-cancelled-because-even",
-   "text": "{title} was cancelled because even the first three layers looked guilty."
-  },
-  {
-   "id": "cancelled-you-hit-cancel-on-title",
-   "family": "cancelled-you-hit-cancel-on-title",
-   "text": "You hit cancel on {title}; that was pure self-defense against plastic chaos."
-  },
-  {
-   "id": "cancelled-title-was-decommissioned-early-the",
-   "family": "cancelled-title-was-decommissioned-early-the",
-   "text": "{title} was decommissioned early; the scrap bin receives another half-baked idea."
-  },
-  {
-   "id": "cancelled-calling-time-on-title-after",
-   "family": "cancelled-calling-time-on-title-after",
-   "text": "Calling time on {title} after {duration} prevented an expensive plastic funeral."
-  },
-  {
-   "id": "cancelled-you-unplugged-title-with-the",
-   "family": "cancelled-you-unplugged-title-with-the",
-   "text": "You unplugged {title} with the firm resolve of a seasoned firefighter."
-  },
-  {
-   "id": "cancelled-title-was-halted-mid-layer",
-   "family": "cancelled-title-was-halted-mid-layer",
-   "text": "{title} was halted mid-layer; that was a preventative strike against spaghetti."
-  },
-  {
-   "id": "cancelled-the-cancel-button-saved-title",
-   "family": "cancelled-the-cancel-button-saved-title",
-   "text": "The cancel button saved {title} from fulfilling its doomed plastic destiny."
-  },
-  {
-   "id": "cancelled-you-mercifully-pulled-the-plug",
-   "family": "cancelled-you-mercifully-pulled-the-plug",
-   "text": "You mercifully pulled the plug on {title} before anyone could witness it."
-  },
-  {
-   "id": "cancelled-title-was-stopped-cold-the",
-   "family": "cancelled-title-was-stopped-cold-the",
-   "text": "{title} was stopped cold; the nozzle can finally rest its weary heart."
-  },
-  {
-   "id": "cancelled-aborting-title-preserved-grams-grams",
-   "family": "cancelled-aborting-title-preserved-grams-grams",
-   "text": "Aborting {title} preserved {grams} grams for a project with actual prospects."
-  },
-  {
-   "id": "cancelled-you-pressed-pause-on-title",
-   "family": "cancelled-you-pressed-pause-on-title",
-   "text": "You pressed pause on {title} and turned it into a permanent cancellation."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-sometimes-the",
-   "family": "cancelled-title-was-cancelled-sometimes-the",
-   "text": "{title} was cancelled; sometimes the best edit is the delete key."
-  },
-  {
-   "id": "cancelled-hitting-cancel-on-title-proved",
-   "family": "cancelled-hitting-cancel-on-title-proved",
-   "text": "Hitting cancel on {title} proved you still possess working survival instincts."
-  },
-  {
-   "id": "cancelled-title-was-terminated-the-bed",
-   "family": "cancelled-title-was-terminated-the-bed",
-   "text": "{title} was terminated; the bed scraper arrived for an early extraction."
-  },
-  {
-   "id": "cancelled-you-pulled-title-off-life",
-   "family": "cancelled-you-pulled-title-off-life",
-   "text": "You pulled {title} off life support after {duration} of agonizing stringing."
-  },
-  {
-   "id": "cancelled-cancelling-title-was-an-act",
-   "family": "cancelled-cancelling-title-was-an-act",
-   "text": "Cancelling {title} was an act of civic duty toward clean air."
-  },
-  {
-   "id": "cancelled-title-was-cancelled-before-the-2",
-   "family": "cancelled-title-was-cancelled-before-the-2",
-   "text": "{title} was cancelled before the layer shift became a recognized landmark."
-  },
-  {
-   "id": "cancelled-you-stepped-in-and-cancelled",
-   "family": "cancelled-you-stepped-in-and-cancelled",
-   "text": "You stepped in and cancelled {title}; the spool thanks you tearfully."
-  },
-  {
-   "id": "cancelled-title-was-aborted-that-was",
-   "family": "cancelled-title-was-aborted-that-was",
-   "text": "{title} was aborted; that was thirty grams of disaster safely prevented."
-  },
-  {
-   "id": "cancelled-stopping-title-mid-stroke-was",
-   "family": "cancelled-stopping-title-mid-stroke-was",
-   "text": "Stopping {title} mid-stroke was the most sensible decision made all day."
-  },
-  {
-   "id": "cancelled-title-was-unplugged-before-the",
-   "family": "cancelled-title-was-unplugged-before-the",
-   "text": "{title} was unplugged before the spaghetti could stage a violent rebellion."
-  },
-  {
-   "id": "cancelled-you-aborted-title-after-duration",
-   "family": "cancelled-you-aborted-title-after-duration",
-   "text": "You aborted {title} after {duration}; cutting losses is an essential skill."
-  },
-  {
-   "id": "cancelled-title-was-mercifully-cancelled-we",
-   "family": "cancelled-title-was-mercifully-cancelled-we",
-   "text": "{title} was mercifully cancelled; we will pretend this print never started."
-  },
-  {
-   "id": "cancelled-the-red-button-claimed-title",
-   "family": "cancelled-the-red-button-claimed-title",
-   "text": "The red button claimed {title}, saving the workbench from further embarrassment."
-  }
- ]
+  "_about": "Cancelled prints only. Gentle: the target is the print, never the operator.",
+  "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
+  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+  "entries": [
+    {
+      "id": "cancelled-sharp-v3-1",
+      "family": "cancelled-sharp-v3-1",
+      "text": "Netflix would have given this project one more season before canceling it, but you have better judgment."
+    },
+    {
+      "id": "cancelled-sharp-v3-2",
+      "family": "cancelled-sharp-v3-2",
+      "text": "The print was pulled from production before the trailer could generate any interest."
+    },
+    {
+      "id": "cancelled-sharp-v3-3",
+      "family": "cancelled-sharp-v3-3",
+      "text": "The stop button just delivered the shortest performance review in industrial history."
+    },
+    {
+      "id": "cancelled-sharp-v3-4",
+      "family": "cancelled-sharp-v3-4",
+      "text": "The project reached the rare milestone of becoming a discontinued product before becoming a product."
+    },
+    {
+      "id": "cancelled-sharp-v3-5",
+      "family": "cancelled-sharp-v3-5",
+      "text": "The cancellation has been received by the filament with the same enthusiasm as a canceled Monday meeting."
+    },
+    {
+      "id": "cancelled-sharp-v3-6",
+      "family": "cancelled-sharp-v3-6",
+      "text": "The printer has been granted a recess while the business case is reexamined."
+    },
+    {
+      "id": "cancelled-sharp-v3-7",
+      "family": "cancelled-sharp-v3-7",
+      "text": "The production crew has been sent home and the unfinished prop is not eligible for a sequel."
+    },
+    {
+      "id": "cancelled-sharp-v3-8",
+      "family": "cancelled-sharp-v3-8",
+      "text": "The stop button has finally justified its existence more convincingly than the start button did."
+    },
+    {
+      "id": "cancelled-sharp-v3-9",
+      "family": "cancelled-sharp-v3-9",
+      "text": "A venture capitalist would call this a pivot and immediately try to raise more money."
+    },
+    {
+      "id": "cancelled-sharp-v3-10",
+      "family": "cancelled-sharp-v3-10",
+      "text": "The printer has discovered a new production method called cutting your losses before they multiply."
+    },
+    {
+      "id": "cancelled-sharp-v3-11",
+      "family": "cancelled-sharp-v3-11",
+      "text": "The project has been taken off the schedule before anyone could sell tickets."
+    },
+    {
+      "id": "cancelled-sharp-v3-12",
+      "family": "cancelled-sharp-v3-12",
+      "text": "The build plate has been relieved of a contractual obligation to manufacture this particular decision."
+    },
+    {
+      "id": "cancelled-sharp-v3-13",
+      "family": "cancelled-sharp-v3-13",
+      "text": "The manufacturing equivalent of deleting an online shopping cart after seeing the shipping charge."
+    },
+    {
+      "id": "cancelled-sharp-v3-14",
+      "family": "cancelled-sharp-v3-14",
+      "text": "The only thing discontinued faster was the optimism present at the start of the print."
+    },
+    {
+      "id": "cancelled-sharp-v3-15",
+      "family": "cancelled-sharp-v3-15",
+      "text": "The cancellation notice arrived before the project could become a regular item on the household expense report."
+    },
+    {
+      "id": "cancelled-sharp-v3-16",
+      "family": "cancelled-sharp-v3-16",
+      "text": "The printer was preparing a full length feature and you wisely released it as a short."
+    },
+    {
+      "id": "cancelled-sharp-v3-17",
+      "family": "cancelled-sharp-v3-17",
+      "text": "The project got the same treatment as a restaurant reservation made during an argument."
+    },
+    {
+      "id": "cancelled-sharp-v3-18",
+      "family": "cancelled-sharp-v3-18",
+      "text": "The print was canceled before it could acquire the status of an expensive family heirloom."
+    },
+    {
+      "id": "cancelled-sharp-v3-19",
+      "family": "cancelled-sharp-v3-19",
+      "text": "The production schedule has been revised to include the radical alternative of doing nothing."
+    },
+    {
+      "id": "cancelled-sharp-v3-20",
+      "family": "cancelled-sharp-v3-20",
+      "text": "Somewhere the unextruded filament is enjoying the privilege of not being part of this story."
+    },
+    {
+      "id": "cancelled-sharp-v4-1",
+      "family": "cancelled-sharp-v4-1",
+      "text": "The project has entered the witness protection program for abandoned ambitions."
+    },
+    {
+      "id": "cancelled-sharp-v4-2",
+      "family": "cancelled-sharp-v4-2",
+      "text": "The print was withdrawn from the market before the market had the opportunity to decline it."
+    },
+    {
+      "id": "cancelled-sharp-v4-3",
+      "family": "cancelled-sharp-v4-3",
+      "text": "The stop button is the only part of this project that can claim a decisive victory."
+    },
+    {
+      "id": "cancelled-sharp-v4-4",
+      "family": "cancelled-sharp-v4-4",
+      "text": "Production has ceased following a discovery that the original enthusiasm was not a sustainable energy source."
+    },
+    {
+      "id": "cancelled-sharp-v4-5",
+      "family": "cancelled-sharp-v4-5",
+      "text": "The budget committee has voted to replace this project with an afternoon that might actually accomplish something."
+    },
+    {
+      "id": "cancelled-sharp-v4-6",
+      "family": "cancelled-sharp-v4-6",
+      "text": "The printer's dramatic pause has been extended indefinitely because the audience left."
+    },
+    {
+      "id": "cancelled-sharp-v4-7",
+      "family": "cancelled-sharp-v4-7",
+      "text": "The project is now a limited edition of zero completed units."
+    },
+    {
+      "id": "cancelled-sharp-v4-8",
+      "family": "cancelled-sharp-v4-8",
+      "text": "The cancellation has reduced the manufacturing forecast from expensive to merely embarrassing."
+    },
+    {
+      "id": "cancelled-sharp-v4-9",
+      "family": "cancelled-sharp-v4-9",
+      "text": "The printer was about to make history and instead received a sensible administrative decision."
+    },
+    {
+      "id": "cancelled-sharp-v4-10",
+      "family": "cancelled-sharp-v4-10",
+      "text": "A canceled print is a financial intervention performed by the same person who caused the financial problem."
+    },
+    {
+      "id": "cancelled-sharp-v4-11",
+      "family": "cancelled-sharp-v4-11",
+      "text": "The model has been granted the rare privilege of remaining significantly cheaper as a computer file."
+    },
+    {
+      "id": "cancelled-sharp-v4-12",
+      "family": "cancelled-sharp-v4-12",
+      "text": "The production team has been told to return its equipment and stop pitching sequels."
+    },
+    {
+      "id": "cancelled-sharp-v4-13",
+      "family": "cancelled-sharp-v4-13",
+      "text": "The printer has received a cease and desist from the last surviving sensible impulse in the room."
+    },
+    {
+      "id": "cancelled-sharp-v4-14",
+      "family": "cancelled-sharp-v4-14",
+      "text": "The cancellation department has finally demonstrated a higher rate of productivity than the manufacturing department."
+    },
+    {
+      "id": "cancelled-sharp-v4-15",
+      "family": "cancelled-sharp-v4-15",
+      "text": "The project was withdrawn before it could qualify for an extended warranty nobody would buy."
+    },
+    {
+      "id": "cancelled-sharp-v4-16",
+      "family": "cancelled-sharp-v4-16",
+      "text": "The print has been replaced on the schedule by the revolutionary invention of leaving the machine alone."
+    },
+    {
+      "id": "cancelled-sharp-v4-17",
+      "family": "cancelled-sharp-v4-17",
+      "text": "The stop command has achieved what several centuries of philosophy could not: a convincing argument for restraint."
+    },
+    {
+      "id": "cancelled-sharp-v4-18",
+      "family": "cancelled-sharp-v4-18",
+      "text": "The original business plan has been revised from producing an object to preserving what's left of the spool."
+    },
+    {
+      "id": "cancelled-sharp-v4-19",
+      "family": "cancelled-sharp-v4-19",
+      "text": "The printer has been dismissed early without having to pretend it needs the rest of the afternoon."
+    },
+    {
+      "id": "cancelled-sharp-v4-20",
+      "family": "cancelled-sharp-v4-20",
+      "text": "The project has joined the distinguished ranks of ideas that improved considerably when nobody finished them."
+    },
+    {
+      "id": "cancelled-sharp-v5-1",
+      "family": "cancelled-sharp-v5-1",
+      "text": "Good Will Hunting needed a breakthrough; this print needed someone willing to press Stop."
+    },
+    {
+      "id": "cancelled-sharp-v5-2",
+      "family": "cancelled-sharp-v5-2",
+      "text": "The janitor at MIT has one less thing to sweep up."
+    },
+    {
+      "id": "cancelled-sharp-v5-3",
+      "family": "cancelled-sharp-v5-3",
+      "text": "Matt Damon found his calling; this print has found the end of its employment contract."
+    },
+    {
+      "id": "cancelled-sharp-v5-4",
+      "family": "cancelled-sharp-v5-4",
+      "text": "The therapist's breakthrough was convincing the printer owner that quitting sometimes costs less than commitment."
+    },
+    {
+      "id": "cancelled-sharp-v5-5",
+      "family": "cancelled-sharp-v5-5",
+      "text": "Lumbergh will need that cancellation report by Saturday."
+    },
+    {
+      "id": "cancelled-sharp-v5-6",
+      "family": "cancelled-sharp-v5-6",
+      "text": "Milton would defend the stapler with his life, but even he wouldn't defend this print."
+    },
+    {
+      "id": "cancelled-sharp-v5-7",
+      "family": "cancelled-sharp-v5-7",
+      "text": "Initech has eliminated another position and somehow the machine is still the most productive employee."
+    },
+    {
+      "id": "cancelled-sharp-v5-8",
+      "family": "cancelled-sharp-v5-8",
+      "text": "Peter Gibbons has officially approved the printer's decision to stop working."
+    },
+    {
+      "id": "cancelled-sharp-v5-9",
+      "family": "cancelled-sharp-v5-9",
+      "text": "The Bobs have reviewed the project and concluded that its primary responsibility was occupying a rectangle."
+    },
+    {
+      "id": "cancelled-sharp-v5-10",
+      "family": "cancelled-sharp-v5-10",
+      "text": "Michael Scott has scheduled a mandatory meeting to celebrate the cancellation of the previous mandatory meeting."
+    },
+    {
+      "id": "cancelled-sharp-v5-11",
+      "family": "cancelled-sharp-v5-11",
+      "text": "Dwight Schrute would call this a strategic withdrawal and demand the stop button's personnel file."
+    },
+    {
+      "id": "cancelled-sharp-v5-12",
+      "family": "cancelled-sharp-v5-12",
+      "text": "The Office finally has an employee that can stop working without pretending to use the copier."
+    },
+    {
+      "id": "cancelled-sharp-v5-13",
+      "family": "cancelled-sharp-v5-13",
+      "text": "The Monty Python Ministry of Silly Walks has declined to investigate this particular step backwards."
+    },
+    {
+      "id": "cancelled-sharp-v5-14",
+      "family": "cancelled-sharp-v5-14",
+      "text": "The project has been sent to the Ministry of Things That Needn't Exist."
+    },
+    {
+      "id": "cancelled-sharp-v5-15",
+      "family": "cancelled-sharp-v5-15",
+      "text": "The director has yelled cut and, for once, the production budget actually listened."
+    },
+    {
+      "id": "cancelled-sharp-v5-16",
+      "family": "cancelled-sharp-v5-16",
+      "text": "The film has been canceled after the studio discovered that the supporting cast was literally disposable."
+    },
+    {
+      "id": "cancelled-sharp-v5-17",
+      "family": "cancelled-sharp-v5-17",
+      "text": "The Academy has withdrawn the nomination for Best Picture of Something That Wasn't Finished."
+    },
+    {
+      "id": "cancelled-sharp-v5-18",
+      "family": "cancelled-sharp-v5-18",
+      "text": "Tom Cruise does his own stunts, but even he knows when to call off a mission."
+    },
+    {
+      "id": "cancelled-sharp-v5-19",
+      "family": "cancelled-sharp-v5-19",
+      "text": "Mission Impossible has been canceled after management discovered the assignment was entirely optional."
+    },
+    {
+      "id": "cancelled-sharp-v5-20",
+      "family": "cancelled-sharp-v5-20",
+      "text": "The sequel has been canceled before the original could disappoint the test audience."
+    },
+    {
+      "id": "cancelled-sharp-v5-21",
+      "family": "cancelled-sharp-v5-21",
+      "text": "George Lucas would have waited another twenty years before releasing a special edition of this incomplete project."
+    },
+    {
+      "id": "cancelled-sharp-v5-22",
+      "family": "cancelled-sharp-v5-22",
+      "text": "The Star Wars prequels at least got authorization to finish."
+    },
+    {
+      "id": "cancelled-sharp-v5-23",
+      "family": "cancelled-sharp-v5-23",
+      "text": "Darth Vader has withdrawn funding after discovering the printer has no thermal exhaust port."
+    },
+    {
+      "id": "cancelled-sharp-v5-24",
+      "family": "cancelled-sharp-v5-24",
+      "text": "The Empire has canceled construction of another superweapon and redirected the budget toward payroll."
+    },
+    {
+      "id": "cancelled-sharp-v5-25",
+      "family": "cancelled-sharp-v5-25",
+      "text": "The Death Star's construction manager has received a surprisingly useful lesson in knowing when to quit."
+    },
+    {
+      "id": "cancelled-sharp-v5-26",
+      "family": "cancelled-sharp-v5-26",
+      "text": "The Jedi Council has determined that this is not a disturbance worth investigating."
+    },
+    {
+      "id": "cancelled-sharp-v5-27",
+      "family": "cancelled-sharp-v5-27",
+      "text": "Thanos has eliminated exactly one hundred percent of this project's remaining production schedule."
+    },
+    {
+      "id": "cancelled-sharp-v5-28",
+      "family": "cancelled-sharp-v5-28",
+      "text": "Marvel has removed the print from Phase Six after discovering nobody remembers Phase Five."
+    },
+    {
+      "id": "cancelled-sharp-v5-29",
+      "family": "cancelled-sharp-v5-29",
+      "text": "The post credits scene has been canceled because the main feature never made it to the credits."
+    },
+    {
+      "id": "cancelled-sharp-v5-30",
+      "family": "cancelled-sharp-v5-30",
+      "text": "Tony Stark has terminated the project before the cave becomes a permanent workshop."
+    },
+    {
+      "id": "cancelled-sharp-v5-31",
+      "family": "cancelled-sharp-v5-31",
+      "text": "The Hulk has demonstrated admirable restraint by pressing a button instead of remodeling the room."
+    },
+    {
+      "id": "cancelled-sharp-v5-32",
+      "family": "cancelled-sharp-v5-32",
+      "text": "Deadpool has broken the fourth wall just to inform the audience that the production has been terminated."
+    },
+    {
+      "id": "cancelled-sharp-v5-33",
+      "family": "cancelled-sharp-v5-33",
+      "text": "Batman has decided to fight crime instead of spending another evening monitoring the bed."
+    },
+    {
+      "id": "cancelled-sharp-v5-34",
+      "family": "cancelled-sharp-v5-34",
+      "text": "Alfred has finally persuaded Bruce to suspend one of his less necessary capital projects."
+    },
+    {
+      "id": "cancelled-sharp-v5-35",
+      "family": "cancelled-sharp-v5-35",
+      "text": "The Joker has canceled the scheme after discovering the city already has enough expensive problems."
+    },
+    {
+      "id": "cancelled-sharp-v5-36",
+      "family": "cancelled-sharp-v5-36",
+      "text": "The Matrix has terminated this simulation before the participants could experience the next utility bill."
+    },
+    {
+      "id": "cancelled-sharp-v5-37",
+      "family": "cancelled-sharp-v5-37",
+      "text": "Neo took the option that actually lets him go outside and do something else."
+    },
+    {
+      "id": "cancelled-sharp-v5-38",
+      "family": "cancelled-sharp-v5-38",
+      "text": "Morpheus has disconnected the project from the machine and the household has briefly regained consciousness."
+    },
+    {
+      "id": "cancelled-sharp-v5-39",
+      "family": "cancelled-sharp-v5-39",
+      "text": "John Wick has retired the project with considerably less paperwork than usual."
+    },
+    {
+      "id": "cancelled-sharp-v5-40",
+      "family": "cancelled-sharp-v5-40",
+      "text": "Keanu Reeves has walked away from this particular franchise before it needed a fourth installment."
+    },
+    {
+      "id": "cancelled-sharp-v5-41",
+      "family": "cancelled-sharp-v5-41",
+      "text": "The Wolf of Wall Street has discovered an investment strategy called stopping before the money disappears."
+    },
+    {
+      "id": "cancelled-sharp-v5-42",
+      "family": "cancelled-sharp-v5-42",
+      "text": "The board of directors has decided to stop throwing perfectly good filament after questionable filament."
+    },
+    {
+      "id": "cancelled-sharp-v5-43",
+      "family": "cancelled-sharp-v5-43",
+      "text": "The project has received a downgrade from unnecessary expenditure to expenditure avoided."
+    },
+    {
+      "id": "cancelled-sharp-v5-44",
+      "family": "cancelled-sharp-v5-44",
+      "text": "The venture capitalists have pulled the plug just before the pitch deck got to the word scalable."
+    },
+    {
+      "id": "cancelled-sharp-v5-45",
+      "family": "cancelled-sharp-v5-45",
+      "text": "The quarterly earnings report is now slightly less fictional than the original business case."
+    },
+    {
+      "id": "cancelled-sharp-v5-46",
+      "family": "cancelled-sharp-v5-46",
+      "text": "The printer has abandoned the production run before it could develop a dedicated customer support department."
+    },
+    {
+      "id": "cancelled-sharp-v5-47",
+      "family": "cancelled-sharp-v5-47",
+      "text": "The Fed has observed a rare example of voluntary quantitative tightening in a private household."
+    },
+    {
+      "id": "cancelled-sharp-v5-48",
+      "family": "cancelled-sharp-v5-48",
+      "text": "The congressional committee has canceled the hearing after realizing the printer could simply be turned off."
+    },
+    {
+      "id": "cancelled-sharp-v5-49",
+      "family": "cancelled-sharp-v5-49",
+      "text": "The project has lost its appropriation before the ribbon cutting ceremony could be scheduled."
+    },
+    {
+      "id": "cancelled-sharp-v5-50",
+      "family": "cancelled-sharp-v5-50",
+      "text": "Congress would have commissioned three studies before reaching the same decision."
+    },
+    {
+      "id": "cancelled-sharp-v5-51",
+      "family": "cancelled-sharp-v5-51",
+      "text": "The Supreme Court has declined to hear an appeal from the remaining layers."
+    },
+    {
+      "id": "cancelled-sharp-v5-52",
+      "family": "cancelled-sharp-v5-52",
+      "text": "The motion to continue has been denied with prejudice against additional filament purchases."
+    },
+    {
+      "id": "cancelled-sharp-v5-53",
+      "family": "cancelled-sharp-v5-53",
+      "text": "The jury has been dismissed after the defendant agreed not to manufacture any further evidence."
+    },
+    {
+      "id": "cancelled-sharp-v5-54",
+      "family": "cancelled-sharp-v5-54",
+      "text": "The defense rests, mostly because the machine has finally stopped making noise."
+    },
+    {
+      "id": "cancelled-sharp-v5-55",
+      "family": "cancelled-sharp-v5-55",
+      "text": "The court has enjoined further unnecessary production."
+    },
+    {
+      "id": "cancelled-sharp-v5-56",
+      "family": "cancelled-sharp-v5-56",
+      "text": "The prosecutor has withdrawn the case after determining the cost of the exhibits exceeds the value in dispute."
+    },
+    {
+      "id": "cancelled-sharp-v5-57",
+      "family": "cancelled-sharp-v5-57",
+      "text": "The insurance adjuster has been denied the opportunity to ask several deeply uncomfortable questions."
+    },
+    {
+      "id": "cancelled-sharp-v5-58",
+      "family": "cancelled-sharp-v5-58",
+      "text": "The rescue mission has been called off before anyone had to rescue the credit card."
+    },
+    {
+      "id": "cancelled-sharp-v5-59",
+      "family": "cancelled-sharp-v5-59",
+      "text": "NASA has scrubbed the launch and the only disappointed observer is the electricity company."
+    },
+    {
+      "id": "cancelled-sharp-v5-60",
+      "family": "cancelled-sharp-v5-60",
+      "text": "Mission control has decided to leave this payload on Earth, preferably in its original digital form."
+    },
+    {
+      "id": "cancelled-sharp-v5-61",
+      "family": "cancelled-sharp-v5-61",
+      "text": "The rocket has been grounded before the launch could require a congressional investigation."
+    },
+    {
+      "id": "cancelled-sharp-v5-62",
+      "family": "cancelled-sharp-v5-62",
+      "text": "The telescope has been pointed elsewhere after finding nothing of financial interest on this planet."
+    },
+    {
+      "id": "cancelled-sharp-v5-63",
+      "family": "cancelled-sharp-v5-63",
+      "text": "The experiment stopped before peer reviewers could ask why the control group needed a filament budget."
+    },
+    {
+      "id": "cancelled-sharp-v5-64",
+      "family": "cancelled-sharp-v5-64",
+      "text": "The research grant has been withdrawn after the scientists discovered the hypothesis was entirely optional."
+    },
+    {
+      "id": "cancelled-sharp-v5-65",
+      "family": "cancelled-sharp-v5-65",
+      "text": "The laboratory has paused the experiment before the results could require a larger trash container."
+    },
+    {
+      "id": "cancelled-sharp-v5-66",
+      "family": "cancelled-sharp-v5-66",
+      "text": "Pythagoras has canceled the geometry lesson before it could become a lesson in accounting."
+    },
+    {
+      "id": "cancelled-sharp-v5-67",
+      "family": "cancelled-sharp-v5-67",
+      "text": "The mathematician has stopped the proof at the point where further assumptions would require another spool."
+    },
+    {
+      "id": "cancelled-sharp-v5-68",
+      "family": "cancelled-sharp-v5-68",
+      "text": "The calculus has finally yielded a derivative that represents the rate at which good judgment returned."
+    },
+    {
+      "id": "cancelled-sharp-v5-69",
+      "family": "cancelled-sharp-v5-69",
+      "text": "Newton has declined to demonstrate the laws of motion on another unnecessary object."
+    },
+    {
+      "id": "cancelled-sharp-v5-70",
+      "family": "cancelled-sharp-v5-70",
+      "text": "Darwin has removed this project from the gene pool before it could reproduce."
+    },
+    {
+      "id": "cancelled-sharp-v5-71",
+      "family": "cancelled-sharp-v5-71",
+      "text": "The archaeological dig has been canceled before the civilization responsible could leave any further evidence."
+    },
+    {
+      "id": "cancelled-sharp-v5-72",
+      "family": "cancelled-sharp-v5-72",
+      "text": "The Smithsonian has withdrawn its interest in acquiring an incomplete artifact from the Age of Questionable Purchases."
+    },
+    {
+      "id": "cancelled-sharp-v5-73",
+      "family": "cancelled-sharp-v5-73",
+      "text": "The museum director has decided the empty display case is itself a superior exhibit."
+    },
+    {
+      "id": "cancelled-sharp-v5-74",
+      "family": "cancelled-sharp-v5-74",
+      "text": "The restaurant has canceled the special after the chef discovered the ingredients were more expensive than dinner."
+    },
+    {
+      "id": "cancelled-sharp-v5-75",
+      "family": "cancelled-sharp-v5-75",
+      "text": "Gordon Ramsay would approve of shutting down the kitchen before the printer starts inventing its own pasta dishes."
+    },
+    {
+      "id": "cancelled-sharp-v5-76",
+      "family": "cancelled-sharp-v5-76",
+      "text": "The cooking competition has been stopped before the contestants were asked to plate the supports."
+    },
+    {
+      "id": "cancelled-sharp-v5-77",
+      "family": "cancelled-sharp-v5-77",
+      "text": "The Michelin inspector has left before anyone could serve the complimentary side of polymer."
+    },
+    {
+      "id": "cancelled-sharp-v5-78",
+      "family": "cancelled-sharp-v5-78",
+      "text": "The grocery list can finally have the afternoon back."
+    },
+    {
+      "id": "cancelled-sharp-v5-79",
+      "family": "cancelled-sharp-v5-79",
+      "text": "The printer has clocked out before it could become eligible for an overtime rate."
+    },
+    {
+      "id": "cancelled-sharp-v5-80",
+      "family": "cancelled-sharp-v5-80",
+      "text": "The cancellation was the first engineering decision in this project that required neither a caliper nor a second opinion."
+    }
+  ]
 }

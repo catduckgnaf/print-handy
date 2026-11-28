@@ -37,6 +37,7 @@ def _all_entries():
     corpus = roast.load_corpus()
     out = [(bank, text) for bank, rows in corpus["banks"].items() for _id, text in rows]
     out += [(f"title:{k}", text) for k, rows in corpus["title_reactions"].items() for _id, text in rows]
+    out += [(f"failure-title:{k}", text) for k, rows in corpus.get("failure_title_reactions", {}).items() for _id, text in rows]
     out += [(f"color:{k}", text) for k, rows in corpus.get("color_roasts", {}).items() for _id, text in rows]
     out += [(f"reprint_failed:{k}", text) for k, rows in corpus.get("reprint_failed", {}).items() for _id, text in rows]
     out += [(f"history:{k}", text) for k, rows in corpus.get("history_callbacks", {}).items() for _id, text in rows]
@@ -191,6 +192,9 @@ def test_status_banks_never_use_success_words():
     for bank in ("failed", "cancelled", "spaghetti"):
         for _id, text in corpus["banks"][bank]:
             assert not success.search(text), (bank, text)
+    for key, rows in corpus.get("failure_title_reactions", {}).items():
+        for _id, text in rows:
+            assert not success.search(text), (key, text)
 
 
 def test_bank_files_store_stable_ids_and_families():
