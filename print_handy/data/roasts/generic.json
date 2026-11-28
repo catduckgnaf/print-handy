@@ -1,1337 +1,1337 @@
 {
- "_about": "Completed-print templates that fit any print; {slots} filled from the print's own facts.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
- "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
- "entries": [
-  {
-   "id": "generic-did-title-really-need-grams",
-   "family": "generic-did-title-really-need-grams",
-   "text": "Did {title} really need {grams} grams of {material}, or did the slicer just feel generous today?"
-  },
-  {
-   "id": "generic-was-title-a-carefully-made",
-   "family": "generic-was-title-a-carefully-made",
-   "text": "Was {title} a carefully made plan, or did the download button win another late-night argument?"
-  },
-  {
-   "id": "generic-who-ordered-copies-copies-of",
-   "family": "generic-who-ordered-copies-copies-of",
-   "text": "Who ordered {copies} copies of {title}, and was there a meeting nobody else attended?"
-  },
-  {
-   "id": "generic-tell-me-honestly-does-title",
-   "family": "generic-tell-me-honestly-does-title",
-   "text": "Tell me honestly, does {title} solve a problem or politely start a brand-new one?"
-  },
-  {
-   "id": "generic-how-long-before-title-gets",
-   "family": "generic-how-long-before-title-gets",
-   "text": "How long before {title} gets a tiny name, a backstory, and its own shelf?"
-  },
-  {
-   "id": "generic-is-title-useful-decorative-or",
-   "family": "generic-is-title-useful-decorative-or",
-   "text": "Is {title} useful, decorative, or proudly both while explaining neither?"
-  },
-  {
-   "id": "generic-did-printer-print-title-or",
-   "family": "generic-did-printer-print-title-or",
-   "text": "Did {printer} print {title}, or did it just surrender after {duration} of negotiations?"
-  },
-  {
-   "id": "generic-who-needs-store-shelves-when",
-   "family": "generic-who-needs-store-shelves-when",
-   "text": "Who needs store shelves when {title} exists after only {duration} and mild stubbornness?"
-  },
-  {
-   "id": "generic-was-the-color-really-a",
-   "family": "generic-was-the-color-really-a",
-   "text": "Was the {color} really a design choice for {title}, or fate wearing a filament costume?"
-  },
-  {
-   "id": "generic-how-many-more-prints-until",
-   "family": "generic-how-many-more-prints-until",
-   "text": "How many more prints until {title} counts as a personality trait around here?"
-  },
-  {
-   "id": "generic-did-we-need-title-or",
-   "family": "generic-did-we-need-title-or",
-   "text": "Did we need {title}, or did we need the feeling of pressing print again?"
-  },
-  {
-   "id": "generic-what-exactly-was-the-emergency",
-   "family": "generic-what-exactly-was-the-emergency",
-   "text": "What exactly was the emergency that only {title} in {color} {material} could solve?"
-  },
-  {
-   "id": "generic-is-title-finished-or-is",
-   "family": "generic-is-title-finished-or-is",
-   "text": "Is {title} finished, or is it just pausing before asking for a matching accessory?"
-  },
-  {
-   "id": "generic-who-bets-title-gets-explained",
-   "family": "generic-who-bets-title-gets-explained",
-   "text": "Who bets {title} gets explained to guests as a thing that simply had to exist?"
-  },
-  {
-   "id": "generic-did-duration-feel-shorter-because",
-   "family": "generic-did-duration-feel-shorter-because",
-   "text": "Did {duration} feel shorter because {title} is charming, or because time gave up?"
-  },
-  {
-   "id": "generic-can-we-call-copies-copies",
-   "family": "generic-can-we-call-copies-copies",
-   "text": "Can we call {copies} copies of {title} a collection before it becomes a committee?"
-  },
-  {
-   "id": "generic-was-grams-grams-of-material",
-   "family": "generic-was-grams-grams-of-material",
-   "text": "Was {grams} grams of {material} the budget, the suggestion, or merely a rumor?"
-  },
-  {
-   "id": "generic-who-knew-printer-had-this",
-   "family": "generic-who-knew-printer-had-this",
-   "text": "Who knew {printer} had this much patience for {title} and its many opinions?"
-  },
-  {
-   "id": "generic-does-title-come-with-instructions",
-   "family": "generic-does-title-come-with-instructions",
-   "text": "Does {title} come with instructions, or do we admire it and improvise confidently?"
-  },
-  {
-   "id": "generic-is-this-the-final-version",
-   "family": "generic-is-this-the-final-version",
-   "text": "Is this the final version of {title}, or merely the most recent plot twist?"
-  },
-  {
-   "id": "generic-title-turned-out-so-well",
-   "family": "generic-title-turned-out-so-well",
-   "text": "{title} turned out so well that even the printer is pretending this was effortless."
-  },
-  {
-   "id": "generic-congratulations-title-is-proof-that",
-   "family": "generic-congratulations-title-is-proof-that",
-   "text": "Congratulations, {title} is proof that questionable priorities can still produce excellent layer lines."
-  },
-  {
-   "id": "generic-title-looks-fantastic-which-almost",
-   "family": "generic-title-looks-fantastic-which-almost",
-   "text": "{title} looks fantastic, which almost distracts from how unnecessary it probably was."
-  },
-  {
-   "id": "generic-against-several-odds-and-one",
-   "family": "generic-against-several-odds-and-one",
-   "text": "Against several odds and one slicer preview, {title} arrived looking genuinely respectable."
-  },
-  {
-   "id": "generic-title-in-color-material-is",
-   "family": "generic-title-in-color-material-is",
-   "text": "{title} in {color} {material} is beautiful, brave, and only slightly overengineered for its job."
-  },
-  {
-   "id": "generic-well-done-title-took-duration",
-   "family": "generic-well-done-title-took-duration",
-   "text": "Well done: {title} took {duration}, used {grams} grams, and somehow still seems worth it."
-  },
-  {
-   "id": "generic-title-is-the-rare-print",
-   "family": "generic-title-is-the-rare-print",
-   "text": "{title} is the rare print that makes buying one sound deeply unambitious by comparison."
-  },
-  {
-   "id": "generic-elegant-sturdy-and-finished-title",
-   "family": "generic-elegant-sturdy-and-finished-title",
-   "text": "Elegant, sturdy, and finished: {title} is showing off on behalf of {printer} today."
-  },
-  {
-   "id": "generic-title-came-out-clean-enough",
-   "family": "generic-title-came-out-clean-enough",
-   "text": "{title} came out clean enough to forgive the mysterious noises around hour two."
-  },
-  {
-   "id": "generic-if-confidence-were-filament-title",
-   "family": "generic-if-confidence-were-filament-title",
-   "text": "If confidence were filament, {title} would still have used less than {grams} grams."
-  },
-  {
-   "id": "generic-copies-copies-of-title-each",
-   "family": "generic-copies-copies-of-title-each",
-   "text": "{copies} copies of {title}, each one insisting the previous one needed company."
-  },
-  {
-   "id": "generic-title-looks-store-bought-assuming",
-   "family": "generic-title-looks-store-bought-assuming",
-   "text": "{title} looks store-bought, assuming the store also enjoys delightful detours and spare parts."
-  },
-  {
-   "id": "generic-somehow-title-makes-duration-of",
-   "family": "generic-somehow-title-makes-duration-of",
-   "text": "Somehow {title} makes {duration} of waiting feel like a curated artistic experience."
-  },
-  {
-   "id": "generic-title-is-finished-and-fabulous",
-   "family": "generic-title-is-finished-and-fabulous",
-   "text": "{title} is finished and fabulous, which is concerning because now standards have risen."
-  },
-  {
-   "id": "generic-a-flawless-finish-for-title",
-   "family": "generic-a-flawless-finish-for-title",
-   "text": "A flawless finish for {title}, brought to you by optimism and questionable time management."
-  },
-  {
-   "id": "generic-title-in-material-has-main",
-   "family": "generic-title-in-material-has-main",
-   "text": "{title} in {material} has main-character energy and absolutely no intention of explaining itself."
-  },
-  {
-   "id": "generic-bravo-title-survived-slicing-printing",
-   "family": "generic-bravo-title-survived-slicing-printing",
-   "text": "Bravo, {title} survived slicing, printing, and being stared at through the camera repeatedly."
-  },
-  {
-   "id": "generic-title-is-so-tidy-that",
-   "family": "generic-title-is-so-tidy-that",
-   "text": "{title} is so tidy that the failed drafts have quietly left the chat."
-  },
-  {
-   "id": "generic-credit-where-due-title-turned",
-   "family": "generic-credit-where-due-title-turned",
-   "text": "Credit where due: {title} turned {grams} grams of {color} plastic into pure smugness."
-  },
-  {
-   "id": "generic-title-finished-looking-like-the",
-   "family": "generic-title-finished-looking-like-the",
-   "text": "{title} finished looking like the tutorial version, not the comment-section version."
-  },
-  {
-   "id": "generic-official-announcement-title-has-completed",
-   "family": "generic-official-announcement-title-has-completed",
-   "text": "Official announcement: {title} has completed {duration} of printing and demands a shelf ceremony."
-  },
-  {
-   "id": "generic-breaking-update-printer-has-released",
-   "family": "generic-breaking-update-printer-has-released",
-   "text": "Breaking update: {printer} has released {title} after {duration} of extremely supervised silence."
-  },
-  {
-   "id": "generic-public-notice-title-now-exists",
-   "family": "generic-public-notice-title-now-exists",
-   "text": "Public notice: {title} now exists, occupies space, and accepts compliments during business hours."
-  },
-  {
-   "id": "generic-formal-report-grams-grams-of",
-   "family": "generic-formal-report-grams-grams-of",
-   "text": "Formal report: {grams} grams of {material} have been promoted into {title}, effective immediately."
-  },
-  {
-   "id": "generic-ceremony-update-title-graduated-from",
-   "family": "generic-ceremony-update-title-graduated-from",
-   "text": "Ceremony update: {title} graduated from spool to object with honors in staying attached."
-  },
-  {
-   "id": "generic-ministry-of-making-confirms-title",
-   "family": "generic-ministry-of-making-confirms-title",
-   "text": "Ministry of Making confirms {title} is complete, tangible, and mildly proud of itself."
-  },
-  {
-   "id": "generic-press-release-local-printer-produces",
-   "family": "generic-press-release-local-printer-produces",
-   "text": "Press release: local printer produces {title}, local human takes most of the credit."
-  },
-  {
-   "id": "generic-bulletin-title-finished-on-printer",
-   "family": "generic-bulletin-title-finished-on-printer",
-   "text": "Bulletin: {title} finished on {printer} and has already begun its career being photographed."
-  },
-  {
-   "id": "generic-declaration-the-color-era-of",
-   "family": "generic-declaration-the-color-era-of",
-   "text": "Declaration: the {color} era of {title} begins today, backed by {grams} grams of confidence."
-  },
-  {
-   "id": "generic-archive-entry-added-title-printed",
-   "family": "generic-archive-entry-added-title-printed",
-   "text": "Archive entry added: {title}, printed in {material}, survived the process and the commentary."
-  },
-  {
-   "id": "generic-notice-to-the-household-title",
-   "family": "generic-notice-to-the-household-title",
-   "text": "Notice to the household: {title} is done, so the printer may finally know peace."
-  },
-  {
-   "id": "generic-proclamation-copies-copies-of-title",
-   "family": "generic-proclamation-copies-copies-of-title",
-   "text": "Proclamation: {copies} copies of {title} shall henceforth be known as an intentional set."
-  },
-  {
-   "id": "generic-status-briefing-title-completed-operator",
-   "family": "generic-status-briefing-title-completed-operator",
-   "text": "Status briefing: {title} completed, operator pleased, shelf space officially under new management."
-  },
-  {
-   "id": "generic-dispatch-from-the-desk-title",
-   "family": "generic-dispatch-from-the-desk-title",
-   "text": "Dispatch from the desk: {title} took {duration} and emerged with unreasonable levels of charm."
-  },
-  {
-   "id": "generic-recorded-for-history-title-was",
-   "family": "generic-recorded-for-history-title-was",
-   "text": "Recorded for history: {title} was printed, completed, and immediately judged by its creator."
-  },
-  {
-   "id": "generic-announcement-from-printer-title-is",
-   "family": "generic-announcement-from-printer-title-is",
-   "text": "Announcement from {printer}: {title} is finished, and the victory lap is entirely optional."
-  },
-  {
-   "id": "generic-communique-operation-title-concluded-success",
-   "family": "generic-communique-operation-title-concluded-success",
-   "text": "Communique: operation {title} concluded successfully after {duration} of humming and hopeful watching."
-  },
-  {
-   "id": "generic-officially-title-is-a-success",
-   "family": "generic-officially-title-is-a-success",
-   "text": "Officially, {title} is a success; unofficially, it is also a new conversation starter."
-  },
-  {
-   "id": "generic-memo-please-welcome-title-printed",
-   "family": "generic-memo-please-welcome-title-printed",
-   "text": "Memo: please welcome {title}, printed in {color} {material}, arriving fashionably after {duration}."
-  },
-  {
-   "id": "generic-registry-update-title-has-joined",
-   "family": "generic-registry-update-title-has-joined",
-   "text": "Registry update: {title} has joined the household inventory, category: proudly homemade."
-  },
-  {
-   "id": "generic-title-took-longer-than-a",
-   "family": "generic-title-took-longer-than-a",
-   "text": "{title} took longer than a grocery run and will definitely outlast the groceries."
-  },
-  {
-   "id": "generic-like-a-tiny-trophy-title",
-   "family": "generic-like-a-tiny-trophy-title",
-   "text": "Like a tiny trophy, {title} proves effort happened even if nobody requested proof."
-  },
-  {
-   "id": "generic-title-is-basically-modern-art",
-   "family": "generic-title-is-basically-modern-art",
-   "text": "{title} is basically modern art, if modern art came in {color} {material}."
-  },
-  {
-   "id": "generic-some-people-collect-stamps-this",
-   "family": "generic-some-people-collect-stamps-this",
-   "text": "Some people collect stamps; this household manufactures {title} and calls it a system."
-  },
-  {
-   "id": "generic-title-arrived-slower-than-delivery",
-   "family": "generic-title-arrived-slower-than-delivery",
-   "text": "{title} arrived slower than delivery, but with far more dramatic humming beforehand."
-  },
-  {
-   "id": "generic-think-of-title-as-a",
-   "family": "generic-think-of-title-as-a",
-   "text": "Think of {title} as a souvenir from {duration} spent supervising a very focused robot."
-  },
-  {
-   "id": "generic-title-is-the-plastic-equivalent",
-   "family": "generic-title-is-the-plastic-equivalent",
-   "text": "{title} is the plastic equivalent of saying it was planned all along, confidently."
-  },
-  {
-   "id": "generic-compared-with-buying-one-printing",
-   "family": "generic-compared-with-buying-one-printing",
-   "text": "Compared with buying one, printing {title} added suspense, noise, and a backstory."
-  },
-  {
-   "id": "generic-title-resembles-a-finished-product",
-   "family": "generic-title-resembles-a-finished-product",
-   "text": "{title} resembles a finished product, plus the unmistakable aura of spare filament nearby."
-  },
-  {
-   "id": "generic-like-fresh-bread-title-is",
-   "family": "generic-like-fresh-bread-title-is",
-   "text": "Like fresh bread, {title} is warm, satisfying, and best admired before anyone pokes it."
-  },
-  {
-   "id": "generic-printer-worked-like-a-tiny",
-   "family": "generic-printer-worked-like-a-tiny",
-   "text": "{printer} worked like a tiny factory, and {title} is its most charismatic employee."
-  },
-  {
-   "id": "generic-title-is-a-marathon-medal",
-   "family": "generic-title-is-a-marathon-medal",
-   "text": "{title} is a marathon medal, except the marathon was mostly sitting and watching."
-  },
-  {
-   "id": "generic-more-reliable-than-a-weather",
-   "family": "generic-more-reliable-than-a-weather",
-   "text": "More reliable than a weather forecast, {title} actually showed up after {duration} of waiting."
-  },
-  {
-   "id": "generic-title-in-material-is-part",
-   "family": "generic-title-in-material-is-part",
-   "text": "{title} in {material} is part tool, part toy, and part excellent excuse."
-  },
-  {
-   "id": "generic-as-achievements-go-title-ranks",
-   "family": "generic-as-achievements-go-title-ranks",
-   "text": "As achievements go, {title} ranks above folding laundry and below assembling furniture correctly."
-  },
-  {
-   "id": "generic-copies-copies-of-title-is",
-   "family": "generic-copies-copies-of-title-is",
-   "text": "{copies} copies of {title} is not hoarding; it is parallel processing for enthusiasm."
-  },
-  {
-   "id": "generic-title-is-like-a-houseplant",
-   "family": "generic-title-is-like-a-houseplant",
-   "text": "{title} is like a houseplant: finished growing, still needs a spot, still gets admired."
-  },
-  {
-   "id": "generic-slow-fashion-has-nothing-on",
-   "family": "generic-slow-fashion-has-nothing-on",
-   "text": "Slow fashion has nothing on {title}, handmade over {duration} in glorious {color}."
-  },
-  {
-   "id": "generic-title-turned-out-better-than",
-   "family": "generic-title-turned-out-better-than",
-   "text": "{title} turned out better than most group projects, mainly because {printer} did everything."
-  },
-  {
-   "id": "generic-if-patience-had-a-shape",
-   "family": "generic-if-patience-had-a-shape",
-   "text": "If patience had a shape, it would look suspiciously like {title} in {material}."
-  },
-  {
-   "id": "generic-day-one-of-owning-title",
-   "family": "generic-day-one-of-owning-title",
-   "text": "Day one of owning {title}: still admiring it, still telling anyone who walks past."
-  },
-  {
-   "id": "generic-diary-entry-waited-duration-for",
-   "family": "generic-diary-entry-waited-duration-for",
-   "text": "Diary entry: waited {duration} for {title}, would absolutely pretend not to wait again."
-  },
-  {
-   "id": "generic-log-final-day-title-completed",
-   "family": "generic-log-final-day-title-completed",
-   "text": "Log, final day: {title} completed, and the operator is acting very normal about it."
-  },
-  {
-   "id": "generic-day-one-title-exists-and",
-   "family": "generic-day-one-title-exists-and",
-   "text": "Day one: {title} exists, and by day two someone will surely ask why."
-  },
-  {
-   "id": "generic-captain-s-log-printer-delivered",
-   "family": "generic-captain-s-log-printer-delivered",
-   "text": "Captain's log: {printer} delivered {title} after {duration}, crew morale suspiciously proud."
-  },
-  {
-   "id": "generic-journal-note-grams-grams-lighter",
-   "family": "generic-journal-note-grams-grams-lighter",
-   "text": "Journal note: {grams} grams lighter, one {title} richer, zero regrets admitted publicly."
-  },
-  {
-   "id": "generic-day-twelve-of-saying-the",
-   "family": "generic-day-twelve-of-saying-the",
-   "text": "Day twelve of saying the last print this week, presenting exhibit {title} as evidence."
-  },
-  {
-   "id": "generic-field-notes-observed-title-emerging",
-   "family": "generic-field-notes-observed-title-emerging",
-   "text": "Field notes: observed {title} emerging slowly, behaved like wildlife, photographed like a celebrity."
-  },
-  {
-   "id": "generic-diary-honest-edition-title-was",
-   "family": "generic-diary-honest-edition-title-was",
-   "text": "Diary, honest edition: {title} was not needed at dawn and is essential by dinner."
-  },
-  {
-   "id": "generic-expedition-log-crossed-duration-of",
-   "family": "generic-expedition-log-crossed-duration-of",
-   "text": "Expedition log: crossed {duration} of printing and returned carrying {title} triumphantly."
-  },
-  {
-   "id": "generic-day-one-of-the-color",
-   "family": "generic-day-one-of-the-color",
-   "text": "Day one of the {color} chapter: {title} has taken its place among legends."
-  },
-  {
-   "id": "generic-notebook-entry-title-finished-in",
-   "family": "generic-notebook-entry-title-finished-in",
-   "text": "Notebook entry: {title} finished in {material}; underline it twice, it earned the ink."
-  },
-  {
-   "id": "generic-personal-log-watched-plastic-become",
-   "family": "generic-personal-log-watched-plastic-become",
-   "text": "Personal log: watched plastic become {title}; maturity prevented applauding, but only barely."
-  },
-  {
-   "id": "generic-day-three-of-admiring-title",
-   "family": "generic-day-three-of-admiring-title",
-   "text": "Day three of admiring {title} from different angles, strictly for quality assurance."
-  },
-  {
-   "id": "generic-log-update-copies-copies-secured",
-   "family": "generic-log-update-copies-copies-secured",
-   "text": "Log update: {copies} copies secured; the expedition into spare time continues tomorrow."
-  },
-  {
-   "id": "generic-full-time-on-printer-title",
-   "family": "generic-full-time-on-printer-title",
-   "text": "Full time on {printer}: {title} wins, patience loses, and the crowd goes mild."
-  },
-  {
-   "id": "generic-what-a-finish-title-crosses",
-   "family": "generic-what-a-finish-title-crosses",
-   "text": "What a finish: {title} crosses the final layer after {duration} of pure endurance."
-  },
-  {
-   "id": "generic-commentary-gold-title-stuck-the",
-   "family": "generic-commentary-gold-title-stuck-the",
-   "text": "Commentary gold: {title} stuck the landing, held the layers, and took the title."
-  },
-  {
-   "id": "generic-in-the-final-stretch-title",
-   "family": "generic-in-the-final-stretch-title",
-   "text": "In the final stretch, {title} pulled ahead of doubt and never looked back."
-  },
-  {
-   "id": "generic-championship-form-from-printer-title",
-   "family": "generic-championship-form-from-printer-title",
-   "text": "Championship form from {printer}: {title} complete, clean, and ready for the highlight reel."
-  },
-  {
-   "id": "generic-the-replay-shows-title-building",
-   "family": "generic-the-replay-shows-title-building",
-   "text": "The replay shows {title} building layer by layer like it trained all season."
-  },
-  {
-   "id": "generic-victory-lap-scheduled-title-finished",
-   "family": "generic-victory-lap-scheduled-title-finished",
-   "text": "Victory lap scheduled: {title} finished in {color} {material} to thunderous desk applause."
-  },
-  {
-   "id": "generic-scoreboard-update-operator-one-title",
-   "family": "generic-scoreboard-update-operator-one-title",
-   "text": "Scoreboard update: operator one {title}, unfinished projects zero, momentum undeniably building."
-  },
-  {
-   "id": "generic-a-photo-finish-after-duration",
-   "family": "generic-a-photo-finish-after-duration",
-   "text": "A photo finish after {duration}: {title} beats the urge to start another print."
-  },
-  {
-   "id": "generic-play-of-the-day-turning",
-   "family": "generic-play-of-the-day-turning",
-   "text": "Play of the day: turning {grams} grams of {material} into {title} without drama."
-  },
-  {
-   "id": "generic-the-fans-demanded-copies-copies",
-   "family": "generic-the-fans-demanded-copies-copies",
-   "text": "The fans demanded {copies} copies, and {title} delivered an encore performance."
-  },
-  {
-   "id": "generic-postgame-report-title-performed-beautifully",
-   "family": "generic-postgame-report-title-performed-beautifully",
-   "text": "Postgame report: {title} performed beautifully, and the printer wants a raise in treats."
-  },
-  {
-   "id": "generic-overtime-heroics-title-stayed-together",
-   "family": "generic-overtime-heroics-title-stayed-together",
-   "text": "Overtime heroics: {title} stayed together when lesser prints would have curled dramatically."
-  },
-  {
-   "id": "generic-from-kickoff-to-cooldown-title",
-   "family": "generic-from-kickoff-to-cooldown-title",
-   "text": "From kickoff to cooldown, {title} played a flawless game on {printer}."
-  },
-  {
-   "id": "generic-and-the-crowd-goes-mild",
-   "family": "generic-and-the-crowd-goes-mild",
-   "text": "And the crowd goes mild: {title} is complete after a truly committed {duration}."
-  },
-  {
-   "id": "generic-news-flash-local-human-spends",
-   "family": "generic-news-flash-local-human-spends",
-   "text": "News flash: local human spends {duration} making {title}, calls it efficiency with confidence."
-  },
-  {
-   "id": "generic-just-in-title-has-been",
-   "family": "generic-just-in-title-has-been",
-   "text": "Just in: {title} has been completed in {color}, and witnesses describe it as definitely printed."
-  },
-  {
-   "id": "generic-developing-story-title-finished-investigator",
-   "family": "generic-developing-story-title-finished-investigator",
-   "text": "Developing story: {title} finished; investigators confirm the shelf will be rearranged again."
-  },
-  {
-   "id": "generic-newsroom-update-printer-manufactures-title",
-   "family": "generic-newsroom-update-printer-manufactures-title",
-   "text": "Newsroom update: {printer} manufactures {title} while a human supervises from a comfortable distance."
-  },
-  {
-   "id": "generic-late-bulletin-title-is-officially",
-   "family": "generic-late-bulletin-title-is-officially",
-   "text": "Late bulletin: {title} is officially complete, and the free-time economy may never recover."
-  },
-  {
-   "id": "generic-flash-report-title-done-operator",
-   "family": "generic-flash-report-title-done-operator",
-   "text": "Flash report: {title} done, operator smiling, next print already being considered irresponsibly soon."
-  },
-  {
-   "id": "generic-top-story-tonight-title-completed",
-   "family": "generic-top-story-tonight-title-completed",
-   "text": "Top story tonight: {title} completed successfully, and the outtakes remain safely unmentioned."
-  },
-  {
-   "id": "generic-urgent-update-copies-copies-of",
-   "family": "generic-urgent-update-copies-copies-of",
-   "text": "Urgent update: {copies} copies of {title} confirmed; officials say this was always the plan."
-  },
-  {
-   "id": "generic-news-alert-title-emerges-from",
-   "family": "generic-news-alert-title-emerges-from",
-   "text": "News alert: {title} emerges from {printer} after {duration}, demands camera time immediately."
-  },
-  {
-   "id": "generic-headline-of-the-day-title",
-   "family": "generic-headline-of-the-day-title",
-   "text": "Headline of the day: {title} printed, finished, and already nominated for shelf of honor."
-  },
-  {
-   "id": "generic-title-passed-quality-control-by",
-   "family": "generic-title-passed-quality-control-by",
-   "text": "{title} passed quality control by convincing everyone not to look too closely."
-  },
-  {
-   "id": "generic-title-exists-now-the-purchase",
-   "family": "generic-title-exists-now-the-purchase",
-   "text": "{title} exists now; the purchase justification will be invented retroactively."
-  },
-  {
-   "id": "generic-another-successful-conversion-of-expensive",
-   "family": "generic-another-successful-conversion-of-expensive",
-   "text": "Another successful conversion of expensive electricity into household clutter: {title}."
-  },
-  {
-   "id": "generic-title-is-proof-that-patience",
-   "family": "generic-title-is-proof-that-patience",
-   "text": "{title} is proof that patience can be purchased by the spool."
-  },
-  {
-   "id": "generic-behold-title-a-solution-in",
-   "family": "generic-behold-title-a-solution-in",
-   "text": "Behold {title}, a solution in search of a sufficiently specific problem."
-  },
-  {
-   "id": "generic-congratulations-to-title-for-surviving",
-   "family": "generic-congratulations-to-title-for-surviving",
-   "text": "Congratulations to {title} for surviving both physics and unreasonable expectations."
-  },
-  {
-   "id": "generic-somewhere-a-factory-is-confused",
-   "family": "generic-somewhere-a-factory-is-confused",
-   "text": "Somewhere a factory is confused why {title} needed a personal production run."
-  },
-  {
-   "id": "generic-your-printer-made-title-your",
-   "family": "generic-your-printer-made-title-your",
-   "text": "Your printer made {title}; your browser history supplied the questionable inspiration."
-  },
-  {
-   "id": "generic-every-layer-of-title-says",
-   "family": "generic-every-layer-of-title-says",
-   "text": "Every layer of {title} says precision; the project folder says final_v7_really."
-  },
-  {
-   "id": "generic-title-has-entered-the-world",
-   "family": "generic-title-has-entered-the-world",
-   "text": "{title} has entered the world with the confidence of an untested prototype."
-  },
-  {
-   "id": "generic-this-title-earned-a-promotion",
-   "family": "generic-this-title-earned-a-promotion",
-   "text": "This {title} earned a promotion from digital optimism to physical evidence."
-  },
-  {
-   "id": "generic-title-turned-a-perfectly-quiet",
-   "family": "generic-title-turned-a-perfectly-quiet",
-   "text": "{title} turned a perfectly quiet afternoon into an industrial soundscape."
-  },
-  {
-   "id": "generic-title-looks-expensive-which-is",
-   "family": "generic-title-looks-expensive-which-is",
-   "text": "{title} looks expensive, which is convenient because the hobby certainly is."
-  },
-  {
-   "id": "generic-the-good-news-title-works",
-   "family": "generic-the-good-news-title-works",
-   "text": "The good news: {title} works; the bad news: a second copy is inevitable."
-  },
-  {
-   "id": "generic-nobody-demanded-title-and-yet",
-   "family": "generic-nobody-demanded-title-and-yet",
-   "text": "Nobody demanded {title}, and yet the machine delivered it like a royal commission."
-  },
-  {
-   "id": "generic-title-is-now-official-proof",
-   "family": "generic-title-is-now-official-proof",
-   "text": "{title} is now official proof that procrastination can have tolerances."
-  },
-  {
-   "id": "generic-title-joins-the-collection-of",
-   "family": "generic-title-joins-the-collection-of",
-   "text": "{title} joins the collection of things that seemed smaller on the screen."
-  },
-  {
-   "id": "generic-the-printer-signed-title-in",
-   "family": "generic-the-printer-signed-title-in",
-   "text": "The printer signed {title} in layer lines instead of ink."
-  },
-  {
-   "id": "generic-downloading-title-at-midnight-explains",
-   "family": "generic-downloading-title-at-midnight-explains",
-   "text": "Downloading {title} at midnight explains everything about its current structural integrity."
-  },
-  {
-   "id": "generic-title-is-done-your-desk",
-   "family": "generic-title-is-done-your-desk",
-   "text": "{title} is done; your desk now hosts another permanent dust collection facility."
-  },
-  {
-   "id": "generic-the-slicer-preview-promised-perfection",
-   "family": "generic-the-slicer-preview-promised-perfection",
-   "text": "The slicer preview promised perfection, but {title} arrived looking like modern regret."
-  },
-  {
-   "id": "generic-those-layer-lines-on-title",
-   "family": "generic-those-layer-lines-on-title",
-   "text": "Those layer lines on {title} are so thick they show up on radar."
-  },
-  {
-   "id": "generic-title-used-grams-grams-of",
-   "family": "generic-title-used-grams-grams-of",
-   "text": "{title} used {grams} grams of filament to solve an entirely imaginary problem."
-  },
-  {
-   "id": "generic-did-title-really-warrant-melting",
-   "family": "generic-did-title-really-warrant-melting",
-   "text": "Did {title} really warrant melting plastic, or was the download button irresistible?"
-  },
-  {
-   "id": "generic-title-is-proof-that-having",
-   "family": "generic-title-is-proof-that-having",
-   "text": "{title} is proof that having CAD software does not mean having restraint."
-  },
-  {
-   "id": "generic-the-nozzle-survived-title-but",
-   "family": "generic-the-nozzle-survived-title-but",
-   "text": "The nozzle survived {title}, but the aesthetic dignity of this room did not."
-  },
-  {
-   "id": "generic-title-now-sits-proudly-on",
-   "family": "generic-title-now-sits-proudly-on",
-   "text": "{title} now sits proudly on the shelf, holding down absolutely nothing important."
-  },
-  {
-   "id": "generic-you-printed-title-the-spool",
-   "family": "generic-you-printed-title-the-spool",
-   "text": "You printed {title}; the spool wept silently through all {grams} grams."
-  },
-  {
-   "id": "generic-title-looks-like-a-polygon",
-   "family": "generic-title-looks-like-a-polygon",
-   "text": "{title} looks like a polygon model that gave up on its dreams."
-  },
-  {
-   "id": "generic-was-title-designed-by-an",
-   "family": "generic-was-title-designed-by-an",
-   "text": "Was {title} designed by an engineer, or generated by an overcaffeinated squirrel?"
-  },
-  {
-   "id": "generic-title-completed-successfully-the-recycling",
-   "family": "generic-title-completed-successfully-the-recycling",
-   "text": "{title} completed successfully; the recycling bin will be receiving it by next month."
-  },
-  {
-   "id": "generic-the-infill-in-title-is",
-   "family": "generic-the-infill-in-title-is",
-   "text": "The infill in {title} is denser than the reasoning behind printing it."
-  },
-  {
-   "id": "generic-title-took-duration-to-prove",
-   "family": "generic-title-took-duration-to-prove",
-   "text": "{title} took {duration} to prove that some files should stay digital forever."
-  },
-  {
-   "id": "generic-congratulations-on-title-a-monument",
-   "family": "generic-congratulations-on-title-a-monument",
-   "text": "Congratulations on {title}, a monument to impulse downloading and surplus plastic."
-  },
-  {
-   "id": "generic-title-has-finished-printing-the",
-   "family": "generic-title-has-finished-printing-the",
-   "text": "{title} has finished printing; the search for its actual purpose begins now."
-  },
-  {
-   "id": "generic-that-z-seam-on-title",
-   "family": "generic-that-z-seam-on-title",
-   "text": "That Z-seam on {title} looks like a scar from a bar fight."
-  },
-  {
-   "id": "generic-title-consumed-grams-grams-future",
-   "family": "generic-title-consumed-grams-grams-future",
-   "text": "{title} consumed {grams} grams; future civilizations will excavate this and feel confused."
-  },
-  {
-   "id": "generic-the-slicer-warned-of-steep",
-   "family": "generic-the-slicer-warned-of-steep",
-   "text": "The slicer warned of steep overhangs; {title} ignored them with reckless abandon."
-  },
-  {
-   "id": "generic-title-is-complete-please-explain",
-   "family": "generic-title-is-complete-please-explain",
-   "text": "{title} is complete; please explain this purchase to the household accountant immediately."
-  },
-  {
-   "id": "generic-you-printed-title-because-adult",
-   "family": "generic-you-printed-title-because-adult",
-   "text": "You printed {title} because adult supervision was temporarily unavailable in the workshop."
-  },
-  {
-   "id": "generic-title-has-layer-lines-deep",
-   "family": "generic-title-has-layer-lines-deep",
-   "text": "{title} has layer lines deep enough to read like a phonograph record."
-  },
-  {
-   "id": "generic-the-model-for-title-looked",
-   "family": "generic-the-model-for-title-looked",
-   "text": "The model for {title} looked functional until reality showed up with gravity."
-  },
-  {
-   "id": "generic-title-took-duration-of-machine",
-   "family": "generic-title-took-duration-of-machine",
-   "text": "{title} took {duration} of machine time to produce five cents of clutter."
-  },
-  {
-   "id": "generic-someone-uploaded-title-to-the",
-   "family": "generic-someone-uploaded-title-to-the",
-   "text": "Someone uploaded {title} to the internet, and you bravely volunteered as victim."
-  },
-  {
-   "id": "generic-title-is-finished-please-hide",
-   "family": "generic-title-is-finished-please-hide",
-   "text": "{title} is finished; please hide it before company arrives at the house."
-  },
-  {
-   "id": "generic-with-title-complete-your-plastic",
-   "family": "generic-with-title-complete-your-plastic",
-   "text": "With {title} complete, your plastic hoard reaches a brand new historic high."
-  },
-  {
-   "id": "generic-title-required-grams-grams-proving",
-   "family": "generic-title-required-grams-grams-proving",
-   "text": "{title} required {grams} grams, proving that bad decisions still carry noticeable weight."
-  },
-  {
-   "id": "generic-the-cooling-fan-worked-overtime",
-   "family": "generic-the-cooling-fan-worked-overtime",
-   "text": "The cooling fan worked overtime trying to blow dignity back into {title}."
-  },
-  {
-   "id": "generic-title-exists-now-whether-that",
-   "family": "generic-title-exists-now-whether-that",
-   "text": "{title} exists now; whether that is an achievement remains open for debate."
-  },
-  {
-   "id": "generic-you-downloaded-title-without-reading",
-   "family": "generic-you-downloaded-title-without-reading",
-   "text": "You downloaded {title} without reading the comments, and it shows on every layer."
-  },
-  {
-   "id": "generic-title-is-done-the-local",
-   "family": "generic-title-is-done-the-local",
-   "text": "{title} is done; the local landfill sends its warmest regards for future delivery."
-  },
-  {
-   "id": "generic-the-tolerances-on-title-are",
-   "family": "generic-the-tolerances-on-title-are",
-   "text": "The tolerances on {title} are loose enough to drive a truck through."
-  },
-  {
-   "id": "generic-title-turned-grams-grams-of",
-   "family": "generic-title-turned-grams-grams-of",
-   "text": "{title} turned {grams} grams of good spool into a very strange paperweight."
-  },
-  {
-   "id": "generic-if-title-had-feelings-it",
-   "family": "generic-if-title-had-feelings-it",
-   "text": "If {title} had feelings, it would apologize for taking up desk space."
-  },
-  {
-   "id": "generic-title-is-finally-done-the",
-   "family": "generic-title-is-finally-done-the",
-   "text": "{title} is finally done; the hotend needs counseling after extruding that geometry."
-  },
-  {
-   "id": "generic-that-top-surface-on-title",
-   "family": "generic-that-top-surface-on-title",
-   "text": "That top surface on {title} looks like it was smoothed using asphalt."
-  },
-  {
-   "id": "generic-title-represents-duration-of-electricity",
-   "family": "generic-title-represents-duration-of-electricity",
-   "text": "{title} represents {duration} of electricity that could have powered something useful."
-  },
-  {
-   "id": "generic-you-printed-title-now-find",
-   "family": "generic-you-printed-title-now-find",
-   "text": "You printed {title}; now find a drawer dark enough to hide it."
-  },
-  {
-   "id": "generic-title-is-twenty-percent-infill",
-   "family": "generic-title-is-twenty-percent-infill",
-   "text": "{title} is twenty percent infill and eighty percent questionable judgment by volume."
-  },
-  {
-   "id": "generic-the-bed-released-title-with",
-   "family": "generic-the-bed-released-title-with",
-   "text": "The bed released {title} with the relief of someone dropping heavy baggage."
-  },
-  {
-   "id": "generic-title-took-grams-grams-the",
-   "family": "generic-title-took-grams-grams-the",
-   "text": "{title} took {grams} grams; the spool will remember this betrayal for weeks."
-  },
-  {
-   "id": "generic-the-designer-of-title-clearly",
-   "family": "generic-the-designer-of-title-clearly",
-   "text": "The designer of {title} clearly believed bevels and fillets were purely optional."
-  },
-  {
-   "id": "generic-title-has-arrived-ready-to",
-   "family": "generic-title-has-arrived-ready-to",
-   "text": "{title} has arrived, ready to hold dust with extraordinary structural endurance."
-  },
-  {
-   "id": "generic-you-sliced-title-with-high",
-   "family": "generic-you-sliced-title-with-high",
-   "text": "You sliced {title} with high hopes and printed it with low expectations."
-  },
-  {
-   "id": "generic-title-is-complete-another-victory",
-   "family": "generic-title-is-complete-another-victory",
-   "text": "{title} is complete; another victory for plastic over practical common sense."
-  },
-  {
-   "id": "generic-the-overhangs-on-title-are",
-   "family": "generic-the-overhangs-on-title-are",
-   "text": "The overhangs on {title} are sagging like a hammock in the summer."
-  },
-  {
-   "id": "generic-title-took-duration-the-printer",
-   "family": "generic-title-took-duration-the-printer",
-   "text": "{title} took {duration}; the printer deserves hazard pay for surviving that file."
-  },
-  {
-   "id": "generic-why-organize-your-workshop-when",
-   "family": "generic-why-organize-your-workshop-when",
-   "text": "Why organize your workshop when you can print {title} and add clutter?"
-  },
-  {
-   "id": "generic-title-looks-like-an-uncalibrated",
-   "family": "generic-title-looks-like-an-uncalibrated",
-   "text": "{title} looks like an uncalibrated extrusion test masquerading as functional art."
-  },
-  {
-   "id": "generic-the-stringing-on-title-is",
-   "family": "generic-the-stringing-on-title-is",
-   "text": "The stringing on {title} is so dense it qualifies as cobwebs."
-  },
-  {
-   "id": "generic-you-printed-title-using-grams",
-   "family": "generic-you-printed-title-using-grams",
-   "text": "You printed {title} using {grams} grams; the spool died for novelty trinkets."
-  },
-  {
-   "id": "generic-title-is-finished-now-begins",
-   "family": "generic-title-is-finished-now-begins",
-   "text": "{title} is finished; now begins the ritual of pretending you needed it."
-  },
-  {
-   "id": "generic-the-cad-file-for-title",
-   "family": "generic-the-cad-file-for-title",
-   "text": "The CAD file for {title} should have stayed in the recycling bin."
-  },
-  {
-   "id": "generic-title-took-duration-that-was",
-   "family": "generic-title-took-duration-that-was",
-   "text": "{title} took {duration}; that was ample time to reconsider downloading that file."
-  },
-  {
-   "id": "generic-that-bottom-layer-on-title",
-   "family": "generic-that-bottom-layer-on-title",
-   "text": "That bottom layer on {title} shows someone who fears the bed scraper."
-  },
-  {
-   "id": "generic-title-is-done-may-it",
-   "family": "generic-title-is-done-may-it",
-   "text": "{title} is done; may it bring mild amusement before gathering permanent dust."
-  },
-  {
-   "id": "generic-you-melted-grams-grams-for",
-   "family": "generic-you-melted-grams-grams-for",
-   "text": "You melted {grams} grams for {title}; the spool core is feeling neglected."
-  },
-  {
-   "id": "generic-title-has-the-exact-structural",
-   "family": "generic-title-has-the-exact-structural",
-   "text": "{title} has the exact structural stability of a hollow chocolate bunny."
-  },
-  {
-   "id": "generic-the-slicer-promised-clean-corners",
-   "family": "generic-the-slicer-promised-clean-corners",
-   "text": "The slicer promised clean corners; {title} arrived with rounded existential dread."
-  },
-  {
-   "id": "generic-title-is-twenty-layers-of",
-   "family": "generic-title-is-twenty-layers-of",
-   "text": "{title} is twenty layers of hope and eighty layers of stubborn persistence."
-  },
-  {
-   "id": "generic-you-printed-title-please-do",
-   "family": "generic-you-printed-title-please-do",
-   "text": "You printed {title}; please do not show this to actual professional engineers."
-  },
-  {
-   "id": "generic-title-took-duration-your-patience",
-   "family": "generic-title-took-duration-your-patience",
-   "text": "{title} took {duration}; your patience was tested, and taste was completely absent."
-  },
-  {
-   "id": "generic-the-retraction-settings-on-title",
-   "family": "generic-the-retraction-settings-on-title",
-   "text": "The retraction settings on {title} were more suggestion than enforceable engineering rule."
-  },
-  {
-   "id": "generic-title-is-off-the-plate",
-   "family": "generic-title-is-off-the-plate",
-   "text": "{title} is off the plate; the scrap bin sighs in eager anticipation."
-  },
-  {
-   "id": "generic-you-downloaded-title-from-page",
-   "family": "generic-you-downloaded-title-from-page",
-   "text": "You downloaded {title} from page seven of search results; it truly shows."
-  },
-  {
-   "id": "generic-title-used-grams-grams-that",
-   "family": "generic-title-used-grams-grams-that",
-   "text": "{title} used {grams} grams; that plastic deserved a far nobler final form."
-  },
-  {
-   "id": "generic-that-seam-on-title-is",
-   "family": "generic-that-seam-on-title-is",
-   "text": "That seam on {title} is bolder than the person who sliced it."
-  },
-  {
-   "id": "generic-title-has-finished-your-desk",
-   "family": "generic-title-has-finished-your-desk",
-   "text": "{title} has finished; your desk will never recover that square footage again."
-  },
-  {
-   "id": "generic-you-gave-title-duration-of",
-   "family": "generic-you-gave-title-duration-of",
-   "text": "You gave {title} {duration} of your life; no refunds will be issued."
-  },
-  {
-   "id": "generic-title-looks-like-a-test",
-   "family": "generic-title-looks-like-a-test",
-   "text": "{title} looks like a test print that got wildly out of hand."
-  },
-  {
-   "id": "generic-the-bridge-layers-on-title",
-   "family": "generic-the-bridge-layers-on-title",
-   "text": "The bridge layers on {title} sagged lower than your standards for downloads."
-  },
-  {
-   "id": "generic-title-consumed-grams-grams-of",
-   "family": "generic-title-consumed-grams-grams-of",
-   "text": "{title} consumed {grams} grams of spool; the environmental cost was undeniably real."
-  },
-  {
-   "id": "generic-slicing-title-was-fast-regretting",
-   "family": "generic-slicing-title-was-fast-regretting",
-   "text": "Slicing {title} was fast; regretting the print will take several calendar months."
-  },
-  {
-   "id": "generic-title-sits-on-the-bench",
-   "family": "generic-title-sits-on-the-bench",
-   "text": "{title} sits on the bench like a plastic monument to late-night browsing."
-  },
-  {
-   "id": "generic-the-dimensional-accuracy-of-title",
-   "family": "generic-the-dimensional-accuracy-of-title",
-   "text": "The dimensional accuracy of {title} is best described as emotionally approximate."
-  },
-  {
-   "id": "generic-you-printed-title-now-explain",
-   "family": "generic-you-printed-title-now-explain",
-   "text": "You printed {title}; now explain its function without using hand gestures once."
-  },
-  {
-   "id": "generic-title-took-duration-the-stepper",
-   "family": "generic-title-took-duration-the-stepper",
-   "text": "{title} took {duration}; the stepper motors were screaming inside all afternoon long."
-  },
-  {
-   "id": "generic-that-support-material-on-title",
-   "family": "generic-that-support-material-on-title",
-   "text": "That support material on {title} had a cleaner finish than the model."
-  },
-  {
-   "id": "generic-title-is-done-add-it",
-   "family": "generic-title-is-done-add-it",
-   "text": "{title} is done; add it to the museum of questionable filament expenditures."
-  },
-  {
-   "id": "generic-you-sacrificed-grams-grams-for",
-   "family": "generic-you-sacrificed-grams-grams-for",
-   "text": "You sacrificed {grams} grams for {title}; the spool core is visibly weeping."
-  },
-  {
-   "id": "generic-title-proves-that-default-slicer",
-   "family": "generic-title-proves-that-default-slicer",
-   "text": "{title} proves that default slicer profiles have limits when testing human patience."
-  },
-  {
-   "id": "generic-the-infill-inside-title-is",
-   "family": "generic-the-infill-inside-title-is",
-   "text": "The infill inside {title} is rattling around like loose pocket change already."
-  },
-  {
-   "id": "generic-title-took-duration-to-prove-2",
-   "family": "generic-title-took-duration-to-prove-2",
-   "text": "{title} took {duration} to prove that not every CAD model deserves extruding."
-  },
-  {
-   "id": "generic-you-peeled-title-off-the",
-   "family": "generic-you-peeled-title-off-the",
-   "text": "You peeled {title} off the bed; the plate scraper earned hazard pay."
-  },
-  {
-   "id": "generic-title-looks-like-a-rough",
-   "family": "generic-title-looks-like-a-rough",
-   "text": "{title} looks like a rough draft that somehow escaped into physical reality."
-  },
-  {
-   "id": "generic-the-layer-lines-on-title",
-   "family": "generic-the-layer-lines-on-title",
-   "text": "The layer lines on {title} have their own distinct topographic elevation profile."
-  },
-  {
-   "id": "generic-title-used-grams-grams-that-2",
-   "family": "generic-title-used-grams-grams-that-2",
-   "text": "{title} used {grams} grams; that was a very heavy tribute to procrastination."
-  },
-  {
-   "id": "generic-you-printed-title-the-laws",
-   "family": "generic-you-printed-title-the-laws",
-   "text": "You printed {title}; the laws of aesthetics have officially filed a grievance."
-  },
-  {
-   "id": "generic-title-is-complete-place-it",
-   "family": "generic-title-is-complete-place-it",
-   "text": "{title} is complete; place it somewhere visitors will not immediately ask questions."
-  },
-  {
-   "id": "generic-the-cooling-fan-blew-bravely",
-   "family": "generic-the-cooling-fan-blew-bravely",
-   "text": "The cooling fan blew bravely, but {title} melted its dignity anyway today."
-  },
-  {
-   "id": "generic-title-took-duration-of-electricity",
-   "family": "generic-title-took-duration-of-electricity",
-   "text": "{title} took {duration} of electricity to create three grams of functional usefulness."
-  },
-  {
-   "id": "generic-that-top-layer-of-title",
-   "family": "generic-that-top-layer-of-title",
-   "text": "That top layer of {title} looks like an aerial view of farmland."
-  },
-  {
-   "id": "generic-you-printed-title-the-spool-2",
-   "family": "generic-you-printed-title-the-spool-2",
-   "text": "You printed {title}; the spool will require therapy before starting the next."
-  },
-  {
-   "id": "generic-title-has-the-structural-confidence",
-   "family": "generic-title-has-the-structural-confidence",
-   "text": "{title} has the structural confidence of a sandcastle facing an incoming tide."
-  },
-  {
-   "id": "generic-the-preview-of-title-lied",
-   "family": "generic-the-preview-of-title-lied",
-   "text": "The preview of {title} lied, the slicer lied, but reality never blinks."
-  },
-  {
-   "id": "generic-title-used-grams-grams-the",
-   "family": "generic-title-used-grams-grams-the",
-   "text": "{title} used {grams} grams; the plastic will outlive our collective memory easily."
-  },
-  {
-   "id": "generic-you-printed-title-this-is",
-   "family": "generic-you-printed-title-this-is",
-   "text": "You printed {title}; this is why some workshops require two-factor authentication."
-  },
-  {
-   "id": "generic-title-is-finished-please-photograph",
-   "family": "generic-title-is-finished-please-photograph",
-   "text": "{title} is finished; please photograph it before gravity discovers the weak joints."
-  },
-  {
-   "id": "generic-the-bed-held-onto-title",
-   "family": "generic-the-bed-held-onto-title",
-   "text": "The bed held onto {title} tighter than you held onto common sense."
-  },
-  {
-   "id": "generic-title-took-duration-that-is",
-   "family": "generic-title-took-duration-that-is",
-   "text": "{title} took {duration}; that is quite a while to wait for clutter."
-  },
-  {
-   "id": "generic-you-downloaded-title-the-author",
-   "family": "generic-you-downloaded-title-the-author",
-   "text": "You downloaded {title}; the author owes your filament spool a formal apology."
-  },
-  {
-   "id": "generic-title-is-off-the-bed",
-   "family": "generic-title-is-off-the-bed",
-   "text": "{title} is off the bed, looking like an unsolved puzzle in plastic."
-  },
-  {
-   "id": "generic-that-perimeter-on-title-was",
-   "family": "generic-that-perimeter-on-title-was",
-   "text": "That perimeter on {title} was laid down with more optimism than adhesion."
-  },
-  {
-   "id": "generic-title-took-grams-grams-may",
-   "family": "generic-title-took-grams-grams-may",
-   "text": "{title} took {grams} grams; may it rest peacefully beside the other trinkets."
-  },
-  {
-   "id": "generic-you-printed-title-the-machine",
-   "family": "generic-you-printed-title-the-machine",
-   "text": "You printed {title}; the machine complied, but the warranty looked away nervously."
-  },
-  {
-   "id": "generic-title-is-finished-and-the",
-   "family": "generic-title-is-finished-and-the",
-   "text": "{title} is finished, and the room is officially one plastic object more crowded."
-  },
-  {
-   "id": "generic-title-exists-now-which-settles",
-   "family": "generic-title-exists-now-which-settles",
-   "text": "{title} exists now, which settles several arguments nobody was having."
-  },
-  {
-   "id": "generic-somewhere-between-useful-and-delightful",
-   "family": "generic-somewhere-between-useful-and-delightful",
-   "text": "Somewhere between useful and delightful, {title} found its exact address."
-  },
-  {
-   "id": "generic-title-in-color-has-the",
-   "family": "generic-title-in-color-has-the",
-   "text": "{title} in {color} has the confidence of a print half its layer count."
-  },
-  {
-   "id": "generic-the-plan-was-a-quick",
-   "family": "generic-the-plan-was-a-quick",
-   "text": "The plan was a quick print; {title} had other, better-documented ideas."
-  },
-  {
-   "id": "generic-title-finished-and-immediately-became",
-   "family": "generic-title-finished-and-immediately-became",
-   "text": "{title} finished and immediately became the reference photo for itself."
-  },
-  {
-   "id": "generic-another-successful-negotiation-between-printer",
-   "family": "generic-another-successful-negotiation-between-printer",
-   "text": "Another successful negotiation between {printer} and gravity, starring {title}."
-  },
-  {
-   "id": "generic-title-proves-the-download-folder",
-   "family": "generic-title-proves-the-download-folder",
-   "text": "{title} proves the download folder is a legitimate design studio."
-  },
-  {
-   "id": "generic-shelf-management-has-been-notified",
-   "family": "generic-shelf-management-has-been-notified",
-   "text": "Shelf management has been notified: {title} requires a prominent position."
-  },
-  {
-   "id": "generic-title-came-out-so-clean",
-   "family": "generic-title-came-out-so-clean",
-   "text": "{title} came out so clean that the supports apologized on their way out."
-  },
-  {
-   "id": "generic-it-is-not-hoarding-if",
-   "family": "generic-it-is-not-hoarding-if",
-   "text": "It is not hoarding if {title} is this well made; it is archiving."
-  },
-  {
-   "id": "generic-title-survived-the-slice-the",
-   "family": "generic-title-survived-the-slice-the",
-   "text": "{title} survived the slice, the print, and the ceremonial first inspection."
-  },
-  {
-   "id": "generic-the-household-gains-a-title",
-   "family": "generic-the-household-gains-a-title",
-   "text": "The household gains a {title} and loses a small amount of free surface."
-  },
-  {
-   "id": "generic-title-has-the-energy-of",
-   "family": "generic-title-has-the-energy-of",
-   "text": "{title} has the energy of a print that knew the camera was watching."
-  },
-  {
-   "id": "generic-filed-under-triumphs-title-printed",
-   "family": "generic-filed-under-triumphs-title-printed",
-   "text": "Filed under triumphs: {title}, printed in {material} and already beloved."
-  },
-  {
-   "id": "generic-title-is-done-dusted-and",
-   "family": "generic-title-is-done-dusted-and",
-   "text": "{title} is done, dusted, and quietly outclassing its neighbors."
-  },
-  {
-   "id": "generic-nobody-needed-title-urgently-and",
-   "family": "generic-nobody-needed-title-urgently-and",
-   "text": "Nobody needed {title} urgently, and yet here it is, essential as ever."
-  },
-  {
-   "id": "generic-title-joins-the-collection-with",
-   "family": "generic-title-joins-the-collection-with",
-   "text": "{title} joins the collection with the poise of a print twice as expensive."
-  },
-  {
-   "id": "generic-a-crisp-finish-on-title",
-   "family": "generic-a-crisp-finish-on-title",
-   "text": "A crisp finish on {title}, courtesy of patience and suspiciously good settings."
-  },
-  {
-   "id": "generic-title-wraps-up-like-it",
-   "family": "generic-title-wraps-up-like-it",
-   "text": "{title} wraps up like it read the manual and followed most of it."
-  },
-  {
-   "id": "generic-the-printer-hummed-the-hours",
-   "family": "generic-the-printer-hummed-the-hours",
-   "text": "The printer hummed, the hours passed, and {title} rewarded everyone involved."
-  }
- ]
+  "_about": "Completed-print templates that fit any print; {slots} filled from the print's own facts.",
+  "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
+  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+  "entries": [
+    {
+      "id": "generic-sharp-v3-1",
+      "family": "generic-sharp-v3-1",
+      "text": "{title} is what happens when a shopping cart learns how to operate heavy machinery."
+    },
+    {
+      "id": "generic-sharp-v3-2",
+      "family": "generic-sharp-v3-2",
+      "text": "The patent examiner reviewing {title} has requested a new category called Prior Bad Ideas."
+    },
+    {
+      "id": "generic-sharp-v3-3",
+      "family": "generic-sharp-v3-3",
+      "text": "The inventor of the wheel would take one look at {title} and immediately switch careers."
+    },
+    {
+      "id": "generic-sharp-v3-4",
+      "family": "generic-sharp-v3-4",
+      "text": "{title} has all the exclusivity of a limited edition item nobody asked to have made."
+    },
+    {
+      "id": "generic-sharp-v3-5",
+      "family": "generic-sharp-v3-5",
+      "text": "The printer turned {grams} grams into a tangible argument for leaving your wallet unattended less often."
+    },
+    {
+      "id": "generic-sharp-v3-6",
+      "family": "generic-sharp-v3-6",
+      "text": "The Smithsonian will display {title} under the heading of civilizations that had too much leisure time."
+    },
+    {
+      "id": "generic-sharp-v3-7",
+      "family": "generic-sharp-v3-7",
+      "text": "{title} is the kind of product that would make an infomercial audience stop clapping."
+    },
+    {
+      "id": "generic-sharp-v3-8",
+      "family": "generic-sharp-v3-8",
+      "text": "The market research for {title} appears to have consisted of a mouse click and a mild impulse."
+    },
+    {
+      "id": "generic-sharp-v3-9",
+      "family": "generic-sharp-v3-9",
+      "text": "{title} is an excellent example of why the free in free download needs an asterisk."
+    },
+    {
+      "id": "generic-sharp-v3-10",
+      "family": "generic-sharp-v3-10",
+      "text": "The startup pitching {title} would need three slides explaining the problem and thirty explaining the solution."
+    },
+    {
+      "id": "generic-sharp-v3-11",
+      "family": "generic-sharp-v3-11",
+      "text": "You could have invested {duration} in learning a language instead of giving your printer another speaking engagement."
+    },
+    {
+      "id": "generic-sharp-v3-12",
+      "family": "generic-sharp-v3-12",
+      "text": "{title} has achieved the distinction of being handmade by something with no hands and no judgment."
+    },
+    {
+      "id": "generic-sharp-v3-13",
+      "family": "generic-sharp-v3-13",
+      "text": "The manufacturing cost of {title} is a wonderful example of a rounding error with aspirations."
+    },
+    {
+      "id": "generic-sharp-v3-14",
+      "family": "generic-sharp-v3-14",
+      "text": "{title} is a solution desperately searching LinkedIn for a problem with an opening."
+    },
+    {
+      "id": "generic-sharp-v3-15",
+      "family": "generic-sharp-v3-15",
+      "text": "Your printer has created {title}, which is what happens when browsing history gets a factory."
+    },
+    {
+      "id": "generic-sharp-v3-16",
+      "family": "generic-sharp-v3-16",
+      "text": "{title} could be the grand prize on a game show that nobody would admit to watching."
+    },
+    {
+      "id": "generic-sharp-v3-17",
+      "family": "generic-sharp-v3-17",
+      "text": "If {title} were a film, the studio would recover its budget by selling the unused props."
+    },
+    {
+      "id": "generic-sharp-v3-18",
+      "family": "generic-sharp-v3-18",
+      "text": "Your printer made {title}, but the real creative achievement was finding a place to put it."
+    },
+    {
+      "id": "generic-sharp-v3-19",
+      "family": "generic-sharp-v3-19",
+      "text": "{title} is a physical embodiment of a decision that should have remained in the drafts folder."
+    },
+    {
+      "id": "generic-sharp-v3-20",
+      "family": "generic-sharp-v3-20",
+      "text": "The most impressive thing about {title} is the distance between a free file and a free afternoon."
+    },
+    {
+      "id": "generic-title-turned-out-so-well",
+      "family": "generic-title-turned-out-so-well",
+      "text": "{title} turned out so well that even the printer is pretending this was effortless."
+    },
+    {
+      "id": "generic-congratulations-title-is-proof-that",
+      "family": "generic-congratulations-title-is-proof-that",
+      "text": "Congratulations, {title} is proof that questionable priorities can still produce excellent layer lines."
+    },
+    {
+      "id": "generic-title-looks-fantastic-which-almost",
+      "family": "generic-title-looks-fantastic-which-almost",
+      "text": "{title} looks fantastic, which almost distracts from how unnecessary it probably was."
+    },
+    {
+      "id": "generic-against-several-odds-and-one",
+      "family": "generic-against-several-odds-and-one",
+      "text": "Against several odds and one slicer preview, {title} arrived looking genuinely respectable."
+    },
+    {
+      "id": "generic-title-in-color-material-is",
+      "family": "generic-title-in-color-material-is",
+      "text": "{title} in {color} {material} is beautiful, brave, and only slightly overengineered for its job."
+    },
+    {
+      "id": "generic-well-done-title-took-duration",
+      "family": "generic-well-done-title-took-duration",
+      "text": "Well done: {title} took {duration}, used {grams} grams, and somehow still seems worth it."
+    },
+    {
+      "id": "generic-title-is-the-rare-print",
+      "family": "generic-title-is-the-rare-print",
+      "text": "{title} is the rare print that makes buying one sound deeply unambitious by comparison."
+    },
+    {
+      "id": "generic-elegant-sturdy-and-finished-title",
+      "family": "generic-elegant-sturdy-and-finished-title",
+      "text": "Elegant, sturdy, and finished: {title} is showing off on behalf of {printer} today."
+    },
+    {
+      "id": "generic-title-came-out-clean-enough",
+      "family": "generic-title-came-out-clean-enough",
+      "text": "{title} came out clean enough to forgive the mysterious noises around hour two."
+    },
+    {
+      "id": "generic-if-confidence-were-filament-title",
+      "family": "generic-if-confidence-were-filament-title",
+      "text": "If confidence were filament, {title} would still have used less than {grams} grams."
+    },
+    {
+      "id": "generic-copies-copies-of-title-each",
+      "family": "generic-copies-copies-of-title-each",
+      "text": "{copies} copies of {title}, each one insisting the previous one needed company."
+    },
+    {
+      "id": "generic-title-looks-store-bought-assuming",
+      "family": "generic-title-looks-store-bought-assuming",
+      "text": "{title} looks store-bought, assuming the store also enjoys delightful detours and spare parts."
+    },
+    {
+      "id": "generic-somehow-title-makes-duration-of",
+      "family": "generic-somehow-title-makes-duration-of",
+      "text": "Somehow {title} makes {duration} of waiting feel like a curated artistic experience."
+    },
+    {
+      "id": "generic-title-is-finished-and-fabulous",
+      "family": "generic-title-is-finished-and-fabulous",
+      "text": "{title} is finished and fabulous, which is concerning because now standards have risen."
+    },
+    {
+      "id": "generic-a-flawless-finish-for-title",
+      "family": "generic-a-flawless-finish-for-title",
+      "text": "A flawless finish for {title}, brought to you by optimism and questionable time management."
+    },
+    {
+      "id": "generic-title-in-material-has-main",
+      "family": "generic-title-in-material-has-main",
+      "text": "{title} in {material} has main-character energy and absolutely no intention of explaining itself."
+    },
+    {
+      "id": "generic-bravo-title-survived-slicing-printing",
+      "family": "generic-bravo-title-survived-slicing-printing",
+      "text": "Bravo, {title} survived slicing, printing, and being stared at through the camera repeatedly."
+    },
+    {
+      "id": "generic-title-is-so-tidy-that",
+      "family": "generic-title-is-so-tidy-that",
+      "text": "{title} is so tidy that the failed drafts have quietly left the chat."
+    },
+    {
+      "id": "generic-credit-where-due-title-turned",
+      "family": "generic-credit-where-due-title-turned",
+      "text": "Credit where due: {title} turned {grams} grams of {color} plastic into pure smugness."
+    },
+    {
+      "id": "generic-title-finished-looking-like-the",
+      "family": "generic-title-finished-looking-like-the",
+      "text": "{title} finished looking like the tutorial version, not the comment-section version."
+    },
+    {
+      "id": "generic-official-announcement-title-has-completed",
+      "family": "generic-official-announcement-title-has-completed",
+      "text": "Official announcement: {title} has completed {duration} of printing and demands a shelf ceremony."
+    },
+    {
+      "id": "generic-breaking-update-printer-has-released",
+      "family": "generic-breaking-update-printer-has-released",
+      "text": "Breaking update: {printer} has released {title} after {duration} of extremely supervised silence."
+    },
+    {
+      "id": "generic-public-notice-title-now-exists",
+      "family": "generic-public-notice-title-now-exists",
+      "text": "Public notice: {title} now exists, occupies space, and accepts compliments during business hours."
+    },
+    {
+      "id": "generic-formal-report-grams-grams-of",
+      "family": "generic-formal-report-grams-grams-of",
+      "text": "Formal report: {grams} grams of {material} have been promoted into {title}, effective immediately."
+    },
+    {
+      "id": "generic-ceremony-update-title-graduated-from",
+      "family": "generic-ceremony-update-title-graduated-from",
+      "text": "Ceremony update: {title} graduated from spool to object with honors in staying attached."
+    },
+    {
+      "id": "generic-ministry-of-making-confirms-title",
+      "family": "generic-ministry-of-making-confirms-title",
+      "text": "Ministry of Making confirms {title} is complete, tangible, and mildly proud of itself."
+    },
+    {
+      "id": "generic-press-release-local-printer-produces",
+      "family": "generic-press-release-local-printer-produces",
+      "text": "Press release: local printer produces {title}, local human takes most of the credit."
+    },
+    {
+      "id": "generic-bulletin-title-finished-on-printer",
+      "family": "generic-bulletin-title-finished-on-printer",
+      "text": "Bulletin: {title} finished on {printer} and has already begun its career being photographed."
+    },
+    {
+      "id": "generic-declaration-the-color-era-of",
+      "family": "generic-declaration-the-color-era-of",
+      "text": "Declaration: the {color} era of {title} begins today, backed by {grams} grams of confidence."
+    },
+    {
+      "id": "generic-archive-entry-added-title-printed",
+      "family": "generic-archive-entry-added-title-printed",
+      "text": "Archive entry added: {title}, printed in {material}, survived the process and the commentary."
+    },
+    {
+      "id": "generic-notice-to-the-household-title",
+      "family": "generic-notice-to-the-household-title",
+      "text": "Notice to the household: {title} is done, so the printer may finally know peace."
+    },
+    {
+      "id": "generic-proclamation-copies-copies-of-title",
+      "family": "generic-proclamation-copies-copies-of-title",
+      "text": "Proclamation: {copies} copies of {title} shall henceforth be known as an intentional set."
+    },
+    {
+      "id": "generic-status-briefing-title-completed-operator",
+      "family": "generic-status-briefing-title-completed-operator",
+      "text": "Status briefing: {title} completed, operator pleased, shelf space officially under new management."
+    },
+    {
+      "id": "generic-dispatch-from-the-desk-title",
+      "family": "generic-dispatch-from-the-desk-title",
+      "text": "Dispatch from the desk: {title} took {duration} and emerged with unreasonable levels of charm."
+    },
+    {
+      "id": "generic-recorded-for-history-title-was",
+      "family": "generic-recorded-for-history-title-was",
+      "text": "Recorded for history: {title} was printed, completed, and immediately judged by its creator."
+    },
+    {
+      "id": "generic-announcement-from-printer-title-is",
+      "family": "generic-announcement-from-printer-title-is",
+      "text": "Announcement from {printer}: {title} is finished, and the victory lap is entirely optional."
+    },
+    {
+      "id": "generic-communique-operation-title-concluded-success",
+      "family": "generic-communique-operation-title-concluded-success",
+      "text": "Communique: operation {title} concluded successfully after {duration} of humming and hopeful watching."
+    },
+    {
+      "id": "generic-officially-title-is-a-success",
+      "family": "generic-officially-title-is-a-success",
+      "text": "Officially, {title} is a success; unofficially, it is also a new conversation starter."
+    },
+    {
+      "id": "generic-memo-please-welcome-title-printed",
+      "family": "generic-memo-please-welcome-title-printed",
+      "text": "Memo: please welcome {title}, printed in {color} {material}, arriving fashionably after {duration}."
+    },
+    {
+      "id": "generic-registry-update-title-has-joined",
+      "family": "generic-registry-update-title-has-joined",
+      "text": "Registry update: {title} has joined the household inventory, category: proudly homemade."
+    },
+    {
+      "id": "generic-title-took-longer-than-a",
+      "family": "generic-title-took-longer-than-a",
+      "text": "{title} took longer than a grocery run and will definitely outlast the groceries."
+    },
+    {
+      "id": "generic-like-a-tiny-trophy-title",
+      "family": "generic-like-a-tiny-trophy-title",
+      "text": "Like a tiny trophy, {title} proves effort happened even if nobody requested proof."
+    },
+    {
+      "id": "generic-title-is-basically-modern-art",
+      "family": "generic-title-is-basically-modern-art",
+      "text": "{title} is basically modern art, if modern art came in {color} {material}."
+    },
+    {
+      "id": "generic-some-people-collect-stamps-this",
+      "family": "generic-some-people-collect-stamps-this",
+      "text": "Some people collect stamps; this household manufactures {title} and calls it a system."
+    },
+    {
+      "id": "generic-title-arrived-slower-than-delivery",
+      "family": "generic-title-arrived-slower-than-delivery",
+      "text": "{title} arrived slower than delivery, but with far more dramatic humming beforehand."
+    },
+    {
+      "id": "generic-think-of-title-as-a",
+      "family": "generic-think-of-title-as-a",
+      "text": "Think of {title} as a souvenir from {duration} spent supervising a very focused robot."
+    },
+    {
+      "id": "generic-title-is-the-plastic-equivalent",
+      "family": "generic-title-is-the-plastic-equivalent",
+      "text": "{title} is the plastic equivalent of saying it was planned all along, confidently."
+    },
+    {
+      "id": "generic-compared-with-buying-one-printing",
+      "family": "generic-compared-with-buying-one-printing",
+      "text": "Compared with buying one, printing {title} added suspense, noise, and a backstory."
+    },
+    {
+      "id": "generic-title-resembles-a-finished-product",
+      "family": "generic-title-resembles-a-finished-product",
+      "text": "{title} resembles a finished product, plus the unmistakable aura of spare filament nearby."
+    },
+    {
+      "id": "generic-like-fresh-bread-title-is",
+      "family": "generic-like-fresh-bread-title-is",
+      "text": "Like fresh bread, {title} is warm, satisfying, and best admired before anyone pokes it."
+    },
+    {
+      "id": "generic-printer-worked-like-a-tiny",
+      "family": "generic-printer-worked-like-a-tiny",
+      "text": "{printer} worked like a tiny factory, and {title} is its most charismatic employee."
+    },
+    {
+      "id": "generic-title-is-a-marathon-medal",
+      "family": "generic-title-is-a-marathon-medal",
+      "text": "{title} is a marathon medal, except the marathon was mostly sitting and watching."
+    },
+    {
+      "id": "generic-more-reliable-than-a-weather",
+      "family": "generic-more-reliable-than-a-weather",
+      "text": "More reliable than a weather forecast, {title} actually showed up after {duration} of waiting."
+    },
+    {
+      "id": "generic-title-in-material-is-part",
+      "family": "generic-title-in-material-is-part",
+      "text": "{title} in {material} is part tool, part toy, and part excellent excuse."
+    },
+    {
+      "id": "generic-as-achievements-go-title-ranks",
+      "family": "generic-as-achievements-go-title-ranks",
+      "text": "As achievements go, {title} ranks above folding laundry and below assembling furniture correctly."
+    },
+    {
+      "id": "generic-copies-copies-of-title-is",
+      "family": "generic-copies-copies-of-title-is",
+      "text": "{copies} copies of {title} is not hoarding; it is parallel processing for enthusiasm."
+    },
+    {
+      "id": "generic-title-is-like-a-houseplant",
+      "family": "generic-title-is-like-a-houseplant",
+      "text": "{title} is like a houseplant: finished growing, still needs a spot, still gets admired."
+    },
+    {
+      "id": "generic-slow-fashion-has-nothing-on",
+      "family": "generic-slow-fashion-has-nothing-on",
+      "text": "Slow fashion has nothing on {title}, handmade over {duration} in glorious {color}."
+    },
+    {
+      "id": "generic-title-turned-out-better-than",
+      "family": "generic-title-turned-out-better-than",
+      "text": "{title} turned out better than most group projects, mainly because {printer} did everything."
+    },
+    {
+      "id": "generic-if-patience-had-a-shape",
+      "family": "generic-if-patience-had-a-shape",
+      "text": "If patience had a shape, it would look suspiciously like {title} in {material}."
+    },
+    {
+      "id": "generic-day-one-of-owning-title",
+      "family": "generic-day-one-of-owning-title",
+      "text": "Day one of owning {title}: still admiring it, still telling anyone who walks past."
+    },
+    {
+      "id": "generic-diary-entry-waited-duration-for",
+      "family": "generic-diary-entry-waited-duration-for",
+      "text": "Diary entry: waited {duration} for {title}, would absolutely pretend not to wait again."
+    },
+    {
+      "id": "generic-log-final-day-title-completed",
+      "family": "generic-log-final-day-title-completed",
+      "text": "Log, final day: {title} completed, and the operator is acting very normal about it."
+    },
+    {
+      "id": "generic-day-one-title-exists-and",
+      "family": "generic-day-one-title-exists-and",
+      "text": "Day one: {title} exists, and by day two someone will surely ask why."
+    },
+    {
+      "id": "generic-captain-s-log-printer-delivered",
+      "family": "generic-captain-s-log-printer-delivered",
+      "text": "Captain's log: {printer} delivered {title} after {duration}, crew morale suspiciously proud."
+    },
+    {
+      "id": "generic-journal-note-grams-grams-lighter",
+      "family": "generic-journal-note-grams-grams-lighter",
+      "text": "Journal note: {grams} grams lighter, one {title} richer, zero regrets admitted publicly."
+    },
+    {
+      "id": "generic-day-twelve-of-saying-the",
+      "family": "generic-day-twelve-of-saying-the",
+      "text": "Day twelve of saying the last print this week, presenting exhibit {title} as evidence."
+    },
+    {
+      "id": "generic-field-notes-observed-title-emerging",
+      "family": "generic-field-notes-observed-title-emerging",
+      "text": "Field notes: observed {title} emerging slowly, behaved like wildlife, photographed like a celebrity."
+    },
+    {
+      "id": "generic-diary-honest-edition-title-was",
+      "family": "generic-diary-honest-edition-title-was",
+      "text": "Diary, honest edition: {title} was not needed at dawn and is essential by dinner."
+    },
+    {
+      "id": "generic-expedition-log-crossed-duration-of",
+      "family": "generic-expedition-log-crossed-duration-of",
+      "text": "Expedition log: crossed {duration} of printing and returned carrying {title} triumphantly."
+    },
+    {
+      "id": "generic-day-one-of-the-color",
+      "family": "generic-day-one-of-the-color",
+      "text": "Day one of the {color} chapter: {title} has taken its place among legends."
+    },
+    {
+      "id": "generic-notebook-entry-title-finished-in",
+      "family": "generic-notebook-entry-title-finished-in",
+      "text": "Notebook entry: {title} finished in {material}; underline it twice, it earned the ink."
+    },
+    {
+      "id": "generic-personal-log-watched-plastic-become",
+      "family": "generic-personal-log-watched-plastic-become",
+      "text": "Personal log: watched plastic become {title}; maturity prevented applauding, but only barely."
+    },
+    {
+      "id": "generic-day-three-of-admiring-title",
+      "family": "generic-day-three-of-admiring-title",
+      "text": "Day three of admiring {title} from different angles, strictly for quality assurance."
+    },
+    {
+      "id": "generic-log-update-copies-copies-secured",
+      "family": "generic-log-update-copies-copies-secured",
+      "text": "Log update: {copies} copies secured; the expedition into spare time continues tomorrow."
+    },
+    {
+      "id": "generic-full-time-on-printer-title",
+      "family": "generic-full-time-on-printer-title",
+      "text": "Full time on {printer}: {title} wins, patience loses, and the crowd goes mild."
+    },
+    {
+      "id": "generic-what-a-finish-title-crosses",
+      "family": "generic-what-a-finish-title-crosses",
+      "text": "What a finish: {title} crosses the final layer after {duration} of pure endurance."
+    },
+    {
+      "id": "generic-commentary-gold-title-stuck-the",
+      "family": "generic-commentary-gold-title-stuck-the",
+      "text": "Commentary gold: {title} stuck the landing, held the layers, and took the title."
+    },
+    {
+      "id": "generic-in-the-final-stretch-title",
+      "family": "generic-in-the-final-stretch-title",
+      "text": "In the final stretch, {title} pulled ahead of doubt and never looked back."
+    },
+    {
+      "id": "generic-championship-form-from-printer-title",
+      "family": "generic-championship-form-from-printer-title",
+      "text": "Championship form from {printer}: {title} complete, clean, and ready for the highlight reel."
+    },
+    {
+      "id": "generic-the-replay-shows-title-building",
+      "family": "generic-the-replay-shows-title-building",
+      "text": "The replay shows {title} building layer by layer like it trained all season."
+    },
+    {
+      "id": "generic-victory-lap-scheduled-title-finished",
+      "family": "generic-victory-lap-scheduled-title-finished",
+      "text": "Victory lap scheduled: {title} finished in {color} {material} to thunderous desk applause."
+    },
+    {
+      "id": "generic-scoreboard-update-operator-one-title",
+      "family": "generic-scoreboard-update-operator-one-title",
+      "text": "Scoreboard update: operator one {title}, unfinished projects zero, momentum undeniably building."
+    },
+    {
+      "id": "generic-a-photo-finish-after-duration",
+      "family": "generic-a-photo-finish-after-duration",
+      "text": "A photo finish after {duration}: {title} beats the urge to start another print."
+    },
+    {
+      "id": "generic-play-of-the-day-turning",
+      "family": "generic-play-of-the-day-turning",
+      "text": "Play of the day: turning {grams} grams of {material} into {title} without drama."
+    },
+    {
+      "id": "generic-the-fans-demanded-copies-copies",
+      "family": "generic-the-fans-demanded-copies-copies",
+      "text": "The fans demanded {copies} copies, and {title} delivered an encore performance."
+    },
+    {
+      "id": "generic-postgame-report-title-performed-beautifully",
+      "family": "generic-postgame-report-title-performed-beautifully",
+      "text": "Postgame report: {title} performed beautifully, and the printer wants a raise in treats."
+    },
+    {
+      "id": "generic-overtime-heroics-title-stayed-together",
+      "family": "generic-overtime-heroics-title-stayed-together",
+      "text": "Overtime heroics: {title} stayed together when lesser prints would have curled dramatically."
+    },
+    {
+      "id": "generic-from-kickoff-to-cooldown-title",
+      "family": "generic-from-kickoff-to-cooldown-title",
+      "text": "From kickoff to cooldown, {title} played a flawless game on {printer}."
+    },
+    {
+      "id": "generic-and-the-crowd-goes-mild",
+      "family": "generic-and-the-crowd-goes-mild",
+      "text": "And the crowd goes mild: {title} is complete after a truly committed {duration}."
+    },
+    {
+      "id": "generic-news-flash-local-human-spends",
+      "family": "generic-news-flash-local-human-spends",
+      "text": "News flash: local human spends {duration} making {title}, calls it efficiency with confidence."
+    },
+    {
+      "id": "generic-just-in-title-has-been",
+      "family": "generic-just-in-title-has-been",
+      "text": "Just in: {title} has been completed in {color}, and witnesses describe it as definitely printed."
+    },
+    {
+      "id": "generic-developing-story-title-finished-investigator",
+      "family": "generic-developing-story-title-finished-investigator",
+      "text": "Developing story: {title} finished; investigators confirm the shelf will be rearranged again."
+    },
+    {
+      "id": "generic-newsroom-update-printer-manufactures-title",
+      "family": "generic-newsroom-update-printer-manufactures-title",
+      "text": "Newsroom update: {printer} manufactures {title} while a human supervises from a comfortable distance."
+    },
+    {
+      "id": "generic-late-bulletin-title-is-officially",
+      "family": "generic-late-bulletin-title-is-officially",
+      "text": "Late bulletin: {title} is officially complete, and the free-time economy may never recover."
+    },
+    {
+      "id": "generic-flash-report-title-done-operator",
+      "family": "generic-flash-report-title-done-operator",
+      "text": "Flash report: {title} done, operator smiling, next print already being considered irresponsibly soon."
+    },
+    {
+      "id": "generic-top-story-tonight-title-completed",
+      "family": "generic-top-story-tonight-title-completed",
+      "text": "Top story tonight: {title} completed successfully, and the outtakes remain safely unmentioned."
+    },
+    {
+      "id": "generic-urgent-update-copies-copies-of",
+      "family": "generic-urgent-update-copies-copies-of",
+      "text": "Urgent update: {copies} copies of {title} confirmed; officials say this was always the plan."
+    },
+    {
+      "id": "generic-news-alert-title-emerges-from",
+      "family": "generic-news-alert-title-emerges-from",
+      "text": "News alert: {title} emerges from {printer} after {duration}, demands camera time immediately."
+    },
+    {
+      "id": "generic-headline-of-the-day-title",
+      "family": "generic-headline-of-the-day-title",
+      "text": "Headline of the day: {title} printed, finished, and already nominated for shelf of honor."
+    },
+    {
+      "id": "generic-title-passed-quality-control-by",
+      "family": "generic-title-passed-quality-control-by",
+      "text": "{title} passed quality control by convincing everyone not to look too closely."
+    },
+    {
+      "id": "generic-title-exists-now-the-purchase",
+      "family": "generic-title-exists-now-the-purchase",
+      "text": "{title} exists now; the purchase justification will be invented retroactively."
+    },
+    {
+      "id": "generic-another-successful-conversion-of-expensive",
+      "family": "generic-another-successful-conversion-of-expensive",
+      "text": "Another successful conversion of expensive electricity into household clutter: {title}."
+    },
+    {
+      "id": "generic-title-is-proof-that-patience",
+      "family": "generic-title-is-proof-that-patience",
+      "text": "{title} is proof that patience can be purchased by the spool."
+    },
+    {
+      "id": "generic-behold-title-a-solution-in",
+      "family": "generic-behold-title-a-solution-in",
+      "text": "Behold {title}, a solution in search of a sufficiently specific problem."
+    },
+    {
+      "id": "generic-congratulations-to-title-for-surviving",
+      "family": "generic-congratulations-to-title-for-surviving",
+      "text": "Congratulations to {title} for surviving both physics and unreasonable expectations."
+    },
+    {
+      "id": "generic-somewhere-a-factory-is-confused",
+      "family": "generic-somewhere-a-factory-is-confused",
+      "text": "Somewhere a factory is confused why {title} needed a personal production run."
+    },
+    {
+      "id": "generic-your-printer-made-title-your",
+      "family": "generic-your-printer-made-title-your",
+      "text": "Your printer made {title}; your browser history supplied the questionable inspiration."
+    },
+    {
+      "id": "generic-every-layer-of-title-says",
+      "family": "generic-every-layer-of-title-says",
+      "text": "Every layer of {title} says precision; the project folder says final_v7_really."
+    },
+    {
+      "id": "generic-title-has-entered-the-world",
+      "family": "generic-title-has-entered-the-world",
+      "text": "{title} has entered the world with the confidence of an untested prototype."
+    },
+    {
+      "id": "generic-this-title-earned-a-promotion",
+      "family": "generic-this-title-earned-a-promotion",
+      "text": "This {title} earned a promotion from digital optimism to physical evidence."
+    },
+    {
+      "id": "generic-title-turned-a-perfectly-quiet",
+      "family": "generic-title-turned-a-perfectly-quiet",
+      "text": "{title} turned a perfectly quiet afternoon into an industrial soundscape."
+    },
+    {
+      "id": "generic-title-looks-expensive-which-is",
+      "family": "generic-title-looks-expensive-which-is",
+      "text": "{title} looks expensive, which is convenient because the hobby certainly is."
+    },
+    {
+      "id": "generic-the-good-news-title-works",
+      "family": "generic-the-good-news-title-works",
+      "text": "The good news: {title} works; the bad news: a second copy is inevitable."
+    },
+    {
+      "id": "generic-nobody-demanded-title-and-yet",
+      "family": "generic-nobody-demanded-title-and-yet",
+      "text": "Nobody demanded {title}, and yet the machine delivered it like a royal commission."
+    },
+    {
+      "id": "generic-title-is-now-official-proof",
+      "family": "generic-title-is-now-official-proof",
+      "text": "{title} is now official proof that procrastination can have tolerances."
+    },
+    {
+      "id": "generic-title-joins-the-collection-of",
+      "family": "generic-title-joins-the-collection-of",
+      "text": "{title} joins the collection of things that seemed smaller on the screen."
+    },
+    {
+      "id": "generic-the-printer-signed-title-in",
+      "family": "generic-the-printer-signed-title-in",
+      "text": "The printer signed {title} in layer lines instead of ink."
+    },
+    {
+      "id": "generic-downloading-title-at-midnight-explains",
+      "family": "generic-downloading-title-at-midnight-explains",
+      "text": "Downloading {title} at midnight explains everything about its current structural integrity."
+    },
+    {
+      "id": "generic-title-is-done-your-desk",
+      "family": "generic-title-is-done-your-desk",
+      "text": "{title} is done; your desk now hosts another permanent dust collection facility."
+    },
+    {
+      "id": "generic-the-slicer-preview-promised-perfection",
+      "family": "generic-the-slicer-preview-promised-perfection",
+      "text": "The slicer preview promised perfection, but {title} arrived looking like modern regret."
+    },
+    {
+      "id": "generic-those-layer-lines-on-title",
+      "family": "generic-those-layer-lines-on-title",
+      "text": "Those layer lines on {title} are so thick they show up on radar."
+    },
+    {
+      "id": "generic-title-used-grams-grams-of",
+      "family": "generic-title-used-grams-grams-of",
+      "text": "{title} used {grams} grams of filament to solve an entirely imaginary problem."
+    },
+    {
+      "id": "generic-did-title-really-warrant-melting",
+      "family": "generic-did-title-really-warrant-melting",
+      "text": "Did {title} really warrant melting plastic, or was the download button irresistible?"
+    },
+    {
+      "id": "generic-title-is-proof-that-having",
+      "family": "generic-title-is-proof-that-having",
+      "text": "{title} is proof that having CAD software does not mean having restraint."
+    },
+    {
+      "id": "generic-the-nozzle-survived-title-but",
+      "family": "generic-the-nozzle-survived-title-but",
+      "text": "The nozzle survived {title}, but the aesthetic dignity of this room did not."
+    },
+    {
+      "id": "generic-title-now-sits-proudly-on",
+      "family": "generic-title-now-sits-proudly-on",
+      "text": "{title} now sits proudly on the shelf, holding down absolutely nothing important."
+    },
+    {
+      "id": "generic-you-printed-title-the-spool",
+      "family": "generic-you-printed-title-the-spool",
+      "text": "You printed {title}; the spool wept silently through all {grams} grams."
+    },
+    {
+      "id": "generic-title-looks-like-a-polygon",
+      "family": "generic-title-looks-like-a-polygon",
+      "text": "{title} looks like a polygon model that gave up on its dreams."
+    },
+    {
+      "id": "generic-was-title-designed-by-an",
+      "family": "generic-was-title-designed-by-an",
+      "text": "Was {title} designed by an engineer, or generated by an overcaffeinated squirrel?"
+    },
+    {
+      "id": "generic-title-completed-successfully-the-recycling",
+      "family": "generic-title-completed-successfully-the-recycling",
+      "text": "{title} completed successfully; the recycling bin will be receiving it by next month."
+    },
+    {
+      "id": "generic-the-infill-in-title-is",
+      "family": "generic-the-infill-in-title-is",
+      "text": "The infill in {title} is denser than the reasoning behind printing it."
+    },
+    {
+      "id": "generic-title-took-duration-to-prove",
+      "family": "generic-title-took-duration-to-prove",
+      "text": "{title} took {duration} to prove that some files should stay digital forever."
+    },
+    {
+      "id": "generic-congratulations-on-title-a-monument",
+      "family": "generic-congratulations-on-title-a-monument",
+      "text": "Congratulations on {title}, a monument to impulse downloading and surplus plastic."
+    },
+    {
+      "id": "generic-title-has-finished-printing-the",
+      "family": "generic-title-has-finished-printing-the",
+      "text": "{title} has finished printing; the search for its actual purpose begins now."
+    },
+    {
+      "id": "generic-that-z-seam-on-title",
+      "family": "generic-that-z-seam-on-title",
+      "text": "That Z-seam on {title} looks like a scar from a bar fight."
+    },
+    {
+      "id": "generic-title-consumed-grams-grams-future",
+      "family": "generic-title-consumed-grams-grams-future",
+      "text": "{title} consumed {grams} grams; future civilizations will excavate this and feel confused."
+    },
+    {
+      "id": "generic-the-slicer-warned-of-steep",
+      "family": "generic-the-slicer-warned-of-steep",
+      "text": "The slicer warned of steep overhangs; {title} ignored them with reckless abandon."
+    },
+    {
+      "id": "generic-title-is-complete-please-explain",
+      "family": "generic-title-is-complete-please-explain",
+      "text": "{title} is complete; please explain this purchase to the household accountant immediately."
+    },
+    {
+      "id": "generic-you-printed-title-because-adult",
+      "family": "generic-you-printed-title-because-adult",
+      "text": "You printed {title} because adult supervision was temporarily unavailable in the workshop."
+    },
+    {
+      "id": "generic-title-has-layer-lines-deep",
+      "family": "generic-title-has-layer-lines-deep",
+      "text": "{title} has layer lines deep enough to read like a phonograph record."
+    },
+    {
+      "id": "generic-the-model-for-title-looked",
+      "family": "generic-the-model-for-title-looked",
+      "text": "The model for {title} looked functional until reality showed up with gravity."
+    },
+    {
+      "id": "generic-title-took-duration-of-machine",
+      "family": "generic-title-took-duration-of-machine",
+      "text": "{title} took {duration} of machine time to produce five cents of clutter."
+    },
+    {
+      "id": "generic-someone-uploaded-title-to-the",
+      "family": "generic-someone-uploaded-title-to-the",
+      "text": "Someone uploaded {title} to the internet, and you bravely volunteered as victim."
+    },
+    {
+      "id": "generic-title-is-finished-please-hide",
+      "family": "generic-title-is-finished-please-hide",
+      "text": "{title} is finished; please hide it before company arrives at the house."
+    },
+    {
+      "id": "generic-with-title-complete-your-plastic",
+      "family": "generic-with-title-complete-your-plastic",
+      "text": "With {title} complete, your plastic hoard reaches a brand new historic high."
+    },
+    {
+      "id": "generic-title-required-grams-grams-proving",
+      "family": "generic-title-required-grams-grams-proving",
+      "text": "{title} required {grams} grams, proving that bad decisions still carry noticeable weight."
+    },
+    {
+      "id": "generic-the-cooling-fan-worked-overtime",
+      "family": "generic-the-cooling-fan-worked-overtime",
+      "text": "The cooling fan worked overtime trying to blow dignity back into {title}."
+    },
+    {
+      "id": "generic-title-exists-now-whether-that",
+      "family": "generic-title-exists-now-whether-that",
+      "text": "{title} exists now; whether that is an achievement remains open for debate."
+    },
+    {
+      "id": "generic-you-downloaded-title-without-reading",
+      "family": "generic-you-downloaded-title-without-reading",
+      "text": "You downloaded {title} without reading the comments, and it shows on every layer."
+    },
+    {
+      "id": "generic-title-is-done-the-local",
+      "family": "generic-title-is-done-the-local",
+      "text": "{title} is done; the local landfill sends its warmest regards for future delivery."
+    },
+    {
+      "id": "generic-the-tolerances-on-title-are",
+      "family": "generic-the-tolerances-on-title-are",
+      "text": "The tolerances on {title} are loose enough to drive a truck through."
+    },
+    {
+      "id": "generic-title-turned-grams-grams-of",
+      "family": "generic-title-turned-grams-grams-of",
+      "text": "{title} turned {grams} grams of good spool into a very strange paperweight."
+    },
+    {
+      "id": "generic-if-title-had-feelings-it",
+      "family": "generic-if-title-had-feelings-it",
+      "text": "If {title} had feelings, it would apologize for taking up desk space."
+    },
+    {
+      "id": "generic-title-is-finally-done-the",
+      "family": "generic-title-is-finally-done-the",
+      "text": "{title} is finally done; the hotend needs counseling after extruding that geometry."
+    },
+    {
+      "id": "generic-that-top-surface-on-title",
+      "family": "generic-that-top-surface-on-title",
+      "text": "That top surface on {title} looks like it was smoothed using asphalt."
+    },
+    {
+      "id": "generic-title-represents-duration-of-electricity",
+      "family": "generic-title-represents-duration-of-electricity",
+      "text": "{title} represents {duration} of electricity that could have powered something useful."
+    },
+    {
+      "id": "generic-you-printed-title-now-find",
+      "family": "generic-you-printed-title-now-find",
+      "text": "You printed {title}; now find a drawer dark enough to hide it."
+    },
+    {
+      "id": "generic-title-is-twenty-percent-infill",
+      "family": "generic-title-is-twenty-percent-infill",
+      "text": "{title} is twenty percent infill and eighty percent questionable judgment by volume."
+    },
+    {
+      "id": "generic-the-bed-released-title-with",
+      "family": "generic-the-bed-released-title-with",
+      "text": "The bed released {title} with the relief of someone dropping heavy baggage."
+    },
+    {
+      "id": "generic-title-took-grams-grams-the",
+      "family": "generic-title-took-grams-grams-the",
+      "text": "{title} took {grams} grams; the spool will remember this betrayal for weeks."
+    },
+    {
+      "id": "generic-the-designer-of-title-clearly",
+      "family": "generic-the-designer-of-title-clearly",
+      "text": "The designer of {title} clearly believed bevels and fillets were purely optional."
+    },
+    {
+      "id": "generic-title-has-arrived-ready-to",
+      "family": "generic-title-has-arrived-ready-to",
+      "text": "{title} has arrived, ready to hold dust with extraordinary structural endurance."
+    },
+    {
+      "id": "generic-you-sliced-title-with-high",
+      "family": "generic-you-sliced-title-with-high",
+      "text": "You sliced {title} with high hopes and printed it with low expectations."
+    },
+    {
+      "id": "generic-title-is-complete-another-victory",
+      "family": "generic-title-is-complete-another-victory",
+      "text": "{title} is complete; another victory for plastic over practical common sense."
+    },
+    {
+      "id": "generic-the-overhangs-on-title-are",
+      "family": "generic-the-overhangs-on-title-are",
+      "text": "The overhangs on {title} are sagging like a hammock in the summer."
+    },
+    {
+      "id": "generic-title-took-duration-the-printer",
+      "family": "generic-title-took-duration-the-printer",
+      "text": "{title} took {duration}; the printer deserves hazard pay for surviving that file."
+    },
+    {
+      "id": "generic-why-organize-your-workshop-when",
+      "family": "generic-why-organize-your-workshop-when",
+      "text": "Why organize your workshop when you can print {title} and add clutter?"
+    },
+    {
+      "id": "generic-title-looks-like-an-uncalibrated",
+      "family": "generic-title-looks-like-an-uncalibrated",
+      "text": "{title} looks like an uncalibrated extrusion test masquerading as functional art."
+    },
+    {
+      "id": "generic-the-stringing-on-title-is",
+      "family": "generic-the-stringing-on-title-is",
+      "text": "The stringing on {title} is so dense it qualifies as cobwebs."
+    },
+    {
+      "id": "generic-you-printed-title-using-grams",
+      "family": "generic-you-printed-title-using-grams",
+      "text": "You printed {title} using {grams} grams; the spool died for novelty trinkets."
+    },
+    {
+      "id": "generic-title-is-finished-now-begins",
+      "family": "generic-title-is-finished-now-begins",
+      "text": "{title} is finished; now begins the ritual of pretending you needed it."
+    },
+    {
+      "id": "generic-the-cad-file-for-title",
+      "family": "generic-the-cad-file-for-title",
+      "text": "The CAD file for {title} should have stayed in the recycling bin."
+    },
+    {
+      "id": "generic-title-took-duration-that-was",
+      "family": "generic-title-took-duration-that-was",
+      "text": "{title} took {duration}; that was ample time to reconsider downloading that file."
+    },
+    {
+      "id": "generic-that-bottom-layer-on-title",
+      "family": "generic-that-bottom-layer-on-title",
+      "text": "That bottom layer on {title} shows someone who fears the bed scraper."
+    },
+    {
+      "id": "generic-title-is-done-may-it",
+      "family": "generic-title-is-done-may-it",
+      "text": "{title} is done; may it bring mild amusement before gathering permanent dust."
+    },
+    {
+      "id": "generic-you-melted-grams-grams-for",
+      "family": "generic-you-melted-grams-grams-for",
+      "text": "You melted {grams} grams for {title}; the spool core is feeling neglected."
+    },
+    {
+      "id": "generic-title-has-the-exact-structural",
+      "family": "generic-title-has-the-exact-structural",
+      "text": "{title} has the exact structural stability of a hollow chocolate bunny."
+    },
+    {
+      "id": "generic-the-slicer-promised-clean-corners",
+      "family": "generic-the-slicer-promised-clean-corners",
+      "text": "The slicer promised clean corners; {title} arrived with rounded existential dread."
+    },
+    {
+      "id": "generic-title-is-twenty-layers-of",
+      "family": "generic-title-is-twenty-layers-of",
+      "text": "{title} is twenty layers of hope and eighty layers of stubborn persistence."
+    },
+    {
+      "id": "generic-you-printed-title-please-do",
+      "family": "generic-you-printed-title-please-do",
+      "text": "You printed {title}; please do not show this to actual professional engineers."
+    },
+    {
+      "id": "generic-title-took-duration-your-patience",
+      "family": "generic-title-took-duration-your-patience",
+      "text": "{title} took {duration}; your patience was tested, and taste was completely absent."
+    },
+    {
+      "id": "generic-the-retraction-settings-on-title",
+      "family": "generic-the-retraction-settings-on-title",
+      "text": "The retraction settings on {title} were more suggestion than enforceable engineering rule."
+    },
+    {
+      "id": "generic-title-is-off-the-plate",
+      "family": "generic-title-is-off-the-plate",
+      "text": "{title} is off the plate; the scrap bin sighs in eager anticipation."
+    },
+    {
+      "id": "generic-you-downloaded-title-from-page",
+      "family": "generic-you-downloaded-title-from-page",
+      "text": "You downloaded {title} from page seven of search results; it truly shows."
+    },
+    {
+      "id": "generic-title-used-grams-grams-that",
+      "family": "generic-title-used-grams-grams-that",
+      "text": "{title} used {grams} grams; that plastic deserved a far nobler final form."
+    },
+    {
+      "id": "generic-that-seam-on-title-is",
+      "family": "generic-that-seam-on-title-is",
+      "text": "That seam on {title} is bolder than the person who sliced it."
+    },
+    {
+      "id": "generic-title-has-finished-your-desk",
+      "family": "generic-title-has-finished-your-desk",
+      "text": "{title} has finished; your desk will never recover that square footage again."
+    },
+    {
+      "id": "generic-you-gave-title-duration-of",
+      "family": "generic-you-gave-title-duration-of",
+      "text": "You gave {title} {duration} of your life; no refunds will be issued."
+    },
+    {
+      "id": "generic-title-looks-like-a-test",
+      "family": "generic-title-looks-like-a-test",
+      "text": "{title} looks like a test print that got wildly out of hand."
+    },
+    {
+      "id": "generic-the-bridge-layers-on-title",
+      "family": "generic-the-bridge-layers-on-title",
+      "text": "The bridge layers on {title} sagged lower than your standards for downloads."
+    },
+    {
+      "id": "generic-title-consumed-grams-grams-of",
+      "family": "generic-title-consumed-grams-grams-of",
+      "text": "{title} consumed {grams} grams of spool; the environmental cost was undeniably real."
+    },
+    {
+      "id": "generic-slicing-title-was-fast-regretting",
+      "family": "generic-slicing-title-was-fast-regretting",
+      "text": "Slicing {title} was fast; regretting the print will take several calendar months."
+    },
+    {
+      "id": "generic-title-sits-on-the-bench",
+      "family": "generic-title-sits-on-the-bench",
+      "text": "{title} sits on the bench like a plastic monument to late-night browsing."
+    },
+    {
+      "id": "generic-the-dimensional-accuracy-of-title",
+      "family": "generic-the-dimensional-accuracy-of-title",
+      "text": "The dimensional accuracy of {title} is best described as emotionally approximate."
+    },
+    {
+      "id": "generic-you-printed-title-now-explain",
+      "family": "generic-you-printed-title-now-explain",
+      "text": "You printed {title}; now explain its function without using hand gestures once."
+    },
+    {
+      "id": "generic-title-took-duration-the-stepper",
+      "family": "generic-title-took-duration-the-stepper",
+      "text": "{title} took {duration}; the stepper motors were screaming inside all afternoon long."
+    },
+    {
+      "id": "generic-that-support-material-on-title",
+      "family": "generic-that-support-material-on-title",
+      "text": "That support material on {title} had a cleaner finish than the model."
+    },
+    {
+      "id": "generic-title-is-done-add-it",
+      "family": "generic-title-is-done-add-it",
+      "text": "{title} is done; add it to the museum of questionable filament expenditures."
+    },
+    {
+      "id": "generic-you-sacrificed-grams-grams-for",
+      "family": "generic-you-sacrificed-grams-grams-for",
+      "text": "You sacrificed {grams} grams for {title}; the spool core is visibly weeping."
+    },
+    {
+      "id": "generic-title-proves-that-default-slicer",
+      "family": "generic-title-proves-that-default-slicer",
+      "text": "{title} proves that default slicer profiles have limits when testing human patience."
+    },
+    {
+      "id": "generic-the-infill-inside-title-is",
+      "family": "generic-the-infill-inside-title-is",
+      "text": "The infill inside {title} is rattling around like loose pocket change already."
+    },
+    {
+      "id": "generic-title-took-duration-to-prove-2",
+      "family": "generic-title-took-duration-to-prove-2",
+      "text": "{title} took {duration} to prove that not every CAD model deserves extruding."
+    },
+    {
+      "id": "generic-you-peeled-title-off-the",
+      "family": "generic-you-peeled-title-off-the",
+      "text": "You peeled {title} off the bed; the plate scraper earned hazard pay."
+    },
+    {
+      "id": "generic-title-looks-like-a-rough",
+      "family": "generic-title-looks-like-a-rough",
+      "text": "{title} looks like a rough draft that somehow escaped into physical reality."
+    },
+    {
+      "id": "generic-the-layer-lines-on-title",
+      "family": "generic-the-layer-lines-on-title",
+      "text": "The layer lines on {title} have their own distinct topographic elevation profile."
+    },
+    {
+      "id": "generic-title-used-grams-grams-that-2",
+      "family": "generic-title-used-grams-grams-that-2",
+      "text": "{title} used {grams} grams; that was a very heavy tribute to procrastination."
+    },
+    {
+      "id": "generic-you-printed-title-the-laws",
+      "family": "generic-you-printed-title-the-laws",
+      "text": "You printed {title}; the laws of aesthetics have officially filed a grievance."
+    },
+    {
+      "id": "generic-title-is-complete-place-it",
+      "family": "generic-title-is-complete-place-it",
+      "text": "{title} is complete; place it somewhere visitors will not immediately ask questions."
+    },
+    {
+      "id": "generic-the-cooling-fan-blew-bravely",
+      "family": "generic-the-cooling-fan-blew-bravely",
+      "text": "The cooling fan blew bravely, but {title} melted its dignity anyway today."
+    },
+    {
+      "id": "generic-title-took-duration-of-electricity",
+      "family": "generic-title-took-duration-of-electricity",
+      "text": "{title} took {duration} of electricity to create three grams of functional usefulness."
+    },
+    {
+      "id": "generic-that-top-layer-of-title",
+      "family": "generic-that-top-layer-of-title",
+      "text": "That top layer of {title} looks like an aerial view of farmland."
+    },
+    {
+      "id": "generic-you-printed-title-the-spool-2",
+      "family": "generic-you-printed-title-the-spool-2",
+      "text": "You printed {title}; the spool will require therapy before starting the next."
+    },
+    {
+      "id": "generic-title-has-the-structural-confidence",
+      "family": "generic-title-has-the-structural-confidence",
+      "text": "{title} has the structural confidence of a sandcastle facing an incoming tide."
+    },
+    {
+      "id": "generic-the-preview-of-title-lied",
+      "family": "generic-the-preview-of-title-lied",
+      "text": "The preview of {title} lied, the slicer lied, but reality never blinks."
+    },
+    {
+      "id": "generic-title-used-grams-grams-the",
+      "family": "generic-title-used-grams-grams-the",
+      "text": "{title} used {grams} grams; the plastic will outlive our collective memory easily."
+    },
+    {
+      "id": "generic-you-printed-title-this-is",
+      "family": "generic-you-printed-title-this-is",
+      "text": "You printed {title}; this is why some workshops require two-factor authentication."
+    },
+    {
+      "id": "generic-title-is-finished-please-photograph",
+      "family": "generic-title-is-finished-please-photograph",
+      "text": "{title} is finished; please photograph it before gravity discovers the weak joints."
+    },
+    {
+      "id": "generic-the-bed-held-onto-title",
+      "family": "generic-the-bed-held-onto-title",
+      "text": "The bed held onto {title} tighter than you held onto common sense."
+    },
+    {
+      "id": "generic-title-took-duration-that-is",
+      "family": "generic-title-took-duration-that-is",
+      "text": "{title} took {duration}; that is quite a while to wait for clutter."
+    },
+    {
+      "id": "generic-you-downloaded-title-the-author",
+      "family": "generic-you-downloaded-title-the-author",
+      "text": "You downloaded {title}; the author owes your filament spool a formal apology."
+    },
+    {
+      "id": "generic-title-is-off-the-bed",
+      "family": "generic-title-is-off-the-bed",
+      "text": "{title} is off the bed, looking like an unsolved puzzle in plastic."
+    },
+    {
+      "id": "generic-that-perimeter-on-title-was",
+      "family": "generic-that-perimeter-on-title-was",
+      "text": "That perimeter on {title} was laid down with more optimism than adhesion."
+    },
+    {
+      "id": "generic-title-took-grams-grams-may",
+      "family": "generic-title-took-grams-grams-may",
+      "text": "{title} took {grams} grams; may it rest peacefully beside the other trinkets."
+    },
+    {
+      "id": "generic-you-printed-title-the-machine",
+      "family": "generic-you-printed-title-the-machine",
+      "text": "You printed {title}; the machine complied, but the warranty looked away nervously."
+    },
+    {
+      "id": "generic-title-is-finished-and-the",
+      "family": "generic-title-is-finished-and-the",
+      "text": "{title} is finished, and the room is officially one plastic object more crowded."
+    },
+    {
+      "id": "generic-title-exists-now-which-settles",
+      "family": "generic-title-exists-now-which-settles",
+      "text": "{title} exists now, which settles several arguments nobody was having."
+    },
+    {
+      "id": "generic-somewhere-between-useful-and-delightful",
+      "family": "generic-somewhere-between-useful-and-delightful",
+      "text": "Somewhere between useful and delightful, {title} found its exact address."
+    },
+    {
+      "id": "generic-title-in-color-has-the",
+      "family": "generic-title-in-color-has-the",
+      "text": "{title} in {color} has the confidence of a print half its layer count."
+    },
+    {
+      "id": "generic-the-plan-was-a-quick",
+      "family": "generic-the-plan-was-a-quick",
+      "text": "The plan was a quick print; {title} had other, better-documented ideas."
+    },
+    {
+      "id": "generic-title-finished-and-immediately-became",
+      "family": "generic-title-finished-and-immediately-became",
+      "text": "{title} finished and immediately became the reference photo for itself."
+    },
+    {
+      "id": "generic-another-successful-negotiation-between-printer",
+      "family": "generic-another-successful-negotiation-between-printer",
+      "text": "Another successful negotiation between {printer} and gravity, starring {title}."
+    },
+    {
+      "id": "generic-title-proves-the-download-folder",
+      "family": "generic-title-proves-the-download-folder",
+      "text": "{title} proves the download folder is a legitimate design studio."
+    },
+    {
+      "id": "generic-shelf-management-has-been-notified",
+      "family": "generic-shelf-management-has-been-notified",
+      "text": "Shelf management has been notified: {title} requires a prominent position."
+    },
+    {
+      "id": "generic-title-came-out-so-clean",
+      "family": "generic-title-came-out-so-clean",
+      "text": "{title} came out so clean that the supports apologized on their way out."
+    },
+    {
+      "id": "generic-it-is-not-hoarding-if",
+      "family": "generic-it-is-not-hoarding-if",
+      "text": "It is not hoarding if {title} is this well made; it is archiving."
+    },
+    {
+      "id": "generic-title-survived-the-slice-the",
+      "family": "generic-title-survived-the-slice-the",
+      "text": "{title} survived the slice, the print, and the ceremonial first inspection."
+    },
+    {
+      "id": "generic-the-household-gains-a-title",
+      "family": "generic-the-household-gains-a-title",
+      "text": "The household gains a {title} and loses a small amount of free surface."
+    },
+    {
+      "id": "generic-title-has-the-energy-of",
+      "family": "generic-title-has-the-energy-of",
+      "text": "{title} has the energy of a print that knew the camera was watching."
+    },
+    {
+      "id": "generic-filed-under-triumphs-title-printed",
+      "family": "generic-filed-under-triumphs-title-printed",
+      "text": "Filed under triumphs: {title}, printed in {material} and already beloved."
+    },
+    {
+      "id": "generic-title-is-done-dusted-and",
+      "family": "generic-title-is-done-dusted-and",
+      "text": "{title} is done, dusted, and quietly outclassing its neighbors."
+    },
+    {
+      "id": "generic-nobody-needed-title-urgently-and",
+      "family": "generic-nobody-needed-title-urgently-and",
+      "text": "Nobody needed {title} urgently, and yet here it is, essential as ever."
+    },
+    {
+      "id": "generic-title-joins-the-collection-with",
+      "family": "generic-title-joins-the-collection-with",
+      "text": "{title} joins the collection with the poise of a print twice as expensive."
+    },
+    {
+      "id": "generic-a-crisp-finish-on-title",
+      "family": "generic-a-crisp-finish-on-title",
+      "text": "A crisp finish on {title}, courtesy of patience and suspiciously good settings."
+    },
+    {
+      "id": "generic-title-wraps-up-like-it",
+      "family": "generic-title-wraps-up-like-it",
+      "text": "{title} wraps up like it read the manual and followed most of it."
+    },
+    {
+      "id": "generic-the-printer-hummed-the-hours",
+      "family": "generic-the-printer-hummed-the-hours",
+      "text": "The printer hummed, the hours passed, and {title} rewarded everyone involved."
+    }
+  ]
 }
