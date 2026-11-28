@@ -1,532 +1,532 @@
 {
- "_about": "Failed prints only. Gentle: the target is the print, never the operator.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
- "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
- "entries": [
-  {
-   "id": "failed-title-gave-it-a-brave",
-   "family": "failed-title-gave-it-a-brave",
-   "text": "{title} gave it a brave try, but the print bed had other plans for {material} today."
-  },
-  {
-   "id": "failed-pour-one-out-for-title",
-   "family": "failed-pour-one-out-for-title",
-   "text": "Pour one out for {title}: {grams} grams of {material} that dreamed of being useful."
-  },
-  {
-   "id": "failed-title-has-officially-retired-early",
-   "family": "failed-title-has-officially-retired-early",
-   "text": "{title} has officially retired early, with {duration} of effort and absolutely no regrets shown."
-  },
-  {
-   "id": "failed-the-printer-tried-its-best",
-   "family": "failed-the-printer-tried-its-best",
-   "text": "The printer tried its best on {title}, and the results suggest its best took the day off."
-  },
-  {
-   "id": "failed-title-ended-as-a-modern",
-   "family": "failed-title-ended-as-a-modern",
-   "text": "{title} ended as a modern art piece, assuming the art is titled Almost Worked."
-  },
-  {
-   "id": "failed-color-was-a-bold-choice",
-   "family": "failed-color-was-a-bold-choice",
-   "text": "{color} was a bold choice for {title}, right up until gravity filed its complaint."
-  },
-  {
-   "id": "failed-title-made-it-impressively-far",
-   "family": "failed-title-made-it-impressively-far",
-   "text": "{title} made it impressively far before deciding that finished was simply too mainstream."
-  },
-  {
-   "id": "failed-somewhere-grams-grams-of-color",
-   "family": "failed-somewhere-grams-grams-of-color",
-   "text": "Somewhere, {grams} grams of {color} {material} are telling stories about the one that got away."
-  },
-  {
-   "id": "failed-title-is-not-a-failure",
-   "family": "failed-title-is-not-a-failure",
-   "text": "{title} is not a failure, it is an extremely expensive rough draft."
-  },
-  {
-   "id": "failed-printer-did-everything-asked-of",
-   "family": "failed-printer-did-everything-asked-of",
-   "text": "{printer} did everything asked of it, and somehow {title} still chose chaos."
-  },
-  {
-   "id": "failed-title-spent-duration-becoming-a",
-   "family": "failed-title-spent-duration-becoming-a",
-   "text": "{title} spent {duration} becoming a valuable lesson wearing a {material} costume."
-  },
-  {
-   "id": "failed-the-good-news-is-that",
-   "family": "failed-the-good-news-is-that",
-   "text": "The good news is that {title} failed fast enough that hope never settled in."
-  },
-  {
-   "id": "failed-title-reached-for-greatness-and",
-   "family": "failed-title-reached-for-greatness-and",
-   "text": "{title} reached for greatness and grabbed a tangle instead, which is honestly relatable."
-  },
-  {
-   "id": "failed-consider-title-a-limited-edition",
-   "family": "failed-consider-title-a-limited-edition",
-   "text": "Consider {title} a limited edition: one of one, because we are never doing that again."
-  },
-  {
-   "id": "failed-material-deserved-better-than-title",
-   "family": "failed-material-deserved-better-than-title",
-   "text": "{material} deserved better than {title}, but it got a memorable story instead."
-  },
-  {
-   "id": "failed-title-has-been-promoted-from",
-   "family": "failed-title-has-been-promoted-from",
-   "text": "{title} has been promoted from print job to cautionary tale, effective immediately."
-  },
-  {
-   "id": "failed-after-duration-title-concluded-its",
-   "family": "failed-after-duration-title-concluded-its",
-   "text": "After {duration}, {title} concluded its journey exactly one miracle short of success."
-  },
-  {
-   "id": "failed-title-looked-promising-in-the",
-   "family": "failed-title-looked-promising-in-the",
-   "text": "{title} looked promising in the preview, which makes this betrayal sting a little more."
-  },
-  {
-   "id": "failed-the-first-layers-of-title",
-   "family": "failed-the-first-layers-of-title",
-   "text": "The first layers of {title} were perfect, a strong start to a short career."
-  },
-  {
-   "id": "failed-printer-requests-that-we-never",
-   "family": "failed-printer-requests-that-we-never",
-   "text": "{printer} requests that we never speak of {title} again, and honestly, fair enough."
-  },
-  {
-   "id": "failed-title-is-proof-that-confidence",
-   "family": "failed-title-is-proof-that-confidence",
-   "text": "{title} is proof that confidence and competence are two entirely separate hobbies."
-  },
-  {
-   "id": "failed-we-spent-grams-grams-of",
-   "family": "failed-we-spent-grams-grams-of",
-   "text": "We spent {grams} grams of {material} learning what not to do, tuition well spent."
-  },
-  {
-   "id": "failed-title-failed-but-it-failed",
-   "family": "failed-title-failed-but-it-failed",
-   "text": "{title} failed, but it failed with commitment, and that counts for something small."
-  },
-  {
-   "id": "failed-file-title-under-experimental-results",
-   "family": "failed-file-title-under-experimental-results",
-   "text": "File {title} under experimental results, right next to the other expensive experiments."
-  },
-  {
-   "id": "failed-the-slicer-believed-in-title",
-   "family": "failed-the-slicer-believed-in-title",
-   "text": "The slicer believed in {title}, the bed believed in {title}, and physics had questions."
-  },
-  {
-   "id": "failed-title-in-color-was-going",
-   "family": "failed-title-in-color-was-going",
-   "text": "{title} in {color} was going to be beautiful, and technically it still is, abstractly."
-  },
-  {
-   "id": "failed-not-every-hero-finishes-and",
-   "family": "failed-not-every-hero-finishes-and",
-   "text": "Not every hero finishes, and {title} heroically stopped well before the finish line."
-  },
-  {
-   "id": "failed-duration-of-printing-produced-a",
-   "family": "failed-duration-of-printing-produced-a",
-   "text": "{duration} of printing produced a perfect example of why test prints exist."
-  },
-  {
-   "id": "failed-title-has-joined-the-scrap",
-   "family": "failed-title-has-joined-the-scrap",
-   "text": "{title} has joined the scrap bin, where it will be among friends and equals."
-  },
-  {
-   "id": "failed-rest-in-pieces-title-gone",
-   "family": "failed-rest-in-pieces-title-gone",
-   "text": "Rest in pieces, {title}: gone too soon, and also arguably never really here."
-  },
-  {
-   "id": "failed-title-did-not-finish-but",
-   "family": "failed-title-did-not-finish-but",
-   "text": "{title} did not finish, but the printer submitted an extremely persuasive rough draft."
-  },
-  {
-   "id": "failed-title-discovered-the-exact-point",
-   "family": "failed-title-discovered-the-exact-point",
-   "text": "{title} discovered the exact point where optimism loses adhesion."
-  },
-  {
-   "id": "failed-the-prototype-called-title-has",
-   "family": "failed-the-prototype-called-title-has",
-   "text": "The prototype called {title} has advanced directly to the lessons-learned department."
-  },
-  {
-   "id": "failed-title-failed-its-audition-for",
-   "family": "failed-title-failed-its-audition-for",
-   "text": "{title} failed its audition for objecthood; the filament still deserves a mention."
-  },
-  {
-   "id": "failed-title-ended-early-leaving-the",
-   "family": "failed-title-ended-early-leaving-the",
-   "text": "{title} ended early, leaving the build plate with several unanswered questions."
-  },
-  {
-   "id": "failed-the-printer-filed-title-under",
-   "family": "failed-the-printer-filed-title-under",
-   "text": "The printer filed {title} under promising concept, unfortunate execution."
-  },
-  {
-   "id": "failed-title-made-progress-then-gravity",
-   "family": "failed-title-made-progress-then-gravity",
-   "text": "{title} made progress, then gravity requested a recount."
-  },
-  {
-   "id": "failed-title-is-now-a-cautionary",
-   "family": "failed-title-is-now-a-cautionary",
-   "text": "{title} is now a cautionary tale with excellent layer-by-layer documentation."
-  },
-  {
-   "id": "failed-title-has-flatlined-on-the",
-   "family": "failed-title-has-flatlined-on-the",
-   "text": "{title} has flatlined on the print bed; funeral arrangements are currently pending."
-  },
-  {
-   "id": "failed-a-moment-of-silence-for",
-   "family": "failed-a-moment-of-silence-for",
-   "text": "A moment of silence for {title}, which chose chaotic detachment over completion."
-  },
-  {
-   "id": "failed-title-has-been-transferred-to",
-   "family": "failed-title-has-been-transferred-to",
-   "text": "{title} has been transferred to the scrap bin morgue without further ceremony."
-  },
-  {
-   "id": "failed-the-bed-adhesion-betrayed-title",
-   "family": "failed-the-bed-adhesion-betrayed-title",
-   "text": "The bed adhesion betrayed {title}, sending another plastic dream into early retirement."
-  },
-  {
-   "id": "failed-title-suffered-catastrophic-delamination-the",
-   "family": "failed-title-suffered-catastrophic-delamination-the",
-   "text": "{title} suffered catastrophic delamination; the scrap bin welcomes its newest victim."
-  },
-  {
-   "id": "failed-lay-title-to-rest-the",
-   "family": "failed-lay-title-to-rest-the",
-   "text": "Lay {title} to rest; the nozzle gave up halfway through layer forty."
-  },
-  {
-   "id": "failed-title-ended-its-brief-earthly",
-   "family": "failed-title-ended-its-brief-earthly",
-   "text": "{title} ended its brief earthly existence as an unidentifiable plastic tumbleweed."
-  },
-  {
-   "id": "failed-the-print-bed-evicted-title",
-   "family": "failed-the-print-bed-evicted-title",
-   "text": "The print bed evicted {title} without notice; condolences to the spool."
-  },
-  {
-   "id": "failed-title-expired-after-duration-an",
-   "family": "failed-title-expired-after-duration-an",
-   "text": "{title} expired after {duration}; an obituary will not be published."
-  },
-  {
-   "id": "failed-the-coroner-reports-title-suffered",
-   "family": "failed-the-coroner-reports-title-suffered",
-   "text": "The coroner reports {title} suffered from fatal warp and complete loss of dignity."
-  },
-  {
-   "id": "failed-title-has-departed-this-world",
-   "family": "failed-title-has-departed-this-world",
-   "text": "{title} has departed this world, leaving behind {grams} grams of tangled sorrow."
-  },
-  {
-   "id": "failed-bed-adhesion-failed-title-the",
-   "family": "failed-bed-adhesion-failed-title-the",
-   "text": "Bed adhesion failed {title}; the burial plot in the scrap bucket awaits."
-  },
-  {
-   "id": "failed-title-fought-gravity-bravely-and",
-   "family": "failed-title-fought-gravity-bravely-and",
-   "text": "{title} fought gravity bravely and lost with astonishing speed and drama."
-  },
-  {
-   "id": "failed-an-untimely-demise-for-title",
-   "family": "failed-an-untimely-demise-for-title",
-   "text": "An untimely demise for {title}; the nozzle simply walked away in protest."
-  },
-  {
-   "id": "failed-title-has-officially-joined-the",
-   "family": "failed-title-has-officially-joined-the",
-   "text": "{title} has officially joined the plastic afterlife; play the funeral dirge softly."
-  },
-  {
-   "id": "failed-the-first-layer-promised-stability",
-   "family": "failed-the-first-layer-promised-stability",
-   "text": "The first layer promised stability, but {title} chose early collapse instead."
-  },
-  {
-   "id": "failed-title-perished-after-duration-please",
-   "family": "failed-title-perished-after-duration-please",
-   "text": "{title} perished after {duration}; please respect the grieving spool during this time."
-  },
-  {
-   "id": "failed-a-tragic-end-for-title",
-   "family": "failed-a-tragic-end-for-title",
-   "text": "A tragic end for {title}; {printer} has disavowed all responsibility."
-  },
-  {
-   "id": "failed-title-detached-mid-print-turning",
-   "family": "failed-title-detached-mid-print-turning",
-   "text": "{title} detached mid-print, turning {grams} grams into pure sorrow."
-  },
-  {
-   "id": "failed-the-autopsy-of-title-revealed",
-   "family": "failed-the-autopsy-of-title-revealed",
-   "text": "The autopsy of {title} revealed zero bed adhesion and extreme overambition."
-  },
-  {
-   "id": "failed-title-collapsed-into-abstract-geometry",
-   "family": "failed-title-collapsed-into-abstract-geometry",
-   "text": "{title} collapsed into abstract geometry; the recycling bin opens its loving arms."
-  },
-  {
-   "id": "failed-another-fallen-comrade-title-lost",
-   "family": "failed-another-fallen-comrade-title-lost",
-   "text": "Another fallen comrade: {title} lost its grip and plummeted into despair."
-  },
-  {
-   "id": "failed-title-has-concluded-its-brief",
-   "family": "failed-title-has-concluded-its-brief",
-   "text": "{title} has concluded its brief run as modern art nobody requested."
-  },
-  {
-   "id": "failed-the-obituary-for-title-notes",
-   "family": "failed-the-obituary-for-title-notes",
-   "text": "The obituary for {title} notes that bed leveling was entirely optional today."
-  },
-  {
-   "id": "failed-title-expired-on-the-plate",
-   "family": "failed-title-expired-on-the-plate",
-   "text": "{title} expired on the plate; cause of demise was sudden layer shift."
-  },
-  {
-   "id": "failed-gone-too-soon-title-has",
-   "family": "failed-gone-too-soon-title-has",
-   "text": "Gone too soon: {title} has retired to the bucket of broken dreams."
-  },
-  {
-   "id": "failed-title-surrendered-after-duration-proving",
-   "family": "failed-title-surrendered-after-duration-proving",
-   "text": "{title} surrendered after {duration}, proving physics remains completely undefeated."
-  },
-  {
-   "id": "failed-we-mourn-title-which-promised",
-   "family": "failed-we-mourn-title-which-promised",
-   "text": "We mourn {title}, which promised a functional part and delivered loose string."
-  },
-  {
-   "id": "failed-title-was-called-home-to",
-   "family": "failed-title-was-called-home-to",
-   "text": "{title} was called home to the scrap bin ahead of schedule."
-  },
-  {
-   "id": "failed-the-bed-plate-rejected-title",
-   "family": "failed-the-bed-plate-rejected-title",
-   "text": "The bed plate rejected {title} like a bad organ transplant."
-  },
-  {
-   "id": "failed-title-met-an-untimely-end",
-   "family": "failed-title-met-an-untimely-end",
-   "text": "{title} met an untimely end; the spatula will conduct the final rites."
-  },
-  {
-   "id": "failed-memorial-services-for-title-will",
-   "family": "failed-memorial-services-for-title-will",
-   "text": "Memorial services for {title} will be held near the workshop bin."
-  },
-  {
-   "id": "failed-title-flatlined-after-duration-the",
-   "family": "failed-title-flatlined-after-duration-the",
-   "text": "{title} flatlined after {duration}; the bed scraper performed the final extraction."
-  },
-  {
-   "id": "failed-the-nozzle-betrayed-title-turning",
-   "family": "failed-the-nozzle-betrayed-title-turning",
-   "text": "The nozzle betrayed {title}, turning solid ambition into melted plastic sorrow."
-  },
-  {
-   "id": "failed-title-has-been-declared-structurally",
-   "family": "failed-title-has-been-declared-structurally",
-   "text": "{title} has been declared structurally deceased by the local workshop authority."
-  },
-  {
-   "id": "failed-bed-adhesion-vanished-taking-title",
-   "family": "failed-bed-adhesion-vanished-taking-title",
-   "text": "Bed adhesion vanished, taking {title} down into the abyss of failure."
-  },
-  {
-   "id": "failed-title-gave-up-halfway-leaving",
-   "family": "failed-title-gave-up-halfway-leaving",
-   "text": "{title} gave up halfway, leaving an abstract memorial to poor calibration."
-  },
-  {
-   "id": "failed-the-spool-mourns-title-which",
-   "family": "failed-the-spool-mourns-title-which",
-   "text": "The spool mourns {title}, which used {grams} grams before collapsing completely."
-  },
-  {
-   "id": "failed-title-slipped-off-the-plate",
-   "family": "failed-title-slipped-off-the-plate",
-   "text": "{title} slipped off the plate and broke its little plastic spine."
-  },
-  {
-   "id": "failed-final-diagnosis-for-title-lack",
-   "family": "failed-final-diagnosis-for-title-lack",
-   "text": "Final diagnosis for {title}: lack of adhesion, excess optimism, terminal detachment."
-  },
-  {
-   "id": "failed-title-has-fallen-may-its",
-   "family": "failed-title-has-fallen-may-its",
-   "text": "{title} has fallen; may its layer lines find peace in the scrap bin."
-  },
-  {
-   "id": "failed-an-obituary-for-title-lived",
-   "family": "failed-an-obituary-for-title-lived",
-   "text": "An obituary for {title}: lived for {duration}, remembered for stringing."
-  },
-  {
-   "id": "failed-title-curled-at-the-corners",
-   "family": "failed-title-curled-at-the-corners",
-   "text": "{title} curled at the corners and perished from acute lack of grip."
-  },
-  {
-   "id": "failed-the-build-surface-disowned-title",
-   "family": "failed-the-build-surface-disowned-title",
-   "text": "The build surface disowned {title}; the scrap pile welcomed another orphan."
-  },
-  {
-   "id": "failed-title-suffered-an-unrecoverable-layer",
-   "family": "failed-title-suffered-an-unrecoverable-layer",
-   "text": "{title} suffered an unrecoverable layer shift and lost all self-respect."
-  },
-  {
-   "id": "failed-a-sudden-draft-ended-title",
-   "family": "failed-a-sudden-draft-ended-title",
-   "text": "A sudden draft ended {title}; physics showed zero sympathy on the bed."
-  },
-  {
-   "id": "failed-title-expired-after-brief-struggle",
-   "family": "failed-title-expired-after-brief-struggle",
-   "text": "{title} expired after brief struggle; burial will take place in municipal landfill."
-  },
-  {
-   "id": "failed-in-memory-of-title-grams",
-   "family": "failed-in-memory-of-title-grams",
-   "text": "In memory of {title}: {grams} grams that flew too close to the nozzle."
-  },
-  {
-   "id": "failed-title-lost-its-footing-and",
-   "family": "failed-title-lost-its-footing-and",
-   "text": "{title} lost its footing and faceplanted into the molten plastic abyss."
-  },
-  {
-   "id": "failed-the-bed-scraper-will-now",
-   "family": "failed-the-bed-scraper-will-now",
-   "text": "The bed scraper will now perform the final autopsy on {title}."
-  },
-  {
-   "id": "failed-title-suffered-premature-detachment-funeral",
-   "family": "failed-title-suffered-premature-detachment-funeral",
-   "text": "{title} suffered premature detachment; funeral flowers may be sent to the bin."
-  },
-  {
-   "id": "failed-the-brief-life-of-title",
-   "family": "failed-the-brief-life-of-title",
-   "text": "The brief life of {title} ended when gravity filed an emergency injunction."
-  },
-  {
-   "id": "failed-title-has-ceased-all-biological",
-   "family": "failed-title-has-ceased-all-biological",
-   "text": "{title} has ceased all biological and mechanical functions on this plate."
-  },
-  {
-   "id": "failed-farewell-title-your-layers-were",
-   "family": "failed-farewell-title-your-layers-were",
-   "text": "Farewell {title}; your layers were ambitious, but your foundation was pure fiction."
-  },
-  {
-   "id": "failed-title-entered-the-scrap-bin",
-   "family": "failed-title-entered-the-scrap-bin",
-   "text": "{title} entered the scrap bin without passing go or collecting dignity."
-  },
-  {
-   "id": "failed-the-coroner-declared-title-non",
-   "family": "failed-the-coroner-declared-title-non",
-   "text": "The coroner declared {title} non-viable after that aggressive layer shift."
-  },
-  {
-   "id": "failed-title-is-gone-the-hotend",
-   "family": "failed-title-is-gone-the-hotend",
-   "text": "{title} is gone; the hotend has already moved on without remorse."
-  },
-  {
-   "id": "failed-title-gave-its-all-which",
-   "family": "failed-title-gave-its-all-which",
-   "text": "{title} gave its all, which turned out to be most of a print."
-  },
-  {
-   "id": "failed-the-first-layers-believed-in",
-   "family": "failed-the-first-layers-believed-in",
-   "text": "The first layers believed in {title}; the upper layers filed a complaint."
-  },
-  {
-   "id": "failed-title-is-survived-by-its",
-   "family": "failed-title-is-survived-by-its",
-   "text": "{title} is survived by its brim, its purge line, and valuable lessons."
-  },
-  {
-   "id": "failed-a-valiant-attempt-at-title",
-   "family": "failed-a-valiant-attempt-at-title",
-   "text": "A valiant attempt at {title}, now serving as a troubleshooting exhibit."
-  },
-  {
-   "id": "failed-printer-produced-a-limited-edition",
-   "family": "failed-printer-produced-a-limited-edition",
-   "text": "{printer} produced a limited edition abstract interpretation of {title}."
-  },
-  {
-   "id": "failed-title-reached-for-greatness-and-2",
-   "family": "failed-title-reached-for-greatness-and-2",
-   "text": "{title} reached for greatness and achieved a very educational altitude."
-  },
-  {
-   "id": "failed-the-print-stopped-the-learning",
-   "family": "failed-the-print-stopped-the-learning",
-   "text": "The print stopped, the learning continued, and {title} took one for science."
-  },
-  {
-   "id": "failed-title-is-not-finished-but",
-   "family": "failed-title-is-not-finished-but",
-   "text": "{title} is not finished, but it is finished enough to be remembered."
-  },
-  {
-   "id": "failed-gravity-and-adhesion-held-a",
-   "family": "failed-gravity-and-adhesion-held-a",
-   "text": "Gravity and adhesion held a meeting about {title} and reached no consensus."
-  },
-  {
-   "id": "failed-title-joins-the-honorable-shelf",
-   "family": "failed-title-joins-the-honorable-shelf",
-   "text": "{title} joins the honorable shelf of prints that taught us something."
-  }
- ]
+  "_about": "Failed prints only. Gentle: the target is the print, never the operator.",
+  "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
+  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+  "entries": [
+    {
+      "id": "failed-sharp-v2-1",
+      "family": "failed-sharp-v2-1",
+      "text": "Even Boeing would investigate this."
+    },
+    {
+      "id": "failed-sharp-v2-2",
+      "family": "failed-sharp-v2-2",
+      "text": "The printer has converted a design problem into a waste management problem."
+    },
+    {
+      "id": "failed-sharp-v2-3",
+      "family": "failed-sharp-v2-3",
+      "text": "The autopsy is going to list ambition as a contributing factor."
+    },
+    {
+      "id": "failed-sharp-v2-4",
+      "family": "failed-sharp-v2-4",
+      "text": "A project with the fiscal discipline of a stadium built for the Olympics."
+    },
+    {
+      "id": "failed-sharp-v2-5",
+      "family": "failed-sharp-v2-5",
+      "text": "The failure has been promoted to an educational experience to protect management."
+    },
+    {
+      "id": "failed-sharp-v2-6",
+      "family": "failed-sharp-v2-6",
+      "text": "At least the landfill won't need to read the assembly instructions."
+    },
+    {
+      "id": "failed-sharp-v2-7",
+      "family": "failed-sharp-v2-7",
+      "text": "The slicer had a plan; the laws of physics had a counteroffer."
+    },
+    {
+      "id": "failed-sharp-v2-8",
+      "family": "failed-sharp-v2-8",
+      "text": "The evidence suggests the quality assurance department was a decorative feature."
+    },
+    {
+      "id": "failed-sharp-v2-9",
+      "family": "failed-sharp-v2-9",
+      "text": "That is a remarkably expensive way to produce a reason to start over."
+    },
+    {
+      "id": "failed-sharp-v2-10",
+      "family": "failed-sharp-v2-10",
+      "text": "The printer has delivered a physical representation of the phrase unforeseen circumstances."
+    },
+    {
+      "id": "failed-sharp-v2-11",
+      "family": "failed-sharp-v2-11",
+      "text": "An engineering disaster small enough to fit in a household trash can."
+    },
+    {
+      "id": "failed-sharp-v2-12",
+      "family": "failed-sharp-v2-12",
+      "text": "The prototype will be displayed at the museum of preventable expenses."
+    },
+    {
+      "id": "failed-sharp-v2-13",
+      "family": "failed-sharp-v2-13",
+      "text": "The investor presentation conveniently omitted this part."
+    },
+    {
+      "id": "failed-sharp-v2-14",
+      "family": "failed-sharp-v2-14",
+      "text": "Gravity remains undefeated, despite repeated attempts to appeal the verdict."
+    },
+    {
+      "id": "failed-sharp-v2-15",
+      "family": "failed-sharp-v2-15",
+      "text": "The project is now under review by the department of absolutely not."
+    },
+    {
+      "id": "failed-sharp-v2-16",
+      "family": "failed-sharp-v2-16",
+      "text": "The final product has been recalled before it could be introduced."
+    },
+    {
+      "id": "failed-sharp-v2-17",
+      "family": "failed-sharp-v2-17",
+      "text": "The printer's work has entered the forensic phase of manufacturing."
+    },
+    {
+      "id": "failed-sharp-v2-18",
+      "family": "failed-sharp-v2-18",
+      "text": "The business case for buying this machine is becoming increasingly theoretical."
+    },
+    {
+      "id": "failed-sharp-v2-19",
+      "family": "failed-sharp-v2-19",
+      "text": "The build plate has requested a new creative director."
+    },
+    {
+      "id": "failed-sharp-v2-20",
+      "family": "failed-sharp-v2-20",
+      "text": "The design team would like to emphasize that this was not the intended deliverable."
+    },
+    {
+      "id": "failed-sharp-v2-21",
+      "family": "failed-sharp-v2-21",
+      "text": "The machine has produced a souvenir from the alternative timeline where nothing worked."
+    },
+    {
+      "id": "failed-sharp-v2-22",
+      "family": "failed-sharp-v2-22",
+      "text": "Congratulations on discovering a new and unprofitable form of waste."
+    },
+    {
+      "id": "failed-sharp-v2-23",
+      "family": "failed-sharp-v2-23",
+      "text": "A technical problem that has successfully evolved into a personal expense."
+    },
+    {
+      "id": "failed-sharp-v2-24",
+      "family": "failed-sharp-v2-24",
+      "text": "Even the recycling bin wants to see the original specifications."
+    },
+    {
+      "id": "failed-sharp-v2-25",
+      "family": "failed-sharp-v2-25",
+      "text": "The postmortem should be shorter than the time wasted avoiding it."
+    },
+    {
+      "id": "failed-sharp-v2-26",
+      "family": "failed-sharp-v2-26",
+      "text": "That object has been rejected by both engineering and modern art."
+    },
+    {
+      "id": "failed-sharp-v2-27",
+      "family": "failed-sharp-v2-27",
+      "text": "Somewhere a very expensive industrial consultant is preparing a slide deck about this."
+    },
+    {
+      "id": "failed-sharp-v2-28",
+      "family": "failed-sharp-v2-28",
+      "text": "The project has been reassigned to the circular economy, specifically the trash can."
+    },
+    {
+      "id": "failed-sharp-v2-29",
+      "family": "failed-sharp-v2-29",
+      "text": "The printer and the concept of completion are currently in arbitration."
+    },
+    {
+      "id": "failed-sharp-v2-30",
+      "family": "failed-sharp-v2-30",
+      "text": "The defect has a stronger visual identity than the original model."
+    },
+    {
+      "id": "failed-sharp-v2-31",
+      "family": "failed-sharp-v2-31",
+      "text": "The most accurate part of the print was the estimate of filament consumption."
+    },
+    {
+      "id": "failed-sharp-v2-32",
+      "family": "failed-sharp-v2-32",
+      "text": "The factory tour ends here for reasons that will become obvious."
+    },
+    {
+      "id": "failed-sharp-v2-33",
+      "family": "failed-sharp-v2-33",
+      "text": "The finish line remains a theoretical concept in this particular manufacturing process."
+    },
+    {
+      "id": "failed-sharp-v2-34",
+      "family": "failed-sharp-v2-34",
+      "text": "That was not a print job so much as a financial experiment without a control group."
+    },
+    {
+      "id": "failed-sharp-v2-35",
+      "family": "failed-sharp-v2-35",
+      "text": "The credit card company is the only participant celebrating the outcome."
+    },
+    {
+      "id": "failed-sharp-v2-36",
+      "family": "failed-sharp-v2-36",
+      "text": "Your manufacturing empire has experienced a small but extremely public recession."
+    },
+    {
+      "id": "failed-sharp-v2-37",
+      "family": "failed-sharp-v2-37",
+      "text": "The design has become an argument for reading the instructions."
+    },
+    {
+      "id": "failed-sharp-v2-38",
+      "family": "failed-sharp-v2-38",
+      "text": "An excellent demonstration of why bridges have inspectors."
+    },
+    {
+      "id": "failed-sharp-v2-39",
+      "family": "failed-sharp-v2-39",
+      "text": "Somewhere an engineer has just added another item to the list of things that can go wrong."
+    },
+    {
+      "id": "failed-sharp-v2-40",
+      "family": "failed-sharp-v2-40",
+      "text": "This is what happens when quality control is treated as a philosophical debate."
+    },
+    {
+      "id": "failed-sharp-v2-41",
+      "family": "failed-sharp-v2-41",
+      "text": "The print is being transferred to a new facility called the garbage."
+    },
+    {
+      "id": "failed-sharp-v2-42",
+      "family": "failed-sharp-v2-42",
+      "text": "The machine has turned a perfectly good raw material into a compelling case for buying the finished product."
+    },
+    {
+      "id": "failed-sharp-v2-43",
+      "family": "failed-sharp-v2-43",
+      "text": "The original design has declined to be photographed next to this."
+    },
+    {
+      "id": "failed-sharp-v2-44",
+      "family": "failed-sharp-v2-44",
+      "text": "The project is now eligible for a documentary about hubris."
+    },
+    {
+      "id": "failed-sharp-v2-45",
+      "family": "failed-sharp-v2-45",
+      "text": "The bed and the model have concluded an unsuccessful negotiation."
+    },
+    {
+      "id": "failed-sharp-v2-46",
+      "family": "failed-sharp-v2-46",
+      "text": "The warranty department would like everyone to stop making eye contact."
+    },
+    {
+      "id": "failed-sharp-v2-47",
+      "family": "failed-sharp-v2-47",
+      "text": "The printer failed its audition for the Industrial Revolution."
+    },
+    {
+      "id": "failed-sharp-v2-48",
+      "family": "failed-sharp-v2-48",
+      "text": "A failure so efficient it could teach an entire management seminar."
+    },
+    {
+      "id": "failed-sharp-v2-49",
+      "family": "failed-sharp-v2-49",
+      "text": "The product launch has been replaced with a discreet funeral."
+    },
+    {
+      "id": "failed-sharp-v2-50",
+      "family": "failed-sharp-v2-50",
+      "text": "The only functional component was the electricity meter."
+    },
+    {
+      "id": "failed-sharp-v2-51",
+      "family": "failed-sharp-v2-51",
+      "text": "The print has been granted an indefinite leave of absence from useful existence."
+    },
+    {
+      "id": "failed-sharp-v2-52",
+      "family": "failed-sharp-v2-52",
+      "text": "The project was terminated following a unanimous vote by the laws of physics."
+    },
+    {
+      "id": "failed-sharp-v2-53",
+      "family": "failed-sharp-v2-53",
+      "text": "Somewhere a landfill manager is adding this to the quarterly forecast."
+    },
+    {
+      "id": "failed-sharp-v2-54",
+      "family": "failed-sharp-v2-54",
+      "text": "This is why NASA insists on rehearsals before launching anything expensive."
+    },
+    {
+      "id": "failed-sharp-v2-55",
+      "family": "failed-sharp-v2-55",
+      "text": "The mistake has acquired three dimensions and a production budget."
+    },
+    {
+      "id": "failed-sharp-v2-56",
+      "family": "failed-sharp-v2-56",
+      "text": "The engineering department has requested that the next project remain two dimensional."
+    },
+    {
+      "id": "failed-sharp-v2-57",
+      "family": "failed-sharp-v2-57",
+      "text": "The results have been sealed pending an investigation into the decision making process."
+    },
+    {
+      "id": "failed-sharp-v2-58",
+      "family": "failed-sharp-v2-58",
+      "text": "The model has entered a witness protection program under the name miscellaneous debris."
+    },
+    {
+      "id": "failed-sharp-v2-59",
+      "family": "failed-sharp-v2-59",
+      "text": "The printer's performance review will be conducted by an empty spool."
+    },
+    {
+      "id": "failed-sharp-v2-60",
+      "family": "failed-sharp-v2-60",
+      "text": "The artifact will confuse future archaeologists and embarrass current ones."
+    },
+    {
+      "id": "failed-sharp-v2-61",
+      "family": "failed-sharp-v2-61",
+      "text": "The failure is a valuable reminder that expensive equipment can make very cheap mistakes."
+    },
+    {
+      "id": "failed-sharp-v2-62",
+      "family": "failed-sharp-v2-62",
+      "text": "The project has reached the stage where calling it a prototype is doing a lot of work."
+    },
+    {
+      "id": "failed-sharp-v2-63",
+      "family": "failed-sharp-v2-63",
+      "text": "A perfectly good idea has been converted into a moderately interesting landfill specimen."
+    },
+    {
+      "id": "failed-sharp-v2-64",
+      "family": "failed-sharp-v2-64",
+      "text": "The original STL deserves a cease and desist letter."
+    },
+    {
+      "id": "failed-sharp-v2-65",
+      "family": "failed-sharp-v2-65",
+      "text": "The printer has successfully demonstrated the difference between possibility and reality."
+    },
+    {
+      "id": "failed-sharp-v2-66",
+      "family": "failed-sharp-v2-66",
+      "text": "The experiment proves that plastic can be melted; everything else remains inconclusive."
+    },
+    {
+      "id": "failed-sharp-v2-67",
+      "family": "failed-sharp-v2-67",
+      "text": "The final report will contain more useful material than the final print."
+    },
+    {
+      "id": "failed-sharp-v2-68",
+      "family": "failed-sharp-v2-68",
+      "text": "Your printer has pioneered a new method of paying for absolutely nothing."
+    },
+    {
+      "id": "failed-sharp-v2-69",
+      "family": "failed-sharp-v2-69",
+      "text": "The design brief and the physical evidence appear to have been written by different people."
+    },
+    {
+      "id": "failed-sharp-v2-70",
+      "family": "failed-sharp-v2-70",
+      "text": "The investigation has narrowed the cause down to something between the download and the trash can."
+    },
+    {
+      "id": "failed-sharp-v2-71",
+      "family": "failed-sharp-v2-71",
+      "text": "The project is being quietly omitted from the annual report."
+    },
+    {
+      "id": "failed-sharp-v2-72",
+      "family": "failed-sharp-v2-72",
+      "text": "The budget survived the planning phase and died on the build plate."
+    },
+    {
+      "id": "failed-sharp-v2-73",
+      "family": "failed-sharp-v2-73",
+      "text": "The engineering team is now pursuing a career in explaining what happened."
+    },
+    {
+      "id": "failed-sharp-v2-74",
+      "family": "failed-sharp-v2-74",
+      "text": "The print has earned a participation certificate from thermodynamics."
+    },
+    {
+      "id": "failed-sharp-v2-75",
+      "family": "failed-sharp-v2-75",
+      "text": "The bed has hosted a spectacular demonstration of why tolerances exist."
+    },
+    {
+      "id": "failed-sharp-v2-76",
+      "family": "failed-sharp-v2-76",
+      "text": "The product is going straight to the clearance bin without passing through production."
+    },
+    {
+      "id": "failed-sharp-v2-77",
+      "family": "failed-sharp-v2-77",
+      "text": "The printer has turned the concept of sunk cost into a tactile teaching aid."
+    },
+    {
+      "id": "failed-sharp-v2-78",
+      "family": "failed-sharp-v2-78",
+      "text": "That is a solid argument against giving machines creative freedom."
+    },
+    {
+      "id": "failed-sharp-v2-79",
+      "family": "failed-sharp-v2-79",
+      "text": "The design's greatest achievement was making the original file look better by comparison."
+    },
+    {
+      "id": "failed-sharp-v2-80",
+      "family": "failed-sharp-v2-80",
+      "text": "The failure has been nominated for a prestigious award in unnecessary expenditure."
+    },
+    {
+      "id": "failed-sharp-v2-81",
+      "family": "failed-sharp-v2-81",
+      "text": "The project will live on in the lessons learned section nobody reads."
+    },
+    {
+      "id": "failed-sharp-v2-82",
+      "family": "failed-sharp-v2-82",
+      "text": "An object lesson in why the undo button should be a physical feature."
+    },
+    {
+      "id": "failed-sharp-v2-83",
+      "family": "failed-sharp-v2-83",
+      "text": "The machine has invented a new category of abstract disappointment."
+    },
+    {
+      "id": "failed-sharp-v2-84",
+      "family": "failed-sharp-v2-84",
+      "text": "The manufacturing process was fully operational until it encountered the intended product."
+    },
+    {
+      "id": "failed-sharp-v2-85",
+      "family": "failed-sharp-v2-85",
+      "text": "The refund department has been replaced by a shrug."
+    },
+    {
+      "id": "failed-sharp-v2-86",
+      "family": "failed-sharp-v2-86",
+      "text": "The printer has produced the physical equivalent of a bad quarterly earnings report."
+    },
+    {
+      "id": "failed-sharp-v2-87",
+      "family": "failed-sharp-v2-87",
+      "text": "The model has been disqualified from the category of things that exist as intended."
+    },
+    {
+      "id": "failed-sharp-v2-88",
+      "family": "failed-sharp-v2-88",
+      "text": "The only thing to emerge intact was the invoice."
+    },
+    {
+      "id": "failed-sharp-v2-89",
+      "family": "failed-sharp-v2-89",
+      "text": "The project now belongs to the exciting field of experimental garbage."
+    },
+    {
+      "id": "failed-sharp-v2-90",
+      "family": "failed-sharp-v2-90",
+      "text": "The failure is a small scale reenactment of a poorly managed infrastructure project."
+    },
+    {
+      "id": "failed-sharp-v2-91",
+      "family": "failed-sharp-v2-91",
+      "text": "The printer has taken the phrase breaking new ground far too literally."
+    },
+    {
+      "id": "failed-sharp-v2-92",
+      "family": "failed-sharp-v2-92",
+      "text": "The work has been classified as a cautionary exhibit rather than a deliverable."
+    },
+    {
+      "id": "failed-sharp-v2-93",
+      "family": "failed-sharp-v2-93",
+      "text": "The machine has achieved a spectacular return on someone else's investment."
+    },
+    {
+      "id": "failed-sharp-v2-94",
+      "family": "failed-sharp-v2-94",
+      "text": "The project has been referred to the department of retrospective optimism."
+    },
+    {
+      "id": "failed-sharp-v2-95",
+      "family": "failed-sharp-v2-95",
+      "text": "The product was briefly considered viable by everyone except the material itself."
+    },
+    {
+      "id": "failed-sharp-v2-96",
+      "family": "failed-sharp-v2-96",
+      "text": "The printer appears to have mistaken the specification for a list of suggestions."
+    },
+    {
+      "id": "failed-sharp-v2-97",
+      "family": "failed-sharp-v2-97",
+      "text": "The final result is a powerful advertisement for conventional manufacturing."
+    },
+    {
+      "id": "failed-sharp-v2-98",
+      "family": "failed-sharp-v2-98",
+      "text": "The engineers are currently negotiating who gets to delete the photographs."
+    },
+    {
+      "id": "failed-sharp-v2-99",
+      "family": "failed-sharp-v2-99",
+      "text": "The build plate has become a crime scene for crimes against geometry."
+    },
+    {
+      "id": "failed-sharp-v2-100",
+      "family": "failed-sharp-v2-100",
+      "text": "The product has been canceled by a coalition of heat, gravity and poor planning."
+    },
+    {
+      "id": "failed-sharp-v2-101",
+      "family": "failed-sharp-v2-101",
+      "text": "The only feature delivered on schedule was the disappointment."
+    },
+    {
+      "id": "failed-sharp-v2-102",
+      "family": "failed-sharp-v2-102",
+      "text": "The finished design is currently being held hostage by the concept of reality."
+    },
+    {
+      "id": "failed-sharp-v2-103",
+      "family": "failed-sharp-v2-103",
+      "text": "The printer has managed to make an unfinished object look like a historic ruin."
+    },
+    {
+      "id": "failed-sharp-v2-104",
+      "family": "failed-sharp-v2-104",
+      "text": "The quality control report could be filed under expensive lessons and cheap materials."
+    },
+    {
+      "id": "failed-sharp-v2-105",
+      "family": "failed-sharp-v2-105",
+      "text": "The project has been granted the status of a private embarrassment."
+    }
+  ]
 }
