@@ -357,6 +357,26 @@
     ],
     "clip": [
       {
+        "id": "title-clip-sharp-v2-1",
+        "family": "title-clip-sharp-v2-1",
+        "text": "An expensive way to make two things temporarily share custody."
+      },
+      {
+        "id": "title-clip-sharp-v2-2",
+        "family": "title-clip-sharp-v2-2",
+        "text": "The paperclip industry would like to thank you for being terrible at cost analysis."
+      },
+      {
+        "id": "title-clip-sharp-v2-3",
+        "family": "title-clip-sharp-v2-3",
+        "text": "This is what a staple looks like after completing an MBA."
+      },
+      {
+        "id": "title-clip-sharp-v2-4",
+        "family": "title-clip-sharp-v2-4",
+        "text": "The office supply closet has entered an arms race nobody asked for."
+      },
+      {
         "id": "title-clip-title-has-one-job-hold",
         "family": "title-clip",
         "text": "{title} has one job: hold together everything except the printer budget."
@@ -370,66 +390,66 @@
         "id": "title-clip-title-holds-the-line-the",
         "family": "title-clip",
         "text": "{title} holds the line, the cables, and the whole operation together, barely."
-      },
-      {
-        "id": "title-clip-title-was-printed-to-clamp",
-        "family": "title-clip",
-        "text": "{title} was printed to clamp a snack bag that is already empty."
-      },
-      {
-        "id": "title-clip-title-is-an-engineering-marvel",
-        "family": "title-clip",
-        "text": "{title} is an engineering marvel that will snap when opened slightly too wide."
-      },
-      {
-        "id": "title-clip-printing-title-took-forty-minutes",
-        "family": "title-clip",
-        "text": "Printing {title} took forty minutes when a wooden clothespin would have cost two pennies."
-      },
-      {
-        "id": "title-clip-title-will-hold-those-wires",
-        "family": "title-clip",
-        "text": "{title} will hold those wires together until ambient room temperature causes creep."
       }
     ],
     "cable": [
       {
-        "id": "title-cable-title-promises-tidy-wiring-which",
-        "family": "title-cable",
-        "text": "{title} promises tidy wiring, which is adorable given the rest of this desk."
+        "id": "title-cable-sharp-v2-1",
+        "family": "title-cable-sharp-v2-1",
+        "text": "Your cables now have more infrastructure than the local public transportation system."
       },
       {
-        "id": "title-cable-title-attempts-diplomacy-between-cables",
-        "family": "title-cable",
-        "text": "{title} attempts diplomacy between cables that have spent years fighting."
+        "id": "title-cable-sharp-v2-2",
+        "family": "title-cable-sharp-v2-2",
+        "text": "The internet survived the Cold War but apparently needed you to rescue it from a desk."
       },
       {
-        "id": "title-cable-title-has-brought-order-to",
-        "family": "title-cable",
-        "text": "{title} has brought order to exactly one cable; the rest remain at large."
+        "id": "title-cable-sharp-v2-3",
+        "family": "title-cable-sharp-v2-3",
+        "text": "An Ethernet cable has never looked at the floor and felt embarrassed."
       },
       {
-        "id": "title-cable-title-promises-neat-desk-cable",
-        "family": "title-cable",
-        "text": "{title} promises neat desk cable routing, but chaotic wiring always finds a way to tangle."
+        "id": "title-cable-sharp-v2-4",
+        "family": "title-cable-sharp-v2-4",
+        "text": "The wiring closet has filed for legal separation from your office."
       },
       {
-        "id": "title-cable-title-is-here-to-tame",
-        "family": "title-cable",
-        "text": "{title} is here to tame the rat nest of cords lurking behind your computer monitor."
+        "id": "title-cable-sharp-v2-5",
+        "family": "title-cable-sharp-v2-5",
+        "text": "That is a very elaborate apology to electricity."
       },
       {
-        "id": "title-cable-title-was-supposed-to-hide",
-        "family": "title-cable",
-        "text": "{title} was supposed to hide cables, but merely added plastic clutter around them."
+        "id": "title-cable-sharp-v2-6",
+        "family": "title-cable-sharp-v2-6",
+        "text": "Your power cords have achieved zoning compliance without ever becoming untangled."
       },
       {
-        "id": "title-cable-title-clips-onto-wires-so",
-        "family": "title-cable",
-        "text": "{title} clips onto wires so you can pretend your desk is minimalist."
+        "id": "title-cable-sharp-v2-7",
+        "family": "title-cable-sharp-v2-7",
+        "text": "Even NASA doesn't spend this much time negotiating with USB."
       }
     ],
     "mount": [
+      {
+        "id": "title-mount-sharp-v2-1",
+        "family": "title-mount-sharp-v2-1",
+        "text": "The object has requested a second object to justify its presence."
+      },
+      {
+        "id": "title-mount-sharp-v2-2",
+        "family": "title-mount-sharp-v2-2",
+        "text": "The wall didn't consent to becoming a shareholder in this project."
+      },
+      {
+        "id": "title-mount-sharp-v2-3",
+        "family": "title-mount-sharp-v2-3",
+        "text": "A mounting solution for an item that was previously managing its own existence."
+      },
+      {
+        "id": "title-mount-sharp-v2-4",
+        "family": "title-mount-sharp-v2-4",
+        "text": "The screw budget has been escalated to upper management."
+      },
       {
         "id": "title-mount-title-exists-because-buying-a",
         "family": "title-mount",
@@ -444,29 +464,29 @@
         "id": "title-mount-title-is-now-load-bearing",
         "family": "title-mount",
         "text": "{title} is now load-bearing, emotionally if not structurally."
-      },
-      {
-        "id": "title-mount-title-holds-valuable-gear-using",
-        "family": "title-mount",
-        "text": "{title} holds valuable gear using five cents of polymer and an unearned amount of faith."
-      },
-      {
-        "id": "title-mount-you-printed-title-to-mount",
-        "family": "title-mount",
-        "text": "You printed {title} to mount hardware that will probably tear right out of the drywall."
-      },
-      {
-        "id": "title-mount-title-will-keep-your-gadget",
-        "family": "title-mount",
-        "text": "{title} will keep your gadget attached until the first hot afternoon softens the layers."
-      },
-      {
-        "id": "title-mount-title-is-a-custom-bracket",
-        "family": "title-mount",
-        "text": "{title} is a custom bracket solving a problem created by an earlier bracket."
       }
     ],
     "enclosure": [
+      {
+        "id": "title-enclosure-sharp-v2-1",
+        "family": "title-enclosure-sharp-v2-1",
+        "text": "Your electronics have entered witness protection."
+      },
+      {
+        "id": "title-enclosure-sharp-v2-2",
+        "family": "title-enclosure-sharp-v2-2",
+        "text": "The circuit board has a private office while its owner works at the kitchen table."
+      },
+      {
+        "id": "title-enclosure-sharp-v2-3",
+        "family": "title-enclosure-sharp-v2-3",
+        "text": "Welcome to affordable housing for things that don't pay taxes."
+      },
+      {
+        "id": "title-enclosure-sharp-v2-4",
+        "family": "title-enclosure-sharp-v2-4",
+        "text": "A tiny gated community for components with no social skills."
+      },
       {
         "id": "title-enclosure-title-gives-an-object-its",
         "family": "title-enclosure",
@@ -481,29 +501,29 @@
         "id": "title-enclosure-title-is-a-tiny-house",
         "family": "title-enclosure",
         "text": "{title} is a tiny house that will somehow end up storing screws."
-      },
-      {
-        "id": "title-enclosure-title-wraps-sensitive-electronics-in",
-        "family": "title-enclosure",
-        "text": "{title} wraps sensitive electronics in an airtight cocoon of trapped heat and melting solder."
-      },
-      {
-        "id": "title-enclosure-title-protects-your-circuit-board",
-        "family": "title-enclosure",
-        "text": "{title} protects your circuit board while efficiently baking it in trapped heat."
-      },
-      {
-        "id": "title-enclosure-title-will-shield-your-electronics",
-        "family": "title-enclosure",
-        "text": "{title} will shield your electronics until you realize you forgot to route the power cable."
-      },
-      {
-        "id": "title-enclosure-title-turns-messy-loose-wires",
-        "family": "title-enclosure",
-        "text": "{title} turns messy loose wires into a tidy brick of hidden loose wires."
       }
     ],
     "holder": [
+      {
+        "id": "title-holder-sharp-v2-1",
+        "family": "title-holder-sharp-v2-1",
+        "text": "The object has hired a full time employee to prevent it from falling over."
+      },
+      {
+        "id": "title-holder-sharp-v2-2",
+        "family": "title-holder-sharp-v2-2",
+        "text": "Another product for the thriving industry of not holding things yourself."
+      },
+      {
+        "id": "title-holder-sharp-v2-3",
+        "family": "title-holder-sharp-v2-3",
+        "text": "Your belongings are acquiring staff faster than a failing startup."
+      },
+      {
+        "id": "title-holder-sharp-v2-4",
+        "family": "title-holder-sharp-v2-4",
+        "text": "The holder's sole qualification is being slightly less useless than the thing it holds."
+      },
       {
         "id": "title-holder-title-is-a-dedicated-parking",
         "family": "title-holder",
@@ -513,29 +533,29 @@
         "id": "title-holder-title-exists-to-hold-one",
         "family": "title-holder",
         "text": "{title} exists to hold one thing while the rest of the room stays chaotic."
-      },
-      {
-        "id": "title-holder-title-reports-for-duty-holding",
-        "family": "title-holder",
-        "text": "{title} reports for duty, holding the one thing it was born to hold."
-      },
-      {
-        "id": "title-holder-title-is-dedicated-to-holding",
-        "family": "title-holder",
-        "text": "{title} is dedicated to holding one specific tool you will misplace in five minutes anyway."
-      },
-      {
-        "id": "title-holder-title-will-faithfully-hold-its",
-        "family": "title-holder",
-        "text": "{title} will faithfully hold its designated cargo until clutter invades and buries it."
-      },
-      {
-        "id": "title-holder-you-printed-title-because-putting",
-        "family": "title-holder",
-        "text": "You printed {title} because putting things down on flat surfaces felt too mainstream."
       }
     ],
     "hinge": [
+      {
+        "id": "title-hinge-sharp-v2-1",
+        "family": "title-hinge-sharp-v2-1",
+        "text": "Two pieces of plastic have entered a relationship with very limited freedom."
+      },
+      {
+        "id": "title-hinge-sharp-v2-2",
+        "family": "title-hinge-sharp-v2-2",
+        "text": "Your hinge has a better range of motion than the average municipal planning commission."
+      },
+      {
+        "id": "title-hinge-sharp-v2-3",
+        "family": "title-hinge-sharp-v2-3",
+        "text": "The most ambitious thing this mechanism will ever do is change its mind."
+      },
+      {
+        "id": "title-hinge-sharp-v2-4",
+        "family": "title-hinge-sharp-v2-4",
+        "text": "An engineering degree condensed into something a door does without supervision."
+      },
       {
         "id": "title-hinge-title-introduces-moving-parts-into",
         "family": "title-hinge",
@@ -550,29 +570,29 @@
         "id": "title-hinge-title-swings-between-genius-and",
         "family": "title-hinge",
         "text": "{title} swings between genius and liability, smoothly and repeatedly."
-      },
-      {
-        "id": "title-hinge-title-was-printed-in-place",
-        "family": "title-hinge",
-        "text": "{title} was printed in place and fused solid, remaining in place forever."
-      },
-      {
-        "id": "title-hinge-title-will-swing-smoothly-for",
-        "family": "title-hinge",
-        "text": "{title} will swing smoothly for exactly three cycles before snapping at the pivot pin."
-      },
-      {
-        "id": "title-hinge-you-spent-hours-calibrating-tolerances",
-        "family": "title-hinge",
-        "text": "You spent hours calibrating tolerances just so {title} could squeak on every rotation."
-      },
-      {
-        "id": "title-hinge-title-joins-two-plastic-parts",
-        "family": "title-hinge",
-        "text": "{title} joins two plastic parts together with the structural rigidity of a damp saltine cracker."
       }
     ],
     "jig": [
+      {
+        "id": "title-jig-sharp-v2-1",
+        "family": "title-jig-sharp-v2-1",
+        "text": "A machine to help another machine avoid embarrassing itself."
+      },
+      {
+        "id": "title-jig-sharp-v2-2",
+        "family": "title-jig-sharp-v2-2",
+        "text": "Your manufacturing process has hired a tutor for basic geometry."
+      },
+      {
+        "id": "title-jig-sharp-v2-3",
+        "family": "title-jig-sharp-v2-3",
+        "text": "An entire project dedicated to correcting the mistakes of the previous project."
+      },
+      {
+        "id": "title-jig-sharp-v2-4",
+        "family": "title-jig-sharp-v2-4",
+        "text": "Precision engineering now comes with training wheels."
+      },
       {
         "id": "title-jig-title-is-a-tool-for",
         "family": "title-jig",
@@ -587,29 +607,29 @@
         "id": "title-jig-title-ensures-the-next-mistake",
         "family": "title-jig",
         "text": "{title} ensures the next mistake happens in exactly the same place every time."
-      },
-      {
-        "id": "title-jig-title-was-printed-to-ensure",
-        "family": "title-jig",
-        "text": "{title} was printed to ensure repeatable accuracy for a cut you will only make once."
-      },
-      {
-        "id": "title-jig-you-printed-title-for-precision",
-        "family": "title-jig",
-        "text": "You printed {title} for precision work, but thermal shrinkage had completely different ideas."
-      },
-      {
-        "id": "title-jig-title-guarantees-your-drill-hole",
-        "family": "title-jig",
-        "text": "{title} guarantees your drill hole will be misaligned with absolute mathematical repeatability."
-      },
-      {
-        "id": "title-jig-title-took-all-afternoon-to",
-        "family": "title-jig",
-        "text": "{title} took all afternoon to fabricate just to save four seconds drilling."
       }
     ],
     "drawer": [
+      {
+        "id": "title-drawer-sharp-v2-1",
+        "family": "title-drawer-sharp-v2-1",
+        "text": "A coffin for the things you'll insist you still use."
+      },
+      {
+        "id": "title-drawer-sharp-v2-2",
+        "family": "title-drawer-sharp-v2-2",
+        "text": "The contents have officially entered the witness relocation program."
+      },
+      {
+        "id": "title-drawer-sharp-v2-3",
+        "family": "title-drawer-sharp-v2-3",
+        "text": "This is how the archaeological record of your house begins."
+      },
+      {
+        "id": "title-drawer-sharp-v2-4",
+        "family": "title-drawer-sharp-v2-4",
+        "text": "The only storage solution that guarantees you'll buy another one of everything inside."
+      },
       {
         "id": "title-drawer-title-offers-the-comforting-illusion",
         "family": "title-drawer",
@@ -624,29 +644,29 @@
         "id": "title-drawer-title-slides-open-to-reveal",
         "family": "title-drawer",
         "text": "{title} slides open to reveal the thing you needed last week."
-      },
-      {
-        "id": "title-drawer-title-slides-out-smoothly-today",
-        "family": "title-drawer",
-        "text": "{title} slides out smoothly today, but ambient humidity will swell it shut by next week."
-      },
-      {
-        "id": "title-drawer-you-printed-title-to-store",
-        "family": "title-drawer",
-        "text": "You printed {title} to store tiny screws that will promptly spill into the mechanism."
-      },
-      {
-        "id": "title-drawer-title-offers-organized-storage-for",
-        "family": "title-drawer",
-        "text": "{title} offers organized storage for items that should have been recycled six months ago."
-      },
-      {
-        "id": "title-drawer-title-is-a-sliding-compartment",
-        "family": "title-drawer",
-        "text": "{title} is a sliding compartment whose primary function is hiding receipts you should file."
       }
     ],
     "adapter": [
+      {
+        "id": "title-adapter-sharp-v2-1",
+        "family": "title-adapter-sharp-v2-1",
+        "text": "Two incompatible products have finally agreed to communicate through a very expensive mediator."
+      },
+      {
+        "id": "title-adapter-sharp-v2-2",
+        "family": "title-adapter-sharp-v2-2",
+        "text": "The standards committee would like to apologize for keeping this hobby in business."
+      },
+      {
+        "id": "title-adapter-sharp-v2-3",
+        "family": "title-adapter-sharp-v2-3",
+        "text": "The engineering equivalent of introducing two people who already hate each other."
+      },
+      {
+        "id": "title-adapter-sharp-v2-4",
+        "family": "title-adapter-sharp-v2-4",
+        "text": "Your technology stack now has a middleman who doesn't even charge commission."
+      },
       {
         "id": "title-adapter-title-is-a-peace-treaty",
         "family": "title-adapter",
@@ -661,29 +681,29 @@
         "id": "title-adapter-title-lets-two-stubborn-objects",
         "family": "title-adapter",
         "text": "{title} lets two stubborn objects finally shake hands."
-      },
-      {
-        "id": "title-adapter-title-connects-two-incompatible-fittings",
-        "family": "title-adapter",
-        "text": "{title} connects two incompatible fittings that were never meant to meet in civilized society."
-      },
-      {
-        "id": "title-adapter-title-connects-two-incompatible-fittings-2",
-        "family": "title-adapter",
-        "text": "{title} connects two incompatible fittings that reject each other with passion."
-      },
-      {
-        "id": "title-adapter-title-will-leak-air-and",
-        "family": "title-adapter",
-        "text": "{title} will leak air and water with impressive enthusiasm along every circumferential layer seam."
-      },
-      {
-        "id": "title-adapter-title-bridges-a-gap-that",
-        "family": "title-adapter",
-        "text": "{title} bridges a gap that duct tape could have bridged in seconds."
       }
     ],
     "rack": [
+      {
+        "id": "title-rack-sharp-v2-1",
+        "family": "title-rack-sharp-v2-1",
+        "text": "Your equipment has been promoted to a miniature apartment complex."
+      },
+      {
+        "id": "title-rack-sharp-v2-2",
+        "family": "title-rack-sharp-v2-2",
+        "text": "A server rack is apparently a gateway drug to industrial interior design."
+      },
+      {
+        "id": "title-rack-sharp-v2-3",
+        "family": "title-rack-sharp-v2-3",
+        "text": "The hardware now has reserved seating at a show nobody bought tickets for."
+      },
+      {
+        "id": "title-rack-sharp-v2-4",
+        "family": "title-rack-sharp-v2-4",
+        "text": "The data center has expanded to accommodate the world's least profitable cloud provider."
+      },
       {
         "id": "title-rack-title-takes-one-more-step",
         "family": "title-rack",
@@ -698,29 +718,29 @@
         "id": "title-rack-title-is-one-slot-closer",
         "family": "title-rack",
         "text": "{title} is one slot closer to a setup that actually looks planned."
-      },
-      {
-        "id": "title-rack-title-stands-tall-to-organize",
-        "family": "title-rack",
-        "text": "{title} stands tall to organize spools that you will keep buying faster than you print."
-      },
-      {
-        "id": "title-rack-you-built-title-to-display",
-        "family": "title-rack",
-        "text": "You built {title} to display filament rolls like trophies instead of printing useful objects."
-      },
-      {
-        "id": "title-rack-title-will-hold-your-collection",
-        "family": "title-rack",
-        "text": "{title} will hold your collection neatly until the structural joints begin to sag over time."
-      },
-      {
-        "id": "title-rack-title-turns-your-wall-into",
-        "family": "title-rack",
-        "text": "{title} turns your wall into an altar dedicated to unspooled polymer and buyer remorse."
       }
     ],
     "keychain": [
+      {
+        "id": "title-keychain-sharp-v2-1",
+        "family": "title-keychain-sharp-v2-1",
+        "text": "Your keys have acquired luggage with no plans to travel."
+      },
+      {
+        "id": "title-keychain-sharp-v2-2",
+        "family": "title-keychain-sharp-v2-2",
+        "text": "A tiny souvenir from the place your disposable income went."
+      },
+      {
+        "id": "title-keychain-sharp-v2-3",
+        "family": "title-keychain-sharp-v2-3",
+        "text": "Congratulations on making an object designed to fit in a pocket significantly less pocketable."
+      },
+      {
+        "id": "title-keychain-sharp-v2-4",
+        "family": "title-keychain-sharp-v2-4",
+        "text": "The locksmith is baffled by the sudden involvement of advanced manufacturing."
+      },
       {
         "id": "title-keychain-title-gives-a-keyring-the",
         "family": "title-keychain",
@@ -735,26 +755,6 @@
         "id": "title-keychain-title-makes-the-keys-heavier",
         "family": "title-keychain",
         "text": "{title} makes the keys heavier, fancier, and somehow easier to lose."
-      },
-      {
-        "id": "title-keychain-title-will-rattle-in-your",
-        "family": "title-keychain",
-        "text": "{title} will rattle in your pocket until its thinnest loop snaps off."
-      },
-      {
-        "id": "title-keychain-title-was-gifted-to-a",
-        "family": "title-keychain",
-        "text": "{title} was gifted to a friend who politely lost it within minutes."
-      },
-      {
-        "id": "title-keychain-title-adds-bulk-to-your",
-        "family": "title-keychain",
-        "text": "{title} adds bulk to your keyring so you can scratch your phone screen more efficiently."
-      },
-      {
-        "id": "title-keychain-title-is-a-pocket-trinket",
-        "family": "title-keychain",
-        "text": "{title} is a pocket trinket whose lifespan is measured in short walks."
       }
     ],
     "fidget": [
@@ -2959,442 +2959,595 @@
     ],
     "frog": [
       {
-        "id": "title-frog-title-has-hopped-off-the",
-        "family": "title-frog",
-        "text": "{title} has hopped off the plate and straight into pond royalty status."
+        "id": "title-frog-sharp-v2-1",
+        "family": "title-frog-sharp-v2-1",
+        "text": "Kermit would take one look and return to the swamp."
       },
       {
-        "id": "title-frog-ribbit-certified-title-is-small",
-        "family": "title-frog",
-        "text": "Ribbit certified: {title} is small, green at heart, and entirely unbothered."
+        "id": "title-frog-sharp-v2-2",
+        "family": "title-frog-sharp-v2-2",
+        "text": "That frog has the ecological usefulness of a parking meter."
       },
       {
-        "id": "title-frog-title-waited-patiently-like-a",
-        "family": "title-frog",
-        "text": "{title} waited patiently like a frog on a lily pad of warm plastic."
+        "id": "title-frog-sharp-v2-3",
+        "family": "title-frog-sharp-v2-3",
+        "text": "The amphibian's leap of faith apparently ended at the edge of the build plate."
       },
       {
-        "id": "title-frog-official-pond-delegate-title-accepts",
-        "family": "title-frog",
-        "text": "Official pond delegate {title} accepts flies, compliments, and shelf space."
+        "id": "title-frog-sharp-v2-4",
+        "family": "title-frog-sharp-v2-4",
+        "text": "Evolution gave it legs and your slicer gave it nowhere to go."
       }
     ],
     "cat": [
       {
-        "id": "title-cat-title-has-knocked-nothing-off",
-        "family": "title-cat",
-        "text": "{title} has knocked nothing off the desk yet, but the intent is visible."
+        "id": "title-cat-sharp-v2-1",
+        "family": "title-cat-sharp-v2-1",
+        "text": "A cat would knock this off a shelf and then demand you apologize."
       },
       {
-        "id": "title-cat-feline-approved-title-will-sit",
-        "family": "title-cat",
-        "text": "Feline approved: {title} will sit in the sunbeam and judge quietly."
+        "id": "title-cat-sharp-v2-2",
+        "family": "title-cat-sharp-v2-2",
+        "text": "Finally, a cat that isn't convinced your entire salary belongs to it."
       },
       {
-        "id": "title-cat-title-arrived-with-nine-lives",
-        "family": "title-cat",
-        "text": "{title} arrived with nine lives and absolutely no interest in being moved."
+        "id": "title-cat-sharp-v2-3",
+        "family": "title-cat-sharp-v2-3",
+        "text": "Schrodinger would put it in a box and leave the outcome to customer support."
       },
       {
-        "id": "title-cat-the-cat-distribution-system-delivered",
-        "family": "title-cat",
-        "text": "The cat distribution system delivered {title} directly to the build plate."
+        "id": "title-cat-sharp-v2-4",
+        "family": "title-cat-sharp-v2-4",
+        "text": "Even Garfield would find a way to charge you rent for its presence."
       }
     ],
     "dog": [
       {
-        "id": "title-dog-title-is-a-good-print",
-        "family": "title-dog",
-        "text": "{title} is a good print, yes it is, and it knows it is."
+        "id": "title-dog-sharp-v2-1",
+        "family": "title-dog-sharp-v2-1",
+        "text": "A dog would eat this and somehow have a more productive afternoon."
       },
       {
-        "id": "title-dog-loyal-sturdy-and-slightly-goofy",
-        "family": "title-dog",
-        "text": "Loyal, sturdy, and slightly goofy: {title} is the dog of prints."
+        "id": "title-dog-sharp-v2-2",
+        "family": "title-dog-sharp-v2-2",
+        "text": "The obedience school has graduated its first completely stationary student."
       },
       {
-        "id": "title-dog-title-waited-by-the-plate",
-        "family": "title-dog",
-        "text": "{title} waited by the plate with the patience of a dog near dinner."
+        "id": "title-dog-sharp-v2-3",
+        "family": "title-dog-sharp-v2-3",
+        "text": "Man's best friend has been replaced by a monthly installment on a machine."
       },
       {
-        "id": "title-dog-certified-good-boy-energy-radiates",
-        "family": "title-dog",
-        "text": "Certified good boy energy radiates from {title} at all hours."
+        "id": "title-dog-sharp-v2-4",
+        "family": "title-dog-sharp-v2-4",
+        "text": "The mailman has downgraded the threat level to decorative."
       }
     ],
     "owl": [
       {
-        "id": "title-owl-title-sees-everything-judges-silently",
-        "family": "title-owl",
-        "text": "{title} sees everything, judges silently, and looks wise doing it."
+        "id": "title-owl-sharp-v2-1",
+        "family": "title-owl-sharp-v2-1",
+        "text": "Athena sent a formal request to stop associating owls with wisdom."
       },
       {
-        "id": "title-owl-night-shift-supervisor-title-has",
-        "family": "title-owl",
-        "text": "Night shift supervisor {title} has completed its watch over the printer."
+        "id": "title-owl-sharp-v2-2",
+        "family": "title-owl-sharp-v2-2",
+        "text": "The owl has mastered the art of looking judgmental without spending anything."
       },
       {
-        "id": "title-owl-title-brings-big-wisdom-energy",
-        "family": "title-owl",
-        "text": "{title} brings big wisdom energy to a very small shelf footprint."
+        "id": "title-owl-sharp-v2-3",
+        "family": "title-owl-sharp-v2-3",
+        "text": "Harry Potter's postal service would classify this as a delivery exception."
       },
       {
-        "id": "title-owl-who-printed-title-everyone-asks",
-        "family": "title-owl",
-        "text": "{title} knows exactly who printed it and is keeping the secret wisely."
+        "id": "title-owl-sharp-v2-4",
+        "family": "title-owl-sharp-v2-4",
+        "text": "The only thing nocturnal about it was the poor decision that started the print."
       }
     ],
     "butterfly": [
       {
-        "id": "title-butterfly-title-emerged-from-its-cocoon",
-        "family": "title-butterfly",
-        "text": "{title} emerged from its cocoon phase looking dramatically more decorative."
+        "id": "title-butterfly-sharp-v2-1",
+        "family": "title-butterfly-sharp-v2-1",
+        "text": "Darwin would be disappointed by this interpretation of flight."
       },
       {
-        "id": "title-butterfly-wings-out-worries-gone-title",
-        "family": "title-butterfly",
-        "text": "Wings out, worries gone: {title} completed the full metamorphosis arc."
+        "id": "title-butterfly-sharp-v2-2",
+        "family": "title-butterfly-sharp-v2-2",
+        "text": "A caterpillar does the same transformation without filing an expense report."
       },
       {
-        "id": "title-butterfly-title-is-proof-that-a",
-        "family": "title-butterfly",
-        "text": "{title} is proof that a warm nozzle is just a plastic chrysalis."
+        "id": "title-butterfly-sharp-v2-3",
+        "family": "title-butterfly-sharp-v2-3",
+        "text": "The butterfly effect has apparently reached your credit card statement."
       },
       {
-        "id": "title-butterfly-delicate-symmetrical-and-smug-about",
-        "family": "title-butterfly",
-        "text": "Delicate, symmetrical, and smug about it: {title} has landed."
+        "id": "title-butterfly-sharp-v2-4",
+        "family": "title-butterfly-sharp-v2-4",
+        "text": "The ecosystem has acquired a decorative insect with no plans to pollinate."
       }
     ],
     "rocket": [
       {
-        "id": "title-rocket-title-has-cleared-the-launch",
-        "family": "title-rocket",
-        "text": "{title} has cleared the launch plate and achieved low shelf orbit."
+        "id": "title-rocket-sharp-v2-1",
+        "family": "title-rocket-sharp-v2-1",
+        "text": "NASA spent billions on launch vehicles and you cornered the stationary rocket market."
       },
       {
-        "id": "title-rocket-houston-confirms-title-is-go",
-        "family": "title-rocket",
-        "text": "Houston confirms {title} is go for display, snacks, and bragging."
+        "id": "title-rocket-sharp-v2-2",
+        "family": "title-rocket-sharp-v2-2",
+        "text": "SpaceX would call this a successful static display and quietly disable the comments."
       },
       {
-        "id": "title-rocket-title-printed-upward-onward-and",
-        "family": "title-rocket",
-        "text": "{title} printed upward, onward, and directly into space-program cosplay."
+        "id": "title-rocket-sharp-v2-3",
+        "family": "title-rocket-sharp-v2-3",
+        "text": "That rocket has a launch window lasting until your next house move."
       },
       {
-        "id": "title-rocket-countdown-complete-title-is-the",
-        "family": "title-rocket",
-        "text": "Countdown complete: {title} is the most aerodynamic resident of the desk."
+        "id": "title-rocket-sharp-v2-4",
+        "family": "title-rocket-sharp-v2-4",
+        "text": "The Apollo program got to the Moon with less drama than your slicer."
       }
     ],
     "boat": [
       {
-        "id": "title-boat-title-is-seaworthy-in-spirit",
-        "family": "title-boat",
-        "text": "{title} is seaworthy in spirit and bathtub-certified in practice."
+        "id": "title-boat-sharp-v2-1",
+        "family": "title-boat-sharp-v2-1",
+        "text": "The coast guard has downgraded this vessel to an office supply."
       },
       {
-        "id": "title-boat-all-aboard-title-the-smallest",
-        "family": "title-boat",
-        "text": "All aboard {title}, the smallest vessel with the largest captain energy."
+        "id": "title-boat-sharp-v2-2",
+        "family": "title-boat-sharp-v2-2",
+        "text": "A naval fleet with a combined cruising range of zero nautical miles."
       },
       {
-        "id": "title-boat-title-has-docked-successfully-and",
-        "family": "title-boat",
-        "text": "{title} has docked successfully and requests a tiny christening ceremony."
+        "id": "title-boat-sharp-v2-3",
+        "family": "title-boat-sharp-v2-3",
+        "text": "The maritime museum is politely declining donations from this particular shipyard."
       },
       {
-        "id": "title-boat-the-maiden-voyage-of-title",
-        "family": "title-boat",
-        "text": "The maiden voyage of {title} begins at the sink and ends in glory."
+        "id": "title-boat-sharp-v2-4",
+        "family": "title-boat-sharp-v2-4",
+        "text": "The captain's log begins and ends with the electricity meter."
       }
     ],
     "castle": [
       {
-        "id": "title-castle-title-stands-fortified-against-dust",
-        "family": "title-castle",
-        "text": "{title} stands fortified against dust, drafts, and casual shelf rearrangement."
+        "id": "title-castle-sharp-v2-1",
+        "family": "title-castle-sharp-v2-1",
+        "text": "Feudalism has returned, and the peasants are now paying in spools."
       },
       {
-        "id": "title-castle-a-stronghold-is-complete-title",
-        "family": "title-castle",
-        "text": "A stronghold is complete: {title} now governs the desk from its towers."
+        "id": "title-castle-sharp-v2-2",
+        "family": "title-castle-sharp-v2-2",
+        "text": "Your miniature kingdom has a more attainable housing market than the real one."
       },
       {
-        "id": "title-castle-title-has-walls-presence-and",
-        "family": "title-castle",
-        "text": "{title} has walls, presence, and absolutely no working drawbridge regrets."
+        "id": "title-castle-sharp-v2-3",
+        "family": "title-castle-sharp-v2-3",
+        "text": "The castle has a moat made entirely of credit card statements."
       },
       {
-        "id": "title-castle-the-kingdom-of-the-shelf",
-        "family": "title-castle",
-        "text": "The kingdom of the shelf recognizes {title} as its newest landmark."
+        "id": "title-castle-sharp-v2-4",
+        "family": "title-castle-sharp-v2-4",
+        "text": "Congratulations on becoming a landlord to a population of imaginary serfs."
       }
     ],
     "house": [
       {
-        "id": "title-house-title-is-movein-ready-with",
-        "family": "title-house",
-        "text": "{title} is move-in ready, with excellent layer lines and no mortgage."
+        "id": "title-house-sharp-v2-1",
+        "family": "title-house-sharp-v2-1",
+        "text": "The housing crisis has been solved for people approximately two inches tall."
       },
       {
-        "id": "title-house-open-house-at-title-tiny",
-        "family": "title-house",
-        "text": "Open house at {title}: tiny, charming, and permanently draft-free inside."
+        "id": "title-house-sharp-v2-2",
+        "family": "title-house-sharp-v2-2",
+        "text": "A property developer would still try to sell this as a luxury starter home."
       },
       {
-        "id": "title-house-title-brings-curb-appeal-to",
-        "family": "title-house",
-        "text": "{title} brings curb appeal to any surface it is placed upon."
+        "id": "title-house-sharp-v2-3",
+        "family": "title-house-sharp-v2-3",
+        "text": "The mortgage broker has offered financing on the filament alone."
       },
       {
-        "id": "title-house-the-smallest-property-on-the",
-        "family": "title-house",
-        "text": "The smallest property on the shelf, {title}, is officially complete."
+        "id": "title-house-sharp-v2-4",
+        "family": "title-house-sharp-v2-4",
+        "text": "The open house will be held on the bookshelf."
       }
     ],
     "tree": [
       {
-        "id": "title-tree-title-grew-layer-by-layer",
-        "family": "title-tree",
-        "text": "{title} grew layer by layer, which is exactly how trees prefer it."
+        "id": "title-tree-sharp-v2-1",
+        "family": "title-tree-sharp-v2-1",
+        "text": "A forest that will survive longer than the actual forest used to package its filament."
       },
       {
-        "id": "title-tree-arborist-report-title-is-healthy",
-        "family": "title-tree",
-        "text": "Arborist report: {title} is healthy, upright, and pleasantly branchy."
+        "id": "title-tree-sharp-v2-2",
+        "family": "title-tree-sharp-v2-2",
+        "text": "The tree has outsourced photosynthesis to the electrical grid."
       },
       {
-        "id": "title-tree-title-puts-down-roots-on",
-        "family": "title-tree",
-        "text": "{title} puts down roots on the shelf and refuses all pruning."
+        "id": "title-tree-sharp-v2-3",
+        "family": "title-tree-sharp-v2-3",
+        "text": "An environmental initiative that begins with buying more plastic."
       },
       {
-        "id": "title-tree-from-a-tiny-filament-seed",
-        "family": "title-tree",
-        "text": "From a tiny filament seed, {title} has become a full canopy situation."
+        "id": "title-tree-sharp-v2-4",
+        "family": "title-tree-sharp-v2-4",
+        "text": "The lumber industry is now competing with a nozzle."
       }
     ],
     "guitar": [
       {
-        "id": "title-guitar-title-is-tuned-for-display",
-        "family": "title-guitar",
-        "text": "{title} is tuned for display and ready for its tiny acoustic era."
+        "id": "title-guitar-sharp-v2-1",
+        "family": "title-guitar-sharp-v2-1",
+        "text": "Jimi Hendrix would probably ask whether the strings were sold separately."
       },
       {
-        "id": "title-guitar-encore-energy-title-finished-its",
-        "family": "title-guitar",
-        "text": "Encore energy: {title} finished its set without breaking a single string."
+        "id": "title-guitar-sharp-v2-2",
+        "family": "title-guitar-sharp-v2-2",
+        "text": "An instrument whose most audible feature was its manufacturing process."
       },
       {
-        "id": "title-guitar-title-strums-nothing-says-everything",
-        "family": "title-guitar",
-        "text": "{title} strums nothing, says everything, and looks great under light."
+        "id": "title-guitar-sharp-v2-3",
+        "family": "title-guitar-sharp-v2-3",
+        "text": "The guitar has already released its first album of complete silence."
       },
       {
-        "id": "title-guitar-the-quietest-guitar-ever-made",
-        "family": "title-guitar",
-        "text": "The quietest guitar ever made, {title}, still draws a crowd."
+        "id": "title-guitar-sharp-v2-4",
+        "family": "title-guitar-sharp-v2-4",
+        "text": "The music store has been spared another customer asking about tonewood."
       }
     ],
     "elephant": [
       {
-        "id": "title-elephant-title-never-forgets-mostly-because",
-        "family": "title-elephant",
-        "text": "{title} never forgets, mostly because it is permanently on the shelf."
+        "id": "title-elephant-sharp-v2-1",
+        "family": "title-elephant-sharp-v2-1",
+        "text": "The elephant in the room is now the amount of money spent manufacturing an elephant."
       },
       {
-        "id": "title-elephant-big-ears-bigger-presence-title",
-        "family": "title-elephant",
-        "text": "Big ears, bigger presence: {title} has joined the household herd."
+        "id": "title-elephant-sharp-v2-2",
+        "family": "title-elephant-sharp-v2-2",
+        "text": "Evolution perfected a trunk and you perfected a reason to buy gray filament."
       },
       {
-        "id": "title-elephant-title-stomped-gently-off-the",
-        "family": "title-elephant",
-        "text": "{title} stomped gently off the plate and into everyone's heart."
+        "id": "title-elephant-sharp-v2-3",
+        "family": "title-elephant-sharp-v2-3",
+        "text": "The wildlife sanctuary has declined this particular adoption application."
       },
       {
-        "id": "title-elephant-the-elephant-in-the-room",
-        "family": "title-elephant",
-        "text": "The elephant in the room is {title}, and everyone is delighted."
+        "id": "title-elephant-sharp-v2-4",
+        "family": "title-elephant-sharp-v2-4",
+        "text": "An elephant never forgets, especially when you print the receipt next to it."
       }
     ],
     "bear": [
       {
-        "id": "title-bear-title-is-ready-to-hibernate",
-        "family": "title-bear",
-        "text": "{title} is ready to hibernate on the coziest corner of the shelf."
+        "id": "title-bear-sharp-v2-1",
+        "family": "title-bear-sharp-v2-1",
+        "text": "The bear market has discovered a new way to consume disposable income."
       },
       {
-        "id": "title-bear-bear-necessities-delivered-title-is",
-        "family": "title-bear",
-        "text": "Bear necessities delivered: {title} is sturdy, round, and unbothered."
+        "id": "title-bear-sharp-v2-2",
+        "family": "title-bear-sharp-v2-2",
+        "text": "That bear has been reassigned from apex predator to shelf ornament."
       },
       {
-        "id": "title-bear-title-growls-softly-at-anyone",
-        "family": "title-bear",
-        "text": "{title} growls softly at anyone who calls it merely decorative."
+        "id": "title-bear-sharp-v2-3",
+        "family": "title-bear-sharp-v2-3",
+        "text": "Goldilocks would have returned this one to the manufacturer."
       },
       {
-        "id": "title-bear-fresh-from-the-plastic-forest",
-        "family": "title-bear",
-        "text": "Fresh from the plastic forest, {title} requests honey and admiration."
+        "id": "title-bear-sharp-v2-4",
+        "family": "title-bear-sharp-v2-4",
+        "text": "The park ranger has issued a warning about feeding it more filament."
       }
     ],
     "fox": [
       {
-        "id": "title-fox-title-looks-clever-enough-to",
-        "family": "title-fox",
-        "text": "{title} looks clever enough to have planned the whole print itself."
+        "id": "title-fox-sharp-v2-1",
+        "family": "title-fox-sharp-v2-1",
+        "text": "The fox is supposed to be cunning, which makes the manufacturing budget especially awkward."
       },
       {
-        "id": "title-fox-sly-sleek-and-shelfready-title",
-        "family": "title-fox",
-        "text": "Sly, sleek, and shelf-ready: {title} has outsmarted the build plate."
+        "id": "title-fox-sharp-v2-2",
+        "family": "title-fox-sharp-v2-2",
+        "text": "A woodland creature with no natural enemies except the vacuum cleaner."
       },
       {
-        "id": "title-fox-title-slipped-off-the-printer",
-        "family": "title-fox",
-        "text": "{title} slipped off the printer with woodland confidence and style."
+        "id": "title-fox-sharp-v2-3",
+        "family": "title-fox-sharp-v2-3",
+        "text": "The henhouse has upgraded its security level to mildly decorative."
       },
       {
-        "id": "title-fox-what-does-the-fox-print",
-        "family": "title-fox",
-        "text": "{title} says plenty without making a sound, which is very fox of it."
+        "id": "title-fox-sharp-v2-4",
+        "family": "title-fox-sharp-v2-4",
+        "text": "Even a fox would know better than to pay retail for this."
       }
     ],
     "rabbit": [
       {
-        "id": "title-rabbit-title-multiplied-the-cuteness-in",
-        "family": "title-rabbit",
-        "text": "{title} multiplied the cuteness in the room by a factor of several."
+        "id": "title-rabbit-sharp-v2-1",
+        "family": "title-rabbit-sharp-v2-1",
+        "text": "The rabbit population is multiplying at a rate your shelving cannot sustain."
       },
       {
-        "id": "title-rabbit-fresh-from-the-warren-title",
-        "family": "title-rabbit",
-        "text": "Fresh from the warren: {title} is soft-edged and quick to charm."
+        "id": "title-rabbit-sharp-v2-2",
+        "family": "title-rabbit-sharp-v2-2",
+        "text": "Bugs Bunny would ask how this particular cartoon got funded."
       },
       {
-        "id": "title-rabbit-title-hopped-through-production-and",
-        "family": "title-rabbit",
-        "text": "{title} hopped through production and landed ears-first into display duty."
+        "id": "title-rabbit-sharp-v2-3",
+        "family": "title-rabbit-sharp-v2-3",
+        "text": "The Easter Bunny has outsourced production to a remarkably expensive factory."
       },
       {
-        "id": "title-rabbit-lucky-feet-not-included-but",
-        "family": "title-rabbit",
-        "text": "Lucky feet not included, but {title} brings its own good fortune."
+        "id": "title-rabbit-sharp-v2-4",
+        "family": "title-rabbit-sharp-v2-4",
+        "text": "A creature famous for reproducing quickly is now subject to a slicer estimate."
       }
     ],
     "penguin": [
       {
-        "id": "title-penguin-title-is-formally-dressed-for",
-        "family": "title-penguin",
-        "text": "{title} is formally dressed for every occasion the shelf can offer."
+        "id": "title-penguin-sharp-v2-1",
+        "family": "title-penguin-sharp-v2-1",
+        "text": "Antarctica would like its wildlife returned in a more biodegradable format."
       },
       {
-        "id": "title-penguin-waddle-complete-title-arrives-in",
-        "family": "title-penguin",
-        "text": "Waddle complete: {title} arrives in permanent tuxedo and zero hurry."
+        "id": "title-penguin-sharp-v2-2",
+        "family": "title-penguin-sharp-v2-2",
+        "text": "The penguin's natural habitat has been reduced to the shelf beside your keyboard."
       },
       {
-        "id": "title-penguin-title-brings-polar-professionalism-to",
-        "family": "title-penguin",
-        "text": "{title} brings polar professionalism to a distinctly room-temperature desk."
+        "id": "title-penguin-sharp-v2-3",
+        "family": "title-penguin-sharp-v2-3",
+        "text": "The Linux mascot has requested a different department to handle hardware."
       },
       {
-        "id": "title-penguin-the-colony-grows-title-stands",
-        "family": "title-penguin",
-        "text": "The colony grows: {title} stands proudly with the other cold-weather prints."
+        "id": "title-penguin-sharp-v2-4",
+        "family": "title-penguin-sharp-v2-4",
+        "text": "The tuxedo is the only part of this project that looks financially responsible."
       }
     ],
     "whale": [
       {
-        "id": "title-whale-title-is-a-big-deal",
-        "family": "title-whale",
-        "text": "{title} is a big deal in every sense the build volume allowed."
+        "id": "title-whale-sharp-v2-1",
+        "family": "title-whale-sharp-v2-1",
+        "text": "The whale has been promoted from marine mammal to endangered desk space."
       },
       {
-        "id": "title-whale-whale-hello-there-title-has",
-        "family": "title-whale",
-        "text": "Whale hello there: {title} has surfaced from the deep blue plate."
+        "id": "title-whale-sharp-v2-2",
+        "family": "title-whale-sharp-v2-2",
+        "text": "Captain Ahab could have saved himself a lot of trouble with a smaller filament order."
       },
       {
-        "id": "title-whale-title-sings-its-silent-song",
-        "family": "title-whale",
-        "text": "{title} sings its silent song from the shelf, majestic and unbothered."
+        "id": "title-whale-sharp-v2-3",
+        "family": "title-whale-sharp-v2-3",
+        "text": "The ocean's largest mammals would question this particular allocation of resources."
       },
       {
-        "id": "title-whale-a-whale-of-a-print",
-        "family": "title-whale",
-        "text": "A whale of a print, {title}, in the most literal available size."
+        "id": "title-whale-sharp-v2-4",
+        "family": "title-whale-sharp-v2-4",
+        "text": "A whale whose entire migration route is between the printer and the shelf."
       }
     ],
     "ghost": [
       {
-        "id": "title-ghost-title-haunts-the-shelf-now",
-        "family": "title-ghost",
-        "text": "{title} haunts the shelf now, politely and with excellent posture."
+        "id": "title-ghost-sharp-v2-1",
+        "family": "title-ghost-sharp-v2-1",
+        "text": "The paranormal activity here is the mysterious disappearance of your paycheck."
       },
       {
-        "id": "title-ghost-spooky-season-is-permanent-since",
-        "family": "title-ghost",
-        "text": "Spooky season is permanent since {title} floated off the build plate."
+        "id": "title-ghost-sharp-v2-2",
+        "family": "title-ghost-sharp-v2-2",
+        "text": "Even the ghost is embarrassed to haunt this particular piece of real estate."
       },
       {
-        "id": "title-ghost-title-is-transparent-about-one",
-        "family": "title-ghost",
-        "text": "{title} is transparent about one thing: it demands to be displayed."
+        "id": "title-ghost-sharp-v2-3",
+        "family": "title-ghost-sharp-v2-3",
+        "text": "A supernatural being whose only earthly attachment is the build plate."
       },
       {
-        "id": "title-ghost-boo-but-make-it-decorative",
-        "family": "title-ghost",
-        "text": "Boo, but make it decorative: {title} has joined the household haunting."
+        "id": "title-ghost-sharp-v2-4",
+        "family": "title-ghost-sharp-v2-4",
+        "text": "Ghostbusters would bill the printer for wasting their time."
       }
     ],
     "robot": [
       {
-        "id": "title-robot-title-booted-up-beeped-approvingly",
-        "family": "title-robot",
-        "text": "{title} booted up, beeped approvingly, and accepted shelf assignment."
+        "id": "title-robot-sharp-v2-1",
+        "family": "title-robot-sharp-v2-1",
+        "text": "Artificial intelligence has declined to be associated with this particular hardware."
       },
       {
-        "id": "title-robot-beep-boop-title-is-online",
-        "family": "title-robot",
-        "text": "Beep boop: {title} is online and already more reliable than the Wi-Fi."
+        "id": "title-robot-sharp-v2-2",
+        "family": "title-robot-sharp-v2-2",
+        "text": "Boston Dynamics is safe from competition for at least another decade."
       },
       {
-        "id": "title-robot-title-was-printed-by-a",
-        "family": "title-robot",
-        "text": "{title} was printed by a robot, about a robot, for the robots."
+        "id": "title-robot-sharp-v2-3",
+        "family": "title-robot-sharp-v2-3",
+        "text": "The singularity has been rescheduled due to a shortage of functional parts."
       },
       {
-        "id": "title-robot-unit-title-reporting-for-duty",
-        "family": "title-robot",
-        "text": "Unit {title} reporting for duty, charm subroutines fully engaged."
+        "id": "title-robot-sharp-v2-4",
+        "family": "title-robot-sharp-v2-4",
+        "text": "Even the Roomba has a stronger claim to world domination."
       }
     ],
     "mushroom": [
       {
-        "id": "title-mushroom-title-sprouted-on-the-plate",
-        "family": "title-mushroom",
-        "text": "{title} sprouted on the plate like the forest floor after rain."
+        "id": "title-mushroom-sharp-v2-1",
+        "family": "title-mushroom-sharp-v2-1",
+        "text": "That mushroom has the nutritional value of the packaging it came in."
       },
       {
-        "id": "title-mushroom-a-fun-guy-in-every",
-        "family": "title-mushroom",
-        "text": "A fun guy in every sense: {title} has joined the shelf ecosystem."
+        "id": "title-mushroom-sharp-v2-2",
+        "family": "title-mushroom-sharp-v2-2",
+        "text": "Mario wouldn't even jump for this one."
       },
       {
-        "id": "title-mushroom-title-grew-overnight-energy-into",
-        "family": "title-mushroom",
-        "text": "{title} grew overnight energy into a permanent daylight display role."
+        "id": "title-mushroom-sharp-v2-3",
+        "family": "title-mushroom-sharp-v2-3",
+        "text": "The fungus has achieved immortality at the expense of being useful to the ecosystem."
       },
       {
-        "id": "title-mushroom-sporeadjacent-and-shelfapproved-title-completes",
-        "family": "title-mushroom",
-        "text": "Spore-adjacent and shelf-approved, {title} completes the woodland collection."
+        "id": "title-mushroom-sharp-v2-4",
+        "family": "title-mushroom-sharp-v2-4",
+        "text": "The forest floor has filed a complaint about the unauthorized development."
+      }
+    ],
+    "curiosity rover": [
+      {
+        "id": "title-curiosity-rover-sharp-v2-1",
+        "family": "title-curiosity-rover-sharp-v2-1",
+        "text": "NASA drove a rover on Mars while yours faces the hostile terrain of a desk."
+      },
+      {
+        "id": "title-curiosity-rover-sharp-v2-2",
+        "family": "title-curiosity-rover-sharp-v2-2",
+        "text": "The rover's mission is to search for intelligent spending decisions, with no findings so far."
+      },
+      {
+        "id": "title-curiosity-rover-sharp-v2-3",
+        "family": "title-curiosity-rover-sharp-v2-3",
+        "text": "Mars has declined the latest proposed addition to its surface debris."
+      }
+    ],
+    "eiffel tower": [
+      {
+        "id": "title-eiffel-tower-sharp-v2-1",
+        "family": "title-eiffel-tower-sharp-v2-1",
+        "text": "Paris spent two years building the original and you still managed to make it a financial inconvenience."
+      },
+      {
+        "id": "title-eiffel-tower-sharp-v2-2",
+        "family": "title-eiffel-tower-sharp-v2-2",
+        "text": "The French tourism board would prefer you keep this landmark at home."
+      },
+      {
+        "id": "title-eiffel-tower-sharp-v2-3",
+        "family": "title-eiffel-tower-sharp-v2-3",
+        "text": "An iconic symbol of Paris brought to you by an appliance with a questionable accent."
+      }
+    ],
+    "gyroid": [
+      {
+        "id": "title-gyroid-sharp-v2-1",
+        "family": "title-gyroid-sharp-v2-1",
+        "text": "Topology has finally achieved the commercial success of a disorganized sponge."
+      },
+      {
+        "id": "title-gyroid-sharp-v2-2",
+        "family": "title-gyroid-sharp-v2-2",
+        "text": "The mathematician responsible for this would like to discuss the cost of empty space."
+      },
+      {
+        "id": "title-gyroid-sharp-v2-3",
+        "family": "title-gyroid-sharp-v2-3",
+        "text": "A structure so complicated even the infill is having an identity crisis."
+      }
+    ],
+    "jukebox": [
+      {
+        "id": "title-jukebox-sharp-v2-1",
+        "family": "title-jukebox-sharp-v2-1",
+        "text": "The jukebox can now play every song except the sound of money returning to your account."
+      },
+      {
+        "id": "title-jukebox-sharp-v2-2",
+        "family": "title-jukebox-sharp-v2-2",
+        "text": "A retro music experience brought to you by a very modern electricity bill."
+      },
+      {
+        "id": "title-jukebox-sharp-v2-3",
+        "family": "title-jukebox-sharp-v2-3",
+        "text": "The diner has been closed since 1978 and somehow the jukebox is still costing money."
+      }
+    ],
+    "church bell": [
+      {
+        "id": "title-church-bell-sharp-v2-1",
+        "family": "title-church-bell-sharp-v2-1",
+        "text": "The bell tolls for another afternoon that could have been spent doing literally anything else."
+      },
+      {
+        "id": "title-church-bell-sharp-v2-2",
+        "family": "title-church-bell-sharp-v2-2",
+        "text": "The congregation has requested an audit of the offertory filament fund."
+      },
+      {
+        "id": "title-church-bell-sharp-v2-3",
+        "family": "title-church-bell-sharp-v2-3",
+        "text": "An expensive way to announce the arrival of absolutely nobody."
+      }
+    ],
+    "marionette": [
+      {
+        "id": "title-marionette-sharp-v2-1",
+        "family": "title-marionette-sharp-v2-1",
+        "text": "The puppet has achieved complete independence from the string and total dependence on the electricity company."
+      },
+      {
+        "id": "title-marionette-sharp-v2-2",
+        "family": "title-marionette-sharp-v2-2",
+        "text": "The theater department has requested a separate budget for bad dreams."
+      },
+      {
+        "id": "title-marionette-sharp-v2-3",
+        "family": "title-marionette-sharp-v2-3",
+        "text": "Even a puppet would ask who is pulling the strings on these spending decisions."
+      }
+    ],
+    "mammoth": [
+      {
+        "id": "title-mammoth-sharp-v2-1",
+        "family": "title-mammoth-sharp-v2-1",
+        "text": "The Ice Age ended and somehow your printer is still trying to resurrect it."
+      },
+      {
+        "id": "title-mammoth-sharp-v2-2",
+        "family": "title-mammoth-sharp-v2-2",
+        "text": "Paleontology has taken a sharp turn into expensive interior decorating."
+      },
+      {
+        "id": "title-mammoth-sharp-v2-3",
+        "family": "title-mammoth-sharp-v2-3",
+        "text": "The mammoth survived extinction in the form of yet another object that won't fit in a drawer."
+      }
+    ],
+    "dino": [
+      {
+        "id": "title-dino-sharp-v2-1",
+        "family": "title-dino-sharp-v2-1",
+        "text": "The asteroid ended the dinosaurs and your printer has decided to appeal the ruling."
+      },
+      {
+        "id": "title-dino-sharp-v2-2",
+        "family": "title-dino-sharp-v2-2",
+        "text": "Jurassic Park is now accepting auditions for a much lower budget sequel."
+      },
+      {
+        "id": "title-dino-sharp-v2-3",
+        "family": "title-dino-sharp-v2-3",
+        "text": "The fossil record is about to get a confusing new layer."
+      }
+    ],
+    "elf": [
+      {
+        "id": "title-elf-sharp-v2-1",
+        "family": "title-elf-sharp-v2-1",
+        "text": "Santa has outsourced his labor force to a machine that takes all day to produce one employee."
+      },
+      {
+        "id": "title-elf-sharp-v2-2",
+        "family": "title-elf-sharp-v2-2",
+        "text": "The North Pole's productivity figures are about to look rather embarrassing."
+      },
+      {
+        "id": "title-elf-sharp-v2-3",
+        "family": "title-elf-sharp-v2-3",
+        "text": "The elf on the shelf has finally received a competing claim to the shelf."
       }
     ]
   }
