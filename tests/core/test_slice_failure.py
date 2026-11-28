@@ -248,27 +248,40 @@ def test_recipe_change_slice_failure_survives_worker_wire_without_retry():
     assert 'Prepare the saved model again' in post
 
 
-def test_slice_job_bare_runtime_errors_are_explicitly_allowlisted():
+def test_slice_boundaries_bare_runtime_errors_are_allowlisted():
     import ast
     from pathlib import Path
     source = Path('print_handy/jobs/slice.py').read_text()
     tree = ast.parse(source)
-    job = next(node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == '_slice_job')
-    allow = {
-        'scale must be greater than 0',
-        'model measures ',
-        'recorded unit confirmation must be mm or inch; confirm the units again ',
-        'model measures {measured} mm and treating it as inches would be {final} mm, which exceeds printer volume',
+    # Internal invariants are deliberately left as RuntimeError; keep a reason beside each.
+    allowlist = {
+        'multi-plate 3MF objects ': 'an audited source object missing a plate assignment is an internal inventory invariant',
+        "plate_mode must be 'merge' or 'separate'": 'caller mode is constrained by the internal slice planner',
+        'every derived plate was refused: ': 'all per-plate slicer refusals are reported as an aggregated pipeline failure',
+        'per-plate output does not account for every source part': 'artifact/source accounting invariant',
+        'scale must be greater than 0': 'owned scale pre-check block',
+        'model measures ': 'owned unit-confirmation pre-check block',
+        'recorded unit confirmation must be mm or inch; confirm the units again ': 'owned unit-confirmation pre-check block',
     }
     offenders = []
-    for node in ast.walk(job):
-        if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
-            continue
-        if not (isinstance(node.exc.func, ast.Name) and node.exc.func.id == 'RuntimeError'):
-            continue
-        arg = node.exc.args[0] if node.exc.args else None
-        text = ast.get_source_segment(source, arg) or ''
-        if any(phrase in text for phrase in allow):
-            continue
-        offenders.append((node.lineno, text))
-    assert not offenders, f'New bare RuntimeError in _slice_job: {offenders}'
+    for name in ('_slice_job', 'slice_multi_plate', '_slice_per_plate'):
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
+                continue
+            if not (isinstance(node.exc.func, ast.Name) and node.exc.func.id == 'RuntimeError'):
+                continue
+            arg = node.exc.args[0] if node.exc.args else None
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                text = arg.value
+            elif isinstance(arg, ast.JoinedStr):
+                text = ''.join(v.value for v in arg.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+            else:
+                text = ''
+            if text.startswith('model measures ') and 'exceeds printer volume' in text:
+                text = 'model measures '
+            if any(text.startswith(allowed) for allowed in allowlist):
+                continue
+            offenders.append((name, node.lineno, text))
+    assert not offenders, f'Unallowlisted bare RuntimeError: {offenders}'
+
