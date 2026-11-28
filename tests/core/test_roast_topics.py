@@ -102,3 +102,15 @@ def test_unknown_tone_is_rejected(tmp_path):
     pack.write_text(json.dumps({"entries": [{**SAMPLE, "tone": "unknown"}]}))
     corpus = roast.load_corpus(str(pack))
     assert SAMPLE["id"] not in corpus["families"]
+
+
+def test_import_duplicate_invalid_first_valid_second(tmp_path):
+    source, output = tmp_path / "source.json", tmp_path / "pack.json"
+    invalid = {**SAMPLE, "tone": "invalid", "source": "rejected attribution"}
+    valid = {**SAMPLE, "tone": "harsh", "source": "accepted attribution"}
+    source.write_text(json.dumps([invalid, valid, {**valid, "source": "later duplicate"}]))
+    report = import_pack([source], output, minimum=1)
+    assert report["accepted"] == 1
+    assert json.loads(output.read_text())["entries"][0]["source"] == "accepted attribution"
+    assert any("invalid tone" in problem for problem in report["validation_problems"])
+    assert any("id is used twice" in problem for problem in report["validation_problems"])
