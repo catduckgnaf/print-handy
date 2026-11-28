@@ -729,11 +729,19 @@ def source_triangles(source):
 _FOOTPRINT_CACHE: dict = {}
 
 
-def fit_envelope_fits(extents_mm, bed_mm, max_height_mm, *, margin_mm=0.0, scale=1.0):
-    """Conservative axis-aligned precheck shared by fit probes and slicing."""
+def fit_envelope_fits(extents_mm, bed_mm, max_height_mm, *, margin_mm=0.0, scale=1.0,
+                      check_xy=True):
+    """Conservative extent check shared by probe and slice.
+
+    Probe-accepted poses must pass the slice precheck, and slice-refused poses
+    must be probe-refused; the slice uses zero margin because G-code validation
+    separately guards features beyond the model envelope.
+    """
     x, y, z = (float(v) * float(scale) for v in extents_mm)
     bx, by = (float(v) for v in bed_mm[:2])
-    return x <= bx - 2 * float(margin_mm) and y <= by - 2 * float(margin_mm) and z <= float(max_height_mm)
+    return ((not check_xy or (x <= bx - 2 * float(margin_mm)
+                              and y <= by - 2 * float(margin_mm)))
+            and z <= float(max_height_mm))
 
 
 def _footprint(source, rotation=None):
@@ -3238,8 +3246,12 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
         min_y, max_y = min(p[1] for p in hull), max(p[1] for p in hull)
         w = max_x - min_x
         d = max_y - min_y
-        if not fit_envelope_fits((w * scale, d * scale, z_max - z_min), (bed_x, bed_y), max_h):
-            return 0  # Orca arrange does not enforce height or the axis-aligned envelope.
+        if ((z_max - z_min) * scale > max_h
+                or (not allow_rotations and not fit_envelope_fits(
+                    (w, d, z_max - z_min), (bed_x, bed_y), max_h,
+                    margin_mm=single_margin if copy_limit == 1 else multi_margin,
+                    scale=scale))):
+            return 0  # Orca arrange does not enforce height or the authored XY envelope.
 
         scaled_w, scaled_d = w * scale, d * scale
         expand_mm = max(0.0, (spacing_mm - 2.0) / 2.0)

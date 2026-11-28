@@ -2309,6 +2309,13 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
     return gcodes if adopted.get('derived_plates') else Path(gcodes[0])
 
 
+def _volume_precheck(sx, sy, sz, scale, st):
+    """Return whether the centered footprint fits the printer's build volume."""
+    from ..core.orca_adapter import fit_envelope_fits
+    return fit_envelope_fits((sx, sy, sz), st["bed_mm"], st["max_print_height_mm"],
+                             margin_mm=0, scale=float(scale) if scale else 1.0)
+
+
 def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
@@ -2726,8 +2733,10 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     if scale is not None:
         scale = float(scale)
         if not scale > 0:
-            from ..core.slice_failure import SliceFailure
-            raise SliceFailure('scale must be greater than 0', kind='layout', signature='outside_bed')
+            from ..core.slice_refusal import SliceRefusal
+            raise SliceRefusal('scale must be greater than 0',
+                               plain='The requested size must be larger than 0%.',
+                               next_step='Pick a size greater than 0% and ask to slice again.')
     orientation = job.get("orientation") or {}
     rotation = orientation.get("rotation")
     if not all(ad.get(k) for k in ("size_x", "size_y", "size_z")):
@@ -2796,11 +2805,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
         else:
             unit_provenance = {'units': 'mm', 'source': 'authored_size',
                                'original_mm': list(authored_dims), 'factor': 1.0}
-    from ..core.orca_adapter import fit_envelope_fits, required_feature_edge, SINGLE_COPY_EDGE_MM
-    eff_dims = (sx, sy, sz)
-    edge = SINGLE_COPY_EDGE_MM + required_feature_edge(st)
-    if not fit_envelope_fits(eff_dims, st["bed_mm"], st["max_print_height_mm"],
-                             margin_mm=edge, scale=float(scale) if scale else 1.0):
+    if not _volume_precheck(sx, sy, sz, scale, st):
         from ..core.slice_failure import SliceFailure
         raise SliceFailure(f"model {sx}x{sy}x{sz} mm exceeds printer volume", kind='layout',
                            signature='outside_bed')
