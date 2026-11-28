@@ -11,7 +11,7 @@ def test_face_change_case_keeps_fit_question_and_slice_volume_agree():
     case = Path(__file__).parent / "cases" / "rotation-fit" / "case.toml"
     data = tomllib.loads(case.read_text())
     assert "face change" in data["description"]
-    dims = tuple(data["model"]["part"]["size"])
+    dims = tuple(data["model"]["part"][0]["size"])
     state = {"bed_mm": [220, 220], "max_print_height_mm": 220}
     assert not orca_adapter.fit_envelope_fits(dims, state["bed_mm"], state["max_print_height_mm"], margin_mm=0)
     assert not slice_jobs._volume_precheck(*dims, 1.0, state)
