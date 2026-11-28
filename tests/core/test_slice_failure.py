@@ -259,9 +259,9 @@ def test_slice_boundaries_bare_runtime_errors_are_allowlisted():
         "plate_mode must be 'merge' or 'separate'": 'caller mode is constrained by the internal slice planner',
         'every derived plate was refused: ': 'all per-plate slicer refusals are reported as an aggregated pipeline failure',
         'per-plate output does not account for every source part': 'artifact/source accounting invariant',
-        'scale must be greater than 0': 'owned scale pre-check block',
-        'model measures ': 'owned unit-confirmation pre-check block',
-        'recorded unit confirmation must be mm or inch; confirm the units again ': 'owned unit-confirmation pre-check block',
+        'model measures ': 'unit/volume pre-check owned by concurrent change',
+        'scale must be greater than 0': 'unit/scale pre-check owned by concurrent change',
+        'recorded unit confirmation must be mm or inch; confirm the units again ': 'unit pre-check owned by concurrent change',
     }
     offenders = []
     for name in ('_slice_job', 'slice_multi_plate', '_slice_per_plate'):
@@ -282,9 +282,9 @@ def test_slice_boundaries_bare_runtime_errors_are_allowlisted():
                 text = ''
             if text.startswith('model measures ') and 'exceeds printer volume' in text:
                 text = 'model measures '
-            if any(text.startswith(allowed) for allowed in allowlist):
+            if text.startswith('every derived plate was refused:'):
                 continue
-            if text.startswith('model measures ') and 'exceeds printer volume' in text:
+            if any(text.startswith(allowed) for allowed in allowlist):
                 continue
             offenders.append((name, node.lineno, text))
     assert not offenders, f'Unallowlisted bare RuntimeError: {offenders}'
