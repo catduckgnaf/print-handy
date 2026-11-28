@@ -298,10 +298,11 @@ def _near_duplicate(text: str, others: list[str]) -> bool:
 MAX_CUSTOM_BANK_BYTES = 2 * 1024 * 1024
 MAX_CUSTOM_ENTRIES = 5000
 MAX_TOPIC_KEYWORDS = 12
+ROAST_TONES = frozenset({'dad', 'sarcastic', 'harsh'})
 
 
 def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
-                     blocklist=(), *, topic_keywords=None) -> tuple[list[tuple[str, str, str]], list[str]]:
+                     blocklist=(), *, topic_keywords=None, tone_labels=None) -> tuple[list[tuple[str, str, str]], list[str]]:
     """An operator's custom bank file as ([(id, family, text)], [problems]).
 
     The file is a JSON object with an ``entries`` list (a bare list is
@@ -401,6 +402,11 @@ def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
         if problem:
             problems.append(f"custom roast entry {eid}: {problem}; entry skipped")
             continue
+        tone = raw.get("tone") if isinstance(raw, dict) else None
+        if isinstance(raw, dict) and "tone" in raw and (
+                not isinstance(tone, str) or tone not in ROAST_TONES):
+            problems.append(f"custom roast entry {eid}: invalid tone; entry skipped")
+            continue
         if isinstance(raw, dict) and "keywords" in raw:
             tags = raw["keywords"]
             if (not isinstance(tags, list) or not 1 <= len(tags) <= MAX_TOPIC_KEYWORDS
@@ -412,6 +418,8 @@ def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
                 continue
             if topic_keywords is not None:
                 topic_keywords[eid] = tuple(sorted({_topic_key(tag) for tag in tags}))
+        if tone_labels is not None and tone is not None:
+            tone_labels[eid] = tone
         seen_ids.add(eid)
         seen_texts[norm] = eid
         near.add(text)  # later entries are checked against accepted ones too
@@ -474,6 +482,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
     # corpus; they never stop the shipped corpus from loading.
     custom_problems: list[str] = []
     custom_keywords: dict[str, tuple[str, ...]] = {}
+    custom_tones: dict[str, str] = {}
     banks[CUSTOM_BANK] = []
     if custom_path:
         shipped_texts = [text for rows in banks.values() for _i, text in rows]
@@ -483,7 +492,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
             shipped_texts += [text for rows in keyed_rows.values() for _i, text in rows]
         custom_entries, custom_problems = load_custom_bank(
             custom_path, shipped_ids=set(families), shipped_texts=shipped_texts,
-            blocklist=blocklist, topic_keywords=custom_keywords)
+            blocklist=blocklist, topic_keywords=custom_keywords, tone_labels=custom_tones)
         for eid, family, text in custom_entries:
             families[eid] = family
             banks[CUSTOM_BANK].append((eid, text))
@@ -516,11 +525,11 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
 
     digest = hashlib.sha1(json.dumps([banks, reactions, fragments, color_roasts,
                                       reprint_failed, history_callbacks, material_roasts,
-                                      milestone, dictionary, families, custom_keywords],
+                                      milestone, dictionary, families, custom_keywords, custom_tones],
                                      sort_keys=True).encode("utf-8")).hexdigest()[:12]
     return {
         "banks": banks, "title_reactions": reactions, "fragments": fragments,
-        "custom_keywords": custom_keywords,
+        "custom_keywords": custom_keywords, "custom_tones": custom_tones,
         "blocklist": blocklist, "color_roasts": color_roasts,
         "reprint_failed": reprint_failed, "history_callbacks": history_callbacks,
         "material_roasts": material_roasts, "milestone": milestone,
@@ -1199,9 +1208,20 @@ def _roast(ctx, *, status, key, state_path, rng, custom_path=None):
     pools = _balance_fact_pools(candidate_pools(ctx, status, corpus), state, status)
     picked = None
     picked_pool = None
+    tones = corpus.get("custom_tones", {})
     for name, entries in pools:
-        picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"],
-                       families=corpus["families"])
+        # Prefer bite over a dad joke at equal relevance, but allow every
+        # eligible entry a turn when the sharper lines are in cooldown.
+        # A separate shuffle bag preserves the normal history semantics.
+        sharp = [(eid, text) for eid, text in entries
+                 if tones.get(eid) in ("sarcastic", "harsh")]
+        picked = None
+        if sharp:
+            picked = _draw(name + ":sharp", sharp, ctx, state, rng,
+                           corpus["blocklist"], families=corpus["families"])
+        if picked is None:
+            picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"],
+                           families=corpus["families"])
         if picked:
             picked_pool = name
             break
