@@ -277,13 +277,22 @@ def profile_for(baseline, cpus):
     is compared with a recording from the same CPU when one exists (``by_cpu``, catduck
     2026-11-15). Otherwise the top-level default applies, as before. Limits (tolerance, slack,
     fit-check budget and required rows) always come from the top level; a profile carries only
-    its own ``cases`` and ``recorded_from``.
+    its own ``cases`` and ``recorded_from``. A new case without a recording on this CPU
+    uses its reviewed default entry, never an invented CPU-specific measurement.
     """
     profiles = baseline.get("by_cpu") or {}
     if len(cpus) == 1 and cpus[0] in profiles:
         merged = {k: v for k, v in baseline.items() if k != "by_cpu"}
-        merged.update(profiles[cpus[0]])
-        return merged, f"CPU profile {cpus[0]}"
+        profile = profiles[cpus[0]]
+        merged.update(profile)
+        # Keep measured CPU-specific rows authoritative; new cases still have to
+        # meet a reviewed default baseline until that CPU is recorded again.
+        merged["cases"] = {**baseline.get("cases", {}), **profile.get("cases", {})}
+        fallback = set(baseline.get("cases", {})) - set(profile.get("cases", {}))
+        label = f"CPU profile {cpus[0]}"
+        if fallback:
+            label += f" ({len(fallback)} default case(s))"
+        return merged, label
     return baseline, "default baseline"
 
 

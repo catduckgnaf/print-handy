@@ -490,3 +490,22 @@ def test_record_without_a_raise_prints_no_drift(tmp_path, capsys):
     assert main([str(run), "--baseline", str(base), "--record"]) == 0
     _, err = capsys.readouterr()
     assert err == ""
+
+
+def test_new_case_uses_reviewed_default_until_cpu_profile_is_recorded():
+    from tests.corpus.timing_gate import profile_for
+
+    base = dict(BASE, cases={**BASE["cases"], "diagonal-turn/direct": {"wall_s": 0.16}},
+                by_cpu={"older CPU": {"cases": {"single-part/direct": {"wall_s": 2.0}},
+                                      "recorded_from": "older measurement"}})
+    selected, label = profile_for(base, ["older CPU"])
+    assert selected["cases"]["single-part/direct"]["wall_s"] == 2.0
+    assert selected["cases"]["diagonal-turn/direct"]["wall_s"] == 0.16
+    assert "1 default case" in label
+    diagonal = dict(row(0.16), case="diagonal-turn")
+    assert check([row(2.0), diagonal], selected) == []
+    assert any("diagonal-turn/direct: wall_s" in p
+               for p in check([row(2.0), dict(diagonal, wall_s=5.0)], selected))
+    unknown = dict(row(0.16), case="unrecorded")
+    assert any("no baseline" in p for p in check([row(2.0), diagonal, unknown], selected))
+    assert "diagonal-turn/direct" not in base["by_cpu"]["older CPU"]["cases"]
