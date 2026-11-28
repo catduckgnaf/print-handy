@@ -295,12 +295,13 @@ def _near_duplicate(text: str, others: list[str]) -> bool:
 
 # Bounds on the operator's custom bank: the file is read and validated
 # once per process, and a bank this size is far beyond any house list.
-MAX_CUSTOM_BANK_BYTES = 256 * 1024
-MAX_CUSTOM_ENTRIES = 500
+MAX_CUSTOM_BANK_BYTES = 2 * 1024 * 1024
+MAX_CUSTOM_ENTRIES = 5000
+MAX_TOPIC_KEYWORDS = 12
 
 
 def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
-                     blocklist=()) -> tuple[list[tuple[str, str, str]], list[str]]:
+                     blocklist=(), *, topic_keywords=None) -> tuple[list[tuple[str, str, str]], list[str]]:
     """An operator's custom bank file as ([(id, family, text)], [problems]).
 
     The file is a JSON object with an ``entries`` list (a bare list is
@@ -400,6 +401,17 @@ def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
         if problem:
             problems.append(f"custom roast entry {eid}: {problem}; entry skipped")
             continue
+        if isinstance(raw, dict) and "keywords" in raw:
+            tags = raw["keywords"]
+            if (not isinstance(tags, list) or not 1 <= len(tags) <= MAX_TOPIC_KEYWORDS
+                    or any(not isinstance(tag, str) or not 1 <= len(tag) <= 64
+                           or not _topic_key(tag)
+                           or _topic_key(tag) in _COMMON_NON_KEYWORDS
+                           for tag in tags)):
+                problems.append(f"custom roast entry {eid}: invalid keywords; entry skipped")
+                continue
+            if topic_keywords is not None:
+                topic_keywords[eid] = tuple(sorted({_topic_key(tag) for tag in tags}))
         seen_ids.add(eid)
         seen_texts[norm] = eid
         near.add(text)  # later entries are checked against accepted ones too
@@ -461,6 +473,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
     # additively. Its problems are named in the log and in the returned
     # corpus; they never stop the shipped corpus from loading.
     custom_problems: list[str] = []
+    custom_keywords: dict[str, tuple[str, ...]] = {}
     banks[CUSTOM_BANK] = []
     if custom_path:
         shipped_texts = [text for rows in banks.values() for _i, text in rows]
@@ -470,7 +483,7 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
             shipped_texts += [text for rows in keyed_rows.values() for _i, text in rows]
         custom_entries, custom_problems = load_custom_bank(
             custom_path, shipped_ids=set(families), shipped_texts=shipped_texts,
-            blocklist=blocklist)
+            blocklist=blocklist, topic_keywords=custom_keywords)
         for eid, family, text in custom_entries:
             families[eid] = family
             banks[CUSTOM_BANK].append((eid, text))
@@ -503,10 +516,11 @@ def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
 
     digest = hashlib.sha1(json.dumps([banks, reactions, fragments, color_roasts,
                                       reprint_failed, history_callbacks, material_roasts,
-                                      milestone, dictionary, families],
+                                      milestone, dictionary, families, custom_keywords],
                                      sort_keys=True).encode("utf-8")).hexdigest()[:12]
     return {
         "banks": banks, "title_reactions": reactions, "fragments": fragments,
+        "custom_keywords": custom_keywords,
         "blocklist": blocklist, "color_roasts": color_roasts,
         "reprint_failed": reprint_failed, "history_callbacks": history_callbacks,
         "material_roasts": material_roasts, "milestone": milestone,
@@ -545,6 +559,21 @@ _MENTION_RE = re.compile(r"(?i)@(?:everyone|here)\b|<[@#!&][^>]*>|@\w+")
 _EXT_RE = re.compile(r"(?i)(?:\.(?:gcode|bgcode|3mf|stl|step|stp|obj))+$")
 _TITLE_SEPARATOR_RE = re.compile(r"\s+[-–|:]\s+|\s*[(\[]|:\s")
 _DANGLING_TITLE_WORDS = frozenset({'or', 'and', 'with', 'the', 'a', 'an', 'of', 'for', 'to', 'in', 'on', 'by'})
+
+
+def _topic_key(value: str) -> str:
+    """Normalize filename words, not arbitrary substrings."""
+    value = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", value)
+    return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
+
+
+def _topic_title(title: Any) -> str:
+    """Bounded matching-only filename, never interpolated into a roast."""
+    raw = str(title or "")[:512]
+    raw = _MENTION_RE.sub(" ", _URL_RE.sub(" ", raw))
+    raw = re.split(r"[/\\]", raw)[-1]
+    raw = _EXT_RE.sub("", raw.strip())
+    return _topic_key(raw)
 
 
 def scrub_title(title: Any) -> str:
@@ -669,7 +698,7 @@ def build_context(title: Any, *, duration_s: Any = None, material: Any = None, c
     A fact that is unknown, zero or unusable is simply absent, so no
     template that needs it is eligible — nothing is invented.
     """
-    ctx: dict[str, Any] = {"_facts": {}}
+    ctx: dict[str, Any] = {"_facts": {}, "_topic_title": _topic_title(title)}
     facts = ctx["_facts"]
     clean = scrub_title(title)
     if clean:
@@ -853,9 +882,24 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
     for k in _title_keywords(ctx, corpus):
         pools.append((f"title:{k}", corpus["title_reactions"][k]))
 
+    # Explicit pack tags match even suffixes omitted from the display title.
+    custom_keywords = corpus.get("custom_keywords", {})
+    title_key = str(ctx.get("_topic_title") or _topic_key(str(ctx.get("title") or "")))
+    matching = []
+    for eid, text in corpus["banks"].get(CUSTOM_BANK, []):
+        scores = [len(tag.split()) for tag in custom_keywords.get(eid, ())
+                  if re.search(rf"(?<![a-z0-9]){re.escape(tag)}(?:s|es)?(?![a-z0-9])", title_key)]
+        if scores:
+            matching.append((max(scores), eid, text))
+    if matching:
+        best = max(score for score, _, _ in matching)
+        pools.append(("title:external", [(eid, text) for score, eid, text in matching
+                                         if score == best]))
+
     generic_pool = (corpus["banks"]["generic"]
                     + corpus["banks"].get("dark_humor", [])
-                    + corpus["banks"].get(CUSTOM_BANK, [])
+                    + [(eid, text) for eid, text in corpus["banks"].get(CUSTOM_BANK, [])
+                       if eid not in custom_keywords]
                     + corpus["banks"]["one_liners"])
     pools.append(("generic", generic_pool))
     return pools
@@ -1133,6 +1177,14 @@ def _balance_fact_pools(pools, state, status):
     # whenever the window's counts come out even.
     facts = sorted(enumerate(facts), key=lambda pair: (
         recent.count(pair[1][0]), last_used.get(pair[1][0], -1), pair[0]))
+    # Preserve the first-draw fact preference, but reserve a turn for
+    # title humor after three selections without a title.
+    titles = [pool for pool in fallback if pool[0].startswith("title:")]
+    if titles and len(recent) >= 3 and not any(name.startswith("title:") for name in recent[-3:]):
+        titles.sort(key=lambda pool: (pool[0] != "title:external",
+                                      recent.count(pool[0]), last_used.get(pool[0], -1)))
+        remainder = [pool for pool in fallback if not pool[0].startswith("title:")]
+        return fixed + titles + [pool for _idx, pool in facts] + remainder
     return fixed + [pool for _idx, pool in facts] + fallback
 
 
