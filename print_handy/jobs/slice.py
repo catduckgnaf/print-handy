@@ -2309,6 +2309,13 @@ def _adopt_reused_slice(job_path, brim_override=None, copies=None, scale=None, r
     return gcodes if adopted.get('derived_plates') else Path(gcodes[0])
 
 
+def _volume_precheck(sx, sy, sz, scale, st):
+    """Return whether the centered footprint fits the printer's build volume."""
+    from ..core.orca_adapter import fit_envelope_fits
+    return fit_envelope_fits((sx, sy, sz), st["bed_mm"], st["max_print_height_mm"],
+                             margin_mm=0, scale=float(scale) if scale else 1.0)
+
+
 def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
@@ -2726,7 +2733,10 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     if scale is not None:
         scale = float(scale)
         if not scale > 0:
-            raise RuntimeError('scale must be greater than 0')
+            from ..core.slice_refusal import SliceRefusal
+            raise SliceRefusal('scale must be greater than 0',
+                               plain='The requested size must be larger than 0%.',
+                               next_step='Pick a size greater than 0% and ask to slice again.')
     orientation = job.get("orientation") or {}
     rotation = orientation.get("rotation")
     if not all(ad.get(k) for k in ("size_x", "size_y", "size_z")):
@@ -2762,16 +2772,18 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             if not isinstance(decision, dict) or decision.get('source_sha256') != expected_sha:
                 measured = ' x '.join(f'{value:g}' for value in authored_dims)
                 as_inch = ' x '.join(f'{value * INCH_TO_MM:g}' for value in authored_dims)
-                raise RuntimeError(
+                from ..core.slice_failure import SliceFailure
+                raise SliceFailure(
                     f'model measures {measured} mm and STL files do not record units; confirm whether that '
                     f'size is millimeters (prints at {measured} mm) or inches (prints at {as_inch} mm) before '
                     'slicing — record the answer on this job (unit-select JOB.json --units mm|inch, or slice '
-                    '--units mm|inch). Nothing sliced')
+                    '--units mm|inch). Nothing sliced', kind='layout', signature='unclear_units')
             try:
                 confirmed = normalize_units(decision.get('units'))
             except ValueError:
-                raise RuntimeError('recorded unit confirmation must be mm or inch; confirm the units again '
-                                   'before slicing. Nothing sliced')
+                from ..core.slice_failure import SliceFailure
+                raise SliceFailure('recorded unit confirmation must be mm or inch; confirm the units again '
+                                   'before slicing. Nothing sliced', kind='layout', signature='unclear_units')
             if confirmed == 'inch':
                 inches_scale = INCH_TO_MM
                 inch_dims = tuple(round(value * inches_scale, 6) for value in (sx, sy, sz))
@@ -2779,7 +2791,9 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
                         or inch_dims[2] > st["max_print_height_mm"]):
                     measured = f'{sx:g}x{sy:g}x{sz:g}'
                     final = f'{inch_dims[0]:g}x{inch_dims[1]:g}x{inch_dims[2]:g}'
-                    raise RuntimeError(f'model measures {measured} mm and treating it as inches would be {final} mm, which exceeds printer volume')
+                    from ..core.slice_failure import SliceFailure
+                    raise SliceFailure(f'model measures {measured} mm and treating it as inches would be {final} mm, which exceeds printer volume',
+                                       kind='layout', signature='outside_bed')
                 scale = inches_scale
                 auto_scale = {'factor': inches_scale, 'reason': 'inch units',
                               'original_mm': [sx, sy, sz], 'final_mm': list(inch_dims)}
@@ -2791,11 +2805,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
         else:
             unit_provenance = {'units': 'mm', 'source': 'authored_size',
                                'original_mm': list(authored_dims), 'factor': 1.0}
-    eff_sx, eff_sy, eff_sz = sx * (float(scale) if scale else 1.0), sy * (float(scale) if scale else 1.0), sz * (float(scale) if scale else 1.0)
-    if eff_sx>st["bed_mm"][0] or eff_sy>st["bed_mm"][1] or eff_sz>st["max_print_height_mm"]:
-        # A SliceFailure carries its signature across the worker boundary; a bare
-        # RuntimeError arrived as an unexplained RemoteError and chat said the
-        # cause was unknown and offered a retry that cannot help.
+    if not _volume_precheck(sx, sy, sz, scale, st):
         from ..core.slice_failure import SliceFailure
         raise SliceFailure(f"model {sx}x{sy}x{sz} mm exceeds printer volume", kind='layout',
                            signature='outside_bed')
