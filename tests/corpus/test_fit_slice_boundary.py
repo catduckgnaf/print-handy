@@ -1,5 +1,8 @@
 """Fit-intake and slice-volume boundary parity for the public fit corpus (#1947)."""
+import math
 import tomllib
+
+import pytest
 from pathlib import Path
 
 from print_handy.core import orca_adapter
@@ -22,7 +25,16 @@ def test_diagonal_turn_is_full_size_fit_at_intake_and_slice_boundary():
     """A 231x74 footprint fails axis-aligned bounds but fits after in-plane turning."""
     dims = (231, 74, 85)
     state = {"bed_mm": [220, 220], "max_print_height_mm": 220}
-    rotated = (208.5, 208.5, 85)
+    angle = math.radians(45)
+    footprint_x, footprint_y = dims[:2]
+    rotated_x = abs(footprint_x * math.cos(angle)) + abs(footprint_y * math.sin(angle))
+    rotated_y = abs(footprint_x * math.sin(angle)) + abs(footprint_y * math.cos(angle))
+    rotated = (rotated_x, rotated_y, dims[2])
+
+    assert rotated_x == pytest.approx(305 / math.sqrt(2))
+    assert rotated_y == pytest.approx(305 / math.sqrt(2))
+    assert rotated_x < state["bed_mm"][0]
+    assert rotated_y < state["bed_mm"][1]
     assert not orca_adapter.fit_envelope_fits(dims, state["bed_mm"], state["max_print_height_mm"], margin_mm=0)
     assert orca_adapter.fit_envelope_fits(rotated, state["bed_mm"], state["max_print_height_mm"], margin_mm=0)
     assert slice_jobs._volume_precheck(*rotated, 1.0, state)
