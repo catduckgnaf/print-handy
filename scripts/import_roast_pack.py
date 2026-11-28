@@ -19,6 +19,7 @@ def import_pack(sources: list[Path], output: Path, minimum: int = 1000) -> dict:
     if minimum < 1 or minimum > roast.MAX_CUSTOM_ENTRIES:
         raise ValueError("minimum must be between 1 and the custom bank limit")
     rows = []
+    seen = set()
     rejected = Counter()
     for source in sources:
         payload = json.loads(source.read_text(encoding="utf-8"))
@@ -39,6 +40,10 @@ def import_pack(sources: list[Path], output: Path, minimum: int = 1000) -> dict:
                 rejected["template syntax"] += 1
                 continue
             eid = roast.entry_id("external", text)
+            if eid in seen:
+                rejected["duplicate input"] += 1
+                continue
+            seen.add(eid)
             row = {**entry, "id": eid, "family": entry.get("family") or eid, "text": text}
             rows.append(row)
     # Validate against every shipped bank using the same runtime gates.
@@ -70,7 +75,10 @@ def import_pack(sources: list[Path], output: Path, minimum: int = 1000) -> dict:
     result = {"_about": "Human-reviewed external joke pack",
               "_license": "Per-entry source and license; verify underlying rights",
               "entries": accepted_rows}
-    output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n"
+    if len(encoded.encode("utf-8")) > roast.MAX_CUSTOM_BANK_BYTES:
+        raise ValueError("Accepted pack exceeds runtime byte limit")
+    output.write_text(encoded, encoding="utf-8")
     return report
 
 
