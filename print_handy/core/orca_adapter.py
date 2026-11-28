@@ -729,6 +729,13 @@ def source_triangles(source):
 _FOOTPRINT_CACHE: dict = {}
 
 
+def fit_envelope_fits(extents_mm, bed_mm, max_height_mm, *, margin_mm=0.0, scale=1.0):
+    """Conservative axis-aligned precheck shared by fit probes and slicing."""
+    x, y, z = (float(v) * float(scale) for v in extents_mm)
+    bx, by = (float(v) for v in bed_mm[:2])
+    return x <= bx - 2 * float(margin_mm) and y <= by - 2 * float(margin_mm) and z <= float(max_height_mm)
+
+
 def _footprint(source, rotation=None):
     """(XY convex hull, z_min, z_max) of the model after an optional rigid rotation.
 
@@ -3231,8 +3238,8 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
         min_y, max_y = min(p[1] for p in hull), max(p[1] for p in hull)
         w = max_x - min_x
         d = max_y - min_y
-        if (z_max - z_min) * scale > max_h:
-            return 0  # Orca happily "arranges" a part taller than the gantry; refuse here.
+        if not fit_envelope_fits((w * scale, d * scale, z_max - z_min), (bed_x, bed_y), max_h):
+            return 0  # Orca arrange does not enforce height or the axis-aligned envelope.
 
         scaled_w, scaled_d = w * scale, d * scale
         expand_mm = max(0.0, (spacing_mm - 2.0) / 2.0)
