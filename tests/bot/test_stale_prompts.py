@@ -187,6 +187,28 @@ def test_a_timed_out_question_says_it_expired_not_that_print_handy_restarted(rig
     assert "no print was started" in text and message.view is None
 
 
+@pytest.mark.parametrize("status", ["START_REQUESTED", "START_PENDING", "START_UNCERTAIN"])
+def test_expired_prompt_during_unconfirmed_start_never_claims_no_print_started(rig, status):
+    discord, core, state = rig
+    receipt(state, status=status, started=False)
+
+    async def flow():
+        cid, message, buttons = await post(discord, core)
+        assert await prompts.await_answer(cid, 0.01) is None
+        clicked = await discord.press(message, buttons["Print anyway"],
+                                      user=fake_discord.FakeUser(APPROVER, "approver"))
+        return message, clicked
+
+    message, clicked = run(flow())
+    text = clicked.replies[-1]["content"]
+    assert "start status is not yet confirmed" in text
+    assert "Check /print-status" in text
+    assert "Do not resend the model yet" in text
+    assert "send the model link or file again" not in text
+    assert "no print was started" not in text and "Nothing was sliced" not in text
+    assert message.view is None
+
+
 def test_a_replayed_click_on_an_answered_question_stays_generic(rig):
     discord, core, state = rig
 
