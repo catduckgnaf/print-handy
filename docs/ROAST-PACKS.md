@@ -42,3 +42,13 @@ tracks rights-cleared acquisition, the 1,000-entry curated pack, two-part
 jokes, adjustable intensity, topical packs with expiry, celebrity/political
 and pop culture satire, and human quality review. Keep satire aimed at the
 print and avoid treating jokes as factual allegations.
+
+
+## Tone and quality
+
+Use optional per-entry tone labels: dad, sarcastic, or harsh. Within a
+matching pool, sarcastic and harsh entries are tried before dad or unlabelled
+entries; ordinary cooldown and validation still apply. Aim for at least 60%
+sharp entries in the eventual reviewed external pack. The goal is dry,
+specific satire at the print's expense, not a status message with an adjective.
+The labels are editorial judgments, not an automatic humor classifier.
