@@ -1,5 +1,4 @@
 """Fit-probe and slice-envelope parity for representative footprints."""
-import json
 from types import SimpleNamespace
 import zipfile
 
@@ -72,3 +71,17 @@ def test_probe_and_slice_precheck_parity(fake_orca, dims, rotation, copy_limit, 
     slice_accepts = slice_jobs._volume_precheck(*dims, 1.0, state)
     assert (probe_accepts, slice_accepts) == (probe_fits, slice_fits)
     assert slice_accepts or not probe_accepts  # probe-accept implies slice-accept
+
+
+def test_multi_copy_default_still_reports_one_copy_that_fits_only_alone(fake_orca):
+    """Confirming a shrink calls the probe with the multi-copy default.
+
+    A 217.9 mm part fits a 220 mm bed alone but not with multi-copy margins;
+    the envelope shortcut used the multi-copy edge and refused it outright,
+    so "Shrink to 83.8%" was offered and then failed to confirm.
+    """
+    source, shape = fake_orca
+    shape['dims'] = (217.9, 217.9, 191)
+    state = {'bed_mm': [220, 220], 'max_print_height_mm': 220}
+    assert oa.orca_plate_capacity(source, state) == 1
+    assert oa.orca_plate_capacity(source, state, copy_limit=1) == 1

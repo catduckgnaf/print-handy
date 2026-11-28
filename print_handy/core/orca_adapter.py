@@ -3246,11 +3246,14 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
         min_y, max_y = min(p[1] for p in hull), max(p[1] for p in hull)
         w = max_x - min_x
         d = max_y - min_y
+        # A lone copy is the loosest case this probe can report (the multi-copy
+        # path falls back to it), so the shortcut uses the single-copy edge and
+        # the same 0.1 mm tolerance as the arranged-bounds check below: it may
+        # only refuse what that check would refuse anyway.
         if ((z_max - z_min) * scale > max_h
                 or (not allow_rotations and not fit_envelope_fits(
                     (w, d, z_max - z_min), (bed_x, bed_y), max_h,
-                    margin_mm=single_margin if copy_limit == 1 else multi_margin,
-                    scale=scale))):
+                    margin_mm=max(0.0, single_margin - 0.1), scale=scale))):
             return 0  # Orca arrange does not enforce height or the authored XY envelope.
 
         scaled_w, scaled_d = w * scale, d * scale
