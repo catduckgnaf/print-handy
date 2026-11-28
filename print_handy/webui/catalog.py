@@ -840,12 +840,12 @@ CATALOG = (
            "On by default: the camera watchdog checks prints with a failure "
            "detector that runs on this machine, so spaghetti and other failed "
            "prints are spotted with no AI service, no cloud and no key, and no "
-           "frame leaves the house. The pinned model (Obico failure detector, "
-           "AGPL-3.0 weights, about 202 MB) ships inside the Docker image; a "
-           "source install downloads it once from Print Handy's model repository. "
-           "It is SHA-256 verified. It spots failures only: the empty-plate "
-           "check needs the local empty-plate reference or a vision endpoint. "
-           "Off turns it off.",
+           "frame leaves the house. The pinned model (PrintGuard Standard "
+           "failure detector, GPL-2.0-only weights, about 13 MB) ships inside "
+           "the Docker image; a source install downloads it once from the "
+           "pinned PrintGuard GitHub commit. It is SHA-256 verified. It spots "
+           "failures only: the empty-plate check needs the local empty-plate "
+           "reference or a vision endpoint. Off turns it off.",
            validator="settings vision check"),
     _field("vision", "watch_source", "Watchdog verdict source", "picker",
            "Which route judges the camera watchdog's frames: auto (the default) "

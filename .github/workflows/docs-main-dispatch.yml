@@ -1,0 +1,29 @@
+name: Notify documentation site of main changes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-main-dispatch.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch docs synchronization
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo 'DOCS_SYNC_TOKEN is not configured; docs synchronization was not dispatched.' >&2
+            exit 1
+          fi
+          jq -n --arg sha "$SOURCE_SHA" '{event_type:"print-handy-main",client_payload:{sha:$sha}}' |
+            gh api repos/catduckgnaf/print-handy-docs/dispatches --input -

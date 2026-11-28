@@ -166,17 +166,58 @@ def test_own_temperatures_are_the_gcodes_not_the_loaded_spools():
     temps = gcode_verify._mismatch_own_temperatures(state, _gcode("PETG", hotend=245, bed=85), ["PETG"])
     from print_handy.core.nozzle import get_nozzle_type_adjustments
     offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
-    assert temps == {"nozzle": 245 - offset, "bed": 85.0}
+    assert temps == {"nozzle": 245 - offset, "nozzle_initial_layer": 245 - offset,
+                     "bed": 85.0, "bed_initial_layer": 85.0}
     assert gcode_verify._mismatch_own_temperatures(state, _gcode("PLA"), ["PLA"]) is None
 
 
+def test_own_temperatures_preserve_distinct_normal_and_initial_targets():
+    from print_handy.core.nozzle import get_nozzle_type_adjustments
+
+    state = _state("PLA")
+    text = (_gcode("PETG", hotend=245, bed=85)
+            .replace("; hot_plate_temp_initial_layer = 85", "; hot_plate_temp = 80\n; hot_plate_temp_initial_layer = 92")
+            .replace("M140 S85\n", "").replace("M190 S85\n", ""))
+
+    temps = gcode_verify._mismatch_own_temperatures(state, text, ["PETG"])
+
+    offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
+    assert temps == {"nozzle": 245 - offset, "nozzle_initial_layer": 245 - offset,
+                     "bed": 80.0, "bed_initial_layer": 92.0}
+
+
+def test_own_temperatures_recover_initial_plate_target_without_bed_commands():
+    from print_handy.core.nozzle import get_nozzle_type_adjustments
+
+    state = _state("PLA")
+    text = (_gcode("PETG", hotend=245, bed=85)
+            .replace("; hot_plate_temp_initial_layer = 85", "; hot_plate_temp_initial_layer = 92")
+            .replace("M140 S85\n", "").replace("M190 S85\n", ""))
+
+    temps = gcode_verify._mismatch_own_temperatures(state, text, ["PETG"])
+
+    offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
+    assert temps == {"nozzle": 245 - offset, "nozzle_initial_layer": 245 - offset,
+                     "bed": 92.0, "bed_initial_layer": 92.0}
+
+
+def test_own_temperatures_recover_initial_layer_only_nozzle_target():
+    from print_handy.core.nozzle import get_nozzle_type_adjustments
+
+    state = _state("PLA")
+    text = "\n".join(
+        line for line in _gcode("PETG", hotend=245, bed=85).splitlines()
+        if not line.startswith(("; nozzle_temperature =", "M104 S245", "M109 S245"))
+    )
+
+    temps = gcode_verify._mismatch_own_temperatures(state, text, ["PETG"])
+
+    offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
+    assert temps == {"nozzle": 245 - offset, "nozzle_initial_layer": 245 - offset,
+                     "bed": 85.0, "bed_initial_layer": 85.0}
+
+
 # ---- Bambu: abrasive on a soft nozzle and the not-recommended list ---------------------------
-
-# (the Bambu abrasive and not-recommended cases live in tests/printers/test_bambulab_a1.py, beside
-# the A1 profile fixture they need: test_bambu_material_warnings_can_be_accepted_1336)
-
-
-# ---- site 3: Bambu AMS tray holding another material -----------------------------------------
 
 def test_ams_tray_of_another_material_warns_naming_the_tray_then_accepts():
     from print_handy.printers.bambulab import ams_mapping

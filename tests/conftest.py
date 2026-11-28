@@ -54,7 +54,7 @@ os.environ.setdefault("PRINT_WATCH_FRAME_DIR", str(_tmp / "print-watch"))
 # #1844: the image bundles the detector model at /opt/print-handy/models.
 # Tests run against the download path (with a faked fetch), never a copy
 # that happens to exist on the host or in the image.
-os.environ["PRINT_HANDY_BUNDLED_MODEL"] = str(_tmp / "no-bundled-model" / "obico-failure-detector.onnx")
+os.environ["PRINT_HANDY_BUNDLED_MODEL"] = str(_tmp / "no-bundled-model" / "printguard-standard.onnx")
 
 
 def _test_settings():

@@ -1,72 +1,136 @@
 """Build the tiny synthetic failure-detector fixture for test_local_vision.py.
 
-NOT the real model: a 3-op stand-in with the real model's I/O contract
-(input ``input`` [1, 3, H, W] float; outputs ``boxes`` [1, N, 1, 4] and
-``confs`` [1, N, 1]) whose confidences are a fixed function of the
-frame's mean brightness, so tests can drive every verdict band with
-solid-colour frames, fully offline:
+NOT the real model: a 4-op stand-in with PrintGuard Standard's ONNX I/O
+contract (input ``input`` [1, 3, 64, 64] float32 ImageNet-normalized NCHW;
+output ``prob`` [1] float32 failure probability in (0, 1)) whose score is
+a fixed function of the input tensor's mean brightness, so tests can drive
+every verdict band with solid-color frames, fully offline:
 
-* box 0 conf = sigmoid((mean - 0.35) * 30) — the "detector" confidence
-* box 1 conf = box 0 conf * 0.9, heavily overlapping box 0 (NMS fodder)
-* box 2 conf = relu(box 0 conf - 0.2), disjoint from box 0
+* prob = sigmoid((ReduceMean(input) - (-0.85)) * 1.5)
 
-Bright frame (mean ~0.9) -> conf ~1.0 -> spaghetti, 2 kept areas.
-Mid frame (mean ~0.33) -> conf ~0.35 -> uncertain band.
-Dark frame (mean ~0.05) -> conf ~0.0 -> ok.
+With ImageNet normalization on solid RGB (v, v, v) frames:
+* Bright frame (v=235, mean ~+2.09) -> prob ~0.99 (>= 0.75) -> spaghetti.
+* Mid frame (v=84, mean ~-0.53) -> prob ~0.62 (0.50..0.75) -> uncertain band.
+* Dark frame (v=13, mean ~-1.76) -> prob ~0.20 (< 0.50) -> ok.
 
-Run with the repo venv (needs the ``onnx`` package, a build-time tool
-only — it is not a runtime or test dependency):
+Standard library only (writes ONNX IR v8 / opset 13 protobuf directly):
 
-    ~/workspace/projects/.venv-print-buddy/bin/python tests/runtime/fixtures/build_tiny_detector.py
+    python3 tests/runtime/fixtures/build_tiny_detector.py
 """
-from pathlib import Path
+from __future__ import annotations
 
-import numpy as np
-import onnx
-from onnx import TensorProto, helper, numpy_helper
+import struct
+from pathlib import Path
 
 OUT = Path(__file__).with_name("tiny_failure_detector.onnx")
 
-boxes = np.array(
-    [[[[0.10, 0.10, 0.50, 0.50]]],
-     [[[0.15, 0.15, 0.55, 0.55]]],
-     [[[0.70, 0.70, 0.95, 0.95]]]], dtype=np.float32)  # [3, 1, 1, 4] pre-batched below
-boxes = np.transpose(boxes, (2, 0, 1, 3))  # -> [1, 3, 1, 4]
+# Protobuf wire types
+_VARINT = 0
+_LEN = 2
 
-inits = [
-    numpy_helper.from_array(np.array([0.35], dtype=np.float32), "centre"),
-    numpy_helper.from_array(np.array([30.0], dtype=np.float32), "gain"),
-    numpy_helper.from_array(np.array([0.9], dtype=np.float32), "second_scale"),
-    numpy_helper.from_array(np.array([0.2], dtype=np.float32), "third_drop"),
-    numpy_helper.from_array(np.array([1, 3, 1], dtype=np.int64), "confs_shape"),
-    numpy_helper.from_array(boxes, "boxes_const"),
-]
+# ONNX TensorProto.DataType
+_FLOAT = 1
 
-nodes = [
-    helper.make_node("ReduceMean", ["input"], ["mean"], keepdims=0, axes=[1, 2, 3]),
-    helper.make_node("Sub", ["mean", "centre"], ["centred"]),
-    helper.make_node("Mul", ["centred", "gain"], ["scaled"]),
-    helper.make_node("Sigmoid", ["scaled"], ["conf0"]),
-    helper.make_node("Mul", ["conf0", "second_scale"], ["conf1"]),
-    helper.make_node("Sub", ["conf0", "third_drop"], ["third_raw"]),
-    helper.make_node("Relu", ["third_raw"], ["conf2"]),
-    helper.make_node("Concat", ["conf0", "conf1", "conf2"], ["confs_flat"], axis=0),
-    helper.make_node("Reshape", ["confs_flat", "confs_shape"], ["confs"]),
-    helper.make_node("Identity", ["boxes_const"], ["boxes"]),
-]
+# ONNX AttributeProto.AttributeType
+_INT = 2
+_INTS = 7
 
-graph = helper.make_graph(
-    nodes,
-    "tiny-failure-detector",
-    inputs=[helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 64, 64])],
-    outputs=[
-        helper.make_tensor_value_info("boxes", TensorProto.FLOAT, [1, 3, 1, 4]),
-        helper.make_tensor_value_info("confs", TensorProto.FLOAT, [1, 3, 1]),
-    ],
-    initializer=inits,
-)
-model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
-model.ir_version = 8
-onnx.checker.check_model(model)
-onnx.save(model, OUT)
-print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
+
+def _varint(value: int) -> bytes:
+    if value < 0:
+        value &= (1 << 64) - 1
+    out = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value:
+            out.append(byte | 0x80)
+        else:
+            out.append(byte)
+            return bytes(out)
+
+
+def _field_varint(field: int, value: int) -> bytes:
+    return _varint((field << 3) | _VARINT) + _varint(value)
+
+
+def _field_bytes(field: int, payload: bytes) -> bytes:
+    return _varint((field << 3) | _LEN) + _varint(len(payload)) + payload
+
+
+def _field_str(field: int, text: str) -> bytes:
+    return _field_bytes(field, text.encode("utf-8"))
+
+
+def _attr_int(name: str, value: int) -> bytes:
+    return _field_str(1, name) + _field_varint(3, value) + _field_varint(20, _INT)
+
+
+def _attr_ints(name: str, values: list[int]) -> bytes:
+    body = _field_str(1, name)
+    for v in values:
+        body += _field_varint(7, v)
+    return body + _field_varint(20, _INTS)
+
+
+def _node(op_type: str, inputs: list[str], outputs: list[str], attrs: list[bytes] = ()) -> bytes:
+    parts = [_field_str(1, i) for i in inputs]
+    parts += [_field_str(2, o) for o in outputs]
+    parts.append(_field_str(4, op_type))
+    parts += [_field_bytes(5, a) for a in attrs]
+    return b"".join(parts)
+
+
+def _float_initializer(name: str, values: list[float], dims: list[int]) -> bytes:
+    parts = [_field_varint(1, d) for d in dims]
+    parts.append(_field_varint(2, _FLOAT))
+    parts.append(_field_str(8, name))
+    raw = struct.pack(f"<{len(values)}f", *values)
+    parts.append(_field_bytes(9, raw))
+    return b"".join(parts)
+
+
+def _value_info(name: str, dims: list[int]) -> bytes:
+    shape = b"".join(_field_bytes(1, _field_varint(1, d)) for d in dims)
+    tensor_type = _field_varint(1, _FLOAT) + _field_bytes(2, shape)
+    type_proto = _field_bytes(1, tensor_type)
+    return _field_str(1, name) + _field_bytes(2, type_proto)
+
+
+def build_model() -> bytes:
+    nodes = [
+        _node("ReduceMean", ["input"], ["mean"], [
+            _attr_ints("axes", [1, 2, 3]),
+            _attr_int("keepdims", 0),
+        ]),
+        _node("Sub", ["mean", "center"], ["centered"]),
+        _node("Mul", ["centered", "gain"], ["scaled"]),
+        _node("Sigmoid", ["scaled"], ["prob"]),
+    ]
+    inits = [
+        _float_initializer("center", [-0.85], [1]),
+        _float_initializer("gain", [1.5], [1]),
+    ]
+    graph = b"".join([
+        *(_field_bytes(1, n) for n in nodes),
+        _field_str(2, "tiny-failure-detector"),
+        *(_field_bytes(5, init) for init in inits),
+        _field_bytes(11, _value_info("input", [1, 3, 64, 64])),
+        _field_bytes(12, _value_info("prob", [1])),
+    ])
+    opset = _field_str(1, "") + _field_varint(2, 13)
+    return b"".join([
+        _field_varint(1, 8),  # ir_version = 8
+        _field_bytes(7, graph),
+        _field_bytes(8, opset),
+    ])
+
+
+def main() -> None:
+    payload = build_model()
+    OUT.write_bytes(payload)
+    print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
+
+
+if __name__ == "__main__":
+    main()

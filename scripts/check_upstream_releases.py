@@ -71,6 +71,7 @@ ORCA_REPO = "OrcaSlicer/OrcaSlicer"
 GO2RTC_REPO = "AlexxIT/go2rtc"
 SPOOLMAN_REPO = "Donkie/Spoolman"
 BAMBU_REPO = "bambulab/BambuStudio"
+PRINTGUARD_REPO = "oliverbravery/PrintGuard"
 
 
 class WatchError(Exception):
@@ -125,11 +126,18 @@ class OrcaPin:
 
 
 @dataclass(frozen=True)
+class PrintGuardPin:
+    version: str
+    revision: str
+
+
+@dataclass(frozen=True)
 class Pins:
     orca: OrcaPin
     go2rtc_version: str
     bambu_ref: str
     spoolman_ref: str
+    printguard: PrintGuardPin | None = None
 
 
 def parse_orca_pins(text: str) -> OrcaPin:
@@ -175,11 +183,22 @@ def parse_dockerfile_arg(text: str, name: str) -> str:
     return match.group(1)
 
 
+def parse_printguard_pin(text: str) -> PrintGuardPin:
+    version = re.search(r'^MODEL_VERSION\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+    revision = re.search(r'^MODEL_REVISION\s*=\s*"([0-9a-f]{40})"\s*$', text, re.MULTILINE)
+    if not version or not revision:
+        raise WatchError(
+            "print_handy/runtime/local_vision.py: no MODEL_VERSION/MODEL_REVISION pin found"
+        )
+    return PrintGuardPin(version=version.group(1), revision=revision.group(1))
+
+
 def read_pins(root: Path) -> Pins:
     try:
         orca_text = (root / "docker" / "orca-prebuilt.sh").read_text()
         go2rtc_text = (root / "docker" / "go2rtc-prebuilt.sh").read_text()
         dockerfile_text = (root / "Dockerfile").read_text()
+        vision_text = (root / "print_handy" / "runtime" / "local_vision.py").read_text()
     except OSError as exc:
         raise WatchError(f"cannot read pin files under {root}: {exc}") from exc
     return Pins(
@@ -187,6 +206,7 @@ def read_pins(root: Path) -> Pins:
         go2rtc_version=parse_script_version(go2rtc_text, "go2rtc-prebuilt.sh"),
         bambu_ref=parse_dockerfile_arg(dockerfile_text, "BAMBU_REF"),
         spoolman_ref=parse_dockerfile_arg(dockerfile_text, "SPOOLMAN_REF"),
+        printguard=parse_printguard_pin(vision_text),
     )
 
 
@@ -314,17 +334,19 @@ def build_findings(
     spoolman_pin_contains_tag,
     bambu_releases: list[Release],
     bambu_pin_contains_tag,
+    printguard_releases: list[Release] | None = None,
 ) -> list[Finding]:
     orca_stable_latest, orca_pre_latest = select_latest(orca_releases)
     go2rtc_stable, go2rtc_pre = select_latest(go2rtc_releases)
     spoolman_stable, spoolman_pre = select_latest(spoolman_releases)
     bambu_stable, bambu_pre = select_latest(bambu_releases)
+    pg_stable, pg_pre = select_latest(printguard_releases or [])
 
     def newest(*candidates: Release | None) -> Release | None:
         pool = [r for r in candidates if r is not None]
         return max(pool, key=lambda r: r.published_at, default=None)
 
-    return [
+    findings = [
         # One OrcaSlicer component for the one bundled build: its
         # candidates are the newest final and the newest prerelease
         # alike, and _version_finding keeps the greater version, so
@@ -360,6 +382,16 @@ def build_findings(
             bambu_releases,
         ),
     ]
+    if pins.printguard is not None:
+        findings.append(
+            _version_finding(
+                "PrintGuard",
+                pins.printguard.version,
+                "print_handy/runtime/local_vision.py",
+                [pg_stable, pg_pre],
+            )
+        )
+    return findings
 
 
 def plan_actions(findings: list[Finding], open_issues: list[WatchIssue]) -> list[Action]:
@@ -571,6 +603,11 @@ def run(root: Path, repo: str, dry_run: bool, client: GitHubClient) -> int:
     print(f"  go2rtc: {pins.go2rtc_version}")
     print(f"  Spoolman: commit {pins.spoolman_ref[:12]}")
     print(f"  Bambu Studio: commit {pins.bambu_ref[:12]}")
+    if pins.printguard is not None:
+        print(
+            f"  PrintGuard: {pins.printguard.version} "
+            f"(revision {pins.printguard.revision[:12]})"
+        )
 
     # Fetch everything before touching any issue: a failure here
     # aborts the run with no issue created or closed from partial
@@ -579,6 +616,11 @@ def run(root: Path, repo: str, dry_run: bool, client: GitHubClient) -> int:
     go2rtc_releases = client.list_releases(GO2RTC_REPO)
     spoolman_releases = client.list_releases(SPOOLMAN_REPO)
     bambu_releases = client.list_releases(BAMBU_REPO)
+    printguard_releases = (
+        client.list_releases(PRINTGUARD_REPO)
+        if pins.printguard is not None
+        else []
+    )
 
     findings = build_findings(
         pins,
@@ -592,6 +634,7 @@ def run(root: Path, repo: str, dry_run: bool, client: GitHubClient) -> int:
         lambda tag: client.commit_is_ancestor(
             BAMBU_REPO, tag, pins.bambu_ref
         ),
+        printguard_releases=printguard_releases,
     )
     print("Upstream state:")
     for finding in findings:
