@@ -53,20 +53,22 @@ def fake_orca(monkeypatch, tmp_path):
     return tmp_path / 'part.stl', shape
 
 
-@pytest.mark.parametrize('dims,rotation,copy_limit', [
-    ((231, 74, 85), None, 1),
-    ((208.5, 208.5, 85), [0.707106781, -0.707106781, 0, 0.707106781, 0.707106781, 0, 0, 0, 1], 1),
-    ((219.5, 100, 20), None, 1),
-    ((20, 20, 221), None, 1),
-    ((180, 150, 40), None, 1),  # centered probe ignores authored offset
-    ((100, 100, 20), None, 2),  # multi-copy arrangement
+@pytest.mark.parametrize('dims,rotation,copy_limit,probe_fits,slice_fits', [
+    ((231, 74, 85), None, 1, False, False),  # authored long bar: only a bed turn fits
+    ((208.5, 208.5, 85), [0.707106781, -0.707106781, 0, 0.707106781, 0.707106781, 0, 0, 0, 1], 1,
+     True, True),  # the same bar turned 45 degrees
+    ((219.5, 100, 20), None, 1, False, True),  # inside the bed, not inside the probe's edge margin
+    ((20, 20, 221), None, 1, False, False),  # taller than the gantry
+    ((180, 150, 40), None, 1, True, True),  # centered probe ignores authored offset
+    ((100, 100, 20), None, 2, True, True),  # multi-copy arrangement
 ])
-def test_probe_and_slice_precheck_parity(fake_orca, dims, rotation, copy_limit):
+def test_probe_and_slice_precheck_parity(fake_orca, dims, rotation, copy_limit, probe_fits, slice_fits):
+    """Whatever the fit probe accepts, the slice's volume check accepts; never the reverse gap."""
     source, shape = fake_orca
     shape['dims'] = dims
     state = {'bed_mm': [220, 220], 'max_print_height_mm': 220}
     probe_accepts = oa.orca_plate_capacity(source, state, copy_limit=copy_limit,
                                            rotation=rotation) > 0
     slice_accepts = slice_jobs._volume_precheck(*dims, 1.0, state)
-    assert not probe_accepts or slice_accepts
-    assert slice_accepts or not probe_accepts
+    assert (probe_accepts, slice_accepts) == (probe_fits, slice_fits)
+    assert slice_accepts or not probe_accepts  # probe-accept implies slice-accept
