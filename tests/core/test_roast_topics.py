@@ -78,3 +78,27 @@ def test_import_requires_review_and_preserves_provenance(tmp_path):
     with pytest.raises(ValueError, match="need 1000"):
         import_pack([source], output)
     assert output.read_text() == previous
+
+
+def test_sharp_tone_preferred_to_dad_at_equal_relevance(tmp_path):
+    pack = tmp_path / "tone-pack.json"
+    sharp = {**SAMPLE, "tone": "harsh"}
+    dad = {**SAMPLE, "id": "dad-tone", "family": "dad-tone",
+           "text": "A triangle always has a point, sometimes three.",
+           "tone": "dad"}
+    pack.write_text(json.dumps({"entries": [sharp, dad]}))
+    corpus = roast.load_corpus(str(pack))
+    assert corpus["custom_tones"] == {sharp["id"]: "harsh", dad["id"]: "dad"}
+    ctx = roast.build_context("trigonometry")
+    state = tmp_path / "tone-state.json"
+    assert roast.roast(ctx, custom_path=str(pack), state_path=state,
+                       rng=random.Random(3)) == sharp["text"]
+    assert roast.roast(ctx, custom_path=str(pack), state_path=state,
+                       rng=random.Random(3)) == dad["text"]
+
+
+def test_unknown_tone_is_rejected(tmp_path):
+    pack = tmp_path / "bad-tone.json"
+    pack.write_text(json.dumps({"entries": [{**SAMPLE, "tone": "unknown"}]}))
+    corpus = roast.load_corpus(str(pack))
+    assert SAMPLE["id"] not in corpus["families"]
