@@ -50,7 +50,7 @@ def import_pack(sources: list[Path], output: Path, minimum: int = 1000) -> dict:
     shipped = roast.load_corpus()
     shipped_texts = [text for rows_ in shipped["banks"].values() for _, text in rows_]
     for section in ("title_reactions", "color_roasts", "reprint_failed",
-                    "history_callbacks", "material_roasts", "milestone"):
+                    "history_callbacks", "material_roasts", "milestone", "failure_title_reactions"):
         shipped_texts.extend(text for rows_ in shipped.get(section, {}).values()
                              for _, text in rows_)
     with TemporaryDirectory() as tmp:
