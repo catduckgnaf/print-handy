@@ -26,3 +26,16 @@ def test_diagonal_turn_is_full_size_fit_at_intake_and_slice_boundary():
     assert not orca_adapter.fit_envelope_fits(dims, state["bed_mm"], state["max_print_height_mm"], margin_mm=0)
     assert orca_adapter.fit_envelope_fits(rotated, state["bed_mm"], state["max_print_height_mm"], margin_mm=0)
     assert slice_jobs._volume_precheck(*rotated, 1.0, state)
+
+
+def test_rotation_fit_runs_through_production_intake_and_slice_path(tmp_path):
+    """The corpus's real Discord journey reaches slicing after the fit decision."""
+    from tests.corpus import harness
+
+    case = harness.load_case(Path(__file__).parent / "cases" / "rotation-fit")
+    run = harness.run_case(case, tmp_path, real_slicer=False)
+    harness.check_expectations(case, run)
+    assert run.slice_starts, "production BackgroundSlice.start was never reached"
+    assert any("does not fit the bed full size" in prompt["question"]
+               for prompt in run.adapter.questions), run.adapter.questions
+    assert run.receipt.get("scale", 1.0) == 1.0
