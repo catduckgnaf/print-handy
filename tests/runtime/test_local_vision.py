@@ -1,13 +1,13 @@
-"""Local ONNX failure detector (#455 Stage 1): verdict mapping, fail-soft
+"""Local ONNX failure detector (#455, #1899): verdict mapping, fail-soft
 paths, route precedence and the settings/bot-check surfaces.
 
 All offline. The detector runs against a tiny synthetic ONNX fixture
 (fixtures/tiny_failure_detector.onnx, built by
-fixtures/build_tiny_detector.py) that speaks the real model's I/O
-contract — input [1, 3, H, W], outputs boxes [1, N, 1, 4] / confs
-[1, N, 1] — with confidences driven by frame brightness, so each verdict
-band is reachable with a solid-colour frame. Downloads are faked at the
-urlopen seam; no test touches the network or the real 202 MB model.
+fixtures/build_tiny_detector.py) that speaks PrintGuard Standard's I/O
+contract — input [1, 3, H, H] ImageNet-normalized NCHW, output prob [1]
+in [0, 1] — with probability driven by frame brightness, so each verdict
+band is reachable with a solid-color frame. Downloads are faked at the
+urlopen seam; no test touches the network or the real ~13.6 MB model.
 """
 import contextlib
 import copy
@@ -78,16 +78,16 @@ def process_cfg():
 # --------------------------------------------------------------- verdict mapping
 
 
-def test_bright_frame_is_a_failure_with_areas_counted():
+def test_bright_frame_is_a_failure_with_regions_counted():
     verdict, detail = lv.local_verdict(frame(235), cfg_with())
     assert verdict == "spaghetti"
-    assert "100%" in detail and "2 areas" in detail
+    assert "99%" in detail and "2 regions" in detail
 
 
 def test_mid_frame_is_uncertain_not_a_pass():
     verdict, detail = lv.local_verdict(frame(84), cfg_with())
     assert verdict == "uncertain"
-    assert "35%" in detail
+    assert "61%" in detail
 
 
 def test_dark_frame_is_ok():
@@ -102,51 +102,62 @@ def test_detector_never_produces_endpoint_only_verdicts():
         assert verdict in ("ok", "uncertain", "spaghetti")
 
 
-# --------------------------------------------------------------- post-processing
+# --------------------------------------------------------------- post-processing & tiling
 
 
-def _boxes(pairs):
-    arr = np.zeros((1, len(pairs), 1, 4), dtype=np.float64)
-    for i, (box, _conf) in enumerate(pairs):
-        arr[0, i, 0] = box
-    confs = np.array([[[c]] for _b, c in pairs], dtype=np.float64).reshape(1, len(pairs), 1)
-    return arr, confs
+def test_tile_windows_centers_near_square_and_tiles_wide_frames():
+    assert lv._tile_windows(100, 100) == [(0, 0, 100, 100)]
+    assert lv._tile_windows(110, 100) == [(5, 0, 105, 100)]
+    wide = lv._tile_windows(1280, 720)
+    assert len(wide) == 2
+    assert wide[0] == (0, 0, 720, 720) and wide[1] == (560, 0, 1280, 720)
+    tall = lv._tile_windows(100, 250)
+    assert len(tall) >= 3
+    assert all(x2 - x1 == 100 and y2 - y1 == 100 for x1, y1, x2, y2 in tall)
 
 
-def test_nms_suppresses_overlapping_weaker_boxes():
-    boxes, confs = _boxes([
-        ([0.10, 0.10, 0.50, 0.50], 0.9),
-        ([0.15, 0.15, 0.55, 0.55], 0.8),   # IoU ~0.62 with box 0: suppressed
-        ([0.70, 0.70, 0.95, 0.95], 0.7),   # disjoint: kept
-        ([0.30, 0.60, 0.40, 0.70], 0.05),  # below the positive floor: dropped
+def test_postprocess_keeps_positive_tiles_strongest_first():
+    kept = lv._postprocess([
+        (0.49, (0.0, 0.0, 0.5, 1.0)),   # below POSITIVE_FLOOR: dropped
+        (0.62, (0.2, 0.0, 0.7, 1.0)),   # weak positive: kept
+        (0.91, (0.5, 0.0, 1.0, 1.0)),   # strongest: sorted first
     ])
-    kept = lv._postprocess(boxes, confs)
-    assert [round(c, 2) for c, _b in kept] == [0.9, 0.7]
+    assert [round(c, 2) for c, _b in kept] == [0.91, 0.62]
 
 
-def test_postprocess_rejects_unexpected_shapes():
-    with pytest.raises(lv.LocalVisionError):
-        lv._postprocess(np.zeros((3, 4)), np.zeros((3,)))
+def test_read_probability_rejects_invalid_shapes_and_values():
+    assert lv._read_probability(np.array([0.75], dtype=np.float32)) == pytest.approx(0.75)
+    assert lv._read_probability(np.array([[0.25]], dtype=np.float32)) == pytest.approx(0.25)
+    for bad in (
+        np.zeros((2, 2)),
+        np.array([float("nan")]),
+        np.array([float("inf")]),
+        np.array([-0.1]),
+        np.array([1.2]),
+    ):
+        with pytest.raises(lv.LocalVisionError):
+            lv._read_probability(bad)
 
 
-def test_preprocess_shape_range_and_dtype(monkeypatch):
-    seen = {}
+def test_preprocess_shape_normalization_and_tiling(monkeypatch):
+    seen = []
 
     class RecordingSession:
         def get_inputs(self):
             return [SimpleNamespace(name="input", shape=[1, 3, 64, 64])]
 
         def run(self, _outputs, feed):
-            seen["tensor"] = feed["input"]
-            boxes, confs = _boxes([([0.1, 0.1, 0.5, 0.5], 0.9)])
-            return [boxes, confs]
+            seen.append(feed["input"])
+            return [np.array([0.9], dtype=np.float32)]
 
     monkeypatch.setattr(lv, "_session", lambda path: RecordingSession())
     verdict, _detail = lv.local_verdict(frame(200, size=(37, 211)), cfg_with())
     assert verdict == "spaghetti"
-    tensor = seen["tensor"]
+    assert len(seen) >= 2
+    tensor = seen[0]
     assert tensor.shape == (1, 3, 64, 64) and tensor.dtype == np.float32
-    assert 0.0 <= float(tensor.min()) and float(tensor.max()) <= 1.0
+    # ImageNet-normalized bright pixels exceed 1.0 (unlike 0..1 scaling).
+    assert float(tensor.min()) > 1.0 and float(tensor.max()) < 3.0
 
 
 # --------------------------------------------------------------- fail-soft paths
@@ -809,10 +820,10 @@ def test_the_weak_detail_wording_is_pinned(changed_frames):
 
 
 def test_a_sub_threshold_confidence_never_reads_as_the_threshold():
-    assert lv.percent(0.4999) == 49 and lv.percent(0.495) == 49
-    assert lv.percent(0.12) == 12 and lv.percent(0.5) == 50 and lv.percent(0.29) == 29
-    verdict, detail = lv.FailureStreak().note(_kept(0.4999))
-    assert verdict == "uncertain" and "possible failure at 49% confidence" in detail
+    assert lv.percent(0.7499) == 74 and lv.percent(0.745) == 74
+    assert lv.percent(0.52) == 52 and lv.percent(0.75) == 75 and lv.percent(0.61) == 61
+    verdict, detail = lv.FailureStreak().note(_kept(0.7499))
+    assert verdict == "uncertain" and "possible failure at 74% confidence" in detail
 
 
 def test_the_weak_and_escalation_counts():

@@ -64,5 +64,16 @@ and filament vendors who contributed them, licensed AGPL-3.0 as part of
 OrcaSlicer (https://github.com/OrcaSlicer/OrcaSlicer). Values are
 unchanged; only the inherits chains are resolved.
 
+Bundled vision weights
+----------------------
+
+The container image bundles the unmodified PrintGuard Standard ONNX model
+at /opt/print-handy/models/printguard-standard.onnx, fetched at build time
+from https://github.com/oliverbravery/PrintGuard (pinned release and commit
+in Dockerfile and print_handy/runtime/local_vision.py). Those weights are
+the work of the PrintGuard project, licensed GPL-2.0-only, and are not
+covered by Print Handy's AGPL-3.0-only code license. Print Handy's loader
+in print_handy/runtime/local_vision.py is original AGPL-3.0-only code.
+
 Third-party components keep their own licenses and notices. See
 docs/COMPONENTS.md and the notices in the files concerned.
