@@ -1,612 +1,612 @@
 {
- "_about": "Confirmed spaghetti only, never a mere watchdog risk flag.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
- "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
- "entries": [
-  {
-   "id": "spaghetti-title-has-achieved-its-final",
-   "family": "spaghetti-title-has-achieved-its-final",
-   "text": "{title} has achieved its final form: a bird nest holding {grams} grams of ambition."
-  },
-  {
-   "id": "spaghetti-the-printer-made-title-into",
-   "family": "spaghetti-the-printer-made-title-into",
-   "text": "The printer made {title} into abstract pasta: no sauce, no structure, all confidence."
-  },
-  {
-   "id": "spaghetti-color-spaghetti-was-not-on",
-   "family": "spaghetti-color-spaghetti-was-not-on",
-   "text": "{color} spaghetti was not on the menu, yet {printer} served a full portion."
-  },
-  {
-   "id": "spaghetti-title-is-now-legally-a",
-   "family": "spaghetti-title-is-now-legally-a",
-   "text": "{title} is now legally a tangle, formerly a print, currently a warning."
-  },
-  {
-   "id": "spaghetti-somewhere-in-that-nest-of",
-   "family": "spaghetti-somewhere-in-that-nest-of",
-   "text": "Somewhere in that nest of {material} is the ghost of {title}, probably."
-  },
-  {
-   "id": "spaghetti-duration-of-printing-produced-one",
-   "family": "spaghetti-duration-of-printing-produced-one",
-   "text": "{duration} of printing produced one serving of filament noodles, slightly overcooked."
-  },
-  {
-   "id": "spaghetti-title-chose-the-pasta-lifestyle",
-   "family": "spaghetti-title-chose-the-pasta-lifestyle",
-   "text": "{title} chose the pasta lifestyle, and the pasta lifestyle chose it right back."
-  },
-  {
-   "id": "spaghetti-that-is-not-a-failed",
-   "family": "spaghetti-that-is-not-a-failed",
-   "text": "That is not a failed print, that is {material} doing modern interpretive dance."
-  },
-  {
-   "id": "spaghetti-the-bed-adhesion-held-a",
-   "family": "spaghetti-the-bed-adhesion-held-a",
-   "text": "The bed adhesion held a meeting about {title} and everyone agreed to leave."
-  },
-  {
-   "id": "spaghetti-title-is-now-a-decorative",
-   "family": "spaghetti-title-is-now-a-decorative",
-   "text": "{title} is now a decorative nest, free to a good home or any home."
-  },
-  {
-   "id": "spaghetti-congratulations-printer-has-unlocked-artisan",
-   "family": "spaghetti-congratulations-printer-has-unlocked-artisan",
-   "text": "Congratulations, {printer} has unlocked artisanal spaghetti mode, a feature nobody requested."
-  },
-  {
-   "id": "spaghetti-grams-grams-of-color-material",
-   "family": "spaghetti-grams-grams-of-color-material",
-   "text": "{grams} grams of {color} {material} braided themselves into a monument to optimism."
-  },
-  {
-   "id": "spaghetti-title-looked-great-from-a",
-   "family": "spaghetti-title-looked-great-from-a",
-   "text": "{title} looked great from a distance, specifically the distance of another room."
-  },
-  {
-   "id": "spaghetti-the-nozzle-kept-printing-the",
-   "family": "spaghetti-the-nozzle-kept-printing-the",
-   "text": "The nozzle kept printing, the part left early, and {title} became performance art."
-  },
-  {
-   "id": "spaghetti-if-you-squint-that-tangle",
-   "family": "spaghetti-if-you-squint-that-tangle",
-   "text": "If you squint, that tangle is exactly {title}, assuming squinting does heavy lifting."
-  },
-  {
-   "id": "spaghetti-title-has-been-reclassified-from",
-   "family": "spaghetti-title-has-been-reclassified-from",
-   "text": "{title} has been reclassified from functional part to festive plastic haystack."
-  },
-  {
-   "id": "spaghetti-a-chef-would-call-that",
-   "family": "spaghetti-a-chef-would-call-that",
-   "text": "A chef would call that al dente; a printer would simply call it {title}."
-  },
-  {
-   "id": "spaghetti-the-spaghetti-incident-of-title",
-   "family": "spaghetti-the-spaghetti-incident-of-title",
-   "text": "The spaghetti incident of {title} will be studied by no one, but remembered."
-  },
-  {
-   "id": "spaghetti-material-was-supposed-to-become",
-   "family": "spaghetti-material-was-supposed-to-become",
-   "text": "{material} was supposed to become {title} and instead chose freedom, enthusiastically."
-  },
-  {
-   "id": "spaghetti-title-is-now-a-starter",
-   "family": "spaghetti-title-is-now-a-starter",
-   "text": "{title} is now a starter kit for teaching patience, one untangled strand at a time."
-  },
-  {
-   "id": "spaghetti-title-tried-to-become-architecture",
-   "family": "spaghetti-title-tried-to-become-architecture",
-   "text": "{title} tried to become architecture and wound up auditioning for a pasta commercial."
-  },
-  {
-   "id": "spaghetti-the-nozzle-drew-noodles-instead",
-   "family": "spaghetti-the-nozzle-drew-noodles-instead",
-   "text": "The nozzle drew noodles instead of {title}; a creative interpretation of the brief."
-  },
-  {
-   "id": "spaghetti-title-has-been-reclassified-as",
-   "family": "spaghetti-title-has-been-reclassified-as",
-   "text": "{title} has been reclassified as abstract filament landscaping."
-  },
-  {
-   "id": "spaghetti-title-became-a-sculpture-titled",
-   "family": "spaghetti-title-became-a-sculpture-titled",
-   "text": "{title} became a sculpture titled Gravity Won Again."
-  },
-  {
-   "id": "spaghetti-tonight-s-special-title-served",
-   "family": "spaghetti-tonight-s-special-title-served",
-   "text": "Tonight's special: {title}, served without adhesion or dignity."
-  },
-  {
-   "id": "spaghetti-printer-attempted-title-and-invented",
-   "family": "spaghetti-printer-attempted-title-and-invented",
-   "text": "{printer} attempted {title} and invented a new shape of disappointment."
-  },
-  {
-   "id": "spaghetti-the-build-plate-ordered-title",
-   "family": "spaghetti-the-build-plate-ordered-title",
-   "text": "The build plate ordered {title}; the nozzle delivered a tangled explanation."
-  },
-  {
-   "id": "spaghetti-title-failed-the-shape-test",
-   "family": "spaghetti-title-failed-the-shape-test",
-   "text": "{title} failed the shape test and passed the linguine test."
-  },
-  {
-   "id": "spaghetti-your-hotend-decided-title-belonged",
-   "family": "spaghetti-your-hotend-decided-title-belonged",
-   "text": "Your hotend decided {title} belonged in an Italian bistro instead of a workshop."
-  },
-  {
-   "id": "spaghetti-printer-whipped-up-a-tangled",
-   "family": "spaghetti-printer-whipped-up-a-tangled",
-   "text": "{printer} whipped up a tangled bowl of {color} angel hair without the marinara."
-  },
-  {
-   "id": "spaghetti-the-extruder-spent-duration-weaving",
-   "family": "spaghetti-the-extruder-spent-duration-weaving",
-   "text": "The extruder spent {duration} weaving plastic ramen instead of finishing {title}."
-  },
-  {
-   "id": "spaghetti-call-the-kitchen-because-title",
-   "family": "spaghetti-call-the-kitchen-because-title",
-   "text": "Call the kitchen, because {title} just retired into an unruly pile of chow mein."
-  },
-  {
-   "id": "spaghetti-that-heap-of-material-has",
-   "family": "spaghetti-that-heap-of-material-has",
-   "text": "That heap of {material} has the structural integrity of boiled linguine."
-  },
-  {
-   "id": "spaghetti-the-nozzle-gave-up-on",
-   "family": "spaghetti-the-nozzle-gave-up-on",
-   "text": "The nozzle gave up on geometry and spun {grams} grams of chaotic fettuccine."
-  },
-  {
-   "id": "spaghetti-behold-the-carbonara-of-despair",
-   "family": "spaghetti-behold-the-carbonara-of-despair",
-   "text": "Behold the carbonara of despair: {title} lost on the build plate."
-  },
-  {
-   "id": "spaghetti-title-abandoned-its-dimensions-and",
-   "family": "spaghetti-title-abandoned-its-dimensions-and",
-   "text": "{title} abandoned its dimensions and chose life as a plastic tumbleweed."
-  },
-  {
-   "id": "spaghetti-a-lovely-serving-of-material",
-   "family": "spaghetti-a-lovely-serving-of-material",
-   "text": "A lovely serving of {material} tagliatelle, prepared fresh by a confused extruder."
-  },
-  {
-   "id": "spaghetti-that-plate-of-color-vermicelli",
-   "family": "spaghetti-that-plate-of-color-vermicelli",
-   "text": "That plate of {color} vermicelli was supposed to be {title}."
-  },
-  {
-   "id": "spaghetti-the-local-trattoria-declined-to",
-   "family": "spaghetti-the-local-trattoria-declined-to",
-   "text": "The local trattoria declined to serve {title}, citing health department plastic codes."
-  },
-  {
-   "id": "spaghetti-no-sauce-on-earth-can",
-   "family": "spaghetti-no-sauce-on-earth-can",
-   "text": "No sauce on earth can rescue {grams} grams of crunchy extruded spaghetti."
-  },
-  {
-   "id": "spaghetti-printer-skipped-the-slicing-instructions",
-   "family": "spaghetti-printer-skipped-the-slicing-instructions",
-   "text": "{printer} skipped the slicing instructions and improvised a bird nest."
-  },
-  {
-   "id": "spaghetti-behold-title-now-serving-as",
-   "family": "spaghetti-behold-title-now-serving-as",
-   "text": "Behold {title}, now serving as an avant-garde plastic wig."
-  },
-  {
-   "id": "spaghetti-your-nozzle-spun-material-threads",
-   "family": "spaghetti-your-nozzle-spun-material-threads",
-   "text": "Your nozzle spun {material} threads with the enthusiasm of a deranged spider."
-  },
-  {
-   "id": "spaghetti-that-is-not-title-that",
-   "family": "spaghetti-that-is-not-title-that",
-   "text": "That is not {title}; that is a bowl of unspooled disappointment."
-  },
-  {
-   "id": "spaghetti-the-extruder-baked-grams-grams",
-   "family": "spaghetti-the-extruder-baked-grams-grams",
-   "text": "The extruder baked {grams} grams of {color} lo mein directly on the bed."
-  },
-  {
-   "id": "spaghetti-if-title-wanted-to-be",
-   "family": "spaghetti-if-title-wanted-to-be",
-   "text": "If {title} wanted to be pasta, it should have asked for boiling water."
-  },
-  {
-   "id": "spaghetti-the-build-plate-threw-title",
-   "family": "spaghetti-the-build-plate-threw-title",
-   "text": "The build plate threw {title} off and kept the filament confetti."
-  },
-  {
-   "id": "spaghetti-that-bird-nest-of-material",
-   "family": "spaghetti-that-bird-nest-of-material",
-   "text": "That bird nest of {material} will confuse local crows for decades."
-  },
-  {
-   "id": "spaghetti-duration-of-nozzle-motion-produced",
-   "family": "spaghetti-duration-of-nozzle-motion-produced",
-   "text": "{duration} of nozzle motion produced a magnificent wig for a bowling ball."
-  },
-  {
-   "id": "spaghetti-the-bed-adhesion-vanished-and",
-   "family": "spaghetti-the-bed-adhesion-vanished-and",
-   "text": "The bed adhesion vanished and left behind {grams} grams of thermoplastic rotini."
-  },
-  {
-   "id": "spaghetti-an-ambitious-pile-of-color",
-   "family": "spaghetti-an-ambitious-pile-of-color",
-   "text": "An ambitious pile of {color} noodles masquerading as {title}."
-  },
-  {
-   "id": "spaghetti-the-printer-opened-a-noodle",
-   "family": "spaghetti-the-printer-opened-a-noodle",
-   "text": "The printer opened a noodle shop and {title} was the first casualty."
-  },
-  {
-   "id": "spaghetti-nozzle-extrusion-continued-long-after",
-   "family": "spaghetti-nozzle-extrusion-continued-long-after",
-   "text": "Nozzle extrusion continued long after {title} surrendered its will to exist."
-  },
-  {
-   "id": "spaghetti-a-gourmet-portion-of-plastic",
-   "family": "spaghetti-a-gourmet-portion-of-plastic",
-   "text": "A gourmet portion of plastic pasta that nobody ordered and nobody wants."
-  },
-  {
-   "id": "spaghetti-the-geometry-of-title-dissolved",
-   "family": "spaghetti-the-geometry-of-title-dissolved",
-   "text": "The geometry of {title} dissolved into stringy chaos around layer twelve."
-  },
-  {
-   "id": "spaghetti-behold-the-world-s-least",
-   "family": "spaghetti-behold-the-world-s-least",
-   "text": "Behold the world's least edible nest of {color} {material}."
-  },
-  {
-   "id": "spaghetti-that-pile-of-material-strands",
-   "family": "spaghetti-that-pile-of-material-strands",
-   "text": "That pile of {material} strands looks like an angry dust bunny."
-  },
-  {
-   "id": "spaghetti-the-hotend-turned-grams-grams",
-   "family": "spaghetti-the-hotend-turned-grams-grams",
-   "text": "The hotend turned {grams} grams of {material} into synthetic cotton candy."
-  },
-  {
-   "id": "spaghetti-your-printer-channeled-its-inner",
-   "family": "spaghetti-your-printer-channeled-its-inner",
-   "text": "Your printer channeled its inner olive garden and served unlimited plastic breadsticks."
-  },
-  {
-   "id": "spaghetti-title-gave-up-on-its",
-   "family": "spaghetti-title-gave-up-on-its",
-   "text": "{title} gave up on its coordinates and became a surrealist yarn ball."
-  },
-  {
-   "id": "spaghetti-a-tragedy-in-grams-grams",
-   "family": "spaghetti-a-tragedy-in-grams-grams",
-   "text": "A tragedy in {grams} grams: {title} converted into extruded tumbleweed."
-  },
-  {
-   "id": "spaghetti-the-extruder-spun-color-thread",
-   "family": "spaghetti-the-extruder-spun-color-thread",
-   "text": "The extruder spun {color} thread until the whole print resembled a pom-pom."
-  },
-  {
-   "id": "spaghetti-one-does-not-simply-slice",
-   "family": "spaghetti-one-does-not-simply-slice",
-   "text": "One does not simply slice {title} and receive edible rigatoni."
-  },
-  {
-   "id": "spaghetti-the-nozzle-spent-duration-weaving",
-   "family": "spaghetti-the-nozzle-spent-duration-weaving",
-   "text": "The nozzle spent {duration} weaving synthetic straw for an imaginary scarecrow."
-  },
-  {
-   "id": "spaghetti-that-is-thirty-layers-of",
-   "family": "spaghetti-that-is-thirty-layers-of",
-   "text": "That is thirty layers of model and ten thousand layers of noodle soup."
-  },
-  {
-   "id": "spaghetti-every-strand-of-material-chose",
-   "family": "spaghetti-every-strand-of-material-chose",
-   "text": "Every strand of {material} chose a unique path away from {title}."
-  },
-  {
-   "id": "spaghetti-a-tangled-tribute-to-bed",
-   "family": "spaghetti-a-tangled-tribute-to-bed",
-   "text": "A tangled tribute to bed adhesion that refused to show up for work."
-  },
-  {
-   "id": "spaghetti-the-extruder-staged-an-artistic",
-   "family": "spaghetti-the-extruder-staged-an-artistic",
-   "text": "The extruder staged an artistic revolt and dumped {grams} grams of filament slaw."
-  },
-  {
-   "id": "spaghetti-behold-title-currently-wearing-a",
-   "family": "spaghetti-behold-title-currently-wearing-a",
-   "text": "Behold {title}, currently wearing a luxurious coat of plastic spaghetti."
-  },
-  {
-   "id": "spaghetti-the-part-cooling-fan-blew",
-   "family": "spaghetti-the-part-cooling-fan-blew",
-   "text": "The part cooling fan blew {title} straight into a culinary disaster."
-  },
-  {
-   "id": "spaghetti-that-hotend-cooked-color-noodles",
-   "family": "spaghetti-that-hotend-cooked-color-noodles",
-   "text": "That hotend cooked {color} noodles until the room smelled of hot polymer."
-  },
-  {
-   "id": "spaghetti-a-nest-so-convincing-that",
-   "family": "spaghetti-a-nest-so-convincing-that",
-   "text": "A nest so convincing that pigeons are already inquiring about rent."
-  },
-  {
-   "id": "spaghetti-the-bed-ejected-title-early",
-   "family": "spaghetti-the-bed-ejected-title-early",
-   "text": "The bed ejected {title} early to make room for spontaneous pasta art."
-  },
-  {
-   "id": "spaghetti-your-printer-invented-a-new",
-   "family": "spaghetti-your-printer-invented-a-new",
-   "text": "Your printer invented a new noodle shape named after shattered hopes."
-  },
-  {
-   "id": "spaghetti-a-tangled-explosion-of-material",
-   "family": "spaghetti-a-tangled-explosion-of-material",
-   "text": "A tangled explosion of {material} that defies both geometry and common sense."
-  },
-  {
-   "id": "spaghetti-the-nozzle-decided-title-needed",
-   "family": "spaghetti-the-nozzle-decided-title-needed",
-   "text": "The nozzle decided {title} needed thousands of stringy decorative tassels."
-  },
-  {
-   "id": "spaghetti-behold-the-pasta-salad-of",
-   "family": "spaghetti-behold-the-pasta-salad-of",
-   "text": "Behold the pasta salad of shame, freshly deposited by {printer}."
-  },
-  {
-   "id": "spaghetti-that-pile-of-grams-grams",
-   "family": "spaghetti-that-pile-of-grams-grams",
-   "text": "That pile of {grams} grams of {material} belongs under a marinara volcano."
-  },
-  {
-   "id": "spaghetti-the-print-head-wandered-through",
-   "family": "spaghetti-the-print-head-wandered-through",
-   "text": "The print head wandered through empty air, leaving {color} noodles behind."
-  },
-  {
-   "id": "spaghetti-a-monument-of-material-string",
-   "family": "spaghetti-a-monument-of-material-string",
-   "text": "A monument of {material} string that only a deranged seagull could love."
-  },
-  {
-   "id": "spaghetti-the-nozzle-forgot-the-shape",
-   "family": "spaghetti-the-nozzle-forgot-the-shape",
-   "text": "The nozzle forgot the shape of {title} and pivoted to ramen noodles."
-  },
-  {
-   "id": "spaghetti-that-chaotic-heap-of-color",
-   "family": "spaghetti-that-chaotic-heap-of-color",
-   "text": "That chaotic heap of {color} thread once had aspirations of becoming {title}."
-  },
-  {
-   "id": "spaghetti-a-tragic-plate-of-synthetic",
-   "family": "spaghetti-a-tragic-plate-of-synthetic",
-   "text": "A tragic plate of synthetic pad thai, straight from the heated bed."
-  },
-  {
-   "id": "spaghetti-the-extruder-vomited-grams-grams",
-   "family": "spaghetti-the-extruder-vomited-grams-grams",
-   "text": "The extruder vomited {grams} grams of curly plastic into a corner."
-  },
-  {
-   "id": "spaghetti-somewhere-beneath-that-material-thicket",
-   "family": "spaghetti-somewhere-beneath-that-material-thicket",
-   "text": "Somewhere beneath that {material} thicket lies the original base of {title}."
-  },
-  {
-   "id": "spaghetti-the-slicer-said-title-but",
-   "family": "spaghetti-the-slicer-said-title-but",
-   "text": "The slicer said {title}, but the heated bed heard seafood linguine."
-  },
-  {
-   "id": "spaghetti-a-magnificent-bird-nest-of",
-   "family": "spaghetti-a-magnificent-bird-nest-of",
-   "text": "A magnificent bird nest of {color} plastic, ready for an artificial robin."
-  },
-  {
-   "id": "spaghetti-the-nozzle-drifted-into-the",
-   "family": "spaghetti-the-nozzle-drifted-into-the",
-   "text": "The nozzle drifted into the clouds, spinning {duration} of pure yarn."
-  },
-  {
-   "id": "spaghetti-that-is-not-a-failed-2",
-   "family": "spaghetti-that-is-not-a-failed-2",
-   "text": "That is not a failed print; that is modern sculpture titled Spaghetti Regret."
-  },
-  {
-   "id": "spaghetti-the-printer-traded-dimensional-accuracy",
-   "family": "spaghetti-the-printer-traded-dimensional-accuracy",
-   "text": "The printer traded dimensional accuracy for an overflowing plate of soba."
-  },
-  {
-   "id": "spaghetti-a-delightful-clump-of-material",
-   "family": "spaghetti-a-delightful-clump-of-material",
-   "text": "A delightful clump of {material} floss that would shatter any human tooth."
-  },
-  {
-   "id": "spaghetti-the-extruder-got-lost-and",
-   "family": "spaghetti-the-extruder-got-lost-and",
-   "text": "The extruder got lost and filled the chamber with {color} angel hair."
-  },
-  {
-   "id": "spaghetti-that-is-what-happens-when",
-   "family": "spaghetti-that-is-what-happens-when",
-   "text": "That is what happens when {title} decides to become a tumbleweed."
-  },
-  {
-   "id": "spaghetti-the-bed-leveled-itself-right",
-   "family": "spaghetti-the-bed-leveled-itself-right",
-   "text": "The bed leveled itself right out of holding onto {title}."
-  },
-  {
-   "id": "spaghetti-a-plastic-pasta-catastrophe-that",
-   "family": "spaghetti-a-plastic-pasta-catastrophe-that",
-   "text": "A plastic pasta catastrophe that only an industrial vacuum can appreciate."
-  },
-  {
-   "id": "spaghetti-the-hotend-spent-duration-knitting",
-   "family": "spaghetti-the-hotend-spent-duration-knitting",
-   "text": "The hotend spent {duration} knitting an ugly sweater for the build plate."
-  },
-  {
-   "id": "spaghetti-that-mound-of-material-resembles",
-   "family": "spaghetti-that-mound-of-material-resembles",
-   "text": "That mound of {material} resembles a wig discarded by an 80s rock band."
-  },
-  {
-   "id": "spaghetti-the-nozzle-kept-weeping-color",
-   "family": "spaghetti-the-nozzle-kept-weeping-color",
-   "text": "The nozzle kept weeping {color} strands while {title} slid away."
-  },
-  {
-   "id": "spaghetti-a-bowl-of-thermoplastic-udon",
-   "family": "spaghetti-a-bowl-of-thermoplastic-udon",
-   "text": "A bowl of thermoplastic udon that failed every known quality inspection."
-  },
-  {
-   "id": "spaghetti-the-print-surrendered-early-and",
-   "family": "spaghetti-the-print-surrendered-early-and",
-   "text": "The print surrendered early and left a festive pile of plastic tinsel."
-  },
-  {
-   "id": "spaghetti-that-is-grams-grams-of",
-   "family": "spaghetti-that-is-grams-grams-of",
-   "text": "That is {grams} grams of curly plastic spaghetti without a single meatball."
-  },
-  {
-   "id": "spaghetti-the-printer-started-building-title",
-   "family": "spaghetti-the-printer-started-building-title",
-   "text": "The printer started building {title} and ended up weaving a rat nest."
-  },
-  {
-   "id": "spaghetti-a-chaotic-bundle-of-material",
-   "family": "spaghetti-a-chaotic-bundle-of-material",
-   "text": "A chaotic bundle of {material} threads holding hands in mutual confusion."
-  },
-  {
-   "id": "spaghetti-the-hotend-spun-color-noodles",
-   "family": "spaghetti-the-hotend-spun-color-noodles",
-   "text": "The hotend spun {color} noodles with all the precision of a leaf blower."
-  },
-  {
-   "id": "spaghetti-that-pile-of-material-looks",
-   "family": "spaghetti-that-pile-of-material-looks",
-   "text": "That pile of {material} looks like the aftermath of an angry yarn store."
-  },
-  {
-   "id": "spaghetti-the-extruder-laid-down-duration",
-   "family": "spaghetti-the-extruder-laid-down-duration",
-   "text": "The extruder laid down {duration} of spaghetti while the camera slept."
-  },
-  {
-   "id": "spaghetti-a-nest-of-color-plastic",
-   "family": "spaghetti-a-nest-of-color-plastic",
-   "text": "A nest of {color} plastic celebrating the sudden departure of {title}."
-  },
-  {
-   "id": "spaghetti-the-bed-shook-title-loose",
-   "family": "spaghetti-the-bed-shook-title-loose",
-   "text": "The bed shook {title} loose and the nozzle panicked into pasta production."
-  },
-  {
-   "id": "spaghetti-behold-grams-grams-of-synthetic",
-   "family": "spaghetti-behold-grams-grams-of-synthetic",
-   "text": "Behold {grams} grams of synthetic vermicelli, cooled to room temperature."
-  },
-  {
-   "id": "spaghetti-the-nozzle-wandered-around-like",
-   "family": "spaghetti-the-nozzle-wandered-around-like",
-   "text": "The nozzle wandered around like a lonely chef in an abandoned kitchen."
-  },
-  {
-   "id": "spaghetti-that-bird-nest-of-material-2",
-   "family": "spaghetti-that-bird-nest-of-material-2",
-   "text": "That bird nest of {material} represents peak mechanical bewilderment."
-  },
-  {
-   "id": "spaghetti-the-pasta-chef-special-title",
-   "family": "spaghetti-the-pasta-chef-special-title",
-   "text": "The pasta chef special: {title} served al dente and entirely unstructured."
-  },
-  {
-   "id": "spaghetti-title-chose-the-noodle-life",
-   "family": "spaghetti-title-chose-the-noodle-life",
-   "text": "{title} chose the noodle life, and the noodle life chose it back."
-  },
-  {
-   "id": "spaghetti-fresh-spaghetti-in-color-tossed",
-   "family": "spaghetti-fresh-spaghetti-in-color-tossed",
-   "text": "Fresh spaghetti in {color}, tossed by {printer} with chaotic confidence."
-  },
-  {
-   "id": "spaghetti-somewhere-an-italian-grandmother-felt",
-   "family": "spaghetti-somewhere-an-italian-grandmother-felt",
-   "text": "Somewhere an Italian grandmother felt a disturbance as {title} printed."
-  },
-  {
-   "id": "spaghetti-title-is-less-a-model",
-   "family": "spaghetti-title-is-less-a-model",
-   "text": "{title} is less a model now and more a serving suggestion."
-  },
-  {
-   "id": "spaghetti-the-plate-received-pasta-instead",
-   "family": "spaghetti-the-plate-received-pasta-instead",
-   "text": "The plate received pasta instead of {title}, and honestly, dinner is served."
-  },
-  {
-   "id": "spaghetti-twirled-tangled-and-totally-unplanned",
-   "family": "spaghetti-twirled-tangled-and-totally-unplanned",
-   "text": "Twirled, tangled, and totally unplanned: {title} went full trattoria."
-  },
-  {
-   "id": "spaghetti-color-linguine-courtesy-of-title",
-   "family": "spaghetti-color-linguine-courtesy-of-title",
-   "text": "{color} linguine, courtesy of {title} and a brief adhesion vacation."
-  },
-  {
-   "id": "spaghetti-the-forecast-called-for-a",
-   "family": "spaghetti-the-forecast-called-for-a",
-   "text": "The forecast called for a model; {title} delivered precipitation in noodle form."
-  },
-  {
-   "id": "spaghetti-title-unravelled-into-the-kind",
-   "family": "spaghetti-title-unravelled-into-the-kind",
-   "text": "{title} unravelled into the kind of pasta that needs no sauce, only answers."
-  }
- ]
+  "_about": "Confirmed spaghetti only, never a mere watchdog risk flag.",
+  "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022) + expansion (#1651)",
+  "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
+  "entries": [
+    {
+      "id": "spaghetti-sharp-v2-1",
+      "family": "spaghetti-sharp-v2-1",
+      "text": "The slicer asked for supports; the printer applied for culinary school."
+    },
+    {
+      "id": "spaghetti-sharp-v2-2",
+      "family": "spaghetti-sharp-v2-2",
+      "text": "Gordon Ramsay would shut down the kitchen before asking what sauce goes with this."
+    },
+    {
+      "id": "spaghetti-sharp-v2-3",
+      "family": "spaghetti-sharp-v2-3",
+      "text": "The printer has successfully entered a market where nobody wanted it: shelf stable spaghetti."
+    },
+    {
+      "id": "spaghetti-sharp-v2-4",
+      "family": "spaghetti-sharp-v2-4",
+      "text": "Somewhere an Italian grandmother has sensed a disturbance in the pasta."
+    },
+    {
+      "id": "spaghetti-sharp-v2-5",
+      "family": "spaghetti-sharp-v2-5",
+      "text": "The Michelin guide has requested that you stop calling this a tasting menu."
+    },
+    {
+      "id": "spaghetti-sharp-v2-6",
+      "family": "spaghetti-sharp-v2-6",
+      "text": "The printer has prepared a dish best served directly to the garbage."
+    },
+    {
+      "id": "spaghetti-sharp-v2-7",
+      "family": "spaghetti-sharp-v2-7",
+      "text": "That is a bold interpretation of al dente for a material that never belonged in a kitchen."
+    },
+    {
+      "id": "spaghetti-sharp-v2-8",
+      "family": "spaghetti-sharp-v2-8",
+      "text": "The noodle factory has opened without obtaining a food service license."
+    },
+    {
+      "id": "spaghetti-sharp-v2-9",
+      "family": "spaghetti-sharp-v2-9",
+      "text": "Even instant ramen has better structural integrity."
+    },
+    {
+      "id": "spaghetti-sharp-v2-10",
+      "family": "spaghetti-sharp-v2-10",
+      "text": "The original model appears to have been replaced by a plate of angry vermicelli."
+    },
+    {
+      "id": "spaghetti-sharp-v2-11",
+      "family": "spaghetti-sharp-v2-11",
+      "text": "An entire spool has been sacrificed to the gods of questionable Italian cuisine."
+    },
+    {
+      "id": "spaghetti-sharp-v2-12",
+      "family": "spaghetti-sharp-v2-12",
+      "text": "The pasta has achieved the texture of a nightmare and the nutritional value of a receipt."
+    },
+    {
+      "id": "spaghetti-sharp-v2-13",
+      "family": "spaghetti-sharp-v2-13",
+      "text": "The printer mistook additive manufacturing for the Food Network."
+    },
+    {
+      "id": "spaghetti-sharp-v2-14",
+      "family": "spaghetti-sharp-v2-14",
+      "text": "The marinara is missing, but the regret has been served generously."
+    },
+    {
+      "id": "spaghetti-sharp-v2-15",
+      "family": "spaghetti-sharp-v2-15",
+      "text": "A tangled mess that makes your headphone cables look professionally organized."
+    },
+    {
+      "id": "spaghetti-sharp-v2-16",
+      "family": "spaghetti-sharp-v2-16",
+      "text": "The bed has produced a bird nest for a bird with exceptionally poor taste."
+    },
+    {
+      "id": "spaghetti-sharp-v2-17",
+      "family": "spaghetti-sharp-v2-17",
+      "text": "A pasta dish with the distinction of being both inedible and financially irresponsible."
+    },
+    {
+      "id": "spaghetti-sharp-v2-18",
+      "family": "spaghetti-sharp-v2-18",
+      "text": "The printer has discovered a method of weaving that requires no fabric and produces no useful textile."
+    },
+    {
+      "id": "spaghetti-sharp-v2-19",
+      "family": "spaghetti-sharp-v2-19",
+      "text": "The macaroni has been disqualified for impersonating an actual meal."
+    },
+    {
+      "id": "spaghetti-sharp-v2-20",
+      "family": "spaghetti-sharp-v2-20",
+      "text": "A spaghetti dinner whose main ingredient is the money you used to have."
+    },
+    {
+      "id": "spaghetti-sharp-v2-21",
+      "family": "spaghetti-sharp-v2-21",
+      "text": "The only thing missing from this lasagna is literally every edible ingredient."
+    },
+    {
+      "id": "spaghetti-sharp-v2-22",
+      "family": "spaghetti-sharp-v2-22",
+      "text": "The fettuccine has been sent back to the kitchen by the laws of physics."
+    },
+    {
+      "id": "spaghetti-sharp-v2-23",
+      "family": "spaghetti-sharp-v2-23",
+      "text": "An accidental tribute to Jackson Pollock that nobody will be insuring."
+    },
+    {
+      "id": "spaghetti-sharp-v2-24",
+      "family": "spaghetti-sharp-v2-24",
+      "text": "The nozzle has enrolled in the school of abstract pasta expressionism."
+    },
+    {
+      "id": "spaghetti-sharp-v2-25",
+      "family": "spaghetti-sharp-v2-25",
+      "text": "The printer has decided to make the first sculpture that comes with a warning against eating it."
+    },
+    {
+      "id": "spaghetti-sharp-v2-26",
+      "family": "spaghetti-sharp-v2-26",
+      "text": "The noodles are ready for collection by the municipal waste department."
+    },
+    {
+      "id": "spaghetti-sharp-v2-27",
+      "family": "spaghetti-sharp-v2-27",
+      "text": "The chef has gone rogue and replaced the wheat with a questionable industrial polymer."
+    },
+    {
+      "id": "spaghetti-sharp-v2-28",
+      "family": "spaghetti-sharp-v2-28",
+      "text": "The result looks like a yarn store lost a fight with an electrical outlet."
+    },
+    {
+      "id": "spaghetti-sharp-v2-29",
+      "family": "spaghetti-sharp-v2-29",
+      "text": "The spaghetti has a more convincing plot than the original slicer preview."
+    },
+    {
+      "id": "spaghetti-sharp-v2-30",
+      "family": "spaghetti-sharp-v2-30",
+      "text": "Pasta night has been canceled due to an unexpected lack of food."
+    },
+    {
+      "id": "spaghetti-sharp-v2-31",
+      "family": "spaghetti-sharp-v2-31",
+      "text": "The printer's new business model involves producing garnish for the landfill."
+    },
+    {
+      "id": "spaghetti-sharp-v2-32",
+      "family": "spaghetti-sharp-v2-32",
+      "text": "Even the Flying Spaghetti Monster would demand a quality control review."
+    },
+    {
+      "id": "spaghetti-sharp-v2-33",
+      "family": "spaghetti-sharp-v2-33",
+      "text": "This ramen has an expiration date measured in centuries instead of minutes."
+    },
+    {
+      "id": "spaghetti-sharp-v2-34",
+      "family": "spaghetti-sharp-v2-34",
+      "text": "The pasta industry is relieved that this manufacturing innovation cannot legally be sold as dinner."
+    },
+    {
+      "id": "spaghetti-sharp-v2-35",
+      "family": "spaghetti-sharp-v2-35",
+      "text": "A plate of noodles that would be rejected by the cheapest college cafeteria."
+    },
+    {
+      "id": "spaghetti-sharp-v2-36",
+      "family": "spaghetti-sharp-v2-36",
+      "text": "The machine has made an elaborate nest without the qualifications to become a bird."
+    },
+    {
+      "id": "spaghetti-sharp-v2-37",
+      "family": "spaghetti-sharp-v2-37",
+      "text": "The spaghetti came with complimentary existential questions about the price of filament."
+    },
+    {
+      "id": "spaghetti-sharp-v2-38",
+      "family": "spaghetti-sharp-v2-38",
+      "text": "The printer has discovered a new way to make an Italian restaurant close permanently."
+    },
+    {
+      "id": "spaghetti-sharp-v2-39",
+      "family": "spaghetti-sharp-v2-39",
+      "text": "The noodle has been promoted from food to permanent environmental liability."
+    },
+    {
+      "id": "spaghetti-sharp-v2-40",
+      "family": "spaghetti-sharp-v2-40",
+      "text": "The pasta is now the most expensive thing on the menu and the least edible."
+    },
+    {
+      "id": "spaghetti-sharp-v2-41",
+      "family": "spaghetti-sharp-v2-41",
+      "text": "The chef has replaced the recipe with a software error and a confident attitude."
+    },
+    {
+      "id": "spaghetti-sharp-v2-42",
+      "family": "spaghetti-sharp-v2-42",
+      "text": "The printer has gone from making parts to manufacturing the stuff removed from vacuum rollers."
+    },
+    {
+      "id": "spaghetti-sharp-v2-43",
+      "family": "spaghetti-sharp-v2-43",
+      "text": "The spaghetti's main selling point is that nobody will ever ask for seconds."
+    },
+    {
+      "id": "spaghetti-sharp-v2-44",
+      "family": "spaghetti-sharp-v2-44",
+      "text": "Your kitchen appliance has entered the witness protection program as a 3D printer."
+    },
+    {
+      "id": "spaghetti-sharp-v2-45",
+      "family": "spaghetti-sharp-v2-45",
+      "text": "A plate of linguine that costs more to dispose of than to cook."
+    },
+    {
+      "id": "spaghetti-sharp-v2-46",
+      "family": "spaghetti-sharp-v2-46",
+      "text": "The bed has become a crime scene for offenses against both engineering and cuisine."
+    },
+    {
+      "id": "spaghetti-sharp-v2-47",
+      "family": "spaghetti-sharp-v2-47",
+      "text": "The printer has turned geometry into a deeply upsetting bowl of tagliatelle."
+    },
+    {
+      "id": "spaghetti-sharp-v2-48",
+      "family": "spaghetti-sharp-v2-48",
+      "text": "The pasta has been rejected by every restaurant except the municipal landfill."
+    },
+    {
+      "id": "spaghetti-sharp-v2-49",
+      "family": "spaghetti-sharp-v2-49",
+      "text": "The chef's special is a tangled apology with a side of sunk costs."
+    },
+    {
+      "id": "spaghetti-sharp-v2-50",
+      "family": "spaghetti-sharp-v2-50",
+      "text": "The result is best described as a fishing line accident without the inconvenience of water."
+    },
+    {
+      "id": "spaghetti-sharp-v2-51",
+      "family": "spaghetti-sharp-v2-51",
+      "text": "The noodle has been assigned a permanent residence in the bottom of a trash bag."
+    },
+    {
+      "id": "spaghetti-sharp-v2-52",
+      "family": "spaghetti-sharp-v2-52",
+      "text": "Even a toddler with a box of dry spaghetti could make a stronger argument for structure."
+    },
+    {
+      "id": "spaghetti-sharp-v2-53",
+      "family": "spaghetti-sharp-v2-53",
+      "text": "The kitchen has declared a state of emergency after discovering the main course contains no food."
+    },
+    {
+      "id": "spaghetti-sharp-v2-54",
+      "family": "spaghetti-sharp-v2-54",
+      "text": "The printer's next cookbook will be called Reasons to Buy Takeout."
+    },
+    {
+      "id": "spaghetti-sharp-v2-55",
+      "family": "spaghetti-sharp-v2-55",
+      "text": "The marinara budget has been reallocated to replacement filament."
+    },
+    {
+      "id": "spaghetti-sharp-v2-56",
+      "family": "spaghetti-sharp-v2-56",
+      "text": "The spaghetti has achieved the remarkable feat of making the original design look practical."
+    },
+    {
+      "id": "spaghetti-sharp-v2-57",
+      "family": "spaghetti-sharp-v2-57",
+      "text": "The slicer has delivered a culinary experience that belongs in a small claims court."
+    },
+    {
+      "id": "spaghetti-sharp-v2-58",
+      "family": "spaghetti-sharp-v2-58",
+      "text": "The noodles are not the problem; the decision to manufacture them at this price is."
+    },
+    {
+      "id": "spaghetti-sharp-v2-59",
+      "family": "spaghetti-sharp-v2-59",
+      "text": "An expensive reenactment of what happens when a ball of yarn encounters a ceiling fan."
+    },
+    {
+      "id": "spaghetti-sharp-v2-60",
+      "family": "spaghetti-sharp-v2-60",
+      "text": "The pasta received a Michelin star in the category of things that should never happen."
+    },
+    {
+      "id": "spaghetti-a-tragedy-in-grams-grams",
+      "family": "spaghetti-a-tragedy-in-grams-grams",
+      "text": "A tragedy in {grams} grams: {title} converted into extruded tumbleweed."
+    },
+    {
+      "id": "spaghetti-the-extruder-spun-color-thread",
+      "family": "spaghetti-the-extruder-spun-color-thread",
+      "text": "The extruder spun {color} thread until the whole print resembled a pom-pom."
+    },
+    {
+      "id": "spaghetti-one-does-not-simply-slice",
+      "family": "spaghetti-one-does-not-simply-slice",
+      "text": "One does not simply slice {title} and receive edible rigatoni."
+    },
+    {
+      "id": "spaghetti-the-nozzle-spent-duration-weaving",
+      "family": "spaghetti-the-nozzle-spent-duration-weaving",
+      "text": "The nozzle spent {duration} weaving synthetic straw for an imaginary scarecrow."
+    },
+    {
+      "id": "spaghetti-that-is-thirty-layers-of",
+      "family": "spaghetti-that-is-thirty-layers-of",
+      "text": "That is thirty layers of model and ten thousand layers of noodle soup."
+    },
+    {
+      "id": "spaghetti-every-strand-of-material-chose",
+      "family": "spaghetti-every-strand-of-material-chose",
+      "text": "Every strand of {material} chose a unique path away from {title}."
+    },
+    {
+      "id": "spaghetti-a-tangled-tribute-to-bed",
+      "family": "spaghetti-a-tangled-tribute-to-bed",
+      "text": "A tangled tribute to bed adhesion that refused to show up for work."
+    },
+    {
+      "id": "spaghetti-the-extruder-staged-an-artistic",
+      "family": "spaghetti-the-extruder-staged-an-artistic",
+      "text": "The extruder staged an artistic revolt and dumped {grams} grams of filament slaw."
+    },
+    {
+      "id": "spaghetti-behold-title-currently-wearing-a",
+      "family": "spaghetti-behold-title-currently-wearing-a",
+      "text": "Behold {title}, currently wearing a luxurious coat of plastic spaghetti."
+    },
+    {
+      "id": "spaghetti-the-part-cooling-fan-blew",
+      "family": "spaghetti-the-part-cooling-fan-blew",
+      "text": "The part cooling fan blew {title} straight into a culinary disaster."
+    },
+    {
+      "id": "spaghetti-that-hotend-cooked-color-noodles",
+      "family": "spaghetti-that-hotend-cooked-color-noodles",
+      "text": "That hotend cooked {color} noodles until the room smelled of hot polymer."
+    },
+    {
+      "id": "spaghetti-a-nest-so-convincing-that",
+      "family": "spaghetti-a-nest-so-convincing-that",
+      "text": "A nest so convincing that pigeons are already inquiring about rent."
+    },
+    {
+      "id": "spaghetti-the-bed-ejected-title-early",
+      "family": "spaghetti-the-bed-ejected-title-early",
+      "text": "The bed ejected {title} early to make room for spontaneous pasta art."
+    },
+    {
+      "id": "spaghetti-your-printer-invented-a-new",
+      "family": "spaghetti-your-printer-invented-a-new",
+      "text": "Your printer invented a new noodle shape named after shattered hopes."
+    },
+    {
+      "id": "spaghetti-a-tangled-explosion-of-material",
+      "family": "spaghetti-a-tangled-explosion-of-material",
+      "text": "A tangled explosion of {material} that defies both geometry and common sense."
+    },
+    {
+      "id": "spaghetti-the-nozzle-decided-title-needed",
+      "family": "spaghetti-the-nozzle-decided-title-needed",
+      "text": "The nozzle decided {title} needed thousands of stringy decorative tassels."
+    },
+    {
+      "id": "spaghetti-behold-the-pasta-salad-of",
+      "family": "spaghetti-behold-the-pasta-salad-of",
+      "text": "Behold the pasta salad of shame, freshly deposited by {printer}."
+    },
+    {
+      "id": "spaghetti-that-pile-of-grams-grams",
+      "family": "spaghetti-that-pile-of-grams-grams",
+      "text": "That pile of {grams} grams of {material} belongs under a marinara volcano."
+    },
+    {
+      "id": "spaghetti-the-print-head-wandered-through",
+      "family": "spaghetti-the-print-head-wandered-through",
+      "text": "The print head wandered through empty air, leaving {color} noodles behind."
+    },
+    {
+      "id": "spaghetti-a-monument-of-material-string",
+      "family": "spaghetti-a-monument-of-material-string",
+      "text": "A monument of {material} string that only a deranged seagull could love."
+    },
+    {
+      "id": "spaghetti-the-nozzle-forgot-the-shape",
+      "family": "spaghetti-the-nozzle-forgot-the-shape",
+      "text": "The nozzle forgot the shape of {title} and pivoted to ramen noodles."
+    },
+    {
+      "id": "spaghetti-that-chaotic-heap-of-color",
+      "family": "spaghetti-that-chaotic-heap-of-color",
+      "text": "That chaotic heap of {color} thread once had aspirations of becoming {title}."
+    },
+    {
+      "id": "spaghetti-a-tragic-plate-of-synthetic",
+      "family": "spaghetti-a-tragic-plate-of-synthetic",
+      "text": "A tragic plate of synthetic pad thai, straight from the heated bed."
+    },
+    {
+      "id": "spaghetti-the-extruder-vomited-grams-grams",
+      "family": "spaghetti-the-extruder-vomited-grams-grams",
+      "text": "The extruder vomited {grams} grams of curly plastic into a corner."
+    },
+    {
+      "id": "spaghetti-somewhere-beneath-that-material-thicket",
+      "family": "spaghetti-somewhere-beneath-that-material-thicket",
+      "text": "Somewhere beneath that {material} thicket lies the original base of {title}."
+    },
+    {
+      "id": "spaghetti-the-slicer-said-title-but",
+      "family": "spaghetti-the-slicer-said-title-but",
+      "text": "The slicer said {title}, but the heated bed heard seafood linguine."
+    },
+    {
+      "id": "spaghetti-a-magnificent-bird-nest-of",
+      "family": "spaghetti-a-magnificent-bird-nest-of",
+      "text": "A magnificent bird nest of {color} plastic, ready for an artificial robin."
+    },
+    {
+      "id": "spaghetti-the-nozzle-drifted-into-the",
+      "family": "spaghetti-the-nozzle-drifted-into-the",
+      "text": "The nozzle drifted into the clouds, spinning {duration} of pure yarn."
+    },
+    {
+      "id": "spaghetti-that-is-not-a-failed-2",
+      "family": "spaghetti-that-is-not-a-failed-2",
+      "text": "That is not a failed print; that is modern sculpture titled Spaghetti Regret."
+    },
+    {
+      "id": "spaghetti-the-printer-traded-dimensional-accuracy",
+      "family": "spaghetti-the-printer-traded-dimensional-accuracy",
+      "text": "The printer traded dimensional accuracy for an overflowing plate of soba."
+    },
+    {
+      "id": "spaghetti-a-delightful-clump-of-material",
+      "family": "spaghetti-a-delightful-clump-of-material",
+      "text": "A delightful clump of {material} floss that would shatter any human tooth."
+    },
+    {
+      "id": "spaghetti-the-extruder-got-lost-and",
+      "family": "spaghetti-the-extruder-got-lost-and",
+      "text": "The extruder got lost and filled the chamber with {color} angel hair."
+    },
+    {
+      "id": "spaghetti-that-is-what-happens-when",
+      "family": "spaghetti-that-is-what-happens-when",
+      "text": "That is what happens when {title} decides to become a tumbleweed."
+    },
+    {
+      "id": "spaghetti-the-bed-leveled-itself-right",
+      "family": "spaghetti-the-bed-leveled-itself-right",
+      "text": "The bed leveled itself right out of holding onto {title}."
+    },
+    {
+      "id": "spaghetti-a-plastic-pasta-catastrophe-that",
+      "family": "spaghetti-a-plastic-pasta-catastrophe-that",
+      "text": "A plastic pasta catastrophe that only an industrial vacuum can appreciate."
+    },
+    {
+      "id": "spaghetti-the-hotend-spent-duration-knitting",
+      "family": "spaghetti-the-hotend-spent-duration-knitting",
+      "text": "The hotend spent {duration} knitting an ugly sweater for the build plate."
+    },
+    {
+      "id": "spaghetti-that-mound-of-material-resembles",
+      "family": "spaghetti-that-mound-of-material-resembles",
+      "text": "That mound of {material} resembles a wig discarded by an 80s rock band."
+    },
+    {
+      "id": "spaghetti-the-nozzle-kept-weeping-color",
+      "family": "spaghetti-the-nozzle-kept-weeping-color",
+      "text": "The nozzle kept weeping {color} strands while {title} slid away."
+    },
+    {
+      "id": "spaghetti-a-bowl-of-thermoplastic-udon",
+      "family": "spaghetti-a-bowl-of-thermoplastic-udon",
+      "text": "A bowl of thermoplastic udon that failed every known quality inspection."
+    },
+    {
+      "id": "spaghetti-the-print-surrendered-early-and",
+      "family": "spaghetti-the-print-surrendered-early-and",
+      "text": "The print surrendered early and left a festive pile of plastic tinsel."
+    },
+    {
+      "id": "spaghetti-that-is-grams-grams-of",
+      "family": "spaghetti-that-is-grams-grams-of",
+      "text": "That is {grams} grams of curly plastic spaghetti without a single meatball."
+    },
+    {
+      "id": "spaghetti-the-printer-started-building-title",
+      "family": "spaghetti-the-printer-started-building-title",
+      "text": "The printer started building {title} and ended up weaving a rat nest."
+    },
+    {
+      "id": "spaghetti-a-chaotic-bundle-of-material",
+      "family": "spaghetti-a-chaotic-bundle-of-material",
+      "text": "A chaotic bundle of {material} threads holding hands in mutual confusion."
+    },
+    {
+      "id": "spaghetti-the-hotend-spun-color-noodles",
+      "family": "spaghetti-the-hotend-spun-color-noodles",
+      "text": "The hotend spun {color} noodles with all the precision of a leaf blower."
+    },
+    {
+      "id": "spaghetti-that-pile-of-material-looks",
+      "family": "spaghetti-that-pile-of-material-looks",
+      "text": "That pile of {material} looks like the aftermath of an angry yarn store."
+    },
+    {
+      "id": "spaghetti-the-extruder-laid-down-duration",
+      "family": "spaghetti-the-extruder-laid-down-duration",
+      "text": "The extruder laid down {duration} of spaghetti while the camera slept."
+    },
+    {
+      "id": "spaghetti-a-nest-of-color-plastic",
+      "family": "spaghetti-a-nest-of-color-plastic",
+      "text": "A nest of {color} plastic celebrating the sudden departure of {title}."
+    },
+    {
+      "id": "spaghetti-the-bed-shook-title-loose",
+      "family": "spaghetti-the-bed-shook-title-loose",
+      "text": "The bed shook {title} loose and the nozzle panicked into pasta production."
+    },
+    {
+      "id": "spaghetti-behold-grams-grams-of-synthetic",
+      "family": "spaghetti-behold-grams-grams-of-synthetic",
+      "text": "Behold {grams} grams of synthetic vermicelli, cooled to room temperature."
+    },
+    {
+      "id": "spaghetti-the-nozzle-wandered-around-like",
+      "family": "spaghetti-the-nozzle-wandered-around-like",
+      "text": "The nozzle wandered around like a lonely chef in an abandoned kitchen."
+    },
+    {
+      "id": "spaghetti-that-bird-nest-of-material-2",
+      "family": "spaghetti-that-bird-nest-of-material-2",
+      "text": "That bird nest of {material} represents peak mechanical bewilderment."
+    },
+    {
+      "id": "spaghetti-the-pasta-chef-special-title",
+      "family": "spaghetti-the-pasta-chef-special-title",
+      "text": "The pasta chef special: {title} served al dente and entirely unstructured."
+    },
+    {
+      "id": "spaghetti-title-chose-the-noodle-life",
+      "family": "spaghetti-title-chose-the-noodle-life",
+      "text": "{title} chose the noodle life, and the noodle life chose it back."
+    },
+    {
+      "id": "spaghetti-fresh-spaghetti-in-color-tossed",
+      "family": "spaghetti-fresh-spaghetti-in-color-tossed",
+      "text": "Fresh spaghetti in {color}, tossed by {printer} with chaotic confidence."
+    },
+    {
+      "id": "spaghetti-somewhere-an-italian-grandmother-felt",
+      "family": "spaghetti-somewhere-an-italian-grandmother-felt",
+      "text": "Somewhere an Italian grandmother felt a disturbance as {title} printed."
+    },
+    {
+      "id": "spaghetti-title-is-less-a-model",
+      "family": "spaghetti-title-is-less-a-model",
+      "text": "{title} is less a model now and more a serving suggestion."
+    },
+    {
+      "id": "spaghetti-the-plate-received-pasta-instead",
+      "family": "spaghetti-the-plate-received-pasta-instead",
+      "text": "The plate received pasta instead of {title}, and honestly, dinner is served."
+    },
+    {
+      "id": "spaghetti-twirled-tangled-and-totally-unplanned",
+      "family": "spaghetti-twirled-tangled-and-totally-unplanned",
+      "text": "Twirled, tangled, and totally unplanned: {title} went full trattoria."
+    },
+    {
+      "id": "spaghetti-color-linguine-courtesy-of-title",
+      "family": "spaghetti-color-linguine-courtesy-of-title",
+      "text": "{color} linguine, courtesy of {title} and a brief adhesion vacation."
+    },
+    {
+      "id": "spaghetti-the-forecast-called-for-a",
+      "family": "spaghetti-the-forecast-called-for-a",
+      "text": "The forecast called for a model; {title} delivered precipitation in noodle form."
+    },
+    {
+      "id": "spaghetti-title-unravelled-into-the-kind",
+      "family": "spaghetti-title-unravelled-into-the-kind",
+      "text": "{title} unravelled into the kind of pasta that needs no sauce, only answers."
+    }
+  ]
 }
