@@ -19,7 +19,6 @@ def import_pack(sources: list[Path], output: Path, minimum: int = 1000) -> dict:
     if minimum < 1 or minimum > roast.MAX_CUSTOM_ENTRIES:
         raise ValueError("minimum must be between 1 and the custom bank limit")
     rows = []
-    seen = set()
     rejected = Counter()
     for source in sources:
         payload = json.loads(source.read_text(encoding="utf-8"))
@@ -40,10 +39,6 @@ def import_pack(sources: list[Path], output: Path, minimum: int = 1000) -> dict:
                 rejected["template syntax"] += 1
                 continue
             eid = roast.entry_id("external", text)
-            if eid in seen:
-                rejected["duplicate input"] += 1
-                continue
-            seen.add(eid)
             row = {**entry, "id": eid, "family": entry.get("family") or eid, "text": text}
             rows.append(row)
     # Validate against every shipped bank using the same runtime gates.
@@ -56,15 +51,12 @@ def import_pack(sources: list[Path], output: Path, minimum: int = 1000) -> dict:
     with TemporaryDirectory() as tmp:
         candidate = Path(tmp) / "candidate.json"
         candidate.write_text(json.dumps({"entries": rows}, ensure_ascii=False), encoding="utf-8")
+        accepted_indices = []
         accepted, problems = roast.load_custom_bank(
             candidate, shipped_ids=set(shipped["families"]), shipped_texts=shipped_texts,
-            blocklist=shipped["blocklist"])
-    # Use first accepted row for each ID; a repeated input ID never overwrites
-    # the original attribution.
-    by_id = {}
-    for row in rows:
-        by_id.setdefault(row["id"], row)
-    accepted_rows = [by_id[eid] for eid, _, _ in accepted]
+            blocklist=shipped["blocklist"], accepted_indices=accepted_indices)
+    # Keep the exact accepted source row, not an earlier invalid copy.
+    accepted_rows = [rows[index] for index in accepted_indices]
     report = {"accepted": len(accepted_rows), "preflight_rejected": dict(rejected),
               "validation_problems": problems,
               "categories": dict(Counter(str(row.get("category", "uncategorized"))
