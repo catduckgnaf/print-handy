@@ -1429,6 +1429,30 @@ def test_stubbed_maker_inventory_profile_and_plate_reach_slice_offline(env, monk
     assert len(env.sliced) == 1 and env.starts == []
 
 
+def test_cached_maker_download_reuses_archived_file_without_network(env, monkeypatch):
+    """Cached MakerWorld source reuse avoids network download calls (inventory caching is #1957)."""
+    cached = env.tmp / 'cached' / 'source.3mf'
+    cached.parent.mkdir(parents=True)
+    expected = source(env.tmp).read_bytes()
+    cached.write_bytes(expected)
+    prior = env.tmp / 'archive' / 'prior' / 'JOB.json'
+    prior.parent.mkdir(parents=True)
+    prior.write_text(json.dumps({
+        'site': 'makerworld',
+        'selected_source': {'instance_id': 3848581},
+        'downloaded_file': str(cached),
+    }))
+    monkeypatch.setattr(jobs_sources, 'request_json',
+                        lambda *a, **kw: pytest.fail('cached MakerWorld download must not request JSON'))
+    monkeypatch.setattr(jobs_sources, 'download',
+                        lambda *a, **kw: pytest.fail('cached MakerWorld download must not fetch file'))
+    reused = jobs_sources.maker_download(
+        {'site': 'makerworld'}, {'instance_id': 3848581}, env.tmp / 'reused'
+    )
+    assert reused.is_file()
+    assert reused.read_bytes() == expected
+
+
 def test_unavailable_linked_maker_profile_refuses_without_fallback(env, monkeypatch):
     url = 'https://makerworld.com/en/models/3382409-miniature-baroque-frame#profileId-9999999'
     rows = [{'instance_id': 3848581, 'title': 'Available profile'}]
