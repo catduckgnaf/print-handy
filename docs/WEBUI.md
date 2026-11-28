@@ -301,7 +301,7 @@ The published Community Applications template is separate from the in-repo templ
 2. Open the Web UI's address. It serves right away and offers the [first-run walkthrough](#first-run-walkthrough). No password choice stands in front of setup.
 3. Use the status page to review service health; use Configuration to edit supported settings.
 
-The UI does not start prints. Printer control endpoints are a separate opt-in described below.
+The status and configuration pages do not start prints. Web chat can start a print through the bot's questions and final confirmation, as described in [Chat page](#chat-page). Printer control endpoints are a separate opt-in described below.
 
 There is **no token on the local network by default**. An install with no access token and no saved login is *unclaimed*: it serves openly and is fully usable by anyone who can reach its port, printing and arming controls included, and the status page says plainly that no login is set until you either set one or record that you mean to leave it open. A login comes into existence only by a deliberate act, through one of three routes:
 

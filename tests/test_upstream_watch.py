@@ -44,12 +44,14 @@ def pins(
     go2rtc="1.9.15",
     bambu_ref="b" * 40,
     spoolman_ref="5" * 40,
+    printguard="3.0.1",
 ):
     return watch.Pins(
         orca=watch.OrcaPin(orca, "a" * 40),
         go2rtc_version=go2rtc,
         bambu_ref=bambu_ref,
         spoolman_ref=spoolman_ref,
+        printguard=watch.PrintGuardPin(printguard, "c" * 40),
     )
 
 
@@ -62,6 +64,7 @@ def findings_for(
     bambu=(),
     spoolman_contains=(),
     bambu_contains=(),
+    printguard=(),
 ):
     # The commit-pinned components are compared by commit, not date:
     # ``*_contains`` names the release tags whose commits the pin
@@ -74,6 +77,7 @@ def findings_for(
         lambda tag: tag in spoolman_contains,
         list(bambu),
         lambda tag: tag in bambu_contains,
+        printguard_releases=list(printguard),
     )
 
 
@@ -130,6 +134,9 @@ class PinParsing(unittest.TestCase):
         self.assertRegex(parsed.go2rtc_version, r"^\d+\.\d+\.\d+$")
         self.assertRegex(parsed.bambu_ref, r"^[0-9a-f]{40}$")
         self.assertRegex(parsed.spoolman_ref, r"^[0-9a-f]{40}$")
+        self.assertIsNotNone(parsed.printguard)
+        self.assertRegex(parsed.printguard.version, r"^\d+\.\d+\.\d+")
+        self.assertRegex(parsed.printguard.revision, r"^[0-9a-f]{40}$")
 
 
 class VersionOrdering(unittest.TestCase):
@@ -223,6 +230,14 @@ class PlanActions(unittest.TestCase):
         self.assertEqual(
             [(a.kind, a.component, a.version) for a in actions],
             [("create", "go2rtc", "1.9.16")],
+        )
+
+    def test_printguard_newer_release(self):
+        findings = findings_for(printguard=[release("3.0.2")])
+        actions = watch.plan_actions(findings, [])
+        self.assertEqual(
+            [(a.kind, a.component, a.version) for a in actions],
+            [("create", "PrintGuard", "3.0.2")],
         )
 
     def test_commit_pin_flags_a_release_the_pin_does_not_contain(self):

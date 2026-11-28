@@ -1588,7 +1588,7 @@ class WorkflowShapes(unittest.TestCase):
         triggers = wf.get(True) or wf.get("on")  # 'on' key, however the loader spells it
         self.assertEqual(triggers["schedule"][0]["cron"], "7 15 * * 1")
         options = triggers["workflow_dispatch"]["inputs"]["component"]["options"]
-        self.assertEqual(options, ["all", "go2rtc", "spoolman", "bambu", "orca"])
+        self.assertEqual(options, ["all", "go2rtc", "spoolman", "bambu", "orca", "printguard"])
         self.assertEqual(wf["jobs"]["bump"]["timeout-minutes"], "45")
         steps = wf["jobs"]["bump"]["steps"]
         text = BUMP_WORKFLOW.read_text(encoding="utf-8")
@@ -1839,3 +1839,78 @@ class OrcaProfileDatabase(unittest.TestCase):
         self.assertIsNone(paths[bump.ORCA_PROFILE_DB_DIR + "/Flashforge.jsonl"])
         self.assertIn("-> 9.9.9", report)
         self.assertIn("Filament presets removed", report)
+
+
+class PrintGuardBumpTests(unittest.TestCase):
+    VALID_META = {
+        "name": "Standard",
+        "output": "probability",
+        "input": {"layout": "NCHW", "shape": [1, 3, 224, 224], "dtype": "float32"},
+        "preprocessing": {
+            "resize_shortest_edge_px": 256,
+            "center_crop_px": 224,
+            "color": "rgb",
+            "normalise_mean": [0.485, 0.456, 0.406],
+            "normalise_std": [0.229, 0.224, 0.225],
+        },
+    }
+
+    def test_real_repo_printguard_pin_parses_and_round_trips(self):
+        text = (ROOT / bump.PRINTGUARD_FILE).read_text(encoding="utf-8")
+        pin = bump.parse_printguard(text)
+        self.assertRegex(pin.version, r"^\d+\.\d+\.\d+")
+        self.assertRegex(pin.revision, r"^[0-9a-f]{40}$")
+        self.assertRegex(pin.sha256, r"^[0-9a-f]{64}$")
+        self.assertGreater(pin.size_bytes, 1_000_000)
+        new_pin = bump.PrintGuardPin("3.0.2", "d" * 40, "e" * 64, 14_000_000)
+        rendered = bump.render_printguard(text, new_pin)
+        self.assertEqual(bump.parse_printguard(rendered), new_pin)
+
+    def test_metadata_contract_change_fails_closed(self):
+        bump.verify_printguard_metadata(self.VALID_META)
+        bad = dict(self.VALID_META, output="embedding")
+        with self.assertRaises(bump.BumpError):
+            bump.verify_printguard_metadata(bad)
+        bad_shape = dict(self.VALID_META, input={"layout": "NCHW", "shape": [1, 3, 256, 256], "dtype": "float32"})
+        with self.assertRaises(bump.BumpError):
+            bump.verify_printguard_metadata(bad_shape)
+
+    def test_plan_printguard_updates_all_pinned_surfaces(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for rel in (bump.PRINTGUARD_FILE, "Dockerfile", bump.DOC_COMPONENTS, bump.DOC_SETTINGS):
+            dst = root / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text((ROOT / rel).read_text(encoding="utf-8"), encoding="utf-8")
+
+        new_commit = "f" * 40
+        new_weights = b"new-printguard-onnx-weights"
+        expected_sha = bump.hashlib.sha256(new_weights).hexdigest()
+        meta_url = f"https://raw.githubusercontent.com/{bump.PRINTGUARD_REPO}/{new_commit}/{bump.PRINTGUARD_META_PATH}"
+        model_url = f"https://raw.githubusercontent.com/{bump.PRINTGUARD_REPO}/{new_commit}/{bump.PRINTGUARD_MODEL_PATH}"
+
+        class FakeApi:
+            def get_latest_release(self, repo):
+                return make_release("3.0.2", age_days=10)
+
+            def resolve_tag_commit(self, repo, tag):
+                return new_commit
+
+            def download(self, url):
+                if url == meta_url:
+                    return json.dumps(PrintGuardBumpTests.VALID_META).encode("utf-8")
+                if url == model_url:
+                    return new_weights
+                raise AssertionError(f"unexpected download URL: {url}")
+
+        plan = bump.plan_printguard(root, FakeApi(), NOW)
+        self.assertEqual(plan.action, "bump")
+        self.assertEqual(set(plan.files), {bump.PRINTGUARD_FILE, "Dockerfile", bump.DOC_COMPONENTS, bump.DOC_SETTINGS})
+        plan.apply(root)
+        updated_pin = bump.parse_printguard((root / bump.PRINTGUARD_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(updated_pin, bump.PrintGuardPin("3.0.2", new_commit, expected_sha, len(new_weights)))
+        self.assertIn(f"ADD --checksum=sha256:{expected_sha}", (root / "Dockerfile").read_text(encoding="utf-8"))
+        self.assertIn(model_url, (root / "Dockerfile").read_text(encoding="utf-8"))
+        self.assertIn(f"`3.0.2`, commit `{new_commit[:8]}…`", (root / bump.DOC_COMPONENTS).read_text(encoding="utf-8"))
+        self.assertIn(expected_sha, (root / bump.DOC_SETTINGS).read_text(encoding="utf-8"))

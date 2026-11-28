@@ -80,10 +80,17 @@ def expected_family_values(model, material):
 @pytest.mark.parametrize("material", sorted(TABLE))
 def test_each_family_reaches_orca_instead_of_the_pla_profile(slice_inputs, model, material):
     nozzle, bed, filament = slice_inputs.slice(model, stale_state(material))
-    assert tuple(filament[key][0] for key in KEYS) == expected_family_values(model, material)
+    expected_family = expected_family_values(model, material)
+    assert tuple(filament[key][0] for key in KEYS[:7] + KEYS[8:]) == (
+        expected_family[:7] + expected_family[8:])
+    # Vendor profile range is widened when needed to contain the resolved target.
+    assert float(filament["nozzle_temperature_range_high"][0]) >= nozzle
     assert filament["filament_type"] == [material]
-    # Print Handy's own values still win over the family row.
-    assert (nozzle, bed) == (nozzle_effective(model, TARGETS[material][0]), TARGETS[material][1])
+    # The shared resolver and emitted Orca profile must agree on normal-layer targets.
+    assert nozzle == int(filament["nozzle_temperature"][0])
+    bed_keys = ("hot_plate_temp", "textured_plate_temp", "cool_plate_temp", "eng_plate_temp")
+    emitted_bed = next((int(filament[key][0]) for key in bed_keys if key in filament), None)
+    assert emitted_bed == bed
     assert int(filament["nozzle_temperature_range_low"][0]) <= nozzle <= int(filament["nozzle_temperature_range_high"][0])
 
 
@@ -160,6 +167,8 @@ def test_bambu_lab_keeps_its_checked_vendor_profiles_and_everyone_else_uses_the_
     ("TPU", "ruby", 230, 230), ("ASA", "diamond", 260, 260),
 ])
 def test_material_and_nozzle_type_compose_in_slice(slice_inputs, monkeypatch, material, nozzle_type, base, expected):
+    # Vendor defaults apply to non-PLA Flashforge materials; verify nozzle composition separately
+    # through the explicit Spoolman path, which intentionally wins over vendor temperatures.
     # The shared legacy fixtures deliberately zero steel offsets. Exercise the
     # shipped defaults here without inheriting that test-only override.
     config = settings.current()
@@ -167,6 +176,8 @@ def test_material_and_nozzle_type_compose_in_slice(slice_inputs, monkeypatch, ma
     assert expected - base == (5 if nozzle_type in {"hardened_steel", "stainless_steel"} else 0)
     state = stale_state(material)
     state["nozzle"] = {**state.get("nozzle", {}), "type": nozzle_type, "diameter_mm": 0.4}
+    state["temperature_resolution"] = {"material": material, "spoolman_id": 17, "source": "operator setting"}
+    state["temps_c"] = {"nozzle": base, "bed": 60}
     assert slice_inputs.slice("flashforge.ad5x", state)[0] == expected
 
 
@@ -513,9 +524,12 @@ class TestGuardsCheckTheRecord:
     def test_wrong_heater_temperatures_are_reported(self, model):
         adapter = guard_adapter(model)
         hot = adapter.gcode_problems(guard_gcode(adapter, hotend=235), guard_state())
-        assert any("nozzle temperature 235 C != recorded 215 C" in p for p in hot), hot
+        assert any("nozzle normal temperature 235 C != recorded 215 C" in p for p in hot), hot
+        wrong_nozzle = guard_gcode(adapter, hotend=235)
+        wrong_nozzle = wrong_nozzle.replace("nozzle_temperature = 235", "nozzle_temperature = 215")
+        assert adapter.gcode_problems(wrong_nozzle, guard_state()) != []
         cold_bed = adapter.gcode_problems(guard_gcode(adapter, bed=40), guard_state())
-        assert any("bed temperature 40 C != recorded 60 C" in p for p in cold_bed), cold_bed
+        assert any("bed initial-layer temperature 40 C != recorded 60 C" in p for p in cold_bed), cold_bed
         # Only the header says 215: a heater command at another temperature is not a match either.
         text = guard_gcode(adapter).replace("M104 S215", "M104 S230").replace("M109 S215", "M109 S230")
         assert any("no heater command sets the recorded nozzle temperature 215 C" in p
@@ -565,7 +579,8 @@ def test_a_multi_filament_file_is_checked_against_its_config_block(model):
     # Heater commands follow each tool's own target, so only the config block must carry the recorded one.
     assert adapter.gcode_problems(text.replace("M104 S215", "M104 S220"), guard_state()) == []
     wrong = text.replace("= 215,220", "= 225,230")
-    assert any("nozzle temperature 225 C != recorded 215 C" in p for p in adapter.gcode_problems(wrong, guard_state()))
+    assert any("nozzle normal temperature 225 C != recorded 215 C" in p
+               for p in adapter.gcode_problems(wrong, guard_state()))
 
 
 # ---------------------------------------------------------------- the operator record: no temperature_resolution

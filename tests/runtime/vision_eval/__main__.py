@@ -3,16 +3,16 @@
 Usage::
 
     python -m tests.runtime.vision_eval
-    python -m tests.runtime.vision_eval --model obico-failure-detector.onnx --frames saved-frames/
-    python -m tests.runtime.vision_eval --model obico-failure-detector.onnx \\
+    python -m tests.runtime.vision_eval --model printguard-standard.onnx --frames saved-frames/
+    python -m tests.runtime.vision_eval --model printguard-standard.onnx \\
         --frames healthy-print/ --frames failed-print/=spaghetti
 
 With no arguments it replays the shipped fixture set with the local
 detector as the process configuration has it; on the synthetic format
 fixtures the point is the accounting, not accuracy.
 
-``--model`` points the detector at an ONNX file (the real 202 MB
-``obico-failure-detector.onnx``, or any file with its output contract)
+``--model`` points the detector at an ONNX file (the real ~13.6 MB
+``printguard-standard.onnx``, or any file with its output contract)
 and enables it for this run only; nothing is downloaded. ``--frames``
 replays a plain folder of saved camera frames (``.jpg``/``.png``, in
 file name order) as one session; repeat it for several folders. A folder
