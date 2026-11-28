@@ -817,6 +817,8 @@ def _gcode_object_count(text):
 
 
 def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override):
+    from ..core.slice_failure import SliceFailure
+    from ..core.slice_refusal import SliceRefusal
     """Slice every object of a multi-plate 3MF. Disk only, never the printer.
 
     job['plate_mode'] 'merge' (default) packs all objects on one bed and
@@ -986,7 +988,7 @@ def _slice_fitted_assembly(job, job_path, src, manifest, decisions, view, fit, p
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha \
             or _recipe_changed(job, latest, _recorded_printer_id(job)):
-        raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
+        raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     objects = sorted({p['object_id'] for p in manifest['parts']}, key=str)
     summary = {'mode': 'merge', 'reason': None, 'plates_in': plates_in, 'objects_in': len(objects),
                'objects_out': len(objects), 'parts_in': len(manifest['parts']), 'bed_mm': int(bed[0]),
@@ -1333,7 +1335,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         raise RuntimeError('painted source produced no plates')
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
-        raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
+        raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     job['derived_plates'] = artifacts
     job['plate_merge'] = {'mode': 'split', 'painted': True, 'plates_in': len(plates), 'plates_out': len(artifacts),
                           'reason': 'painted multicolor plates sliced separately, one multicolor G-code each',
@@ -1472,7 +1474,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
     check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
-        raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
+        raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],
                'spacing_mm': verdict['spacing_mm'], 'fits_bed': True, 'slots': slots,
@@ -1571,7 +1573,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
     check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
-        raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
+        raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],
                'spacing_mm': verdict['spacing_mm'], 'fits_bed': True, 'slots': slots,
@@ -1591,6 +1593,8 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
 
 
 def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, brim_override, work):
+    from ..core.slice_failure import SliceFailure
+    from ..core.slice_refusal import SliceRefusal
     import uuid
     fit, supports, brim_override = _job_fit(job, brim_override)
     from ..core.color_geometry import export_single_color_plate
@@ -1618,7 +1622,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
         plate = derived / f'plate{plate_id}_slot{slot}.3mf'
         try:
             if not st.get('filament_slots', {}).get(str(slot), {}).get('material'):
-                raise RuntimeError(f'derived plate physical IFS slot {slot} has no verified material')
+                raise SliceRefusal(f'derived plate physical IFS slot {slot} has no verified material', plain=f'The spool material for slot {slot} is not set in Spoolman.', next_step=f'Set the material for the spool loaded in slot {slot} in Spoolman, then prepare the model again.')
             report = export_single_color_plate(src, plate, view, keys, bed=int(st['bed_mm'][0]), slot_colors=st.get('filament_slots') or {}, **({'fit': current_fit} if current_fit is not None else {}))
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
@@ -2378,7 +2382,6 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     if recipe_sha256 is not None and recipe_sha256 != recipe['sha256']:
         # The request was bound to a recipe the job no longer describes (a background slice
         # requested before the job changed). Slicing now would label one recipe with another.
-        from ..core.slice_failure import SliceFailure
         raise SliceFailure('slice request is for another slice recipe; the job changed after it was requested. '
                            'Nothing sliced', kind='recipe')
     if src.suffix.lower() == ".3mf":
@@ -2809,7 +2812,6 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
         # A SliceFailure carries its signature across the worker boundary; a bare
         # RuntimeError arrived as an unexplained RemoteError and chat said the
         # cause was unknown and offered a retry that cannot help.
-        from ..core.slice_failure import SliceFailure
         raise SliceFailure(f"model {sx}x{sy}x{sz} mm exceeds printer volume", kind='layout',
                            signature='outside_bed')
     if brim_override is None and job.get('fit_brim_policy'):

@@ -10,6 +10,7 @@ import unicodedata
 
 from .. import diagnostics, logs
 from . import failure_report
+from .slice_refusal import SliceRefusal
 
 
 class SliceFailure(RuntimeError):
@@ -97,6 +98,9 @@ def explain(exc):
     Unknown failures stay honestly unknown, but tell the operator how to collect
     evidence. The existing single, slice-only retry remains available for them.
     """
+    if isinstance(getattr(exc, 'plain', None), str) and exc.plain:
+        return Explanation(exc.plain, getattr(exc, 'next_step', None) or BUNDLE, False,
+                           category=diagnostics.Category.CONFIGURATION)
     if isinstance(exc, SliceFailure) and exc.kind == 'conflict':
         names = ', '.join(f'“{name}”' for name in exc.conflict_objects)
         objects = f': {names}' if names else ''
