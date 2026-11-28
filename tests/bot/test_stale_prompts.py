@@ -203,6 +203,8 @@ def test_expired_prompt_during_unconfirmed_start_never_claims_no_print_started(r
     text = clicked.replies[-1]["content"]
     assert "start status is not yet confirmed" in text
     assert "Check /print-status" in text
+    assert "Do not resend the model yet" in text
+    assert "send the model link or file again" not in text
     assert "no print was started" not in text and "Nothing was sliced" not in text
     assert message.view is None
 

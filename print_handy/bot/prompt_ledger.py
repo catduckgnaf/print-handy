@@ -146,6 +146,9 @@ def stale_notice(restarted, approval, saved, *, retired):
         lines.append("I removed the dead buttons from that message.")
     if saved == "started":
         lines.append("That job had already started. Check /print-status.")
+    elif saved == "pending":
+        # Resending while the prior start is unresolved could start a duplicate.
+        lines.append("Do not resend the model yet; check /print-status first.")
     else:
         if saved == "sliced":
             lines.append("The sliced file is saved but not printed.")
