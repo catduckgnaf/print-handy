@@ -1,5 +1,6 @@
 """Fit-intake and slice-volume boundary parity for the public fit corpus (#1947)."""
 import math
+import os
 import tomllib
 
 import pytest
@@ -59,6 +60,24 @@ def test_diagonal_turn_case_runs_through_production_intake_and_slice_path(tmp_pa
 
     case = harness.load_case(Path(__file__).parent / "cases" / "diagonal-turn")
     run = harness.run_case(case, tmp_path, real_slicer=False)
+    harness.check_expectations(case, run)
+    fit = run.receipt.get("fit_options", {})
+    assert fit.get("parts", [{}])[0].get("best_yaw_deg") == pytest.approx(45.0)
+    assert fit.get("rotations", [{}])[0].get("axis") == "+Z"
+    assert run.receipt.get("orientation", {}).get("rotation") is not None
+    assert run.slice_starts, "production BackgroundSlice.start was never reached"
+
+
+@pytest.mark.skipif(
+    os.environ.get("PRINT_HANDY_REAL_SLICER") != "1",
+    reason="set PRINT_HANDY_REAL_SLICER=1 to slice with the real Orca CLI",
+)
+def test_diagonal_turn_case_slices_with_real_slicer(tmp_path):
+    """The diagonal-turn corpus case rotates and slices cleanly with real Orca."""
+    from tests.corpus import harness
+
+    case = harness.load_case(Path(__file__).parent / "cases" / "diagonal-turn")
+    run = harness.run_case(case, tmp_path, real_slicer=True)
     harness.check_expectations(case, run)
     fit = run.receipt.get("fit_options", {})
     assert fit.get("parts", [{}])[0].get("best_yaw_deg") == pytest.approx(45.0)
