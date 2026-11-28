@@ -1416,11 +1416,12 @@ def _bank_lines(bank, title, facts=None):
     corpus = engine.load_corpus()
     context = engine.build_context(title, **(facts or {}))
     out = set()
-    for _id, text in corpus["banks"][bank]:
-        rendered = engine.render(text, context)
-        if rendered:
-            out.add(rendered)
-            out.update(engine.framing_options(rendered, bank, context, corpus))
+    for pool, rows in engine.candidate_pools(context, bank, corpus):
+        for _id, text in rows:
+            rendered = engine.render(text, context)
+            if rendered:
+                out.add(rendered)
+                out.update(engine.framing_options(rendered, pool, context, corpus))
     return out
 
 
