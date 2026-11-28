@@ -219,7 +219,7 @@ def test_worker_traceback_is_bounded_and_skipped_for_explained_failures():
     ('3MF plate assignment has no plater_id value', '3MF file has a plate with no valid plate assignment', 'Re-export the model as a fresh 3MF', False),
     ('unable to inspect 3MF plate assignments: malformed value', '3MF file has invalid or unreadable plate assignments', 'Re-export the model as a fresh 3MF', False),
     ('multi-plate 3MF source has no plate thumbnails; no slicing attempted', 'multi-plate 3MF is missing its plate thumbnails', 'Re-export the model as a fresh 3MF', False),
-    ('multi-plate 3MF cannot be merged or split: invalid inventory; no slicing attempted', 'multi-plate 3MF's parts could not be assigned to plates', 'Re-export the model as a fresh 3MF', False),
+    ('multi-plate 3MF cannot be merged or split: invalid inventory; no slicing attempted', "multi-plate 3MF's parts could not be assigned to plates", 'Re-export the model as a fresh 3MF', False),
     ('part/color choices required; run color-plan and color-select before slicing', 'needs color or part choices', 'color-plan', False),
     ('per-part decision did not resolve any single-color plate', 'did not resolve to any printable plate', 'color-plan', False),
     ('derived plate physical IFS slot 2 has no verified material', 'slot 2 has no verified material', 'Record the loaded spool', False),
