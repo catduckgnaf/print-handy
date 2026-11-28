@@ -51,3 +51,17 @@ def test_rotation_fit_runs_through_production_intake_and_slice_path(tmp_path):
     assert any("does not fit the bed full size" in prompt["question"]
                for prompt in run.adapter.questions), run.adapter.questions
     assert run.receipt.get("scale", 1.0) == 1.0
+
+
+def test_diagonal_turn_case_runs_through_production_intake_and_slice_path(tmp_path):
+    """The diagonal-turn geometry is selected by the real intake journey."""
+    from tests.corpus import harness
+
+    case = harness.load_case(Path(__file__).parent / "cases" / "diagonal-turn")
+    run = harness.run_case(case, tmp_path, real_slicer=False)
+    harness.check_expectations(case, run)
+    fit = run.receipt.get("fit_options", {})
+    assert fit.get("parts", [{}])[0].get("best_yaw_deg") == pytest.approx(45.0)
+    assert fit.get("rotations", [{}])[0].get("axis") == "+Z"
+    assert run.receipt.get("orientation", {}).get("rotation") is not None
+    assert run.slice_starts, "production BackgroundSlice.start was never reached"
