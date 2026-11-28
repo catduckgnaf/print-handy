@@ -2196,7 +2196,7 @@
      "wall_s": 0.24
     }
    },
-   "recorded_from": "CI run 46121833189 (f13e3df22b11682be0343cf45f66d3a17a351173), artifact discord-timing, median of 5, runner CPU AMD EPYC 9V74 80-Core Processor"
+   "recorded_from": "CI run 45438378964 (453d90d9dab6be4e19dc7666d69a098cc691fc5a), artifact discord-timing, median of 5, runner CPU AMD EPYC 9V74 80-Core Processor"
   }
  },
  "cases": {
