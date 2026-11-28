@@ -113,10 +113,14 @@ def saved_job_state(intake_id):
     if not isinstance(receipt, dict):
         return None
     status = str(receipt.get("status") or "")
-    if receipt.get("started"):
+    if receipt.get("started") or status == "STARTED":
         return "started"
     if status == "SLICED_NOT_STARTED":
         return "sliced"
+    if status in {"START_REQUESTED", "START_PENDING", "START_UNCERTAIN"}:
+        # The request may already have reached the printer. A stale prompt must
+        # not assert that no print started or invite an unsafe resend.
+        return "pending"
     return "other" if status else None
 
 
@@ -131,6 +135,9 @@ def stale_notice(restarted, approval, saved, *, retired):
     if saved == "started":
         unchanged = ("Nothing changed. This click did not upload anything, start a print"
                      + (", or record approval." if approval else "."))
+    elif saved == "pending":
+        unchanged = ("This old button did not change the job, but the start status is not yet confirmed. "
+                     "Check /print-status before taking another action.")
     else:
         unchanged = ("Nothing changed: no print was started, nothing was uploaded to the printer"
                      + (", and your approval was not recorded." if approval else "."))
