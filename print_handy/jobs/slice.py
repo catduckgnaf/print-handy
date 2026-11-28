@@ -988,6 +988,7 @@ def _slice_fitted_assembly(job, job_path, src, manifest, decisions, view, fit, p
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha \
             or _recipe_changed(job, latest, _recorded_printer_id(job)):
+        from ..core.slice_failure import SliceFailure
         raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     objects = sorted({p['object_id'] for p in manifest['parts']}, key=str)
     summary = {'mode': 'merge', 'reason': None, 'plates_in': plates_in, 'objects_in': len(objects),
@@ -1335,6 +1336,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         raise RuntimeError('painted source produced no plates')
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
+        from ..core.slice_failure import SliceFailure
         raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     job['derived_plates'] = artifacts
     job['plate_merge'] = {'mode': 'split', 'painted': True, 'plates_in': len(plates), 'plates_out': len(artifacts),
@@ -1474,6 +1476,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
     check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
+        from ..core.slice_failure import SliceFailure
         raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],
@@ -1573,6 +1576,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
     check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
+        from ..core.slice_failure import SliceFailure
         raise SliceFailure('source, decisions or slice recipe changed during slicing; artifact not made ready', kind='recipe')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],

@@ -10,7 +10,6 @@ import unicodedata
 
 from .. import diagnostics, logs
 from . import failure_report
-from .slice_refusal import SliceRefusal
 
 
 class SliceFailure(RuntimeError):
