@@ -3981,6 +3981,870 @@
         "family": "title-ghost-face-sharp-v4-5",
         "text": "Even a horror franchise with six sequels would question the necessity of this accessory."
       }
+    ],
+    "good will hunting": [
+      {
+        "id": "title-good-will-hunting-sharp-v5-1",
+        "family": "title-good-will-hunting-sharp-v5-1",
+        "text": "Matt Damon solved an MIT math problem for free; your calibration cube required a capital investment."
+      },
+      {
+        "id": "title-good-will-hunting-sharp-v5-2",
+        "family": "title-good-will-hunting-sharp-v5-2",
+        "text": "Will Hunting could calculate the cost of this print and would immediately move to California."
+      },
+      {
+        "id": "title-good-will-hunting-sharp-v5-3",
+        "family": "title-good-will-hunting-sharp-v5-3",
+        "text": "Sean Maguire would need another park bench just to discuss your relationship with filament."
+      },
+      {
+        "id": "title-good-will-hunting-sharp-v5-4",
+        "family": "title-good-will-hunting-sharp-v5-4",
+        "text": "The janitor at MIT had better things to do than sweep up another purge tower."
+      },
+      {
+        "id": "title-good-will-hunting-sharp-v5-5",
+        "family": "title-good-will-hunting-sharp-v5-5",
+        "text": "Ben Affleck got an Oscar for writing this; you'll get a notification when the bed cools."
+      }
+    ],
+    "office space": [
+      {
+        "id": "title-office-space-sharp-v5-1",
+        "family": "title-office-space-sharp-v5-1",
+        "text": "Peter Gibbons would have outsourced this print to a machine that looked busy for eight hours."
+      },
+      {
+        "id": "title-office-space-sharp-v5-2",
+        "family": "title-office-space-sharp-v5-2",
+        "text": "Milton's stapler had more job security than your printer's original extruder."
+      },
+      {
+        "id": "title-office-space-sharp-v5-3",
+        "family": "title-office-space-sharp-v5-3",
+        "text": "Lumbergh has scheduled a Saturday meeting to review the first layer."
+      },
+      {
+        "id": "title-office-space-sharp-v5-4",
+        "family": "title-office-space-sharp-v5-4",
+        "text": "Initech would classify the purge tower as a necessary quarterly deliverable."
+      },
+      {
+        "id": "title-office-space-sharp-v5-5",
+        "family": "title-office-space-sharp-v5-5",
+        "text": "The Bobs have interviewed the support material and cannot establish why it needs a permanent position."
+      }
+    ],
+    "dummy 13": [
+      {
+        "id": "title-dummy-13-sharp-v5-1",
+        "family": "title-dummy-13-sharp-v5-1",
+        "text": "A fully articulated employee who cannot perform a single task is practically ready for upper management."
+      },
+      {
+        "id": "title-dummy-13-sharp-v5-2",
+        "family": "title-dummy-13-sharp-v5-2",
+        "text": "The action figure has thirteen in its name and still doesn't have a retirement plan."
+      },
+      {
+        "id": "title-dummy-13-sharp-v5-3",
+        "family": "title-dummy-13-sharp-v5-3",
+        "text": "A poseable human whose most convincing pose is waiting for the printer to finish another one."
+      },
+      {
+        "id": "title-dummy-13-sharp-v5-4",
+        "family": "title-dummy-13-sharp-v5-4",
+        "text": "Michelangelo carved David from marble; you assembled your workforce from a plate of spare joints."
+      },
+      {
+        "id": "title-dummy-13-sharp-v5-5",
+        "family": "title-dummy-13-sharp-v5-5",
+        "text": "Even the mannequin has a better range of motion than your household budget."
+      }
+    ],
+    "baby yoda": [
+      {
+        "id": "title-baby-yoda-sharp-v5-1",
+        "family": "title-baby-yoda-sharp-v5-1",
+        "text": "Grogu lived for fifty years without needing a filament subscription."
+      },
+      {
+        "id": "title-baby-yoda-sharp-v5-2",
+        "family": "title-baby-yoda-sharp-v5-2",
+        "text": "The Mandalorian rescued a child and you rescued the intellectual property from affordable mass production."
+      },
+      {
+        "id": "title-baby-yoda-sharp-v5-3",
+        "family": "title-baby-yoda-sharp-v5-3",
+        "text": "The Jedi have mastered telekinesis but your Grogu requires a shelf with a respectable load rating."
+      },
+      {
+        "id": "title-baby-yoda-sharp-v5-4",
+        "family": "title-baby-yoda-sharp-v5-4",
+        "text": "The galaxy's smallest influencer has secured a sponsorship from the electricity company."
+      },
+      {
+        "id": "title-baby-yoda-sharp-v5-5",
+        "family": "title-baby-yoda-sharp-v5-5",
+        "text": "A creature with extraordinary powers and absolutely no ability to put away your tools."
+      }
+    ],
+    "baby groot": [
+      {
+        "id": "title-baby-groot-sharp-v5-1",
+        "family": "title-baby-groot-sharp-v5-1",
+        "text": "Groot is a tree who can grow back naturally, which makes your production method particularly insulting."
+      },
+      {
+        "id": "title-baby-groot-sharp-v5-2",
+        "family": "title-baby-groot-sharp-v5-2",
+        "text": "Marvel got an entire franchise out of a talking plant and you got a dust collector."
+      },
+      {
+        "id": "title-baby-groot-sharp-v5-3",
+        "family": "title-baby-groot-sharp-v5-3",
+        "text": "The Guardians of the Galaxy have officially outsourced horticulture to the petroleum industry."
+      },
+      {
+        "id": "title-baby-groot-sharp-v5-4",
+        "family": "title-baby-groot-sharp-v5-4",
+        "text": "A tree that can survive intergalactic warfare but not the dishwasher."
+      },
+      {
+        "id": "title-baby-groot-sharp-v5-5",
+        "family": "title-baby-groot-sharp-v5-5",
+        "text": "Groot has a vocabulary of three words, which still exceeds the justification for another spool."
+      }
+    ],
+    "raspberry pi": [
+      {
+        "id": "title-raspberry-pi-sharp-v5-1",
+        "family": "title-raspberry-pi-sharp-v5-1",
+        "text": "A computer originally designed to be affordable has become the centerpiece of a home infrastructure megaproject."
+      },
+      {
+        "id": "title-raspberry-pi-sharp-v5-2",
+        "family": "title-raspberry-pi-sharp-v5-2",
+        "text": "The Raspberry Pi costs less than the elaborate shrine you constructed around it."
+      },
+      {
+        "id": "title-raspberry-pi-sharp-v5-3",
+        "family": "title-raspberry-pi-sharp-v5-3",
+        "text": "The board can run a server while your enclosure specializes in running up a bill."
+      },
+      {
+        "id": "title-raspberry-pi-sharp-v5-4",
+        "family": "title-raspberry-pi-sharp-v5-4",
+        "text": "You bought a small computer to save space and immediately annexed three more shelves."
+      },
+      {
+        "id": "title-raspberry-pi-sharp-v5-5",
+        "family": "title-raspberry-pi-sharp-v5-5",
+        "text": "The fruit in Raspberry Pi is the only organic thing left in this project."
+      }
+    ],
+    "temperature tower": [
+      {
+        "id": "title-temperature-tower-sharp-v5-1",
+        "family": "title-temperature-tower-sharp-v5-1",
+        "text": "The temperature tower is a thermometer with the production schedule of a small apartment complex."
+      },
+      {
+        "id": "title-temperature-tower-sharp-v5-2",
+        "family": "title-temperature-tower-sharp-v5-2",
+        "text": "You have built a monument to the discovery that plastic melts when it gets hot."
+      },
+      {
+        "id": "title-temperature-tower-sharp-v5-3",
+        "family": "title-temperature-tower-sharp-v5-3",
+        "text": "Goldilocks needed three bowls of porridge and you apparently needed a skyscraper."
+      },
+      {
+        "id": "title-temperature-tower-sharp-v5-4",
+        "family": "title-temperature-tower-sharp-v5-4",
+        "text": "The tower tests every temperature except the boiling point of your patience."
+      },
+      {
+        "id": "title-temperature-tower-sharp-v5-5",
+        "family": "title-temperature-tower-sharp-v5-5",
+        "text": "A building where every floor is a different way to question the manufacturer's recommended settings."
+      }
+    ],
+    "torture toaster": [
+      {
+        "id": "title-torture-toaster-sharp-v5-1",
+        "family": "title-torture-toaster-sharp-v5-1",
+        "text": "The toaster has all the suffering of breakfast and none of the bread."
+      },
+      {
+        "id": "title-torture-toaster-sharp-v5-2",
+        "family": "title-torture-toaster-sharp-v5-2",
+        "text": "The Geneva Convention may not cover printer benchmarks, but the toaster is considering an appeal."
+      },
+      {
+        "id": "title-torture-toaster-sharp-v5-3",
+        "family": "title-torture-toaster-sharp-v5-3",
+        "text": "A torture device whose primary victim is your remaining free time."
+      },
+      {
+        "id": "title-torture-toaster-sharp-v5-4",
+        "family": "title-torture-toaster-sharp-v5-4",
+        "text": "The kitchen has filed a complaint about the unauthorized use of its appliance terminology."
+      },
+      {
+        "id": "title-torture-toaster-sharp-v5-5",
+        "family": "title-torture-toaster-sharp-v5-5",
+        "text": "The toaster's most advanced feature is making other calibration prints look emotionally well adjusted."
+      }
+    ],
+    "digital sundial": [
+      {
+        "id": "title-digital-sundial-sharp-v5-1",
+        "family": "title-digital-sundial-sharp-v5-1",
+        "text": "The sun has been telling time for billions of years without needing an enclosure or firmware."
+      },
+      {
+        "id": "title-digital-sundial-sharp-v5-2",
+        "family": "title-digital-sundial-sharp-v5-2",
+        "text": "A clock designed to work outdoors has been manufactured by someone who hasn't left the workshop."
+      },
+      {
+        "id": "title-digital-sundial-sharp-v5-3",
+        "family": "title-digital-sundial-sharp-v5-3",
+        "text": "The ancient Egyptians would applaud the concept and question the electric bill."
+      },
+      {
+        "id": "title-digital-sundial-sharp-v5-4",
+        "family": "title-digital-sundial-sharp-v5-4",
+        "text": "Daylight savings has found an accessory even more unnecessary than daylight savings."
+      },
+      {
+        "id": "title-digital-sundial-sharp-v5-5",
+        "family": "title-digital-sundial-sharp-v5-5",
+        "text": "The clock stops working at night, which is considerably more restraint than your printer exhibits."
+      }
+    ],
+    "cali cat": [
+      {
+        "id": "title-cali-cat-sharp-v5-1",
+        "family": "title-cali-cat-sharp-v5-1",
+        "text": "The cat was calibrated to precisely the same level of helpfulness as a real cat."
+      },
+      {
+        "id": "title-cali-cat-sharp-v5-2",
+        "family": "title-cali-cat-sharp-v5-2",
+        "text": "Schrodinger's calibration test has produced a cat that is simultaneously unnecessary and expensive."
+      },
+      {
+        "id": "title-cali-cat-sharp-v5-3",
+        "family": "title-cali-cat-sharp-v5-3",
+        "text": "Cats invented sitting perfectly still without needing a three axis positioning system."
+      },
+      {
+        "id": "title-cali-cat-sharp-v5-4",
+        "family": "title-cali-cat-sharp-v5-4",
+        "text": "A feline whose primary purpose is to assess the machine responsible for filling its territory."
+      },
+      {
+        "id": "title-cali-cat-sharp-v5-5",
+        "family": "title-cali-cat-sharp-v5-5",
+        "text": "Garfield would have demanded lasagna instead of another geometric interpretation of his species."
+      }
+    ],
+    "delorean": [
+      {
+        "id": "title-delorean-sharp-v5-1",
+        "family": "title-delorean-sharp-v5-1",
+        "text": "Doc Brown needed plutonium for time travel; you only need a spool to lose an afternoon."
+      },
+      {
+        "id": "title-delorean-sharp-v5-2",
+        "family": "title-delorean-sharp-v5-2",
+        "text": "The DeLorean travels through time primarily by causing you to miss dinner."
+      },
+      {
+        "id": "title-delorean-sharp-v5-3",
+        "family": "title-delorean-sharp-v5-3",
+        "text": "The flux capacitor is optional, but the electricity meter is working beautifully."
+      },
+      {
+        "id": "title-delorean-sharp-v5-4",
+        "family": "title-delorean-sharp-v5-4",
+        "text": "Michael J Fox made time travel look easier than getting these supports off."
+      },
+      {
+        "id": "title-delorean-sharp-v5-5",
+        "family": "title-delorean-sharp-v5-5",
+        "text": "The car's top speed is whatever velocity it achieves when the shelf finally collapses."
+      }
+    ],
+    "jurassic park": [
+      {
+        "id": "title-jurassic-park-sharp-v5-1",
+        "family": "title-jurassic-park-sharp-v5-1",
+        "text": "The scientists resurrected dinosaurs and apparently nobody thought to include the price of replacement filament."
+      },
+      {
+        "id": "title-jurassic-park-sharp-v5-2",
+        "family": "title-jurassic-park-sharp-v5-2",
+        "text": "John Hammond spared no expense, which is precisely the accounting method your hobby adopted."
+      },
+      {
+        "id": "title-jurassic-park-sharp-v5-3",
+        "family": "title-jurassic-park-sharp-v5-3",
+        "text": "A prehistoric ecosystem whose apex predator is the nozzle temperature."
+      },
+      {
+        "id": "title-jurassic-park-sharp-v5-4",
+        "family": "title-jurassic-park-sharp-v5-4",
+        "text": "Jeff Goldblum could explain chaos theory just by looking at your slicer history."
+      },
+      {
+        "id": "title-jurassic-park-sharp-v5-5",
+        "family": "title-jurassic-park-sharp-v5-5",
+        "text": "The dinosaurs escaped their enclosure and yours are slowly escaping the storage room."
+      }
+    ],
+    "star trek": [
+      {
+        "id": "title-star-trek-sharp-v5-1",
+        "family": "title-star-trek-sharp-v5-1",
+        "text": "Starfleet's replicator was invented for food and medicine; yours appears to specialize in unnecessary keychains."
+      },
+      {
+        "id": "title-star-trek-sharp-v5-2",
+        "family": "title-star-trek-sharp-v5-2",
+        "text": "Spock calculated the odds of this being useful and requested a transfer."
+      },
+      {
+        "id": "title-star-trek-sharp-v5-3",
+        "family": "title-star-trek-sharp-v5-3",
+        "text": "The Enterprise crossed galaxies with fewer accessories than your printer."
+      },
+      {
+        "id": "title-star-trek-sharp-v5-4",
+        "family": "title-star-trek-sharp-v5-4",
+        "text": "The final frontier turns out to be the last free inch of shelf space."
+      },
+      {
+        "id": "title-star-trek-sharp-v5-5",
+        "family": "title-star-trek-sharp-v5-5",
+        "text": "Patrick Stewart could make reading the slicer estimate sound distinguished, but it would still be wrong."
+      }
+    ],
+    "batman": [
+      {
+        "id": "title-batman-sharp-v5-1",
+        "family": "title-batman-sharp-v5-1",
+        "text": "Bruce Wayne inherited a fortune, which explains how he could afford all these accessories."
+      },
+      {
+        "id": "title-batman-sharp-v5-2",
+        "family": "title-batman-sharp-v5-2",
+        "text": "Batman has a cave full of equipment because even a billionaire can't organize his hobby."
+      },
+      {
+        "id": "title-batman-sharp-v5-3",
+        "family": "title-batman-sharp-v5-3",
+        "text": "The Dark Knight has requested a temporary suspension of the bat shaped household expenses."
+      },
+      {
+        "id": "title-batman-sharp-v5-4",
+        "family": "title-batman-sharp-v5-4",
+        "text": "Alfred has prepared a detailed budget and Bruce has prepared a detailed reason to ignore it."
+      },
+      {
+        "id": "title-batman-sharp-v5-5",
+        "family": "title-batman-sharp-v5-5",
+        "text": "Gotham's crime rate is unchanged, but the city now has one more decorative vigilante."
+      }
+    ],
+    "iron man": [
+      {
+        "id": "title-iron-man-sharp-v5-1",
+        "family": "title-iron-man-sharp-v5-1",
+        "text": "Tony Stark made a working suit in a cave and yours needs a second mortgage on filament."
+      },
+      {
+        "id": "title-iron-man-sharp-v5-2",
+        "family": "title-iron-man-sharp-v5-2",
+        "text": "The arc reactor powers an entire suit; your printer needs an afternoon to manufacture one glove."
+      },
+      {
+        "id": "title-iron-man-sharp-v5-3",
+        "family": "title-iron-man-sharp-v5-3",
+        "text": "Robert Downey Jr got paid to wear this costume, which is the crucial difference in your arrangement."
+      },
+      {
+        "id": "title-iron-man-sharp-v5-4",
+        "family": "title-iron-man-sharp-v5-4",
+        "text": "Stark Industries has opened a division specializing in things that cannot withstand a dashboard in August."
+      },
+      {
+        "id": "title-iron-man-sharp-v5-5",
+        "family": "title-iron-man-sharp-v5-5",
+        "text": "The armor is ready for its greatest threat yet, a convention center with no air conditioning."
+      }
+    ],
+    "deadpool": [
+      {
+        "id": "title-deadpool-sharp-v5-1",
+        "family": "title-deadpool-sharp-v5-1",
+        "text": "Deadpool breaks the fourth wall, while your printer specializes in billing for all four."
+      },
+      {
+        "id": "title-deadpool-sharp-v5-2",
+        "family": "title-deadpool-sharp-v5-2",
+        "text": "Ryan Reynolds could market this as a subscription and somehow convince people it was their idea."
+      },
+      {
+        "id": "title-deadpool-sharp-v5-3",
+        "family": "title-deadpool-sharp-v5-3",
+        "text": "The mercenary with a mouth has been reduced to a figurine that cannot critique your spending."
+      },
+      {
+        "id": "title-deadpool-sharp-v5-4",
+        "family": "title-deadpool-sharp-v5-4",
+        "text": "The suit has survived Marvel's continuity department, but the printer is still charging for every layer."
+      },
+      {
+        "id": "title-deadpool-sharp-v5-5",
+        "family": "title-deadpool-sharp-v5-5",
+        "text": "Even Deadpool would request a stunt double for the removal of tree supports."
+      }
+    ],
+    "spiderman": [
+      {
+        "id": "title-spiderman-sharp-v5-1",
+        "family": "title-spiderman-sharp-v5-1",
+        "text": "Peter Parker had financial problems before someone introduced him to multicolor printing."
+      },
+      {
+        "id": "title-spiderman-sharp-v5-2",
+        "family": "title-spiderman-sharp-v5-2",
+        "text": "The web slinger has met his match in the form of a particularly enthusiastic purge line."
+      },
+      {
+        "id": "title-spiderman-sharp-v5-3",
+        "family": "title-spiderman-sharp-v5-3",
+        "text": "Spider-Man gained extraordinary powers from a bite; yours gained a decorative base and an invoice."
+      },
+      {
+        "id": "title-spiderman-sharp-v5-4",
+        "family": "title-spiderman-sharp-v5-4",
+        "text": "The superhero can scale buildings but apparently cannot climb out of the slicer preview."
+      },
+      {
+        "id": "title-spiderman-sharp-v5-5",
+        "family": "title-spiderman-sharp-v5-5",
+        "text": "New York has enough problems without a miniature landlord charging Spider-Man for shelf space."
+      }
+    ],
+    "thor": [
+      {
+        "id": "title-thor-sharp-v5-1",
+        "family": "title-thor-sharp-v5-1",
+        "text": "Mjolnir can only be lifted by the worthy; this one can be lifted by a toddler."
+      },
+      {
+        "id": "title-thor-sharp-v5-2",
+        "family": "title-thor-sharp-v5-2",
+        "text": "The god of thunder has been reduced to a decoration with an electricity bill."
+      },
+      {
+        "id": "title-thor-sharp-v5-3",
+        "family": "title-thor-sharp-v5-3",
+        "text": "Chris Hemsworth needed a personal trainer; the hammer needed an extremely supportive slicer."
+      },
+      {
+        "id": "title-thor-sharp-v5-4",
+        "family": "title-thor-sharp-v5-4",
+        "text": "Asgard's treasury has issued a warning about unauthorized procurement of rainbow filament."
+      },
+      {
+        "id": "title-thor-sharp-v5-5",
+        "family": "title-thor-sharp-v5-5",
+        "text": "A divine weapon whose chief supernatural ability is avoiding the recycling bin."
+      }
+    ],
+    "hulk": [
+      {
+        "id": "title-hulk-sharp-v5-1",
+        "family": "title-hulk-sharp-v5-1",
+        "text": "Bruce Banner turns green when angry, which is significantly cheaper than a filament change."
+      },
+      {
+        "id": "title-hulk-sharp-v5-2",
+        "family": "title-hulk-sharp-v5-2",
+        "text": "The Hulk can smash buildings; your version should avoid the top rack of the dishwasher."
+      },
+      {
+        "id": "title-hulk-sharp-v5-3",
+        "family": "title-hulk-sharp-v5-3",
+        "text": "Marvel's strongest hero has been assigned to a shelf with very strict weight restrictions."
+      },
+      {
+        "id": "title-hulk-sharp-v5-4",
+        "family": "title-hulk-sharp-v5-4",
+        "text": "The radiation experiment was cheaper than the quantity of green plastic in this room."
+      },
+      {
+        "id": "title-hulk-sharp-v5-5",
+        "family": "title-hulk-sharp-v5-5",
+        "text": "Even the Hulk would struggle to lift the accumulated receipts from this hobby."
+      }
+    ],
+    "thanos": [
+      {
+        "id": "title-thanos-sharp-v5-1",
+        "family": "title-thanos-sharp-v5-1",
+        "text": "Thanos eliminated half the universe and your printer eliminated half the storage space."
+      },
+      {
+        "id": "title-thanos-sharp-v5-2",
+        "family": "title-thanos-sharp-v5-2",
+        "text": "The Infinity Gauntlet has six stones, which explains why a four color printer hates the job."
+      },
+      {
+        "id": "title-thanos-sharp-v5-3",
+        "family": "title-thanos-sharp-v5-3",
+        "text": "The snap was efficient; your printer has scheduled eight hours to achieve a similar degree of waste."
+      },
+      {
+        "id": "title-thanos-sharp-v5-4",
+        "family": "title-thanos-sharp-v5-4",
+        "text": "A supervillain whose plan had better resource allocation than your purge settings."
+      },
+      {
+        "id": "title-thanos-sharp-v5-5",
+        "family": "title-thanos-sharp-v5-5",
+        "text": "The universe survived Thanos and the shelving unit is now facing a much smaller but persistent threat."
+      }
+    ],
+    "gandalf": [
+      {
+        "id": "title-gandalf-sharp-v5-1",
+        "family": "title-gandalf-sharp-v5-1",
+        "text": "Gandalf spent centuries studying magic and your printer spent an afternoon figuring out a hat."
+      },
+      {
+        "id": "title-gandalf-sharp-v5-2",
+        "family": "title-gandalf-sharp-v5-2",
+        "text": "Middle Earth has been saved, leaving its wizard free to supervise calibration."
+      },
+      {
+        "id": "title-gandalf-sharp-v5-3",
+        "family": "title-gandalf-sharp-v5-3",
+        "text": "The wizard's staff was forged through ancient magic and yours came with a downloadable license."
+      },
+      {
+        "id": "title-gandalf-sharp-v5-4",
+        "family": "title-gandalf-sharp-v5-4",
+        "text": "The fellowship walked to Mordor with fewer supply purchases than this project required."
+      },
+      {
+        "id": "title-gandalf-sharp-v5-5",
+        "family": "title-gandalf-sharp-v5-5",
+        "text": "Even Gandalf would insist the receipts remain on the other side of the bridge."
+      }
+    ],
+    "hobbit": [
+      {
+        "id": "title-hobbit-sharp-v5-1",
+        "family": "title-hobbit-sharp-v5-1",
+        "text": "Bilbo went there and back again before your support material finished cooling."
+      },
+      {
+        "id": "title-hobbit-sharp-v5-2",
+        "family": "title-hobbit-sharp-v5-2",
+        "text": "The Shire's entire housing market has been reproduced on a build plate with no planning approval."
+      },
+      {
+        "id": "title-hobbit-sharp-v5-3",
+        "family": "title-hobbit-sharp-v5-3",
+        "text": "Hobbits famously enjoy second breakfast; your printer has already eaten its second spool."
+      },
+      {
+        "id": "title-hobbit-sharp-v5-4",
+        "family": "title-hobbit-sharp-v5-4",
+        "text": "A miniature resident of Middle Earth who now occupies a disproportionate amount of terrestrial shelf space."
+      },
+      {
+        "id": "title-hobbit-sharp-v5-5",
+        "family": "title-hobbit-sharp-v5-5",
+        "text": "The one thing this adventure lacks is a convincing reason to leave the workshop."
+      }
+    ],
+    "harry potter": [
+      {
+        "id": "title-harry-potter-sharp-v5-1",
+        "family": "title-harry-potter-sharp-v5-1",
+        "text": "Hogwarts has discovered the one magical skill nobody teaches: making this hobby financially sustainable."
+      },
+      {
+        "id": "title-harry-potter-sharp-v5-2",
+        "family": "title-harry-potter-sharp-v5-2",
+        "text": "Harry escaped the cupboard under the stairs and your models have moved straight into it."
+      },
+      {
+        "id": "title-harry-potter-sharp-v5-3",
+        "family": "title-harry-potter-sharp-v5-3",
+        "text": "The sorting hat would assign your printer to the house of excessive discretionary expenditure."
+      },
+      {
+        "id": "title-harry-potter-sharp-v5-4",
+        "family": "title-harry-potter-sharp-v5-4",
+        "text": "Voldemort divided his soul into objects and your printer has adopted the same storage strategy."
+      },
+      {
+        "id": "title-harry-potter-sharp-v5-5",
+        "family": "title-harry-potter-sharp-v5-5",
+        "text": "The wizarding world has owls for delivery, while your filament orders require a dedicated logistics network."
+      }
+    ],
+    "sorting hat": [
+      {
+        "id": "title-sorting-hat-sharp-v5-1",
+        "family": "title-sorting-hat-sharp-v5-1",
+        "text": "The hat has assigned you to the house that spends the most on accessories."
+      },
+      {
+        "id": "title-sorting-hat-sharp-v5-2",
+        "family": "title-sorting-hat-sharp-v5-2",
+        "text": "Hogwarts would have saved considerable money by using a spreadsheet instead of this admissions system."
+      },
+      {
+        "id": "title-sorting-hat-sharp-v5-3",
+        "family": "title-sorting-hat-sharp-v5-3",
+        "text": "A hat with the authority to decide your future but no ability to explain its production cost."
+      },
+      {
+        "id": "title-sorting-hat-sharp-v5-4",
+        "family": "title-sorting-hat-sharp-v5-4",
+        "text": "The sorting ceremony has been delayed while the brim cools down."
+      },
+      {
+        "id": "title-sorting-hat-sharp-v5-5",
+        "family": "title-sorting-hat-sharp-v5-5",
+        "text": "The hat can read minds, which is why it refuses to look at your shopping history."
+      }
+    ],
+    "sauron": [
+      {
+        "id": "title-sauron-sharp-v5-1",
+        "family": "title-sauron-sharp-v5-1",
+        "text": "The eye of Sauron sees everything except the financial justification for buying another spool."
+      },
+      {
+        "id": "title-sauron-sharp-v5-2",
+        "family": "title-sauron-sharp-v5-2",
+        "text": "Mordor had one ring to manage and your filament rack has already exceeded that capacity."
+      },
+      {
+        "id": "title-sauron-sharp-v5-3",
+        "family": "title-sauron-sharp-v5-3",
+        "text": "A dark lord whose surveillance infrastructure is now being supported by a consumer grade camera mount."
+      },
+      {
+        "id": "title-sauron-sharp-v5-4",
+        "family": "title-sauron-sharp-v5-4",
+        "text": "The ring has been returned to Mount Doom because the printer's heated bed lacks the necessary authority."
+      },
+      {
+        "id": "title-sauron-sharp-v5-5",
+        "family": "title-sauron-sharp-v5-5",
+        "text": "Middle Earth's most terrifying villain has been demoted to a desk decoration."
+      }
+    ],
+    "mount doom": [
+      {
+        "id": "title-mount-doom-sharp-v5-1",
+        "family": "title-mount-doom-sharp-v5-1",
+        "text": "The volcano could destroy the ring without having to preheat for ten minutes."
+      },
+      {
+        "id": "title-mount-doom-sharp-v5-2",
+        "family": "title-mount-doom-sharp-v5-2",
+        "text": "Mordor has outsourced its geological activity to a heated bed."
+      },
+      {
+        "id": "title-mount-doom-sharp-v5-3",
+        "family": "title-mount-doom-sharp-v5-3",
+        "text": "A mountain whose main eruption was a suspiciously large credit card notification."
+      },
+      {
+        "id": "title-mount-doom-sharp-v5-4",
+        "family": "title-mount-doom-sharp-v5-4",
+        "text": "Frodo climbed the original without needing to change the nozzle halfway through."
+      },
+      {
+        "id": "title-mount-doom-sharp-v5-5",
+        "family": "title-mount-doom-sharp-v5-5",
+        "text": "The volcano's environmental impact has been recalculated to include your supporting structures."
+      }
+    ],
+    "flux capacitor": [
+      {
+        "id": "title-flux-capacitor-sharp-v5-1",
+        "family": "title-flux-capacitor-sharp-v5-1",
+        "text": "A device for reversing time that has consumed a rather impressive amount of it."
+      },
+      {
+        "id": "title-flux-capacitor-sharp-v5-2",
+        "family": "title-flux-capacitor-sharp-v5-2",
+        "text": "Doc Brown invented a way to visit the past; you invented a way to lose the present."
+      },
+      {
+        "id": "title-flux-capacitor-sharp-v5-3",
+        "family": "title-flux-capacitor-sharp-v5-3",
+        "text": "The time machine has been grounded pending an investigation into the material cost."
+      },
+      {
+        "id": "title-flux-capacitor-sharp-v5-4",
+        "family": "title-flux-capacitor-sharp-v5-4",
+        "text": "The capacitor can theoretically undo this purchase, which explains why it is such a popular model."
+      },
+      {
+        "id": "title-flux-capacitor-sharp-v5-5",
+        "family": "title-flux-capacitor-sharp-v5-5",
+        "text": "The most important date on this time machine is the return deadline for the printer."
+      }
+    ],
+    "wall e": [
+      {
+        "id": "title-wall-e-sharp-v5-1",
+        "family": "title-wall-e-sharp-v5-1",
+        "text": "WALL-E spent centuries compacting trash and your printer is generously ensuring his continued employment."
+      },
+      {
+        "id": "title-wall-e-sharp-v5-2",
+        "family": "title-wall-e-sharp-v5-2",
+        "text": "Pixar made an environmental warning and you responded with another plastic robot."
+      },
+      {
+        "id": "title-wall-e-sharp-v5-3",
+        "family": "title-wall-e-sharp-v5-3",
+        "text": "The trash collecting robot would like to know why the garbage now requires decorative accessories."
+      },
+      {
+        "id": "title-wall-e-sharp-v5-4",
+        "family": "title-wall-e-sharp-v5-4",
+        "text": "WALL-E has assessed your workshop and calculated that his assignment will last considerably longer than expected."
+      },
+      {
+        "id": "title-wall-e-sharp-v5-5",
+        "family": "title-wall-e-sharp-v5-5",
+        "text": "The robot's job is cleaning Earth, so naturally you made him out of more plastic."
+      }
+    ],
+    "minion": [
+      {
+        "id": "title-minion-sharp-v5-1",
+        "family": "title-minion-sharp-v5-1",
+        "text": "The minion has reported for duty in the household's least profitable business."
+      },
+      {
+        "id": "title-minion-sharp-v5-2",
+        "family": "title-minion-sharp-v5-2",
+        "text": "Gru recruited an army of yellow employees and you hired a machine to manufacture the payroll."
+      },
+      {
+        "id": "title-minion-sharp-v5-3",
+        "family": "title-minion-sharp-v5-3",
+        "text": "The minion speaks nonsense, which makes it perfectly qualified to explain the cost of this project."
+      },
+      {
+        "id": "title-minion-sharp-v5-4",
+        "family": "title-minion-sharp-v5-4",
+        "text": "Universal Studios managed to sell these without asking anyone to level a bed."
+      },
+      {
+        "id": "title-minion-sharp-v5-5",
+        "family": "title-minion-sharp-v5-5",
+        "text": "The world's most loyal employee has been assigned to dust collection."
+      }
+    ],
+    "barbie": [
+      {
+        "id": "title-barbie-sharp-v5-1",
+        "family": "title-barbie-sharp-v5-1",
+        "text": "Barbie has had hundreds of careers and your version is pursuing full time shelf occupancy."
+      },
+      {
+        "id": "title-barbie-sharp-v5-2",
+        "family": "title-barbie-sharp-v5-2",
+        "text": "The Dreamhouse has a better housing market than the town containing the printer."
+      },
+      {
+        "id": "title-barbie-sharp-v5-3",
+        "family": "title-barbie-sharp-v5-3",
+        "text": "Mattel made a fortune selling plastic and you have chosen to approach the business from the other direction."
+      },
+      {
+        "id": "title-barbie-sharp-v5-4",
+        "family": "title-barbie-sharp-v5-4",
+        "text": "Margot Robbie got a movie deal; this version gets a layer height specification."
+      },
+      {
+        "id": "title-barbie-sharp-v5-5",
+        "family": "title-barbie-sharp-v5-5",
+        "text": "Barbie can be anything except a reasonable explanation for the latest filament order."
+      }
+    ],
+    "shrek": [
+      {
+        "id": "title-shrek-sharp-v5-1",
+        "family": "title-shrek-sharp-v5-1",
+        "text": "The swamp has been rezoned for the storage of objects nobody can throw away."
+      },
+      {
+        "id": "title-shrek-sharp-v5-2",
+        "family": "title-shrek-sharp-v5-2",
+        "text": "Shrek spent an entire movie trying to get people off his property and you keep adding residents."
+      },
+      {
+        "id": "title-shrek-sharp-v5-3",
+        "family": "title-shrek-sharp-v5-3",
+        "text": "Donkey has declined a partnership with this particular manufacturing operation."
+      },
+      {
+        "id": "title-shrek-sharp-v5-4",
+        "family": "title-shrek-sharp-v5-4",
+        "text": "The ogre has layers, which is apparently enough to justify a whole production run."
+      },
+      {
+        "id": "title-shrek-sharp-v5-5",
+        "family": "title-shrek-sharp-v5-5",
+        "text": "DreamWorks gave the character a story arc; your printer gave him an infill pattern."
+      }
+    ],
+    "monopoly": [
+      {
+        "id": "title-monopoly-sharp-v5-1",
+        "family": "title-monopoly-sharp-v5-1",
+        "text": "The Monopoly board is a game about real estate and the print's most valuable property is empty shelf space."
+      },
+      {
+        "id": "title-monopoly-sharp-v5-2",
+        "family": "title-monopoly-sharp-v5-2",
+        "text": "You have manufactured a simulation of bankruptcy using the actual funds required to avoid it."
+      },
+      {
+        "id": "title-monopoly-sharp-v5-3",
+        "family": "title-monopoly-sharp-v5-3",
+        "text": "The banker in Monopoly has declined to accept filament as collateral."
+      },
+      {
+        "id": "title-monopoly-sharp-v5-4",
+        "family": "title-monopoly-sharp-v5-4",
+        "text": "The houses are miniature because this is the only housing market your remaining budget can enter."
+      },
+      {
+        "id": "title-monopoly-sharp-v5-5",
+        "family": "title-monopoly-sharp-v5-5",
+        "text": "The game teaches children about money, while the printer teaches adults how to unlearn it."
+      }
     ]
   }
 }
